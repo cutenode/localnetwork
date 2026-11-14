@@ -78,12 +78,14 @@ What each sign-in asks of the account's server. Each is asked for the first time
 flowchart TD
     plain["account login<br/>atproto: know who you are"] --> publish["Publishing, or login --publish<br/>include:computer.localnetwork.locallibraryPublishing,<br/>blob:audio/*"]
     plain --> report["bug, the first time<br/>repo:app.userinput.discussion?action=create"]
+    plain --> plugin["A plugin's record write, the first time,<br/>or login --scope: repo:NSID"]
     publish --> records["Create and replace settings, profile, set, recording.<br/>Delete set, recording.<br/>A token for directory.requestIndex"]
     publish --> upload["Upload audio files"]
     report --> discussion["Create bug reports"]
+    plugin --> written["Create and replace NSID records"]
 ```
 
-Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`lexicons/computer/localnetwork/locallibraryPublishing.json`](../../../../lexicons/computer/localnetwork/locallibraryPublishing.json)
+Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`src/account_cmd/atmosphere.rs`](../../src/account_cmd/atmosphere.rs), [`lexicons/computer/localnetwork/locallibraryPublishing.json`](../../../../lexicons/computer/localnetwork/locallibraryPublishing.json)
 
 ## The DJ account's life
 
@@ -115,7 +117,7 @@ Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/localli
 
 ## Signing in through the token exchange
 
-An account type whose service wants a client secret goes through `localnetwork.computer/api/token-exchange/SERVICE`, which adds it and keeps no tokens.
+An account type whose service wants a client secret goes through `localnetwork.computer/api/token-exchange/SERVICE`, which adds it and keeps no tokens. Local Network can pause one service's exchange with a flag, say when a secret leaks; it then answers 503 before asking the service, and the sign-in fails.
 
 ```mermaid
 sequenceDiagram
@@ -136,7 +138,7 @@ sequenceDiagram
     H->>H: The rest in<br/>accounts.json
 ```
 
-Source: [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`crates/locallibrary/src/plugin/accounts/shared.rs`](../../../../crates/locallibrary/src/plugin/accounts/shared.rs), [`crates/locallibrary/src/plugin/accounts/whoami.rs`](../../../../crates/locallibrary/src/plugin/accounts/whoami.rs), [`plugins/accounts/google-account/locallibrary-plugin.toml`](../../../../plugins/accounts/google-account/locallibrary-plugin.toml), [`apps/web/src/lib/server/token-exchange/services.ts`](../../../../apps/web/src/lib/server/token-exchange/services.ts)
+Source: [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`crates/locallibrary/src/plugin/accounts/shared.rs`](../../../../crates/locallibrary/src/plugin/accounts/shared.rs), [`crates/locallibrary/src/plugin/accounts/whoami.rs`](../../../../crates/locallibrary/src/plugin/accounts/whoami.rs), [`plugins/accounts/google-account/locallibrary-plugin.toml`](../../../../plugins/accounts/google-account/locallibrary-plugin.toml), [`apps/web/src/lib/server/token-exchange/services.ts`](../../../../apps/web/src/lib/server/token-exchange/services.ts), [`apps/web/src/lib/server/token-exchange/exchange.ts`](../../../../apps/web/src/lib/server/token-exchange/exchange.ts)
 
 ## Signing in with keys
 

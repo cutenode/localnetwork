@@ -354,7 +354,7 @@ impl App {
         let undo_key = if self.undo_drive().as_ref() == Some(&root) { "u" } else { "" };
         let item = |act: Act, why: &Option<String>| {
             let key = keymap::key_in(Scope::Drives, act).map_or(String::new(), key_name);
-            (act, Item { label: keymap::name(act).into(), detail: key, unavailable: why.clone() })
+            (act, Item { unavailable: why.clone(), ..Item::new(keymap::name(act), key) })
         };
         let items = vec![
             item(Act::Pull, &no_export),

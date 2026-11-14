@@ -34,8 +34,8 @@ const publishedDigest = ({ value }: StoredRecord) => {
 
 /**
  * Writes each listed act's, party's or venue's public listing to the root's repo, from its space, so HappyView can
- * index what spaces keep from it. A listing holds only what the public page shows and the people in a listed role who
- * haven't hidden; it never holds capabilities, how anyone came in, invites or requests. It's rewritten only when it
+ * index what spaces keep from it. A listing holds only what the public page shows, the people in a listed role who
+ * haven't hidden, and a performer's managers who haven't; it never holds capabilities, how anyone came in, invites or requests. It's rewritten only when it
  * would change, and deleted when the space isn't listed or its kind has nothing to list.
  */
 export class ListingWriter {
@@ -175,13 +175,23 @@ export class ListingWriter {
 			.orderBy('did')
 			.execute();
 
-		const people = rows
-			.filter((row) => row.hidden === 0 && isListedRole(kind, row.role))
+		const shown = rows.filter((row) => row.hidden === 0);
+
+		const people = shown
+			.filter((row) => isListedRole(kind, row.role))
 			.slice(0, MAX_PEOPLE)
 			.map(({ did, role }) => ({ did, role }));
 
+		// A performer's managers, who work for it without the credit, so the directory can tell who to ask.
+		const managers = shown
+			.flatMap((row) => (kind === 'performer' && row.role === 'manager' ? [row.did] : []))
+			.slice(0, MAX_PEOPLE);
+
 		// Round-tripped, so a field left undefined is gone before the digest and the safety check read it.
-		const record: JsonObject = JSON.parse(JSON.stringify({ kind: LISTING_KIND[kind], ...fields, people }));
+		const record: JsonObject = JSON.parse(
+			JSON.stringify({ kind: LISTING_KIND[kind], ...fields, people, ...(managers.length > 0 && { managers }) })
+		);
+
 		const json = JSON.stringify(record);
 		const leaked = rows.filter((row) => row.hidden === 1 && json.includes(row.did));
 

@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use locallibrary::query::SortField;
-use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::browse::{self};
@@ -47,6 +47,10 @@ pub struct Areas {
     pub prepare: Rect,
     /// The empty state's next steps.
     pub steps: Rect,
+    /// The footer's hints, each the key it stands for: a click on one is that key.
+    pub hints: Vec<(Rect, KeyEvent)>,
+    /// The loop chip under player mode's waveforms: a click ends the loop.
+    pub loop_chip: Rect,
 }
 
 /// A row clicked: its view, its pane (none for the full-screen player's matches) and its index.
@@ -86,6 +90,16 @@ impl App {
         if self.modal.is_some() {
             self.on_modal_mouse(m);
             return;
+        }
+        // The footer's hints and the loop chip are buttons: a click is their key.
+        if m.kind == MouseEventKind::Down(MouseButton::Left) {
+            if let Some(&(_, key)) = self.areas.hints.iter().find(|(r, _)| r.contains(p)) {
+                self.last_click = None;
+                return self.on_key(key);
+            }
+            if self.areas.loop_chip.contains(p) {
+                return crate::tui::deck::toggle_loop(self);
+            }
         }
         // The tabs and the deck are the same everywhere, and with only the deck, the panes aren't
         // there to click.

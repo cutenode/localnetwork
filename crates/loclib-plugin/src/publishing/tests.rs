@@ -4,7 +4,12 @@ use hegel::generators as gs;
 use super::*;
 
 fn entry(artist: Option<&str>, title: Option<&str>, start_seconds: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(String::from), title: title.map(String::from), start_seconds }
+    TracklistEntry {
+        artist: artist.map(String::from),
+        title: title.map(String::from),
+        start_seconds,
+        ..Default::default()
+    }
 }
 
 fn set(title: Option<&str>, venue: Option<&str>, city: Option<&str>) -> PublishedSet {
@@ -59,7 +64,12 @@ fn prop_a_line_is_its_time_and_names(tc: TestCase) {
     };
     let at = tc.draw(gs::optional(gs::just(secs)));
     let (artist, title) = (name(&tc), name(&tc));
-    let e = TracklistEntry { artist: artist.map(String::from), title: title.map(String::from), start_seconds: at };
+    let e = TracklistEntry {
+        artist: artist.map(String::from),
+        title: title.map(String::from),
+        start_seconds: at,
+        ..Default::default()
+    };
     let line = e.line();
     assert_eq!(line, e.line_at(at));
     assert!(!line.contains(char::is_control), "{line:?}");

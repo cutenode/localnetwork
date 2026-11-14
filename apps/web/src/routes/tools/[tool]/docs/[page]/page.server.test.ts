@@ -26,4 +26,12 @@ describe('a guide', () => {
 	it("is a 404 when there's no such guide", () => {
 		expect(() => guide('localtoolbox', 'readme')).toThrow(expect.objectContaining({ status: 404 }));
 	});
+
+	it("renders a tool's changelog from its CHANGELOG.md, without the notes for maintainers", () => {
+		const { doc } = guide('locallibrary', 'changelog');
+
+		expect(doc).toMatchObject({ title: 'Changelog', path: 'apps/locallibrary/CHANGELOG.md' });
+		expect(doc.html).toMatch(/^<h2 id="unreleased">/);
+		expect(doc.html).not.toContain('Keep a Changelog');
+	});
 });

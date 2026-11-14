@@ -681,13 +681,17 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let rows = keymap::help_rows(app, &app.help_query);
     app.help_row = app.help_row.min(rows.len().saturating_sub(1));
     let narrowed = !app.help_query.is_empty();
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    // The keys are here; everything else is in the palette, by name.
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(vec![Span::styled(":", theme::key()), Span::styled(" searches everything", dim())]),
+        Line::raw(""),
+    ];
     let mut section = "";
     let mut selected = 0..0;
     for (i, row) in rows.iter().enumerate() {
         if !narrowed && row.title != section {
             section = row.title;
-            if !lines.is_empty() {
+            if lines.len() > 2 {
                 lines.push(Line::raw(""));
             }
             lines.push(Line::styled(section.to_uppercase(), bold(theme::current().info)));
@@ -700,7 +704,7 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
     if rows.is_empty() {
-        lines.push(Line::styled("no key has those words", dim()));
+        lines.push(Line::styled("no key has those words: enter searches the commands (:) for them", dim()));
     }
     if !narrowed {
         lines.push(Line::raw(""));

@@ -30,7 +30,7 @@ export const localtoolbox: Tool = {
 		},
 		{
 			name: 'Downloads',
-			line: 'Shows where each track can be downloaded, and works through gates like Hypeddit, ToneDen and Droploud',
+			line: 'Shows where each track can be downloaded, and works through gates like Hypeddit and Droploud',
 			capture: {
 				picture: manager,
 				phone: managerPhone,

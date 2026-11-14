@@ -468,15 +468,15 @@ impl From<loclib_progress::Cancelled> for Error {
     }
 }
 
-impl From<loclib_mixid::Error> for Error {
-    fn from(e: loclib_mixid::Error) -> Self {
-        use loclib_mixid::Error as E;
+impl From<loclib_audio::Error> for Error {
+    fn from(e: loclib_audio::Error) -> Self {
+        use loclib_audio::Error as E;
         match e {
             E::Io { path, source } => Error::Io { path, source },
             E::Parse { path, message } => Error::Parse { path, message },
             E::Invalid(message) => Error::Invalid(message),
             E::Cancelled(_) => Error::Cancelled,
-            // A variant a newer loclib-mixid adds keeps its message.
+            // A variant a newer loclib-audio adds keeps its message. loclib-mixid's errors are this type too.
             other => Error::Invalid(other.to_string()),
         }
     }

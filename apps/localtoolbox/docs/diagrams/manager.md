@@ -138,11 +138,12 @@ Source: [`src/lib/list-filter.svelte.ts`](../../src/lib/list-filter.svelte.ts), 
 
 ## Search badges
 
-Sites are data, and adding one to the JSON file adds its badge and its switch.
+Sites are data, and adding one to the JSON file, or in settings, adds its badge and its switch.
 
 ```mermaid
 flowchart TD
   Json["src/lib/search-sites.json"]
+  Own["added in settings<br/>pref:search-sites"]
   Read["readSites<br/>drops entries it can't use, and repeats"]
   Switch["one switch per site<br/>pref:search:id, set in settings"]
   Manager["Manager row with no links,<br/>unless a lookup covers it"]
@@ -151,6 +152,7 @@ flowchart TD
   Tab["opens a tab, never a fetch"]
 
   Json --> Read
+  Own --> Read
   Read --> Switch
   Switch --> Manager
   Switch --> Artists
@@ -159,4 +161,4 @@ flowchart TD
   Url --> Tab
 ```
 
-Source: [`src/lib/search-sites.json`](../../src/lib/search-sites.json), [`src/lib/search-sites.ts`](../../src/lib/search-sites.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/tools/manager/Panel.svelte`](../../src/tools/manager/Panel.svelte)
+Source: [`src/lib/search-sites.json`](../../src/lib/search-sites.json), [`src/lib/search-sites.ts`](../../src/lib/search-sites.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/lib/components/SearchSiteForm.svelte`](../../src/lib/components/SearchSiteForm.svelte), [`src/tools/manager/Panel.svelte`](../../src/tools/manager/Panel.svelte)

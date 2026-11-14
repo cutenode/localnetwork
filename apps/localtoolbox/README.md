@@ -22,14 +22,14 @@ whether your own Likes page is opened as a list rather than a grid of badges
 (see [Opening your likes as a list](#opening-your-likes-as-a-list)),
 what the third-party downloader hands a gate that asks for it — the email
 address, the name beside it, and whether saving a file marks its track —
-which shops the Manager's search badges point at (see
+which shops the Manager's search badges point at, including ones you add (see
 [Artist searches](#artist-searches); the [artists](#artists) tool's opened
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
 options; a failed row that wants one opens this sheet. One section is not a setting at all: most of what the
 extension has saved (the marks, the looked-up details, the Manager's list,
-the artists list, the session queue and three panel options) goes out to one JSON file there and
+the artists list, the session queue, the search sites you added and three panel options) goes out to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
 it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
 **about**, says which version this is (and the commit it was built from), and
@@ -63,16 +63,17 @@ Current tools:
   Settings. Clicking a row's cover art copies that track's artwork at full
   size; ⌘-clicking opens it in a tab. The list can be searched, and the
   downloaded tracks hidden, to see what is still to get.
-- **third-party downloader** — walks the download links behind a page and saves
-  what comes back: Hypeddit, ToneDen, Droploud, Pump Your Sound, Laylo,
-  Feature.fm and FanLink. Takes its links from the SoundCloud page in the
-  active tab (the same ones the Manager tool groups by site), from the session
-  queue, from a tab on one of those sites, or from pasted text, and works
-  through them one after another. Not every site ends in a file, and it says
-  which: a link that resolves to somewhere to go rather than something to save
-  says so and offers to open it. A Hypeddit, Droploud or Pump Your Sound link
-  is also walked and saved straight from the SoundCloud page, when its
-  Download button there is pressed.
+- **third-party downloader**: gets the downloads behind a page's links, on
+  Hypeddit, Droploud, Pump Your Sound and Laylo, and opens ToneDen, FanLink
+  and Feature.fm links. Takes its links from the SoundCloud page in the active
+  tab (the same ones the Manager tool groups by site), from the session queue,
+  from a tab on one of those sites, or from pasted text, and works through them
+  one after another. A Hypeddit gate is walked here and its file saved. A
+  Droploud, Pump Your Sound or Laylo gate opens in a tab, where the extension
+  outlines what to press, fills in your email, and saves the file once the page
+  hands it over; you do the steps. A Hypeddit, Droploud, Pump Your Sound or
+  Laylo link on a SoundCloud page goes the same way when its Download button
+  there is pressed.
 - **artists** — keeps a **list of artists**: the uploaders behind the tracks
   you add, from the page in front, from the Manager's list or from the session
   queue, and asks SoundCloud about each one for their public profile and their
@@ -83,6 +84,33 @@ Current tools:
   bio, the place, the follower count, the tracks that brought the artist in,
   and the same search badges the Manager offers. The list is searchable,
   sortable, kept for good, and copied out as text in one press.
+
+## Privacy
+
+localtoolbox has no server, and nothing it does reaches one of Local Network's.
+Everything it keeps stays in the browser: the marks, the Manager's list, the
+artists list, the session queue and the settings, in the extension's own
+storage, and the email address and name in the popup's.
+
+What leaves the browser, and where to:
+
+- **The email address and name in Settings go to Hypeddit**, and only to a gate
+  that asks for an address. Hypeddit's privacy policy says it shares that
+  address with the artist, with the service it checks addresses with, and with
+  its marketing providers. The address is also typed into the email field of a
+  Droploud or Laylo page you open from the Downloader; it goes to them only if
+  you send that form.
+- **A Hypeddit gate with a Spotify step follows the artist and saves the track
+  on your own Spotify account**, through Hypeddit's Spotify app, once you have
+  said yes to that app. The row names the artist.
+- **SoundCloud** is asked, with its own web app's public lookups, about the
+  tracks and artists on the page you are on.
+- **Hypeddit gate pages** are fetched and posted back to when you press
+  **Get** on one. Every other site gets nothing from the extension but the
+  pages you open.
+
+The popup says the first two in a short notice the first time it opens, with
+one button to carry on.
 
 ## Install
 
@@ -113,7 +141,7 @@ still a plain classic script — a content script has no imports, and the marks
 have to be written by the same code on both sides — so it is not bundled at
 all. The build only blanks its types out (ts-blank-space puts spaces where the
 annotations were) and ships each file under a `.js` name, `content.ts` as
-`content.js` and the two shared ones likewise, with every line and column
+`content.js` and the others likewise, with every line and column
 where it was: an error on soundcloud.com points at the same place in the
 source, and there is no sourcemap to carry. The manifest names the `.js`
 files, which exist only in `dist/`.
@@ -128,6 +156,8 @@ state-transfer.ts      import/export of the whole saved state as JSON — the
                        marks, the lookups, the list, the queue and the panel
                        options (the TbxState global). Adds by default;
                        replacing is an opt-in the settings sheet asks for
+theme-prepaint.ts      puts the saved theme on the popup's <html> before it
+                       first paints
 src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
@@ -153,9 +183,12 @@ src/
                        track — set in the settings sheet and read by the panel
     search-sites.json  the sites a link-less track offers a search on: a list of
                        plain objects, which is all adding one takes
+    search-sites.schema.json  the JSON Schema that file names in `$schema`
     search-sites.ts    reads that file and fills a search URL's {variables} in
-    search-sites.svelte.ts  which of those badges are switched on, set in the
-                       settings sheet and read by the Manager panel
+    search-sites.svelte.ts  which of those badges are switched on, and the sites
+                       added in settings, read by the Manager panel
+    components/SearchSiteForm.svelte  the settings sheet's form for adding or
+                       editing a search site
     settings-sheet.ts  fetches the settings sheet's chunk
     bug-report.ts      the settings sheet's report a bug link: GitHub's bug
                        form, with the version, browser and open tool filled in
@@ -285,12 +318,13 @@ different lengths of time.
 **Options** are settings, and are kept for good in the popup page's own
 `localStorage` (`$lib/prefs.svelte.ts`): the output format, the sort order,
 the background-tabs switch, the two Hide toggles, the email and name some gates and drops ask for,
-which search badges are switched on, and whether an opened row's words are
-title-cased.
+which search badges are switched on, the search sites you added, and whether
+an opened row's words are title-cased.
 No storage permission is asked for on the user's behalf to hold them. Three of
 them, the background-tabs switch, the sort order and **Hide downloaded**, are
 in the exported state file, so they travel to another install with the marks
-(see "Saving and restoring it all"); the rest stay on this install. An
+(see "Saving and restoring it all"), and so do the search sites you added; the
+rest stay on this install. An
 import sets one of the three only where nothing is set already, so a file carries an option
 to an install that has never been asked rather than overruling a choice made
 here; asking the import to replace is what overrules them, and then it puts
@@ -389,12 +423,14 @@ page than the one it was left on.
    manifest gives it, and ships with its types blanked out and nothing else.
 
 To add a **site** to the third-party downloader: write
-`src/tools/third-party-downloads/sites/<id>.ts` exporting the shape the other
-six do (see `sites/index.ts` for the contract, including what a thrown error
-offers the person next), add it to `SITES` there, and add its hostnames
-to `host_permissions` in `src/manifest.json` — without which every fetch it
-makes is blocked. A test in `test/consistency.test.ts` checks those three
-agree.
+`src/tools/third-party-downloads/sites/<id>.ts` exporting the shape the others
+do (see `sites/index.ts` for the contract: `how` says whether the panel walks
+it, the person does it on its own page, or it is only opened), and add it to
+`SITES` there. A walked site also needs its walk in `walks/` and its id in
+`WalkedId`. A walked site's hostnames go in `host_permissions` in
+`src/manifest.json`, without which every fetch it makes is blocked; a page
+site's go in the `matches` of the `gate-page.js` content script. A test in
+`test/consistency.test.ts` checks those agree.
 
 The tone is the only thing a panel says about its own look: a `bg-*` class
 for one of the DJ-data colours in `packages/tokens/colors.json`, which is
@@ -419,7 +455,11 @@ focus).
 `downloaded-store.ts` and `state-transfer.ts` stay classic scripts: they define
 page globals, which only a classic script can do, and the content script loads
 the first of them too. The build ships them as `downloaded-store.js` and
-`state-transfer.js`. The store goes into `popup.html` ahead of the bundle; the
+`state-transfer.js`. `theme-prepaint.ts` is a classic script for another
+reason: the bundle is a module, which runs after the page could already have
+painted, so it ships as `theme-prepaint.js` and goes first in `popup.html`,
+putting `light` on `<html>` when that is the saved theme (or, with nothing
+saved, the browser's). The store goes into `popup.html` ahead of the bundle; the
 state file's script is only needed by the settings sheet, so
 `src/lib/globals.ts` adds it to the page when the sheet first opens. That file
 is the one place that reaches either of them by name.
@@ -445,7 +485,7 @@ pnpm -w knip         # unused files, exports and dependencies, repo-wide
 pnpm test:shuffle    # the same suite in a random order, to catch tests that
                      # only pass because of the ones before them
 pnpm test:repeat     # every test twice, to catch state kept between runs
-pnpm verify          # format, lint, types, coverage, shuffled, repeated
+pnpm verify          # format, lint, types, knip, coverage, shuffled, repeated
                      # and the build: the whole gate
 pnpm test:mutation   # Stryker; slow, so CI runs it weekly. The report is in
                      # reports/mutation/
@@ -745,16 +785,13 @@ Permissions: `activeTab` (to read the active tab's URL when you click the
 icon), `clipboardWrite` (for the Copy button), `storage` (the Manager tool's own
 list of tracks and its set of downloaded ones; see that tool), `downloads` (the third-party
 downloader saves the files it unlocks), and `offscreen` (the page the background
-worker walks a gate in when the page's Download button is pressed on one; see
+worker walks a gate in, and reads settings from; see
 [Walking a gate from the page](#walking-a-gate-from-the-page)). The host patterns are the content
-script's match on `soundcloud.com`, plus one `host_permissions` entry per site
-the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
-`fanlink.tv`, `droploud.com` and its `api.` host, `pumpyoursound.com`,
-`laylo.com` with the two CDNs its drop pages read from
-(`d21i0hc4hl3bvt.cloudfront.net` for the drop, `d3oyaxbt9vo0fg.cloudfront.net`
-for the artist) and `events.laylo.com`, where a signup is posted, and `ffm.to`.
-Chrome reports those as site access on exactly those sites. No other host
-access, no remote code.
+scripts' matches, `soundcloud.com` for the tools and `droploud.com`,
+`pumpyoursound.com` and `laylo.com` for the help on a gate's own page, plus one
+`host_permissions` entry, `hypeddit.com`, the one site the Downloader fetches
+from. Chrome reports those as site access on exactly those sites. No other
+host access, no remote code.
 
 ### Limitations
 
@@ -1269,11 +1306,11 @@ same page at all.
 
 The controls are not quite alike underneath:
 
-| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit, Droploud or Pump Your Sound is saved instead; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
-| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                            |
-| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | presses SoundCloud's own button, hidden beneath it, then queues the track; the click detection above sees the press, so the track is marked downloaded as it always was                                                             |
+| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit is saved instead, and one to Droploud, Pump Your Sound or Laylo opens with help on its page; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
+| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                                                                          |
+| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | presses SoundCloud's own button, hidden beneath it, then queues the track; the click detection above sees the press, so the track is marked downloaded as it always was                                                                                                           |
 
 The panel's button for a SoundCloud download opens the _track page_, because
 "Download file" has no URL of its own to open; on the track page itself that
@@ -1329,36 +1366,40 @@ does what it always did.
 
 ### Walking a gate from the page
 
-A purchase link to Hypeddit, Droploud or Pump Your Sound is a gate the
-[third-party downloader](#third-party-downloader) can always walk to a file,
-so a plain click on this extension's button there does what that tool's
-**Get** does: the gate is walked, the file lands in the site's folder under the
-download directory, and the track is marked downloaded (unless **mark the
-SoundCloud track downloaded** is off in Settings). The button dims while the
-walk runs and ignores another click until it ends, and a screen reader hears
-"saved" or "opened the gate" when it does. Nothing goes into the session queue,
-since nothing is left to mark.
+A purchase link to Hypeddit is a gate the
+[third-party downloader](#third-party-downloader) walks to a file, so a plain
+click on this extension's button there does what that tool's **Get** does: the
+gate is walked, the file lands in the `Hypeddit` folder under the download
+directory, and the track is marked downloaded (unless **mark the SoundCloud
+track downloaded** is off in Settings). The button dims while the walk runs and
+ignores another click until it ends, and a screen reader hears "saved" or
+"opened the gate" when it does. Nothing goes into the session queue, since
+nothing is left to mark.
 
 When the walk does not end in a saved file, the gate opens in a tab beside the
 page and the track is queued, which is what the button did before. That covers
 a gate that wants an email address Settings does not have yet, a Spotify step
-that needs pressing **Connect** once, a CAPTCHA, a Droploud gate pointed at a
-page, and a transfer Chrome refused (then it is the file that opens). A click
-with ⌘, Ctrl, Shift or Alt held is someone asking for the link itself, and is
-followed as before. The other gate sites (ToneDen, FanLink, Laylo,
-Feature.fm) often end in a page or a signup rather than a file, so their links
-are followed as before too.
+that needs pressing **Connect** once, a CAPTCHA, and a transfer Chrome refused
+(then it is the file that opens).
+
+A link to Droploud, Pump Your Sound or Laylo opens beside the page with the
+extension's help on it, the way the Downloader's **Get** opens one (see
+[Gates done on their own page](#gates-done-on-their-own-page)), and the track
+is queued. When the page hands over its file, the file lands in the site's
+folder and the track is marked. A click with ⌘, Ctrl, Shift or Alt held is
+someone asking for the link itself, and is followed as before. ToneDen,
+FanLink and Feature.fm links are followed as before too.
 
 The walk runs in two places because neither the page nor a service worker can
 run it alone. A content script fetches as the page it is in, so every gate is
 an origin it is refused; a service worker has no `DOMParser`, which the
-Hypeddit and Pump Your Sound walks read pages with. So the button sends the
-link to the background worker (`src/background.ts`), which opens an offscreen
-page (`src/offscreen.ts`, Chrome's `DOM_PARSER` reason) and has the site module
-walk it there, with the address, name and mark setting the popup keeps. The
-worker does the parts that need a tab or the downloads API: the Spotify trip,
-the download, and the tab the gate opens in. Walks run one at a time, and the
-offscreen page is closed once none is waiting.
+Hypeddit walk reads its page with. So the button sends the link to the
+background worker (`src/background.ts`), which opens an offscreen page
+(`src/offscreen.ts`, Chrome's `DOM_PARSER` and `LOCAL_STORAGE` reasons) and has
+the site module walk it there, with the address, name and mark setting the
+popup keeps. The worker does the parts that need a tab or the downloads API:
+the Spotify trip, the download, and the tab the gate opens in. Walks run one at
+a time, and the offscreen page is closed once none is waiting.
 
 ### The signed-in track page
 
@@ -1501,10 +1542,10 @@ file and reads one back (`src/lib/components/StateTransfer.svelte`).
 It was the Manager panel's own footer, which was the wrong place for it twice
 over. The file carries the marks a SoundCloud page paints, the content
 script's cache of lookups, the [session queue](#session-queue) behind every
-header's count, the [artists](#artists) tool's list and three panels' options
-— one of its members is the Manager's list and the rest are not — and a
-backup is something one takes _before_ opening a playlist rather than while
-looking at one. The panel's footer still
+header's count, the [artists](#artists) tool's list, the search sites added
+in settings and three panels' options. Only one of its members is the
+Manager's list, and a backup is something one takes _before_ opening a
+playlist rather than while looking at one. The panel's footer still
 points at it, since the list is the biggest thing in the file and so where
 somebody goes looking. The section opens with a row of counts — marks, tracks
 looked up, tracks listed, artists, tracks queued — because a button reading
@@ -2015,11 +2056,23 @@ one off takes its badge off every row and its name out of the sentence above
 the section. Turn them all off and a link-less row carries nothing but its own
 toggles, which the panel and the sheet both say out loud.
 
-The sites are not written into the panel. They are a list of plain objects in
-[`src/lib/search-sites.json`](src/lib/search-sites.json), read and checked by
-[`src/lib/search-sites.ts`](src/lib/search-sites.ts), and adding one is an
+The sites are not written into the panel. They are a list of plain objects
+under `sites` in [`src/lib/search-sites.json`](src/lib/search-sites.json),
+specified by [`src/lib/search-sites.schema.json`](src/lib/search-sites.schema.json)
+(which the file names in `$schema`, so an editor checks it), read and checked
+by [`src/lib/search-sites.ts`](src/lib/search-sites.ts), and adding one is an
 entry in that file and nothing else — no code change, and no manifest change
 either, since a badge opens a tab and never fetches.
+
+**add a site** in the same Settings section adds one of your own in the same
+shape: a name, the badge's letters and colours, and the search address. The
+line under the address says why one cannot be used (not `https:`, no
+variable, a variable that does not exist, or a search that is already a
+badge), and **save** stays off until it can. Yours come after the shipped
+ones, each with its own switch and with buttons to edit and remove it. They
+are kept in the popup's `localStorage` (`pref:search-sites`) and go into the
+exported state file; importing one adds the sites whose search is not already
+a badge.
 
 | Badge | Site      | URL                                                         |
 | ----- | --------- | ----------------------------------------------------------- |
@@ -2116,27 +2169,28 @@ repost this, drop your email, open my Instagram — with the download button at
 the end. Collecting a playlist's worth of those is a lot of clicking through
 the same four screens, on seven different sites that each do it differently.
 
-This tool does the walking. Give it a set of links and it takes each one as far
-as it goes, and hands the browser whatever file comes back.
+This tool takes a set of links and gets each one as far as the site allows
+from here. One site it walks itself; on three it puts you on the gate's own
+page with the steps outlined and your email filled in, and saves the file when
+the page hands it over; the last three it only opens.
 
 Seven sites, and they are not the same
 --------------------------------------
 
 The honest summary first, because it decides what the tool can do for each:
 
-| Site                                                            | What the link is                                                      | Ends in a file?                |
-| --------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------ |
-| **Hypeddit** `hypeddit.com`                                     | A download gate whose social steps are decoration, apart from Spotify | Yes                            |
-| **Droploud** `droploud.com`                                     | A download gate whose steps are self-reported, bar one                | Yes                            |
-| **Pump Your Sound** `pumpyoursound.com`                         | A download gate that is a plain HTML form                             | Yes                            |
-| **ToneDen** `toneden.io`                                        | A download gate with a real OAuth step                                | Only sometimes — see below     |
-| **FanLink** `fanlink.tv` (and the dead `fanlink.to`, rewritten) | ToneDen's smart link; sometimes a gate in disguise                    | Only sometimes                 |
-| **Laylo** `laylo.com`                                           | A notify-me signup, not a gate at all — so the tool signs up          | No: the artist mails it to you |
-| **Feature.fm** `ffm.to`                                         | A smart link: a chooser of streaming and shop links                   | Rarely                         |
+| Site                                                                  | What the link is                                                      | What **Get** does                                      |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Hypeddit** `hypeddit.com`                                           | A download gate whose social steps are decoration, apart from Spotify | Walks it here and saves the file                       |
+| **Droploud** `droploud.com`                                           | A download gate of email, Instagram and SoundCloud steps              | Opens it for you to do; saves the file when it unlocks |
+| **Pump Your Sound** `pumpyoursound.com`                               | A download gate that is a plain HTML form                             | Opens it for you to press Download; saves the file     |
+| **Laylo** `laylo.com`                                                 | A notify-me signup, not a gate at all                                 | Opens it with your email filled in, for you to RSVP    |
+| **ToneDen** `toneden.io`                                              | A download gate with a real OAuth step; shuts down Dec 1, 2026        | Nothing: the row opens it                              |
+| **FanLink** `fanlink.tv` (and the dead `fanlink.to`, opened on `.tv`) | ToneDen's smart link; shuts down with it                              | Nothing: the row opens it                              |
+| **Feature.fm** `ffm.to`                                               | A smart link: a chooser of streaming and shop links                   | Nothing: the row opens it                              |
 
-A row's badge says which site it is, and a row that resolves to somewhere to go
-rather than something to save says so and offers an **Open** button instead of
-reporting a failure it did not have.
+A row's badge says which site it is. A row for a site that is only opened is
+an **Open** button with a line about the site, and **Get all** passes it by.
 
 ("DropCloud" is how the name gets written down; the site spells it Droploud,
 and so does the link SoundCloud carries.)
@@ -2175,12 +2229,15 @@ and so does the link SoundCloud carries.)
    run says which of the two it is in, and a link with no SoundCloud track
    behind it (from a gate tab, or the paste box) is never dropped by either.
    When something is hidden, a line says how many of the links are showing.
-5. **Get all**, or **Get** on a single row. Rows run one at a time and
-   report as they go: _Unlocking…_, _Saving…_, _Saved_, _Signed up_ for a
-   Laylo drop the address was left with, the page it turned out to point at,
-   or the reason it did not work. **Get all** runs what is
-   listed, so the toggles are also how a batch is chosen — and with **Hide
-   downloaded** on, each row goes as soon as saving it marks its track.
+5. **Get all**, or **Get** on a single row. Hypeddit rows run here, one at a
+   time, and report as they go: _Unlocking…_, _Saving…_, _Saved_, or the
+   reason it did not work. Droploud, Pump Your
+   Sound and Laylo rows then open one after another in a single tab (see
+   [Gates done on their own page](#gates-done-on-their-own-page)), which closes
+   the popup; their rows say _opened_, then _Saved_ or _Signed up_ once you
+   have done the gate there. **Get all** runs what is listed, so the toggles
+   are also how a batch is chosen, and with **Hide downloaded** on, each row
+   goes as soon as saving it marks its track.
 6. A row that failed says what to do about it, and offers to do it. Most of
    these gates fail because they want something a fetch cannot give them — a
    connected account, a CAPTCHA, a step the page does to itself — so the failed
@@ -2192,18 +2249,17 @@ and so does the link SoundCloud carries.)
    the [session queue](#session-queue) when the file has landed. **Get**
    stays beside it, for the failures worth another go on their own.
 
-   The failures that are not a trip to a tab are the ones Settings already
-   has the answer to: a Hypeddit gate or a Laylo drop that wants an email
-   address and has not been given one offers **add email**, and a drop that
-   asks for a name with it offers **add name**. Either opens the settings
-   sheet, over the panel and with the list behind it untouched, at the fields
-   where those are typed.
+   The failure that is not a trip to a tab is the one Settings already has
+   the answer to: a Hypeddit gate that wants an email address and has not
+   been given one offers **add email**, which opens the settings sheet, over
+   the panel and with the list behind it untouched, at the field where it is
+   typed.
 
 Files land in a folder named for the site (`Hypeddit`, `Droploud`,
-`PumpYourSound`, `ToneDen`, `Laylo`, `FeatureFM`) under the browser's download
-directory, named as the artist named them where the site says so — Hypeddit and
-Droploud both sign the real filename into the link, so the name is known before
-a byte is fetched.
+`PumpYourSound`) under the browser's download directory, named as the artist
+named them where the site says so: Hypeddit signs the real filename into the
+link, so the name is known before a byte is fetched, and a file a gate's own
+page hands over keeps the name the site gave it.
 
 A name is made safe first, because Chrome refuses a download outright —
 _Invalid filename_ — rather than cleaning one up, and holds every name to what
@@ -2230,9 +2286,9 @@ so:
 - the **check button** on the row makes that mark by hand, and clicking it
   again takes it off. It is on every row with a track behind it, in whatever
   state the walk left it — which is the point, because the tracks that need it
-  are the ones a walk did not finish: a Laylo or Feature.fm row that only ever
-  resolved to a page you then went to yourself, a gate you opened and clicked
-  through in a tab, a file that was on the disk before any of this started, a
+  are the ones a walk did not finish: a ToneDen or Feature.fm row you opened
+  and got the file from yourself, a gate whose file landed somewhere the
+  extension did not see, a file that was on the disk before any of this started, a
   row saved with that setting off. It also undoes a mark made in
   error. With **Hide downloaded** on the row goes as the mark is made, the same
   way a saved one does — so take a mark off before hiding, not after. The same
@@ -2241,14 +2297,26 @@ so:
 
 ### How each site works
 
-Every site is one module under `sites/`, and they all answer the same two
-ways — _here is a file to save_, or _here is somewhere to go_ — or throw with
-the sentence the row should show. A thrown error sends the person to the gate
-itself, which is what the failed row's **Open** does; a gate that failed for
-want of something the panel can ask for instead says so by throwing a `Wanting` from
-`next-step.ts` — today the email address, and the name a Laylo drop sometimes
-asks for beside it. A third answer joins the two above for Laylo alone: _the
-address has been left with the artist_, which is neither a file nor a page.
+Every site is one module under `sites/`, and its `how` says which of three
+kinds it is.
+
+A **walked** site's `unlock` fetches the gate and answers with the file to
+save, or throws with the sentence the row should show. A thrown error sends
+the person to the gate itself, which is what the failed row's **Open** does; a
+gate that failed for want of the email address says so by throwing a
+`Wanting` from `next-step.ts`, and the row offers to open Settings instead.
+Hypeddit is the one. Its walk is `walks/hypeddit.ts`, reached through
+`walks/index.ts`, which only the panel and the offscreen page import: the
+background worker reads the site registry but never holds a walk, since it has
+no `DOMParser` to read a page with.
+
+A **page** site is done by the person on the site's own page, with help. Its
+module says what to outline there, which field takes the email, and, for a
+sign-up page, which form's submit is the sign-up. Droploud, Pump Your Sound
+and Laylo are these; see [Gates done on their own page](#gates-done-on-their-own-page).
+
+A **link** site is only opened. Its module is a name, hosts and the line its
+row shows: ToneDen, FanLink and Feature.fm.
 
 **Hypeddit.** A gate page is an ordinary form. Every value the download button
 posts is already in the page as a hidden input, so the panel fetches the page,
@@ -2300,231 +2368,145 @@ after which every later `sp` gate goes through without a word. **The follow and
 the library save really happen**, which is the point: it is the artist's side
 of that bargain, exactly as the address is.
 
-**Droploud.** A `/gate/<track id>` or `/track/<track id>` page ships its whole
-gate in the HTML, as part of the Next.js server-component payload: the track,
-the artist, and a `steps` list saying which follows, likes, reposts and saves
-it asks for. Walking it is `POST api.droploud.com/api/gate/<id>/step` with
-`{session_id, step}` for each step, then `POST /gate/<id>/download` with
-`{session_id}`, which answers `{download_url, type}`. The session id is not a
-credential: the page invents a UUID on first paint and keeps it in
-`sessionStorage`, and the server only uses it to tie one visitor's steps
-together, so a gate walked here is a fresh visitor exactly as a private window
-would be.
+**Droploud.** A `/gate/<id>` or `/track/<id>` page is a box of steps: an email
+address with a consent box beside it, follows on Instagram, and a SoundCloud
+connection that follows, likes, reposts and comments for you. Droploud's terms
+say those are yours to do ("To unlock the track you complete one or more
+actions chosen by the artist"; no "bots, scripts or click farms to
+mass-complete gates"), so the tool opens the gate, outlines the box, and fills
+the email field from Settings while it is empty. You tick the box and do the
+steps. When the gate unlocks, the page starts the download itself, by clicking
+a link to the file, and the extension files that download into `Droploud/` and
+marks the track.
 
-**What the gate actually checks:** the download is refused (`403 "Gate not
-completed"`) until the steps have been posted, but the steps themselves are
-self-reported — the page marks one done the moment its button is clicked, the
-click opens the artist's page in a popup, and nothing checks what happens
-there. Posting the step is worth exactly what clicking the button is worth,
-which is why the tool does it and says so here rather than pretending
-otherwise. **One step is different.** A `soundcloud_repost` step is verified
-for real: Droploud wants a SoundCloud account connected by OAuth and then reads
-that account's reposts back. There is nothing to self-report and nothing here
-signs in as anybody, so the tool takes Droploud's own way out — the "give up"
-its page offers after a couple of failed checks (`POST
-/soundcloud/verify-repost` with `give_up: true`), which drops the step rather
-than claiming it. A gate that will not open without it says so on its row, and
-is one to open in a tab.
+**Pump Your Sound.** A fangate page (`/f/<channel>/<slug>/<id>`) is
+server-rendered PHP with an ordinary form in it, `frm-freeDownloadForm`, and
+pressing its Download button submits it; the answer is the file. The steps
+beside the button (follow on SoundCloud or Instagram, leave a comment) are
+OAuth flows of their own. The tool opens the page and outlines Download; you
+press it, and the file the form answers with goes into `PumpYourSound/`.
 
-**Pump Your Sound.** The simplest of the set. A fangate page
-(`/f/<channel>/<slug>/<id>`) is server-rendered PHP with an ordinary Nette form
-in it, `frm-freeDownloadForm`, posting back to the page it is on with
-`_do=freeDownloadForm-submit`. The tool reads the form's fields off the page
-and posts them, which is exactly what pressing Download does; the answer is the
-file, or a page with the link in it. The steps beside the button — follow on
-SoundCloud, follow on Instagram, leave a comment — are separate OAuth flows of
-their own, not part of the form, and the button is not disabled while they are
-undone. Nothing is posted to SoundCloud by submitting the form.
+**Laylo.** Not a download gate: a `laylo.com/<artist>/<slug>` drop is a
+notify-me page. You leave an email address or a phone number, and the artist's
+link reaches you later, by mail or by text. Laylo's terms count pressing its
+RSVP button as your signature on that sign-up, so the press is yours: the tool
+opens the drop, outlines the form and its switch to email (some drops open on
+SMS), and fills the email field from Settings while it is empty. When you
+submit the form, the row says _Signed up_. Nothing is downloaded.
 
-**ToneDen.** The one whose steps have teeth, and the tool does not pretend
-otherwise. A `toneden.io/<artist>/post/<slug>` gate says "Follow on SoundCloud"
-(or Spotify, or Facebook) and leads to `/auth/<platform>`, an OAuth round trip
-that ends with ToneDen holding a token for that account; it performs the follow
-itself and opens the gate for the fan it just met.
-`GET /api/v1/attachments/<id>/download` answers `401 "Please login to your
-account to continue."` to everyone else. So there is nothing to walk, and what
-the tool does instead is:
+**ToneDen** and **FanLink** (`fanlink.tv`, ToneDen's smart links). Opened,
+nothing more. A ToneDen gate's step is an OAuth follow ToneDen does itself, so
+it was always done on its page, and ToneDen shuts down on December 1, 2026,
+both domains with it. `fanlink.to`, ToneDen's earlier domain for FanLinks,
+answers "Brand not found" on every path, and the paths came across to
+`fanlink.tv` unchanged, so a `.to` link opens on `.tv`. In the registry that is
+the site's `aliases`: hostnames it claims, opened on its first host instead.
 
-- read the post through ToneDen's own public lookup
-  (`GET /api/v1/posts?author_username=&link_path=`), which needs no account, so
-  a row can say what the gate is;
-- finish the gates whose `download_source` is `redirect` — those are not files
-  behind a login at all, they are the artist pointing at a Dropbox link or a
-  shop, and that destination is in the post;
-- for the rest, ask for the download with whatever ToneDen session the browser
-  already has. If you have been through a ToneDen gate once in this browser,
-  that is a real unlocked session and the file comes back. If not, the row says
-  to open the gate and connect once — which is the artist's side of the bargain
-  and not something to fake.
-
-A refusal is not one shape, and the row should not report it as a status code.
-Nobody signed in at all gets `401 "Please login to your account to continue."`;
-a browser ToneDen _does_ know, whose fan has not been through this particular
-gate, gets a `400` with a sentence of its own. So the answer body is read either
-way, and a download that comes back no is followed by
-`GET /api/v1/attachments/<id>/gateMetadata`, which is public and answers the two
-questions worth asking: `is_gate_open` — is this browser through this gate — and
-`viewer_id` — does ToneDen know this browser at all. With those the row names
-the account the gate wants (`platform`, or `platforms` with `is_or_condition`
-for a multi-action gate) instead of the status it answered with: _"this gate
-wants Twitch, and ToneDen doesn't know this browser"_. A gate that is open and
-still says no keeps ToneDen's own words. A gate whose `platform` is `email`
-wants an address left on ToneDen's page rather than an account, and says that;
-one with `skip_download` set has no file behind it at all.
-
-**FanLink** (`fanlink.tv`) is ToneDen's smart-link product on the same backend:
-a chooser pointing at Spotify, SoundCloud, Beatport and so on, with no file of
-its own. The page ships the whole thing as `window.preloadLink`, so the tool
-reads the destinations out and offers the one worth opening — a direct file if
-there is one, else Bandcamp, Beatport or iTunes, else where the link itself
-points. (Not every destination is a web address: a "music" link can carry a
-`spotify:album:…` URI, which is for the app and not for a tab, and those are
-skipped.)
-
-Two shapes of FanLink are more than a chooser, and the tool follows both. One
-has an unlock hung off it (`rsvp_attachment`), which is a ToneDen gate like any
-other. The other has no services at all and a `target_url` pointing at a
-`toneden.io/…/post/…` — a gate wearing a smart link's clothes; following it is
-the difference between offering a page to open and finishing the job.
-
-**fanlink.to**, ToneDen's earlier domain for these links, is gone: every path on
-it now answers "Brand not found". The paths came across unchanged, so a `.to`
-link is a working `.tv` one with a different suffix, and the tool rewrites it
-before the request rather than reporting a dead link. Nothing ever fetches
-fanlink.to — which is why the manifest names only `fanlink.tv`. In the registry
-that is the site's `aliases`: hostnames it claims but never reaches, and so
-deliberately outside `host_permissions`. (`fanlink.to` links written before the
-move are still all over SoundCloud, and all six in the export this was built
-against resolve on `.tv`.)
-
-**Laylo.** Not a download gate, and the tool does not pretend it is one. A
-`laylo.com/<artist>/<slug>` drop is a notify-me page: you leave an email
-address or a phone number, and the artist's link reaches you later, by mail or
-by text. There is no file on the page and no request that produces one — which
-means the signup _is_ the walk, and that is the walk the tool makes.
-
-Reading the drop first. The page is a shell that fetches its own JSON from
-Laylo's CDN — the title, the artist's id, which channels the drop is
-collecting, what else it asks for — and then fetches the artist's own record
-from a second CDN, for their display name and whether they have asked Laylo to
-confirm an address by mail before adding it. Both URLs are read off the page
-rather than guessed at.
-
-Then the signup, which is the same single POST the page's own RSVP button
-makes: `{type: 'rsvp', payload: {productId, creatorId, email, optIn, dropDate,
-fingerprintId, …}}` to `events.laylo.com/actions/rsvp/rsvp`, answered
-`{success}`. `creatorId` is the one field the endpoint refuses outright
-without; everything past it is checked later and out of sight, so `success`
-means _taken_, not _subscribed_ — and the row says the former. `optIn` is true
-unless the artist's record asks for a confirmation mail first, in which case
-the row says to look for it. The `fingerprintId` is a fresh random one per
-signup rather than the cookie the page keeps, which exists to recognise the
-same visitor from one artist's drop to the next.
-
-The page also attaches a captcha token (reCAPTCHA v3, or Turnstile). That field
-is optional — the endpoint takes a signup carrying none — and a forged one is
-refused, so none is sent rather than one faked. If Laylo ever makes it
-compulsory, the signups come back refused and the row goes back to offering the
-drop.
-
-Some drops it leaves alone, and says why: one collecting only a phone number,
-one that confirms by text (Laylo offers double opt-in over SMS alone), and one
-asking questions beyond a name. There is no phone number here to give and no
-way to answer the rest. A drop of the _link_ kind, where the artist put a
-destination on it rather than a signup, has somewhere to go, and that goes back
-as a link with nothing signed up for.
-
-**Feature.fm.** Another smart link. An `ffm.to` page is a list of the places a
+**Feature.fm.** A smart link: an `ffm.to` page is a list of the places a
 release can be played or bought, and the "download" on it is usually iTunes or
-Beatport rather than a file. Every button points at
-`api.ffm.to/sl/e/c/<slug>?cd=<payload>` — a click tracker that counts the click
-and then redirects — and the payload is base64url JSON with the real
-destination (`destUrl`) inside it. So the tool reads every destination out of
-the page it already fetched, without a single request to the tracker: faster,
-and one fewer fake click in somebody's dashboard. It then offers the best of
-them — a direct file, else Bandcamp, Beatport, iTunes or Amazon, else the page.
+Beatport rather than a file. Choosing one is your click on Feature.fm's page,
+so the row opens it.
+
+### Gates done on their own page
+
+**Get** on a Droploud, Pump Your Sound or Laylo row, or **Get all** with some
+listed, hands their links to the background worker
+(`src/tools/third-party-downloads/on-page.ts`), which opens the first in a tab
+and keeps the rest. The popup closes as the tab opens. The tracks go into the
+session queue on the way, as any gate opened by hand does.
+
+On the gate's page, `gate-page.ts`, a content script on those three sites,
+asks the worker whether this tab is one it opened, and does nothing if not.
+When it is, it puts a small bar in the corner saying what to press and which
+gate of how many this is, outlines what to press, and fills the email field
+with the address from Settings, once and only while the field is empty. It
+never presses anything, ticks a box or submits a form.
+
+When the page starts its download, the worker files it into the site's folder
+under the name the site gave it, tells the bar, which says where it went, and
+marks the track (unless **mark the SoundCloud track downloaded** is off). A
+download counts as the gate's when it starts while that gate is open and comes
+from the gate's site, by its referrer or its address; anything else you
+download meanwhile keeps the name the browser gives it, and a file the
+extension saves itself is never renamed. A second or so later the next gate
+opens in the same tab. On a Laylo drop, submitting the form is the end of it,
+and the bar offers **next**. **skip** moves on without doing the one in front,
+and the bar's close button stops the help on that tab.
+
+What became of each gate is kept for the session beside the run, and the
+Downloader's rows read it when the popup next opens: _opened_, _Saved_ with
+the file's name, or _Signed up_.
 
 ### Keeping it above board
 
-- **Nothing is faked that anyone can check.** No fabricated follows, likes or
-  reposts are sent to SoundCloud or anywhere else. On Hypeddit the social steps
-  are neither asked for nor recorded, so there is nothing to fake; on Droploud
-  the steps posted are the same self-reported clicks the page posts, and the
-  one step Droploud really verifies is given up rather than claimed; on ToneDen
-  the gate is enforced by an OAuth account and the tool simply does not walk
-  it.
-- **A step that is really checked is really done.** Hypeddit's Spotify step is
-  walked by going through Spotify's own sign-in in a tab, so the artist is
-  genuinely followed and the track genuinely saved to your library — the gate's
-  price, paid rather than dodged. It happens only on the gates that ask for it,
-  and only on the first press of **Get** for each one.
+- **The steps a gate asks for are done by you, on its page.** Droploud and
+  Pump Your Sound gates are opened for you to do; nothing is posted to their
+  servers, and no step is reported as done that you did not do. A Laylo
+  sign-up is your press of Laylo's own RSVP button.
+- **Hypeddit is walked, and a step it really checks is really done.** Its
+  social steps are neither asked for nor recorded, so there is nothing to
+  fake. Its Spotify step is walked by going through Spotify's own sign-in in
+  a tab, so the artist is genuinely followed and the track genuinely saved to
+  your library, and the row says whose Spotify you now follow. It happens only
+  on the gates that ask for it, and only on the first press of **Get** for
+  each one.
 - **The email step is honoured with a real address, or the gate is not
-  unlocked.** The address in Settings goes to two places, both of them the
-  artist: Hypeddit gates with an email step, which check it is deliverable
-  before they unlock, and Laylo drops, where the signup is the whole of what
-  the page is. Nothing else here is ever sent it, it is not written into an
-  exported state file, and a row with no address set signs up for nothing — it
-  asks for one instead.
-- **A Laylo signup is a mailing list, and Settings says so where the address is
-  typed.** Handing an address to a drop puts it on that artist's list, which is
-  what the drop is for and the price the artist set for the link. The hint
-  under the field says it in as many words, so it is not something a **Download
-  all** does quietly.
-- **One link at a time, a handful of requests each** — roughly what opening the
-  page yourself costs the site, minus the pixel and analytics traffic. Every
-  one of these is somebody's small server.
+  unlocked.** The address in Settings is posted to one place: a Hypeddit gate
+  with an email step, which checks it is deliverable before it unlocks.
+  Hypeddit's privacy policy says it shares that address with the artist, with
+  the service it checks addresses with, and with its own marketing providers;
+  the hint under the field says so. The address is also filled into the email
+  field of a Droploud or Laylo page you open from here, where sending it is
+  yours to do. It is not written into an exported state file, and a Hypeddit
+  row with no address set sends nothing; it asks for one instead.
+- **ToneDen, FanLink and Feature.fm are only opened.** Nothing is read from
+  them in the background.
+- **One link at a time, a handful of requests each**, for the one site that is
+  walked: roughly what opening the page yourself costs it, minus the pixel and
+  analytics traffic.
 - The files are the ones the artist put behind the gate for free download.
-  Following the artists whose tracks you keep is still the point of the thing;
-  this tool just stops you doing it four clicks at a time.
+  Following the artists whose tracks you keep is still the point of the thing.
 
 ### Limitations
 
-- **A Laylo drop still ends in your inbox, not in a file.** The tool leaves
-  the address; the link is the artist's to send, in their own time, and nothing
-  here can hurry it. A signed-up row says so and marks nothing as downloaded.
-  Drops collecting only a phone number, confirming by text, or asking questions
-  beyond a name are left for you to do on the page.
+- **Droploud, Pump Your Sound and Laylo gates are done by hand.** The tool
+  saves you finding each page and typing the address, and files the download,
+  but the steps are clicks on the page. With **Get all**, the next gate opens
+  in the same tab as each one is done.
+- **A file a gate's page hands over is caught by where it comes from.** A
+  download that starts on the gate's site while its tab is open is the gate's.
+  If a site ever hands its file over some other way, it lands in the download
+  folder under its own name and the row stays _opened_; the check button marks
+  it.
+- **The help on a page goes by its markup.** If Droploud, Pump Your Sound or
+  Laylo change their pages, the outline or the email fill can stop finding
+  their target; the page still works as it always did.
+- **A Laylo drop still ends in your inbox, not in a file.** The link is the
+  artist's to send, in their own time. A signed-up row marks nothing as
+  downloaded.
 - **A Hypeddit gate with a Spotify step follows the artist from your account.**
   That is what makes it open, and there is no version of it that does not: the
   check is Hypeddit's, on its own Spotify token, and it is the reason the
   artist put the step there. The first such gate needs one press of **Connect**
   on the page, to say yes to Hypeddit's Spotify app; after that the rest go
   through from the panel, each one opening a tab for about a second. A gate
-  wanting Deezer or Apple Music instead is not walked at all — the row names
+  wanting Deezer or Apple Music instead is not walked at all; the row names
   what it wants and offers to open it.
-- **ToneDen and FanLink gates need one visit by hand** unless the browser
-  already carries a ToneDen session that has been through _that_ gate — a
-  session alone is not enough, since the follow is recorded per gate. The row
-  names the account it wants ("this gate wants Twitch") and offers to open it;
-  going through it once in a tab makes that gate, and later gates by the same
-  route, work.
-- **Feature.fm and FanLink are smart links**, not gates — expect a page to open
-  rather than a file, unless the artist put a direct file behind one, or the
-  FanLink turns out to point at a ToneDen gate.
-- **The fanlink.to rewrite assumes the paths stayed put**, which is what ToneDen
-  did when it moved. A `.to` link whose path was _not_ carried over comes back
-  as "not a ToneDen FanLink" rather than as a dead domain.
-- A **link gate** anywhere (where the "download" is a redirect to Spotify,
-  Patreon or a shop rather than a file) has no file to save; the row reports
-  where it points and offers to open it.
+- **ToneDen and FanLink stop working on December 1, 2026**, when ToneDen shuts
+  down. Their rows open the page until then.
 - A Hypeddit gate behind a CAPTCHA has to be visited once in a tab, which is
   what the failed row's **Open** offers.
-- **Pump Your Sound's success path is inferred, not observed.** The form is
-  read off the page and submitted as the page submits it; what the server hands
-  back for a satisfied gate has not been exercised end to end here, so a row
-  that says the form was taken but no file came back may mean the gate wants
-  its SoundCloud step done in a tab — or may mean the answer has a shape this
-  does not recognise yet.
 - A row says _Saved_ when the browser has accepted the transfer, not when the
-  bytes have landed — the popup usually closes first. If a transfer is
-  interrupted while the panel is still open, the row turns red and offers the
-  file itself to open. A transfer that breaks after the popup has closed is the
-  browser's own download list to deal with; nothing here hears about it.
+  bytes have landed. If a transfer from a walk is interrupted while the panel
+  is still open, the row turns red and offers the file itself to open. A
+  transfer that breaks after the popup has closed is the browser's own
+  download list to deal with; nothing here hears about it.
 - Only tracks rendered in the DOM are read off a SoundCloud page, the same rule
   as the other tools; scroll a long playlist first.
 - None of these sites' markup or endpoints is a public API. Everything relied
   on is listed above, and a change to any of it will show up as rows that
-  report "not a … download gate", "would not unlock", or a status code.
+  report "not a Hypeddit gate", "would not unlock", or a status code, or as a
+  gate page with nothing outlined.
 
 ---
 
@@ -2828,7 +2810,7 @@ How the extension fits together.
 - Overview: [Parts and how they connect](#parts-and-how-they-connect), [Messages between the parts](#messages-between-the-parts), [What the manifest declares](#what-the-manifest-declares), [Building into dist](#building-into-dist), [The three build commands](#the-three-build-commands), [What the popup loads and when](#what-the-popup-loads-and-when), [Declaring a tool in the registry](#declaring-a-tool-in-the-registry), [Opening the popup](#opening-the-popup), [Views and sheets](#views-and-sheets)
 - [Reading pages](docs/diagrams/reading-pages.md): what the panels ask a tab, and playlist to text
 - [The Manager](docs/diagrams/manager.md): adding, filing and acting on rows, filters and search badges
-- [The downloader](docs/diagrams/downloader.md): gate links, row life, walks and gate sites
+- [The downloader](docs/diagrams/downloader.md): gate links, row life, walks, gates done on their own page, and gate sites
 - [Artists, the queue and settings](docs/diagrams/artists-and-queue.md): artist rows, the session queue and the settings sheet
 - [The content script](docs/diagrams/content-script.md): repaints, pills, replaced buttons, walks and the likes list
 - [Lookups](docs/diagrams/lookups.md): runJob, the likes listing, API failures and the details cache
@@ -2837,38 +2819,43 @@ How the extension fits together.
 
 ### Parts and how they connect
 
-The four kinds of context the extension runs in, the three stores they share, and what each talks to.
+The five kinds of context the extension runs in, the three stores they share, and what each talks to.
 
 ```mermaid
 flowchart TD
   Popup["Popup<br/>menu, tool panels, sheets"]
   Content["Content script<br/>every frame of soundcloud.com"]
+  GatePage["Gate page script<br/>droploud.com, pumpyoursound.com, laylo.com"]
   Worker["Background worker"]
   Offscreen["Offscreen page"]
   Local[("chrome.storage.local")]
   Session[("chrome.storage.session")]
   Web[("localStorage<br/>extension origin")]
   SoundCloud["SoundCloud public API"]
-  Gates["Gate sites"]
+  Gates["Hypeddit"]
   Downloads["chrome.downloads"]
 
   Popup -->|"asks the active tab"| Content
   Content -->|"Download button on a gate"| Worker
-  Worker -->|"opens, sends the walk"| Offscreen
+  Popup -->|"page gates to open"| Worker
+  GatePage <-->|"what to help with, what was done"| Worker
+  Worker -->|"opens, sends the walk, reads settings"| Offscreen
   Popup <--> Local
   Popup <--> Session
   Popup <--> Web
   Content <--> Local
   Content <--> Session
+  GatePage -->|"marks a saved file's track"| Local
+  Worker <--> Session
   Offscreen -->|"reads email, name, mark"| Web
   Content -->|"GET, anonymous"| SoundCloud
   Popup -->|"walks gates"| Gates
   Offscreen -->|"walks gates"| Gates
   Popup -->|"saves files"| Downloads
-  Worker -->|"saves files"| Downloads
+  Worker -->|"saves files, files a page gate's"| Downloads
 ```
 
-Source: [`src/manifest.json`](src/manifest.json), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`content.ts`](content.ts)
+Source: [`src/manifest.json`](src/manifest.json), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`content.ts`](content.ts), [`gate-page.ts`](gate-page.ts), [`src/tools/third-party-downloads/on-page.ts`](src/tools/third-party-downloads/on-page.ts)
 
 ### Messages between the parts
 
@@ -2880,6 +2867,7 @@ sequenceDiagram
   participant C as Content script
   participant W as Background worker
   participant O as Offscreen page
+  participant G as Gate page script
   P->>C: EXTRACT_TRACKS
   C-->>P: the tracks the page renders
   P->>C: GET_DOWNLOAD_DETAILS
@@ -2887,16 +2875,23 @@ sequenceDiagram
   C-->>P: tracks with details
   P->>C: GET_ARTIST_PROFILES
   C--)P: ARTIST_PROFILES_PROGRESS, many
-  C-->>P: profiles, failed, error
+  C-->>P: profiles, missing, failed, error
   C->>W: SAVE_GATE
   W->>O: WALK_GATE
   O->>W: ROUND_TRIP, a sign-in tab
   W-->>O: whether the tab came back
   O-->>W: file to save, or where to open
   W-->>C: saved, mark
+  P->>W: OPEN_GATES
+  G->>W: GATE_PAGE_HELLO
+  W->>O: READ_PREFS
+  O-->>W: email, mark
+  W-->>G: what to help with, or nothing
+  W->>G: GATE_PAGE_SAVED
+  G->>W: GATE_PAGE_SIGNED_UP, GATE_PAGE_NEXT, GATE_PAGE_STOP
 ```
 
-Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`content.ts`](content.ts), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts)
+Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`content.ts`](content.ts), [`gate-page.ts`](gate-page.ts), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte)
 
 ### What the manifest declares
 
@@ -2909,9 +2904,10 @@ flowchart LR
   Manifest --> Clip["clipboardWrite<br/>the Copy buttons"]
   Manifest --> Store["storage<br/>chrome.storage areas"]
   Manifest --> Dl["downloads<br/>saving what a walk unlocks"]
-  Manifest --> Off["offscreen<br/>the page a walk runs in"]
-  Manifest --> Hosts["host_permissions<br/>the gate sites' hosts only"]
+  Manifest --> Off["offscreen<br/>the page a walk runs in, and settings are read in"]
+  Manifest --> Hosts["host_permissions<br/>hypeddit.com, the one site walked"]
   Manifest --> Cs["content_scripts<br/>soundcloud.com, all frames,<br/>downloaded-store.js then content.js,<br/>content.css"]
+  Manifest --> Gp["content_scripts<br/>droploud.com, pumpyoursound.com, laylo.com,<br/>downloaded-store.js then gate-page.js"]
   Manifest --> Bg["background<br/>background.js, a module worker"]
   Manifest --> Act["action<br/>popup.html"]
 ```
@@ -2925,14 +2921,14 @@ Source: [`src/manifest.json`](src/manifest.json)
 ```mermaid
 flowchart TD
   Pages["src/popup.html, src/offscreen.html,<br/>src/background.ts"]
-  Classic["content.ts, downloaded-store.ts,<br/>state-transfer.ts"]
+  Classic["content.ts, gate-page.ts,<br/>downloaded-store.ts, state-transfer.ts,<br/>theme-prepaint.ts"]
   Static["src/manifest.json,<br/>content.css, icons"]
   Vite["vite build<br/>Svelte, Tailwind"]
   Blank["ts-blank-space<br/>types become spaces"]
   Copy["copied as they are"]
   Mjs["assets/: the page entries, core, ui, shared,<br/>panel-shell, a chunk per Panel and sheet,<br/>CSS and fonts"]
-  Html["popup.html with the store's script tag,<br/>offscreen.html, background.js"]
-  Js["content.js, downloaded-store.js,<br/>state-transfer.js<br/>same lines and columns as the source"]
+  Html["popup.html with the theme's and the store's<br/>script tags, offscreen.html, background.js"]
+  Js["content.js, gate-page.js, downloaded-store.js,<br/>state-transfer.js, theme-prepaint.js<br/>same lines and columns as the source"]
   Dist["dist/, loaded unpacked in Chrome"]
 
   Pages --> Vite
@@ -2947,7 +2943,7 @@ flowchart TD
   Copy --> Dist
 ```
 
-Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css)
+Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css), [`theme-prepaint.ts`](theme-prepaint.ts)
 
 ### The three build commands
 
@@ -2977,6 +2973,7 @@ The shell boots on its own. Everything heavy is a chunk fetched at most once per
 ```mermaid
 flowchart TD
   Html["popup.html"]
+  Theme["theme-prepaint.js<br/>classic script, the light class"]
   Store["downloaded-store.js<br/>classic script, TbxDownloaded"]
   Shell["The shell<br/>main.ts, App.svelte, the registry, the stores"]
   Panel["The tool's Panel chunk"]
@@ -2984,6 +2981,7 @@ flowchart TD
   SettingsSheet["SettingsSheet chunk"]
   Transfer["state-transfer.js<br/>classic script, TbxState"]
 
+  Html --> Theme
   Html --> Store
   Html --> Shell
   Shell -->|"a tool opens, or was left open"| Panel
@@ -2992,7 +2990,7 @@ flowchart TD
   SettingsSheet -->|"loaded beside it"| Transfer
 ```
 
-Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts)
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts), [`theme-prepaint.ts`](theme-prepaint.ts), [`vite.config.ts`](vite.config.ts)
 
 ### Declaring a tool in the registry
 
@@ -3067,6 +3065,9 @@ stateDiagram-v2
   state "Tool menu" as Menu
   state "Ghost of the panel" as Ghost
   state "Tool panel" as Panel
+  state "Before you start notice, in the menu" as Notice
+  [*] --> Notice: nothing left open, pref:notice-seen unset
+  Notice --> Menu: continue
   [*] --> Menu: nothing left open
   [*] --> Ghost: view:open names a tool
   Ghost --> Menu: session says a new browsing session
@@ -3078,7 +3079,7 @@ stateDiagram-v2
   Panel --> Menu: back arrow
 ```
 
-Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/App.svelte`](src/App.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)
+Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/App.svelte`](src/App.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte), [`src/lib/components/ToolMenu.svelte`](src/lib/components/ToolMenu.svelte), [`src/lib/components/FirstRun.svelte`](src/lib/components/FirstRun.svelte)
 
 The sheet over it. `view.svelte.ts` keeps it to one at a time, and a sheet left open comes back with the session.
 
@@ -3092,7 +3093,7 @@ stateDiagram-v2
   [*] --> Settings: left open this session
   None --> Queue: queue button
   None --> Settings: settings button, Manager footer
-  None --> Settings: add email or add name
+  None --> Settings: add email
   Queue --> None: close, or send to a tool
   Settings --> None: close
 ```
