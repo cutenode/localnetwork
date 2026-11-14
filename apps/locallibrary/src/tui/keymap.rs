@@ -254,7 +254,7 @@ pub enum Act {
     OpenFolder,
     /// The Drives view, on the store's snapshots.
     Snapshots,
-    /// The Publish view, signing in.
+    /// The localnetwork view, signing in.
     SignIn,
     /// Export the drive, or the set open, in a plugin's format (the plugin's id, the format, and
     /// which of the two).
@@ -307,7 +307,7 @@ impl Group {
             Group::Drives => "Drives",
             Group::Snapshots => "Snapshots",
             Group::History => "History",
-            Group::Profile => "Publish",
+            Group::Profile => "localnetwork",
             Group::Mixes => "Recordings",
             Group::Commands => "Commands (type : and a few letters)",
         }
@@ -499,7 +499,7 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::History, "enter", "open", 7),
     tip(S::History, "↑↓", "select", 4),
     // -----------------------------------------------------------------------------------------
-    // The Publish view
+    // The localnetwork view
     // -----------------------------------------------------------------------------------------
     tip(S::Profile, "↑↓", "select", 3),
     key(S::Profile, &[K::Ch('e')], "e", A::PaneActions, "", "these actions, for the section selected", G::Profile).hint("actions", 7),
@@ -565,7 +565,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Goto, &[K::Ch('p')], "g p", A::ShowView(View::Prepare), "go to Prepare", "Prepare", G::Player),
     key(S::Goto, &[K::Ch('d')], "g d", A::ShowView(View::Drives), "go to Drives", "Drives, their snapshots and history", G::Player),
     key(S::Goto, &[K::Ch('r')], "g r", A::ShowView(View::Mixes), "go to Recordings", "Recordings", G::Player),
-    key(S::Goto, &[K::Ch('u')], "g u", A::ShowView(View::Profile), "go to Publish", "Publish", G::Player),
+    key(S::Goto, &[K::Ch('n')], "g n", A::ShowView(View::Profile), "go to localnetwork", "localnetwork", G::Player),
     key(S::Goto, &[K::Ch('g')], "g g", A::End(-1), "", "the first row", G::Moving),
     // -----------------------------------------------------------------------------------------
     // Everywhere
@@ -637,7 +637,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "export", A::ExportList, "export the list shown (M3U8, CSV, text)", "write the playlist, set, session or all tracks shown to a file on this computer", G::Commands),
     key(S::Global, &[], "eject", A::Eject, "eject the drive", EJECT, G::Commands),
     key(S::Global, &[], "g d 3", A::Snapshots, "browse snapshots", "the snapshots in the store, in the Drives view", G::Commands),
-    key(S::Global, &[], "g u L", A::SignIn, "sign in", "sign in to your Atmosphere account, in the Publish view", G::Commands),
+    key(S::Global, &[], "g n L", A::SignIn, "sign in", "sign in to your Atmosphere account, in the localnetwork view", G::Commands),
     // The command line's jobs, run on the drive: reports in a panel, changes planned and confirmed.
     key(S::Global, &[], "doctor", A::Run(Cli::Doctor), "health report: duplicates, missing and orphaned files", "duplicates, missing and orphaned files, tracks in no playlist, files too big for FAT32 (results in a panel)", G::Commands)
         .words("duplicates, missing files, orphaned files, broken tracks, unfiled, health, problems"),

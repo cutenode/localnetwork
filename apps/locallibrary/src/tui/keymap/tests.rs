@@ -98,7 +98,7 @@ fn every_key_is_in_the_help_or_the_palette() {
     assert_eq!(titles[..3], ["Browsing", "Marks and the crate", "Changing the drive"]);
     assert!(titles.contains(&"Playback") && titles.contains(&"Deck"));
     let (own, _) = help(View::Profile);
-    assert_eq!(own[0].0, "Publish");
+    assert_eq!(own[0].0, "localnetwork");
 }
 
 #[test]

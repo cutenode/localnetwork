@@ -63,7 +63,7 @@ fn no_drive_offers_at_most_three_next_steps() {
     assert_eq!((app.view, app.drive_pane), (View::Drives, DrivePane::Snapshots));
 }
 
-/// The last step starts signing in, in the Publish view.
+/// The last step starts signing in, in the localnetwork view.
 #[cfg(feature = "account")]
 #[test]
 fn the_last_step_signs_in() {
