@@ -66,7 +66,7 @@ flowchart TD
   Event["Booking record indexed,<br/>from a write or a sync"]
   Event -- "over 14 days old" --> Skip["Nothing"]
   Event --> Item["notification: one per other<br/>participant, once per record"]
-  Item --> Site["/dashboard/inbox and<br/>the sidebar count"]
+  Item --> Site["/dashboard/inbox, one row per thread,<br/>and the sidebar dot"]
   Item -- "over 6 hours old, or<br/>no active channel on the topic" --> Stays["Stays on the site"]
   Item --> Delivery["notification_delivery,<br/>due after the channel's window"]
   Delivery --> Batch["Outbox: up to 20 items per person<br/>and channel, read ones left out"]
@@ -98,7 +98,7 @@ Source: [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifica
 
 ## Inbox and delivery retention
 
-How long inbox items and deliveries last. The hourly `inbox-retention` job deletes them. An item's age counts from when it was made, and opening it or its thread marks it read.
+How long inbox items and deliveries last. The hourly `inbox-retention` job deletes them. An item's age counts from when it was made, and opening its inbox row or its thread marks it read.
 
 ```mermaid
 flowchart LR

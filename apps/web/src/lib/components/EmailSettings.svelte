@@ -1,5 +1,5 @@
 <script module lang="ts">
-	import type { NotificationTopic, PausedReason } from '#lib/types.ts';
+	import type { PausedReason } from '#lib/types.ts';
 
 	const PAUSED: Partial<Record<PausedReason, (address: string) => string>> = {
 		email_unverified: (address) => `We emailed a link to ${address}. Open it within a day to start getting email there.`,
@@ -12,7 +12,6 @@
 	import { Mail } from '@lucide/svelte';
 	import { enhance } from '$app/forms';
 	import type { ChannelView } from '#lib/types.ts';
-	import ChannelTopics from './ChannelTopics.svelte';
 	import FormMessage from './FormMessage.svelte';
 
 	/**
@@ -24,13 +23,11 @@
 		available,
 		channel,
 		returned,
-		topics,
 		form
 	}: {
 		available: boolean;
 		channel: ChannelView | null;
 		returned?: 'declined' | 'limited' | null;
-		topics: NotificationTopic[];
 		form?: { error?: string; success?: string } | null;
 	} = $props();
 
@@ -78,8 +75,7 @@
 			<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off email</button></form>
 		</div>
 	{:else}
-		<ChannelTopics action="?/emailTopics" legend="What to email" {topics} selected={channel.topics} />
-		<div class="flex flex-wrap gap-3 border-t border-line pt-4">
+		<div class="flex flex-wrap gap-3">
 			<form method="POST" action="?/emailTest" use:enhance><button type="submit" class="btn-secondary btn-sm">Send a test</button></form>
 			<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off email</button></form>
 		</div>

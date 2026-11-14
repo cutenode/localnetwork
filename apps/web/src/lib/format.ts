@@ -48,7 +48,11 @@ export function setHref(uri: string, handle: string | null = null): string {
 	return `${profileHref({ did, handle })}/sets/${rkey}`;
 }
 
-const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+const RELATIVE = {
+	long: new Intl.RelativeTimeFormat('en', { numeric: 'auto' }),
+	/** "2h ago", for a stamp at the end of a row. */
+	narrow: new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' })
+};
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 	['year', 365 * 86_400],
@@ -59,12 +63,16 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 	['minute', 60]
 ];
 
-export function timeAgo(iso: string | null | undefined, now = Date.now()): string {
+export function timeAgo(
+	iso: string | null | undefined,
+	now = Date.now(),
+	style: keyof typeof RELATIVE = 'long'
+): string {
 	if (!iso) return '';
 	const seconds = (Date.parse(iso) - now) / 1000;
 
 	for (const [unit, size] of UNITS) {
-		if (Math.abs(seconds) >= size) return RELATIVE.format(Math.round(seconds / size), unit);
+		if (Math.abs(seconds) >= size) return RELATIVE[style].format(Math.round(seconds / size), unit);
 	}
 
 	return 'just now';

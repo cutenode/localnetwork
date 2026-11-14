@@ -1,5 +1,5 @@
 <script module lang="ts">
-	import type { DmAvailability, NotificationTopic } from '#lib/types.ts';
+	import type { DmAvailability } from '#lib/types.ts';
 
 	/** What stands in the way of DMs, by what Bluesky chat says now, and what to do about it. */
 	const BLOCKED: Partial<Record<DmAvailability, (root: string) => string>> = {
@@ -13,7 +13,6 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import type { ChannelView } from '#lib/types.ts';
-	import ChannelTopics from './ChannelTopics.svelte';
 	import FormMessage from './FormMessage.svelte';
 
 	/**
@@ -25,14 +24,12 @@
 		channel,
 		availability,
 		root,
-		topics,
 		form
 	}: {
 		available: boolean;
 		channel: ChannelView | null;
 		availability: Promise<DmAvailability> | null;
 		root: string;
-		topics: NotificationTopic[];
 		form?: { error?: string; success?: string } | null;
 	} = $props();
 
@@ -87,8 +84,7 @@
 			<form method="POST" action="?/dmOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off DMs</button></form>
 		</div>
 	{:else}
-		<ChannelTopics action="?/dmTopics" legend="What to DM" {topics} selected={channel.topics} />
-		<div class="flex flex-wrap gap-3 border-t border-line pt-4">
+		<div class="flex flex-wrap gap-3">
 			<form method="POST" action="?/dmTest" use:enhance><button type="submit" class="btn-secondary btn-sm">Send a test</button></form>
 			<form method="POST" action="?/dmOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off DMs</button></form>
 		</div>

@@ -1,29 +1,23 @@
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import type { NotificationView } from '#lib/types.ts';
+import { inboxRow } from '#lib/testing/inbox.ts';
 import InboxList from './InboxList.svelte';
 
-const item = (id: string, overrides: Partial<NotificationView> = {}): NotificationView => ({
-	id,
-	topic: 'bookings',
-	title: 'Neon Tide sent a message',
-	body: 'Warehouse night',
-	href: '/dashboard/bookings/3mabc',
-	occurredAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
-	read: false,
-	...overrides
-});
-
-it('opens each item through a form that marks it read, saying which are unread', async () => {
+it('opens each row through a form that marks it read, saying which are unread', async () => {
 	await render(InboxList, {
-		items: [item('a'), item('b', { title: 'New booking inquiry for Neon Tide', body: undefined, read: true })]
+		rows: [inboxRow('a'), inboxRow('b', { title: 'Closing Night', summary: 'Neon Tide sent a message', unread: false })]
 	});
 
-	const unread = page.getByRole('button', { name: 'Neon Tide sent a message Warehouse night 2 hours ago Unread' });
-	await expect.element(unread).toHaveAttribute('type', 'submit');
 	await expect
-		.element(page.getByRole('button', { name: 'New booking inquiry for Neon Tide 2 hours ago' }))
+		.element(
+			page.getByRole('button', {
+				name: 'Rooftop Rave The promoter sent 2 messages and changed the status to Negotiating Unread 2h ago'
+			})
+		)
+		.toHaveAttribute('type', 'submit');
+	await expect
+		.element(page.getByRole('button', { name: 'Closing Night Neon Tide sent a message 2h ago' }))
 		.toBeVisible();
 
 	const forms = page
@@ -37,13 +31,10 @@ it('opens each item through a form that marks it read, saying which are unread',
 	]);
 });
 
-it('says what will show up here when nothing has yet', async () => {
-	await render(InboxList, { items: [] });
+it('holds the room of rows still loading, with nothing to press', async () => {
+	await render(InboxList, { loading: 3 });
 
-	await expect.element(page.getByText('Nothing yet')).toBeVisible();
-	await expect.element(page.getByText('Booking inquiries and messages show up here.')).toBeVisible();
-	await expect
-		.element(page.getByRole('link', { name: 'Get them by email or DM' }))
-		.toHaveAttribute('href', '/dashboard/account/notifications');
+	await expect.element(page.getByRole('list')).toHaveAttribute('aria-busy', 'true');
+	expect(page.getByRole('listitem').elements()).toHaveLength(3);
 	expect(page.getByRole('button').elements()).toHaveLength(0);
 });

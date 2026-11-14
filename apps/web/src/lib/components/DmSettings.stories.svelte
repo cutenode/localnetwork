@@ -1,12 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
-	import type { ChannelView, DmAvailability, NotificationTopic } from '#lib/types.ts';
+	import type { ChannelView, DmAvailability } from '#lib/types.ts';
 	import DmSettings from './DmSettings.svelte';
 
 	const { Story } = defineMeta({ title: 'Dashboard/DM settings', component: DmSettings, tags: ['autodocs'] });
-
-	const topics: NotificationTopic[] = ['bookings'];
 
 	const on: ChannelView = { status: 'active', pausedReason: null, address: null, topics: ['bookings'] };
 
@@ -33,18 +31,18 @@
 	};
 </script>
 
-<Story name="Off" args={{ available: true, channel: null, availability: answer('ok'), root, topics }} />
+<Story name="Off" args={{ available: true, channel: null, availability: answer('ok'), root }} />
 
-<Story name="Checking Bluesky chat" args={{ available: true, channel: null, availability: checking, root, topics }} />
+<Story name="Checking Bluesky chat" args={{ available: true, channel: null, availability: checking, root }} />
 
-<Story name="Not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root, topics }} />
+<Story name="Not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root }} />
 
-<Story name="Chat unreachable" args={{ available: true, channel: null, availability: answer('unavailable'), root, topics }} />
+<Story name="Chat unreachable" args={{ available: true, channel: null, availability: answer('unavailable'), root }} />
 
-<Story name="Chat unreachable, trying again" args={{ available: true, channel: null, availability: answer('unavailable'), root, topics }} play={tryAgain} />
+<Story name="Chat unreachable, trying again" args={{ available: true, channel: null, availability: answer('unavailable'), root }} play={tryAgain} />
 
-<Story name="On" args={{ available: true, channel: on, availability: answer('ok'), root, topics }} />
+<Story name="On" args={{ available: true, channel: on, availability: answer('ok'), root }} />
 
-<Story name="Not set up here" args={{ available: false, channel: null, availability: null, root, topics }} />
+<Story name="Not set up here" args={{ available: false, channel: null, availability: null, root }} />
 
-<Story name="Phone, not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root, topics }} globals={phone} />
+<Story name="Phone, not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root }} globals={phone} />

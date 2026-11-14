@@ -1,11 +1,12 @@
 import { TID } from '@atproto/common-web';
-import type { NotificationView } from '#lib/types.ts';
+import type { InboxSubjectView, NotificationView } from '#lib/types.ts';
 import { type Db, nowIso } from '../db';
 import type { NotificationRow } from '../db/schema';
 import { safeNext } from '../http';
 import type { Logger } from '../logger';
 import { isNotificationKind, KINDS, type NotificationData, type NotificationKind } from './kinds';
 import type { Outbox } from './outbox';
+import { summarize } from './subjects';
 
 const DAY_MS = 86_400_000;
 
@@ -138,6 +139,63 @@ export class Notifier {
 		return rows.map(view);
 	}
 
+	/**
+	 * `did`'s inbox a subject to a row, the one with the newest item first, `limit` rows at a time, from the row after the
+	 * one whose newest item is `before`.
+	 */
+	async subjects(
+		did: string,
+		{ before, limit = 50 }: { before?: string; limit?: number } = {}
+	): Promise<InboxSubjectView[]> {
+		const { db } = this.deps;
+
+		const cursor = before
+			? await db
+					.selectFrom('notification')
+					.select(['occurredAt', 'subjectUri'])
+					.where('recipientDid', '=', did)
+					.where('id', '=', before)
+					.executeTakeFirst()
+			: undefined;
+
+		let query = db
+			.selectFrom('notification')
+			.select((eb) => ['subjectUri', eb.fn.max('occurredAt').as('latest')])
+			.where('recipientDid', '=', did)
+			.groupBy('subjectUri');
+
+		if (cursor) {
+			query = query.having((eb) =>
+				eb(eb.tuple(eb.fn.max('occurredAt'), eb.ref('subjectUri')), '<', eb.tuple(cursor.occurredAt, cursor.subjectUri))
+			);
+		}
+
+		const page = await query.orderBy('latest', 'desc').orderBy('subjectUri', 'desc').limit(limit).execute();
+
+		if (page.length === 0) return [];
+
+		const rows = await db
+			.selectFrom('notification')
+			.selectAll()
+			.where('recipientDid', '=', did)
+			.where(
+				'subjectUri',
+				'in',
+				page.map(({ subjectUri }) => subjectUri)
+			)
+			.orderBy('occurredAt', 'desc')
+			.orderBy('id', 'desc')
+			.execute();
+
+		const bySubject = Map.groupBy(rows, (row) => row.subjectUri);
+
+		return page.flatMap(({ subjectUri }) => {
+			const [newest, ...older] = bySubject.get(subjectUri) ?? [];
+
+			return newest ? [summarize([newest, ...older])] : [];
+		});
+	}
+
 	async unreadCount(did: string): Promise<number> {
 		const { count } = await this.deps.db
 			.selectFrom('notification')
@@ -149,19 +207,22 @@ export class Notifier {
 		return Number(count);
 	}
 
-	/** Marks one of `did`'s items read, returning where it leads, or null when they have no such item. */
+	/**
+	 * Marks read everything `did` heard about the subject of their item `id`, whose inbox row it heads, returning where
+	 * it leads, or null when they have no such item.
+	 */
 	async open(did: string, id: string): Promise<string | null> {
 		const { db } = this.deps;
 
 		const row = await db
 			.selectFrom('notification')
-			.select('href')
+			.select(['href', 'subjectUri'])
 			.where('recipientDid', '=', did)
 			.where('id', '=', id)
 			.executeTakeFirst();
 
 		if (!row) return null;
-		await this.markRead(did, { id });
+		await this.markRead(did, { subjectUri: row.subjectUri });
 
 		return row.href;
 	}
@@ -175,15 +236,13 @@ export class Notifier {
 		await this.markRead(did, { subjectUri: subject });
 	}
 
-	/** Marks `did`'s unread items read, only the one with `id` or those about `subjectUri` when given. */
-	private async markRead(did: string, only: { id?: string; subjectUri?: string } = {}): Promise<void> {
+	/** Marks `did`'s unread items read, only those about `subjectUri` when given. */
+	private async markRead(did: string, only: { subjectUri?: string } = {}): Promise<void> {
 		let query = this.deps.db
 			.updateTable('notification')
 			.set({ readAt: nowIso() })
 			.where('recipientDid', '=', did)
 			.where('readAt', 'is', null);
-
-		if (only.id) query = query.where('id', '=', only.id);
 
 		if (only.subjectUri) query = query.where('subjectUri', '=', only.subjectUri);
 		await query.execute();
