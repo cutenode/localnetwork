@@ -26,6 +26,7 @@ const here = import.meta.dirname;
 // reach, and chasing them teaches nothing about the tool.
 const LOGIC = [
 	'content.ts',
+	'gate-page.ts',
 	'downloaded-store.ts',
 	'state-transfer.ts',
 	'theme-prepaint.ts',
@@ -40,7 +41,7 @@ const LOGIC = [
 // so what runs here is byte for byte what runs on soundcloud.com, and the
 // `v8 ignore` hints inside expressions, which that transform drops, are still
 // there for coverage to read.
-const PAGE_SCRIPTS = /\/(content|downloaded-store|state-transfer|theme-prepaint)\.ts$/;
+const PAGE_SCRIPTS = /\/(content|gate-page|downloaded-store|state-transfer|theme-prepaint)\.ts$/;
 
 // The shared classic scripts and the global each defines.
 const CLASSIC_GLOBALS = {
@@ -161,7 +162,7 @@ export default defineConfig({
 				branches: 50,
 				functions: 100,
 				lines: 100,
-				'{content.ts,downloaded-store.ts,state-transfer.ts,theme-prepaint.ts,src/**/*.ts}': {
+				'{content.ts,gate-page.ts,downloaded-store.ts,state-transfer.ts,theme-prepaint.ts,src/**/*.ts}': {
 					perFile: true,
 					statements: 100,
 					branches: 100,

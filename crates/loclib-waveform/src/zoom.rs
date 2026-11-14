@@ -28,9 +28,10 @@ pub struct Zoom<'a> {
     pub visible_secs: f64,
     pub beats: &'a [Beat],
     pub cues: &'a [Cue],
-    /// Rows of cue markers under the ruler, for when they collide. At 0 they're on the ruler.
+    /// Rows of cue markers over the ruler, for when they collide. At 0 they're on the ruler.
     pub cue_rows: u16,
-    /// Number the bars along the ruler.
+    /// Number the bars along the ruler, and carry each bar's line down through the waveform where
+    /// it's empty, so the grid can be read against the beats it measures.
     pub bar_numbers: bool,
     pub palette: Palette<'a>,
 }
@@ -190,6 +191,13 @@ impl ZoomRing {
             }
         }
 
+        // A bar's line through the waveform where nothing's drawn, under the cues' lines.
+        if bar.is_some() && shape.bar_numbers {
+            for cell in wave_cells.iter_mut().filter(|c| c.symbol() == " ") {
+                p.put_in(cell, "┆", paint(p.faint), None);
+            }
+        }
+
         // Lines through the waveform: a hot cue's over a memory cue's, which is marked underneath
         // too. The end of a loop is a thinner line on the ruler.
         let mut lines: [Option<&Cue>; 2] = [None, None];
@@ -218,7 +226,8 @@ impl ZoomRing {
         }
     }
 
-    /// Draw at `area`, from the top: the ruler, the cue rows and the waveform.
+    /// Draw at `area`, from the top: the cue rows, the ruler and the waveform. The ruler sits on the
+    /// waveform, so its ticks and the playhead's marker run straight into what they measure.
     pub fn draw(&mut self, z: &Zoom<'_>, area: Rect, buf: &mut Buffer) {
         if area.height < 3 || area.width < 8 {
             return;
@@ -236,7 +245,7 @@ impl ZoomRing {
         self.fill(z, left, width);
 
         for y in 0..rows {
-            let to_y = area.y + if y == 0 { 0 } else { y + cue_rows };
+            let to_y = area.y + cue_rows + y;
             for x in 0..area.width {
                 let column = (left + i64::from(x)).rem_euclid(self.capacity) as usize;
                 if let Some(cell) = buf.cell_mut((area.x + x, to_y)) {
@@ -262,7 +271,7 @@ impl ZoomRing {
                 cell.set_bg(paint(p.playhead));
             }
         }
-        p.put(buf, area.x + centre, area.y, "▼", paint(p.fg), None);
+        p.put(buf, area.x + centre, area.y + cue_rows, "▼", paint(p.fg), None);
     }
 
     /// The cues in view: each marker, then its name up to the next marker of the row.
@@ -270,7 +279,7 @@ impl ZoomRing {
         let p = &z.palette;
         let width = i64::from(area.width);
         let in_view = |m: &Mark| (0..width).contains(&(m.col - left));
-        let top = area.y + u16::from(cue_rows > 0);
+        let top = area.y;
         for (i, m) in self.marks.iter().enumerate().filter(|(_, m)| in_view(m)) {
             let x = (m.col - left) as u16;
             let y = top + m.row.min(cue_rows.saturating_sub(1));

@@ -29,14 +29,15 @@ flowchart TD
   Load --> Limit["Write limit for this address"]
   Limit -- "over it" --> Slow["429"]
   Limit --> Session["ln_session to a viewer,<br/>skipped on /xrpc/"]
-  Session --> Guard["guardArea by route"]
+  Session --> Flags["Flags for the viewer, a signed-out<br/>visitor's on /xrpc/, and a staff preview<br/>from ln_flag_preview off it"]
+  Flags --> Guard["guardArea by route"]
   Guard -- "/dashboard or /admin,<br/>signed out" --> Login["303 to /login?next="]
   Guard -- "/admin, not staff" --> Refused["403"]
   Guard --> Route["Load, action or endpoint,<br/>page CSP with a nonce"]
   Route --> Out["gzip, security headers,<br/>noindex on unlisted areas,<br/>the one log line for the request"]
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
 
 ## Page loads and form actions
 
@@ -69,8 +70,8 @@ What each response lets a browser or a shared cache keep. Pages that show the sa
 ```mermaid
 flowchart LR
   Responses["Cache-Control"]
-  Responses -- "/charts, /artists pages" --> Brief["60 s: public with no session<br/>cookie, else private, Vary: Cookie"]
-  Responses -- "an active performer's mix page" --> Mix["public, 5 minutes"]
+  Responses -- "/charts, /artists pages: 60 s" --> Brief["cacheBriefly: public with no session<br/>cookie, else private, Vary: Cookie"]
+  Responses -- "an active performer's<br/>mix page: 5 minutes" --> Brief
   Responses -- "/media, recordings, most /og cards" --> Year["public, a year, immutable"]
   Responses -- "/og artist cards, /og/site.png" --> Hour["public, an hour and a day"]
   Responses -- "public press kit photos" --> Day["public, a day, immutable"]
@@ -78,10 +79,11 @@ flowchart LR
   Responses -- "/api/actors, /api/places" --> Api["private, 5 minutes"]
   Responses -- "player.json, chapters.json" --> Sets["public, 1 and 5 minutes"]
   Responses -- "client metadata, did.json" --> Docs["public, 10 and 5 minutes"]
-  Responses -- "/healthz, token exchange, audit export" --> Never["no-store"]
+  Responses -- "getFlags without a token" --> Flags["public, a minute,<br/>Vary: Authorization"]
+  Responses -- "/healthz, token exchange, audit export,<br/>getFlags with a token" --> Never["no-store"]
 ```
 
-Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`src/routes/projects/[slug]/mixes/[n]/+page.server.ts`](../../src/routes/projects/[slug]/mixes/[n]/+page.server.ts), [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/lib/server/og/serve.ts`](../../src/lib/server/og/serve.ts), [`src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts`](../../src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts), [`src/routes/api/places/+server.ts`](../../src/routes/api/places/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts)
+Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`src/routes/projects/[slug]/mixes/[n]/+page.server.ts`](../../src/routes/projects/[slug]/mixes/[n]/+page.server.ts), [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/lib/server/og/serve.ts`](../../src/lib/server/og/serve.ts), [`src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts`](../../src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts), [`src/routes/api/places/+server.ts`](../../src/routes/api/places/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
 
 ## Error paths
 
@@ -113,14 +115,15 @@ flowchart LR
   Limits -- "write: 30 a minute" --> W1["POST, PUT, PATCH and DELETE,<br/>except /xrpc/, per address"]
   Limits -- "write: 30 a minute" --> W2["Space joins and held record<br/>deletes, per account"]
   Limits -- "login: 10 a minute" --> L1["/login and /login/create,<br/>per address"]
+  Limits -- "flags: 60, then 1 a second" --> F1["getFlags with a token,<br/>per address"]
   Limits -- "search: 60, then 2 a second" --> S1["/api/actors and /api/places,<br/>per address"]
-  Limits -- "profileMisses: 30 in 10 minutes" --> M1["/@[handle] naming no account,<br/>per address"]
+  Limits -- "profileMisses: 30 in 10 minutes" --> M1["/@[handle] and its set pages<br/>naming no account, per address"]
   Limits -- "optIn: 5 in 10 minutes" --> O1["Turning email or DMs on,<br/>per account"]
   Limits -- "testSend: 3 an hour" --> T1["Test messages, per account"]
   Limits -- "email confirmations" --> C1["5 a day per account, 3 a day per<br/>account and email, 10 a day per<br/>email, 100 an hour overall"]
 ```
 
-Source: [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/rate-limit.ts`](../../src/lib/server/rate-limit.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts)
+Source: [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/rate-limit.ts`](../../src/lib/server/rate-limit.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts)
 
 ## Route families
 
@@ -136,11 +139,12 @@ flowchart LR
   Routes -- "a thread's participants" --> Thread["/dashboard/bookings/[skey]"]
   Routes -- "moderators and admins" --> Console["/admin"]
   Routes -- "admins only" --> Edit["/admin/staff, /admin/system,<br/>/admin/verifications,<br/>performer edits"]
-  Routes -- "PDSes and locallibrary" --> Xrpc["/xrpc/*, with service auth"]
+  Routes -- "moderators an admin gave<br/>a grant, and admins" --> Flags["/admin/flags"]
+  Routes -- "PDSes and locallibrary" --> Xrpc["/xrpc/*, with service auth,<br/>getFlags without it too"]
   Routes -- "anyone, for locallibrary's<br/>loopback sign-ins" --> Exchange["/api/token-exchange/[service]"]
 ```
 
-Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/manage.ts`](../../src/lib/server/manage.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts)
+Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/manage.ts`](../../src/lib/server/manage.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/forms/flags.ts`](../../src/lib/server/forms/flags.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
 
 ## Public pages
 
@@ -205,9 +209,12 @@ flowchart LR
   Admin --> People["/admin/staff"]
   Admin --> System["/admin/system"]
   Admin --> Verify["/admin/verifications"]
+  Grant["requireGrant<br/>admins, and moderators<br/>an admin gave the grant"]
+  Grant -- "flags" --> Flags["/admin/flags, /[key]"]
+  Grant -- "flagGroups" --> Groups["/admin/flags/groups, /[rkey]"]
 ```
 
-Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/routes/admin/projects/[slug]/+page.server.ts`](../../src/routes/admin/projects/[slug]/+page.server.ts), [`src/routes/admin/system/+page.server.ts`](../../src/routes/admin/system/+page.server.ts), [`src/routes/admin/staff/+page.server.ts`](../../src/routes/admin/staff/+page.server.ts), [`src/routes/admin/verifications/+page.server.ts`](../../src/routes/admin/verifications/+page.server.ts)
+Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/routes/admin/projects/[slug]/+page.server.ts`](../../src/routes/admin/projects/[slug]/+page.server.ts), [`src/routes/admin/system/+page.server.ts`](../../src/routes/admin/system/+page.server.ts), [`src/routes/admin/staff/+page.server.ts`](../../src/routes/admin/staff/+page.server.ts), [`src/routes/admin/verifications/+page.server.ts`](../../src/routes/admin/verifications/+page.server.ts), [`src/lib/server/forms/flags.ts`](../../src/lib/server/forms/flags.ts), [`src/routes/admin/flags/+page.server.ts`](../../src/routes/admin/flags/+page.server.ts), [`src/routes/admin/flags/groups/+page.server.ts`](../../src/routes/admin/flags/groups/+page.server.ts)
 
 ## Endpoints
 
@@ -223,11 +230,11 @@ flowchart LR
   Ep --> Api["/api/actors, /api/places,<br/>/api/token-exchange/[service]"]
   Ep --> Docs["/oauth-client-metadata.json<br/>/.well-known/did.json"]
   Ep --> Session["/oauth/callback,<br/>POST /logout"]
-  Ep --> Xrpc["/xrpc: notifyWrite,<br/>notifySpaceDeleted,<br/>directory.requestIndex"]
+  Ep --> Xrpc["/xrpc: notifyWrite,<br/>notifySpaceDeleted,<br/>directory.requestIndex,<br/>flags.getFlags"]
   Ep --> Signed["Viewer checked: dashboard<br/>photos, request avatars,<br/>/admin/audit/export"]
 ```
 
-Source: [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/routes/media/audio/[did]/[cid]/+server.ts`](../../src/routes/media/audio/[did]/[cid]/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/routes/og/site.png/+server.ts`](../../src/routes/og/site.png/+server.ts), [`src/routes/api/actors/+server.ts`](../../src/routes/api/actors/+server.ts), [`src/routes/epk/[did]/[rkey]/+server.ts`](../../src/routes/epk/[did]/[rkey]/+server.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/.well-known/did.json/+server.ts`](../../src/routes/.well-known/did.json/+server.ts)
+Source: [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/routes/media/audio/[did]/[cid]/+server.ts`](../../src/routes/media/audio/[did]/[cid]/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/routes/og/site.png/+server.ts`](../../src/routes/og/site.png/+server.ts), [`src/routes/api/actors/+server.ts`](../../src/routes/api/actors/+server.ts), [`src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts`](../../src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts), [`src/routes/epk/[did]/[rkey]/+server.ts`](../../src/routes/epk/[did]/[rkey]/+server.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/.well-known/did.json/+server.ts`](../../src/routes/.well-known/did.json/+server.ts)
 
 ## Smaller pages and endpoints
 
@@ -242,7 +249,7 @@ flowchart LR
   Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
   Small -- "/api/actors" --> E["Bluesky's typeahead, kept<br/>10 minutes in memory"]
   Small -- "/healthz" --> F["200, with HappyView<br/>and backup status"]
-  Small -- "/for-djs" --> G["Static page with its meta"]
+  Small -- "/for-djs" --> G["Streams an example listing and<br/>the directory's totals"]
 ```
 
 Source: [`src/routes/dashboard/activity/+page.server.ts`](../../src/routes/dashboard/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)
