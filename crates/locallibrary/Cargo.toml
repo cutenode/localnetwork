@@ -32,6 +32,7 @@ default = ["account", "peers"]
 # for this alone (the HTTP client and its async runtime, the keychain and the AT Protocol's types,
 # which check the records a set destination answers, are plugins' too).
 account = [
+    "dep:hickory-resolver",
     "dep:http",
     "dep:jacquard-api",
     "dep:jacquard-identity",
@@ -111,6 +112,8 @@ rayon = "1.12.0"
 memchr = "2.8.3"
 loclib-audio.workspace = true
 loclib-capacity = { workspace = true, features = ["schemars"] }
+# A handle's `_atproto` TXT record, looked up with the DNS servers the system is set to use.
+hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }

@@ -14,14 +14,14 @@
 			"measures": "Bytes allocated by one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.allocations": {
-			"limit": 755,
+			"limit": 650,
 			"unit": "allocations",
-			"measures": "Allocations of one frame of the Deck layout at 160x45, with the 3,886-track fixture open and a track playing."
+			"measures": "Allocations of one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.bytes": {
-			"limit": 61493,
+			"limit": 47799,
 			"unit": "bytes",
-			"measures": "Bytes allocated by one frame of the Deck layout at 160x45, with the 3,886-track fixture open and a track playing."
+			"measures": "Bytes allocated by one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.allocations": {
 			"limit": 394,
@@ -54,12 +54,12 @@
 			"measures": "Bytes allocated by one frame of the command palette, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.allocations": {
-			"limit": 2445,
+			"limit": 2251,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.bytes": {
-			"limit": 160254,
+			"limit": 139932,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		}

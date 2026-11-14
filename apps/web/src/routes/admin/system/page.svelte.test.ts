@@ -96,7 +96,8 @@ const space = (name: string, lastError: string | null = null) => ({
 	lastSyncedAt: '2026-10-01T00:00:00Z',
 	lastError,
 	registrationExpiresAt: null,
-	repos: []
+	repos: [],
+	stuck: []
 });
 
 const base = {
@@ -177,5 +178,70 @@ describe('System page repos', () => {
 			'did:plc:dj @ 3mzlqyh5lt22d',
 			'did:plc:gone · never synced · RepoDeactivated'
 		]);
+	});
+});
+
+describe('System page stuck records', () => {
+	const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+
+	it('lists records whose projection keeps failing, and counts their space as failing', async () => {
+		await render(Page, {
+			params: {},
+			data: {
+				...base,
+				sync: [
+					space('audit'),
+					{
+						...space('staff'),
+						stuck: [
+							{
+								did: 'did:plc:dj',
+								collection: 'computer.localnetwork.booking.inquiry',
+								rkey: '3mzlqyh5lt22d',
+								attempts: 3,
+								nextAttemptAt: inMinutes(3),
+								lastError: 'directory offline'
+							},
+							{
+								did: 'did:plc:dj',
+								collection: 'computer.localnetwork.booking.message',
+								rkey: '3mzlqyh5lt22e',
+								attempts: 1,
+								nextAttemptAt: inMinutes(-1),
+								lastError: 'directory offline'
+							}
+						]
+					}
+				]
+			},
+			form: null
+		});
+
+		await expect.element(page.getByRole('status')).toHaveTextContent('1 of 2 spaces have sync errors');
+		const cards = page.getByText(/^(audit|staff) \/ main/).elements();
+		expect(cards.map((card) => card.textContent)).toEqual(['staff / mainFailed', 'audit / main']);
+		await expect.element(page.getByRole('heading', { name: 'Stuck in projection' })).toBeVisible();
+
+		const stuck = page
+			.getByRole('listitem')
+			.filter({ hasText: /^computer\.localnetwork\./ })
+			.elements();
+
+		expect(stuck.map((record) => [...record.children].map((line) => line.textContent))).toEqual([
+			[
+				'computer.localnetwork.booking.inquiry/3mzlqyh5lt22d',
+				'did:plc:dj · 3 attempts · next try in 3 minutes · directory offline'
+			],
+			[
+				'computer.localnetwork.booking.message/3mzlqyh5lt22e',
+				'did:plc:dj · 1 attempt · due on the next sync · directory offline'
+			]
+		]);
+	});
+
+	it('shows nothing for a space with no stuck records', async () => {
+		await render(Page, { params: {}, data: base, form: null });
+
+		await expect.element(page.getByRole('heading', { name: 'Stuck in projection' })).not.toBeInTheDocument();
 	});
 });

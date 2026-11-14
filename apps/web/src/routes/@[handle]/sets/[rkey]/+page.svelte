@@ -32,7 +32,7 @@
 
 <div class="container-page py-10">
 	<div class="flex max-w-3xl flex-col gap-10">
-	<DjSets sets={[data.set]} />
+	<DjSets sets={[data.set]} link={false} />
 
 	{#await data.mixes then mixes}
 		{#if mixes?.length}

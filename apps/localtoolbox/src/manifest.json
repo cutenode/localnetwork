@@ -4,19 +4,7 @@
 	"version": "2.11.0",
 	"description": "small tools for SoundCloud: track lists, download links, cover art, and a queue to batch them.",
 	"permissions": ["activeTab", "clipboardWrite", "storage", "downloads", "offscreen"],
-	"host_permissions": [
-		"https://hypeddit.com/*",
-		"https://*.toneden.io/*",
-		"https://fanlink.tv/*",
-		"https://droploud.com/*",
-		"https://api.droploud.com/*",
-		"https://pumpyoursound.com/*",
-		"https://laylo.com/*",
-		"https://d21i0hc4hl3bvt.cloudfront.net/*",
-		"https://d3oyaxbt9vo0fg.cloudfront.net/*",
-		"https://events.laylo.com/*",
-		"https://ffm.to/*"
-	],
+	"host_permissions": ["https://hypeddit.com/*"],
 	"background": {
 		"service_worker": "background.js",
 		"type": "module"
@@ -28,6 +16,11 @@
 			"css": ["content.css"],
 			"run_at": "document_idle",
 			"all_frames": true
+		},
+		{
+			"matches": ["https://droploud.com/*", "https://pumpyoursound.com/*", "https://laylo.com/*"],
+			"js": ["downloaded-store.js", "gate-page.js"],
+			"run_at": "document_idle"
 		}
 	],
 	"action": {

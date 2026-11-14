@@ -3621,7 +3621,6 @@ checksum = "37605d1d386326d594b7714ab84b0ded0e91d4bb003214f663eacf99f1b49da5"
 dependencies = [
  "bon",
  "bytes",
- "hickory-resolver",
  "http",
  "jacquard-common",
  "jacquard-lexicon",
@@ -4054,6 +4053,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "hegeltest",
+ "hickory-resolver",
  "hmac 0.12.1",
  "http",
  "image",
@@ -4485,6 +4485,7 @@ dependencies = [
  "hegeltest",
  "httpdate",
  "indexmap",
+ "jacquard-common",
  "jsonschema",
  "loclib-model",
  "loclib-progress",
