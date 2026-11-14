@@ -2221,6 +2221,7 @@ dependencies = [
  "libc",
  "loclib-analysis",
  "loclib-audio",
+ "loclib-capacity",
  "loclib-equipment",
  "loclib-mixid",
  "loclib-model",
@@ -2301,6 +2302,17 @@ dependencies = [
  "loclib-model",
  "loclib-progress",
  "symphonia",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-capacity"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "loclib-progress",
+ "schemars",
+ "serde",
  "thiserror 2.0.21",
 ]
 

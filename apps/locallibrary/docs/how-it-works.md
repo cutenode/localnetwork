@@ -18,6 +18,8 @@ crates/loclib-model/        the library model (tracks, playlists, the difference
 crates/loclib-equipment/    what each player, all-in-one system and mixer reads (databases, file systems, audio
                             formats, sample rates, bit depths), with the manual each value comes from;
                             equipment.json is the table for other languages
+crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct patterns written across a whole
+                            disk, highest first, read back from the device, and how much really keeps data
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
@@ -121,8 +123,8 @@ crates/locallibrary/src/    the library, built on the crates above
   upgrade.rs   pointing lossy tracks at lossless files of their recording, found by sound, cues and
                grid moved by the offset between them
   plays.rs     history lists on drives and in the store, play statistics
-  sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
-               sessions and recordings, editing, exports, Beat Link Trigger logs
+  sets/        the DJ's sets (sets.json): histories and their windows, suggestions, building a set from
+               histories and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't;
@@ -161,7 +163,7 @@ crates/locallibrary/src/    the library, built on the crates above
                cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
-               writer, fake-capacity probe
+               writer, running the fake-capacity probe (loclib-capacity) first
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
   fleet.rs     every drive you own: registry views, roles, logbook, recognising and re-identifying drives
   scrub.rs     re-reading a drive against known-good copies, and repairing it
@@ -300,7 +302,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   that has no recent result, with scratch data in `.locallibrary/` that's removed after, keeps the
   result there, and says it did. A drive that had no `.locallibrary/` loses it again if you say no.
   A dry run never does any of this (see [Speed](drives.md#speed) and
-  [the decision](adr/0002-a-plan-may-time-its-drive.md)).
+  [the decision](adr/0004-a-plan-may-time-its-drive.md)).
 - **No silent overwrites.** `library push` refuses to overwrite a drive holding a library state the
   store has never seen (pull it first, or `--force`), `sync` refuses when it can't tell which side
   is newer (without lineage, holding more tracks isn't enough on its own, and a side with fewer

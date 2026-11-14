@@ -177,6 +177,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   analysis (beat grid, cues, waveforms, phrases)
 - [loclib-equipment](../../crates/loclib-equipment): what each Pioneer DJ / AlphaTheta player and mixer
   reads from a USB drive, with sources, also as JSON
+- [loclib-capacity](../../crates/loclib-capacity): catching fake-capacity USB sticks and cards by
+  writing and reading back test regions across the whole disk
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
 - [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
@@ -289,6 +291,7 @@ flowchart LR
     core --> set["loclib-mysettings<br/>My Settings files"]
     core --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
     core --> equip["loclib-equipment<br/>what players read"]
+    core --> cap["loclib-capacity<br/>fake-capacity probe"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
@@ -430,7 +433,7 @@ flowchart TD
     hub["Library and store"]
     hub --> tracks["tracks<br/>list, search, filter, sort"]
     hub --> library["library<br/>ls, rename, log, push, prune"]
-    hub --> store["store<br/>info, gc, verify, index-limit, label, unlabel, prune, copy, copies, browse, views, unbrowse, restore, serve, fetch"]
+    hub --> store["store<br/>info, gc, verify, index-limit, copy-on-write, label, unlabel, prune, copy, copies,<br/>browse, views, unbrowse, restore, serve, fetch"]
     hub --> diff["diff<br/>entries between two drives or snapshots"]
     hub --> collection["collection<br/>info, tracks, playlists, export, diff"]
     hub --> export["export<br/>M3U8, CSV, text or a plugin's format"]
