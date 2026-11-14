@@ -94,13 +94,14 @@ flowchart LR
   Console -- "/admin/projects" --> T2["Performer records in the root's repo,<br/>booking details in the industry space"]
   Console -- "/admin/listings/[did]" --> T3["Deletes listing.profile"]
   Console -- "/admin/spaces" --> T4["People records,<br/>list and unlist"]
-  Console -- "/admin/staff" --> T5["staff.role, and membership<br/>of the four root spaces"]
+  Console -- "/admin/staff" --> T5["staff.role with a moderator's grants,<br/>and membership of the four root spaces"]
+  Console -- "/admin/flags" --> T9["staff.flag and staff.group<br/>in the staff space, a preview cookie"]
   Console -- "/admin/verifications" --> T6["app.bsky.graph.verification<br/>in the root's repo"]
   Console -- "/admin/system" --> T7["Bootstrap, resync,<br/>retry audit delivery"]
   Console -- "/admin/audit" --> T8["Read only: filter, verify<br/>the chain, export JSONL"]
 ```
 
-Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/verifications.ts`](../../src/lib/server/services/verifications.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts)
+Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/services/verifications.ts`](../../src/lib/server/services/verifications.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts)
 
 ## Bluesky verifications
 
@@ -142,7 +143,7 @@ Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/service
 
 ## People in shared spaces
 
-How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people. No page starts a space yet either: `SharedSpaces.create`, which adds its first person, has no caller.
+How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people. No page starts a space yet either: `SharedSpaces.create` and `createAct`, which add its first person, have no caller.
 
 ```mermaid
 flowchart TD
@@ -159,22 +160,22 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue would reach the directory. No kind has a public page yet, so nothing is listed.
+How a listed act, party or venue reaches the directory. Only acts have something to list so far, from the root's performer record in their space; a DJ's own space, parties and venues have nothing to show, so they're never listed. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD
   Status["Staff list or unlist:<br/>listing.status in the space"] --> Refresh["ListingWriter.refresh"]
-  People["A people record syncs"] --> Refresh
+  People["A people or performer<br/>record syncs"] --> Refresh
   Hourly["Startup and hourly reconcile"] --> Refresh
   Refresh --> Source{"Listed, with a<br/>page to show?"}
   Source -- "no" --> Delete["Delete any listing"]
-  Source -- "yes" --> Build["Public fields, plus people in a<br/>listed role who haven't hidden"]
+  Source -- "yes" --> Build["Public fields, plus people in a<br/>listed role and a performer's<br/>managers, if they haven't hidden"]
   Build --> Same{"Differs from<br/>the published one?"}
   Same -- "no" --> Skip["No write"]
   Same -- "yes" --> Put["Root writes computer.localnetwork.listing"]
 ```
 
-Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
+Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
 
 ## Backup and restore
 

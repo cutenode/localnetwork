@@ -202,6 +202,27 @@ describe('exchangeToken', () => {
 		expect(JSON.stringify(lines[0])).toContain('"env":["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET"]');
 	});
 
+	it('answers 503 for a service whose pause flag is on, sending it nothing, while the others still trade', async () => {
+		const { sent, fetch } = services();
+		const { lines, log } = capture();
+		const flags = { pauseMixcloudTokenExchange: true };
+
+		const paused = await exchangeToken('mixcloud', post(code), { log, env, fetch, flags });
+
+		expect([paused.status, await paused.json()]).toEqual([
+			503,
+			{ error: 'temporarily_unavailable', error_description: 'Local Network has paused signing in to Mixcloud' }
+		]);
+		expect(paused.headers.get('cache-control')).toBe('no-store');
+		expect(sent).toEqual([]);
+		expect(JSON.stringify(lines)).toContain('"flag":"pauseMixcloudTokenExchange"');
+
+		const trading = await exchangeToken('soundcloud', post(code), { log, env, fetch, flags });
+
+		expect(trading.status).toBe(200);
+		expect(sent.map((s) => s.url.origin)).toEqual(['https://secure.soundcloud.com']);
+	});
+
 	it.each([
 		['not JSON', 'code=c0de'],
 		['another grant', JSON.stringify({ grant_type: 'password', username: 'a', password: 'b' })],
@@ -314,6 +335,13 @@ describe('exchangeToken', () => {
 
 		expect(late.status).toBe(502);
 		expect(JSON.stringify(lines)).toContain('"reason":"The operation was aborted due to timeout"');
+
+		const thrown = async () => {
+			throw 'mc-secret';
+		};
+
+		expect((await exchangeToken('mixcloud', post(code), { log, env, fetch: thrown })).status).toBe(502);
+		expect(JSON.stringify(lines)).toContain('"reason":"unknown"');
 
 		for (const body of ['<html>maintenance</html>', JSON.stringify({ a: 'b'.repeat(70_000) }), '["at-1"]', null]) {
 			const odd = async () => new Response(body, { status: body === null ? 502 : 200 });

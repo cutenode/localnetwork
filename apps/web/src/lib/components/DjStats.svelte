@@ -174,6 +174,6 @@
 	{/if}
 
 	<p class="m-0 text-caption text-fg-subtle">
-		From locallibrary{profile.precision === 'rounded' ? ', rounded' : ''}, updated {formatDate(profile.generatedAt)}.
+		From <a class="link" href="/tools/locallibrary">locallibrary</a>{profile.precision === 'rounded' ? ', rounded' : ''}, updated {formatDate(profile.generatedAt)}.
 	</p>
 </div>

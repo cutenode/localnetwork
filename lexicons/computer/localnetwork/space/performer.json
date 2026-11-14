@@ -12,7 +12,9 @@
 				"computer.localnetwork.people.invite",
 				"computer.localnetwork.people.link",
 				"computer.localnetwork.people.request",
-				"computer.localnetwork.listing.status"
+				"computer.localnetwork.listing.status",
+				"computer.localnetwork.performer",
+				"computer.localnetwork.epk.draft"
 			]
 		}
 	}

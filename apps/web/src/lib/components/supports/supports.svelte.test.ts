@@ -65,8 +65,20 @@ describe('ArtistSupport', () => {
 		await expect
 			.element(plays.first().getByRole('link', { name: 'Saffron Social' }))
 			.toHaveAttribute('href', '/projects/saffron-social');
-		// A DJ with no active project and no known handle still shows up, as their DID.
+		await expect
+			.element(plays.first().getByRole('link', { name: '@neon.test' }))
+			.toHaveAttribute('href', '/@neon.test');
+		await expect
+			.element(plays.first().getByRole('link', { name: 'Halle Nord, Berlin' }))
+			.toHaveAttribute('href', '/@neon.test/sets/3kset1');
+		// A DJ with no active project and no known handle still shows up, as their DID, linking their profile and set by it.
 		await expect.element(plays.nth(1)).toHaveTextContent('Sat 10 Oct did:plc:harbour Sunday session club');
+		await expect
+			.element(plays.nth(1).getByRole('link', { name: 'did:plc:harbour' }))
+			.toHaveAttribute('href', '/@did:plc:harbour');
+		await expect
+			.element(plays.nth(1).getByRole('link', { name: 'Sunday session' }))
+			.toHaveAttribute('href', '/@did:plc:harbour/sets/3kset3');
 		await expect.element(plays).toHaveLength(8);
 
 		const more = page.getByRole('list', { name: 'More plays of Night Bus' });
@@ -197,5 +209,26 @@ describe('DjSets', () => {
 			.toHaveAttribute('href', '/artists/name/Kestrel%20Unit');
 		await expect.element(page.getByText('Unreleased')).toBeVisible();
 		await expect.element(page.getByRole('link', { name: 'Someone' })).not.toBeInTheDocument();
+	});
+
+	it("links each set's name to its page, under the DJ's handle or else their DID, but not on that page", async () => {
+		const set: DjSet = {
+			uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset',
+			date: '2026-10-13',
+			title: 'Closing',
+			tracks: []
+		};
+
+		const screen = await render(DjSets, { sets: [set], handle: 'neon.test' });
+		await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', '/@neon.test/sets/3kset');
+
+		await screen.rerender({ sets: [set], handle: null });
+		await expect
+			.element(page.getByRole('link', { name: 'Closing' }))
+			.toHaveAttribute('href', '/@did:plc:neon/sets/3kset');
+
+		await screen.rerender({ sets: [set], link: false });
+		await expect.element(page.getByText('Closing')).toBeVisible();
+		await expect.element(page.getByRole('link', { name: 'Closing' })).not.toBeInTheDocument();
 	});
 });
