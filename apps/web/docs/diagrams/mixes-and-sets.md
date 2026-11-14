@@ -37,7 +37,7 @@ How a mix links a set a manager published, and what the page says afterwards. A 
 flowchart TD
   Form["A performer form"] --> Picker["Set picker: the managers' sets from HappyView,<br/>re-read every 10 minutes at most"]
   Picker --> Post["Form posts the set's URI and CID"]
-  Post -- "a manager's edit" --> Review["Update request,<br/>until staff approve it"]
+  Post -- "a new performer,<br/>or a manager's edit" --> Review["Create or update request,<br/>until staff approve it"]
   Post -- "an admin's direct edit" --> Publish["Root publishes: each new link is checked"]
   Review --> Publish
   Publish -- "not a dj.set, not a manager's,<br/>or HappyView lacks it" --> Refused["Error on the staff form<br/>or the approval"]
@@ -49,15 +49,15 @@ flowchart TD
   Page -- "HappyView down" --> Links["Still links the set's page"]
 ```
 
-Source: [`src/lib/server/services/sets.ts`](../../src/lib/server/services/sets.ts), [`src/lib/components/LinkedSet.svelte`](../../src/lib/components/LinkedSet.svelte), [`src/lib/format.ts`](../../src/lib/format.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/routes/dashboard/projects/[slug]/profile/+page.server.ts`](../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts)
+Source: [`src/lib/server/services/sets.ts`](../../src/lib/server/services/sets.ts), [`src/lib/components/LinkedSet.svelte`](../../src/lib/components/LinkedSet.svelte), [`src/lib/format.ts`](../../src/lib/format.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/routes/dashboard/projects/new/+page.server.ts`](../../src/routes/dashboard/projects/new/+page.server.ts), [`src/routes/dashboard/projects/[slug]/profile/+page.server.ts`](../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts)
 
 ## DJ stats on a page
 
-How a performer page or a profile gets the stats and recent sets DJs publish. The app stores none of it. A profile link with `?tab=` waits for them, and for the projects the person plays in, so the tab it opens works without scripts.
+How a performer page, a profile or the dashboard home's locallibrary card gets the stats and recent sets DJs publish. The app stores none of it. A profile link with `?tab=` waits for them, and for the projects the person plays in, so the tab it opens works without scripts.
 
 ```mermaid
 flowchart TD
-  Page["Performer page or /@[handle]"] --> Fresh["Every account cached,<br/>under 5 minutes old?"]
+  Page["Performer page, /@[handle]<br/>or /dashboard's locallibrary card"] --> Fresh["Every account cached,<br/>under 5 minutes old?"]
   Fresh -- "yes" --> Now["Rendered with the page"]
   Fresh -- "no" --> Stream["Streamed in after the page"]
   Fresh -- "no, ?tab= in the URL" --> Waited["Fetched first,<br/>rendered with the page"]
@@ -69,7 +69,7 @@ flowchart TD
   Sets --> Cache
 ```
 
-Source: [`src/lib/server/services/dj.ts`](../../src/lib/server/services/dj.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/components/ProfileTabs.svelte`](../../src/lib/components/ProfileTabs.svelte), [`src/lib/profile-tabs/`](../../src/lib/profile-tabs/)
+Source: [`src/lib/server/services/dj.ts`](../../src/lib/server/services/dj.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/locallibrary.ts`](../../src/lib/server/locallibrary.ts), [`src/lib/components/ProfileTabs.svelte`](../../src/lib/components/ProfileTabs.svelte), [`src/lib/profile-tabs/`](../../src/lib/profile-tabs/)
 
 ## Sets and recordings
 

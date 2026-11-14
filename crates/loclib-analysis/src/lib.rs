@@ -11,7 +11,7 @@ use std::path::Path;
 
 use std::ops::ControlFlow;
 
-use loclib_mixid::audio::{self, Damaged, Resampler};
+use loclib_audio::{self as audio, Damaged, Resampler};
 use loclib_progress::Ctx;
 use serde::{Deserialize, Serialize};
 

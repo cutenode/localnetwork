@@ -3,6 +3,8 @@
 // The choice is the popup's own (localStorage, no permission). The Local
 // Network theme is dark by default, so light is applied by putting `light` on
 // <html>, which switches its tokens to their light values (packages/tokens/theme.css).
+// theme-prepaint.ts puts it there first, before the popup paints; this keeps it
+// in step from then on.
 
 const KEY = 'pref:theme';
 

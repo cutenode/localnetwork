@@ -194,7 +194,8 @@ impl App {
     }
 
     /// Keys while the help is open: typing narrows it, the arrows move, enter runs the row selected
-    /// and esc closes it (`?` too, with nothing typed).
+    /// (with no key matching what's typed, searches the palette for it) and esc closes it (`?`
+    /// too, with nothing typed).
     fn on_help_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => self.help_row = self.help_row.saturating_sub(1),
@@ -205,6 +206,11 @@ impl App {
             KeyCode::Char('?') if self.help_query.is_empty() => self.help = false,
             KeyCode::Enter => {
                 let rows = keymap::help_rows(self, &self.help_query);
+                if rows.is_empty() && !self.help_query.trim().is_empty() {
+                    self.help = false;
+                    let query = std::mem::take(&mut self.help_query);
+                    return self.open_palette_with(&query);
+                }
                 let chosen = rows.get(self.help_row).map(|r| r.binding.act).filter(|a| keymap::runs(*a));
                 if let Some(act) = chosen {
                     self.help = false;
@@ -321,10 +327,7 @@ impl App {
             Act::Loop => deck::toggle_loop(self),
             Act::LoopSize(double) => deck::resize_loop(self, if double { 2.0 } else { 0.5 }),
             Act::Visualiser => self.vis = self.vis.next(),
-            Act::DeckLayout => {
-                self.deck_layout = !self.deck_layout;
-                self.browsing = false;
-            }
+            Act::DeckLayout => self.toggle_player_mode(),
             Act::Browse => self.browsing = true,
             Act::NextBands => self.next_bands(),
             Act::Bands(mode) => self.use_bands(mode),
@@ -403,6 +406,8 @@ impl App {
             Act::ProviderSettings => self.provider_settings(),
             Act::CheckSettings => self.check_settings(),
             Act::Fix(i) => self.fix(i),
+            Act::Run(job) => self.run_cli(job),
+            Act::Copy(command) => self.copy_command(command),
             Act::Theme(key) => self.use_theme(key),
             Act::Colours(tier) => self.use_colours(tier),
             Act::Icons(set) => self.use_icons(set),
@@ -495,8 +500,11 @@ impl App {
             self.quit_after_write = false;
             self.toast("staying: not quitting after the write", Level::Info);
         } else if self.view == View::Library && self.deck_layout {
-            // Browse closes first; then back to the Library layout.
+            // Browse closes first; then player mode, back to the tab it was opened from.
             self.deck_layout = std::mem::take(&mut self.browsing);
+            if !self.deck_layout {
+                self.leave_player_mode();
+            }
         } else if self.job.is_some() {
             self.cancel_job();
         } else if self.dismiss_errors() {
@@ -559,7 +567,33 @@ impl App {
         self.refresh_visible();
     }
 
+    /// `f`: player mode from any tab, the playing track on the whole screen. Opened from another
+    /// tab, closing it goes back there; in the Library view it switches the layouts.
+    fn toggle_player_mode(&mut self) {
+        self.browsing = false;
+        if self.view != View::Library {
+            let from = self.view;
+            self.set_view(View::Library);
+            self.player_from = Some(from);
+            self.deck_layout = true;
+        } else if self.deck_layout {
+            self.deck_layout = false;
+            self.leave_player_mode();
+        } else {
+            self.deck_layout = true;
+        }
+    }
+
+    /// Player mode closed: back to the tab it was opened from, if it was.
+    fn leave_player_mode(&mut self) {
+        if let Some(v) = self.player_from.take() {
+            self.set_view(v);
+        }
+    }
+
     pub(in crate::tui) fn set_view(&mut self, v: View) {
+        // A tab picked some other way is where the user is now.
+        self.player_from = None;
         // The search box is the library's: keys typed in another view aren't for it.
         if self.searching && v != View::Library {
             self.close_search();

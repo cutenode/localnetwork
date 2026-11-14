@@ -182,7 +182,6 @@ fn draws_every_pane_and_dialog_at_any_size() {
     app.now = Some(super::super::app::NowPlaying {
         id: 0,
         key: super::super::keys::Camelot::parse(&track.key),
-        drive: "TEST".into(),
         root: l.root().to_path_buf(),
         analysis: Default::default(),
         waves: Default::default(),
@@ -637,7 +636,7 @@ fn playing_in_full() -> (App, tempfile::TempDir) {
 }
 
 #[test]
-fn the_full_screen_player_says_all_it_knows_of_the_track() {
+fn player_mode_says_what_a_set_needs() {
     let (mut app, _dir) = playing_in_full();
     app.deck_layout = true;
     let s = screen(&mut app, 160, 45);
@@ -646,18 +645,16 @@ fn the_full_screen_player_says_all_it_knows_of_the_track() {
         "high mood",
         "phrase  Chorus  1.0 bars",
         "Delsin · 2016",
-        "24-bit · 9.0 MB · TEST",
-        "played 3×",
-        "“a warm-up favourite”",
-        "composer Michael Hall · ISRC GBXYZ1600001",
         "cue  B  15.0 bars",
-        "600 beats · 150 bars · 120.0–121.0 BPM",
-        "2 hot cues (1 loop) · 1 memory",
-        "2 phrases ▮▮",
         "open this drive to see suggestions",
         "+ 3 more",
     ] {
         assert!(s.contains(said), "{said}\n{s}");
+    }
+    // What the info panel and the waveforms already say isn't said again while playing.
+    for unsaid in ["24-bit", "played 3×", "“a warm-up favourite”", "composer Michael Hall", "600 beats", "1 memory"]
+    {
+        assert!(!s.contains(unsaid), "{unsaid}\n{s}");
     }
     // In the last phrase there's no next one.
     app.resume = Some(std::time::Duration::from_secs(200));
@@ -697,7 +694,7 @@ fn the_hot_cue_last_passed_is_underlined() {
 fn every_visualiser_draws_in_a_small_full_screen() {
     let (mut app, _dir) = blank(View::Library);
     (app.vis, app.deck_layout) = (Vis::Deck, true);
-    assert!(screen(&mut app, 80, 20).contains("deck: play a track"));
+    assert!(screen(&mut app, 80, 20).contains("player mode: play a track"));
 
     let (mut app, _dir) = playing_in_full();
     (app.repeat, app.deck.auto_cue, app.deck_layout) = (Repeat::One, true, true);

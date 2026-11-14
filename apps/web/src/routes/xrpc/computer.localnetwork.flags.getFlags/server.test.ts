@@ -4,6 +4,7 @@ import { GET_FLAGS } from '#lib/nsid.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { serviceJwt } from '#lib/server/testing/service-jwt.ts';
+import { answersWith } from '#lib/testing/flags.ts';
 import { callRoute } from '#lib/testing/route-event.ts';
 import { GET } from './+server.ts';
 
@@ -53,7 +54,7 @@ async function ask(authorization?: string) {
 
 it('tells anyone the public gates, and targets nobody', async () => {
 	expect(await ask()).toEqual({
-		flags: [{ key: 'parityCanary', enabled: true, everyone: false, percentage: 10, targeted: false }]
+		flags: answersWith('parityCanary', { enabled: true, everyone: false, percentage: 10, targeted: false })
 	});
 });
 
@@ -66,7 +67,7 @@ it('tells an account its own targeting, with a token from its server', async () 
 	});
 
 	expect(await ask(token)).toEqual({
-		flags: [{ key: 'parityCanary', enabled: true, everyone: false, percentage: 10, targeted: true }]
+		flags: answersWith('parityCanary', { enabled: true, everyone: false, percentage: 10, targeted: true })
 	});
 });
 
@@ -80,6 +81,6 @@ it('says a flag is off for everyone, with the gates it keeps for when it is back
 	});
 
 	expect(await ask()).toEqual({
-		flags: [{ key: 'parityCanary', enabled: false, everyone: false, percentage: 10, targeted: false }]
+		flags: answersWith('parityCanary', { enabled: false, everyone: false, percentage: 10, targeted: false })
 	});
 });

@@ -183,7 +183,7 @@ fn fix_tempo(
     crate::edit_cmd::confirm_and_apply(&drive, api::doctor_tempo_plan(&drive, &findings, ctx)?, dry_run, out, ctx)
 }
 
-fn class_name(c: FileClass) -> &'static str {
+pub(crate) fn class_name(c: FileClass) -> &'static str {
     match c {
         FileClass::Audio => "audio",
         FileClass::Analysis => "analysis",
@@ -217,7 +217,7 @@ fn capped<T>(items: &[T], max: usize, line: impl Fn(&T) -> String) {
     }
 }
 
-fn reason(r: DuplicateReason) -> &'static str {
+pub(crate) fn reason(r: DuplicateReason) -> &'static str {
     match r {
         DuplicateReason::SameFile => "same file",
         DuplicateReason::SameAudio => "same audio",
@@ -266,7 +266,7 @@ fn duplicates(groups: &[DuplicateGroup], drive: &str) {
     );
 }
 
-fn problem(p: Problem) -> &'static str {
+pub(crate) fn problem(p: Problem) -> &'static str {
     match p {
         Problem::MissingAudio => "no audio file",
         Problem::UnsafePath => "unsafe path",

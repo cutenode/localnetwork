@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-svelte';
 import { DEFAULT_ACCESS } from '#lib/epk.ts';
 import Page from '../../../routes/projects/[slug]/press-kits/[rkey]/+page.svelte';
-import { NEON, NEON_DJ, NEON_TIDE, PAT, SET_ARTIST, type LinkChecks } from '#lib/testing/link-matrix.ts';
+import { NEON, NEON_DJ, NEON_TIDE, PAT, SET_ARTIST, SET_PAGE, type LinkChecks } from '#lib/testing/link-matrix.ts';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const [mix] = NEON_TIDE.profile.mixes ?? [];
@@ -44,6 +44,7 @@ export default {
 		}),
 	links: {
 		'Its mixes': [{ name: 'Tracklist', href: '/projects/neon-tide/mixes/1' }],
+		Sets: [SET_PAGE],
 		'Artists in its sets': [SET_ARTIST]
 	}
 } satisfies LinkChecks;
