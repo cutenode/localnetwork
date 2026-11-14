@@ -306,7 +306,6 @@ impl App {
             key: Camelot::parse(&track.key),
             duration: Duration::from_secs(track.duration_secs as u64),
             track,
-            drive: self.queue.drive.clone(),
             root,
             analysis: TrackAnalysis::default(),
             waves: Default::default(),
@@ -640,7 +639,6 @@ impl App {
         self.now = Some(NowPlaying {
             id,
             key: None,
-            drive: "recorded set".into(),
             root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
             duration: Duration::from_secs(track.duration_secs as u64),
             track,

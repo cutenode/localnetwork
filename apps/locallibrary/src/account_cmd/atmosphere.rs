@@ -70,6 +70,10 @@ pub(super) struct LoginArgs {
     /// else); publishing asks for this when it's needed
     #[arg(long)]
     publish: bool,
+    /// Also allow this scope (repeatable), as AT Protocol permissions write one: repo:NSID lets a
+    /// plugin write that record type
+    #[arg(long = "scope", value_name = "SCOPE")]
+    scopes: Vec<String>,
     #[command(flatten)]
     browser: BrowserArgs,
 }
@@ -154,7 +158,11 @@ fn login(args: LoginArgs, root: &std::path::Path, out: Output, ctx: &Ctx<'_>) ->
         client_id: args.client_id.clone(),
         dev_client: args.dev_client,
         session_file: args.session_file.then_some(true),
-        scopes: Vec::new(),
+        // What signing in asks for at the least, when it's asked for more.
+        scopes: match args.scopes.is_empty() || args.publish {
+            true => args.scopes,
+            false => atmosphere::DEFAULT_SCOPES.iter().map(|s| s.to_string()).chain(args.scopes).collect(),
+        },
         publish: args.publish,
     };
     let info = sign_in(root, &req, args.browser, out, ctx)?;

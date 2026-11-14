@@ -19,6 +19,12 @@
 						"description": "The people credited with it who haven't chosen to hide.",
 						"items": { "type": "ref", "ref": "#person" }
 					},
+					"managers": {
+						"type": "array",
+						"maxLength": 50,
+						"description": "The DIDs of its managers who haven't chosen to hide.",
+						"items": { "type": "string", "format": "did" }
+					},
 					"fields": { "type": "unknown", "description": "What the public page shows for its kind." },
 					"updatedAt": { "type": "string", "format": "datetime" }
 				}

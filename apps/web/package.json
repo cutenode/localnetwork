@@ -39,7 +39,7 @@
 		"db:backup": "node scripts/db-backup.ts backup",
 		"db:backups": "node scripts/db-backup.ts list",
 		"db:restore": "node scripts/db-backup.ts restore",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm test:storybook && pnpm test:build",
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test && pnpm test:storybook && pnpm test:build",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
 		"test:storybook": "vitest run --project storybook"

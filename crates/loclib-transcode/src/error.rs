@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The source couldn't be read or decoded, as loclib-mixid's decoder reports it (a decoder
-    /// that panicked on it is [`loclib_mixid::audio::CRASHED`]).
+    /// The source couldn't be read or decoded, as loclib-audio reports it (a decoder
+    /// that panicked on it is [`loclib_audio::CRASHED`]).
     #[error(transparent)]
-    Decode(#[from] loclib_mixid::Error),
+    Decode(#[from] loclib_audio::Error),
 
     /// The copy couldn't be written.
     #[error("{}: {source}", path.display())]

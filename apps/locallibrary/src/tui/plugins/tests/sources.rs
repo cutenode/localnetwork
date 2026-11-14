@@ -28,8 +28,8 @@ fn sourcing(dir: &Path) -> PathBuf {
     std::fs::write(&file, granted + source).unwrap();
     let music = dir.join("music");
     std::fs::create_dir_all(&music).unwrap();
-    let pcm = loclib_mixid::test_util::synth(1.0, 1).into_iter().map(|s| (s * 12_000.0) as i32);
-    std::fs::write(music.join("a.wav"), loclib_mixid::test_util::wav_of(44_100, 16, pcm)).unwrap();
+    let pcm = loclib_testkit::audio::synth(1.0, 1).into_iter().map(|s| (s * 12_000.0) as i32);
+    std::fs::write(music.join("a.wav"), loclib_testkit::audio::wav_of(44_100, 16, pcm)).unwrap();
     music
 }
 

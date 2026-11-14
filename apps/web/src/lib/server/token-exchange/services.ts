@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import registry from './services.json' with { type: 'json' };
 
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
@@ -15,7 +16,13 @@ const service = z
 				'How the service takes a token request. form: a POST with a form body, client_id and client_secret in it, for codes and refresh tokens (RFC 6749). query: a GET with client_id, client_secret, redirect_uri and code in the query, for codes only (Mixcloud).'
 			),
 		clientIdEnv: envName.describe("The environment variable holding Local Network's client id at the service."),
-		clientSecretEnv: envName.describe("The environment variable holding that client's secret.")
+		clientSecretEnv: envName.describe("The environment variable holding that client's secret."),
+		pauseFlag: z
+			.string()
+			.regex(/^[a-z][a-zA-Z0-9]*$/)
+			.describe(
+				'The ops flag in flags/catalog/ that, on for everyone, pauses this exchange without a deploy: it answers 503 before reading the secret.'
+			)
 	})
 	.strict();
 
@@ -31,7 +38,10 @@ export const servicesSchema = z
 		"The services Local Network's token exchange (/api/token-exchange/<id>) signs locallibrary plugins in to, adding the client secret only this server holds."
 	);
 
-export type Service = z.infer<typeof service>;
+export type Service = Omit<z.infer<typeof service>, 'pauseFlag'> & { pauseFlag: FlagKey };
 
-/** The checked-in registry: a bad edit fails its test, and every exchange until it is put right. */
-export const services: Record<string, Service> = servicesSchema.parse(registry).services;
+/**
+ * The checked-in registry: a bad edit fails its test, and every exchange until it is put right. SAFETY: its test also
+ * checks every pauseFlag is a file in flags/catalog/, which FlagKey is generated from.
+ */
+export const services = servicesSchema.parse(registry).services as Record<string, Service>;

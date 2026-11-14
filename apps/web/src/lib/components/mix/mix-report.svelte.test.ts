@@ -107,7 +107,7 @@ describe('MixReport', () => {
 });
 
 describe('MixTracklist', () => {
-	const nightBus = () => page.getByRole('button', { name: '1 Night Bus Ferrule', exact: true });
+	const nightBus = () => page.getByRole('button', { name: '1 Night Bus', exact: true });
 
 	it('selects a track and lets it go again, by click or from the keyboard', async () => {
 		await render(MixTracklist, { report: sampleReport });
@@ -125,12 +125,22 @@ describe('MixTracklist', () => {
 		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'false');
 	});
 
+	it("links each track's artist to their page, without selecting the track", async () => {
+		await render(MixTracklist, { report: sampleReport });
+
+		const ferrule = page.getByRole('link', { name: 'Ferrule', exact: true });
+		await expect.element(ferrule).toHaveAttribute('href', '/artists/name/Ferrule');
+
+		// Followed, the link would leave the page, so only the row's handler is left to check.
+		ferrule.element().addEventListener('click', (event) => event.preventDefault());
+		await ferrule.click();
+		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'false');
+	});
+
 	it('marks the track the player is at', async () => {
 		await render(MixTracklist, { report: sampleReport, playing: 2 });
 
-		await expect
-			.element(page.getByRole('button', { name: 'Playing now: 3 Halogen Two Rooms', exact: true }))
-			.toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Playing now: 3 Halogen', exact: true })).toBeInTheDocument();
 		await expect.element(nightBus()).toBeInTheDocument();
 	});
 });

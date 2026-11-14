@@ -4,46 +4,70 @@ import { describe, it, expect, vi } from 'vitest';
 import {
 	CLAIMED,
 	extractGateUrls,
+	hostOf,
 	isGateUrl,
 	labelOfUrl,
+	openUrlOf,
 	SITES,
 	siteFor,
-	unwrapGate
+	unwrapGate,
+	type Site
 } from '../../src/tools/third-party-downloads/sites/index.ts';
+
+/** The sites of one kind, typed as that kind. */
+const sitesThat = <How extends Site['how']>(how: How) =>
+	SITES.filter((site): site is Extract<Site, { how: How }> => site.how === how);
 
 describe('the registry', () => {
 	it('describes every site the same way', () => {
 		for (const site of SITES) {
 			expect(site.id, site.id).toMatch(/^[a-z]+$/);
 			expect(site.name).toBeTruthy();
-			expect(site.subfolder).toMatch(/^[A-Za-z]+$/);
 			expect(site.hosts.length).toBeGreaterThan(0);
-			expect(['file', 'mixed']).toContain(site.yields);
-			expect(site.wantsEmail).toBeTypeOf('boolean');
-			expect(site.unlock).toBeTypeOf('function');
+			expect(['walk', 'page', 'link']).toContain(site.how);
 		}
+
+		for (const site of sitesThat('walk')) {
+			expect(site.subfolder).toMatch(/^[A-Za-z]+$/);
+			// Its walk is in walks/: gates.test.ts walks it.
+		}
+
+		for (const site of sitesThat('page')) {
+			expect(site.subfolder).toMatch(/^[A-Za-z]+$/);
+			expect(site.page.say).toBeTruthy();
+			// Each selector is one the page can be asked about.
+			const selectors = [site.page.steps, site.page.email ?? '', site.page.signup ?? ''].filter(Boolean);
+
+			for (const selector of selectors) expect(() => document.querySelector(selector), selector).not.toThrow();
+		}
+
+		for (const site of sitesThat('link')) expect(site.note).toBeTruthy();
 
 		expect(new Set(SITES.map((site) => site.id)).size).toBe(SITES.length);
 		expect(new Set(CLAIMED).size).toBe(CLAIMED.length);
 	});
 
-	it('covers the seven sites the tool is for', async () => {
+	it('covers the seven sites the tool is for, and fetches from one', async () => {
 		// Loaded afresh, so the lists are built inside the test, where a mutation
 		// run can reach the code that builds them.
 		vi.resetModules();
 		const fresh = await import('../../src/tools/third-party-downloads/sites/index.ts');
 
-		expect(fresh.HOSTS).toEqual([
+		// Only the walk fetches anything.
+		expect(fresh.HOSTS).toEqual(['hypeddit.com']);
+		// The ones done on their own page, where gate-page.ts runs.
+		expect(fresh.PAGE_HOSTS).toEqual(['droploud.com', 'pumpyoursound.com', 'laylo.com']);
+		// fanlink.to is claimed and rewritten to fanlink.tv when opened.
+		expect(fresh.CLAIMED).toEqual([
 			'hypeddit.com',
 			'toneden.io',
 			'droploud.com',
 			'pumpyoursound.com',
 			'laylo.com',
 			'ffm.to',
-			'fanlink.tv'
+			'fanlink.tv',
+			'fanlink.to'
 		]);
-		// fanlink.to is claimed but never fetched: it is rewritten to fanlink.tv.
-		expect(fresh.CLAIMED).toEqual([...fresh.HOSTS, 'fanlink.to']);
 	});
 });
 
@@ -65,7 +89,7 @@ describe('siteFor', () => {
 		expect(siteFor('https://www.ToneDen.io/artist/post/one')!.id).toBe('toneden');
 		expect(siteFor('https://droploud.com/gate/abc')!.name).toBe('Droploud');
 		expect(siteFor('http://ffm.to/x')!.id).toBe('featurefm');
-		expect(siteFor('https://fanlink.tv/x')!.subfolder).toBe('ToneDen');
+		expect(siteFor('https://fanlink.tv/x')!.how).toBe('link');
 		// ToneDen's old domain still arrives on SoundCloud links written years ago.
 		expect(siteFor('https://fanlink.to/x')!.id).toBe('fanlink');
 	});
@@ -80,6 +104,28 @@ describe('siteFor', () => {
 		expect(siteFor('not a url')).toBe(null);
 		expect(isGateUrl('https://hypeddit.com/x')).toBe(true);
 		expect(isGateUrl('')).toBe(false);
+	});
+});
+
+describe('hostOf', () => {
+	it('is the lowercased host without www, for web links only', () => {
+		expect(hostOf('https://www.Droploud.com/gate/a')).toBe('droploud.com');
+		expect(hostOf('http://cdn.droploud.com/f.mp3')).toBe('cdn.droploud.com');
+		expect(hostOf('ftp://droploud.com/x')).toBe('');
+		expect(hostOf('')).toBe('');
+	});
+});
+
+describe('openUrlOf', () => {
+	it('opens a link on a site’s alias on its own host, path and all', () => {
+		expect(openUrlOf('http://fanlink.to/abc?x=1')).toBe('https://fanlink.tv/abc?x=1');
+		expect(openUrlOf('https://www.fanlink.to/abc')).toBe('https://fanlink.tv/abc');
+	});
+
+	it('leaves every other link as it is', () => {
+		expect(openUrlOf('https://fanlink.tv/abc')).toBe('https://fanlink.tv/abc');
+		expect(openUrlOf('https://droploud.com/gate/a')).toBe('https://droploud.com/gate/a');
+		expect(openUrlOf('https://bandcamp.com/x')).toBe('https://bandcamp.com/x');
 	});
 });
 

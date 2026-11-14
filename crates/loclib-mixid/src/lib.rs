@@ -1,21 +1,19 @@
 #![doc = include_str!("../README.md")]
 
-pub mod audio;
-mod error;
 pub mod fingerprint;
 pub mod index;
 pub mod matcher;
 mod refine;
-#[cfg(any(test, feature = "test-util"))]
-pub mod test_util;
 
 use std::path::Path;
 
 use loclib_progress::Ctx;
 
-pub use audio::SourceFormat;
-pub use error::{Error, Result};
+// Decoding is loclib-audio's, and so is the error: nothing past decoding fails here but an
+// argument out of range.
 pub use index::{LibraryIndex, TrackPrint, fingerprint_file};
+use loclib_audio as audio;
+pub use loclib_audio::{Error, Result, SourceFormat};
 pub use matcher::Found;
 pub use refine::{REFINE_MIN_CORRELATION, Refined, refine};
 

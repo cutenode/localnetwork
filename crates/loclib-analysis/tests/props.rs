@@ -7,9 +7,9 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_analysis::tempo::TempoRelation;
 use loclib_analysis::{COLUMNS_PER_SEC, Error, VERSION, Want, analyze};
-use loclib_mixid::audio::MAX_RATE;
-use loclib_mixid::test_util::wav_of;
+use loclib_audio::MAX_RATE;
 use loclib_progress::Ctx;
+use loclib_testkit::audio::wav_of;
 
 /// A 16-bit stereo WAV of `signal` (full scale ±1.0, clamped) in both channels.
 fn write(dir: &Path, rate: u32, signal: &[f64]) -> PathBuf {
@@ -98,7 +98,7 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
         let too_fast = rate > MAX_RATE;
         let refused = loudness && rate < 16;
         match analyze(&path, want, &Ctx::silent()) {
-            Err(Error::Audio(loclib_mixid::Error::Parse { path: at, message })) if too_fast => {
+            Err(Error::Audio(loclib_audio::Error::Parse { path: at, message })) if too_fast => {
                 assert!(at == path && message.contains("768 kHz"), "{message}")
             }
             Err(Error::Analyzer { path: at, .. }) if refused => assert_eq!(at, path),
@@ -129,12 +129,12 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
         // both before the cancel is seen.
         let stopped = match &cancelled {
             Err(Error::Cancelled(_)) => !too_fast,
-            Err(Error::Audio(loclib_mixid::Error::Parse { .. })) => too_fast,
+            Err(Error::Audio(loclib_audio::Error::Parse { .. })) => too_fast,
             Err(Error::Analyzer { .. }) => refused,
             _ => false,
         };
         assert!(stopped, "{want:?}: {cancelled:?}");
         let err = analyze(&gone, want, &Ctx::silent()).unwrap_err();
-        assert!(matches!(&err, Error::Audio(loclib_mixid::Error::Io { path, .. }) if *path == gone), "{err}");
+        assert!(matches!(&err, Error::Audio(loclib_audio::Error::Io { path, .. }) if *path == gone), "{err}");
     }
 }

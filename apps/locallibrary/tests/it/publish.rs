@@ -144,7 +144,7 @@ fn sets_publish_upload_from_the_command_line() {
     pds.set_account(DID, "dj.example.com");
     let env = Env::new().with_directory(&pds.url);
     let recording = env.outside("friday.wav");
-    std::fs::write(&recording, loclib_mixid::test_util::wav(8000, 16, 2.0)).unwrap();
+    std::fs::write(&recording, loclib_testkit::audio::wav(8000, 16, 2.0)).unwrap();
     let (id, at) = ("3m4n5o6p7q8r9", "2026-10-03T23:00:00Z");
     let set = json!({
         "id": id, "title": "Friday", "date": "2026-10-03", "recording": { "path": recording },

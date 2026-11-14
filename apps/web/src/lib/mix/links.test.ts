@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { embedUrl, mixPlatform } from './links';
+import { embedFrame, embedUrl, mixPlatform } from './links';
 
 describe('mixPlatform', () => {
 	it('names the platforms with players and falls back to the host', () => {
@@ -22,7 +22,7 @@ describe('embedUrl', () => {
 			'w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fneon%2Ftidal-hours'
 		);
 		expect(embedUrl('https://www.mixcloud.com/neon/tidal-hours/')).toBe(
-			'https://player-widget.mixcloud.com/widget/iframe/?hide_cover=1&feed=%2Fneon%2Ftidal-hours%2F'
+			'https://player-widget.mixcloud.com/widget/iframe/?hide_cover=1&hide_artwork=1&feed=%2Fneon%2Ftidal-hours%2F'
 		);
 		expect(embedUrl('https://www.youtube.com/watch?v=abc123')).toBe('https://www.youtube-nocookie.com/embed/abc123');
 		expect(embedUrl('https://youtu.be/abc123')).toBe('https://www.youtube-nocookie.com/embed/abc123');
@@ -38,5 +38,33 @@ describe('embedUrl', () => {
 		expect(embedUrl('https://plyr.fm/u/neon')).toBeNull();
 		expect(embedUrl('https://plyr.fm/track/1567/comments')).toBeNull();
 		expect(embedUrl('https://notplyr.fm/track/1567')).toBeNull();
+	});
+});
+
+describe('embedFrame', () => {
+	const soundcloud = embedUrl('https://soundcloud.com/neon/tidal-hours') ?? '';
+	const mixcloud = embedUrl('https://www.mixcloud.com/neon/tidal-hours/') ?? '';
+	const option = (src: string, name: string) => new URL(src).searchParams.get(name);
+
+	it("plays SoundCloud's own player on either theme, at its embed height", () => {
+		expect(embedFrame(soundcloud, 'dark')).toEqual({ src: soundcloud, height: 166 });
+		expect(embedFrame(soundcloud, 'light')).toEqual({ src: soundcloud, height: 166 });
+	});
+
+	it("plays Mixcloud's dark widget, or its light one on the light theme", () => {
+		const dark = embedFrame(mixcloud, 'dark');
+		const light = embedFrame(mixcloud, 'light');
+
+		expect([dark.height, light.height]).toEqual([120, 120]);
+		expect(dark.src).toBe(mixcloud);
+		expect(option(light.src, 'light')).toBe('1');
+		expect(option(light.src, 'feed')).toBe('/neon/tidal-hours/');
+	});
+
+	it('leaves the other players as they are', () => {
+		const youtube = embedUrl('https://youtu.be/abc123') ?? '';
+
+		expect(embedFrame(youtube, 'light')).toEqual({ src: youtube, height: 160 });
+		expect(embedFrame('about:blank', 'dark')).toEqual({ src: 'about:blank', height: 160 });
 	});
 });

@@ -197,7 +197,6 @@ pub fn playing_in(lib: Library, analysis: TrackAnalysis) -> (App, TempDir) {
     app.now = Some(NowPlaying {
         id: 1,
         key: None,
-        drive: "TEST".into(),
         root,
         analysis,
         waves: Default::default(),

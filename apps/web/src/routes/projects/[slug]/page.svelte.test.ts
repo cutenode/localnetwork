@@ -141,9 +141,29 @@ it("shows the managers' playing stats and sets once they arrive", async () => {
 	await expect.element(page.getByText(/126–134 BPM/)).toBeInTheDocument();
 	await expect.element(page.getByRole('heading', { name: 'Recent sets' })).toBeInTheDocument();
 	await expect.element(page.getByText('Halle Nord, Berlin · with Halflight · 5 tracks')).toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Tidal Hours' })).toHaveAttribute('href', '/@neon.test/sets/0');
 	await expect
 		.element(page.getByRole('link', { name: 'Press kits' }))
 		.toHaveAttribute('href', '/projects/neon-tide/press-kits');
+	// With one member, "How they play" is theirs, so it names nobody.
+	await expect
+		.element(page.getByRole('region', { name: 'How they play' }).getByRole('link', { name: '@neon.test' }))
+		.not.toBeInTheDocument();
+});
+
+it('names each member beside "How they play", linking their profile', async () => {
+	const profile = djProfileSchema.parse(DEMO_DJ_PROFILE);
+
+	const members = [
+		{ did: 'did:plc:neon', handle: 'neon.test', profile, sets: [] },
+		{ did: 'did:plc:kai', handle: 'kai.test', profile, sets: [] }
+	];
+
+	await render(Page, { params: { slug: 'neon-tide' }, data: { ...base, dj: Promise.resolve(members) }, form: null });
+
+	const regions = page.getByRole('region', { name: 'How they play' });
+	await expect.element(regions.nth(0).getByRole('link', { name: '@neon.test' })).toHaveAttribute('href', '/@neon.test');
+	await expect.element(regions.nth(1).getByRole('link', { name: '@kai.test' })).toHaveAttribute('href', '/@kai.test');
 });
 
 it('shows managers what visitors see: no edit links, no announce button, no nudges', async () => {
