@@ -18,6 +18,7 @@ import { HeldRecords } from '../services/held-records';
 import { performerListingSource } from '../services/performer-index';
 import { venueListingSource } from '../services/venue-index';
 import { VenueService } from '../services/venues';
+import { VenueRules } from '../services/venue-rules';
 import { PerformerService } from '../services/performer-registry';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
@@ -136,7 +137,6 @@ export async function createTestServices(
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
 	const performers = new PerformerSearch(core, directory, projects, profiles);
-	const requests = new RequestService(core, projects, profiles, djListings);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
@@ -157,6 +157,8 @@ export async function createTestServices(
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const venues = new VenueService(core, sharedSpaces, new RateLimiter(30, 30 / 60));
+	const venueRules = new VenueRules(core);
+	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
 	await ensureRootSpaces(core);
@@ -210,6 +212,7 @@ export async function createTestServices(
 		performerRegistry,
 		projectMigration,
 		venues,
+		venueRules,
 		viewer,
 		capable,
 		spaces

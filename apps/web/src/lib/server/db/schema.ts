@@ -37,6 +37,7 @@ export interface Database {
 	spacePerson: SpacePersonTable;
 	performer: PerformerTable;
 	venue: VenueTable;
+	venueBlock: VenueBlockTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -99,7 +100,7 @@ export interface RequestTable {
 	rkey: string;
 	kind: RequestKind;
 	projectUri: string | null;
-	/** What a list request asks staff to list (a profile's URI); null for other kinds. */
+	/** What a list request asks staff to list (a profile's URI), or the venue's space a claim is for; null otherwise. */
 	subjectUri: string | null;
 	status: RequestStatus;
 	record: string;
@@ -379,6 +380,16 @@ export interface VenueTable {
 	record: string;
 	cid: string;
 	updatedAt: string;
+}
+
+/** Someone a venue blocked, from the root's block record in its public repo. */
+export interface VenueBlockTable {
+	uri: string;
+	/** The venue's space. */
+	venue: string;
+	/** The blocked profile's record, or the act's or party's listing URI. */
+	subject: string;
+	createdAt: string;
 }
 
 export interface SpaceInviteTable {

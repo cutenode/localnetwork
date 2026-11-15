@@ -223,7 +223,7 @@ Source: [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff
 
 ## Capabilities by role
 
-The starting capabilities of each role in a performer, party or venue space. `page.edit`, `presskits.manage`, `shows.manage` and `events.manage` also make someone a writing member. No page uses these roles yet except the staff console.
+The starting capabilities of each role in a performer, party or venue space. `page.edit`, `presskits.manage`, `shows.manage` and `events.manage` also make someone a writing member. Only the staff console and a venue's claim and settings pages use these roles so far. The venue's `booker` reads Booking manager wherever the site shows it.
 
 ```mermaid
 flowchart LR
@@ -233,7 +233,7 @@ flowchart LR
   Party --> C["cohost, listed:<br/>all of host's but people.manage"]
   Party --> D["door:<br/>guests.checkin"]
   Venue["venue space"] --> O["owner:<br/>page.edit, people.manage,<br/>venue.approve, venue.block"]
-  Venue --> B["booker:<br/>venue.approve"]
+  Venue --> B["booker, shown as Booking manager:<br/>venue.approve"]
 ```
 
 Source: [`src/lib/capabilities.ts`](../../src/lib/capabilities.ts), [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/services/shared-spaces.ts), [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts)

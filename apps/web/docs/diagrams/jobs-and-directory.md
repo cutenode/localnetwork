@@ -26,7 +26,8 @@ flowchart TD
   Spaces --> Members["Reconcile staff, manager<br/>and shared space members"]
   Members --> Sync["syncAll"]
   Sync --> Listings["listings.reconcile"]
-  Listings --> Moves["moveKitSpaces"]
+  Listings --> Blocks["venues.reconcileBlocks"]
+  Blocks --> Moves["moveKitSpaces"]
 ```
 
 Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/db/migrations.ts`](../../src/lib/server/db/migrations.ts)
@@ -46,9 +47,10 @@ flowchart LR
   Hour --> H2["manager-spaces"]
   Hour --> H3["shared-spaces"]
   Hour --> H4["listings"]
-  Hour --> H5["epk-view-expiry"]
-  Hour --> H6["inbox-retention"]
-  Hour --> H7["db-backup, with a bucket:<br/>once a UTC day"]
+  Hour --> H5["venue-blocks"]
+  Hour --> H6["epk-view-expiry"]
+  Hour --> H7["inbox-retention"]
+  Hour --> H8["db-backup, with a bucket:<br/>once a UTC day"]
 ```
 
 Source: [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/backup/backups.ts`](../../src/lib/server/backup/backups.ts), [`src/lib/server/services/epk-views.ts`](../../src/lib/server/services/epk-views.ts), [`src/lib/server/notifications/notifier.ts`](../../src/lib/server/notifications/notifier.ts)

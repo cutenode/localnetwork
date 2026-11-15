@@ -396,6 +396,8 @@ export type RequestRecord = LexiconRead<
 	{
 		kind: RequestKind;
 		project?: string;
+		/** For a claim on a venue: its space. */
+		space?: string;
 		baseRevision?: number;
 		profile?: ProjectProfile;
 		details?: ProjectDetails;
@@ -421,6 +423,8 @@ export type RequestView = {
 	repoDid: string;
 	projectUri: string | null;
 	project: { slug: string; name: string } | null;
+	/** The venue a claim is for, when it's a venue's. */
+	venue: { key: string; name: string } | null;
 	record: RequestRecord;
 	createdAt: string;
 	updatedAt: string;

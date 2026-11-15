@@ -55,7 +55,9 @@ export const COLLECTION = {
 	/** A performer's private booking details, written by the root into its booking details space. */
 	performerDetails: `${NS}.performer.details`,
 	/** A real place events happen, written by the root at the key `self` in the venue's space. */
-	venue: `${NS}.venue`
+	venue: `${NS}.venue`,
+	/** Someone a venue doesn't take events, relationships or inquiries from, written by the root into its own public repo. */
+	venueBlock: `${NS}.venue.block`
 } as const;
 
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
