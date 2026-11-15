@@ -20,3 +20,5 @@ fuzz-pdb = ["fuzz", "run", "pdb", "fuzz/corpus/pdb", "crates/locallibrary/tests/
 fuzz-anlz = ["fuzz", "run", "anlz", "fuzz/corpus/anlz", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ", "--", "-create_missing_dirs=1"]
 fuzz-mysettings = ["fuzz", "run", "mysettings", "fuzz/corpus/mysettings", "crates/locallibrary/tests/fixtures/rekordcrate/settings", "--", "-create_missing_dirs=1"]
 fuzz-tracklist = ["fuzz", "run", "tracklist", "fuzz/corpus/tracklist", "fuzz/seeds/tracklist", "--", "-create_missing_dirs=1"]
+fuzz-aup = ["fuzz", "run", "aup", "fuzz/corpus/aup", "fuzz/seeds/aup", "--", "-create_missing_dirs=1"]
+fuzz-traktor = ["fuzz", "run", "traktor", "fuzz/corpus/traktor", "fuzz/seeds/traktor", "--", "-create_missing_dirs=1"]

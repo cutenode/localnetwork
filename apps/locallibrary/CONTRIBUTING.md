@@ -279,9 +279,12 @@ failing examples it finds for the next week's run.
 The parsers for what a drive or an import hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
 root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
-their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+their paths, cues and times), `mysettings` (the players' settings files), `tracklist`, `aup`
+(Audacity projects: the binary XML, the project it builds and its mixdown) and `traktor`
+(Traktor's `collection.nml`, the beat grids it lays down and what an import makes of it).
+libFuzzer mutates the test fixtures (and `fuzz/seeds/` for formats whose tests keep their
+examples inline) looking for a panic, a hang or a runaway allocation. `fuzz/` is a workspace of
+its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked

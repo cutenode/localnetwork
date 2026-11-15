@@ -40,10 +40,28 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "aup"
+path = "fuzz_targets/aup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "traktor"
+path = "fuzz_targets/traktor.rs"
+test = false
+doc = false
+bench = false
+
 [dependencies]
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
+locallibrary-plugin-interop = { version = "0.1.0", path = "../plugins/interop" }
+loclib-interop = { version = "0.1.0", path = "../crates/loclib-interop" }
 loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }
+rusqlite = "0.41"
+tempfile = "3"
