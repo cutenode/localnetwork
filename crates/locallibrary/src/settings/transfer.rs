@@ -121,6 +121,9 @@ pub struct PlayerPrefs {
     /// Auto cue: start tracks at their first memory cue or beat.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_cue: Option<bool>,
+    /// Fill: when the queue runs out, the best match that hasn't played goes on the end of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fill: Option<bool>,
     /// How keys are written: `camelot`, `open-key` or `musical`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notation: Option<String>,

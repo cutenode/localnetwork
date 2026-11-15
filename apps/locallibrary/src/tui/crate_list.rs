@@ -1,21 +1,40 @@
-//! The crate: as on a CDJ (its TAG LIST), tracks picked while browsing, kept for the session,
-//! played as a list of their own and saved to the drive as a playlist. Separate from the play
-//! queue, which Enter rebuilds from whatever list it's pressed in.
+//! The crate, which is the queue: as on a CDJ (its TAG LIST), tracks picked while browsing. What's
+//! picked plays in order after the playing track, before the rest of the list `enter` was pressed
+//! in (`Queue`, "next from"). Played tracks stay, greyed, until they're taken out. Kept between
+//! runs, saved to the drive as a playlist and packed onto a drive.
 
 use std::path::{Path, PathBuf};
 
 use locallibrary::{Library, Track};
 
+#[derive(Clone)]
 pub struct CrateTrack {
     /// The drive the track is on.
     pub root: PathBuf,
     pub drive: String,
     pub track: Track,
+    /// It's played (or is playing): greyed, and not played again unless it's queued again.
+    pub played: bool,
+    /// Fill put it there, from what mixes into the track before it.
+    pub filled: bool,
+}
+
+impl CrateTrack {
+    pub fn new(root: &Path, drive: &str, track: Track) -> CrateTrack {
+        CrateTrack { root: root.to_path_buf(), drive: drive.to_string(), track, played: false, filled: false }
+    }
+
+    pub fn is(&self, root: &Path, file_path: &str) -> bool {
+        self.root == root && self.track.file_path == file_path
+    }
 }
 
 #[derive(Default)]
 pub struct Crate {
     pub items: Vec<CrateTrack>,
+    /// The pick playing (or ready to play), when it's one of these rather than the list's. Kept
+    /// as it was, so the track plays on when it's taken out of the crate.
+    pub playing: Option<CrateTrack>,
 }
 
 impl Crate {
@@ -28,19 +47,57 @@ impl Crate {
     }
 
     pub fn contains(&self, root: &Path, file_path: &str) -> bool {
-        self.items.iter().any(|t| t.root == root && t.track.file_path == file_path)
+        self.position(root, file_path).is_some()
     }
 
-    /// Add tracks from the drive at `root` to the end, skipping ones already listed. Returns how
-    /// many were added.
+    pub fn position(&self, root: &Path, file_path: &str) -> Option<usize> {
+        self.items.iter().position(|t| t.is(root, file_path))
+    }
+
+    /// Whether entry `i` is the pick playing.
+    pub fn is_playing(&self, i: usize) -> bool {
+        let (Some(p), Some(t)) = (&self.playing, self.items.get(i)) else { return false };
+        t.is(&p.root, &p.track.file_path)
+    }
+
+    /// The picks still to play, in the order they play.
+    pub fn up_next(&self) -> impl Iterator<Item = &CrateTrack> {
+        self.items.iter().filter(|t| !t.played)
+    }
+
+    /// Add tracks from the drive at `root` to the end, skipping ones still to play. One that's
+    /// played is queued again, at the end. Returns how many were added.
     pub fn add(&mut self, root: &Path, drive: &str, tracks: impl IntoIterator<Item = Track>) -> usize {
-        let before = self.items.len();
+        let mut added = 0;
         for track in tracks {
-            if !self.contains(root, &track.file_path) {
-                self.items.push(CrateTrack { root: root.to_path_buf(), drive: drive.to_string(), track });
+            match self.position(root, &track.file_path) {
+                Some(i) if !self.items[i].played => continue,
+                Some(i) => drop(self.items.remove(i)),
+                None => {}
             }
+            self.items.push(CrateTrack::new(root, drive, track));
+            added += 1;
         }
-        self.items.len() - before
+        added
+    }
+
+    /// Put tracks from the drive at `root` at the front of those still to play, as a block in
+    /// their order: they play next. Ones already listed move there. Returns how many.
+    pub fn play_next(&mut self, root: &Path, drive: &str, tracks: impl IntoIterator<Item = Track>) -> usize {
+        let mut block: Vec<CrateTrack> = Vec::new();
+        for track in tracks {
+            if block.iter().any(|t| t.is(root, &track.file_path)) {
+                continue;
+            }
+            if let Some(i) = self.position(root, &track.file_path) {
+                self.items.remove(i);
+            }
+            block.push(CrateTrack::new(root, drive, track));
+        }
+        let n = block.len();
+        let at = self.items.iter().position(|t| !t.played).unwrap_or(self.items.len());
+        self.items.splice(at..at, block);
+        n
     }
 
     pub fn remove(&mut self, i: usize) -> Option<CrateTrack> {
@@ -59,12 +116,14 @@ impl Crate {
         to
     }
 
+    /// Take every track out (the one playing plays on).
     pub fn clear(&mut self) {
         self.items.clear();
     }
 
-    pub fn duration_secs(&self) -> u64 {
-        self.items.iter().map(|t| t.track.duration_secs as u64).sum()
+    /// How long the picks still to play last.
+    pub fn up_next_secs(&self) -> u64 {
+        self.up_next().map(|t| t.track.duration_secs as u64).sum()
     }
 
     /// The drive at `root` was read again (after an edit, say): take the tracks' new details,
@@ -84,6 +143,11 @@ impl Crate {
                 None => false,
             }
         });
+        if let Some(p) = self.playing.as_mut().filter(|p| p.root == root)
+            && let Some(t) = by_path.get(p.track.file_path.as_str())
+        {
+            p.track = (*t).clone();
+        }
     }
 }
 

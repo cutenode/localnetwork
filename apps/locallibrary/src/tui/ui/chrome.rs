@@ -199,7 +199,7 @@ fn busy(app: &App) -> Vec<Span<'static>> {
 fn mode(app: &App) -> &'static str {
     let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
     if app.chord.is_some() {
-        "GO TO"
+        if app.chord_queue { "QUEUE" } else { "GO TO" }
     } else if app.searching {
         "SEARCH"
     } else if typing {

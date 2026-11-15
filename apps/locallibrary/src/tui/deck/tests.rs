@@ -108,7 +108,7 @@ fn beat_jump_keys() {
         press(&mut app, &key.to_string());
         assert_eq!(target(&app), Some(to), "{key}");
     }
-    press(&mut app, "Q");
+    press(&mut app, "Z");
     assert!(!app.deck.quantize && app.snap() == Snap::Off);
     app.pending_seek = None;
     press(&mut app, ">");
@@ -353,7 +353,7 @@ fn a_slow_output_opens_without_holding_up_the_player() {
     (&mut out).take(800).for_each(drop);
     app.tick();
     assert!(app.position() > at, "plays on through the output it was on");
-    press(&mut app, "Q");
+    press(&mut app, "Z");
     assert!(!app.deck.quantize, "keys go on");
     let_open(&GATE);
     output_opened(&mut app);
@@ -543,36 +543,42 @@ fn any_ms(tc: &hegel::TestCase, beats: &[locallibrary::anlz::Beat]) -> f64 {
     tc.draw(gs::integers::<i64>().min_value(-5_000).max_value(end)) as f64
 }
 
-/// `Q` from a terminal that reports keys by their codes (CSI u, xterm's modifyOtherKeys) comes as
-/// `q` with shift: it turns quantize off and on, as any other terminal's `Q` does, where the
-/// player took it for `q` and quit (LOC-11). Other capitals the deck has too.
+/// A capital from a terminal that reports keys by their codes (CSI u, xterm's modifyOtherKeys)
+/// comes as the letter with shift: `Z` turns quantize off and on, as any other terminal's `Z`
+/// does, and `Q` quits rather than starting the queue's `q` (LOC-11). Other capitals the deck has
+/// too.
 #[test]
-fn a_shifted_q_sent_as_its_code_quantizes_rather_than_quits() {
+fn a_shifted_letter_sent_as_its_code_is_the_capital() {
     use ratatui::crossterm::event::KeyModifiers;
     let (mut app, _dir) = playing(TrackAnalysis::default());
     let shifted = |app: &mut App, c: char| app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
-    shifted(&mut app, 'q');
+    shifted(&mut app, 'z');
     assert!(!app.quit && !app.deck.quantize, "quit {}", app.quit);
-    shifted(&mut app, 'q');
+    shifted(&mut app, 'z');
     assert!(!app.quit && app.deck.quantize);
     shifted(&mut app, 's');
     shifted(&mut app, 'a');
     assert!(app.deck.single && app.deck.auto_cue && !app.shuffle);
-    // Held with control, it's still control-q.
+    assert!(app.chord.is_none(), "no q chord waiting");
+    shifted(&mut app, 'q');
+    assert!(app.quit && app.chord.is_none(), "Q quits");
+    // Held with control, it's control-q, which quits too.
+    app.quit = false;
     app.on_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::SHIFT | KeyModifiers::CONTROL));
     assert!(app.quit);
 }
 
 /// The deck's and the library's capitals, typed while a track plays, do the same sent either
 /// way: as the capital, or as a terminal reporting keys by their codes sends them, the lowercase
-/// letter with shift. Sent that way, `Q` once quit the player (LOC-11). Capitals that start work
-/// in the background (`R`, `T`, `O`) are left out, as it ends when it ends.
+/// letter with shift. Sent that way, `Q` once quit the player (LOC-11); now `Q` is quit, so it's
+/// left out (see the test above), as are capitals that start work in the background (`R`, `T`,
+/// `O`), as it ends when it ends.
 #[hegel::test(test_cases = 50)]
 fn prop_a_shifted_letter_sent_as_its_code_is_its_capital(tc: hegel::TestCase) {
     use super::super::ui::screen;
     use hegel::generators as gs;
     use ratatui::crossterm::event::KeyModifiers;
-    let typed: Vec<char> = "QSACNPGMBUXJKZ".chars().collect();
+    let typed: Vec<char> = "SACNPGMBUXJKZ".chars().collect();
     let letters: Vec<char> = tc.draw(gs::vecs(gs::sampled_from(&typed[..])).max_size(6));
     let (mut capitals, a) = playing(TrackAnalysis::default());
     let (mut codes, b) = playing(TrackAnalysis::default());
@@ -630,7 +636,7 @@ fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
     if tc.draw(gs::booleans()) {
         now.phrases = vec![PhraseSpan { kind: PhraseKind::Intro, start_ms: 500.0, end_ms: 1_500.0, bars: 1 }];
     }
-    const KEYS: &[&str] = &["Q", " ", ",", ".", "<", ">", "{", "}", "l", "(", ")", "c", "C", "N", "P", "1", "2", "'"];
+    const KEYS: &[&str] = &["Z", " ", ",", ".", "<", ">", "{", "}", "l", "(", ")", "c", "C", "N", "P", "1", "2", "'"];
     let end = Duration::from_secs(2);
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(16)) {
         match tc.draw(gs::integers::<u8>().max_value(3)) {

@@ -9,6 +9,7 @@ mod art;
 mod audio;
 mod browse;
 mod choices;
+mod cli;
 mod crate_list;
 mod deck;
 mod docs;
@@ -128,7 +129,7 @@ const IDLE: u8 = 0;
 const RUNNING: u8 = 1;
 const SIGNALLED: u8 = 2;
 
-/// A signal, from the CLI's handler: true when it's the player's, which then quits as with `q`
+/// A signal, from the CLI's handler: true when it's the player's, which then quits as with `Q`
 /// (a drive write under way gets to finish and the state is saved) and puts the terminal back.
 /// The handler's own way (a message, then exiting on a second signal) would write over the
 /// screen and leave the terminal raw.

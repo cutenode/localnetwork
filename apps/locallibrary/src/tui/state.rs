@@ -1,6 +1,6 @@
 //! What the player remembers between runs (the drive and list it was showing, the view, sort,
-//! volume, visualiser and panels, its theme, colours and icons, quantize, the output, the crate,
-//! and the queue and where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
+//! volume, visualiser and panels, its theme, colours and icons, quantize, the output, the queue:
+//! its picks, which have played and the list it plays on with, and where it was), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, an unreadable one is left as it
 //! is for the rest of the run, and nothing is ever written to a drive. Of it, the choices that are the user's preferences (the theme, colours and icons,
 //! the columns, the visualiser, playback modes, how keys and waveforms look, the footer's hints and
@@ -81,9 +81,14 @@ pub struct Saved {
     pub mixes: Vec<PathBuf>,
     /// Folders of recorded sets opened in the Mixes view, newest first.
     pub mix_folders: Vec<PathBuf>,
-    /// The crate (`tag_list` before it was called that).
+    /// The crate, which is the queue's picks (`tag_list` before it was called that).
     #[serde(alias = "tag_list")]
     pub crate_list: Vec<SavedCrateTrack>,
+    /// The pick playing, or ready to play, and how far into it (as the queue's `at_ms`).
+    pub crate_playing: Option<SavedCrateTrack>,
+    pub crate_at_ms: u64,
+    /// Fill: when the queue runs out, the best match goes on the end.
+    pub fill: bool,
     pub queue: Option<SavedQueue>,
 }
 
@@ -92,15 +97,21 @@ pub struct SavedCrateTrack {
     pub root: PathBuf,
     pub drive: String,
     pub track: Track,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub played: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub filled: bool,
 }
 
-/// The play queue: its tracks by file path in the order they play, the one it was on, and how
-/// far into that one.
+/// The list the queue plays on with after its picks: its tracks by file path in the order they
+/// play, the one it was on, and how far into that one.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SavedQueue {
     pub root: PathBuf,
     pub drive: String,
+    /// What the list is called.
+    pub name: String,
     pub tracks: Vec<String>,
     pub pos: usize,
     pub at_ms: u64,
