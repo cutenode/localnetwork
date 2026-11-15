@@ -62,6 +62,16 @@
 			"limit": 142340,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"fade.allocations": {
+			"limit": null,
+			"unit": "allocations",
+			"measures": "Allocations of one frame of the Library view at 160x45 in 256 colours with a fade starting over the whole screen, with the 3,886-track fixture open and a track playing."
+		},
+		"fade.bytes": {
+			"limit": null,
+			"unit": "bytes",
+			"measures": "Bytes allocated by one frame of the Library view at 160x45 in 256 colours with a fade starting over the whole screen, with the 3,886-track fixture open and a track playing."
 		}
 	}
 }
