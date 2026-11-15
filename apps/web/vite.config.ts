@@ -206,7 +206,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 99.6, functions: 99.5, statements: 99.3, branches: 94.6 }
+			thresholds: { lines: 99.7, functions: 99.6, statements: 99.3, branches: 94.6 }
 		},
 		projects: [
 			{

@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { StaffRole, Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
@@ -122,6 +123,77 @@ describe('safeNext', () => {
 		expect(safeNext('/%2F%2Fevil.test')).toBe('/%2F%2Fevil.test');
 		expect(withQuery('/dashboard/account/notifications?tab=1', { email: 'declined' })).toBe(
 			'/dashboard/account/notifications?tab=1&email=declined'
+		);
+	});
+});
+
+describe('safeNext on any value', () => {
+	// Pieces of redirect tricks: slashes and characters that pass for them, dots, schemes, hosts, and what browsers strip or rewrite.
+	const piece = fc.constantFrom(
+		'/',
+		'//',
+		'./',
+		'../',
+		'%2e/',
+		'\\',
+		'/\\',
+		'.',
+		'..',
+		'%2e',
+		'%2F',
+		'%5C',
+		'%09',
+		'\t',
+		'\n',
+		'\r',
+		' ',
+		'\u0000',
+		'\u00a0',
+		'@',
+		':',
+		'?',
+		'#',
+		'evil.test',
+		'javascript:',
+		'https:',
+		'HTTP:',
+		'\uff0f',
+		'\u2215',
+		'\u3002',
+		'é'
+	);
+
+	// Mostly starting with a slash, since anything else goes straight to the fallback, and sometimes with dot segments
+	// that resolve to a path starting `//`, which on its own names another host.
+	const next = fc
+		.tuple(
+			fc.constantFrom('/', '//', '', '/.//', '/a/..//', '/%2e//'),
+			fc.oneof(
+				fc.string(),
+				fc.string({ unit: 'grapheme' }),
+				fc.array(fc.oneof(piece, fc.string({ maxLength: 3 })), { maxLength: 8 }).map((pieces) => pieces.join(''))
+			)
+		)
+		.map(([start, rest]) => start + rest);
+
+	const SITE = 'https://localnetwork.example';
+
+	/** A path that stays on the site wherever a page or a redirect resolves it. */
+	const staysOnSite = (path: string) =>
+		/^\/(?!\/)/.test(path) &&
+		!/[\s\\\p{Cc}]/u.test(path) &&
+		[SITE, `${SITE}/dashboard/inbox/`].every((base) => {
+			const url = new URL(path, base);
+
+			return url.origin === SITE && !url.pathname.startsWith('//');
+		});
+
+	it('only hands back a path on the site', () => {
+		fc.assert(
+			fc.property(next, (value) => {
+				expect(safeNext(value)).toSatisfy(staysOnSite);
+				expect(withQuery(value, { email: 'declined' })).toSatisfy(staysOnSite);
+			})
 		);
 	});
 });
