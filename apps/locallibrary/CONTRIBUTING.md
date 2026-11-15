@@ -279,9 +279,12 @@ failing examples it finds for the next week's run.
 The parsers for what a drive or an import hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
 root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
-their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+their paths, cues and times), `mysettings` (the players' settings files), `tracklist`, `mp4`
+(MP4 and M4A atoms as `vet_container` walks them, then symphonia opening and decoding what it lets
+through, and the probe's format, health and length checks) and `wav` (WAV headers of recordings,
+and the WAV and AIFF chunks the Serato cue tag writer checks before writing into them). libFuzzer
+mutates the test fixtures (and `fuzz/seeds/` for tracklists and WAV/AIFF) looking for a panic, a
+hang or a runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
