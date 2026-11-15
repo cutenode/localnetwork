@@ -20,7 +20,6 @@ pub struct NowPlaying {
     /// Matches the background read of the track's files to this play.
     pub id: u64,
     pub track: Track,
-    pub drive: String,
     pub root: PathBuf,
     pub analysis: TrackAnalysis,
     pub waves: DriveWaves,
@@ -175,11 +174,14 @@ impl NowPlaying {
     }
 }
 
-/// What plays next: tracks of one library, by index, so queueing a list of thousands copies
-/// none of them.
+/// The list `enter` was pressed in, which plays on after the picks in the crate ("next from"):
+/// tracks of one library, by index, so queueing a list of thousands copies none of them.
+/// Shuffle and repeat are its own; the crate's picks play in their order.
 #[derive(Default)]
 pub struct Queue {
     pub library: Arc<Library>,
+    /// What the list is called (`House › Deep`), for the queue panel.
+    pub name: String,
     /// The tracks, as indexes into `library`, in the order of the list they came from.
     pub items: Vec<usize>,
     pub root: PathBuf,
@@ -205,11 +207,21 @@ impl Queue {
     }
 }
 
+/// What plays after the playing track: the first pick in the crate still to play, else the list's
+/// next.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Next {
+    /// The crate's entry for this file on the drive at this root.
+    Pick(PathBuf, String),
+    /// The list's track at `pos` in its play order, which is `item` of its tracks.
+    From { pos: usize, item: usize },
+}
+
 /// The track after the playing one, opened ahead so the player goes straight on to it.
 pub(super) struct Upcoming {
     pub(super) now: NowPlaying,
-    /// Its place in the queue's play order.
-    pub(super) pos: usize,
+    /// Which it is.
+    pub(super) next: Next,
     /// Queued behind the playing track (else it's opening, or wouldn't open).
     pub(super) queued: bool,
     /// Opened, but not to be queued (another sample rate): started as the playing one ends.

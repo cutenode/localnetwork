@@ -38,11 +38,15 @@ impl App {
         };
         self.mix.set_recent(&s.mixes);
         self.mix.folders = s.mix_folders.clone();
-        self.crate_list.items = (s.crate_list.iter())
-            .map(|t| CrateTrack { root: t.root.clone(), drive: t.drive.clone(), track: t.track.clone() })
-            .collect();
+        self.crate_list.items = s.crate_list.iter().map(crate_track).collect();
         self.crate_state.select((!self.crate_list.is_empty()).then_some(0));
+        self.fill = s.fill;
         self.restore_queue = s.queue.clone();
+        // The pick it was on carries on with space, from where it was.
+        if let Some(p) = s.crate_playing.as_ref().filter(|_| self.now.is_none()) {
+            self.crate_list.playing = Some(crate_track(p));
+            self.resume = Some(Duration::from_millis(s.crate_at_ms));
+        }
         if let Some(v) = s.vis.as_deref().and_then(Vis::from_name) {
             self.vis = v;
         }
@@ -107,10 +111,22 @@ impl App {
             intro_seen: self.intro_seen.clone(),
             mixes: self.mix.recent.clone(),
             mix_folders: self.mix.folders.clone(),
-            crate_list: (self.crate_list.items.iter())
-                .map(|t| SavedCrateTrack { root: t.root.clone(), drive: t.drive.clone(), track: t.track.clone() })
-                .collect(),
+            crate_list: self.crate_list.items.iter().map(saved_crate_track).collect(),
+            crate_playing: self.crate_list.playing.as_ref().map(saved_crate_track),
+            crate_at_ms: match &self.crate_list.playing {
+                Some(_) => self.current_at().as_millis() as u64 / 15_000 * 15_000,
+                None => 0,
+            },
+            fill: self.fill,
             queue: self.saved_queue().or_else(|| self.restore_queue.clone()),
+        }
+    }
+
+    /// How far into the queue's current track it is: where it plays, or waits to play on from.
+    fn current_at(&self) -> Duration {
+        match &self.now {
+            Some(_) if self.playing_queue() => self.position(),
+            _ => self.resume.unwrap_or_default(),
         }
     }
 
@@ -125,14 +141,12 @@ impl App {
         let len = q.order.len();
         let start = q.pos.saturating_sub(state::QUEUE_KEPT / 10).min(len.saturating_sub(state::QUEUE_KEPT));
         let end = (start + state::QUEUE_KEPT).min(len);
-        let current = q.order.get(q.pos).map(|&i| q.track(i).file_path.as_str());
-        let at = match &self.now {
-            Some(n) if n.root == q.root && Some(n.track.file_path.as_str()) == current => self.position(),
-            _ => self.resume.unwrap_or_default(),
-        };
+        // (While a pick plays, the list waits at the start of its next.)
+        let at = if self.crate_list.playing.is_some() { Duration::ZERO } else { self.current_at() };
         Some(SavedQueue {
             root: q.root.clone(),
             drive: q.drive.clone(),
+            name: q.name.clone(),
             tracks: q.order[start..end].iter().map(|&i| q.track(i).file_path.clone()).collect(),
             pos: q.pos - start,
             at_ms: at.as_millis() as u64 / 15_000 * 15_000,
@@ -141,6 +155,9 @@ impl App {
 
     /// Save what to remember, now (on the way out).
     pub fn save_state(&mut self) {
+        if self.state_unreadable {
+            return;
+        }
         let saved = self.saved_state();
         state::save(&self.store_root, &saved);
         self.saved = Some(saved);
@@ -149,7 +166,7 @@ impl App {
     /// Save what to remember when it has changed (checked every couple of seconds), so a crash
     /// or a killed terminal loses little.
     pub(super) fn autosave(&mut self) {
-        if self.last_save_check.elapsed() < Duration::from_secs(2) {
+        if self.state_unreadable || self.last_save_check.elapsed() < Duration::from_secs(2) {
             return;
         }
         self.last_save_check = Instant::now();
@@ -183,15 +200,28 @@ impl App {
             return;
         }
         let pos = pos.min(items.len() - 1);
-        let library = l.library.clone();
-        self.queue = Queue { order: (0..items.len()).collect(), library, items, root: q.root, drive: q.drive, pos };
-        self.resume = Some(Duration::from_millis(q.at_ms));
+        let (library, order) = (l.library.clone(), (0..items.len()).collect());
+        self.queue = Queue { order, library, items, root: q.root, drive: q.drive, pos, name: q.name };
+        // (A pick to carry on with has its own place.)
+        if self.crate_list.playing.is_none() {
+            self.resume = Some(Duration::from_millis(q.at_ms));
+        }
     }
 
     /// The track space would carry on with, and from where, when nothing's playing.
     pub fn resumable(&self) -> Option<(&Track, Duration)> {
         let at = self.resume.filter(|_| self.now.is_none())?;
-        let &i = self.queue.order.get(self.queue.pos)?;
-        Some((self.queue.track(i), at))
+        Some((self.current()?.0, at))
     }
+}
+
+fn crate_track(t: &SavedCrateTrack) -> CrateTrack {
+    let mut c = CrateTrack::new(&t.root, &t.drive, t.track.clone());
+    (c.played, c.filled) = (t.played, t.filled);
+    c
+}
+
+fn saved_crate_track(t: &CrateTrack) -> SavedCrateTrack {
+    let (root, drive, track) = (t.root.clone(), t.drive.clone(), t.track.clone());
+    SavedCrateTrack { root, drive, track, played: t.played, filled: t.filled }
 }

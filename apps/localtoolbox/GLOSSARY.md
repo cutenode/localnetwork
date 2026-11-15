@@ -26,6 +26,10 @@ _Avoid_: wall, funnel, download page
 Taking one gate as far as it goes without a person.
 _Avoid_: crawl, scrape, bypass
 
+**Page gate**:
+A gate the person does on its own page, with the extension outlining the steps, filling in the email and saving the file the page hands over. Droploud, Pump Your Sound and Laylo are done this way.
+_Avoid_: assisted gate, manual gate
+
 **Drop**:
-A Laylo notify-me page: people leave an address and the artist sends the link out later. It isn't a gate, though a walk can sign up to one.
+A Laylo notify-me page: people leave an address and the artist sends the link out later. It isn't a gate; the person signs up on its page.
 _Avoid_: release, campaign

@@ -1,7 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { diagramFiles, diagramProblems } from './readmes.ts';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { diagramFiles, diagramProblems, diagramsIn, run, unchecked } from './readmes.ts';
 
 const repo = resolve(import.meta.dirname, '../..');
 
@@ -79,4 +81,153 @@ describe('diagramProblems', () => {
 			).toEqual([]);
 		}
 	});
+});
+
+// A diagram page two levels into an app, as apps/*/docs/diagrams/*.md are.
+const PAGE = 'apps/app/docs/diagrams/page.md';
+
+const page = [
+	'# app: one area',
+	'## Sign in',
+	block(undefined, 'Source: [`a.ts`](../../src/a.ts#L3), [`lib/`](../../src/lib/), [spec](https://example.com/a.ts)'),
+	'## The store',
+	block(undefined, 'Source: [`store.rs`](../../../../crates/core/src/store.rs)')
+].join('\n\n');
+
+const diagrams = diagramsIn(PAGE, page);
+
+const reported = (file: string, heading: string, paths: string) =>
+	`${file}#${heading}: ${paths} changed: update the diagram, or add a line \`diagrams-checked: ${file}#${heading}: <why>\` (or \`diagrams-checked: ${file}: <why>\` for every diagram in the file) to the pull request's body`;
+
+const signIn = (paths: string) => reported(PAGE, 'sign-in', paths);
+
+describe('diagramsIn', () => {
+	it('gives each diagram its heading and its sources from the repository root', () => {
+		expect(diagrams).toEqual([
+			{ file: PAGE, heading: 'sign-in', sources: ['apps/app/src/a.ts', 'apps/app/src/lib'] },
+			{ file: PAGE, heading: 'the-store', sources: ['crates/core/src/store.rs'] }
+		]);
+	});
+
+	it('gives a diagram with no Source: line no sources', () => {
+		expect(diagramsIn(PAGE, `## One\n\n${block(undefined, 'Nothing here.')}`)).toEqual([
+			{ file: PAGE, heading: 'one', sources: [] }
+		]);
+	});
+});
+
+describe('unchecked', () => {
+	it('reports a diagram whose source changed, with the sources that did', () => {
+		expect(unchecked(diagrams, ['apps/app/src/a.ts', 'apps/app/src/lib/b.ts'], '')).toEqual([
+			signIn('apps/app/src/a.ts, apps/app/src/lib')
+		]);
+	});
+
+	it('takes a change under a source directory as a change to it, and not one beside it', () => {
+		expect(unchecked(diagrams, ['apps/app/src/lib/deep/c.ts'], '')).toEqual([signIn('apps/app/src/lib')]);
+		expect(unchecked(diagrams, ['apps/app/src/library.ts'], '')).toEqual([]);
+	});
+
+	it('resolves a source outside the app through ../', () => {
+		expect(unchecked(diagrams, ['crates/core/src/store.rs'], '')).toEqual([
+			reported(PAGE, 'the-store', 'crates/core/src/store.rs')
+		]);
+	});
+
+	it('passes a diagram the body says why is still right, and only that one', () => {
+		const changed = ['apps/app/src/a.ts', 'crates/core/src/store.rs'];
+		const body = `## What and why\n\n  diagrams-checked: ${PAGE}#the-store: a rename inside the function\r\n`;
+
+		expect(unchecked(diagrams, changed, body)).toEqual([signIn('apps/app/src/a.ts')]);
+		expect(unchecked(diagrams, changed, `${body}diagrams-checked: ${PAGE}#sign-in: only a log line\n`)).toEqual([]);
+	});
+
+	it("passes every diagram in a file the body names, and no other file's", () => {
+		const changed = ['apps/app/src/a.ts', 'crates/core/src/store.rs'];
+		const other = { file: 'apps/app/README.md', heading: 'one', sources: ['apps/app/src/a.ts'] };
+		const body = `diagrams-checked: ${PAGE}: the page only describes the exported names, which stayed\n`;
+
+		expect(unchecked([...diagrams, other], changed, body)).toEqual([
+			reported('apps/app/README.md', 'one', 'apps/app/src/a.ts')
+		]);
+		expect(unchecked(diagrams, changed, `diagrams-checked: ${PAGE}: \n`)).toHaveLength(2);
+	});
+
+	it('wants a reason after the diagram in the body', () => {
+		expect(unchecked(diagrams, ['apps/app/src/a.ts'], `diagrams-checked: ${PAGE}#sign-in: \n`)).toEqual([
+			signIn('apps/app/src/a.ts')
+		]);
+	});
+
+	it("passes every diagram in a file the pull request changed, and one that touches none's sources", () => {
+		expect(unchecked(diagrams, ['apps/app/src/a.ts', 'crates/core/src/store.rs', PAGE], '')).toEqual([]);
+		expect(unchecked(diagrams, ['apps/app/src/b.ts', 'README.md'], '')).toEqual([]);
+	});
+
+	it('reports the diagrams under one heading as one, with each changed source once', () => {
+		const second = { ...diagrams[0], sources: ['apps/app/src/a.ts', 'apps/app/src/c.ts'] };
+		const changed = ['apps/app/src/a.ts', 'apps/app/src/c.ts'];
+
+		expect(unchecked([diagrams[0], second], changed, '')).toEqual([signIn('apps/app/src/a.ts, apps/app/src/c.ts')]);
+	});
+});
+
+describe('run', () => {
+	const start = process.cwd();
+	let dir: string;
+
+	const git = (...args: string[]) =>
+		execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+
+	const commit = (message: string) => {
+		git('add', '.');
+		git('commit', '-qm', message);
+	};
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'readmes-'));
+		process.chdir(dir);
+		mkdirSync('apps/app/docs/diagrams', { recursive: true });
+		mkdirSync('apps/app/src');
+		mkdirSync('apps/other');
+		writeFileSync('apps/app/docs/diagrams/page.md', page);
+		writeFileSync('apps/app/README.md', readme(block(undefined, 'Source: [`a.ts`](src/a.ts)')));
+		writeFileSync('apps/app/src/a.ts', '');
+		// An app with a README and no diagram pages, and a file beside the apps.
+		writeFileSync('apps/other/README.md', '# other\n');
+		writeFileSync('apps/.keep', '');
+		writeFileSync('body.md', '');
+		git('init', '-q');
+		commit('base');
+	});
+	afterEach(() => {
+		process.chdir(start);
+		rmSync(dir, { recursive: true });
+	});
+
+	it('reports the diagrams whose sources changed since the base', () => {
+		writeFileSync('apps/app/src/a.ts', 'export {};\n');
+		commit('change');
+
+		expect(run(['drift', 'HEAD~1', 'body.md'])).toEqual({
+			lines: [reported('apps/app/README.md', 'one', 'apps/app/src/a.ts'), signIn('apps/app/src/a.ts')],
+			ok: false
+		});
+	});
+
+	it('passes once each diagram is updated or checked in the body', () => {
+		writeFileSync('apps/app/src/a.ts', 'export {};\n');
+		writeFileSync('apps/app/README.md', readme(block('flowchart TD\n  A --> C\n', 'Source: [`a.ts`](src/a.ts)')));
+		commit('change');
+		writeFileSync('body.md', `diagrams-checked: ${PAGE}#sign-in: a.ts only exports now\n`);
+
+		expect(run(['drift', 'HEAD~1', 'body.md'])).toEqual({ lines: [], ok: true });
+	});
+
+	it.each([[[]], [['drift', 'HEAD']], [['check', 'HEAD', 'body.md']], [['drift', 'HEAD', 'body.md', 'extra']]])(
+		'prints its usage for %j',
+		(args) => {
+			expect(run(args)).toEqual({ lines: ['usage: cli.ts drift <base-ref> <body-file>'], ok: false });
+		}
+	);
 });

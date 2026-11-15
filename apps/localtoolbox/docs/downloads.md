@@ -65,25 +65,25 @@ it to the Manager's list or [save it to a file](saving.md).
 
 A free download on SoundCloud often isn't on SoundCloud. The Buy or Free Download link goes to a
 gate that wants a follow, a repost or your email before it hands over the file. The third-party
-downloader takes each link as far as it goes:
+downloader takes each link as far as the site allows:
 
-| Site            | Ends in a file?                                          |
-| --------------- | -------------------------------------------------------- |
-| Hypeddit        | Yes                                                      |
-| Droploud        | Yes                                                      |
-| Pump Your Sound | Yes                                                      |
-| ToneDen         | Sometimes                                                |
-| FanLink         | Sometimes                                                |
-| Laylo           | No: it signs you up, and the artist emails you the track |
-| Feature.fm      | Rarely: it's usually a page of shop and streaming links  |
+| Site                         | What **get** does                                                  |
+| ---------------------------- | ------------------------------------------------------------------ |
+| Hypeddit                     | Gets the file for you                                              |
+| Droploud, Pump Your Sound    | Opens the gate for you to do; saves the file when it unlocks       |
+| Laylo                        | Opens the drop with your email filled in; you press RSVP           |
+| ToneDen, FanLink, Feature.fm | Nothing: the row is an **open** button. ToneDen closes Dec 1, 2026 |
 
 Open it from the menu. With **this page** it takes every gate link on the SoundCloud page in front,
 or the one link on a gate's own tab. With **session queue** it takes the links of the queued
 tracks, from any tab. You can also paste links, or a whole message with links in it, into **add
 links by hand** at the bottom.
 
-**download all** walks every row, one at a time, or click **get** on one row. Rows say how they're
-going. Files land in a folder per site (`Hypeddit`, `Droploud` and so on) in your downloads folder,
+**get all** does every row, or click **get** on one row. Hypeddit rows go first, one at a time,
+right there in the panel. Then the Droploud, Pump Your Sound and Laylo gates open one after another
+in a tab: the steps are outlined, your email is filled in, and you do the clicking. When a gate
+unlocks, its file is saved and the next one opens. Rows say how they're going. Files land in a
+folder per site (`Hypeddit`, `Droploud`, `PumpYourSound`) in your downloads folder,
 and saving one marks its track downloaded unless you turn off **mark the SoundCloud track
 downloaded** in Settings. **hide downloaded** and **hide queued** narrow the list to what you
 haven't got yet.
@@ -92,17 +92,16 @@ haven't got yet.
 
 Some gates want something only you can give:
 
-- **An email address or name.** Hypeddit and Laylo can ask for one. The row offers **add email**
-  or **add name**, which opens Settings where you type it once.
-- **Spotify.** A Hypeddit gate with a Spotify step follows the artist from your Spotify account.
-  The first one needs you to press Connect on the gate once; after that they go through on their
-  own.
-- **ToneDen and FanLink** often need one visit by hand per gate. The row says which account the
-  gate wants.
+- **An email address.** A Hypeddit gate can ask for one. The row offers **add email**, which
+  opens Settings where you type it once. Hypeddit shares it with the artist, the service it checks
+  addresses with, and its marketing providers.
+- **Spotify.** A Hypeddit gate with a Spotify step follows the artist from your Spotify account,
+  and the row says whose. The first one needs you to press Connect on the gate once; after that
+  they go through on their own.
 - **A CAPTCHA**, or a step the downloader can't do, needs the gate opened in a tab.
 
 A failed row leads with **open**, which takes you to the gate and puts the track in the session
 queue, so you can mark it once the file's in. **get** stays there to try again.
 
-The Download button localtoolbox puts on SoundCloud's pages walks Hypeddit, Droploud and Pump Your
-Sound gates the same way. See [Marks on SoundCloud pages](marks.md#download-buttons).
+The Download button localtoolbox puts on SoundCloud's pages does Hypeddit, Droploud, Pump Your
+Sound and Laylo links the same way. See [Marks on SoundCloud pages](marks.md#download-buttons).

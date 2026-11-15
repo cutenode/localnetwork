@@ -1,5 +1,6 @@
 <script lang="ts">
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import LocallibraryCard from '#lib/components/LocallibraryCard.svelte';
 	import NeedsList from '#lib/components/NeedsList.svelte';
 	import NightList from '#lib/components/NightList.svelte';
 	import OnboardingChecklist from '#lib/components/OnboardingChecklist.svelte';
@@ -21,6 +22,8 @@
 	const summary = resolved(() => data.summary, null);
 
 	const onboarding = resolved(() => data.onboarding, null);
+
+	const locallibrary = resolved(() => data.locallibrary, null);
 
 	const needs = $derived(rows.value && [...rows.value, ...access.value]);
 
@@ -57,7 +60,7 @@
 	{#if onboarding.value}<OnboardingChecklist data={onboarding.value} flags={data.flags} />{/if}
 
 	{#if !data.viewer?.spacesCapable}
-		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and submissions for you (<a href="/dashboard/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
+		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and requests for you (<a href="/dashboard/account/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
 	{/if}
 
 	{#if !needs && count}
@@ -107,4 +110,6 @@
 			{/if}
 		{/await}
 	{/if}
+
+	<LocallibraryCard status={locallibrary.value} />
 </div>

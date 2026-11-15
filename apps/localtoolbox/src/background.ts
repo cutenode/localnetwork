@@ -1,24 +1,41 @@
-// The background worker, for the one thing the page cannot do by itself: walk
-// a download gate when the Download button the content script put on the page
-// is pressed on a link to one (content.ts, "Replacing SoundCloud's own
-// download buttons").
+// The background worker, for what neither the page nor the popup can do by
+// itself.
 //
-// The walk is the Downloader panel's own, site module and all, and neither of
-// the two obvious places can run it. A content script fetches as the page it
-// is in, so every gate is another origin it is refused; a service worker has
-// no DOMParser, which the Hypeddit and Pump Your Sound walks read their pages
-// with. So the walk runs in an offscreen page (offscreen.ts), a document
-// Chrome opens for exactly this, and this worker does the parts only it can:
-// the tab a Spotify step is walked in, the download, and the tab the gate
-// opens in when the walk ends anywhere but a file.
+// Walking a Hypeddit gate when the Download button the content script put on
+// the page is pressed on a link to one (content.ts, "Replacing SoundCloud's own
+// download buttons"). The walk is the Downloader panel's own, site module and
+// all, and neither of the two obvious places can run it. A content script
+// fetches as the page it is in, so every gate is another origin it is refused;
+// a service worker has no DOMParser, which the Hypeddit walk reads its page
+// with. So the walk runs in an offscreen page (offscreen.ts), a document Chrome
+// opens for exactly this, and this worker does the parts only it can: the tab a
+// Spotify step is walked in, the download, and the tab the gate opens in when
+// the walk ends anywhere but a file.
+//
+// Running a gate done on its own page (Droploud, Pump Your Sound, Laylo): the
+// tab it is done in, the gates after it, and filing the download the page
+// starts (tools/third-party-downloads/on-page.ts). The address gate-page.ts
+// fills in, and whether a saved file marks its track, are settings in the
+// popup's localStorage, so the offscreen page reads them for it.
 
 import { roundTrip } from '$lib/chrome.ts';
-import type { RoundTripRequest, SaveGateAnswer, SaveGateRequest, WalkGateAnswer, WalkGateRequest } from '$lib/types';
+import type {
+	GatePagePrefs,
+	GatePageRequest,
+	OffscreenRequest,
+	OpenGatesRequest,
+	RoundTripRequest,
+	SaveGateAnswer,
+	SaveGateRequest,
+	WalkGateAnswer
+} from '$lib/types';
+import { onPage } from './tools/third-party-downloads/on-page.ts';
 import { save } from './tools/third-party-downloads/save.ts';
+import { siteFor } from './tools/third-party-downloads/sites/index.ts';
 
 const OFFSCREEN = 'offscreen.html';
 
-// One walk at a time, for the panel's reason: several of these sites hand out
+// One errand at a time, for the panel's reason: several of these sites hand out
 // a per-visit token, and every one of them is somebody's small server. The
 // offscreen page is closed once nothing is waiting, so each burst of clicks
 // reads the settings afresh and an idle browser holds no document for it.
@@ -32,38 +49,61 @@ async function openOffscreen() {
 	if (open.length > 0) return;
 	await chrome.offscreen.createDocument({
 		url: OFFSCREEN,
-		reasons: ['DOM_PARSER'],
-		justification: 'reads download gate pages to walk them to their file'
+		reasons: ['DOM_PARSER', 'LOCAL_STORAGE'],
+		justification: 'reads download gate pages to walk them to their file, and the settings they use'
 	});
 }
 
-/** The walk, as the offscreen page answers it; a page that never answered sends the person to the gate. */
-async function walk(url: string): Promise<WalkGateAnswer> {
-	try {
-		await openOffscreen();
+/** One errand for the offscreen page, in turn; undefined when it never answered. */
+function ask<T>(message: OffscreenRequest): Promise<T | undefined> {
+	waiting += 1;
 
-		const answer: WalkGateAnswer | undefined = await chrome.runtime.sendMessage({
-			type: 'WALK_GATE',
-			url
-		} satisfies WalkGateRequest);
+	const answered = turn.then(async (): Promise<T | undefined> => {
+		try {
+			await openOffscreen();
 
-		return answer ?? { ok: false, openUrl: url };
-	} catch (_e) {
-		return { ok: false, openUrl: url };
-	}
+			// What the offscreen page answers each request with (offscreen.ts).
+			return await chrome.runtime.sendMessage(message);
+		} catch (_e) {
+			return undefined;
+		}
+	});
+
+	turn = answered.then(closeIfIdle);
+
+	return answered;
 }
+
+async function closeIfIdle() {
+	waiting -= 1;
+
+	if (waiting === 0) await chrome.offscreen.closeDocument().catch(() => {});
+}
+
+const pages = onPage(async () => (await ask<GatePagePrefs>({ type: 'READ_PREFS' })) ?? { email: '', mark: false });
 
 /**
  * Walks one gate and saves its file, or opens the gate (or the file, when it was the transfer
- * that failed) beside the tab that asked.
+ * that failed) beside the tab that asked. A gate done on its own page is opened there, with the
+ * page's help.
  */
-async function saveGate(url: string, from: chrome.tabs.Tab | undefined): Promise<SaveGateAnswer> {
-	const answer = await walk(url);
+async function saveGate(request: SaveGateRequest, from: chrome.tabs.Tab | undefined): Promise<SaveGateAnswer> {
+	if (siteFor(request.url)?.how === 'page') {
+		await pages.open([{ url: request.url, permalink: request.permalink }], from);
+
+		return { saved: false, mark: false };
+	}
+
+	const answer = (await ask<WalkGateAnswer>({ type: 'WALK_GATE', url: request.url })) ?? {
+		ok: false,
+		openUrl: request.url
+	};
+
 	let openUrl = answer.ok ? answer.url : answer.openUrl;
 
 	if (answer.ok) {
 		try {
-			await save(answer.url, { subfolder: answer.subfolder, filename: answer.filename });
+			await save(answer.url, { subfolder: answer.subfolder });
 
 			return { saved: true, mark: answer.mark };
 		} catch (_e) {
@@ -80,34 +120,58 @@ async function saveGate(url: string, from: chrome.tabs.Tab | undefined): Promise
 	return { saved: false, mark: false };
 }
 
-function inTurn(url: string, from: chrome.tabs.Tab | undefined) {
-	waiting += 1;
-	const saved = turn.then(() => saveGate(url, from));
+chrome.runtime.onMessage.addListener(
+	(message: SaveGateRequest | RoundTripRequest | OpenGatesRequest | GatePageRequest, sender, sendResponse) => {
+		switch (message?.type) {
+			case 'SAVE_GATE':
+				void saveGate(message, sender.tab).then(sendResponse);
 
-	turn = saved.then(closeIfIdle);
+				return true;
 
-	return saved;
-}
+			// Only the offscreen page asks for a sign-in, and it has no tab.
+			case 'ROUND_TRIP':
+				if (sender.tab) return undefined;
+				void roundTrip(message.url, { landing: message.landing }).then(sendResponse);
 
-async function closeIfIdle() {
-	waiting -= 1;
+				return true;
 
-	if (waiting === 0) await chrome.offscreen.closeDocument().catch(() => {});
-}
+			case 'OPEN_GATES':
+				void pages.open(message.gates).then(() => sendResponse(true));
 
-chrome.runtime.onMessage.addListener((message: SaveGateRequest | RoundTripRequest, sender, sendResponse) => {
-	if (message?.type === 'SAVE_GATE') {
-		void inTurn(message.url, sender.tab).then(sendResponse);
+				return true;
 
-		return true;
+			case 'GATE_PAGE_HELLO':
+				void pages.hello(sender.tab, sender.url).then(sendResponse);
+
+				return true;
+
+			case 'GATE_PAGE_NEXT':
+				void pages.next(sender.tab);
+
+				return undefined;
+
+			case 'GATE_PAGE_STOP':
+				void pages.stop(sender.tab);
+
+				return undefined;
+
+			case 'GATE_PAGE_SIGNED_UP':
+				void pages.signedUp(sender.tab);
+
+				return undefined;
+
+			default:
+				return undefined;
+		}
 	}
+);
 
-	// Only the offscreen page asks for a sign-in, and it has no tab.
-	if (message?.type === 'ROUND_TRIP' && !sender.tab) {
-		void roundTrip(message.url, { landing: message.landing }).then(sendResponse);
+chrome.tabs.onRemoved.addListener((tabId) => void pages.closed(tabId));
 
-		return true;
-	}
+// Every download passes through here, and only the open gate's file is given a
+// name: the rest are answered with nothing, which leaves the browser's own.
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+	void pages.file(item).then((where) => suggest(where));
 
-	return undefined;
+	return true;
 });

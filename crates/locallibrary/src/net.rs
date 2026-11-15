@@ -11,7 +11,7 @@
 //! [`runtime`].
 
 use std::io::Read;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -140,16 +140,33 @@ fn ip(url: &reqwest::Url) -> Option<IpAddr> {
     url.host_str()?.trim_start_matches('[').trim_end_matches(']').parse().ok()
 }
 
-/// This computer, a private network, or a link's own addresses.
+/// This computer, a private network, or a link's own addresses. For IPv4 that takes in "this
+/// network" (0.0.0.0/8), the broadcast address and carrier-grade NAT's shared space
+/// (100.64.0.0/10, which Tailscale hands out too). An IPv6 address that carries an IPv4 one
+/// (mapped, NAT64's 64:ff9b::/96 or 6to4's 2002::/16) is local when that one is.
 fn local(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified(),
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || a == 0
+                || (a == 100 && b & 0xc0 == 64)
+        }
         IpAddr::V6(v6) => {
+            let o = v6.octets();
+            let carried = match v6.segments() {
+                [0x64, 0xff9b, 0, 0, 0, 0, ..] => Some(Ipv4Addr::new(o[12], o[13], o[14], o[15])),
+                [0x2002, ..] => Some(Ipv4Addr::new(o[2], o[3], o[4], o[5])),
+                _ => v6.to_ipv4_mapped(),
+            };
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
-                || v6.to_ipv4_mapped().is_some_and(|v4| local(IpAddr::V4(v4)))
+                || carried.is_some_and(|v4| local(IpAddr::V4(v4)))
         }
     }
 }

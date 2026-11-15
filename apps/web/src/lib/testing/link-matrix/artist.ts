@@ -13,6 +13,9 @@ export default {
 			form: null
 		}),
 	links: {
-		'Acts who played their tracks': [{ name: 'Pirate Signal', href: '/projects/pirate-signal' }]
+		'Acts who played their tracks': [{ name: 'Pirate Signal', href: '/projects/pirate-signal' }],
+		// A DJ with no active project, so only their profile stands for them.
+		'Listed DJs who played their tracks': [{ name: 'did:plc:harbour', href: '/@did:plc:harbour' }],
+		'The sets each play is in': [{ name: 'Halle Nord, Berlin', href: '/@neon.test/sets/3kset1' }]
 	}
 } satisfies LinkChecks;

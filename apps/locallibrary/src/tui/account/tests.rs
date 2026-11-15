@@ -99,8 +99,8 @@ fn a_tab_clicked_while_typing_a_handle_puts_it_away() {
     assert_eq!(app.view, View::Library);
     press(&mut app, "gu");
     assert!(!screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
-    press(&mut app, "q");
-    assert!(app.quit, "q quits, not typed");
+    press(&mut app, "Q");
+    assert!(app.quit, "Q quits, not typed");
 }
 
 #[test]

@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DEMO_DJS, DEMO_PROJECTS, DEMO_SHOWS } from '../../../../scripts/seed-data.ts';
+import { DEMO_CLAIMS, DEMO_PROJECTS, DEMO_SHOWS, managersOf } from '../../../../scripts/seed-data.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ProjectPlan } from '#lib/project-migration.ts';
 import type { ProjectDetails, ProjectProfile, ProjectStatus, ProjectView } from '#lib/types.ts';
@@ -406,12 +406,15 @@ it('writes nothing to any repo, space or table', async () => {
 
 describe('the seed data', () => {
 	it('plans the demo projects', async () => {
-		const djs = new Map(DEMO_DJS.map((dj) => [dj.project, `did:plc:${dj.handle.split('.')[0]}`]));
+		// As the seed leaves them: each claimant a manager through an approved claim, the first one the creator.
+		const didOf = (handle: string) => `did:plc:${handle.split('.')[0]}`;
+		const projects = [];
 
-		for (const [index, demo] of DEMO_PROJECTS.entries()) {
-			const managers = [...(index < 2 ? ['did:plc:neon'] : []), ...(djs.has(index) ? [djs.get(index)!] : [])];
-			await publish(demo, { managers });
-		}
+		for (const [index, demo] of DEMO_PROJECTS.entries())
+			projects.push(await publish(demo, { createdBy: didOf(managersOf(index)[0]) }));
+
+		for (const { handle, project, relationship } of DEMO_CLAIMS)
+			await claim(projects[project], didOf(handle), relationship);
 
 		// neon.test's press kit that the root doesn't hold yet, as the seed leaves it.
 		const neonTide = (await t.projects.bySlug('neon-tide'))!;
@@ -434,20 +437,20 @@ describe('the seed data', () => {
 			plan.projects.map((planned) => [planned.slug, planned.blockers.map((found) => found.kind)])
 		);
 
-		expect(plan.totals).toEqual({ acts: 5, djs: 7, blocked: 11 });
+		expect(plan.totals).toEqual({ acts: 5, djs: 7, blocked: 1 });
 		expect(blockers).toEqual({
-			'neon-tide': ['unresolvedDj', 'legacyPressKit'],
+			'neon-tide': ['legacyPressKit'],
 			'saffron-social': [],
-			'lowkey-lagos': ['noManagers'],
-			'pirate-signal': ['unresolvedDj'],
-			'velvet-static': ['noManagers', 'unresolvedDj'],
-			'moss-and-marrow': ['noManagers'],
-			halflight: ['noManagers', 'unresolvedDj'],
-			'sundial-soundsystem': ['noManagers'],
-			'harbour-lights': ['unresolvedDj'],
-			'coyote-cumbia-club': ['noManagers'],
-			glasshouse: ['unresolvedDj'],
-			'footwork-fever': ['noManagers', 'unresolvedDj']
+			'lowkey-lagos': [],
+			'pirate-signal': [],
+			'velvet-static': [],
+			'moss-and-marrow': [],
+			halflight: [],
+			'sundial-soundsystem': [],
+			'harbour-lights': [],
+			'coyote-cumbia-club': [],
+			glasshouse: [],
+			'footwork-fever': []
 		});
 		expect(plan.projects.find((planned) => planned.slug === 'moss-and-marrow')?.unmapped).toEqual([
 			{ field: 'kind', reason: expect.stringContaining('"live"') }
