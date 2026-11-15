@@ -295,3 +295,26 @@ fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
     let other = std::panic::catch_unwind(|| std::panic::panic_any(7u8)).unwrap_err();
     assert_eq!(panic_text(&*other), "a panic");
 }
+
+/// What a capacity probe's errors become: an I/O error keeps its path, a device that needs rights
+/// is a `permission` error that says so and asks to run as an administrator, a stop `cancelled`.
+#[hegel::test(test_cases = 50)]
+fn capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_capacity::Error as C;
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/dev/rdisk4", "/dev/sdb"])));
+    let (e, code): (Error, &str) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => (C::Io { path: path.clone(), source: io::Error::other("unplugged") }.into(), "io"),
+        1 => (C::Permission { path: path.clone() }.into(), "permission"),
+        _ => (C::Cancelled(loclib_progress::Cancelled).into(), "cancelled"),
+    };
+    assert_eq!(e.code(), code, "{e:?}");
+    match code {
+        "io" => assert_eq!(e.detail().fields["path"], path.display().to_string()),
+        "permission" => {
+            let said = format!("checking the capacity of {} needs administrator rights", path.display());
+            assert_eq!((e.to_string(), e.reason()), (said, Some(Reason::NeedsAdmin)));
+        }
+        _ => {}
+    }
+}

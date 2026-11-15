@@ -72,7 +72,7 @@ fn stderr_goes_to_the_messages_while_the_player_runs() {
     assert!(std::panic::catch_unwind(|| panic!("the player broke")).is_err());
 }
 
-/// A signal while the player runs is the player's, and quits it as `q` does; before it runs
+/// A signal while the player runs is the player's, and quits it as `Q` does; before it runs
 /// (and after), it's the CLI's handler's.
 #[test]
 fn signals_quit_the_running_player() {

@@ -395,8 +395,10 @@ fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
         (false, false) => Basis::Sessions,
     };
     assert_eq!(r.basis, basis);
+    // The collection, each track once: what genres, artists, era and energy count.
+    let owned: Vec<usize> = (0..g.len()).filter(|&i| g[i].in_collection).collect();
     if basis == Basis::Collection {
-        pool = (0..g.len()).filter(|&i| g[i].in_collection).map(|i| (i, now.year())).collect();
+        pool = owned.iter().map(|&i| (i, now.year())).collect();
     }
 
     // Sets.
@@ -497,8 +499,8 @@ fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
     );
     assert!(k.minor_share.is_none_or(|x| (0.0..=1.0).contains(&x)));
 
-    // Energy.
-    let moods: Vec<Mood> = pool.iter().filter_map(|&(i, _)| g[i].mood).collect();
+    // Energy: the collection's moods, played or not.
+    let moods: Vec<Mood> = owned.iter().filter_map(|&i| g[i].mood).collect();
     match &r.energy {
         None => assert!(moods.is_empty()),
         Some(e) => {
@@ -509,20 +511,20 @@ fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
         }
     }
 
-    // Genres, labels and artists.
+    // Genres and artists (the collection, each track once), and labels (plays).
     let mut tallies: [(FxHashMap<String, usize>, usize); 3] = Default::default();
-    for &(i, _) in &pool {
-        let named: [Vec<String>; 3] = [
-            genres(g[i].genre, &none),
-            Some(g[i].label.trim().to_string()).filter(|l| !l.is_empty()).into_iter().collect(),
-            artist_credits(g[i].artist),
-        ];
-        for (names, (counts, known)) in named.iter().zip(tallies.iter_mut()) {
-            *known += usize::from(!names.is_empty());
-            for n in names {
-                *counts.entry(normalize(n)).or_default() += 1;
-            }
+    let count = |(counts, known): &mut (FxHashMap<String, usize>, usize), names: Vec<String>| {
+        *known += usize::from(!names.is_empty());
+        for n in names {
+            *counts.entry(normalize(&n)).or_default() += 1;
         }
+    };
+    for &i in &owned {
+        count(&mut tallies[0], genres(g[i].genre, &none));
+        count(&mut tallies[2], artist_credits(g[i].artist));
+    }
+    for &(i, _) in &pool {
+        count(&mut tallies[1], Some(g[i].label.trim().to_string()).filter(|l| !l.is_empty()).into_iter().collect());
     }
     for ((what, sec), (counts, known)) in
         [("genres", &r.genres), ("labels", &r.labels), ("artists", &r.artists)].into_iter().zip(&tallies)
@@ -531,10 +533,10 @@ fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
     }
     assert!(r.labels.top.iter().map(|l| l.share).sum::<f64>() <= 1.0 + 1e-9, "a track has one label");
 
-    // Era.
-    let years: Vec<(i32, i32)> = pool
+    // Era: the collection, "recent" being this year or last.
+    let years: Vec<(i32, i32)> = owned
         .iter()
-        .map(|&(i, played)| (i32::from(g[i].year), played))
+        .map(|&i| (i32::from(g[i].year), now.year()))
         .filter(|(y, _)| *y >= 1900 && *y <= now.year() + 1)
         .collect();
     let e = &r.era;
@@ -598,7 +600,6 @@ fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
     }
 
     // Prep and the collection.
-    let owned: Vec<usize> = (0..g.len()).filter(|&i| g[i].in_collection).collect();
     let cued: Vec<(usize, usize, usize)> = owned.iter().filter_map(|&i| g[i].cues).collect();
     match &r.prep {
         None => assert!(cued.is_empty()),
@@ -679,6 +680,13 @@ fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
     let d = document(&r, &prefs);
     let on = prefs.published();
     let shows = |x: Section| on.contains(&x) && r.basis.publishes(x);
+    // Whatever the preferences name, only the publishable sections go out.
+    assert!(on.iter().all(|x| x.publishable()), "{on:?}");
+    let json = serde_json::to_value(&d).unwrap();
+    let fields: Vec<&String> = json.as_object().unwrap().keys().collect();
+    let allowed =
+        ["version", "generatedAt", "precision", "basis", "sets", "energy", "genres", "artists", "era", "collection"];
+    assert!(fields.iter().all(|f| allowed.contains(&f.as_str())), "{fields:?}");
     let (units, bpm_units) = match prefs.precision {
         Precision::Rounded => (20.0, 1.0),
         Precision::Exact => (1000.0, 10.0),
@@ -774,6 +782,84 @@ fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
     } else {
         assert!(d.headline.is_none() && d.tags.is_empty());
     }
+}
+
+/// The tracks named `(artist, title, genre, year, mood)`, as a library's.
+fn library_of(tracks: &[(&str, &str, &str, u16, Option<Mood>)]) -> (Library, Vec<Option<Mood>>) {
+    let rows = tracks
+        .iter()
+        .enumerate()
+        .map(|(i, (artist, title, genre, year, _))| Track {
+            id: i as u32 + 1,
+            artist: artist.to_string(),
+            title: title.to_string(),
+            genre: genre.to_string(),
+            year: *year,
+            bpm: 125.0,
+            duration_secs: 300,
+            file_path: format!("/Contents/{title}.mp3"),
+            ..Track::default()
+        })
+        .collect();
+    (Library { tracks: rows, ..Library::default() }, tracks.iter().map(|t| t.4).collect())
+}
+
+/// Genres, artists, era and energy count the collection, each track once: a track played in
+/// every set counts as much as one never played, and a track played but not in the collection
+/// (a dubplate kept only in a set) doesn't count. Tempo and labels still count plays.
+#[test]
+fn genres_artists_era_and_energy_count_each_collection_track_once() {
+    let o = ProfileOptions { min_set_tracks: 1, ..ProfileOptions::default() };
+    let mut b = builder(&o);
+    let (lib, moods) = library_of(&[
+        ("Bicep", "Glue", "Techno", 2017, Some(Mood::High)),
+        ("Four Tet", "Two Thousand And Seventeen", "House", 1997, Some(Mood::Low)),
+        ("Floorplan", "Never Grow Old", "House", 2014, None),
+    ]);
+    b.add_collection(&lib, Origin::Drive(0));
+    for (i, m) in moods.into_iter().enumerate() {
+        b.recs[i].mood = m;
+    }
+    let dubplate = b.entry(&SetEntry {
+        artist: "Unknown".into(),
+        title: "Dubplate".into(),
+        genre: "Jungle".into(),
+        year: 2025,
+        bpm: 170.0,
+        ..SetEntry::added("Unknown - Dubplate")
+    });
+    b.recs[dubplate].mood = Some(Mood::High);
+    // "Glue" five times in each of three sets, then the dubplate.
+    for k in 0..3 {
+        b.sets.push(SetData {
+            id: format!("set{k}"),
+            name: format!("Set {k}"),
+            place: String::new(),
+            date: Some(NaiveDate::from_ymd_opt(2026, 1, 1 + k).unwrap()),
+            tracks: vec![0, 0, 0, 0, 0, dubplate],
+            missing_at: Vec::new(),
+        });
+    }
+    let r = compute(&b, Basis::Plays, 0, Utc::now());
+    assert_eq!(r.basis, Basis::Plays);
+
+    let shares = |s: &RankedSection| s.top.iter().map(|x| (x.name.clone(), x.count)).collect::<Vec<_>>();
+    assert_eq!(r.genres.known, 3);
+    assert_eq!(shares(&r.genres), [("House".to_string(), 2), ("Techno".to_string(), 1)]);
+    assert_eq!(r.artists.known, 3);
+    assert_eq!(
+        shares(&r.artists),
+        [("Bicep".to_string(), 1), ("Floorplan".to_string(), 1), ("Four Tet".to_string(), 1)]
+    );
+    assert_eq!(r.era.tracks, 3);
+    assert_eq!(r.era.decades, [DecadeCount { decade: 1990, count: 1 }, DecadeCount { decade: 2010, count: 2 }]);
+    assert_eq!(r.era.median_year, Some(2014));
+    // Two collection tracks have phrase analysis, one played and one not: half high, half low.
+    let e = r.energy.as_ref().expect("the collection's moods");
+    assert_eq!((e.tracks, e.high, e.mid, e.low), (2, 0.5, 0.0, 0.5));
+
+    // What was played still counts plays: 18 of them, the dubplate's tempo among them.
+    assert_eq!((r.sets.plays, r.tempo.tracks, r.tempo.max), (18, 18, Some(170.0)));
 }
 
 /// A document says when it was made to the millisecond, whatever the clock's resolution: the

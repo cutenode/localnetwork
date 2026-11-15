@@ -518,6 +518,19 @@ impl From<loclib_transcode::Error> for Error {
     }
 }
 
+impl From<loclib_capacity::Error> for Error {
+    fn from(e: loclib_capacity::Error) -> Self {
+        use loclib_capacity::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            E::Permission { .. } => Error::Permission(e.to_string()),
+            E::Cancelled(_) => Error::Cancelled,
+            // No random numbers, or a variant a newer loclib-capacity adds: its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 /// What a panic said, from its payload (as `catch_unwind` or a thread's `join` hands it back).
 pub fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     match (payload.downcast_ref::<&str>(), payload.downcast_ref::<String>()) {

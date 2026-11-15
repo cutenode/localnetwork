@@ -75,11 +75,11 @@
 <text x="234 243 252 261 270 279 288 297 306 315" y="122" fill="#9494a8">collection</text>
 <text x="333" y="122" fill="#9494a8">·</text>
 <text x="351 360 369 378 387 396 405 414 423" y="122" fill="#9494a8">document:</text>
-<text x="441 450" y="122" fill="#9494a8">10</text>
-<text x="468 477" y="122" fill="#9494a8">of</text>
-<text x="495 504" y="122" fill="#9494a8">15</text>
-<text x="522 531 540 549 558 567 576 585 594" y="122" fill="#9494a8">sections,</text>
-<text x="612 621 630 639 648 657 666" y="122" fill="#9494a8">rounded</text>
+<text x="441" y="122" fill="#9494a8">4</text>
+<text x="459 468" y="122" fill="#9494a8">of</text>
+<text x="486" y="122" fill="#9494a8">6</text>
+<text x="504 513 522 531 540 549 558 567 576" y="122" fill="#9494a8">sections,</text>
+<text x="594 603 612 621 630 639 648" y="122" fill="#9494a8">rounded</text>
 <text x="1431" y="122" fill="#5c5c74">│</text>
 <text x="0 9 18 27 36 45 54 63 72 81 90 99 108 117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315 324 333 342 351 360 369 378 387 396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711 720 729 738 747 756 765 774 783 792 801 810 819 828 837 846 855 864 873 882 891 900 909 918 927 936 945 954 963 972 981 990 999 1008 1017 1026 1035 1044 1053 1062 1071 1080 1089 1098 1107 1116 1125 1134 1143 1152 1161 1170 1179 1188 1197 1206 1215 1224 1233 1242 1251 1260 1269 1278 1287 1296 1305 1314 1323 1332 1341 1350 1359 1368 1377 1386 1395 1404 1413 1422 1431" y="140" fill="#5c5c74">╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
 <text x="0" y="158" fill="#5cd6ff">╭</text>
@@ -90,35 +90,37 @@
 <text x="288" y="158" fill="#5c5c74">╭</text>
 <text x="306" y="158" fill="#78788e">2</text>
 <text x="324 333 342 351 360 369 378" y="158" fill="#9494a8" font-weight="bold">Summary</text>
-<text x="396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711 720 729 738 747 756 765 774 783 792 801 810 819 828 837 846 855 864 873 882 891 900 909 918 927 936 945 954 963 972 981 990 999 1008 1017 1026 1035 1044 1053 1062 1071 1080 1089 1098 1107 1116 1125 1134 1143 1152 1161 1170 1179 1188 1197 1206 1215 1224 1233 1242 1251 1260 1269" y="158" fill="#5c5c74">──────────────────────────────────────────────────────────────────────────────────────────────────</text>
-<text x="1287 1296" y="158" fill="#78de8c">in</text>
-<text x="1314 1323 1332" y="158" fill="#78de8c">the</text>
-<text x="1350 1359 1368 1377 1386 1395 1404 1413" y="158" fill="#78de8c">document</text>
+<text x="396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711 720 729 738 747 756 765 774 783 792 801 810 819 828 837 846 855 864 873 882 891 900 909 918 927 936 945 954 963 972 981 990 999 1008 1017 1026 1035 1044 1053 1062 1071 1080 1089 1098 1107 1116 1125 1134 1143 1152 1161 1170 1179 1188 1197 1206 1215" y="158" fill="#5c5c74">────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="1233 1242 1251 1260" y="158" fill="#78788e">only</text>
+<text x="1278 1287" y="158" fill="#78788e">on</text>
+<text x="1305 1314 1323 1332" y="158" fill="#78788e">this</text>
+<text x="1350 1359 1368 1377 1386 1395 1404 1413" y="158" fill="#78788e">computer</text>
 <text x="1431" y="158" fill="#5c5c74">╮</text>
 <rect x="9" y="162" width="270" height="18" fill="#28283e"/>
 <text x="0" y="176" fill="#5cd6ff">│</text>
 <text x="9" y="176" fill="#ff5ca0" font-weight="bold">▍</text>
-<text x="18" y="176" fill="#78de8c" font-weight="bold">●</text>
-<text x="36 45 54 63 72 81 90" y="176" fill="#e2e2ec" font-weight="bold">Summary</text>
+<text x="18" y="176" fill="#78788e" font-weight="bold">○</text>
+<text x="36 45 54 63 72 81 90" y="176" fill="#9494a8" font-weight="bold">Summary</text>
 <text x="207" y="176" fill="#78788e" font-weight="bold">0</text>
 <text x="225 234 243 252 261 270" y="176" fill="#78788e" font-weight="bold">traits</text>
 <text x="279" y="176" fill="#5cd6ff">│</text>
 <text x="288" y="176" fill="#5c5c74">│</text>
-<text x="297 306 315 324 333 342 351 360 369 378" y="176" fill="#78788e">Published,</text>
-<text x="396 405 414 423" y="176" fill="#78788e">this</text>
-<text x="441 450 459 468 477" y="176" fill="#78788e">shows</text>
-<text x="495" y="176" fill="#9494a8">a</text>
-<text x="513 522 531 540 549 558 567 576" y="176" fill="#9494a8">one-line</text>
-<text x="594 603 612 621 630 639 648 657 666 675 684" y="176" fill="#9494a8">description</text>
-<text x="702 711 720" y="176" fill="#9494a8">and</text>
-<text x="738 747 756 765 774 783" y="176" fill="#9494a8">traits</text>
-<text x="801 810 819 828" y="176" fill="#9494a8">like</text>
-<text x="846 855 864 873 882 891" y="176" fill="#9494a8">"Mixes</text>
-<text x="909 918" y="176" fill="#9494a8">in</text>
-<text x="936 945 954 963" y="176" fill="#9494a8">key"</text>
-<text x="999" y="176" fill="#ff5ca0" font-weight="bold">i</text>
-<text x="1017 1026 1035 1044 1053" y="176" fill="#78788e">leave</text>
-<text x="1071 1080 1089" y="176" fill="#78788e">out</text>
+<text x="297 306 315 324 333" y="176" fill="#78788e">Never</text>
+<text x="351 360 369 378 387 396 405 414 423 432" y="176" fill="#78788e">published,</text>
+<text x="450 459" y="176" fill="#78788e">so</text>
+<text x="477 486 495 504" y="176" fill="#78788e">only</text>
+<text x="522 531 540" y="176" fill="#78788e">you</text>
+<text x="558 567 576" y="176" fill="#78788e">see</text>
+<text x="594 603 612 621 630" y="176" fill="#78788e">this:</text>
+<text x="648" y="176" fill="#9494a8">a</text>
+<text x="666 675 684 693 702 711 720 729" y="176" fill="#9494a8">one-line</text>
+<text x="747 756 765 774 783 792 801 810 819 828 837" y="176" fill="#9494a8">description</text>
+<text x="855 864 873" y="176" fill="#9494a8">and</text>
+<text x="891 900 909 918 927 936" y="176" fill="#9494a8">traits</text>
+<text x="954 963 972 981" y="176" fill="#9494a8">like</text>
+<text x="999 1008 1017 1026 1035 1044" y="176" fill="#9494a8">"Mixes</text>
+<text x="1062 1071" y="176" fill="#9494a8">in</text>
+<text x="1089 1098 1107 1116" y="176" fill="#9494a8">key"</text>
 <text x="1431" y="176" fill="#5c5c74">│</text>
 <text x="0" y="194" fill="#5cd6ff">│</text>
 <text x="18" y="194" fill="#78de8c">●</text>
@@ -128,8 +130,8 @@
 <text x="288" y="194" fill="#5c5c74">│</text>
 <text x="1431" y="194" fill="#5c5c74">│</text>
 <text x="0" y="212" fill="#5cd6ff">│</text>
-<text x="18" y="212" fill="#78de8c">●</text>
-<text x="36 45 54 63 72" y="212" fill="#e2e2ec">Tempo</text>
+<text x="18" y="212" fill="#78788e">○</text>
+<text x="36 45 54 63 72" y="212" fill="#9494a8">Tempo</text>
 <text x="216 225 234 243 252 261 270" y="212" fill="#78788e">121–127</text>
 <text x="279" y="212" fill="#5cd6ff">│</text>
 <text x="288" y="212" fill="#5c5c74">│</text>
@@ -140,9 +142,9 @@
 <text x="450 459 468 477 486 495" y="212" fill="#e2e2ec" font-weight="bold">tracks</text>
 <text x="1431" y="212" fill="#5c5c74">│</text>
 <text x="0" y="230" fill="#5cd6ff">│</text>
-<text x="18" y="230" fill="#78de8c">●</text>
-<text x="36 45 54" y="230" fill="#e2e2ec">Set</text>
-<text x="72 81 90 99 108" y="230" fill="#e2e2ec">shape</text>
+<text x="18" y="230" fill="#78788e">○</text>
+<text x="36 45 54" y="230" fill="#9494a8">Set</text>
+<text x="72 81 90 99 108" y="230" fill="#9494a8">shape</text>
 <text x="279" y="230" fill="#5cd6ff">│</text>
 <text x="288" y="230" fill="#5c5c74">│</text>
 <text x="306 315 324 333" y="230" fill="#9494a8">Your</text>
@@ -153,14 +155,14 @@
 <text x="666 675 684" y="230" fill="#9494a8">"…"</text>
 <text x="1431" y="230" fill="#5c5c74">│</text>
 <text x="0" y="248" fill="#5cd6ff">│</text>
-<text x="18" y="248" fill="#78de8c">●</text>
-<text x="36 45 54 63 72 81" y="248" fill="#e2e2ec">Mixing</text>
+<text x="18" y="248" fill="#78788e">○</text>
+<text x="36 45 54 63 72 81" y="248" fill="#9494a8">Mixing</text>
 <text x="279" y="248" fill="#5cd6ff">│</text>
 <text x="288" y="248" fill="#5c5c74">│</text>
 <text x="1431" y="248" fill="#5c5c74">│</text>
 <text x="0" y="266" fill="#5cd6ff">│</text>
-<text x="18" y="266" fill="#78de8c">●</text>
-<text x="36 45 54 63" y="266" fill="#e2e2ec">Keys</text>
+<text x="18" y="266" fill="#78788e">○</text>
+<text x="36 45 54 63" y="266" fill="#9494a8">Keys</text>
 <text x="261 270" y="266" fill="#78788e">4A</text>
 <text x="279" y="266" fill="#5cd6ff">│</text>
 <text x="288" y="266" fill="#5c5c74">│</text>
@@ -183,6 +185,8 @@
 <text x="0" y="284" fill="#5cd6ff">│</text>
 <text x="18" y="284" fill="#78de8c">●</text>
 <text x="36 45 54 63 72 81" y="284" fill="#e2e2ec">Energy</text>
+<text x="216 225" y="284" fill="#78788e">0%</text>
+<text x="243 252 261 270" y="284" fill="#78788e">high</text>
 <text x="279" y="284" fill="#5cd6ff">│</text>
 <text x="288" y="284" fill="#5c5c74">│</text>
 <text x="1431" y="284" fill="#5c5c74">│</text>
@@ -235,9 +239,9 @@
 <text x="288" y="410" fill="#5c5c74">│</text>
 <text x="1431" y="410" fill="#5c5c74">│</text>
 <text x="0" y="428" fill="#5cd6ff">│</text>
-<text x="18" y="428" fill="#78de8c">●</text>
-<text x="36 45 54 63 72 81" y="428" fill="#e2e2ec">Player</text>
-<text x="99 108 117 126 135" y="428" fill="#e2e2ec">style</text>
+<text x="18" y="428" fill="#78788e">○</text>
+<text x="36 45 54 63 72 81" y="428" fill="#9494a8">Player</text>
+<text x="99 108 117 126 135" y="428" fill="#9494a8">style</text>
 <text x="270" y="428" fill="#78788e">7</text>
 <text x="279" y="428" fill="#5cd6ff">│</text>
 <text x="288" y="428" fill="#5c5c74">│</text>

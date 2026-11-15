@@ -5,15 +5,27 @@ Tools for DJs and the people who book them. This glossary covers the website at 
 ## Site areas
 
 **Public page**:
-A page anyone can read without signing in. Viewers allowed to read more, like members or people granted a press kit, see more on it, but nobody sees controls for changing it there, apart from following, saving or saying they're going. Every profile, act, party, venue, event, set, mix, press kit, artist and track has one, and each links to the others the link matrix lists for it.
+A page anyone can read without signing in. Viewers allowed to read more, like members or people granted a press kit, see more on it. People who can change it see the controls for that there, in edit mode; everyone else only follows, saves or says they're going. Every profile, act, party, venue, event, set, mix, press kit, artist and track has one (an act's opens to everyone once staff list it), and each links to the others the link matrix lists for it.
 _Avoid_: profile view, read-only page
+
+**Edit mode**:
+A public page laid out as visitors see it, with its fields in place of its text, for someone who can change it. Nothing changes until Save writes every change at once; Discard drops them. Creating something opens its page empty in edit mode, as a draft until it's published.
+_Avoid_: edit view, editor, admin mode
+
+**View as visitor**:
+Seeing a page you can change exactly as a signed-out visitor sees it, with no controls.
+_Avoid_: preview (on its own), public view
+
+**Edit bar**:
+The bar on a page that holds the controls for the thing on screen, for whoever can change it. Staff see their own section in it, and everything they do from there is logged.
+_Avoid_: staff toolbar, toolbar, admin bar
 
 **Link matrix**:
 The list of which other public pages each kind of public page links to whenever the data for that link exists.
 _Avoid_: sitemap, related links
 
 **Dashboard**:
-The signed-in area where every change to what public pages show happens. There's one per account. Its sections follow who the switcher says you're acting as, and its home starts with the onboarding checklist until that's done.
+Your hub once signed in: the inbox, bookings, plans, settings, onboarding, and lists of what's yours. There's one per account, and editing a page happens on the page. Its sections follow who the switcher says you're acting as, and its home starts with the onboarding checklist until that's done.
 _Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
 
 **Switcher**:
@@ -37,11 +49,11 @@ The four spaces staff can read from any client: audit, moderation, staff and ind
 _Avoid_: staff spaces, root spaces (those include public ones)
 
 **Staff console**:
-The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged.
+The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged. The edit bar acts on one thing on screen; the staff console does everything else.
 _Avoid_: admin dashboard, admin panel
 
 **Flag**:
-A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on.
+A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
 _Avoid_: feature toggle, experiment, setting
 
 **Flag group**:
@@ -78,8 +90,12 @@ _Avoid_: friends, connections, following (when meaning the people)
 A profile with the performer sections turned on.
 _Avoid_: project (when meaning the person)
 
+**Alias**:
+A name a DJ plays under, kept on their profile. A DJ can make an alias its own act, with its own page and people. Their profile then links to that act, and credits move to it only when the DJ moves them.
+_Avoid_: stage name, one-member act
+
 **Act**:
-A name DJs play under other than their own: an alias with one member, or a duo, group or collective with several. A DJ playing under their own name is just their profile. Members are public unless one chooses to hide; then only the act's other members, promoters granted its press kits, and staff can see they're in it.
+A name DJs play under other than their own: a duo, group or collective, or an alias a DJ has made its own act. Starting an act offers duo, group and collective; an alias act only comes from a profile. A DJ playing under their own name, or an alias they haven't made an act, is just their profile. Members are public unless one chooses to hide; then only the act's other members, promoters granted its press kits, and staff can see they're in it. Two acts can share a name; an act that links its own account has that account's handle, which is unique.
 _Avoid_: project, side project, artist
 
 **Performer**:
@@ -87,7 +103,7 @@ A DJ or an act: whoever gets booked, credited, and has press kits. Copy still sa
 _Avoid_: project, billing
 
 **Credit**:
-Who a set or show was played as: a DJ, an act, or several of either for a b2b. A b2b partner is only credited once they confirm it. A credit on someone else's event lineup shows on the performer's page at once, marked unconfirmed until they confirm it from their inbox, and they can remove it. A one-off b2b is only a credit; a pairing that keeps playing together can become an act.
+Who a set or show was played as: a DJ, an act, or several of either for a b2b. A b2b partner is only credited once they confirm it. A credit on someone else's event lineup shows on the performer's page at once, marked as waiting for them to confirm it from their inbox, and they can remove it. A one-off b2b is only a credit; a pairing that keeps playing together can become an act.
 _Avoid_: played with, lineup entry
 
 **Section**:
@@ -96,7 +112,7 @@ _Avoid_: module, facet, field group
 
 **Capability**:
 One thing someone can do for a performer or a party, like editing its page, answering bookings, or checking guests in. Everything people can do for a performer or party is a capability.
-_Avoid_: permission, right
+_Avoid_: permission (that's staff), right
 
 **Role**:
 A named starting set of capabilities, like member, manager, host, cohost or door. A person's capabilities can be adjusted after a role is given.
@@ -106,8 +122,24 @@ _Avoid_: permission level, rank
 A DJ who plays in an act and is credited with it. Members get a set of capabilities.
 _Avoid_: manager (when they also play), owner
 
+**People**:
+Everyone in an act, party or venue, each shown with their role. It's also the name of the panel where they're managed.
+_Avoid_: team, roster, staff (staff run the site)
+
+**Invite**:
+Asking one named person to join an act, party or venue with a role. They accept or decline from their inbox.
+_Avoid_: add, request
+
+**Invite link**:
+A link anyone who has it can use to ask to join with the role chosen when it was made, member unless the maker picks another. It works until it expires, after 7 days unless the maker picks otherwise, or is revoked. An owner still approves each person it brings.
+_Avoid_: join link, share link
+
+**Join request**:
+Someone asking on their own to join an act, party or venue. An owner approves or declines it. Whoever joins, by any route, chooses whether to stay hidden and can change that later; owners can't unhide them.
+_Avoid_: application, membership request
+
 **Manager**:
-Someone who works for a performer without playing as it, such as a manager or agent. Managers get a set of capabilities, never the credit.
+Someone who works for a performer without playing as it, such as a manager or agent. Managers get a set of capabilities, never the credit. In a booking, the performer and their managers are separate sides of the thread.
 _Avoid_: owner, admin, agent (as a separate role)
 
 **Promoter**:
@@ -119,20 +151,24 @@ A named night or series that anyone can start. People can follow a party, and ev
 _Avoid_: series, brand, collective (collectives are acts)
 
 **Guest**:
-Someone who has RSVP'd to an event, whether going, interested, can't go, waitlisted, or waiting for approval, here or in another AT Protocol app. Going and interested show on the event and to their followers unless they hide them, and the events they went to show on their profile unless they turn that off.
+Someone who has RSVP'd to an event, whether going, interested, can't go, waitlisted, or waiting for approval, here or in another AT Protocol app. Going and interested show on the event and to their followers unless they hide them. The events they went to show on their profile only once they turn that on.
 _Avoid_: attendee, ticket holder
 
 **Venue**:
-A real place events happen, shared by everyone who links to it. Promoters say how they relate to each venue they work with: owner, booker, resident or regular promoter, staff, or something else in their own words. Owners are confirmed by staff. Each venue chooses whether events naming it show right away, marked unconfirmed until an owner approves, or only after approval. Owners can block profiles, acts and parties from listing events there, claiming a relationship to it, or naming it in booking inquiries.
-_Avoid_: club, location (when meaning the place itself)
+A real place events happen, shared by everyone who links to it. There's one venue per place: anyone can suggest two venues are the same place, the owners of both get a window to object, and staff merge them into the older one. Promoters say how they relate to each venue they work with: owner, booking manager, resident or regular promoter, staff, or something else in their own words. Owners are confirmed by staff. Each venue chooses **Anyone can list**, where events naming it show right away as **Waiting for the venue** until an owner confirms them, or **Venue approves**, where they show only once **Confirmed**. Owners can block profiles, acts and parties from listing events there, claiming a relationship to it, or naming it in booking inquiries. A block is silent: the blocked side only ever sees its event waiting for the venue, and only the venue's owners and staff see the block.
+_Avoid_: club, location (when meaning the place itself), booker, unconfirmed, pending
 
 **Inbox**:
 Where the site tells someone about guests, bookings, waitlist spots and new events, and asks them to decide things: claim and listing decisions, press kit access requests, lineup credits to confirm and community photos to approve. Every item opens what it's about. Inquiries and messages from strangers wait under its Requests tab. Each person can also opt into getting these by email or Bluesky DM.
 _Avoid_: notifications page, feed
 
 **Event**:
-One night: a date, a venue, often a party, and a lineup of credits. Public events are listed and anyone can see them; private ones only open from their link. An event belongs to its party, or to the account that posted it when it has none. An event made in another AT Protocol calendar app counts when it names a venue, party or performer that's on Local Network.
+One night: a date, a venue, often a party, and a lineup of credits. Public events are listed and anyone can see them; private ones only open from their link, which carries a token. An event belongs to its party, or to the account that posted it when it has none; an event with no party is always public until it's moved into one. An event still waiting for the venue when its night ends is **Never confirmed**: it leaves listings and stays only on its posters' dashboards. An event made in another AT Protocol calendar app counts when it names a venue, party or performer that's on Local Network.
 _Avoid_: gig, party (the party is the series)
+
+**Night**:
+An evening and everything after it until 6:00 the next morning, or the later time the venue sets, on the venue's clock. A night is dated by the evening it starts, so a set at 2:00 on Sunday is part of Saturday night.
+_Avoid_: day, date (when meaning the night)
 
 **Host picture**:
 A picture the people running an event, party or venue post of it: a thumbnail, poster, flyer or header.
@@ -151,11 +187,11 @@ An event you're going to or interested in, or a show you're on the lineup for. Y
 _Avoid_: planner (that's where promoters work out shows), RSVP, saved show
 
 **Booking**:
-The conversation between a promoter and an act about a show, in a thread only they can read. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
+The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
 _Avoid_: gig, inquiry (the inquiry is what opens one)
 
 **Review request**:
-Asking staff to list a DJ, act or party in the directory, or to confirm someone owns a venue. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
+Asking staff to list a DJ, act or party in the directory, to confirm someone owns a venue, or to confirm a claim: that a performer is you, or that you manage them. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
 _Avoid_: request (on its own, since the inbox's Requests tab holds inquiries and messages from strangers), proposal, submission, ticket
 
 **Press kit**:
@@ -167,12 +203,12 @@ A performer's private area, where the people working on it keep work in progress
 _Avoid_: workspace, managers' space, team space
 
 **Draft**:
-One person's unpublished changes to a press kit, kept in backstage and visible to the others there. Publishing applies only what it changed onto the published press kit.
+Something not yet published: a new page someone has started, or one person's changes to a press kit, kept in backstage and visible to the others there. Publishing a press kit's draft applies only what it changed.
 _Avoid_: edit, revision, review request (those go to staff)
 
 **Grant**:
-Permission for one account to read one press kit's private part.
-_Avoid_: access, approval
+Letting one account read one press kit's private part.
+_Avoid_: access, approval, permission (that's staff)
 
 ## Music
 
@@ -217,3 +253,11 @@ _Avoid_: index, catalogue
 **Staff**:
 The people who moderate and run the site. A moderator decides review requests, hides what shouldn't show and changes who's in a space. An admin can do all that, edit directly, and decide who's staff.
 _Avoid_: mod, team, superuser
+
+**Permission**:
+Something extra an admin lets a moderator do, like changing who a flag is on for or managing flag groups. Admins hold every permission.
+_Avoid_: grant (that's press kit access), capability (that's for performers and parties)
+
+**Subject**:
+The thing an action, audit entry or follow is about.
+_Avoid_: target, object, entity
