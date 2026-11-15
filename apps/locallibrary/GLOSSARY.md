@@ -3,11 +3,41 @@
 The command line tool, terminal player and sidecar that keep rekordbox USB drives in sync, backed
 up and edited, and the plugins that add to them.
 
-## Changing a library
+## Libraries and exports
+
+**Library**:
+A DJ's whole music library, the one locallibrary is named for. rekordbox keeps it on this computer
+as its collection, and drives hold exports of it.
+_Avoid_: collection (only rekordbox's), music folder
+
+**Collection**:
+rekordbox's own name for its library on this computer, and only that.
+_Avoid_: library (the DJ's whole library), rekordbox library
+
+**Export**:
+What one drive holds: tracks and playlists exported from your library.
+_Avoid_: library, drive library, collection
+
+**Clone**:
+A drive holding the same export as another. Clones of one export stay alike through syncs.
+_Avoid_: mirror, replica
+
+**Lead clone**:
+The clone a command given an export's name uses: the newest one plugged in, or the primary when
+they're identical or can't be put in order.
+_Avoid_: source drive, main drive
+
+**Lineage**:
+The states of an export a drive has held, oldest first. It's how one drive can tell it's behind
+another rather than different from it.
+_Avoid_: history (a drive's history is what a player recorded on it), ancestry
+
+## Changing a drive
 
 **Plan**:
-What a command is going to change, worked out and shown before anything is written. It's applied
-only as shown: if the drive has moved on since, it's refused and worked out again. Making one
+What a command is going to change, worked out and shown before anything is written. A plugin's
+command can make one too. It's applied only as shown: once what it read has changed since (the
+drive, or the collection a plugin's command read), it's refused and worked out again. Making one
 writes nothing to a drive, with one exception: a plan of a big write may time a new drive, or one
 whose drive speed has gone stale, and says so.
 _Avoid_: preview, dry run, diff
@@ -22,23 +52,19 @@ How long a write to a drive will take, worked out from its drive speed and what 
 the drive. A best case when the write runs past what the rate was seen to hold for.
 _Avoid_: ETA, which is the time left once a write is under way
 
-**Clone**:
-A drive holding a copy of a library. Clones of one library stay alike through syncs.
-_Avoid_: mirror, replica
-
-**Lead clone**:
-The clone a command given a library's name uses: the newest one plugged in, or the primary when
-they're identical or can't be put in order.
-_Avoid_: source drive, main drive
-
-**Lineage**:
-The states of a library a drive has held, oldest first. It's how one drive can tell it's behind
-another rather than different from it.
-_Avoid_: history (a drive's history is what a player recorded on it), ancestry
-
 **Journal**:
 The edits a drive remembers making, so they can be put back after rekordbox exports over them.
 _Avoid_: log, edit history
+
+**Undo copy**:
+What a change to a drive keeps on that drive so `undo` can reverse it: the databases and the files
+the change replaces or deletes.
+_Avoid_: backup, snapshot
+
+**Unbacked file**:
+A file a change deleted and left out of its undo copy, because rekordbox's next export puts it
+back. Only demo samples' files are. Undoing the change brings the track back without the file.
+_Avoid_: skipped file, excluded file
 
 ## Plugins
 
@@ -47,13 +73,14 @@ A plugin that ships with locallibrary. Its publisher is Local Network.
 _Avoid_: first-party, bundled, core plugin
 
 **Capability**:
-What a plugin's manifest asks of locallibrary, such as reaching a server or hearing an event. An
-account's scopes are a separate thing, given through access.
-_Avoid_: permission, feature
+What a plugin's manifest asks of locallibrary, such as reaching a server or hearing an event.
+Copying sign-in tokens is a capability of its own. An account's scopes are a separate thing, given
+through access.
+_Avoid_: permission, feature, grant
 
 **Guard**:
-A plugin's check on a plan that edits a library, run before it's applied. It warns unless the user
-makes it blocking.
+A plugin's check on a plan that edits a drive's export, run before it's applied. It warns unless
+the user makes it blocking.
 _Avoid_: validator, hook, lint
 
 **Account plugin**:
@@ -76,7 +103,7 @@ _Avoid_: recommendation, auto-fix, hint
 ## Accounts
 
 **Account**:
-One person's sign-in at another service, made through one account plugin and kept in one store.
+One person's sign-in at another service, made through one account plugin and kept in one vault.
 The Atmosphere account is an account like any other.
 _Avoid_: login, session, connection, linked account, identity
 
@@ -86,8 +113,8 @@ plugins can provide the same type.
 _Avoid_: service, provider, platform
 
 **DJ account**:
-The one Atmosphere account a store publishes its DJ profile, sets and settings to, and files bug
-reports from. Other Atmosphere accounts in the store are only for plugins.
+The one Atmosphere account a vault publishes its DJ profile, sets and settings to, and files bug
+reports from. Other Atmosphere accounts in the vault are only for plugins.
 _Avoid_: main account, primary account, default account, your account
 
 **Default account**:
@@ -107,7 +134,7 @@ _Avoid_: grant (the website's word for press kits), consent, permission, authori
 
 **Keys**:
 What some services give you to sign in to an account with instead of the browser, such as the
-Internet Archive's S3 keys or a plyr.fm developer token. You enter them once, and the store keeps
+Internet Archive's S3 keys or a plyr.fm developer token. You enter them once, and the vault keeps
 them as it keeps any account's sign-in.
 _Avoid_: credentials, API key, password, secret setting
 
@@ -117,42 +144,43 @@ out removes the account. The player and the docs say sign in and sign out; `logi
 stay only as the DJ account's CLI subcommand names.
 _Avoid_: log in, log out, authenticate, connect, set keys, add credentials
 
-## Drives
+## Drives and the vault
 
 **Drive**:
 A rekordbox USB or SD drive that locallibrary reads and writes.
 _Avoid_: stick, device, volume, USB
 
+**Vault**:
+Where locallibrary keeps what it saves on this computer: snapshots of drives, the history lists
+players recorded, accounts and settings.
+_Avoid_: store, archive, backup
+
 **Snapshot**:
-A saved copy of a drive's library in the store.
+A saved copy of a drive's export in the vault.
 _Avoid_: backup, version, commit
 
+**Backup**:
+A full copy you can restore somewhere else, such as a copy of the vault on another disk or a copy
+of rekordbox's collection. Never what `undo` keeps.
+_Avoid_: undo copy, snapshot
+
 **Fingerprint**:
-What a library state goes by: every library file's path and size, and the bytes of each one but the
-audio. `exportLibrary.db` and its WAL count by the library they hold when it can be read, so
-drives with the same export share a fingerprint. `drive verify` finds a state's snapshot by it, and a lineage is a list
-of them. A track's audio fingerprint, which `mix` matches recordings with, is a different thing.
+What an export's state goes by: every export file's path and size, and the bytes of each one but
+the audio. `exportLibrary.db` and its WAL count by the export they hold when it can be read, so
+drives with the same export share a fingerprint. `drive verify` finds a state's snapshot by it, and
+a lineage is a list of them. A track's audio fingerprint, which `mix` matches recordings with, is a
+different thing.
 _Avoid_: hash, checksum, state ID
 
 **View**:
-A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
+A temporary, read-only folder of links into the vault, laid out as one snapshot's drive tree, with
 nothing copied.
 _Avoid_: mount, browse folder, checkout
-
-**Backup**:
-What a change to a drive keeps on that drive so `undo` can put it back: the databases and the files
-the change replaces or deletes.
-_Avoid_: snapshot
 
 **Demo sample**:
 One of the tracks rekordbox ships in its collection and puts back with every export. `clean` and
 `refresh` remove them.
 _Avoid_: bundled track, sample track
-
-**Unbacked file**:
-A file a change deleted and left out of its backup, because rekordbox's next export puts it back.
-Only demo samples' files are. Undoing the change brings the track back without the file.
-_Avoid_: skipped file, excluded file
 
 **History**:
 A play history list a player recorded.
@@ -163,6 +191,11 @@ Getting drives ready before a gig, and the player's view of those jobs.
 _Avoid_: set prep, gig prep, pre-flight
 
 ## The player
+
+**Source**:
+Somewhere the player browses tracks from: your rekordbox collection, a drive, or the vault, listed
+in that order.
+_Avoid_: location, device, drive list
 
 **Crate**:
 A working list of tracks: the CDJ's tag list, not My Tags.
@@ -224,7 +257,7 @@ The keys the footer names, as much of them as the hint setting says: full, compa
 _Avoid_: tips, shortcuts bar
 
 **Empty state**:
-What the library shows with no drive open: how to get one, and at most three next steps.
+What the Library view shows with no source open: how to get one, and at most three next steps.
 _Avoid_: welcome screen, onboarding
 
 **Pads**:
