@@ -11,7 +11,7 @@ Shows, follows, inbox delivery and channels. The rest are listed in the [README]
 
 ## Announcing a show
 
-A show is two records with the same key in the manager's own repo. A confirmed booking thread can prefill the form.
+A show is two records with the same key in the manager's own repo. A confirmed booking thread can prefill the form, and the show announced from it is noted in the thread's space, never in the show.
 
 ```mermaid
 sequenceDiagram
@@ -32,6 +32,9 @@ sequenceDiagram
     A->>H: Re-read that collection
   end
   A->>A: Audit show.save
+  opt New show from a confirmed booking they manage
+    A->>A: Root writes a confirmed status record<br/>naming the show into the booking space
+  end
 ```
 
 Source: [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/forms/announce.ts`](../../src/lib/server/forms/announce.ts), [`src/routes/dashboard/projects/[slug]/shows/[rkey]/+page.server.ts`](../../src/routes/dashboard/projects/[slug]/shows/[rkey]/+page.server.ts), [`src/lib/server/venue-time.ts`](../../src/lib/server/venue-time.ts)

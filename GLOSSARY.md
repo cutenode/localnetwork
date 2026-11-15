@@ -150,6 +150,10 @@ _Avoid_: gig, booking (a booking is the conversation that leads to one), set (th
 An event you're going to or interested in, or a show you're on the lineup for. Your plans are one list on the dashboard, and you can keep them in a space when you don't want them public.
 _Avoid_: planner (that's where promoters work out shows), RSVP, saved show
 
+**Planner**:
+Where a promoter works out shows before they're public, privately in their own space. A **planner show** is one of those. A booking started from a planner show stays linked to it, and when the promoter announces the show, the booking also links the **announced show**, the public one. Nothing public points back at the private booking.
+_Avoid_: draft show, plan (a plan is what someone's going to)
+
 **Booking**:
 The conversation between a promoter and an act about a show, in a thread only they can read. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
 _Avoid_: gig, inquiry (the inquiry is what opens one)

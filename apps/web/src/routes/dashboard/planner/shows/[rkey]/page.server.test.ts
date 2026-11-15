@@ -71,8 +71,27 @@ it("opens a planned show with its lineup's projects as well as the saved ones", 
 
 	const data = await opened(rkey);
 
-	expect(data).toMatchObject({ isNew: false, show: { rkey, details: { title: 'Rooftop Rave' } } });
+	expect(data).toMatchObject({ isNew: false, show: { rkey, details: { title: 'Rooftop Rave' } }, bookings: {} });
 	expect(Object.keys(data.projects).sort()).toEqual([saved.uri, f.project.uri].sort());
+});
+
+it('names the booking each lineup project was asked through from this show', async () => {
+	const promoter = await f.t.viewer(PROMOTER);
+	const lineup = [{ project: f.project.uri, status: 'contacted' as const }];
+	const rkey = await f.t.planner.saveShow(promoter, { details: { title: 'Rooftop Rave' }, lineup });
+	const other = await f.t.planner.saveShow(promoter, { details: { title: 'Afterparty' }, lineup });
+
+	const space = await f.t.bookings.start({
+		actor: promoter,
+		projectUri: f.project.uri,
+		show: { title: 'Rooftop Rave' },
+		message: 'Free?',
+		plannerShow: rkey
+	});
+
+	expect((await opened(rkey)).bookings).toEqual({ [f.project.uri]: space.split('/').at(-1) });
+	expect((await opened(other)).bookings).toEqual({});
+	expect((await opened('new')).bookings).toEqual({});
 });
 
 it("says a show that isn't planned isn't found, and why an account without spaces has no planner", async () => {

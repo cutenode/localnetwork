@@ -533,6 +533,14 @@ export type BookingThreadView = {
 	createdAt: string;
 };
 
+/** The shows a booking thread links to, which its page shows beside the details. */
+export type BookingShowLinks = {
+	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */
+	plannerShow: string | null;
+	/** The public show a manager announced from the thread, as the account that wrote it and its key. */
+	announcedShow: { did: string; rkey: string } | null;
+};
+
 export type BookingEventView = {
 	uri: string;
 	kind: 'inquiry' | 'message' | 'status';
