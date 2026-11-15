@@ -225,8 +225,9 @@ Crates with work that grows with a library or a recording have
 `locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
 of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
-`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
-`loclib-analysis`. `loclib-model` needs `--features test-util`. The first
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget),
+`loclib-sqlcipher` (decrypting a database, with and without a WAL) and `loclib-analysis`.
+`loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 
