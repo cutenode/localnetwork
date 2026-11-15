@@ -75,9 +75,10 @@ const isShared = (id: string, ctx: Rolldown.ChunkingContext) => {
 
 // Not the Tools pages' own components, the follow button, the mix player, the staff console's table, the booking rules
 // the dashboard's booking pages share, the suggestion lists only the place and handle fields use, or the drafts only
-// long forms keep: only those pages load them, and every page loads the shared file.
+// long forms keep: only those pages load them, and every page loads the shared file. Nor edit mode, which only people
+// who can edit a page use.
 const SHARED =
-	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
+	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|edit[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
 
 export default defineConfig({
 	plugins: [

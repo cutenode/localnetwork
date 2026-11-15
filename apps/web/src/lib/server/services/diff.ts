@@ -83,3 +83,7 @@ export function diff(before: JsonObject, after: JsonObject, prefix = ''): FieldC
 
 	return changes;
 }
+
+/** What a save changed in a record, field by field, for the audit log: everything but when it was saved. */
+export const savedChanges = (before: JsonObject, after: JsonObject): FieldChange[] =>
+	diff(before, after).filter((change) => change.field !== 'updatedAt');

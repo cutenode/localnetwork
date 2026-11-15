@@ -26,7 +26,7 @@ import { nowIso, parseJson } from '../db';
 import { unlessOffline } from '../happyview/offline';
 import type { RequestRow } from '../db/schema';
 import { AVATAR_TYPES } from '../images';
-import { diff } from './diff';
+import { diff, savedChanges } from './diff';
 import type { DjListings } from './dj-listings';
 import type { ProfileService } from './profiles';
 import type { ProjectService } from './projects';
@@ -420,7 +420,7 @@ export class RequestService {
 				subject: uri,
 				subjectKind: 'request',
 				summary: `Revised a ${KIND_LABEL[current.kind]}`,
-				changes: diff(current, next).filter((change) => change.field !== 'updatedAt')
+				changes: savedChanges(current, next)
 			},
 			{ actorClient: client }
 		);
