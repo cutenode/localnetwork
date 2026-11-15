@@ -239,11 +239,16 @@ const styleOf = (network: Network) => `background:${network.background};color:${
 // An address as one link is told from another: scheme and www dropped, the
 // case folded, a trailing slash gone, so the profile's Instagram and the bio's
 // are one link rather than two badges opening the same page.
+// The pattern has a name of its own because Stryker reads a directive only
+// above a statement: one inside the chain below was never applied.
+// Stryker disable next-line Regex: equivalent. Every address keyed here starts with its scheme or is a mailto (profileLinksOf and bioLinks keep nothing else), so the first scheme is the leading one.
+const LEADING_SCHEME = /^https?:\/\//;
+
 const keyOf = (url: string) =>
 	url
 		.trim()
 		.toLowerCase()
-		.replace(/^https?:\/\//, '')
+		.replace(LEADING_SCHEME, '')
 		.replace(/^www\./, '')
 		.replace(/^mailto:/, '')
 		.replace(/\/+$/, '');
@@ -317,12 +322,14 @@ export function bioLinks(bio?: string) {
 }
 
 /**
- * The links a stored profile lists that have an address, which is all a link
- * cannot go without; a profile restored from an older file can hold anything.
+ * The links a stored profile lists that have a web address, which is all a
+ * link cannot go without; a profile restored from an older file can hold
+ * anything. The same check as content.ts's reader, the only one that stores
+ * them, so a file can't hand the panel a link it would never have kept.
  */
 const profileLinksOf = storedList(
 	z.object({
-		url: z.string().check(z.refine((url) => url.trim() !== '')),
+		url: z.string().check(z.refine((url) => /^https?:\/\//i.test(url.trim()))),
 		network: fallback(z.string(), ''),
 		title: fallback(z.string(), '')
 	})
