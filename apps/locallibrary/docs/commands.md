@@ -203,13 +203,7 @@ its drives.
 | `locallibrary man [-o DIR]` | Man pages for every command (not in `--help`) |
 | `locallibrary rpc` | JSON-RPC server for GUIs (not in `--help`), see [Building a GUI](sidecar.md) |
 
-Commands that moved into a group still work under their old names, which `--help` doesn't list:
-`drives` (`drive ls`), `info`, `adopt`, `disks`, `format`, `verify`, `fsck`, `space`, `tidy`,
-`recordings`, `firmware`, `backups` and `restore` (each `drive ...`), `log` and `push`
-(`library ...`), `history` and `stats` (`plays lists`, `plays stats`), `playlists`
-(`playlist ls`), `mirror` (`sync --from`), `compare` (`diff --summary`), `drive list`
-(`drive ls --known`) and `drive sets` (`drive groups`). `set` is a spelling of `sets` now: the
-night-before job it used to be is `prep`.
+`set` is a spelling of `sets`: the night-before job it used to be is `prep`.
 
 ### Output
 

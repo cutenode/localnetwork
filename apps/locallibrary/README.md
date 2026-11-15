@@ -360,7 +360,7 @@ flowchart TD
     hub --> editing["Editing<br/>playlist, track, tags, cues, art, edits,<br/>smart, merge, pack, convert, clean, settings"]
     hub --> plays["Plays and players<br/>plays, sets, mix, profile, players"]
     hub --> other["Other<br/>account, plugin, bug, completions, help,<br/>analysis, import"]
-    hub --> hidden["Not in the help<br/>rpc, man, and the old names of moved commands"]
+    hub --> hidden["Not in the help<br/>rpc and man"]
     hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other"]
     everyday ~~~ plays
     drives ~~~ other

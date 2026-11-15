@@ -445,35 +445,6 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
         #[arg(long, value_name = "DIR")]
         emit_schema: Option<PathBuf>,
     },
-    /// `library log`
-    #[command(hide = true)]
-    Log(library_cmd::LogArgs),
-    /// `library push`
-    #[command(hide = true)]
-    Push(library_cmd::PushArgs),
-    /// `plays lists`
-    #[command(hide = true)]
-    History(plays_cmd::HistoryArgs),
-    /// `plays stats`
-    #[command(hide = true)]
-    Stats(plays_cmd::StatsArgs),
-    /// `playlist ls`
-    #[command(hide = true)]
-    Playlists {
-        #[arg(help = DEFAULT_LIBRARY_HELP)]
-        drive: Option<String>,
-    },
-    /// `sync --from SOURCE TARGET`
-    #[command(hide = true)]
-    Mirror {
-        source: String,
-        target: String,
-        #[command(flatten)]
-        opts: SyncFlags,
-    },
-    /// `diff --summary`
-    #[command(hide = true)]
-    Compare(diff_cmd::DiffArgs),
 }
 
 impl Command {
@@ -772,7 +743,6 @@ enum SettingsCommand {
     /// All settings, their values and defaults
     Schema,
     /// The settings profile: the base values for every drive, and per-drive overrides
-    #[command(alias = "profile")]
     Base,
     /// Set values (KEY=VALUE ...), for all drives or as an override for one
     Set {
@@ -1305,7 +1275,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             return Ok(reads.emit_headed(out, |p| render::tracks(p, &a.columns, a.format)).exit());
         }
         Command::Playlist(a) => return edit_cmd::playlist(a, out, &ctx),
-        Command::Playlists { drive } => return edit_cmd::tree(drive, out),
         Command::Track(a) => return edit_cmd::track(a, &cli.store, out, &ctx),
         Command::Smart(a) => return edit_cmd::smart(a, &cli.store, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
@@ -1330,7 +1299,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 locallibrary::pack::PackOptions { playlists, history, keep_extra, overwrite_archive: false, transcode };
             return edit_cmd::pack(api::PackRequest { source, target, options }, dry_run, &cli.store, out, &ctx);
         }
-        Command::Compare(args) => return diff_cmd::compare_alias(args, &cli.store, out, &ctx),
         Command::Sync { drives, from: Some(source), library: _, opts, allow_guess: _ } => {
             let [target] = <[String; 1]>::try_from(drives).map_err(|d| {
                 jobs_cmd::usage(format!("--from copies onto one drive: give the drive to copy onto (got {})", d.len()))
@@ -1364,7 +1332,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             }
             return run_sync_many(&cli.store, drives, &opts, allow_guess, out, &ctx);
         }
-        Command::Mirror { source, target, opts } => return mirror(&cli.store, source, target, &opts, out, &ctx),
         Command::Merge { source, target, playlists, folder, only, match_path_only, history, dry_run } => {
             let options = MergeOptions {
                 playlists: match playlists {
@@ -1432,8 +1399,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             }
         },
         Command::Library(a) => return library_cmd::run(a, &cli.store, out, &ctx),
-        Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
-        Command::Log(a) => return library_cmd::log(a, &diff_cmd::store_to_read(&cli.store)?, out),
         Command::Store { command } => {
             // Reads about the store, and changes to what it holds already, never make one.
             let existing = || diff_cmd::store_to_read(&cli.store);
@@ -1549,8 +1514,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Doctor(args) => return doctor_cmd::run(args, &cli.store, out, &ctx),
         Command::Plays(a) => return plays_cmd::run(a, &cli.store, out, &ctx),
         Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),
-        Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
-        Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
         Command::Login(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
@@ -1605,7 +1568,7 @@ fn search_terms(search: &str) -> String {
         .join(" ")
 }
 
-/// `sync --from SOURCE TARGET` (and `mirror`): one drive onto another, whichever is newer.
+/// `sync --from SOURCE TARGET`: one drive onto another, whichever is newer.
 fn mirror(
     store: &Option<PathBuf>,
     source: String,

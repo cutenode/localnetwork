@@ -19,7 +19,7 @@ fn watch_says_what_each_drive_holds_and_syncs_the_group_after_a_pull() {
     let out = env.ok(&["watch", "--once", "--settle", "0", "--pull", "--sync-group"]);
     assert!(line(&out, "Main: pulled into Main as snapshot").contains("(2 new history lists"), "{out}");
     assert!(line(&out, "Main: synced to").ends_with("synced to Backup"), "{out}");
-    assert!(env.ok(&["history", path(&backup)]).contains("HISTORY 003"));
+    assert!(env.ok(&["plays", "lists", path(&backup)]).contains("HISTORY 003"));
 
     // A change that isn't a history list.
     env.ok(&["--yes", "playlist", "new", "Main", "New"]);

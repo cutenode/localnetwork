@@ -6,7 +6,7 @@ use super::*;
 fn detail_rides_along_without_changing_the_error() {
     let e = Error::conflict(Reason::NotSaved, "DNA's history isn't in the store yet")
         .with("drive", "/Volumes/DNA")
-        .action(Action::call("pull", json!({ "drive": "/Volumes/DNA" }), "Pull DNA"))
+        .action(Action::call("pull.apply", json!({ "drive": "/Volumes/DNA" }), "Pull DNA"))
         .action(Action::retry(json!({ "force": true }), "Delete them anyway"));
     assert_eq!((e.code(), e.to_string().as_str()), ("conflict", "DNA's history isn't in the store yet"));
     assert!(matches!(e.inner(), Error::Conflict(_)));
@@ -70,7 +70,7 @@ fn every_kind_keeps_its_code_and_says_what_its_about() {
     }
     assert_eq!(Error::stale("DNA", "changed").to_string(), "DNA changed since the plan was made; plan again");
     // An action's params are an object, or nothing.
-    assert!(Action::call("pull", json!("DNA"), "Pull").params.is_empty());
+    assert!(Action::call("pull.apply", json!("DNA"), "Pull").params.is_empty());
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
                 fields.insert(key.into(), step.into());
             }
             2 => {
-                let a = Action::call("pull", serde_json::json!({ "step": step }), format!("Step {step}"));
+                let a = Action::call("pull.apply", serde_json::json!({ "step": step }), format!("Step {step}"));
                 e = e.action(a.clone());
                 actions.push(a);
             }

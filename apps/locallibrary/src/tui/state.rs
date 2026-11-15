@@ -33,8 +33,7 @@ pub struct Saved {
     /// The visualiser's name (`spectrum`, `deck`...).
     pub vis: Option<String>,
     pub details: bool,
-    /// The crate panel (`tags` before the crate was called that).
-    #[serde(alias = "tags")]
+    /// The crate panel.
     pub crate_panel: bool,
     /// The track list's rating column.
     pub ratings: bool,
@@ -81,8 +80,7 @@ pub struct Saved {
     pub mixes: Vec<PathBuf>,
     /// Folders of recorded sets opened in the Mixes view, newest first.
     pub mix_folders: Vec<PathBuf>,
-    /// The crate (`tag_list` before it was called that).
-    #[serde(alias = "tag_list")]
+    /// The crate.
     pub crate_list: Vec<SavedCrateTrack>,
     pub queue: Option<SavedQueue>,
 }

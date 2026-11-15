@@ -74,7 +74,7 @@ fn settings_publish_and_import_from_the_command_line() {
     other.json(&[&from[..], &["--dry-run"][..]].concat());
     let out = other.ok(&[&["--yes"][..], &from[..]].concat());
     assert!(out.contains("imported 2 settings from did:plc:testdj"), "{out}");
-    let profile = other.json(&["settings", "profile"]);
+    let profile = other.json(&["settings", "base"]);
     assert_eq!(profile["base"], json!({ "jog_mode": "cdj", "quantize": "off" }));
     // Read from the directory, never from the account's data server.
     assert!(pds.calls("com.atproto.repo.getRecord").is_empty());
