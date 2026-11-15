@@ -84,7 +84,7 @@ const requestRow = (request: RequestView, now: number): NeedsRow => ({
 	scope: requestTitle(request),
 	title: 'Update your request',
 	detail: `${requestTitle(request)} · Staff asked for changes · ${timeAgo(request.decision?.at ?? request.updatedAt, now)}`,
-	href: `/dashboard/requests/${request.rkey}`,
+	href: `/dashboard/account/requests/${request.rkey}`,
 	action: 'Update'
 });
 

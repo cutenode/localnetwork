@@ -20,7 +20,10 @@ and replace the four record types it publishes, to delete sets and their recordi
 delete` takes them off the account), to upload audio files (a set's recording), and to ask Local
 Network's directory to read them again, and nothing else in the account. `account login
 --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
-the same way, the first time, for permission to post bug reports and nothing else.
+the same way, the first time, for permission to post bug reports and nothing else. A plugin that
+writes records needs permission for each type it writes, which `account login --scope
+'repo:NSID?action=create&action=update'` asks for, and the plugin's error says which (see
+[Plugins](plugins.md#atmosphere-records)).
 
 - **Publishing's permission is a permission set**, the Lexicon
   [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):

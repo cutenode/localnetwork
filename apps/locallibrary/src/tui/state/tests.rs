@@ -28,18 +28,18 @@ fn round_trips_beside_the_store_until_there_is_one() {
     save(&store, &saved);
     assert!(!store.exists(), "the store's folder isn't made by the player");
     assert!(dir.path().join("store-player").join(FILE).is_file());
-    assert_eq!(load(&store), saved);
+    assert_eq!(load(&store).as_ref(), Some(&saved));
 
     // Once there's a store, the state lives in it (the copy beside it is only read until then).
     std::fs::create_dir_all(&store).unwrap();
     std::fs::write(store.join("store.json"), "{}").unwrap();
-    assert_eq!(load(&store), saved);
+    assert_eq!(load(&store).as_ref(), Some(&saved));
     let newer = Saved { volume: Some(0.2), ..saved.clone() };
     save(&store, &newer);
-    assert_eq!(load(&store), newer);
+    assert_eq!(load(&store).as_ref(), Some(&newer));
     assert!(store.join(FILE).is_file());
     std::fs::write(store.join(FILE), "not json").unwrap();
-    assert_eq!(load(&store), Saved::default());
+    assert_eq!(load(&store), None);
 
     // Never on the drive that was open.
     let drive = dir.path().join("drive");
@@ -99,7 +99,7 @@ fn what_is_saved_reads_back(tc: hegel::TestCase) {
         ..Default::default()
     };
     save(&store, &saved);
-    assert_eq!(load(&store), saved);
+    assert_eq!(load(&store).as_ref(), Some(&saved));
     // Saved from a store inside the drive that was open: not written there.
     let drive = dir.path().join("drive");
     save(&drive.join("store"), &Saved { root: Some(drive.clone()), ..saved });
@@ -119,7 +119,7 @@ fn a_store_with_nothing_beside_it_keeps_nothing(tc: hegel::TestCase) {
     };
     save(root, &saved);
     assert!(!root.join(FILE).exists());
-    assert_eq!(load(root), Saved::default());
+    assert_eq!(load(root), Some(Saved::default()));
 }
 
 /// `saved` with only its preferences, the part `settings export` takes. Every field of [`Saved`]
@@ -140,6 +140,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         mixes: _,
         mix_folders: _,
         crate_list: _,
+        crate_playing: _,
+        crate_at_ms: _,
         queue: _,
         intro_seen: _,
         // The user's preferences.
@@ -157,6 +159,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         quantize,
         single,
         auto_cue,
+        fill,
         notation,
         key_palette,
         bands,
@@ -180,6 +183,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         quantize,
         single,
         auto_cue,
+        fill,
         notation,
         key_palette,
         bands,
@@ -240,7 +244,18 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
             root: "/Volumes/USB".into(),
             drive: "USB".into(),
             track: Default::default(),
+            played: true,
+            filled: false,
         }],
+        crate_playing: Some(SavedCrateTrack {
+            root: "/Volumes/USB".into(),
+            drive: "USB".into(),
+            track: Default::default(),
+            played: true,
+            filled: false,
+        }),
+        crate_at_ms: 15_000,
+        fill: on(),
         queue: Some(SavedQueue { root: "/Volumes/USB".into(), tracks: vec!["/a.mp3".into()], ..Default::default() }),
     };
     save(&here, &saved);
@@ -249,13 +264,13 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
     let (all, kept) = (serde_json::to_value(&saved).unwrap(), serde_json::to_value(preferences_of(&saved)).unwrap());
     let session: Vec<&String> =
         all.as_object().unwrap().keys().filter(|k| all[k.as_str()] != kept[k.as_str()]).collect();
-    assert_eq!(session.len(), 13, "{session:?}");
+    assert_eq!(session.len(), 15, "{session:?}");
     assert!(session.iter().all(|k| !doc.player.contains_key(k.as_str())), "{:?}", doc.player);
     let file = dir.path().join("settings.json");
     std::fs::write(&file, serde_json::to_vec(&doc).unwrap()).unwrap();
     let other = locallibrary::Store::open_or_init(&there).unwrap();
     api::settings_import_file(&other, &api::ImportSettingsFile { file, replace: false }).unwrap();
-    assert_eq!(load(&there), preferences_of(&saved));
+    assert_eq!(load(&there), Some(preferences_of(&saved)));
 }
 
 /// What's kept in a file that can't be read right now isn't saved over: `load` said the defaults
@@ -278,8 +293,8 @@ fn a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
     if std::fs::read(&file).is_ok() {
         return mode(0o644);
     }
-    assert_eq!(load(&store), Saved::default());
+    assert_eq!(load(&store), None);
     save(&store, &Saved::default());
     mode(0o644);
-    assert_eq!(load(&store), kept);
+    assert_eq!(load(&store).as_ref(), Some(&kept));
 }

@@ -358,6 +358,6 @@
 <text x="1116 1125 1134 1143 1152 1161 1170 1179" y="806" fill="#9494a8">commands</text>
 <text x="1206" y="806" fill="#ff5ca0" font-weight="bold">?</text>
 <text x="1224 1233 1242 1251" y="806" fill="#9494a8">help</text>
-<text x="1278" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1278" y="806" fill="#ff5ca0" font-weight="bold">Q</text>
 <text x="1296 1305 1314 1323" y="806" fill="#9494a8">quit</text>
 </svg>

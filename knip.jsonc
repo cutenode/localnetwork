@@ -36,11 +36,12 @@
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]
 		},
 		"apps/localtoolbox": {
-			// The content script and the popup's classic scripts, and content.css, which ships as written
+			// The content scripts and the popup's classic scripts, and content.css, which ships as written
 			// (vite.config.ts). vitest.config.ts passes svelte.config.ts by path, and stryker.config.mjs
 			// names vitest.stryker.config.ts.
 			"entry": [
 				"content.ts!",
+				"gate-page.ts!",
 				"downloaded-store.ts!",
 				"state-transfer.ts!",
 				"theme-prepaint.ts!",
