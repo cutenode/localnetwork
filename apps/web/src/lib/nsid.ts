@@ -49,7 +49,11 @@ export const COLLECTION = {
 	/** A person's profile and the sections they turned on, in their own repo. */
 	profile: `${NS}.profile`,
 	/** That staff list a DJ's profile in the directory, keyed by their DID, in the root's public repo. */
-	listingProfile: `${NS}.listing.profile`
+	listingProfile: `${NS}.listing.profile`,
+	/** Who a performer's space is for, an act or a DJ, written by the root at the key `self`. */
+	performer: `${NS}.performer`,
+	/** A performer's private booking details, written by the root into its booking details space. */
+	performerDetails: `${NS}.performer.details`
 } as const;
 
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
@@ -108,7 +112,8 @@ export const SPACE_TYPE = {
 	backstage: `${NS}.space.backstage`,
 	performer: `${NS}.space.performer`,
 	party: `${NS}.space.party`,
-	venue: `${NS}.space.venue`
+	venue: `${NS}.space.venue`,
+	bookingDetails: `${NS}.space.bookingDetails`
 } as const;
 
 export type SpaceType = (typeof SPACE_TYPE)[keyof typeof SPACE_TYPE];

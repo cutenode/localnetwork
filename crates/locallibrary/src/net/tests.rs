@@ -2,9 +2,16 @@ use super::*;
 
 #[test]
 fn only_public_https_addresses_are_public() {
-    for ok in
-        ["https://bsky.social/xrpc", "https://pds.example.com:8443/", "https://8.8.8.8/", "https://[2606:4700::1]/"]
-    {
+    for ok in [
+        "https://bsky.social/xrpc",
+        "https://pds.example.com:8443/",
+        "https://8.8.8.8/",
+        "https://[2606:4700::1]/",
+        "https://100.63.255.255/",
+        "https://100.128.0.1/",
+        "https://[64:ff9b::808:808]/",
+        "https://[2002:808:808::1]/",
+    ] {
         assert_eq!(public(ok).map(String::from).as_deref(), Ok(ok), "{ok}");
     }
     for refused in [
@@ -20,10 +27,19 @@ fn only_public_https_addresses_are_public() {
         "https://172.16.0.1/",
         "https://169.254.169.254/latest/meta-data",
         "https://0.0.0.0/",
+        "https://0.1.2.3/",
+        "https://255.255.255.255/",
+        "https://100.64.0.1/",
+        "https://100.100.100.100/",
+        "https://100.127.255.254/",
         "https://[::1]/",
         "https://[fd00::1]/",
         "https://[fe80::1]/",
         "https://[::ffff:192.168.1.1]/",
+        "https://[64:ff9b::10.0.0.1]/",
+        "https://[64:ff9b::7f00:1]/",
+        "https://[2002:c0a8:101::1]/",
+        "https://[2002:a9fe:a9fe::]/",
         "not a url",
     ] {
         assert!(public(refused).is_err(), "{refused}");
@@ -37,22 +53,31 @@ use hegel::{Generator, TestCase};
 /// An IPv4 address, often from the ranges `public` treats specially.
 #[hegel::test_helper]
 fn ipv4(tc: &TestCase) -> [u8; 4] {
+    if tc.draw(gs::integers::<u8>().max_value(19)) == 0 {
+        return [255; 4];
+    }
     let first = tc.draw(hegel::one_of!(
         gs::sampled_from(vec![0u8, 1, 8, 10, 100, 127, 169, 172, 192, 224, 255]),
         gs::integers::<u8>()
     ));
-    let second = tc.draw(hegel::one_of!(gs::sampled_from(vec![0u8, 15, 16, 31, 32, 168, 254]), gs::integers::<u8>()));
+    let second = tc.draw(hegel::one_of!(
+        gs::sampled_from(vec![0u8, 15, 16, 31, 32, 63, 64, 127, 128, 168, 254]),
+        gs::integers::<u8>()
+    ));
     [first, second, tc.draw(gs::integers::<u8>().max_value(3)), tc.draw(gs::integers::<u8>())]
 }
 
-/// This computer, a private network (RFC 1918), a link's own (169.254/16), or no address.
+/// This computer, a private network (RFC 1918), a link's own (169.254/16), "this network"
+/// (0/8), carrier-grade NAT's shared space (100.64/10) or the broadcast address.
 fn local_v4([a, b, c, d]: [u8; 4]) -> bool {
     a == 127
         || a == 10
         || (a == 172 && (16..32).contains(&b))
         || (a, b) == (192, 168)
         || (a, b) == (169, 254)
-        || [a, b, c, d] == [0; 4]
+        || a == 0
+        || (a == 100 && (64..128).contains(&b))
+        || [a, b, c, d] == [255; 4]
 }
 
 /// `v4` the ways a URL may spell it: dotted (with or without a final dot), one decimal
@@ -76,7 +101,7 @@ fn port_and_path(tc: &TestCase) -> String {
 }
 
 /// An https address naming an IPv4 address, however it's spelled, is public unless the address
-/// is this computer's, a private network's, a link's own or none; it names this computer
+/// is one of those; it names this computer
 /// only when it's a loopback address; and any other scheme is refused.
 #[hegel::test(test_cases = 400)]
 fn ipv4_addresses_are_public_unless_they_are_local(tc: TestCase) {
@@ -94,22 +119,28 @@ fn ipv4_addresses_are_public_unless_they_are_local(tc: TestCase) {
 }
 
 /// The same for IPv6: the loopback and unspecified addresses, unique local (fc00::/7) and
-/// link-local (fe80::/10) ones, and IPv4 ones mapped into IPv6 that are local as IPv4.
+/// link-local (fe80::/10) ones, and IPv4 ones carried in IPv6 (mapped, NAT64's 64:ff9b::/96 or
+/// 6to4's 2002::/16) that are local as IPv4.
 #[hegel::test(test_cases = 400)]
 fn ipv6_addresses_are_public_unless_they_are_local(tc: TestCase) {
     let low = tc.draw(gs::integers::<u128>().max_value(u128::from(u32::MAX)));
-    let v6: u128 = match tc.draw(gs::integers::<u8>().max_value(6)) {
+    let v6: u128 = match tc.draw(gs::integers::<u8>().max_value(8)) {
         0 => tc.draw(gs::sampled_from(vec![0u128, 1])),
         1 => (0xfc00 | u128::from(tc.draw(gs::integers::<u16>().max_value(0x1ff)))) << 112 | low,
         2 => (0xfe80 | u128::from(tc.draw(gs::integers::<u16>().max_value(0x3f)))) << 112 | low,
         3 => 0xffff << 32 | u128::from(u32::from_be_bytes(ipv4(&tc))),
         4 => 0x2606_4700 << 96 | low,
+        5 => 0x64_ff9b << 96 | u128::from(u32::from_be_bytes(ipv4(&tc))),
+        6 => 0x2002 << 112 | u128::from(u32::from_be_bytes(ipv4(&tc))) << 80 | low,
         _ => tc.draw(gs::integers::<u128>()),
     };
     let addr = std::net::Ipv6Addr::from(v6);
     let segment = (v6 >> 112) as u16;
     let mapped = addr.to_ipv4_mapped().map(|v4| v4.octets());
-    let local = v6 <= 1 || segment & 0xfe00 == 0xfc00 || segment & 0xffc0 == 0xfe80 || mapped.is_some_and(local_v4);
+    let nat64 = (v6 >> 32 == 0x64_ff9b << 64).then(|| (v6 as u32).to_be_bytes());
+    let six_to_four = (segment == 0x2002).then(|| ((v6 >> 80) as u32).to_be_bytes());
+    let carried = mapped.or(nat64).or(six_to_four);
+    let local = v6 <= 1 || segment & 0xfe00 == 0xfc00 || segment & 0xffc0 == 0xfe80 || carried.is_some_and(local_v4);
     let url = format!("https://[{addr}]{}", port_and_path(&tc));
     assert_eq!(public(&url).is_ok(), !local, "{url}");
     let loopback = v6 == 1 || mapped.is_some_and(|v4| v4[0] == 127);

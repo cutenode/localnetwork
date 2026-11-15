@@ -188,17 +188,23 @@ pub struct PublishedSet {
     pub country: Option<String>,
 }
 
-/// A track of a published set: its artist and title left out when the DJ publishes it without
-/// naming it.
+/// A track of a published set: its artist, title, album and length left out when the DJ
+/// publishes it without naming it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TracklistEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The release it's from, when it's known. None from a host older than it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
     /// Seconds from the start of the recording, when it's known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_seconds: Option<u32>,
+    /// How long it is, in seconds, when it's known. None from a host older than it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u32>,
 }
 
 /// What `set/publish` answers: where the set can be heard (none for a dry run, which may say

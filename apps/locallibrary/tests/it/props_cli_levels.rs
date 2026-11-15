@@ -4,7 +4,7 @@
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use loclib_mixid::test_util::{synth, wav_of};
+use loclib_testkit::audio::{synth, wav_of};
 use serde_json::Value;
 
 use crate::props_cli_human::{TRACK_1, TRACK_2};

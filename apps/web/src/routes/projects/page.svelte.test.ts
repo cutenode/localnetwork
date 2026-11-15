@@ -95,3 +95,11 @@ it('switches between searching and matching a show, with search current', async 
 	await expect.element(modes.getByRole('link', { name: 'Match a show' })).not.toHaveAttribute('aria-current');
 	await expect.element(page.getByRole('heading', { level: 1, name: 'Find DJs' })).toBeInTheDocument();
 });
+
+it('points DJs to locallibrary', async () => {
+	await show({});
+
+	await expect
+		.element(page.getByRole('link', { name: 'Get locallibrary' }))
+		.toHaveAttribute('href', '/tools/locallibrary');
+});

@@ -163,8 +163,8 @@ fn fingerprinting_sorts_every_track_and_a_cancelled_run_keeps_nothing(tc: TestCa
 fn drive_and_set(dir: &std::path::Path, seeds: &[u32]) -> (Device, std::sync::Arc<Library>, std::path::PathBuf) {
     use crate::probe::tests::wav_of;
     use loclib_mixid::fingerprint::RATE;
-    use loclib_mixid::test_util::synth;
     use loclib_model::test_util::track;
+    use loclib_testkit::audio::synth;
     let root = dir.join("drive");
     std::fs::create_dir_all(root.join("Contents")).unwrap();
     let pcm = |x: &[f32]| wav_of(RATE, 16, x.iter().map(|s| (s * 20_000.0) as i32));

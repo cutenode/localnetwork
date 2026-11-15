@@ -550,7 +550,7 @@ fn plays_print_what_their_json_says(tc: TestCase) {
 /// saying which.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_set_from_a_recording_holds_what_it_plays(tc: TestCase) {
-    use loclib_mixid::test_util::{synth, wav_of};
+    use loclib_testkit::audio::{synth, wav_of};
     const RATE: u32 = 11_025;
     let wav = |s: &[f32]| wav_of(RATE, 16, s.iter().map(|x| (x * 12_000.0) as i32).collect::<Vec<_>>().into_iter());
     let fx = Env::from_template();

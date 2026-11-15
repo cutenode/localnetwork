@@ -1,6 +1,8 @@
 //! The Prepare view: the jobs that get a drive ready for a set, each what the palette runs. Those
 //! with no key elsewhere live here, and a row that can't run now says why.
 
+use std::sync::LazyLock;
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -35,6 +37,34 @@ const GAP: usize = 3;
 /// Room for a job's key.
 const KEY: usize = 3;
 
+/// A job's row as far as the keymap says it: its name padded to the widest, its key padded to
+/// `KEY`, and what it does.
+struct Row {
+    act: Act,
+    name: String,
+    key: String,
+    about: &'static str,
+}
+
+/// The widest job name and each job's row, worked out once: looking them up in the keymap every
+/// frame was a third of what listing all thirteen jobs added to a frame.
+static ROWS: LazyLock<(usize, Vec<Row>)> = LazyLock::new(|| {
+    let name_w = JOBS.iter().map(|a| keymap::name(*a).width()).max().unwrap_or(0);
+    let rows = JOBS
+        .iter()
+        .map(|&act| {
+            let key = keymap::key_in(Scope::Prepare, act).map_or(String::new(), key_name);
+            Row {
+                act,
+                name: format!("{:<name_w$}", keymap::name(act)),
+                key: format!("{key:<KEY$}"),
+                about: keymap::about(act),
+            }
+        })
+        .collect();
+    (name_w, rows)
+});
+
 /// Whether this view is where `act` lives.
 pub fn holds(act: Act) -> bool {
     JOBS.contains(&act)
@@ -59,25 +89,22 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         None => Span::styled(" no drive open ", faint()),
     };
     let width = area.width.saturating_sub(3) as usize;
-    let name_w = JOBS.iter().map(|a| keymap::name(*a).width()).max().unwrap_or(0);
-    let items: Vec<ListItem> = JOBS
+    let (name_w, rows) = &*ROWS;
+    let room = width.saturating_sub(name_w + GAP + KEY);
+    let items: Vec<ListItem> = rows
         .iter()
-        .map(|&act| {
-            let name = format!("{:<name_w$}", keymap::name(act));
-            let key = keymap::key_in(Scope::Prepare, act).map_or(String::new(), key_name);
-            let room = width.saturating_sub(name_w + GAP + KEY);
-            let why = app.unavailable(act);
-            let (name, about) = match &why {
+        .map(|row| {
+            let (name, about) = match app.unavailable(row.act) {
                 Some(why) => {
-                    let said = format!("{why} · {}", keymap::about(act));
-                    (Span::styled(name, faint()), Span::styled(clip(&said, room), faint()))
+                    let said = format!("{why} · {}", row.about);
+                    (Span::styled(row.name.as_str(), faint()), Span::styled(clip(&said, room), faint()))
                 }
-                None => (Span::styled(name, text()), Span::styled(clip(keymap::about(act), room), dim())),
+                None => (Span::styled(row.name.as_str(), text()), Span::styled(clip(row.about, room), dim())),
             };
             ListItem::new(Line::from(vec![
                 name,
                 Span::raw(" ".repeat(GAP)),
-                Span::styled(format!("{key:<KEY$}"), theme::key()),
+                Span::styled(row.key.as_str(), theme::key()),
                 about,
             ]))
         })

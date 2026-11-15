@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseMixcloudTokenExchange",
+	"description": "Stops locallibrary plugins signing in to Mixcloud: the token exchange answers 503 without using the client secret. Turn it on for everyone, never for a percentage or accounts: the exchange has no account to check.",
+	"type": "ops"
+}

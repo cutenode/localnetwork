@@ -6,6 +6,7 @@ import { grantKey } from '../services/epk';
 import { createTestServices, ROOT } from '../testing/core';
 import { DJ, pressKitServices } from '../testing/press-kits';
 import { createProjections } from './projections';
+import { flagsOff } from '#lib/testing/flags.ts';
 
 const ALICE = 'did:plc:alice';
 
@@ -67,13 +68,13 @@ describe('createProjections', () => {
 		await upsert(t.spaces.staff, ALICE, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
 		await upsert(t.spaces.moderation, ROOT, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
 
-		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, parityCanary: false });
 		expect(await t.flags.groups()).toEqual([]);
 
 		await upsert(t.spaces.staff, ROOT, COLLECTION.staffFlag, 'parityCanary', flag);
 		await upsert(t.spaces.staff, ROOT, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
 
-		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, parityCanary: true });
 		expect((await t.flags.groups()).map(({ name }) => name)).toEqual(['Beta']);
 
 		for (const [repoDid, space] of [
@@ -90,7 +91,7 @@ describe('createProjections', () => {
 			});
 		}
 
-		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, parityCanary: true });
 	});
 
 	it('indexes valid records and enforces authority rules', async () => {
@@ -447,6 +448,27 @@ describe('createProjections', () => {
 			});
 			await t.sharedSpaces.forget(space);
 			expect(await counts()).toEqual([0, 0, 0, 0]);
+		});
+
+		it("indexes a performer space's performer record only from the root, at its key, and drops it when deleted", async () => {
+			const performerSpace = sharedSpace(ROOT, 'performer', '3perf');
+			const dj = { subject: { $type: `${COLLECTION.performer}#dj`, did: ALICE }, createdAt: now, updatedAt: now };
+			const rows = () => t.db.selectFrom('performer').select(['spaceUri', 'kind', 'did']).execute();
+
+			await upsert(performerSpace, ALICE, COLLECTION.performer, 'self', dj);
+			await upsert(sharedSpace(ALICE, 'performer', '3perf'), ROOT, COLLECTION.performer, 'self', dj);
+			await upsert(performerSpace, ROOT, COLLECTION.performer, 'other', dj);
+			// Only a performer's space says who it's for.
+			await upsert(space, ROOT, COLLECTION.performer, 'self', dj);
+			expect(await rows()).toEqual([]);
+
+			await upsert(performerSpace, ROOT, COLLECTION.performer, 'self', dj);
+			expect(await rows()).toEqual([{ spaceUri: performerSpace, kind: 'dj', did: ALICE }]);
+
+			await remove(performerSpace, ALICE, COLLECTION.performer, 'self');
+			expect(await rows()).toHaveLength(1);
+			await remove(performerSpace, ROOT, COLLECTION.performer, 'self');
+			expect(await rows()).toEqual([]);
 		});
 
 		it('ignores records keyed by the wrong DID and listing statuses under any other key', async () => {

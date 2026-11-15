@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { USERINPUT } from '#lib/bug-report.ts';
+import { parsePublicRecordUri } from './atproto/spaces.ts';
 import { type BackupSettings, backupVariables, backupSettings, DEFAULT_DATABASE_PATH } from './backup/config.ts';
 import { loadEnvFiles } from './env-files.ts';
 
@@ -76,8 +78,8 @@ const userinputSpace = z
 	.pipe(
 		z
 			.string()
-			.regex(
-				/^at:\/\/did:[a-z]+:[\w.:%-]+\/app\.userinput\.space\/[\w.~:-]+$/,
+			.refine(
+				(uri) => parsePublicRecordUri(uri)?.collection === USERINPUT.space,
 				'must be at://<did>/app.userinput.space/<rkey>'
 			)
 			.optional()

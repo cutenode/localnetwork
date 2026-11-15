@@ -338,6 +338,11 @@ pub enum PromptFor {
     },
     /// A folder holding an export, to open.
     OpenFolder,
+    /// The folder to look in for tracks' missing files (none: the drive alone), or with `upgrade`
+    /// for lossless files of lossy tracks (see `tui::cli`).
+    LookIn {
+        upgrade: bool,
+    },
     /// A new My Tag (`Category/Tag`) for these tracks.
     NewTag {
         tracks: Vec<String>,
@@ -583,6 +588,10 @@ pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
         op => {
             let what = match op {
                 "playlist.restore" => "bring back a playlist",
+                "dedupe" => "replace duplicates",
+                "relocate" => "point tracks at their missing files",
+                "upgrade" => "upgrade tracks to lossless files",
+                "refresh" => "put back what rekordbox's export replaced",
                 "tags" => "change My Tags",
                 op => op,
             };
@@ -956,6 +965,11 @@ impl App {
             },
             PromptFor::ExportList { list } => {
                 self.write_export(p.root, &p.text, list.clone());
+                return;
+            }
+            PromptFor::LookIn { upgrade } => {
+                let upgrade = *upgrade;
+                self.looked_in(p, upgrade);
                 return;
             }
             PromptFor::OpenFolder => {

@@ -4,9 +4,9 @@ use std::sync::Mutex;
 
 use flacenc::component::BitRepr;
 use flacenc::error::Verify;
-use loclib_mixid::audio::aiff_frames;
-use loclib_mixid::test_util::wav_of;
+use loclib_audio::aiff_frames;
 use loclib_progress::CancelToken;
+use loclib_testkit::audio::wav_of;
 use lofty::config::WriteOptions;
 use lofty::id3::v2::{Frame, Id3v2Tag, PrivateFrame};
 use lofty::picture::{MimeType, Picture, PictureType};
@@ -282,13 +282,13 @@ fn failures() {
 
     let gone = dir.path().join("gone.wav");
     let err = transcode_quietly(&gone, &exact, &out).unwrap_err();
-    assert!(matches!(&err, Error::Decode(loclib_mixid::Error::Io { path, .. }) if *path == gone), "{err}");
+    assert!(matches!(&err, Error::Decode(loclib_audio::Error::Io { path, .. }) if *path == gone), "{err}");
 
     // symphonia panics reading a WAV that says 0 Hz.
     let zero = dir.path().join("zero.wav");
     std::fs::write(&zero, wav_of(0, 16, [0; 10].into_iter())).unwrap();
     let err = transcode_quietly(&zero, &exact, &out).unwrap_err();
-    assert!(err.to_string().ends_with(loclib_mixid::audio::CRASHED), "{err}");
+    assert!(err.to_string().ends_with(loclib_audio::CRASHED), "{err}");
 
     let empty = dir.path().join("empty.wav");
     wav(&empty, 44_100, 16, &[]);
@@ -380,8 +380,8 @@ fn a_damaged_frame_fails_the_copy() {
         std::fs::write(&source, bytes).unwrap();
         let out = dir.path().join("copy.aiff");
         let err = transcode_quietly(&source, &recipe(Container::Aiff, 44_100, 16, Dither::None), &out).unwrap_err();
-        assert!(matches!(err, Error::Decode(loclib_mixid::Error::Parse { .. })), "{err}");
-        let skipped = loclib_mixid::audio::decode(&source, 44_100, &Ctx::silent(), &mut |_| {});
+        assert!(matches!(err, Error::Decode(loclib_audio::Error::Parse { .. })), "{err}");
+        let skipped = loclib_audio::decode(&source, 44_100, &Ctx::silent(), &mut |_| {});
         assert!(skipped.is_ok(), "{skipped:?}");
     }
 }
@@ -493,7 +493,7 @@ fn recipes_no_player_takes_are_refused(tc: hegel::TestCase) {
     let playable = Recipe { sample_rate: 44_100, bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])), ..r };
     let err = transcode_quietly(&empty, &playable, &out).unwrap_err();
     assert!(
-        matches!(&err, Error::Decode(loclib_mixid::Error::Parse { message, .. }) if message == "it holds no audio"),
+        matches!(&err, Error::Decode(loclib_audio::Error::Parse { message, .. }) if message == "it holds no audio"),
         "{err}"
     );
 }
@@ -751,11 +751,11 @@ fn a_damaged_frame_anywhere_fails_the_copy(tc: TestCase) {
     let out = dir.path().join("copy.aiff");
     let err = transcode_quietly(&source, &recipe(Container::Aiff, 44_100, 16, Dither::None), &out).unwrap_err();
     assert!(
-        matches!(&err, Error::Decode(loclib_mixid::Error::Parse { path, .. }) if *path == source),
+        matches!(&err, Error::Decode(loclib_audio::Error::Parse { path, .. }) if *path == source),
         "frame {k}: {err}"
     );
     let mut heard = 0;
-    let skipped = loclib_mixid::audio::decode(&source, 44_100, &Ctx::silent(), &mut |s| heard += s.len()).unwrap();
+    let skipped = loclib_audio::decode(&source, 44_100, &Ctx::silent(), &mut |s| heard += s.len()).unwrap();
     assert!(heard < frames && skipped.duration_secs < frames as f64 / 44_100.0, "frame {k}: {heard} of {frames}");
 }
 

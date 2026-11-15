@@ -248,13 +248,13 @@
 <text x="846 855" y="806" fill="#9494a8">My</text>
 <text x="873 882 891" y="806" fill="#9494a8">Tag</text>
 <text x="918" y="806" fill="#ff5ca0" font-weight="bold">f</text>
-<text x="936 945 954 963" y="806" fill="#9494a8">deck</text>
-<text x="990 999 1008" y="806" fill="#ff5ca0" font-weight="bold">tab</text>
-<text x="1026 1035 1044 1053 1062" y="806" fill="#9494a8">focus</text>
-<text x="1089" y="806" fill="#ff5ca0" font-weight="bold">:</text>
-<text x="1107 1116 1125 1134 1143 1152 1161 1170" y="806" fill="#9494a8">commands</text>
-<text x="1197" y="806" fill="#ff5ca0" font-weight="bold">?</text>
-<text x="1215 1224 1233 1242" y="806" fill="#9494a8">help</text>
-<text x="1269" y="806" fill="#ff5ca0" font-weight="bold">q</text>
-<text x="1287 1296 1305 1314" y="806" fill="#9494a8">quit</text>
+<text x="936 945 954 963 972 981" y="806" fill="#9494a8">player</text>
+<text x="1008 1017 1026" y="806" fill="#ff5ca0" font-weight="bold">tab</text>
+<text x="1044 1053 1062 1071 1080" y="806" fill="#9494a8">focus</text>
+<text x="1107" y="806" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="1125 1134 1143 1152 1161 1170 1179 1188" y="806" fill="#9494a8">commands</text>
+<text x="1215" y="806" fill="#ff5ca0" font-weight="bold">?</text>
+<text x="1233 1242 1251 1260" y="806" fill="#9494a8">help</text>
+<text x="1287" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1305 1314 1323 1332" y="806" fill="#9494a8">quit</text>
 </svg>

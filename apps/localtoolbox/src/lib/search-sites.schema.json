@@ -1,0 +1,72 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://bnb.im/schemas/toolbox/search-sites/v1.json",
+	"title": "Toolbox search sites",
+	"description": "The sites a track with no download link offers a search on, one lettered badge each. The shipped list is search-sites.json next to this file; a site somebody adds in settings has the same shape, and so does each entry of an exported state file's `searchSites`. A badge opens a tab and never fetches, so a site needs no host permission.",
+	"type": "object",
+	"required": ["sites"],
+	"additionalProperties": false,
+	"properties": {
+		"$schema": {
+			"description": "This schema, for an editor to check the file against.",
+			"type": "string"
+		},
+		"sites": {
+			"description": "The sites, in the order their badges are drawn.",
+			"type": "array",
+			"items": { "$ref": "#/$defs/site" }
+		}
+	},
+	"$defs": {
+		"site": {
+			"description": "One site. The reader drops an entry this refuses rather than drawing a badge that does nothing.",
+			"type": "object",
+			"required": ["id", "name", "badge", "url"],
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"description": "What the badge's switch is remembered under (localStorage `pref:search:<id>`). Renaming it forgets whether the badge was switched off.",
+					"type": "string",
+					"pattern": "\\S"
+				},
+				"name": {
+					"description": "The site's own name, as settings and the panel's hints say it.",
+					"type": "string",
+					"pattern": "\\S"
+				},
+				"badge": {
+					"description": "The characters on the badge. It is 28px wide, so three at most.",
+					"type": "string",
+					"pattern": "\\S",
+					"maxLength": 3
+				},
+				"url": {
+					"description": "The search address: https, with at least one of {artist}, {title} or {query} in it, each URL-encoded where it lands. Any other {word} is refused rather than searched for.",
+					"type": "string",
+					"allOf": [
+						{ "pattern": "^https://" },
+						{ "pattern": "\\{(?:artist|title|query)\\}" },
+						{ "not": { "pattern": "\\{(?!(?:artist|title|query)\\})\\w+\\}" } }
+					]
+				},
+				"background": {
+					"description": "The badge's colour. Without one the badge is grey.",
+					"$ref": "#/$defs/colour"
+				},
+				"color": {
+					"description": "The ink on the badge. Without one it is white.",
+					"$ref": "#/$defs/colour"
+				},
+				"on": {
+					"description": "false ships the badge switched off. Absent means on.",
+					"type": "boolean"
+				}
+			}
+		},
+		"colour": {
+			"description": "A hex colour, #rgb to #rrggbbaa: these land in a style attribute, so nothing else is taken.",
+			"type": "string",
+			"pattern": "^#[0-9a-fA-F]{3,8}$"
+		}
+	}
+}

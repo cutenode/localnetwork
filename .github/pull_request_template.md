@@ -27,3 +27,4 @@
 - [ ] For the website: Storybook stories cover any new UI states
 - [ ] For locallibrary: `apps/locallibrary/changes/<branch>.md` has a changelog line, if people using it will notice
 - [ ] The READMEs, `docs/` and `--help` still say what the code does (`apps/locallibrary/docs/rpc/` too, for a sidecar change)
+- [ ] Mermaid diagrams whose `Source:` files changed still match the code (or the body says why with a `diagrams-checked:` line)

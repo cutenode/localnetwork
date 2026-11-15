@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_util::synth;
+use loclib_testkit::audio::synth;
 
 fn analyse(x: &[f32], d: Density) -> Vec<Peak> {
     let mut a = Analyzer::new(d, false);
@@ -110,7 +110,7 @@ fn key_locked_speeds_undo_a_stretch(tc: TestCase) {
 #[hegel::test(test_cases = 40)]
 fn peaks_dont_depend_on_how_samples_arrive(tc: TestCase) {
     let secs = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(2.5));
-    let x = crate::test_util::synth(secs, tc.draw(gs::integers::<u32>()));
+    let x = loclib_testkit::audio::synth(secs, tc.draw(gs::integers::<u32>()));
     let whole = {
         let mut a = Analyzer::new(QUERY, true);
         a.push(&x);
