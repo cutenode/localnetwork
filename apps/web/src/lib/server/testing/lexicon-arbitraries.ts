@@ -215,7 +215,7 @@ const mimeType = (def: LexBlob) =>
 		.constantFrom(...(def.accept ?? ['application/octet-stream']))
 		.chain((accepted) =>
 			accepted.endsWith('/*')
-				? fc.constantFrom('mpeg', 'mp4', 'aac', 'x-test').map((subtype) => accepted.replace('*', subtype))
+				? fc.constantFrom('mpeg', 'mp4', 'aac', 'x-test').map((subtype) => `${accepted.slice(0, -1)}${subtype}`)
 				: fc.constant(accepted)
 		);
 
