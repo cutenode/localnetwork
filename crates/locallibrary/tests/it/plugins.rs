@@ -4,6 +4,8 @@
 mod accesses;
 mod accounts;
 mod analysis;
+#[cfg(feature = "account")]
+mod atmosphere;
 mod blobs;
 mod callbacks;
 mod checks;

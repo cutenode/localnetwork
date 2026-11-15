@@ -397,7 +397,7 @@ describe('the network', () => {
 		expect(fetch).toHaveBeenCalled();
 		// The row says what went wrong with it, and the run says how it went.
 		expect(text()).toContain('Failed to fetch');
-		expect(text()).toContain('saved 0 of 1 — check the rows that failed');
+		expect(text()).toContain('saved 0 of 1. check the rows that failed');
 		expect(audit()).toEqual([]);
 	});
 });

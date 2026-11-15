@@ -11,7 +11,7 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 	// Keep editing the request that's already open instead of starting over from the published profile.
 	const open = await locals.app.requests.openUpdate(project.uri, viewer.did);
 
-	if (open) redirect(303, `/dashboard/requests/${open.rkey}`);
+	if (open) redirect(303, `/dashboard/account/requests/${open.rkey}`);
 	const details = await locals.app.projects.details(project.uri);
 
 	return {
@@ -48,7 +48,7 @@ export const actions: Actions = {
 			return { rkey: submitted.rkey };
 		}, formValues(form));
 
-		if ('rkey' in result) redirect(303, `/dashboard/requests/${result.rkey}?submitted=1`);
+		if ('rkey' in result) redirect(303, `/dashboard/account/requests/${result.rkey}?submitted=1`);
 
 		return result;
 	}

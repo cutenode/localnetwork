@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use locallibrary::anlz::{self, TrackAnalysis};
 use locallibrary::api;
-use locallibrary::fields::{OverlayStore, TrackValues};
+use locallibrary::fields::{OverlayStore, TrackValues, roles};
 use locallibrary::query::SortField;
 use locallibrary::sets::Set;
 use locallibrary::settings::{self, DriveSettings, SettingValue, SettingsFile, SettingsLocation};
@@ -346,8 +346,8 @@ pub struct Details {
 }
 
 /// What starting a track reads in the background: its analysis files and artwork from the
-/// drive (what they lack from what plugins' analyzers kept in the store, if they have it), and its
-/// matches and playlists from the library.
+/// drive (what they lack from what plugins' analyzers kept in the store, if they have it, each part
+/// from the analyzer chosen for it first), and its matches and playlists from the library.
 #[derive(Default)]
 pub struct TrackInfo {
     pub(in crate::tui) analysis: TrackAnalysis,
@@ -365,8 +365,9 @@ pub(super) fn track_info(root: &Path, track: &Track, library: Option<Arc<Library
     let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
     let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
     let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
-        let overlays = OverlayStore::in_store(&Store::open(store_root).ok()?);
-        overlays.first(&audio, &analyzers).fill(&mut analysis)
+        let store = Store::open(store_root).ok()?;
+        let chosen = roles::parts_chosen(Some(&store));
+        OverlayStore::in_store(&store).first(&audio, &analyzers, &chosen, true).fill(&mut analysis)
     });
     let art = (device.as_ref().and_then(|d| artwork::file_on_drive(d, track)))
         .and_then(|f| std::fs::read(f).ok())

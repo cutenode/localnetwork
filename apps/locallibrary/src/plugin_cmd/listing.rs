@@ -7,7 +7,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use console::style;
 use indexmap::IndexMap;
-use locallibrary::fields::{self, Role, roles::RoleChoice};
+use locallibrary::fields;
+use locallibrary::fields::roles::{RoleChoice, RoleOrPart};
 use locallibrary::plugin::Plugins;
 use loclib_plugin::{DestinationKind, ExportFrom, Setting, SettingType, Where};
 use serde_json::Value;
@@ -306,8 +307,8 @@ fn show_settings(shown: &[&Setting], s: &Settings) {
     unknown(&s.secrets);
 }
 
-/// `plugin roles`: shows which analyzer each role (or one) is read from, or chooses one, or puts
-/// one back to its default.
+/// `plugin roles`: shows which analyzer each role or part of the analysis (or one) is read from,
+/// or chooses one, or puts one back to its default.
 pub(super) fn roles(
     role: Option<String>,
     analyzer: Option<String>,
@@ -316,7 +317,7 @@ pub(super) fn roles(
     store_path: &Option<PathBuf>,
     out: Output,
 ) -> Result<ExitCode> {
-    let role: Option<Role> = role.map(|r| r.parse().map_err(usage)).transpose()?;
+    let role: Option<RoleOrPart> = role.map(|r| r.parse().map_err(usage)).transpose()?;
     if let Some(role) = role.filter(|_| none) {
         return out.one_step(
             &format!("read {} from no analyzer", role.name()),

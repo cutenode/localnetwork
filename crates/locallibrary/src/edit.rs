@@ -3298,9 +3298,11 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
     }
     let keep = chosen_nodes(&primary, playlists)?;
     let mut ops = Vec::new();
-    // Whole subtrees that go: a dropped node whose parent stays (or that is top level).
+    // Whole subtrees that go: a dropped node whose parent stays, or that is top level (as one
+    // whose folder isn't in the database is: a damaged export can hold one).
+    let nodes: FxHashSet<u32> = primary.playlists.iter().map(|p| p.id).collect();
     for p in primary.playlists.iter().filter(|p| !keep.contains(&p.id)) {
-        if p.parent_id.is_none_or(|parent| keep.contains(&parent)) {
+        if p.parent_id.filter(|parent| nodes.contains(parent)).is_none_or(|parent| keep.contains(&parent)) {
             ops.push(Op::Delete { node: primary.playlist_names(p.id), folder: p.is_folder });
         }
     }

@@ -177,6 +177,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   analysis (beat grid, cues, waveforms, phrases)
 - [loclib-equipment](../../crates/loclib-equipment): what each Pioneer DJ / AlphaTheta player and mixer
   reads from a USB drive, with sources, also as JSON
+- [loclib-capacity](../../crates/loclib-capacity): catching fake-capacity USB sticks and cards by
+  writing and reading back test regions across the whole disk
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
@@ -237,9 +239,9 @@ How locallibrary is put together, drawn from its code.
 
 - Overview and commands: [How the parts connect](#how-the-parts-connect), [What the binary is built from](#what-the-binary-is-built-from), [How a run starts](#how-a-run-starts), [Exit status](#exit-status), [Commands by heading](#commands-by-heading), [Everyday commands](#everyday-commands), [Drive commands](#drive-commands), [Library and store commands](#library-and-store-commands), [Editing commands](#editing-commands), [Plays and players commands](#plays-and-players-commands), [Other commands](#other-commands)
 - [Changing drives](docs/diagrams/changing-drives.md): plans, the write routine, syncs, undo, edits and jobs
-- [The store and drives](docs/diagrams/store-and-drives.md): what's in the store and on a drive, pull, push, copies and checks
+- [The store and drives](docs/diagrams/store-and-drives.md): what's in the store and on a drive, pull, push, copies, browsing and checks
 - [Library data](docs/diagrams/data.md): reading a library, My Settings, sets, mixes and the DJ profile
-- [The player](docs/diagrams/player.md): views, panes, threads, playback and what it remembers
+- [The player](docs/diagrams/player.md): first run, views, panes, jobs, threads, playback and what it remembers
 - [Plugins](docs/diagrams/plugins.md): loading, hooks, what a plugin can reach, events and services
 - [The sidecar](docs/diagrams/sidecar.md): its lifecycle, requests, plans, every method and its contract
 - [Accounts](docs/diagrams/accounts.md): the DJ account, token exchange, keys and access
@@ -280,12 +282,13 @@ The crates the binary and the core library link.
 flowchart LR
     bin["locallibrary binary<br/>apps/locallibrary"] --> core["Core library<br/>crates/locallibrary"]
     bin --> plugins["Built-in plugins<br/>plugins/, linked in"]
-    bin --> wave["loclib-waveform<br/>the player's widgets"]
+    bin --> wave["loclib-waveform<br/>the player's widgets, visualiser analysis"]
     bin --> sdk["loclib-plugin<br/>protocol, manifest, SDK"]
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
     core --> equip["loclib-equipment<br/>what players read"]
+    core --> cap["loclib-capacity<br/>fake-capacity probe"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
@@ -406,7 +409,7 @@ flowchart TD
     hub["Drives"]
     hub --> who["drive: who it is<br/>ls, info, adopt, rename, forget, role, retire, log, recognise, reidentify, groups"]
     hub --> shows["drive: what players show<br/>player, contact"]
-    hub --> disk["drive: the disk<br/>disks, format, verify, fsck, space, tidy"]
+    hub --> disk["drive: the disk<br/>disks, format, verify, fsck, space, speed, tidy"]
     hub --> files["drive: files and backups<br/>recordings, firmware, backups, restore"]
     hub --> provision["provision<br/>a blank drive into a working copy"]
     hub --> doctor["doctor<br/>health report"]
@@ -427,7 +430,7 @@ flowchart TD
     hub["Library and store"]
     hub --> tracks["tracks<br/>list, search, filter, sort"]
     hub --> library["library<br/>ls, rename, log, push, prune"]
-    hub --> store["store<br/>info, gc, verify, index-limit, label, unlabel, prune, copy, copies, restore, serve, fetch"]
+    hub --> store["store<br/>info, gc, verify, index-limit, copy-on-write, label, unlabel, prune, copy, copies,<br/>browse, views, unbrowse, restore, serve, fetch"]
     hub --> diff["diff<br/>entries between two drives or snapshots"]
     hub --> collection["collection<br/>info, tracks, playlists, export, diff"]
     hub --> export["export<br/>M3U8, CSV, text or a plugin's format"]
@@ -439,7 +442,7 @@ flowchart TD
     diff ~~~ analyze
 ```
 
-Source: [`src/library_cmd.rs`](src/library_cmd.rs), [`src/store_cmd.rs`](src/store_cmd.rs), [`src/diff_cmd.rs`](src/diff_cmd.rs), [`src/collection_cmd.rs`](src/collection_cmd.rs), [`src/export_cmd.rs`](src/export_cmd.rs), [`src/plugin_cmd/analyze.rs`](src/plugin_cmd/analyze.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/library_cmd.rs`](src/library_cmd.rs), [`src/store_cmd.rs`](src/store_cmd.rs), [`src/diff_cmd.rs`](src/diff_cmd.rs), [`src/collection_cmd.rs`](src/collection_cmd.rs), [`src/export_cmd.rs`](src/export_cmd.rs), [`src/plugin_cmd/analyze.rs`](src/plugin_cmd/analyze.rs)
 
 ### Editing commands
 

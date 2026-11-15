@@ -495,7 +495,7 @@ pub fn colour_dot(c: TrackColor) -> Span<'static> {
     }
 }
 
-/// A key hint, e.g. the `q` in "q quit".
+/// A key hint, e.g. the `Q` in "Q quit".
 pub fn key() -> Style {
     bold(current().accent)
 }

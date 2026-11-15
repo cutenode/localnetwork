@@ -143,7 +143,7 @@ fn a_typed_folder_opens() {
     assert_eq!(app.loaded.as_ref().unwrap().root(), real);
 }
 
-/// A saved Deck layout stays up through the first read, with no flash of the panes, and with
+/// A saved player mode stays up through the first read, with no flash of the panes, and with
 /// nothing to show then opens Browse over itself: the empty state shows and the layout stays saved.
 #[test]
 fn the_deck_layout_gives_way_to_the_empty_state() {

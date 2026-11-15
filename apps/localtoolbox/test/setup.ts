@@ -75,6 +75,11 @@ beforeEach(() => {
 	process.on('unhandledRejection', noteUnhandled);
 	globalThis.chrome = createChrome();
 	vi.setSystemTime(new Date('2026-09-08T12:00:00Z'));
+
+	// Past the first-run notice, which stands in for the tool menu until it has
+	// been read once (FirstRun.svelte): most tests are about what comes after
+	// it. The notice's own tests take this back out.
+	if (inBrowser) localStorage.setItem('pref:notice-seen', '1');
 });
 
 afterEach(async () => {

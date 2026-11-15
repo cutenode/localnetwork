@@ -1,5 +1,6 @@
 import { nextNights, soon, withOthers } from '#lib/server/home.ts';
 import { requireViewer } from '#lib/server/http.ts';
+import { locallibraryStatus } from '#lib/server/locallibrary.ts';
 import { onboardingData } from '#lib/server/onboarding.ts';
 import type { PageServerLoad } from './$types';
 
@@ -33,12 +34,19 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 	// server, and neither holds up the rest.
 	const nights = threads.then(async (all) => nextNights(locals, viewer, all, await projects, await sections));
 
-	const [setup, said, next, steps] = await Promise.all([
+	const [setup, said, next, steps, published] = await Promise.all([
 		soon(firstRun),
 		soon(summary),
 		soon(nights),
-		soon(onboardingData(locals, viewer, profile, firstRun))
+		soon(onboardingData(locals, viewer, profile, firstRun)),
+		soon(locallibraryStatus(locals, viewer))
 	]);
 
-	return { firstRun: setup.value, summary: said.value, nights: next.value, onboarding: steps.value };
+	return {
+		firstRun: setup.value,
+		summary: said.value,
+		nights: next.value,
+		onboarding: steps.value,
+		locallibrary: published.value
+	};
 };

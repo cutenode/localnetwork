@@ -6,22 +6,18 @@
 // is to hand it over rather than only to explain itself.
 //
 // Where it leads is nearly always the gate, which is what a row does with no
-// instruction at all. The exceptions are the things the settings sheet already
-// asks for (an address, a name), where a trip to the gate would be a wasted
-// one. An adapter says so by throwing a Wanting, and the panel opens the
-// sheet instead of the tab.
+// instruction at all. The exception is the address the settings sheet asks
+// for, where a trip to the gate would be a wasted one. An adapter says so by
+// throwing a Wanting, and the panel opens the sheet instead of the tab.
 
 /** The gate wants an email address, which is the panel's to ask for. */
 export const EMAIL = 'email';
 
-/** The gate wants a name with it, which settings asks for too. */
-export const NAME = 'name';
-
-export type NextStep = typeof EMAIL | typeof NAME;
+export type NextStep = typeof EMAIL;
 
 /**
  * An error the row shows as its reason, pointing at a next step other than the
- * gate itself. `next` is one of the constants above; the message is the
+ * gate itself. `next` is the constant above; the message is the
  * sentence the row should say.
  */
 export class Wanting extends Error {

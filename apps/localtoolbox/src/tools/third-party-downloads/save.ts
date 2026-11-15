@@ -75,37 +75,8 @@ export function filenameOf(fileUrl: string) {
 	}
 }
 
-// The extensions a free download comes as. Used both for naming a file and,
-// in looksLikeFile() below, for deciding whether a link is one at all.
+// The extensions a free download comes as, for naming a file from its link.
 const AUDIO = /\.(mp3|wav|aiff?|flac|m4a|ogg|opus|alac|wma|zip|rar|7z)$/i;
-
-/**
- * Whether a URL is a file to save rather than a page to open.
- *
- * Several of these sites end in "here is where the download lives", and where
- * it lives is sometimes a file and sometimes a shop, a Patreon post or a
- * Dropbox folder. Only the first can be handed to the downloader; the rest are
- * pages, and the panel offers to open them instead.
- */
-export function looksLikeFile(url: string) {
-	let parsed;
-
-	try {
-		parsed = new URL(url);
-	} catch (_e) {
-		return false;
-	}
-
-	if (AUDIO.test(parsed.pathname)) return true;
-	// Dropbox and Drive serve a page unless asked for the bytes.
-	const host = parsed.hostname.replace(/^www\./, '');
-
-	if (host === 'dropbox.com' || host.endsWith('.dropbox.com')) return parsed.searchParams.get('dl') === '1';
-
-	if (host === 'drive.google.com') return parsed.searchParams.get('export') === 'download';
-
-	return false;
-}
 
 // Chrome's own words for a name it will not take. It is a constant in the
 // extensions API rather than anything translated, so matching it is safe,

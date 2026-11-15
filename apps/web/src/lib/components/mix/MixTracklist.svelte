@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { ArrowDown, AudioLines } from '@lucide/svelte';
 	import { clock, CONFIDENT, handoff, playColor, playSpeed, tracklist, type MixReport } from '#lib/mix/report.ts';
+	import { trackArtists } from '#lib/supports.ts';
 	import { onColour } from '#lib/ui/contrast.ts';
+	import ArtistLinks from '#lib/components/supports/ArtistLinks.svelte';
 	import TrackOverview from './TrackOverview.svelte';
 
 	/** `playing` is the play the player is at, by index, or -1. */
@@ -40,7 +42,7 @@
 			{@const confidence = Math.round(play.confidence * 100)}
 			{@const shifted = play.key && play.playedKey && play.key !== play.playedKey}
 			<li id="mix-track-{i}" class="scroll-mt-20 border-t border-well" aria-current={playing === i || undefined}>
-				<!-- The title is the button, named by what it shows; the rest of the row is a bigger target for a pointer, and its details stay readable. -->
+				<!-- The title is the button, named by what it shows; the rest of the row but its artist links is a bigger target for a pointer, and its details stay readable. -->
 				<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 				<div
 					class={[
@@ -49,18 +51,22 @@
 						selected === i && 'bg-well hover:bg-well'
 					]}
 					style:box-shadow={selected === i ? `inset 3px 0 0 ${playColor(i)}` : undefined}
-					onclick={() => toggle(i)}
+					onclick={(event) => {
+						if (!(event.target as Element).closest('a')) toggle(i);
+					}}
 				>
 					<span class={['pl-2 font-mono text-caption leading-6', playing === i ? 'font-semibold text-fg' : 'text-fg-subtle']}>{clock(play.start)}</span>
 					<div class="flex min-w-0 gap-3">
 						{#if track.artwork}<img src={track.artwork} alt="" class="size-10 shrink-0 rounded-md bg-well object-cover" loading="lazy" />{/if}
 						<div class="flex min-w-0 flex-col gap-1">
-							<!-- Its click reaches the row's handler, so the button has none of its own. -->
-							<button type="button" aria-pressed={selected === i} class="cursor-pointer text-left text-small leading-6 focus-visible:outline-none">
-								{#if playing === i}<AudioLines class="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" /><span class="sr-only">{'Playing now: '}</span>{/if}<span class="font-mono text-caption text-fg-subtle">{i + 1}</span>
-								<span class="font-semibold">{track.title}</span>
-								{#if track.artist}<span class="text-fg-muted max-sm:block"> {track.artist}</span>{/if}
-							</button>
+							<!-- Its click reaches the row's handler, so the button has none of its own. The artists sit outside it, since a link can't go inside a button. -->
+							<p class="m-0 text-small leading-6">
+								<button type="button" aria-pressed={selected === i} class="cursor-pointer text-left focus-visible:outline-none">
+									{#if playing === i}<AudioLines class="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" /><span class="sr-only">{'Playing now: '}</span>{/if}<span class="font-mono text-caption text-fg-subtle">{i + 1}</span>
+									<span class="font-semibold">{track.title}</span>
+								</button>
+								{#if track.artist}<span class="max-sm:block"> <ArtistLinks artists={trackArtists(track)} /></span>{/if}
+							</p>
 							{#if track.label || play.keyLock || pitched || play.jumps > 0 || play.confidence < CONFIDENT}
 								<p class="m-0 flex flex-wrap gap-1.5 text-caption">
 									{#if track.label}<span class="text-fg-subtle">{track.label}</span>{/if}

@@ -81,8 +81,8 @@ fn prop_the_zoomed_views_middle_column_is_the_playhead(tc: TestCase) {
         Zoom { wave, position_secs, visible_secs, beats: &beats, cues: &cues, cue_rows: 1, bar_numbers: true, palette };
     let buf = drawn(&mut ZoomRing::default(), &zoom, area);
     let centre = area.width / 2;
-    assert_eq!((buf[(centre, 0)].symbol(), buf[(centre, 0)].fg), ("▼", rgb(palette.fg)));
-    assert_eq!(buf[(centre, 1)].symbol(), "A", "the cue at the playhead is in the middle");
+    assert_eq!(buf[(centre, 0)].symbol(), "A", "the cue at the playhead is in the middle");
+    assert_eq!((buf[(centre, 1)].symbol(), buf[(centre, 1)].fg), ("▼", rgb(palette.fg)), "on the ruler");
     for y in 2..area.height {
         let cell = &buf[(centre, y)];
         let line = cell.symbol() == "│" && cell.fg == rgb(palette.fg);
@@ -170,6 +170,37 @@ fn the_ruler_marks_beats_and_numbers_bars() {
     assert!(!far.contains('╷'), "no room for beats: {far}");
     let digits: Vec<char> = far.chars().filter(char::is_ascii_digit).collect();
     assert!(!digits.is_empty() && digits.len() < far.matches('╻').count(), "{far}");
+}
+
+/// The ruler sits on the waveform, under the cue rows, and a bar's line carries on down through
+/// the waveform's empty cells: what the grid measures is right under it. Without bar numbers (the
+/// strip) there are no lines.
+#[test]
+fn the_ruler_sits_on_the_waveform_and_bars_run_through_it() {
+    let silent = Waveform { columns: vec![WaveColumn::default(); 6_000], ..wave(0) };
+    let beats = beats(200);
+    let zoom = |bar_numbers| Zoom {
+        wave: Wave::Layers(&silent),
+        position_secs: 8.0,
+        visible_secs: 8.0,
+        beats: &beats,
+        cues: &[],
+        cue_rows: 2,
+        bar_numbers,
+        palette: Palette::default(),
+    };
+    let area = Rect::new(0, 0, 80, 8);
+    let buf = drawn(&mut ZoomRing::default(), &zoom(true), area);
+    let row = |y| (0..80).map(|x| buf[(x, y)].symbol()).collect::<String>();
+    assert!(row(0).trim().is_empty() && row(1).trim().is_empty(), "the cue rows are on top");
+    assert!(row(2).starts_with("╻3"), "then the ruler: {}", row(2));
+    assert_eq!(buf[(40, 2)].symbol(), "▼", "with the playhead's marker on it");
+    for y in 3..8 {
+        assert_eq!(buf[(0, y)].symbol(), "┆", "bar 3's line, row {y}");
+        assert_eq!(buf[(5, y)].symbol(), " ", "but not a beat's, row {y}");
+    }
+    let bare = drawn(&mut ZoomRing::default(), &zoom(false), area);
+    assert!((3..8).all(|y| bare[(0, y)].symbol() == " "), "no lines without numbers");
 }
 
 /// Above the waveform, a marker has its row unless another's there; a second row takes it if there
@@ -358,7 +389,7 @@ fn a_cues_name_is_clear_of_its_marker_and_whole() {
             palette: Palette::default(),
         };
         let buf = drawn(&mut ZoomRing::default(), &z, Rect::new(0, 0, 40, 7));
-        (0..40).map(|x| buf[(x, 1)].symbol().to_string()).collect::<String>()
+        (0..40).map(|x| buf[(x, 0)].symbol().to_string()).collect::<String>()
     };
     // 0.1 s a column from 8 s: 8.4 s is column 4.
     let alone = row_for(&[cue_at(Some(0), 8_400, "Intro")]);
@@ -466,7 +497,7 @@ fn the_deck_reads_without_colours() {
     let buf = drawn(&mut ZoomRing::default(), &zoom, area);
     let head = &buf[(10, 4)];
     assert!(head.symbol() == "│" && head.modifier.contains(Modifier::REVERSED), "{head:?}");
-    let letter = &buf[(15, 1)];
+    let letter = &buf[(15, 0)];
     assert!(letter.symbol() == "A" && letter.modifier.contains(Modifier::REVERSED), "{letter:?}");
 }
 
