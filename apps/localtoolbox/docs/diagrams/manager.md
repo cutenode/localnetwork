@@ -50,7 +50,7 @@ flowchart TD
   Track["A listed track"]
   Dl{"details.downloadable<br/>is true?"}
   Sc["SoundCloud entry<br/>opens the track page"]
-  Buy{"details.purchaseUrl?"}
+  Buy{"details.purchaseUrl,<br/>a web address once unwrapped?"}
   Ext["external entry<br/>gate.sc unwrapped"]
   Sort{"pref:sort"}
   Site["by site<br/>grouped by domain,<br/>soundcloud.com first"]
