@@ -118,7 +118,7 @@ flowchart TD
   Rank --> Night["Save the night and ticked DJs<br/>as a planned show"]
   Page --> Save["Save to the planner"]
   Page --> Inquire["/dashboard/bookings/new"]
-  Dj --> Inquire
+  Dj -- "if they take inquiries" --> Inquire
 ```
 
 Source: [`src/routes/projects/+page.server.ts`](../../src/routes/projects/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/routes/@[handle]/+page.svelte`](../../src/routes/@[handle]/+page.svelte), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
@@ -145,7 +145,7 @@ Source: [`src/lib/server/services/planner.ts`](../../src/lib/server/services/pla
 
 ## Booking inquiry
 
-Opening a booking thread, with an act or a DJ Find DJs lists. It reads an act from the root's own repo, so a new manager is already in the thread. A DJ answers for themself.
+Opening a booking thread, with an act or a DJ Find DJs lists who turned on Take inquiries. It reads an act from the root's own repo, so a new manager is already in the thread. A DJ answers for themself, as the thread's performer.
 
 ```mermaid
 sequenceDiagram
@@ -159,7 +159,7 @@ sequenceDiagram
   alt An act
     A->>R: Its project record
   else A listed DJ
-    A->>H: Their listing and profile
+    A->>H: Their listing, and a profile<br/>with Take inquiries on
   end
   A->>S: Root creates the space, adds<br/>the promoter, then the act's<br/>managers or the DJ
   A->>D: Thread and<br/>participant rows
@@ -207,17 +207,17 @@ Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bo
 
 ## Booking lifecycle
 
-The status of a booking thread. The site refuses any other change with a 409 and audits it as denied. A status record a participant writes to the space from elsewhere waits as unapplied until the thread's rules allow that move.
+The status of a booking thread. The side being booked is an act's managers or the DJ. The site refuses any other change with a 409 and audits it as denied. A status record a participant writes to the space from elsewhere waits as unapplied until the thread's rules allow that move.
 
 ```mermaid
 stateDiagram-v2
   [*] --> open: inquiry sent
-  open --> negotiating: manager
-  open --> confirmed: manager, or promoter once a manager wrote
-  open --> declined: manager
+  open --> negotiating: booked side
+  open --> confirmed: booked side, or promoter once it wrote
+  open --> declined: booked side
   open --> cancelled: promoter withdraws
   negotiating --> confirmed: either side
-  negotiating --> declined: manager
+  negotiating --> declined: booked side
   negotiating --> cancelled: promoter withdraws
   confirmed --> cancelled: either side
   declined --> [*]

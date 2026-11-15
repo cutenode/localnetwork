@@ -6,7 +6,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { type BookingAction, bookingActions } from '#lib/bookings.ts';
+	import { type BookingAction, bookingActions, isBookedSide } from '#lib/bookings.ts';
 	import { formatDateTime, formatShowDate } from '#lib/format.ts';
 	import { BOOKING_STATUSES, FEE_TIERS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
@@ -41,8 +41,8 @@
 
 	const role = $derived(thread.participants.find((p) => p.did === data.viewer?.did)?.role);
 
-	// The promoter can confirm an open inquiry only once a manager has written in the thread, as the server checks.
-	const answered = $derived(data.events.some((event) => thread.participants.some((p) => p.did === event.author.did && p.role === 'manager')));
+	// The promoter can confirm an open inquiry only once the side being booked has written in the thread, as the server checks.
+	const answered = $derived(data.events.some((event) => thread.participants.some((p) => p.did === event.author.did && isBookedSide(p.role))));
 
 	const actions = $derived(role ? bookingActions(role, thread.status, answered) : []);
 
@@ -65,7 +65,7 @@
 
 	// A confirmed booking is a show the project's managers can announce, filled in from these details. Shows belong to
 	// projects, so a listed DJ's own bookings have no announce step.
-	const announce = $derived(thread.status === 'confirmed' && thread.project?.slug && role === 'manager' ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
+	const announce = $derived(thread.status === 'confirmed' && thread.project?.slug && isBookedSide(role) ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>

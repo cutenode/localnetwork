@@ -18,8 +18,8 @@ export type BookedPerformer = {
 	href: string;
 	/** The act's project slug, or null for a DJ. */
 	slug: string | null;
-	/** Who answers for them in a thread: the act's managers, or the DJ. */
-	answerers: string[];
+	/** Who answers for them in a thread, with their role there: the act's managers, or the DJ as its performer. */
+	answerers: { did: string; role: 'manager' | 'performer' }[];
 };
 
 /** The DJ a profile URI (`at://<did>/computer.localnetwork.profile/self`) names, or null for any other URI. */
@@ -30,16 +30,19 @@ export function profileDid(uri: string): string | null {
 	return collection === COLLECTION.profile && rkey === 'self' && isValidDid(host) ? host : null;
 }
 
-/** Whether a DJ takes inquiries here: staff list them, and their profile has the performer section on, as in Find DJs. */
+/**
+ * Whether a DJ takes inquiries here: staff list them, their profile has the performer section on, as in Find DJs, and
+ * they turned on Take inquiries.
+ */
 export const takesInquiries = (listing: DjListing | null, profile: ProfileView | null) =>
-	listing !== null && profile?.record.performer !== undefined;
+	listing !== null && profile?.record.performer !== undefined && profile.record.takesInquiries === true;
 
 const act = ({ uri, slug, managers, profile }: ProjectView): BookedPerformer => ({
 	uri,
 	name: profile.name,
 	href: `/projects/${slug}`,
 	slug,
-	answerers: managers
+	answerers: managers.map((did) => ({ did, role: 'manager' }))
 });
 
 /** A DJ answers for themself, so a thread with one stays theirs whether or not they're still listed. */
@@ -48,7 +51,7 @@ const dj = (account: AccountView, name: string | undefined): BookedPerformer => 
 	name: name ?? accountLabel(account),
 	href: profileHref(account),
 	slug: null,
-	answerers: [account.did]
+	answerers: [{ did: account.did, role: 'performer' }]
 });
 
 /** Reads who booking threads are with, from the URI their inquiry names. */

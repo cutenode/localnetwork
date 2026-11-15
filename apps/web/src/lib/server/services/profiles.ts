@@ -54,6 +54,8 @@ export type ProfileInput = {
 	basics: Omit<BasicsSection, 'avatar'>;
 	performer?: PerformerSection;
 	promoter?: PromoterSection;
+	/** Take inquiries, which only a profile with the performer section keeps. */
+	takesInquiries?: boolean;
 	avatar: { upload: Upload } | { blob: BlobRefJson } | 'keep' | 'remove';
 	tracklists?: (Upload | undefined)[];
 	swap: string | null;
@@ -188,6 +190,7 @@ export class ProfileService {
 				basics: avatar ? { ...input.basics, avatar } : input.basics,
 				...(performer && { performer }),
 				...(input.promoter && { promoter: input.promoter }),
+				...(performer && input.takesInquiries && { takesInquiries: true }),
 				createdAt: existing?.record.createdAt ?? now,
 				updatedAt: now
 			});

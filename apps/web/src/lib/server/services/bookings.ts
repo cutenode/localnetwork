@@ -153,9 +153,9 @@ export class BookingService {
 			throw error;
 		}
 
-		const participants: { did: string; role: 'promoter' | 'manager' }[] = [
+		const participants: { did: string; role: BookingRole }[] = [
 			{ did: actor.did, role: 'promoter' },
-			...performer.answerers.map((did) => ({ did, role: 'manager' as const }))
+			...performer.answerers
 		];
 
 		let ref: RecordRef;
@@ -273,7 +273,7 @@ export class BookingService {
 		return { ...thread, role: participant.role };
 	}
 
-	/** Whether any of the thread's managers has written in it yet. */
+	/** Whether anyone on the side being booked has written in the thread yet. */
 	private async answered(space: string): Promise<boolean> {
 		const reply = await this.core.db
 			.selectFrom('bookingEvent')
@@ -285,7 +285,7 @@ export class BookingService {
 			.select('bookingEvent.uri')
 			.where('bookingEvent.spaceUri', '=', space)
 			.where('bookingEvent.kind', '!=', 'unapplied')
-			.where('bookingParticipant.role', '=', 'manager')
+			.where('bookingParticipant.role', '!=', 'promoter')
 			.executeTakeFirst();
 
 		return reply !== undefined;
@@ -504,7 +504,9 @@ export class BookingService {
 
 			// Threads opened before the record named the promoter go by who sent it: nobody can send an inquiry to their
 			// own project (start), so one from the act's side never opens a thread.
-			const promoter = opened?.promoter ? opened.promoter === author : !performer?.answerers.includes(author);
+			const promoter = opened?.promoter
+				? opened.promoter === author
+				: !performer?.answerers.some((answerer) => answerer.did === author);
 
 			if (!promoter) {
 				this.core.logger.warn("not opening a booking thread from an inquiry its promoter didn't send", {
@@ -531,9 +533,7 @@ export class BookingService {
 
 				const members = [
 					{ did: author, role: 'promoter' as const },
-					...(performer?.answerers ?? [])
-						.filter((did) => participants.has(did))
-						.map((did) => ({ did, role: 'manager' as const }))
+					...(performer?.answerers ?? []).filter((answerer) => participants.has(answerer.did))
 				];
 
 				await db

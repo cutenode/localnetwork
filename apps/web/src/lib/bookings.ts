@@ -3,8 +3,14 @@ import type { BookingThreadView } from './types';
 
 export type BookingStatus = (typeof BOOKING_STATUSES)[number]['value'];
 
-/** Which side of a booking thread someone is on: the promoter who asked, or one of the project's managers. */
-export type BookingRole = 'promoter' | 'manager';
+/**
+ * Which side of a booking thread someone is on: the promoter who asked, or the side being booked, which is one of an
+ * act's managers or the DJ themself.
+ */
+export type BookingRole = 'promoter' | 'manager' | 'performer';
+
+/** Whether `role` is the side being booked: an act's manager or the DJ, who answer the same way. */
+export const isBookedSide = (role: string | undefined) => role === 'manager' || role === 'performer';
 
 /**
  * A status change one side can make, with its button label. `settles` changes ask first: they end the booking or fix
@@ -38,18 +44,25 @@ const cancel: BookingAction = {
 	settles: { ask: "Cancel this booking? The thread closes and can't be reopened." }
 };
 
+const answering: Partial<Record<BookingStatus, BookingAction[]>> = {
+	open: [negotiate, confirm, decline],
+	negotiating: [confirm, decline],
+	confirmed: [cancel]
+};
+
 /**
  * What each side can move a thread to from each status. Declined and cancelled threads are settled, so nothing
- * leaves them. Managers answer an inquiry; the promoter can confirm once a manager has answered, or walk away.
+ * leaves them. The side being booked answers an inquiry; the promoter can confirm once it has answered, or walk away.
  */
 const ACTIONS: Record<BookingRole, Partial<Record<BookingStatus, BookingAction[]>>> = {
-	manager: { open: [negotiate, confirm, decline], negotiating: [confirm, decline], confirmed: [cancel] },
+	manager: answering,
+	performer: answering,
 	promoter: { open: [confirm, withdraw], negotiating: [confirm, withdraw], confirmed: [cancel] }
 };
 
 /**
- * The status changes `role` can make to a thread at `status`. A promoter can't confirm an open inquiry until a
- * manager has written in the thread (`answered`), so nobody confirms a booking the other side hasn't seen.
+ * The status changes `role` can make to a thread at `status`. A promoter can't confirm an open inquiry until the side
+ * being booked has written in the thread (`answered`), so nobody confirms a booking the other side hasn't seen.
  */
 export function bookingActions(role: BookingRole, status: string, answered: boolean): BookingAction[] {
 	const actions = (isOneOf(BOOKING_STATUSES, status) && ACTIONS[role][status]) || [];

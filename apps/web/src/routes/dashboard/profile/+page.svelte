@@ -110,7 +110,18 @@
 			</div>
 		</FormSection>
 
-		{#if performer}<PerformerFields {values} sets={data.sets} />{/if}
+		{#if performer}
+			<PerformerFields {values} sets={data.sets} />
+			<FormSection title="Inquiries" description="Whether promoters can ask to book you here.">
+				<div class="flex items-start gap-3">
+					<input id="takes-inquiries" type="checkbox" class="checkbox mt-0.5" name="takesInquiries" aria-describedby="takes-inquiries-hint" checked={values.takesInquiries === true} />
+					<div class="flex flex-col gap-0.5">
+						<label class="text-fg" for="takes-inquiries">Take inquiries</label>
+						<p id="takes-inquiries-hint" class="m-0 text-small text-fg-muted">Your profile gets a Send inquiry button once staff list you in Find DJs.</p>
+					</div>
+				</div>
+			</FormSection>
+		{/if}
 		{#if promoter}<PromoterFields {values} />{/if}
 
 		<FormActions form={form?.values ? form : null} {submitting}>

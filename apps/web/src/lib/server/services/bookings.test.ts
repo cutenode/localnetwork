@@ -1034,13 +1034,17 @@ describe('BookingService', () => {
 	describe('inquiries to a listed DJ', () => {
 		const DJ_PROFILE = `at://${DJ}/${COLLECTION.profile}/self`;
 
-		/** Saves DJ's profile as Neon with `performer` as its performer section (off when null), and has staff list them. */
-		const listDj = async (performer: PerformerSection | null = { genres: ['techno'] }) => {
+		/**
+		 * Saves DJ's profile as Neon with `performer` as its performer section (off when null) and Take inquiries as
+		 * `takesInquiries`, and has staff list them.
+		 */
+		const listDj = async (performer: PerformerSection | null = { genres: ['techno'] }, takesInquiries = true) => {
 			const current = await t.profiles.get(DJ);
 
 			await t.profiles.save(await t.viewer(DJ), {
 				basics: { name: 'Neon' },
 				performer: performer ?? undefined,
+				takesInquiries,
 				avatar: 'keep',
 				swap: current?.cid ?? null
 			});
@@ -1064,7 +1068,7 @@ describe('BookingService', () => {
 			expect(
 				thread.participants.map(({ did, role }) => [did, role]).toSorted(([a], [b]) => a.localeCompare(b))
 			).toEqual([
-				[DJ, 'manager'],
+				[DJ, 'performer'],
 				[PROMOTER, 'promoter']
 			]);
 			expect(await titles(DJ)).toEqual(['New booking inquiry for Neon']);
@@ -1078,15 +1082,30 @@ describe('BookingService', () => {
 			]);
 		});
 
-		it("refuses one to a DJ who isn't listed or has the DJ section off, and to themself", async () => {
+		it("refuses one to a DJ who isn't listed, has the DJ section off or hasn't turned on Take inquiries, and to themself", async () => {
 			await expect(ask()).rejects.toThrow(NotFoundError);
 
 			await listDj(null);
 			await expect(ask()).rejects.toThrow(NotFoundError);
 
+			await listDj({ genres: ['techno'] }, false);
+			await expect(ask()).rejects.toThrow(NotFoundError);
+
 			await listDj();
 			await expect(ask(DJ)).rejects.toThrow("You can't send an inquiry to yourself");
 			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+		});
+
+		it("gives the DJ the same answers as an act's manager", () => {
+			for (const status of ['open', 'negotiating', 'confirmed', 'declined'])
+				for (const answered of [false, true])
+					expect(bookingActions('performer', status, answered)).toEqual(bookingActions('manager', status, answered));
+
+			expect(bookingActions('performer', 'open', false).map((action) => action.status)).toEqual([
+				'negotiating',
+				'confirmed',
+				'declined'
+			]);
 		});
 
 		it('opens a synced thread with the DJ in it, but not from an inquiry the DJ sent themself', async () => {
@@ -1102,7 +1121,7 @@ describe('BookingService', () => {
 			expect(
 				threads[0].participants.map(({ did, role }) => [did, role]).toSorted(([a], [b]) => a.localeCompare(b))
 			).toEqual([
-				[DJ, 'manager'],
+				[DJ, 'performer'],
 				[PROMOTER, 'promoter']
 			]);
 		});

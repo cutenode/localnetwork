@@ -1,4 +1,5 @@
 import type { Selectable } from 'kysely';
+import type { BookingRole } from '#lib/bookings.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
@@ -260,7 +261,7 @@ export interface BookingThreadTable {
 export interface BookingParticipantTable {
 	spaceUri: string;
 	did: string;
-	role: 'promoter' | 'manager';
+	role: BookingRole;
 }
 
 export interface BookingEventTable {

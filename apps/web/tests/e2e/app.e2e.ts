@@ -517,6 +517,10 @@ test.describe('signed in', () => {
 		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/profile');
 		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
 		await expectAccessible(page);
+		// Inquiries stay off until the DJ turns them on.
+		await page.getByRole('checkbox', { name: 'Take inquiries' }).check();
+		await page.getByRole('button', { name: 'Save profile' }).click();
+		await expect(page.getByText('Saved. Your profile shows the changes now.')).toBeVisible();
 		await page.getByRole('button', { name: 'Ask to be listed' }).click();
 		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		await signOut(page);

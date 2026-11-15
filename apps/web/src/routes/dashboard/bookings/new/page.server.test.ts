@@ -175,11 +175,15 @@ it("refuses an inquiry to a project that doesn't exist", async () => {
 describe('to a listed DJ', () => {
 	const PROFILE = `at://${STRANGER}/computer.localnetwork.profile/self`;
 
-	/** Saves STRANGER's profile as Mara, with a fee in `currency` when there's a performer section, and lists them. */
-	const listMara = async (currency: string | null = 'EUR') => {
+	/**
+	 * Saves STRANGER's profile as Mara, with a fee in `currency` when there's a performer section and Take inquiries as
+	 * `takesInquiries`, and lists them.
+	 */
+	const listMara = async (currency: string | null = 'EUR', takesInquiries = true) => {
 		await f.t.profiles.save(await f.t.viewer(STRANGER), {
 			basics: { name: 'Mara', location: { city: 'Leipzig', country: 'DE' } },
 			performer: currency ? { fees: [{ tier: 'emerging', currency, minAmount: 200 }] } : undefined,
+			takesInquiries,
 			avatar: 'keep',
 			swap: (await f.t.profiles.get(STRANGER))?.cid ?? null
 		});
@@ -230,6 +234,9 @@ describe('to a listed DJ', () => {
 		await expect(loadedDj(PROMOTER, 'not-a-did')).rejects.toMatchObject({ status: 404 });
 
 		await listMara(null);
+		await expect(loadedDj(PROMOTER)).rejects.toMatchObject({ status: 404 });
+
+		await listMara('EUR', false);
 		await expect(loadedDj(PROMOTER)).rejects.toMatchObject({ status: 404 });
 
 		await listMara();
