@@ -47,7 +47,7 @@ fn built_in() {
     for id in &ids {
         if !dependencies.contains_key(&format!("locallibrary-plugin-{id}")) {
             wrong.push(format!(
-                "plugins/{id}/ isn't a dependency of locallibrary: from the repository's root, run `cargo add -p locallibrary-cli --path plugins/{id}`"
+                "plugins/{id}/ isn't a dependency of locallibrary: from the repository's root, run `cargo add -p locallibrary --path plugins/{id}`"
             ));
         }
     }
@@ -55,7 +55,7 @@ fn built_in() {
         if let Some(id) = name.strip_prefix("locallibrary-plugin-")
             && !ids.iter().any(|i| i == id)
         {
-            wrong.push(format!("{name} has no folder in plugins/: run `cargo remove -p locallibrary-cli {name}`"));
+            wrong.push(format!("{name} has no folder in plugins/: run `cargo remove -p locallibrary {name}`"));
         }
     }
     let mut table: Vec<(String, String)> = ids

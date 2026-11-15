@@ -9,7 +9,7 @@ members = ["cargo:."]
 # locallibrary-scheduled.yml: change them together.
 cargo-dist-version = "0.33.0"
 ci = "github"
-# Release only on tags that start with `locallibrary` (locallibrary-cli-v0.2.0), since the repo
+# Release only on tags that start with `locallibrary` (locallibrary-v0.2.0), since the repo
 # holds other apps. dist also names the workflow after it: locallibrary-release.yml.
 tag-namespace = "locallibrary"
 # An archive per platform with the `locallibrary` binary, shell (macOS, Linux) and PowerShell

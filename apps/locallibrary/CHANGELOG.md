@@ -9,7 +9,7 @@ a release moves in here.
 
 ## [Unreleased]
 
-The first release: a Rust library (`locallibrary`) and a command line tool for the rekordbox
+The first release: a Rust library (`locallibrary-core`) and a command line tool for the rekordbox
 libraries on USB drives, with a terminal player and a JSON-RPC sidecar for desktop apps. Linux and
 Windows builds are experimental and untested on hardware (see Platforms in the README).
 

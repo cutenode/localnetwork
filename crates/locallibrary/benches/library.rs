@@ -6,7 +6,7 @@
 //!
 //! The libraries are made up: see [`synthetic`].
 //!
-//! `cargo bench -p locallibrary --bench library`
+//! `cargo bench -p locallibrary-core --bench library`
 
 use std::fs;
 use std::hint::black_box;

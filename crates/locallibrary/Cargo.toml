@@ -1,9 +1,8 @@
 [package]
-name = "locallibrary"
+name = "locallibrary-core"
 description = "Store, sync, compare, merge and configure rekordbox USB library exports"
-# Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either, it's to
-# be renamed `locallibrary-core` first (LOC-69), and it carries the test plugin below. The
-# loclib-* crates are its parts that can be.
+# Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either, and it
+# carries the test plugin below. The loclib-* crates are its parts that can be.
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -23,6 +22,9 @@ bench = false
 # The benchmarks are in benches/: without this, `cargo codspeed build` also builds the library's
 # tests, without the debug assertions they need.
 [lib]
+# The package is `locallibrary-core` so that `locallibrary`, and so dist's archives, installers and
+# version tags, can be the CLI's. Code still says `use locallibrary::...`.
+name = "locallibrary"
 bench = false
 
 [features]

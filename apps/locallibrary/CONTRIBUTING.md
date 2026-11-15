@@ -16,10 +16,10 @@ CI expects all four to pass, and the builds without the default features to buil
 their tests too (see [Install](docs/install.md#install) for the features; CI tests them weekly):
 
 ```bash
+cargo test -p locallibrary-core --no-default-features --locked
 cargo test -p locallibrary --no-default-features --locked
-cargo test -p locallibrary-cli --no-default-features --locked
-cargo test -p locallibrary-cli --no-default-features --features account --locked
-cargo clippy -p locallibrary-cli --no-default-features --features tui,account --all-targets --locked -- -D warnings
+cargo test -p locallibrary --no-default-features --features account --locked
+cargo clippy -p locallibrary --no-default-features --features tui,account --all-targets --locked -- -D warnings
 ```
 
 Code that needs a feature is behind `#[cfg(feature = "...")]`; tests that need one say so the
@@ -103,7 +103,7 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - `format` and `eject` on a disk image each test creates and attaches (hdiutil on macOS, a loop
   device on Linux, a VHD on Windows; `crates/locallibrary/src/format/tests/disk_image.rs`). They skip
   themselves without `LOCALLIBRARY_DISK_IMAGE_TESTS=1`. On a Mac,
-  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary --lib -E 'test(/^format::disk_image::/)'`
+  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary-core --lib -E 'test(/^format::disk_image::/)'`
   runs them;
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
@@ -150,9 +150,9 @@ playhead and visualisers move with nothing heard (the AT Store screenshots, `pnp
 repository root, play tracks this way).
 
 ```bash
-cargo test -p locallibrary --test it                        # the library's integration tests
-cargo test -p locallibrary --test it sync::                 # one area's
-cargo test -p locallibrary-cli --test it rpc::              # the sidecar's, in the CLI's
+cargo test -p locallibrary-core --test it         # the library's integration tests
+cargo test -p locallibrary-core --test it sync::  # one area's
+cargo test -p locallibrary --test it rpc::        # the sidecar's, in the CLI's
 ```
 
 The fixtures in `crates/locallibrary/tests/fixtures/` are real rekordbox files from
@@ -161,7 +161,7 @@ tests also use the vendored rekordbox-pdb's exports (MIT, `vendor/rekordbox-pdb/
 The tests cross-check what locallibrary writes against rekordcrate's independent parser. The
 OneLibrary fixtures (`onelibrary/`, rekordbox's schema with synthetic tracks) are made by the
 `sqlcipher` CLI, so reading is checked against an independent SQLCipher. An ignored test remakes
-them: `cargo test -p locallibrary --test it remake_sqlcipher_fixtures -- --ignored`. With
+them: `cargo test -p locallibrary-core --test it remake_sqlcipher_fixtures -- --ignored`. With
 `sqlcipher` installed, the tests that merge, clean, convert or edit a OneLibrary database also
 have it check the result (`tests/support/sqlcipher.rs`); without it they skip that check, unless
 `LOCALLIBRARY_REQUIRE_SQLCIPHER=1` is set, as in CI, which makes them fail.
@@ -215,8 +215,8 @@ replaces `target/debug/locallibrary`, even with nothing to rebuild. A second che
 ## Benchmarks
 
 ```bash
-cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
-cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
+cargo bench -p locallibrary-core --bench library -- --save-baseline before   # on the code before a change
+cargo bench -p locallibrary-core --bench library -- --baseline before        # after it: the change in each
 cargo bench -p loclib-mixid --bench mixid -- matcher/find   # one group
 ```
 
@@ -252,7 +252,7 @@ and stores; `props_cli_asked.rs` answers `setup`'s questions in a terminal and s
 `store serve` with Ctrl-C.
 
 ```bash
-cargo test -p locallibrary --test it props_pdb::               # one module
+cargo test -p locallibrary-core --test it props_pdb::          # one module
 HEGEL_SEED=7 cargo test ...                                    # repeat a run
 cargo nextest run --stress-duration 10m -E 'test(props_pdb::)' # fresh inputs for ten minutes
 ```
@@ -328,16 +328,21 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
    Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
    and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
    takes its notes from that section.
-2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
-   `Cargo.lock` follows, and commit.
-3. Tag the commit with the CLI package's name and push the tag:
-   `git tag locallibrary-cli-v0.2.0 && git push origin locallibrary-cli-v0.2.0`. Only tags that
-   start with `locallibrary` release it (`tag-namespace` in `dist-workspace.toml`), so the
-   repository's other apps can tag their own. A version with a suffix
-   (`locallibrary-cli-v0.2.0-beta.1`) is a prerelease, which leaves the Homebrew formula alone.
+2. Bump `version` in `[workspace.package]` in the root `Cargo.toml` and in the path dependencies
+   that state it, since `^0.1.0` matches neither a new minor version nor a prerelease of the same
+   one: `perl -pi -e 's/version = "0\.1\.0"/version = "0.2.0"/' Cargo.toml
+   apps/locallibrary/Cargo.toml fuzz/Cargo.toml`. Run `cargo check`, and `cargo metadata
+   --manifest-path fuzz/Cargo.toml` for fuzz's, so the lockfiles follow, and commit.
+3. Tag the commit `<package>-v<version>`, the one tag rule for every release in the repository
+   ([ADR 0005](docs/adr/0005-the-app-gets-the-plain-name.md)), and push the tag:
+   `git tag locallibrary-v0.2.0 && git push origin locallibrary-v0.2.0`. dist refuses a tag that
+   isn't the package's version. Only tags that start with `locallibrary` release it
+   (`tag-namespace` in `dist-workspace.toml`), so the repository's other apps can tag their own.
+   A version with a suffix (`0.2.0-beta.1`, tagged `locallibrary-v0.2.0-beta.1`) is a prerelease,
+   which leaves the Homebrew formula alone.
 
 The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (x86_64 glibc) and
-Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
+Windows (x86_64), plus `locallibrary-installer.sh`, `locallibrary-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
 `.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs

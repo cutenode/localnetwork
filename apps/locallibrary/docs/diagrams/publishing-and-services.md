@@ -7,7 +7,7 @@ Records, sets, bug reports, online services and other programs. The rest are lis
 - [Publishing a set](#publishing-a-set)
 - [Publishing at a set destination](#publishing-at-a-set-destination)
 - [Reporting a bug](#reporting-a-bug)
-- [Online services of the core library](#online-services-of-the-core-library)
+- [Online services of locallibrary-core](#online-services-of-locallibrary-core)
 - [Online services of plugins and the browser](#online-services-of-plugins-and-the-browser)
 - [Programs on this computer](#programs-on-this-computer)
 
@@ -122,13 +122,13 @@ flowchart TD
 
 Source: [`src/bug_cmd.rs`](../../src/bug_cmd.rs), [`crates/locallibrary/src/atmosphere/bug_report.rs`](../../../../crates/locallibrary/src/atmosphere/bug_report.rs)
 
-## Online services of the core library
+## Online services of locallibrary-core
 
-What the core library reaches itself. Nothing here is needed to sync drives.
+What locallibrary-core reaches itself. Nothing here is needed to sync drives.
 
 ```mermaid
 flowchart LR
-    core["Core library"] --> pds["The account's server:<br/>sign-in, records, blobs"]
+    core["locallibrary-core"] --> pds["The account's server:<br/>sign-in, records, blobs"]
     core --> handle["A handle's DNS or web<br/>address: finding its DID"]
     core --> plc["plc.directory: a did:plc<br/>account's server"]
     core --> happyview["happyview.localnetwork.computer:<br/>the directory"]

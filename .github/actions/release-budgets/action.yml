@@ -12,7 +12,7 @@ runs:
       with:
         packages: libasound2-dev valgrind
     - shell: bash
-      run: cargo build --profile dist -p locallibrary-cli --locked
+      run: cargo build --profile dist -p locallibrary --locked
     - shell: bash
       run: |
         mkdir -p target/budgets
@@ -48,7 +48,7 @@ runs:
     # take a second fat LTO link.
     - shell: bash
       run: |
-        unit=$(cargo test --release -p locallibrary-cli --test unit --locked --no-run --message-format=json-render-diagnostics |
+        unit=$(cargo test --release -p locallibrary --test unit --locked --no-run --message-format=json-render-diagnostics |
           jq -r 'select(.executable != null and .target.name == "unit") | .executable')
         .github/actions/release-budgets/frame-instructions.sh "$unit" 600 tui-instructions target/budgets
     - shell: bash

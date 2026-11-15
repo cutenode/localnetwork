@@ -25,7 +25,7 @@ flowchart TD
     reader -->|"everything else"| work["Work pool, 4 workers by default"]
     control --> out["stdout, a line a message"]
     reader -->|"job.started"| out
-    reads --> api["Core library"]
+    reads --> api["locallibrary-core"]
     work --> api
     work --> plans[("Plans by id: 64 of its own, 64 plugins'")]
     api --> out

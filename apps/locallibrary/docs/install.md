@@ -48,7 +48,7 @@ Linux and Windows builds are experimental and untested on hardware (see [Platfor
 
 ```bash
 # macOS and Linux
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-installer.sh | sh
 
 # Homebrew
 brew install cutenode/tap/locallibrary
@@ -56,7 +56,7 @@ brew install cutenode/tap/locallibrary
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-installer.ps1 | iex"
 ```
 
 The shell and PowerShell installers put `locallibrary` in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin`
