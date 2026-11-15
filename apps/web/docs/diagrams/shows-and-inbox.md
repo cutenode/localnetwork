@@ -74,7 +74,7 @@ flowchart TD
   Batch --> Dm["Bluesky DM from the root,<br/>1 minute window"]
 ```
 
-Source: [`src/lib/server/notifications/notifier.ts`](../../src/lib/server/notifications/notifier.ts), [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifications/outbox.ts), [`src/lib/server/notifications/email.ts`](../../src/lib/server/notifications/email.ts), [`src/lib/server/notifications/dm.ts`](../../src/lib/server/notifications/dm.ts), [`src/lib/server/notifications/kinds.ts`](../../src/lib/server/notifications/kinds.ts)
+Source: [`src/lib/server/notifications/notifier.ts`](../../src/lib/server/notifications/notifier.ts), [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifications/outbox.ts), [`src/lib/server/notifications/email.ts`](../../src/lib/server/notifications/email.ts), [`src/lib/server/notifications/dm.ts`](../../src/lib/server/notifications/dm.ts), [`src/lib/server/notifications/kinds.ts`](../../src/lib/server/notifications/kinds.ts), [`src/lib/server/notifications/kinds/`](../../src/lib/server/notifications/kinds/)
 
 ## Delivery lifecycle
 
