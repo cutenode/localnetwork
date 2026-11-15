@@ -3,7 +3,9 @@ const MOVED = [
 	['/dashboard/activity', '/dashboard/account/activity'],
 	['/dashboard/data', '/dashboard/account/data'],
 	['/dashboard/requests', '/dashboard/account/requests'],
-	['/dashboard/inbox/settings', '/dashboard/account/notifications']
+	['/dashboard/inbox/settings', '/dashboard/account/notifications'],
+	['/for-djs', '/for/djs'],
+	['/for-promoters', '/for/promoters']
 ] as const;
 
 /** Where `url` lives now, keeping what's under it and its query, or null when it hasn't moved. */

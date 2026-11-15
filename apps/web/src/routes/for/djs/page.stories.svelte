@@ -4,15 +4,16 @@
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import { findTool } from '#lib/tools/index.ts';
 	import type { ProjectView, ShowView, SupportedTrack } from '#lib/types.ts';
-	import { DEMO_PROJECTS } from '../../../scripts/seed-data.ts';
-	import Layout from '../+layout.svelte';
+	import { DEMO_PROJECTS } from '../../../../scripts/seed-data.ts';
+	import Layout from '../../+layout.svelte';
+	import ForLayout from '../+layout.svelte';
 	import type { PageData } from './$types';
 	import Page from './+page.svelte';
 
 	/** The DJs' landing page in the real layout, fed the seed data and locallibrary's real captures. */
 	const { Story } = defineMeta({
 		title: 'Patterns/For DJs',
-		parameters: { layout: 'fullscreen', sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/for-djs') } } } }
+		parameters: { layout: 'fullscreen', sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/for/djs'), route: { id: '/for/djs' } } } } }
 	});
 
 	const example: ProjectView = {
@@ -70,7 +71,7 @@
 {#snippet landing(state: State)}
 	{@const layout = { viewer: null, pendingRequests: 0, meta: PAGE_META }}
 	<Layout data={layout} params={{}}>
-		<Page data={{ ...layout, captures, ...state }} params={{}} form={null} />
+		<ForLayout data={layout} params={{}}><Page data={{ ...layout, captures, ...state }} params={{}} form={null} /></ForLayout>
 	</Layout>
 {/snippet}
 

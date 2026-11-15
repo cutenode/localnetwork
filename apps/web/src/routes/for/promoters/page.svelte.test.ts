@@ -41,14 +41,14 @@ const show = (state: Partial<State> = {}, viewer: Viewer | null = null) =>
 
 const region = (name: string) => page.getByRole('region', { name });
 
-describe('/for-promoters', () => {
+describe('/for/promoters', () => {
 	it('searches Find DJs from the top of the page', async () => {
 		await show();
 
 		const search = page.getByRole('search', { name: 'Find DJs' });
 		await expect.element(search.getByLabelText('Sound or name')).toHaveAttribute('name', 'q');
 		expect(search.element().getAttribute('action')).toBe('/projects');
-		await expect.element(page.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
+		await expect.element(page.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for/djs');
 	});
 
 	it("shows a real listing and the matcher's real shortlist, with what they came from", async () => {

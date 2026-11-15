@@ -146,7 +146,7 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/lib/{ui,components,assets}/**"
           - "apps/web/src/routes/{+layout.svelte,+error.svelte,layout.css}"
-          - "apps/web/src/routes/{about,for-djs,privacy}/**"
+          - "apps/web/src/routes/{about,for,privacy}/**"
           - "apps/web/src/{app.html,error.html,lib/format.ts,lib/format.test.ts,lib/hotkeys.svelte.ts}"
           - "apps/web/{.storybook,static}/**"
           - "packages/tokens/**"

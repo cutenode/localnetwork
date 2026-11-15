@@ -1,5 +1,5 @@
 import { render } from 'vitest-browser-svelte';
-import Page from '../../../routes/for-promoters/+page.svelte';
+import Page from '../../../routes/for/promoters/+page.svelte';
 import { NEON_TIDE, PAT, type LinkChecks } from '#lib/testing/link-matrix.ts';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 
@@ -43,7 +43,7 @@ export default {
 		],
 		'Match a show': [{ name: 'Match a show', href: '/match?go=1&genres=techno&radius=50' }],
 		'Press kits': [{ name: "See Neon Tide's press kits", href: '/projects/neon-tide/press-kits' }],
-		'For DJs': [{ name: 'For DJs', href: '/for-djs' }],
+		'For DJs': [{ name: 'For DJs', href: '/for/djs' }],
 		'Turning on promoting': [{ name: 'Sign in', href: '/login?next=%2Fdashboard%2Fprofile%23section-promoter' }],
 		Planner: [{ name: 'Your planner', href: '/dashboard/planner' }]
 	}

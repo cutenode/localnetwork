@@ -44,7 +44,7 @@ const show = (directory: PageData['directory'], more: Partial<PageData> = {}) =>
 
 const region = (name: string) => page.getByRole('region', { name });
 
-describe('/for-djs', () => {
+describe('/for/djs', () => {
 	it('shows a real listing beside what promoters search on, with the totals', async () => {
 		await show(Promise.resolve({ example, djs: 12, cities: 10, unclaimed: 7 }));
 
@@ -100,7 +100,7 @@ describe('/for-djs', () => {
 		await expect.element(page.getByText("The charts aren't answering. Try again in a minute.")).toBeVisible();
 		await expect
 			.element(region('Announce your shows.').getByRole('link', { name: /Try again/ }))
-			.toHaveAttribute('href', '/for-djs');
+			.toHaveAttribute('href', '/for/djs');
 	});
 
 	it('says when the directory is offline, or has nobody yet', async () => {

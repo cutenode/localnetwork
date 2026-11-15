@@ -309,7 +309,9 @@ it.each([
 	['/dashboard/requests', '/dashboard/account/requests'],
 	['/dashboard/requests/3k?submitted=1', '/dashboard/account/requests/3k?submitted=1'],
 	['/dashboard/requests/3k/avatar?size=64', '/dashboard/account/requests/3k/avatar?size=64'],
-	['/dashboard/inbox/settings?email=declined', '/dashboard/account/notifications?email=declined']
+	['/dashboard/inbox/settings?email=declined', '/dashboard/account/notifications?email=declined'],
+	['/for-djs', '/for/djs'],
+	['/for-promoters?utm_source=email', '/for/promoters?utm_source=email']
 ])('sends %s on to where it moved, whatever the method', async (from, to) => {
 	const { handle } = hooksWith(async () => {
 		throw new Error('a moved page needs nothing from the app');

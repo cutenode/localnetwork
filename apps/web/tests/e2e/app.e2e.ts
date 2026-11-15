@@ -353,8 +353,9 @@ test.describe('public pages', () => {
 		for (const path of [
 			'/',
 			'/about',
-			'/for-djs',
-			'/for-promoters',
+			'/for',
+			'/for/djs',
+			'/for/promoters',
 			'/privacy',
 			'/match',
 			'/projects',
