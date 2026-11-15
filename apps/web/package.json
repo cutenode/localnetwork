@@ -7,7 +7,8 @@
 	"type": "module",
 	"imports": {
 		"#lib/*": "./src/lib/*",
-		"#lexicon-files": "./scripts/lib/lexicon-files.ts"
+		"#lexicon-files": "./scripts/lib/lexicon-files.ts",
+		"#notification-kinds": "./scripts/lib/kind-files.ts"
 	},
 	"scripts": {
 		"dev": "tsx scripts/dev-network.ts --app",

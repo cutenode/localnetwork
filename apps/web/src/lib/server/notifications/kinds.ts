@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { NotificationTopic } from '#lib/types.ts';
-import type { Kind } from './kind';
+import { KIND_FILES } from '#notification-kinds';
 import type { Kinds } from './kinds.generated.ts';
 
 const fileKind = (path: string) => path.slice(path.lastIndexOf('/') + 1, -'.ts'.length);
@@ -8,9 +8,7 @@ const fileKind = (path: string) => path.slice(path.lastIndexOf('/') + 1, -'.ts'.
 /** Every kind of notification, one per file in kinds/ and named by it, so a new kind is a new file. */
 // SAFETY: scripts/notification-kinds.ts generates Kinds from these same files.
 export const KINDS = Object.fromEntries(
-	Object.entries(import.meta.glob<Kind>('./kinds/*.ts', { eager: true, import: 'default' })).map(
-		([path, definition]) => [fileKind(path), definition]
-	)
+	Object.entries(KIND_FILES).map(([path, definition]) => [fileKind(path), definition])
 ) as Kinds;
 
 export type NotificationKind = keyof typeof KINDS;
