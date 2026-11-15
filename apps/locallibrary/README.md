@@ -229,7 +229,9 @@ run on macOS. [Platforms](docs/install.md#platforms) has the details.
 
 MIT: see [LICENSE](LICENSE). The vendored rekordbox-pdb is MIT as well
 ([its licence](../../vendor/rekordbox-pdb/LICENSE)), and the test fixtures carry their own
-([fixtures README](../../crates/locallibrary/tests/fixtures/README.md)).
+([fixtures README](../../crates/locallibrary/tests/fixtures/README.md)). The release archives
+include `THIRD-PARTY-NOTICES.md`, the licences of every crate the binary is built from
+([Releasing](CONTRIBUTING.md#releasing)).
 
 ## Diagrams
 

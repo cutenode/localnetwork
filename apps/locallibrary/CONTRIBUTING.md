@@ -340,21 +340,26 @@ The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
-`.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs
-`dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
-generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
-`allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the
-file (`dist generate --mode=ci`, with `allow-dirty` removed for the run) and carry the additions
-over. Upgrading dist also takes the new version and its archives' checksums in
-`.github/actions/install-dist/action.yml`.
+`.github/build-setup.yml`, `.github/actions/install-dist` or the workflow itself,
+`locallibrary-ci.yml`'s lint job runs `dist plan`, which checks the configuration.
+`locallibrary-release.yml` is dist 0.33.0's generated workflow with hand-written additions listed
+at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing the dist
+configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
+`allow-dirty` removed for the run) and carry the additions over. Upgrading dist also takes the new
+version and its archives' checksums in `.github/actions/install-dist/action.yml`.
+
+Each archive has `THIRD-PARTY-NOTICES.md` next to `LICENSE`: the licences of the crates the binary
+is built from, among them the vendored rekordbox-pdb's, which `template.pdb` is under too. The
+build jobs write it with `cargo notices` ([cargo-about](https://github.com/EmbarkStudios/cargo-about),
+set up in the root's `about.toml` and `about.hbs`) before dist builds, and the Homebrew formula
+installs it in `share/locallibrary`. `about.toml` accepts the licences `deny.toml` allows, which
+`tools/policy.sh` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
+that change the lockfile or their configuration. To see what it writes, run `cargo install
+--locked cargo-about` and then `cargo notices`, which writes `THIRD-PARTY-NOTICES.md` at the root.
 
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):
 
-- Third-party notices: dist puts `LICENSE` in the archives and the Homebrew formula, but the
-  binary also holds code under other licences (the dependencies, and the vendored rekordbox-pdb
-  with its `template.pdb`), whose notices have to ship with it: generate a notices file at
-  release (with `cargo about`, say) and include it.
 - The Homebrew tap: create the `cutenode/homebrew-tap` repository, and save a fine-grained
   token that can write to its contents as the `HOMEBREW_TAP_TOKEN` secret. Until then the
   formula is only attached to the release.
