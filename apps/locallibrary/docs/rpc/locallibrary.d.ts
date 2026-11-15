@@ -4028,6 +4028,12 @@ export type PullReport = {
   up_to_date: boolean;
   imported_files: number;
   imported_bytes: number;
+  /**
+   * Of the new files, those made from rekordbox's collection's copy of the file, copy-on-write
+   * where the volume can (with [`crate::store::prefs::StorePrefs::copy_on_write`] on); the rest
+   * were copied from the drive.
+   */
+  from_collection: number;
   reused_files: number;
 };
 
@@ -4042,8 +4048,13 @@ export type MergePlan = {
   new_tracks: PlannedTrack[];
   /** Source tracks already in the target. */
   matched_tracks: number;
-  /** Those whose details, file or analysis differ: the target's stay as they are. */
+  /** Those whose details, file, analysis or My Tags differ: the target's stay as they are. */
   differing_tracks: TrackChange[];
+  /**
+   * Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so
+   * they aren't brought across, and with any the source isn't taken in.
+   */
+  source_onelibrary_only: TrackRef[];
   /**
    * Whether the target holds everything the source has once merged (every track, its
    * playlists and history), `differing_tracks` aside. Then the source's state goes into the
@@ -5193,6 +5204,11 @@ export type SettingsExport = {
   /** What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept. */
   mix: { [key: string]: unknown };
   /**
+   * What's set for the store ([`StorePrefs`]): whether a pull makes copy-on-write copies of
+   * rekordbox's collection.
+   */
+  store: { [key: string]: unknown };
+  /**
    * The host's settings for plugins: which analyzer each field role is read from, when a
    * provider's candidate is picked, and whether each check runs.
    */
@@ -6331,8 +6347,11 @@ export type ProfileReport = {
   keys: KeysSection;
   /** `None` without analysis files. */
   energy: EnergySection | null;
+  /** Collection tracks with a genre. */
   genres: RankedSection;
+  /** Plays (or tracks) with a label. */
   labels: RankedSection;
+  /** Collection tracks with an artist, each credited artist counted. */
   artists: RankedSection;
   era: EraSection;
   signature: SignatureSection;
@@ -6362,7 +6381,10 @@ export type ProfileOptions = {
   genre_aliases: { [key: string]: string };
 };
 
-/** What the numbers describe. */
+/**
+ * What the numbers about plays describe (sets, tempo, keys, labels and the rest). Genres,
+ * artists, era and energy always count the collection, each track once.
+ */
 export type Basis =
   /** Tracks as played in the DJ's sets (a track played in three sets counts three times). */
   | "plays"
@@ -6528,7 +6550,7 @@ export type Share = {
 };
 
 export type EnergySection = {
-  /** Plays (or tracks) whose phrase analysis was read. */
+  /** Collection tracks whose phrase analysis was read. */
   tracks: number;
   high: number;
   mid: number;
@@ -6538,19 +6560,19 @@ export type EnergySection = {
 };
 
 export type RankedSection = {
-  /** Plays (or tracks) with a value. */
+  /** Plays, or tracks, with a value. */
   known: number;
   distinct: number;
   top: Share[];
 };
 
 export type EraSection = {
-  /** Plays (or tracks) with a release year. */
+  /** Collection tracks with a release year. */
   tracks: number;
   median_year: number | null;
   oldest: number | null;
   newest: number | null;
-  /** Released the year it was played, or the year before. */
+  /** Released this year or last. */
   recent_share: number | null;
   /** Oldest first. */
   decades: DecadeCount[];
@@ -6634,7 +6656,8 @@ export type StyleValue = {
 export type ProfilePrefs = {
   /**
    * Sections the document includes (`None`: the defaults, see
-   * [`Section::published_by_default`]).
+   * [`Section::published_by_default`]). One that isn't [publishable](Section::publishable)
+   * (saved before it stopped being) is ignored.
    */
   sections?: ProfileSection[] | null;
   precision: Precision;

@@ -17060,6 +17060,12 @@
           "format": "uint64",
           "minimum": 0
         },
+        "from_collection": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Of the new files, those made from rekordbox's collection's copy of the file, copy-on-write\nwhere the volume can (with [`crate::store::prefs::StorePrefs::copy_on_write`] on); the rest\nwere copied from the drive."
+        },
         "reused_files": {
           "type": "integer",
           "format": "uint",
@@ -17073,6 +17079,7 @@
         "up_to_date",
         "imported_files",
         "imported_bytes",
+        "from_collection",
         "reused_files"
       ]
     },
@@ -17117,7 +17124,14 @@
           "items": {
             "$ref": "#/$defs/TrackChange"
           },
-          "description": "Those whose details, file or analysis differ: the target's stay as they are."
+          "description": "Those whose details, file, analysis or My Tags differ: the target's stay as they are."
+        },
+        "source_onelibrary_only": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackRef"
+          },
+          "description": "Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so\nthey aren't brought across, and with any the source isn't taken in."
         },
         "takes_in_source": {
           "type": "boolean",
@@ -17189,6 +17203,7 @@
         "new_tracks",
         "matched_tracks",
         "differing_tracks",
+        "source_onelibrary_only",
         "takes_in_source",
         "playlists",
         "artwork_files",
@@ -20989,6 +21004,12 @@
           "description": "What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.",
           "default": {}
         },
+        "store": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "What's set for the store ([`StorePrefs`]): whether a pull makes copy-on-write copies of\nrekordbox's collection.",
+          "default": {}
+        },
         "plugin_host": {
           "type": "object",
           "additionalProperties": true,
@@ -21009,6 +21030,7 @@
         "profile",
         "player",
         "mix",
+        "store",
         "plugin_host",
         "plugins"
       ],
@@ -24573,13 +24595,16 @@
           "description": "`None` without analysis files."
         },
         "genres": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Collection tracks with a genre."
         },
         "labels": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Plays (or tracks) with a label."
         },
         "artists": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Collection tracks with an artist, each credited artist counted."
         },
         "era": {
           "$ref": "#/$defs/EraSection"
@@ -24718,7 +24743,7 @@
           "description": "Nothing played to count (no sets in the range, or no sets declared and no sessions): the\ncollection, each track once."
         }
       ],
-      "description": "What the numbers describe."
+      "description": "What the numbers about plays describe (sets, tempo, keys, labels and the rest). Genres,\nartists, era and energy always count the collection, each track once."
     },
     "SourceInfo": {
       "type": "object",
@@ -25281,7 +25306,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) whose phrase analysis was read."
+          "description": "Collection tracks whose phrase analysis was read."
         },
         "high": {
           "type": "number",
@@ -25322,7 +25347,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) with a value."
+          "description": "Plays, or tracks, with a value."
         },
         "distinct": {
           "type": "integer",
@@ -25349,7 +25374,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) with a release year."
+          "description": "Collection tracks with a release year."
         },
         "median_year": {
           "type": [
@@ -25378,7 +25403,7 @@
             "null"
           ],
           "format": "double",
-          "description": "Released the year it was played, or the year before."
+          "description": "Released this year or last."
         },
         "decades": {
           "type": "array",
@@ -25679,7 +25704,7 @@
           "items": {
             "$ref": "#/$defs/ProfileSection"
           },
-          "description": "Sections the document includes (`None`: the defaults, see\n[`Section::published_by_default`])."
+          "description": "Sections the document includes (`None`: the defaults, see\n[`Section::published_by_default`]). One that isn't [publishable](Section::publishable)\n(saved before it stopped being) is ignored."
         },
         "precision": {
           "$ref": "#/$defs/Precision",

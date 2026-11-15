@@ -1169,6 +1169,10 @@ pub struct PullReport {
     pub up_to_date: bool,
     pub imported_files: usize,
     pub imported_bytes: u64,
+    /// Of the new files, those made from rekordbox's collection's copy of the file, copy-on-write
+    /// where the volume can (with [`crate::store::prefs::StorePrefs::copy_on_write`] on); the rest
+    /// were copied from the drive.
+    pub from_collection: usize,
     pub reused_files: usize,
 }
 
@@ -1244,6 +1248,7 @@ fn pull_into(
                 up_to_date: true,
                 imported_files: 0,
                 imported_bytes: 0,
+                from_collection: 0,
                 reused_files: 0,
             });
         }
@@ -1258,6 +1263,7 @@ fn pull_into(
                 up_to_date: true,
                 imported_files: 0,
                 imported_bytes: 0,
+                from_collection: 0,
                 reused_files: 0,
             });
         }
@@ -1322,21 +1328,27 @@ fn pull_into(
     ctx.phase_start(Phase::Copy, keys.len() as u64, total);
     let mut report_import = (0usize, 0u64, 0usize);
     let mut imported = Vec::new();
-    // Only a pull with audio the store doesn't hold reads the collection.
-    let mut twins = None;
+    // Only a pull with audio the store doesn't hold reads the collection, and only when the store
+    // is set to make copy-on-write copies of it.
+    let copy_on_write = crate::store::prefs::StorePrefs::load(store)?.copy_on_write;
+    let (mut twins, mut from_collection) = (None, 0);
     for key in &keys {
         ctx.check()?;
         let path = tree.fs_path(key);
         let e = tree.entries.get_mut(key).expect("key from tree");
         ctx.emit(Event::Item { phase: Phase::Copy, path: key.clone(), bytes: e.size });
-        let twin = match e.class == FileClass::Audio && !e.hash.is_some_and(|h| store.holds(&h, e.size)) {
-            true => twins.get_or_insert_with(|| crate::twins::Twins::of_collection(store)).of(&path, e, ctx)?,
-            false => None,
-        };
+        let twin =
+            match copy_on_write && e.class == FileClass::Audio && !e.hash.is_some_and(|h| store.holds(&h, e.size)) {
+                true => twins.get_or_insert_with(|| crate::twins::Twins::of_collection(store)).of(&path, e, ctx)?,
+                false => None,
+            };
         // A file changed since it was read for the twins is imported as what it is now, and the
         // drive's file after it.
         let (h, new) = match twin.map(|file| store.import_file(file, e.hash, ctx)).transpose()? {
-            Some((h, new)) if Some(h) == e.hash => (h, new),
+            Some((h, new)) if Some(h) == e.hash => {
+                from_collection += usize::from(new);
+                (h, new)
+            }
             _ => store.import_file(&path, e.hash, ctx)?,
         };
         e.hash = Some(h);
@@ -1386,6 +1398,7 @@ fn pull_into(
         up_to_date: false,
         imported_files: report_import.0,
         imported_bytes: report_import.1,
+        from_collection,
         reused_files: report_import.2,
     })
 }
