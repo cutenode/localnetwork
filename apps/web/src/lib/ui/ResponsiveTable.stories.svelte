@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone, tablet } from '#lib/testing/viewports.ts';
 	import ResponsiveTable from './ResponsiveTable.svelte';
 
 	const { Story } = defineMeta({ title: 'Primitives/Responsive table', component: ResponsiveTable, tags: ['autodocs'] });
@@ -11,10 +12,6 @@
 		{ id: 'b', name: 'Halloween at the Depot, a long name that runs past the edge of a phone', venue: 'The Depot, Leipzig', date: 'Sat 31 Oct', capacity: 1500 },
 		{ id: 'c', name: 'Sunday garden', venue: 'Else, Berlin', date: 'Sun 1 Nov', capacity: 400 }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
-
-	const tablet = { viewport: { value: 'tablet', isRotated: false } };
 </script>
 
 {#snippet showTable(from: 'xl' | '3xl', wide: boolean)}

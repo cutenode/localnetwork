@@ -1,5 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { submit } from '#lib/testing/submits.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ChannelView, NotificationTopic } from '#lib/types.ts';
 	import EmailSettings from './EmailSettings.svelte';
 
@@ -10,8 +12,6 @@
 	const on: ChannelView = { status: 'active', pausedReason: null, address: 'neon@example.test', topics: ['bookings'] };
 
 	const paused = (pausedReason: ChannelView['pausedReason']): ChannelView => ({ ...on, status: 'paused', pausedReason });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Off" args={{ available: true, channel: null, topics }} />
@@ -43,3 +43,11 @@
 <Story name="Phone, on" args={{ available: true, channel: on, topics }} globals={phone} />
 
 <Story name="Phone, waiting on the link" args={{ available: true, channel: paused('email_unverified'), topics }} globals={phone} />
+
+<Story
+	name="Sending a test"
+	args={{ available: true, channel: on, topics }}
+	play={async ({ canvasElement }) => {
+		await submit(canvasElement, 'Send a test');
+	}}
+/>

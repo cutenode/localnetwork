@@ -1,6 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect } from 'storybook/test';
 	import { draftKey } from '#lib/form-draft.svelte.ts';
+	import { submit } from '#lib/testing/submits.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { DjSetView, ProjectFormValues } from '#lib/types.ts';
 	import ProjectForm from './ProjectForm.svelte';
 
@@ -18,8 +21,6 @@
 			{ label: 'Community and benefit events', tier: 'community', currency: '', minAmount: '', maxAmount: '' }
 		]
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const mixes = { ...values, mixes: [{ title: 'Tidal Hours', url: 'https://soundcloud.com/neon-tide/tidal-hours' }] };
 
@@ -56,3 +57,11 @@
 <Story name="Unsent draft" args={{ values, draft, geocoder: false }} beforeEach={withDraft('a version before this one')} />
 
 <Story name="Phone, unsent draft" args={{ values, draft, geocoder: false }} beforeEach={withDraft('a version before this one')} globals={phone} />
+
+<Story
+	name="Submitted for review"
+	args={{ values, geocoder: false }}
+	play={async ({ canvasElement }) => {
+		await expect(await submit(canvasElement, 'Submit for review', 'name', 'genres', 'city', 'country')).toEqual({ name: ['Neon Tide'], genres: ['techno, dub techno'], city: ['Berlin'], country: ['DE'] });
+	}}
+/>

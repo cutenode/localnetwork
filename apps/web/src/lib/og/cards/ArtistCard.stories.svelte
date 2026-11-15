@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import ArtistCard from './ArtistCard.svelte';
 	import CardPreview from './CardPreview.svelte';
 	import { longName } from './fixtures.ts';
@@ -12,8 +13,6 @@
 		{ title: 'Low Tide (Dub) with a remix credit too long for one line of the card', supports: 4 },
 		{ title: 'Signal Path', supports: 1 }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Top tracks" asChild>

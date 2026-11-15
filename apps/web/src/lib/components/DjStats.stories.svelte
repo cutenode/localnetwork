@@ -2,16 +2,13 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { DEMO_DJ_PROFILE } from '../../../scripts/seed-data.ts';
 	import { djProfileSchema } from '#lib/dj-schema.ts';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import DjStats from './DjStats.svelte';
 
 	const profile = djProfileSchema.parse(DEMO_DJ_PROFILE);
 
 	/** Neon's playing stats from the seed data, as locallibrary publishes them. */
 	const { Story } = defineMeta({ title: 'Patterns/DJ stats', component: DjStats, tags: ['autodocs'], args: { profile } });
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Every section" globals={desktop} />

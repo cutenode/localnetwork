@@ -2,11 +2,10 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
 	import { sampleReport } from '#lib/mix/sample.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import MixTimeline from './MixTimeline.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Timeline', component: MixTimeline, tags: ['autodocs'], args: { report: sampleReport } });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const nothingFound = { ...sampleReport, plays: [], transitions: [], unidentified: [{ start: 0, end: sampleReport.mix.durationSecs }] };
 

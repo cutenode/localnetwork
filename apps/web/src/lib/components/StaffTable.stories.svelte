@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { StaffMember } from '#lib/types.ts';
 	import StaffTable from './StaffTable.svelte';
 
@@ -25,4 +26,4 @@
 
 <Story name="Staff" args={{ staff, viewer: 'did:plc:ada4bsvzr7kd2w6cq5x3nmhe' }} />
 
-<Story name="Staff on a phone" args={{ staff, viewer: 'did:plc:ada4bsvzr7kd2w6cq5x3nmhe' }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Staff on a phone" args={{ staff, viewer: 'did:plc:ada4bsvzr7kd2w6cq5x3nmhe' }} globals={phone} />

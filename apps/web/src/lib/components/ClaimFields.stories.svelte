@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { ComponentProps } from 'svelte';
+	import { phone } from '#lib/testing/viewports.ts';
 	import ClaimFields from './ClaimFields.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Claim fields', component: ClaimFields, tags: ['autodocs'], render: template });
@@ -8,8 +9,6 @@
 	const claimant = { did: 'did:plc:ewvi7nxzyoun6zhxrhs64oiz', handle: 'neontide.bsky.social' };
 
 	const values = { relationship: 'self', evidence: 'I added it to our SoundCloud bio.', links: 'https://soundcloud.com/neontide' };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <!-- The claim pages lay the fields out in a card. -->

@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { HeldRecordView } from '#lib/types.ts';
 	import HeldRecordList from './HeldRecordList.svelte';
 
@@ -26,8 +27,6 @@
 	const failed = Promise.reject(new Error('directory down'));
 
 	failed.catch(() => {});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Every kind" args={{ records }} />

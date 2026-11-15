@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Pagination from './Pagination.svelte';
 
 	/** The projects directory, filtered, so the links keep the search and only change the page. */
@@ -16,8 +17,6 @@
 
 		return [canvas.queryByRole('link', { name: 'Previous' }), canvas.queryByRole('link', { name: 'Next' })].map((link) => link?.getAttribute('href') ?? null);
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story

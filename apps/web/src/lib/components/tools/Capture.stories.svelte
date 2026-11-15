@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, fn, waitFor, within } from 'storybook/test';
 	import { capture } from '#lib/testing/tools.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { tools } from '#lib/tools/index.ts';
 	import Capture from './Capture.svelte';
 
@@ -9,8 +10,6 @@
 	const { Story } = defineMeta({ title: 'Patterns/Tool capture', component: Capture, tags: ['autodocs'] });
 
 	const [player] = tools[0].cues;
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	// Not an image, so the browser gives up on it and shows the alt text.
 	const broken = capture('The drives view', { src: 'data:image/png;base64,AAAA' });

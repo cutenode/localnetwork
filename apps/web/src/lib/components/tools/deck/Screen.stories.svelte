@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, waitFor, within } from 'storybook/test';
 	import { capture } from '#lib/testing/tools.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { tools } from '#lib/tools/index.ts';
 	import Screen from './Screen.svelte';
 
@@ -12,8 +13,6 @@
 
 	// The second capture never arrives: 192.0.2.1 is reserved for documentation, so nothing answers.
 	const stalled = [captures[0], capture('A capture that never arrives', { src: 'http://192.0.2.1/capture.png' }), ...captures.slice(2)];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Once the picked capture settles it's the one showing. */
 	const showsPicked = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

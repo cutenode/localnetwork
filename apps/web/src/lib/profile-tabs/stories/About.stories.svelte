@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import About from '../About.svelte';
 	import { neon, profile } from './fixtures.ts';
 
@@ -15,8 +16,6 @@
 			neon.record.basics.bio
 		)
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Bio and highlights" args={{ data }} />

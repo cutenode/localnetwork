@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
 	import { FormDraft } from '#lib/form-draft.svelte.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import DraftNotice from './DraftNotice.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Draft notice', component: DraftNotice, tags: ['autodocs'] });
@@ -19,8 +20,6 @@
 
 		return draft;
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Discarding the draft takes the notice away. */
 	const discard = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

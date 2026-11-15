@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { siteNav } from '#lib/nav.ts';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import type { Viewer } from '#lib/types.ts';
 	import SiteHeader from './SiteHeader.svelte';
 
@@ -20,10 +21,6 @@
 		parameters: { layout: 'fullscreen' },
 		args: signedOut
 	});
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Opens the account menu, which has no prop of its own. */
 	const openAccount = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
