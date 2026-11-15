@@ -279,9 +279,12 @@ failing examples it finds for the next week's run.
 The parsers for what a drive or an import hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
 root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
-their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+their paths, cues and times), `mysettings` (the players' settings files), `tracklist`,
+`onelibrary` (`exportLibrary.db` and its WAL: decryption, WAL replay and the library read from
+it), `masterdb` (rekordbox's `master.db` once it's plain SQLite), `smartlist` (its intelligent
+playlists' rules) and `rekordbox_sync` (`playlists3*.sync`). libFuzzer mutates the test fixtures
+(and `fuzz/seeds/` for formats the tests keep inline) looking for a panic, a hang or a runaway
+allocation. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -296,6 +299,16 @@ What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 (`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
 workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
 input of any crash.
+
+The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
+plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
+
+```bash
+sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
+sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
+  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
+```
 
 ## Exploring the TUI and the mix report
 

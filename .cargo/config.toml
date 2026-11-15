@@ -20,3 +20,7 @@ fuzz-pdb = ["fuzz", "run", "pdb", "fuzz/corpus/pdb", "crates/locallibrary/tests/
 fuzz-anlz = ["fuzz", "run", "anlz", "fuzz/corpus/anlz", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ", "--", "-create_missing_dirs=1"]
 fuzz-mysettings = ["fuzz", "run", "mysettings", "fuzz/corpus/mysettings", "crates/locallibrary/tests/fixtures/rekordcrate/settings", "--", "-create_missing_dirs=1"]
 fuzz-tracklist = ["fuzz", "run", "tracklist", "fuzz/corpus/tracklist", "fuzz/seeds/tracklist", "--", "-create_missing_dirs=1"]
+fuzz-onelibrary = ["fuzz", "run", "onelibrary", "fuzz/corpus/onelibrary", "crates/locallibrary/tests/fixtures/onelibrary", "fuzz/seeds/onelibrary", "--", "-create_missing_dirs=1"]
+fuzz-masterdb = ["fuzz", "run", "masterdb", "fuzz/corpus/masterdb", "fuzz/seeds/masterdb", "--", "-create_missing_dirs=1"]
+fuzz-smartlist = ["fuzz", "run", "smartlist", "fuzz/corpus/smartlist", "fuzz/seeds/smartlist", "--", "-create_missing_dirs=1"]
+fuzz-rekordbox_sync = ["fuzz", "run", "rekordbox_sync", "fuzz/corpus/rekordbox_sync", "fuzz/seeds/rekordbox_sync", "--", "-create_missing_dirs=1"]

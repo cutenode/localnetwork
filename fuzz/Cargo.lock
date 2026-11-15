@@ -2263,12 +2263,14 @@ dependencies = [
 name = "localnetwork-fuzz"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "indexmap",
  "libfuzzer-sys",
  "locallibrary",
  "loclib-mysettings",
  "loclib-tracklist",
  "rekordbox-pdb",
+ "tempfile",
 ]
 
 [[package]]
