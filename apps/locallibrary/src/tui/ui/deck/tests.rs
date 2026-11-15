@@ -211,7 +211,7 @@ fn the_time_left_is_said_once() {
         let small = s.matches("-4:40").count();
         let large = s.matches(big_row("-4:40", 1).trim_end()).count();
         assert_eq!((small, large), if w == 60 { (1, 0) } else { (0, 1) }, "{w}x{h}\n{s}");
-        assert!(s.contains("0:20 / 5:00"), "{w}x{h}\n{s}");
+        assert!(!s.contains("0:20 / 5:00"), "the time's said by the time left alone\n{w}x{h}\n{s}");
     }
 }
 
@@ -270,26 +270,31 @@ fn the_readout_keeps_its_columns() {
     assert_eq!(phrase_at(&mut app, 20), phrase_at(&mut app, 2), "6.0 bars or 15.0, the phrase stays");
 }
 
-/// The readout says the same on one row as on two, however narrow: the time, the waveform's
-/// colours, the volume and each mode. With more on than a row holds, what's off goes.
+/// The readout says only what's on, on one row as on two, however narrow: no time (it's large
+/// by the tempo), no waveform colours (`w` says them), no volume at full and no mode that's off.
 #[test]
-fn the_readout_keeps_what_the_deck_says() {
+fn the_readout_says_only_whats_on() {
     let (mut app, _dir) = on_deck();
     app.deck_layout = true;
-    let off = [format!("{} off", icons::REPEAT.get()), format!("{} off", icons::MIX.get())];
+    let off = [format!("{} off", icons::REPEAT.get()), format!("{} off", icons::MIX.get()), "Q off".into()];
     let row_of = |s: &str, said: &str| s.lines().collect::<Vec<_>>().iter().rposition(|l| l.contains(said));
     for (w, h) in SIZES {
         let s = screen(&mut app, w, h);
-        for said in ["0:20 / 5:00", drawn_bands(&app), "vol 80%", "Q on", &off[0], &off[1]] {
+        for said in ["vol 80%", "Q on"] {
             assert!(s.contains(said), "{said} at {w}x{h}\n{s}");
+        }
+        for unsaid in ["0:20 / 5:00", "3Band", &off[0], &off[1]] {
+            assert!(!s.contains(unsaid), "{unsaid} at {w}x{h}\n{s}");
         }
         let (cue, vol) = (row_of(&s, " A "), row_of(&s, "vol 80%"));
         assert_eq!(cue, vol.map(|v| if w < 76 { v - 1 } else { v }), "{w}x{h}\n{s}");
     }
-    (app.deck.single, app.deck.auto_cue) = (true, true);
+    (app.volume, app.deck.quantize) = (1.0, false);
+    let s = screen(&mut app, 120, 40);
+    assert!(!s.contains("vol ") && !s.contains(&off[2]), "full volume and Q off go unsaid\n{s}");
+    (app.deck.single, app.deck.auto_cue, app.shuffle) = (true, true, true);
     let s = screen(&mut app, 80, 24);
-    assert!(s.contains("Q on") && s.contains("single") && s.contains("auto cue"), "{s}");
-    assert!(!s.contains(&off[0]) && !s.contains(&off[1]), "{s}");
+    assert!(s.contains("single") && s.contains("auto cue") && s.contains(&format!("{} on", icons::MIX.get())), "{s}");
 }
 
 /// A phrase's name stays whole under the playhead, which shows as the letter in its colour,
@@ -322,10 +327,9 @@ fn one_of_anything_is_said_as_one() {
     now.analysis.cues = vec![cue(Some(0), 32_000, Some(34_000))];
     now.phrases =
         vec![PhraseSpan { kind: locallibrary::anlz::PhraseKind::Chorus, start_ms: 0.0, end_ms: 1.0, bars: 1 }];
+    now.playlists = vec!["Sets › Friday".into()];
     let s = screen(&mut app, 120, 40);
-    for said in ["1 beat · 1 bar ·", "1 hot cue (1 loop) · 0 memory", "1 phrase "] {
-        assert!(s.contains(said), "{said}\n{s}");
-    }
+    assert!(s.contains("in 1 playlist "), "{s}");
 }
 
 /// Keys are written as asked, wherever one's shown, the colours coming from the key palette.
@@ -606,18 +610,16 @@ fn band_modes_pick_their_waveforms() {
 }
 
 /// It's the drive's My Settings unless one's chosen, and without them 3Band. `w` goes round, each
-/// drawn from the next frame, the line under the waveforms saying which it is.
+/// drawn from the next frame.
 #[test]
 fn waveforms_are_coloured_as_the_drive_says_unless_told() {
     let (mut app, _dir) = on_deck();
     app.deck_layout = true;
     app.now.as_mut().unwrap().waves.kinds = kinds();
     assert_eq!(app.band_mode(), BandMode::ThreeBand);
-    assert!(screen(&mut app, 120, 40).contains("3Band"));
     app.now.as_mut().unwrap().waves.bands = Some(BandMode::Rgb);
     assert_eq!(app.band_mode(), BandMode::Rgb);
     let rgb = drawn(&mut app, 120, 40);
-    assert!(screen(&mut app, 120, 40).contains("RGB"));
     press(&mut app, "w");
     assert_eq!(app.band_mode(), BandMode::Blue);
     assert_ne!(rgb, drawn(&mut app, 120, 40));
@@ -680,7 +682,7 @@ fn an_empty_deck_says_what_to_do() {
     app.deck_layout = true;
     for (w, h) in [(60, 20), (80, 24), (120, 40), (160, 45)] {
         let s = screen(&mut app, w, h);
-        assert!(s.contains("deck: play a track") && s.contains("Nothing playing"), "{w}x{h}\n{s}");
+        assert!(s.contains("player mode: play a track") && s.contains("Nothing playing"), "{w}x{h}\n{s}");
     }
 }
 
@@ -818,4 +820,64 @@ fn prop_an_empty_deck_says_what_comes_next(tc: hegel::TestCase) {
     let row = s.lines().find_map(|l| l.find(&said[..5]).map(|at| &l[at..])).unwrap_or_else(|| panic!("{said}\n{s}"));
     let shown = row.split("  ").next().unwrap_or_default().trim_end();
     assert!(shown.len() >= 5 && said.starts_with(shown), "{shown:?} of {said:?}\n{s}");
+}
+
+/// `f` opens player mode from any tab, and closing it, with `f` or esc, goes back to that tab. In
+/// the Library view it switches the layouts as it always has, and a tab picked while it's open is
+/// where the user stays.
+#[test]
+fn player_mode_opens_from_any_tab_and_goes_back_there() {
+    let (mut app, _dir) = on_deck();
+    press(&mut app, "gd");
+    press(&mut app, "f");
+    assert!(app.deck_showing() && screen(&mut app, 120, 40).contains(FRAME));
+    press(&mut app, "f");
+    assert_eq!(app.view, View::Drives, "back where it was opened");
+    assert!(!app.deck_layout);
+
+    press(&mut app, "gpf\u{1b}");
+    assert_eq!((app.view, app.deck_layout), (View::Prepare, false), "esc closes it too");
+
+    press(&mut app, "gdf");
+    press(&mut app, "gl");
+    press(&mut app, "f");
+    assert_eq!((app.view, app.deck_layout), (View::Library, false), "a tab picked is kept");
+
+    press(&mut app, "f");
+    assert!(app.deck_showing());
+    press(&mut app, "f");
+    assert_eq!((app.view, app.deck_layout), (View::Library, false), "the Library view's own switch");
+}
+
+/// The footer's hints are buttons: a click on a key or its label is that key. A range isn't one.
+#[test]
+fn a_footer_hint_clicked_is_its_key() {
+    let (mut app, _dir) = on_deck();
+    app.deck_layout = true;
+    let at = spot(&mut app, "loop ");
+    mouse(&mut app, LEFT, at);
+    assert!(app.loop_playing().is_some(), "l makes a loop");
+    let hot = spot(&mut app, "1-8");
+    let before = app.position_ms();
+    mouse(&mut app, LEFT, hot);
+    assert_eq!(app.position_ms(), before, "a range isn't a key");
+    let at = spot(&mut app, "b browse");
+    mouse(&mut app, LEFT, (at.0 + 2, at.1));
+    assert!(app.browsing, "the label: b");
+    press(&mut app, "\u{1b}");
+    let at = spot(&mut app, "f back");
+    mouse(&mut app, LEFT, at);
+    assert!(!app.deck_layout, "the key: f, back to the Library layout");
+}
+
+/// The loop chip under the waveforms ends the loop when clicked, as l does.
+#[test]
+fn the_loop_chip_clicked_ends_the_loop() {
+    let (mut app, _dir) = on_deck();
+    app.deck_layout = true;
+    press(&mut app, "l");
+    assert!(app.loop_playing().is_some());
+    let at = spot(&mut app, "LOOP");
+    mouse(&mut app, LEFT, at);
+    assert!(app.loop_playing().is_none(), "{}", screen(&mut app, 120, 30));
 }

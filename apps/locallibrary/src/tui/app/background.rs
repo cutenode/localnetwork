@@ -263,7 +263,7 @@ impl App {
         counts.dedup();
         if let Some(a) = &self.audio {
             let playing = a.is_loaded() && !a.is_paused();
-            self.analyzer.update(&a.tap, playing, &counts, dt);
+            self.analyzer.update(self.tap_reader.read(&a.tap, playing), a.tap.sample_rate(), &counts, dt);
         }
 
         // Flash the visualiser in a cue's colour as the playhead crosses it (not when seeking past).

@@ -152,7 +152,7 @@
 <text x="342 351 360 369" y="428" fill="#9494a8">mark</text>
 <text x="396" y="428" fill="#ff5ca0" font-weight="bold">a</text>
 <text x="414 423" y="428" fill="#9494a8">to</text>
-<text x="441 450 459 468 477" y="428" fill="#9494a8">crate</text>
+<text x="441 450 459 468 477" y="428" fill="#9494a8">queue</text>
 <text x="504" y="428" fill="#ff5ca0" font-weight="bold">e</text>
 <text x="522 531 540 549 558 567 576" y="428" fill="#9494a8">actions</text>
 <text x="603" y="428" fill="#ff5ca0" font-weight="bold">:</text>

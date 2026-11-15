@@ -1,12 +1,20 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect, within } from 'storybook/test';
 	import type { Charts, SupportedArtist } from '#lib/types.ts';
 	import ArtistResults from './ArtistResults.svelte';
 	import ArtistSupport from './ArtistSupport.svelte';
 	import ChartBoard from './ChartBoard.svelte';
 	import { artistSupports, charts, supportedArtists } from './fixtures.ts';
 
-	const { Story } = defineMeta({ title: 'Supports/Charts and artists', component: ChartBoard, tags: ['autodocs'] });
+	const { Story } = defineMeta({
+		title: 'Supports/Charts and artists',
+		component: ChartBoard,
+		tags: ['autodocs'],
+		// axe leaves its 24px target size check off by default. It passes over links in a line of text, like the
+		// MusicBrainz icons after track titles, so supports.svelte.test.ts measures those.
+		parameters: { a11y: { config: { rules: [{ id: 'target-size', enabled: true }] } } }
+	});
 
 	/** A promise that never settles, for the moment before data arrives. */
 	const pending = <T>() => new Promise<T>(() => {});
@@ -21,6 +29,15 @@
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const retryHref = '/charts';
+
+	/** Each play links the DJ who played it and the set it's in. */
+	const playLinks = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+		const plays = within(canvasElement.querySelector<HTMLElement>('[aria-label="Plays of Night Bus"]')!);
+
+		await expect(plays.getByRole('link', { name: 'Pirate Signal' })).toHaveAttribute('href', '/projects/pirate-signal');
+		await expect(plays.getByRole('link', { name: '@pirate.test' })).toHaveAttribute('href', '/@pirate.test');
+		await expect(plays.getByRole('link', { name: 'Corsica Studios, London' })).toHaveAttribute('href', '/@pirate.test/sets/3kset2');
+	};
 </script>
 
 <Story name="Charts" args={{ charts, retryHref }} />
@@ -35,7 +52,7 @@
 
 <Story name="Charts on a phone" args={{ charts, retryHref }} globals={phone} />
 
-<Story name="Artist" asChild>
+<Story name="Artist" asChild play={playLinks}>
 	<ArtistSupport supports={artistSupports} retryHref="/artists/ferrule" />
 </Story>
 

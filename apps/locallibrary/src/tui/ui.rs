@@ -56,6 +56,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     a.tabs.clear();
     a.drive_tabs.clear();
     a.spectra.clear();
+    a.hints.clear();
+    a.loop_chip = Default::default();
     a.columns.clear();
     (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu, a.overview) =
         Default::default();

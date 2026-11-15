@@ -59,7 +59,7 @@ hmac = "0.12"
 # changes between minor versions.
 jacquard-api = { version = "=0.12.2", default-features = false, features = ["com_atproto", "std"] }
 jacquard-common = "=0.12.2"
-jacquard-identity = { version = "=0.12.2", features = ["dns"] }
+jacquard-identity = "=0.12.2"
 jacquard-oauth = "=0.12.2"
 keyring = "4.2"
 # The types jacquard's HTTP client trait is written in (reqwest is built on them).

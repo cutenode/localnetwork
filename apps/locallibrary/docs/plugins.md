@@ -87,7 +87,8 @@ are:
   (else its venue and date), in YouTube's category for music, and the tracklist is the
   description, a `05:30 Artist - Title` line a track, the first at `00:00`: YouTube makes those
   chapters when there are three or more, in order, each at least ten seconds long, so a time that
-  would break that is left off its line (the dry run says how many). Who can watch it is the
+  would break that is left off its line (the dry run says how many). `sets export SET --format
+  youtube` writes the same description, to paste. Who can watch it is the
   `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
   `locallibrary account google sign-in --for youtube`: it asks Google only to upload videos.
   The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
@@ -118,8 +119,11 @@ are:
   publish again.
 
   Mixcloud licenses the music in DJ mixes, so the artists you play get paid royalties, under
-  rules for what a show may play that `sets export SET --format mixcloud` checks. A free account
-  keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
+  rules for what a show may play: no copyrighted music under 15 minutes, and over that at most 3
+  tracks from one release (2 in a row) and 4 by one artist (3 in a row), or only subscribers can
+  listen. Publishing (its dry run too) warns about each rule a set breaks, as `sets export SET
+  --format mixcloud` does, counting only the tracks it names where the export counts them all. A
+  free account keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
   Pro ([Mixcloud](https://www.mixcloud.com/blog/2026/10/21/what-are-unlimited-uploads-and-why-do-they-matter/)).
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
@@ -296,7 +300,10 @@ says so.
 An analyzer may also work out a track's beat grid, phrases and waveform (fields of type `beats`,
 `phrases` and `waveform`). They're not columns: locallibrary keeps them in the store beside the
 analyzer's other values, and the player draws them for a track whose drive has none, marked as not
-on the drive. `locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
+on the drive. When several analyzers work one out, it's drawn from the one chosen for it in
+`locallibrary plugin roles` (see [Roles](#roles)) where that one has worked it out for the track,
+else from the first with one.
+`locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
 tracks' analysis files, planned and confirmed as any edit is (`undo` takes it back, and `edits
 replay` makes it again after rekordbox exports): only where a track has none, unless
 `--overwrite`. A grid sets the track's BPM too, and its cues stay where they are (the plan says
@@ -325,6 +332,30 @@ places, as a key, a duration (`3:07`), decibels, a percentage or a meter, and ho
 is in the player; `track` and the player show them so, and the rest as they are, and a mix's
 HTML report shows those fields of each track it played. What
 locallibrary itself reads from them is their [roles](#roles).
+
+## Atmosphere records
+
+A plugin may write records in your [Atmosphere account](account.md), of the record types its
+capabilities name (`atmosphere:write:fm.plyr.track`, one type each, never a pattern; `plugin
+info` lists them). Only plugins built into locallibrary write Local Network's own
+(`computer.localnetwork.*`), and none writes the AT Protocol's (`com.atproto.*`). locallibrary
+writes each one itself, with your session, which the plugin never sees, and only after you
+confirm it: the command line shows you the record, which account it goes to and whether it's new
+or replaces one, and asks (`--yes` answers yes, and the record is still shown). Records are
+public, and anyone can read them. Where you can't be asked (`--json` without `--yes`, the player,
+the sidecar), nothing is written.
+
+Before you're asked, the record is checked against its Lexicon, strictly: a field the Lexicon
+doesn't define is an error, as with the records locallibrary publishes. The Lexicon is
+locallibrary's own for the record types it knows, else the one the plugin ships in its manifest,
+which can't stand in for one of locallibrary's. A plugin replaces a record only by naming the
+version it read, and can't delete one or upload files.
+
+Your session needs permission for the record type, which signing in doesn't ask for: the plugin
+fails saying how to sign in again allowing it (`locallibrary account login --scope
+'repo:fm.plyr.track?action=create&action=update'`). Signing in asks only for what locallibrary's
+client document allows, so a record type it doesn't list can't be allowed yet (the development
+client, `account login --dev-client`, asks for anything).
 
 ## Checks
 
@@ -522,8 +553,8 @@ by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
 An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
 tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, what tells one
-recording from another, or its MusicBrainz IDs: the recording's (`recording`) and the release's
-(`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
+recording from another (`identity`), or its MusicBrainz IDs: the recording's (`recording`) and the
+release's (`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
 artist its credit names, in order, split as a published set splits them (at commas, semicolons and
 "feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
 (`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
@@ -532,7 +563,9 @@ each, the sound plugin's and the musicbrainz plugin's unless another does too: `
 plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another that has it,
 `plugin roles recording --none` reads one from none (`sets publish` then looks nothing up), and
 `plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as
-`analysis.roles.key`). `doctor --analyze` runs those analyzers first on the tracks they haven't
+`analysis.roles.key`). Nothing reads `identity` yet: it's reserved for telling when two tracks are
+the same recording (their values are equal), and the musicbrainz plugin answers it with the
+recording's ID. `doctor --analyze` runs those analyzers first on the tracks they haven't
 worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
 [Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
 recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
@@ -540,6 +573,13 @@ is a UUID and there's one for each name. What an analyzer keeps goes with the au
 library can retag without changing, so a track takes the IDs only when they were looked up by its
 ISRC, and the artists' only for its credit, as far as the analyzer says (`isrc`, `credits`);
 `sets publish` looks those tracks up again.
+
+A beat grid, phrases and a waveform are chosen the same way, as `grid`, `phrases` and `waveform`,
+from any analyzer that works one out: `plugin roles waveform PLUGIN.ANALYZER` has the player draw
+that analyzer's waveform (another's for a track it hasn't analysed), and `analyze --apply waveform`
+write it and no other's. With `--none` neither draws or writes any.
+Unchosen, the player draws each from the first analyzer with one for the track, and `--apply`
+asks which analyzer when several have it (`--plugin`, `--analyzer`).
 
 `locallibrary analyze LIBRARY --apply key,bpm` writes what the analyzer heard to the tracks, as an
 edit you're shown and asked about (only where a track has none unless `--overwrite`;
@@ -591,8 +631,8 @@ each becomes the nearest of them, and with `NO_COLOR` there are none.
 A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a function for each
 kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
-it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
-ready. A command or an operation may answer a question for you (`Choice`) instead, or several
+it), `host.fetch(..)` to go online, `host.put_record(..)` to write an [Atmosphere
+record](#atmosphere-records) and `host.partial_rows(..)` to send a view's rows as they're ready. A command or an operation may answer a question for you (`Choice`) instead, or several
 at once (`Choice::together`), and is run again with your answers as its params. A view (a
 command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
 that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
@@ -623,7 +663,9 @@ its manifest says each server allows. A secret setting, or an account's token, g
 such a request names it (an account's token, only where its account type says it goes and a scope
 of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
-and of the errors it's told. What a server answers is passed on as it is, but for a secret or an
+and of the errors it's told. A plugin never sees your Atmosphere session either, and writes a
+record there only of a type its capabilities name, once it fits its Lexicon and you've confirmed
+it (see [Atmosphere records](#atmosphere-records)). What a server answers is passed on as it is, but for a secret or an
 account's token sent in the address, which comes back as the placeholder that named it, and a server
 refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
 files a plugin sends are those in its request's folder (see below) and a set's recording while it

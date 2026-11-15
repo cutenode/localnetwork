@@ -47,8 +47,9 @@ export const charts: Charts = {
 	]
 };
 
-const set = (n: number, date: string, fields: Partial<DjSetView> = {}): DjSetView => ({
-	uri: `at://did:plc:neon/computer.localnetwork.dj.set/3kset${n}`,
+/** A set in `did`'s repo, so a play's set belongs to the DJ who played it. */
+const set = (did: string, n: number, date: string, fields: Partial<DjSetView> = {}): DjSetView => ({
+	uri: `at://${did}/computer.localnetwork.dj.set/3kset${n}`,
 	cid: `bafyset${n}`,
 	date,
 	trackCount: 22,
@@ -67,11 +68,14 @@ export const artistSupports: ArtistSupports = {
 		{
 			track: nightBus,
 			plays: [
-				{ did: 'did:plc:neon', set: set(1, '2026-10-13', halleNord), startSeconds: 0 },
-				{ did: 'did:plc:harbour', set: set(3, '2026-10-10', { title: 'Sunday session', kind: 'club' }) },
+				{ did: 'did:plc:neon', set: set('did:plc:neon', 1, '2026-10-13', halleNord), startSeconds: 0 },
+				{
+					did: 'did:plc:harbour',
+					set: set('did:plc:harbour', 3, '2026-10-10', { title: 'Sunday session', kind: 'club' })
+				},
 				{
 					did: 'did:plc:pirate',
-					set: set(2, '2026-10-07', {
+					set: set('did:plc:pirate', 2, '2026-10-07', {
 						title: 'Rooftop',
 						kind: 'club',
 						venue: 'Corsica Studios',
@@ -81,14 +85,21 @@ export const artistSupports: ArtistSupports = {
 				},
 				...Array.from({ length: 7 }, (_, i) => ({
 					did: 'did:plc:neon',
-					set: set(10 + i, `2026-08-${String(20 - i).padStart(2, '0')}`, { title: 'Late show', kind: 'radio' })
+					set: set('did:plc:neon', 10 + i, `2026-08-${String(20 - i).padStart(2, '0')}`, {
+						title: 'Late show',
+						kind: 'radio'
+					})
 				}))
 			]
 		},
 		{
 			track: lowTide,
 			plays: [
-				{ did: 'did:plc:pirate', set: set(4, '2026-10-07', { title: 'Rooftop', kind: 'club' }), startSeconds: 1680 }
+				{
+					did: 'did:plc:pirate',
+					set: set('did:plc:pirate', 4, '2026-10-07', { title: 'Rooftop', kind: 'club' }),
+					startSeconds: 1680
+				}
 			]
 		}
 	],

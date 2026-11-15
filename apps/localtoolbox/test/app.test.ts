@@ -84,6 +84,38 @@ describe('the tool menu', () => {
 	});
 });
 
+// Until it has been read once, the menu says what the extension sends where,
+// in place of the tools (FirstRun.svelte). test/setup.ts marks it read for
+// every other test.
+describe('the first-run notice', () => {
+	const continueButton = () =>
+		[...document.querySelectorAll<HTMLButtonElement>('main button')].find((b) => b.textContent.trim() === 'continue');
+
+	beforeEach(() => localStorage.removeItem('pref:notice-seen'));
+
+	it('stands in for the tools until it is read, and says what goes where', async () => {
+		await mountApp();
+		expect(menuButtons()).toEqual([]);
+		expect(text()).toMatch(/before you start/);
+		expect(text()).toMatch(/Hypeddit shares them with the artist/);
+		expect(text()).toMatch(/your own Spotify account/);
+		expect(text()).toMatch(/Nothing goes to a localtoolbox server/);
+
+		await click(continueButton());
+		expect(names()).toHaveLength(TOOLS.length);
+		expect(text()).not.toMatch(/before you start/);
+	});
+
+	it('is read once, not once a popup', async () => {
+		await mountApp();
+		await click(continueButton());
+
+		await mountApp();
+		expect(continueButton()).toBe(undefined);
+		expect(names()).toHaveLength(TOOLS.length);
+	});
+});
+
 // The popup is destroyed on every click that opens a tab, which in these tools
 // is most clicks. It is the same browsing session, so it comes back to it.
 describe('where the popup was left', () => {
