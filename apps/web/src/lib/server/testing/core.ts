@@ -16,6 +16,8 @@ import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
 import { HeldRecords } from '../services/held-records';
 import { performerListingSource } from '../services/performer-index';
+import { venueListingSource } from '../services/venue-index';
+import { VenueService } from '../services/venues';
 import { PerformerService } from '../services/performer-registry';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
@@ -144,11 +146,17 @@ export async function createTestServices(
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 
-	const listings = new ListingWriter(core, flags, { performer: performerListingSource(db), ...options.listingSources });
+	const listings = new ListingWriter(core, flags, {
+		performer: performerListingSource(db),
+		venue: venueListingSource(db),
+		...options.listingSources
+	});
+
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
+	const venues = new VenueService(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
 	await ensureRootSpaces(core);
@@ -201,6 +209,7 @@ export async function createTestServices(
 		performers,
 		performerRegistry,
 		projectMigration,
+		venues,
 		viewer,
 		capable,
 		spaces

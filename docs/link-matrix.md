@@ -10,7 +10,7 @@ The status column says where main stands, read at [`fe5cadef`](https://github.co
 - **missing**: both pages exist and the link doesn't.
 - **new page**: one end has no page yet, so the link comes with that page.
 
-On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<slug>`.
+On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<key>/<name>` ([ADR 0016](adr/0016-names-repeat-keys-and-handles-identify.md)).
 
 - [Page types](#page-types)
 - [Profile](#profile)
@@ -34,9 +34,9 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | Page type               | Path                                                                 | On main                                                                                                                                                                                                    |
 | ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Profile                 | `/@<handle>`, tabs as `?tab=`                                        | yes, without tabs                                                                                                                                                                                          |
-| Act                     | `/act/<slug>`                                                        | as `/projects/<slug>`                                                                                                                                                                                      |
-| Party                   | `/party/<slug>`                                                      | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
-| Venue                   | `/venue/<slug>`                                                      | no                                                                                                                                                                                                         |
+| Act                     | `/act/<key>/<name>`                                                  | as `/projects/<slug>`                                                                                                                                                                                      |
+| Party                   | `/party/<key>/<name>`                                                | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
+| Venue                   | `/venue/<key>/<name>`                                                | no                                                                                                                                                                                                         |
 | Event                   | `/party/<slug>/<event>`, or `/@<handle>/events/<rkey>` with no party | no: shows are rows in `/shows` and on act pages                                                                                                                                                            |
 | Set (and mix)           | `/@<handle>/sets/<rkey>`; `/mixes` lists                             | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>`                                                                                                                    |
 | Press kit               | under its performer                                                  | `/projects/<slug>/press-kits/<rkey>`                                                                                                                                                                       |
