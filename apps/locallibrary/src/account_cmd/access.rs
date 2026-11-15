@@ -16,6 +16,7 @@ use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
 use super::accounts::{account_type, called, declined, find, finish_sign_in, named, signing_out, titles};
+use super::restoring::after_sign_in;
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
 use crate::output::{Output, dim, heading, ok, warn};
@@ -150,9 +151,11 @@ fn signing_out_soon(
         if !asking || !out.confirm("Sign in again now?") {
             continue;
         }
-        let start = plugins.begin_account_sign_in(&a.kind, &a.plugin, Some(plugin), Some(&a.subject), &[], store)?;
+        let start =
+            plugins.begin_account_sign_in(&a.kind, &a.plugin, Some(plugin), Some(&a.subject), &[], None, store)?;
         let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
         ok(format!("Signed in to the {}", called(plugins, &done.account)));
+        after_sign_in(plugins, &done, store, out)?;
     }
     Ok(())
 }
@@ -197,12 +200,13 @@ fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Outp
         Some(plugin),
         Some(&a.account.subject),
         &[],
+        None,
         store,
     )?;
     let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
     ok(format!("Signed in to the {}", called(plugins, &done.account)));
     declined(plugins, &done);
-    Ok(())
+    after_sign_in(plugins, &done, store, out)
 }
 
 /// Asks which account of the type `need` asks for `plugin` may use, and makes it its default.
@@ -236,9 +240,10 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
         Some(a) => (*a).clone(),
         None => {
             let with = &providing[i - signed_in.len()];
-            let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], store)?;
+            let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], None, store)?;
             let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
             declined(plugins, &done);
+            after_sign_in(plugins, &done, store, out)?;
             done.account
         }
     };

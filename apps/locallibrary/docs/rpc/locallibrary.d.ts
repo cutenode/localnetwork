@@ -2319,13 +2319,30 @@ export type BeginSignIn = {
    */
   for?: string | null;
   /**
-   * An account the store keeps, or one signed out that plugins still have access to, by
-   * subject, to sign in to again (asking for more scopes, say).
+   * An account the store keeps, or one signed out that plugins had access to, by subject, to
+   * sign in to again (asking for more scopes, say).
    */
   account?: string | null;
   /** The type's scopes to ask for besides, by name. */
   scopes?: string[];
+  /**
+   * What signing in does with the access plugins had to the account before it was signed out:
+   * `restore` gives it all back, `reset` forgets it. Without, Automatically Restore Access
+   * decides, else it stays off and the answer's `remembered` lists it, for
+   * `accounts.access.restore`.
+   */
+  restore?: Restoring | null;
 };
+
+/**
+ * What signing in to an account does with the access plugins had to it before it was signed
+ * out.
+ */
+export type Restoring =
+  /** Every plugin gets its access back, as it was. */
+  | "restore"
+  /** No plugin does, and what was remembered is forgotten. */
+  | "reset";
 
 export type FinishSignIn = {
   /** What its `sign_in.begin` answered. */
@@ -2379,6 +2396,28 @@ export type AccessRef = {
   /** The plugin's id. */
   plugin: string;
   account: AccountId;
+};
+
+export type RestoreAccess = {
+  account: AccountId;
+  /**
+   * The plugins to give their access back, with the scopes each gets: those left out are
+   * forgotten, and none resets it. Without, every plugin gets its access back as it was.
+   */
+  plugins?: Chosen[] | null;
+};
+
+/** One plugin's access chosen to be restored, with the scopes (by name) it gets back. */
+export type Chosen = {
+  plugin: string;
+  /** The account type's scopes, by name: those the plugin needs are given whatever's chosen. */
+  scopes?: string[];
+};
+
+export type RestoreAutomatically = {
+  /** Only this account [default: every account without a setting of its own]. */
+  account?: AccountId | null;
+  on: boolean;
 };
 
 export type PluginRef = {
@@ -8370,10 +8409,17 @@ export type CollectionExportReport = {
 export type Accounts = {
   /**
    * Those it keeps, in the order they were first signed in, then those signed out that plugins
-   * still have access to.
+   * had access to.
    */
   accounts: StoreAccount[];
   accesses: Access[];
+  /**
+   * The access plugins had to accounts before they were signed out, until it's restored or
+   * reset.
+   */
+  remembered?: Access[];
+  /** Automatically Restore Access, for all accounts and for each with a setting of its own. */
+  restore_automatically?: AutoRestore[];
 };
 
 /** An account a store keeps, as hosts show it: never a token. */
@@ -8412,7 +8458,7 @@ export type Access = {
   plugin: string;
   type: string;
   account: AccountId;
-  /** What the account is shown as, kept so an access to one signed out still says. */
+  /** What the account is shown as, kept so an access remembered of one signed out still says. */
   name: string;
   /** The type's scopes, by name. */
   scopes: string[];
@@ -8425,6 +8471,15 @@ export type Access = {
    * still can't be used.
    */
   declined?: string[];
+};
+
+/**
+ * Automatically Restore Access, on or off: for one account, or (`account` none) for all those
+ * without a setting of their own.
+ */
+export type AutoRestore = {
+  account?: AccountId | null;
+  on: boolean;
 };
 
 /** A sign-in to an account of a type, waiting for the browser, or for the user's keys. */
@@ -8491,6 +8546,16 @@ export type AccountSignedIn = {
    * those it can do without aren't in its access.
    */
   declined?: string[];
+  /**
+   * The access plugins had to it before it was signed out that signing in gave back: as the
+   * sign-in said to, or Automatically Restore Access did, or the plugin it was for had.
+   */
+  restored?: Access[];
+  /**
+   * What's still remembered of the access plugins had to it, for front ends to ask about:
+   * restoring it all, choosing from it, or resetting it (see [`Plugins::restore_access`]).
+   */
+  remembered?: Access[];
 };
 
 /** What signing out of an account of a type did. */
@@ -10532,6 +10597,10 @@ export interface Methods {
   "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
   /** immediate method */
   "accounts.access.take_away": { params: AccessRef & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.restore": { params: RestoreAccess & WriteOptions; result: Access[] };
+  /** immediate method */
+  "accounts.restore_automatically": { params: RestoreAutomatically & WriteOptions; result: AutoRestore };
   /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */

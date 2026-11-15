@@ -2,10 +2,11 @@
 //! asks for: those its access has and the account was granted what they ask; not those the user
 //! (or the service) declined for the access before; and the rest as the user says, asked by the
 //! front end (see [`AskAccess`]). Allowed, the access is given them, signing in again first when
-//! the account is signed out or wasn't granted what they ask; declined, the access remembers it,
-//! and the plugin isn't asked about them again until the user gives them. Where nobody can be
-//! asked, it fails as `scope`, `needs` naming them, which passed on says how to give them. Without
-//! an access of the type it fails as a request would (`access`). Never a token.
+//! the account wasn't granted what they ask; declined, the access remembers it, and the plugin
+//! isn't asked about them again until the user gives them. Where nobody can be asked, it fails as
+//! `scope`, `needs` naming them, which passed on says how to give them. Without an access of the
+//! type (signing out of its account removes it) it fails as a request would (`access`). Never a
+//! token.
 
 use std::sync::Arc;
 
@@ -151,7 +152,8 @@ impl Plugin {
             return remember(store, id, |a| a.more(scopes, &[])).map_err(external);
         }
         let account = &q.access.account.subject;
-        let start = with.begin_sign_in(&q.access.kind, Some(self), Some(account), scopes, store).map_err(external)?;
+        let start =
+            with.begin_sign_in(&q.access.kind, Some(self), Some(account), scopes, None, store).map_err(external)?;
         if start.keys.is_empty() {
             ask.sign_in(&start.url);
             return self.host.finish_sign_in(&start.id, PENDING_LIMIT, ctx).map(drop).map_err(external);

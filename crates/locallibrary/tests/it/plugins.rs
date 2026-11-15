@@ -24,6 +24,7 @@ mod panels;
 mod printable;
 mod props;
 mod providers;
+mod restoring;
 mod roles;
 mod services;
 mod shared_accounts;

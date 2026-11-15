@@ -16,7 +16,7 @@ use locallibrary::plugin::{AccessQuestion, AccountSignIn, AskAccess, EnteredKeys
 use super::accesses::{SCOPES, account, asks, some};
 use super::accounts::{come_back_to, opened_at};
 use super::key_accounts::entered;
-use super::shared_accounts::{Mock, WITH, asking, edit_json, mock_with, options, who};
+use super::shared_accounts::{Losing, Mock, WITH, asking, edit_json, mock_with, options, who};
 use super::*;
 use crate::mock_oauth::{Service, account_plugin, keys_account_plugin};
 
@@ -58,18 +58,18 @@ impl AskAccess for Script {
 }
 
 /// Echo's access to the account `a`, as the test models it: its scopes, those declined, and what
-/// the service granted the account (`None` while it's signed out).
+/// the service granted the account.
 #[derive(Debug, Default)]
 struct Model {
     scopes: Vec<&'static str>,
     declined: Vec<&'static str>,
-    granted: Option<Vec<&'static str>>,
+    granted: Vec<&'static str>,
 }
 
 impl Model {
-    /// Whether the account is signed in, and the service granted what `scope` asks.
+    /// Whether the service granted what `scope` asks.
     fn serviced(&self, scope: &str) -> bool {
-        self.granted.as_ref().is_some_and(|granted| asks(scope).iter().all(|a| granted.contains(a)))
+        asks(scope).iter().all(|a| self.granted.contains(a))
     }
 
     /// Whether echo may use `scope`: its access has it, and the service granted what it asks.
@@ -81,7 +81,7 @@ impl Model {
     /// service granting `grants`: it has those it needs, and the others it was granted what they
     /// ask, and remembers those it wasn't.
     fn signed_in(&mut self, needs: &[&'static str], given: &[&'static str], grants: Vec<&'static str>) {
-        self.granted = Some(grants);
+        self.granted = grants;
         let mut given = given.to_vec();
         given.sort_unstable();
         given.dedup();
@@ -116,13 +116,15 @@ fn sorted(scopes: &[&str]) -> Vec<String> {
 }
 
 /// For an echo plugin needing any of the mock type's scopes (the rest optional), given an account
-/// signed in for it (the service granting any of what they ask), maybe signed out since, and
-/// asking about any scopes in turn, the user answering each time as drawn and the service granting
-/// any of what they ask when they sign in again: a scope its access has and the account was
-/// granted what it asks is granted; one declined before is declined unasked; any other is asked
-/// about, and allowed it's given (signing in again first unless the account was granted what it
-/// asks), declined it's remembered, and with nobody to ask the plugin fails as `scope` saying how
-/// to give them. One its manifest doesn't ask for is refused. No token gets out.
+/// signed in for it (the service granting any of what they ask), maybe signed out or its session
+/// ended since, and asking about any scopes in turn, the user answering each time as drawn and the
+/// service granting any of what they ask when they sign in again: a scope its access has and the
+/// account was granted what it asks is granted; one declined before is declined unasked; any other
+/// is asked about, and allowed it's given (signing in again first unless the account was granted
+/// what it asks), declined it's remembered, and with nobody to ask the plugin fails as `scope`
+/// saying how to give them. Once the account is lost, echo has no access to ask about: it fails as
+/// `no_access`, and nobody is asked. One its manifest doesn't ask for is refused. No token gets
+/// out.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
     let mut needs = some(&tc);
@@ -145,9 +147,9 @@ fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
     let asked: Vec<&str> = optional.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
     m.sign_in(who(json!("a"), None), None, &asked).0.unwrap();
     model.signed_in(&needs, &[needs.clone(), asked].concat(), first);
-    if tc.draw(gs::booleans()) {
-        m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap();
-        model.granted = None;
+    let lost = tc.draw(gs::sampled_from(vec![None, Some(Losing::SignOut), Some(Losing::SessionEnds)]));
+    if let Some(how) = lost {
+        m.lose("a", how);
     }
 
     for step in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
@@ -171,6 +173,13 @@ fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
         let said = format!("step {step}, {answer:?} {scopes:?} with {model:?}");
         if unasked {
             assert_eq!(done.unwrap_err().code(), "invalid", "{said}");
+            continue;
+        }
+        if lost.is_some() {
+            let e = done.unwrap_err();
+            assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NoAccess)), "{said} lost: {e}");
+            assert_eq!(script.asked.lock().unwrap().len(), before, "{said} lost: asked");
+            assert!(!m.leaked(&[json!(e.to_string())]), "a token is out: {said}");
             continue;
         }
         let open: Vec<&str> =
@@ -224,11 +233,11 @@ fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
     }
 }
 
-/// For an account signed in to with either of two pairs of keys, a plugin wanting more of it,
-/// signed out since, signs in again with the keys the front end enters once the user allows it,
-/// the sign-in saying which keys and where to get them: the access is given the scope, and a
-/// request through it gets the keys. With no keys from the front end, the plugin fails as it does
-/// when nobody can be asked, and that sign-in is over.
+/// For an account signed in to with either of two pairs of keys and signed out since, a plugin
+/// wanting more of it has no access to it any more: it fails as `no_access`, and the front end is
+/// asked for no keys. Signed in to again with other keys for the plugin, its access is back, and
+/// the user allowing more gives it the scope without asking for keys again; a request through it
+/// gets the new keys.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_ensure_signs_in_again_with_the_keys_entered(tc: TestCase) {
     let script = Arc::new(Script { answer: Mutex::new(Some(true)), ..Script::default() });
@@ -237,28 +246,24 @@ fn prop_ensure_signs_in_again_with_the_keys_entered(tc: TestCase) {
     let m: Mock = mock_with(3600, manifest, &asking(&["read"], &["write"]), Options { ask, ..options() });
     let first = tc.draw(gs::sampled_from(vec![("ak-0123456789", "sk-9876543210"), ("ak-3333333333", "sk-4444444444")]));
     let (old, new) = (entered(first.0, first.1), entered("ak-1111111111", "sk-2222222222"));
-    let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], &m.f.store).unwrap();
-    m.f.plugins.finish_account_sign_in_with_keys(&start.id, &old, Some("me")).unwrap();
+    let sign_in = |keys: &IndexMap<String, String>, again: Option<&str>| {
+        let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), again, &[], None, &m.f.store);
+        m.f.plugins.finish_account_sign_in_with_keys(&start.unwrap().id, keys, Some("me")).unwrap()
+    };
+    let had = sign_in(&old, None).access.unwrap();
     m.f.plugins.sign_out_account(WITH, "me", &m.f.store).unwrap();
+    *script.keys.lock().unwrap() = Some((new.clone(), Some("me".into())));
     let ensure = || m.f.command("ensure", json!({ "type": "mock", "scopes": ["write"] }), &Ctx::silent());
-    let signed_in = || m.listed().iter().any(|a| a.subject == "me" && a.signed_in);
 
     let e = ensure().unwrap_err();
-    assert_eq!((e.code(), e.reason()), ("account", Some(Reason::MissingScope)), "{e}");
-    let [start] = script.keyed.lock().unwrap().drain(..).collect::<Vec<_>>().try_into().unwrap();
-    let titles = IndexMap::from_iter([("access".into(), "Access key".into()), ("secret".into(), "Secret key".into())]);
-    assert_eq!(
-        (&start.keys, start.url.as_str(), start.named),
-        (&titles, format!("{}/keys", m.server.url).as_str(), true)
-    );
-    let over = m.f.plugins.finish_account_sign_in_with_keys(&start.id, &new, Some("me"));
-    assert_eq!(over.unwrap_err().code(), "not_found", "the sign-in isn't over");
-    assert!(!signed_in(), "signed in without keys");
+    assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NoAccess)), "{e}");
+    assert!(script.keyed.lock().unwrap().is_empty() && script.asked.lock().unwrap().is_empty(), "asked");
+    assert!(m.listed().is_empty(), "signed in without keys");
 
-    *script.keys.lock().unwrap() = Some((new, Some("me".into())));
+    assert_eq!(sign_in(&new, Some("me")).restored, [had], "not given back");
     let CommandOutput::Headless(answered) = ensure().unwrap() else { panic!("not an answer") };
     assert_eq!((&answered["granted"], &answered["declined"]), (&json!(["write"]), &json!([])));
-    assert!(signed_in(), "not signed in again");
+    assert!(script.keyed.lock().unwrap().is_empty(), "asked for keys again");
     let sent = m.fetch_as("POST", "/w/x", "{account:mock}", None);
     assert_eq!(sent["result"]["body"], "/w/x LOW ak-1111111111:sk-2222222222", "{sent}");
 }
@@ -298,26 +303,32 @@ enum Ensuring {
     Granted,
     /// The user declines: the access remembers it.
     Declined,
-    /// The account is signed out: allowed, it's signed in again in the browser.
+    /// The account wasn't granted what the scope asks: allowed, it's signed in again in the
+    /// browser.
     Browser,
-    /// The account is signed out, and its type's port is held.
+    /// The account wasn't granted what the scope asks, and its type's port is held.
     PortHeld,
-    /// The account, signed in to with keys, is signed out, and the front end takes no keys.
-    NoKeys,
+    /// The account, signed in to with keys, is signed out, which took the access with it.
+    SignedOut,
+    /// The account's session ended, which took the access with it.
+    SessionEnded,
 }
 
 /// For an echo plugin needing `read` of an account (signed in to as anyone) and asking for
 /// `write` besides, a front end allowing whatever it's asked: an `accounts/ensure` that can't be
-/// read is refused; without an access, or without a store, it fails as a request would; an access
-/// taken away while the user is asked fails it too; a scope the account was granted is given as
-/// the user allows, and remembered as declined as they decline; an account signed out is signed in
-/// again in the browser for it, given nothing when the browser signs in as another; and where signing in again can't begin, or no keys can be
-/// entered, it says why.
+/// read is refused; without an access (none given, or the account signed out or its session
+/// ended), or without a store, it fails as a request would; an access taken away while the user
+/// is asked fails it too; a scope the account was granted is given as the user allows, and
+/// remembered as declined as they decline; one it wasn't granted is signed in again for in the
+/// browser, given nothing when the browser signs in as another; and where signing in again can't
+/// begin, it says why.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_ensure_answers_what_it_can_and_says_why_not(tc: TestCase) {
     use Ensuring::*;
     let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
-    for ensuring in [Unreadable, NoAccess, NoStore, TakenAway, Granted, Declined, Browser, PortHeld, NoKeys] {
+    for ensuring in
+        [Unreadable, NoAccess, NoStore, TakenAway, Granted, Declined, Browser, PortHeld, SignedOut, SessionEnded]
+    {
         let allowing = Arc::new(Allowing::default());
         let script = Arc::new(Script { answer: Mutex::new(Some(ensuring == Browser)), ..Script::default() });
         *script.grants.lock().unwrap() = vec!["read".into(), "write".into()];
@@ -327,16 +338,20 @@ fn prop_ensure_answers_what_it_can_and_says_why_not(tc: TestCase) {
         };
         let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         let manifest = |server: &str| match ensuring {
-            NoKeys => keys_account_plugin(server, None),
+            SignedOut => keys_account_plugin(server, None),
             PortHeld => account_plugin(server, &format!("{server}/userinfo"), &format!("redirect_port = {port}")),
             _ => account_plugin(server, &format!("{server}/userinfo"), ""),
         };
         let m: Mock = mock_with(3600, manifest, &asking(&["read"], &["write"]), Options { ask, ..options() });
         assert!(script.service.set(m.state.clone()).is_ok());
         let plugin = (!matches!(ensuring, NoAccess)).then_some("echo");
+        if matches!(ensuring, Browser | PortHeld) {
+            m.state.lock().unwrap().grants = Some(vec!["read".into()]);
+        }
         match ensuring {
-            NoKeys => {
-                let start = m.f.plugins.begin_account_sign_in("mock", WITH, plugin, None, &[], &m.f.store).unwrap();
+            SignedOut => {
+                let start =
+                    m.f.plugins.begin_account_sign_in("mock", WITH, plugin, None, &[], None, &m.f.store).unwrap();
                 m.f.plugins
                     .finish_account_sign_in_with_keys(
                         &start.id,
@@ -347,8 +362,10 @@ fn prop_ensure_answers_what_it_can_and_says_why_not(tc: TestCase) {
             }
             _ => drop(m.sign_in_for(plugin, who(json!(subject), None), None, &[]).0.unwrap()),
         }
-        if matches!(ensuring, Browser | PortHeld | NoKeys) {
-            m.f.plugins.sign_out_account(WITH, subject, &m.f.store).unwrap();
+        match ensuring {
+            SignedOut => m.lose(subject, Losing::SignOut),
+            SessionEnded => m.lose(subject, Losing::SessionEnds),
+            _ => {}
         }
         if let TakenAway = ensuring {
             allowing.forgets.set(m.f.store.root().into()).unwrap();
@@ -379,8 +396,7 @@ fn prop_ensure_answers_what_it_can_and_says_why_not(tc: TestCase) {
         }
         let e = done.unwrap_err();
         let expected = match ensuring {
-            NoAccess | NoStore | TakenAway => ("account", Some(Reason::NoAccess)),
-            NoKeys => ("account", Some(Reason::MissingScope)),
+            NoAccess | NoStore | TakenAway | SignedOut | SessionEnded => ("account", Some(Reason::NoAccess)),
             // The browser can't come back: the plugin is told why, as any other failure.
             _ => ("external", None),
         };

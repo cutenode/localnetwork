@@ -128,7 +128,8 @@ impl App {
                 let account = match pick {
                     Pick::Account(id) => id.clone(),
                     Pick::SignIn(with) => {
-                        let start = plugins.begin_account_sign_in(&c.kind, with, Some(plugin), None, &[], &store)?;
+                        let start =
+                            plugins.begin_account_sign_in(&c.kind, with, Some(plugin), None, &[], None, &store)?;
                         let done = finish_sign_in(plugins, &start, &tx, ctx, show)?;
                         declined.extend(titles(plugins, &c.kind, &done.declined));
                         AccountId { plugin: done.account.plugin, subject: done.account.subject }

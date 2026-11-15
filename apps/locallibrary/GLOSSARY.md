@@ -101,9 +101,15 @@ _Avoid_: local scope, permission, right
 
 **Access**:
 The scopes one plugin may use on one account. The user gives it to the plugin and can take it
-away without signing out; signing out leaves it, unused until the account is signed in again.
+away without signing out. Signing out, or the account's session ending, removes every plugin's
+access to it; this computer remembers it until it's restored or reset.
 locallibrary's own features don't need it.
 _Avoid_: grant (the website's word for press kits), consent, permission, authorization
+
+**Restore**:
+To give plugins back the access they had to an account before it was signed out, as signing in
+again offers (or does on its own, with Automatically Restore Access on). Reset forgets it instead.
+_Avoid_: reconnect, re-grant, reauthorize
 
 **Keys**:
 What some services give you to sign in to an account with instead of the browser, such as the

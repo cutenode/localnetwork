@@ -10,8 +10,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::Tokens;
-use super::access::Access;
+use super::access::{Access, AccountId};
 use super::keys::Keys;
+use super::restore::AutoRestore;
 use crate::error::IoContext;
 use crate::fsutil::{self, FileLock};
 use crate::hash::Hash;
@@ -23,14 +24,18 @@ use crate::{Error, Result};
 const FILE: &str = "accounts.json";
 const LOCK: &str = "accounts.lock";
 
-/// What `accounts.json` keeps: the accounts, and the accesses plugins were given to them, which
-/// outlast an account signed out.
+/// What `accounts.json` keeps: the accounts, the accesses plugins were given to them, those
+/// remembered of accounts signed out (see [`super::restore`]), and Automatically Restore Access.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct Book {
     #[serde(default)]
     pub accounts: Vec<Kept>,
     #[serde(default)]
     pub accesses: Vec<Access>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remembered: Vec<Access>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restore_automatically: Vec<AutoRestore>,
 }
 
 impl Book {
@@ -91,9 +96,14 @@ impl Kept {
     }
 }
 
-/// The accounts `store` keeps, and the accesses to them.
+/// The accounts `store` keeps, and the accesses to them. Accesses to an account signed out from
+/// before signing out removed them are read as remembered.
 pub(super) fn read(store: &Store) -> Result<Book> {
-    Ok(fsutil::read_json_opt(&store.root().join(FILE))?.unwrap_or_default())
+    let mut book: Book = fsutil::read_json_opt(&store.root().join(FILE))?.unwrap_or_default();
+    let stale = |a: &Access| book.account(&a.account.plugin, &a.account.subject).is_none();
+    let gone: Vec<AccountId> = book.accesses.iter().filter(|a| stale(a)).map(|a| a.account.clone()).collect();
+    gone.iter().for_each(|account| book.remember(account));
+    Ok(book)
 }
 
 /// Changes the accounts `store` keeps and the accesses to them: `f` gets them all, and what it

@@ -233,11 +233,20 @@ that you left out, and the sign-in says which. `locallibrary account TYPE:NAME s
 again as that account, also once it's signed out, asking for what every plugin's access to it
 needs; when the browser signs in to someone else, that account is kept too, but the plugin it was
 for gets no access to it.
-`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
-plugins keep their access, unused until it's signed in again.
+`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can.
+Signing out, or the account's session ending (the service won't refresh it, or says its token is
+no good), removes every plugin's access to it, and a plugin that used it as its default has none
+until you pick one. This computer remembers that access, never in a copy of the store. Signing in
+again asks what to do with it: Restore (enter) gives it all back, Choose picks the plugins and
+their scopes, and Reset forgets it. The plugin you sign in for gets its own back either way.
+`--restore` or `--reset` answers without asking; with neither and no terminal, the access stays
+off and the sign-in prints `locallibrary account TYPE:NAME restore`, which gives it back later.
+`locallibrary account TYPE:NAME --restore-automatically on` (or with no account, for every account
+without a setting of its own) restores it as you sign in without asking, saying in a line what came
+back. `account` lists what's waiting as "access to restore".
 
 `locallibrary plugin access PLUGIN` lists a plugin's access, `--give ACCOUNT` gives it access to
-an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
+an account signed in (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
 the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
 request fails because its account is signed out or wasn't granted a scope, the error offers to
 sign in again as that account, allowing what's missing. A plugin's destination (and publishing
@@ -251,7 +260,9 @@ and in the sidecar, nothing is asked: it fails and says how to resolve it.
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
-uses, saying what for, or signing in to another. Signing in with keys there opens a form saying
+uses, saying what for, or signing in to another. Signing in again to an account plugins had
+access to opens a form with Restore picked (enter gives it all back), Choose taking the scopes
+typed for each plugin (none leaves it off), and Reset. Signing in with keys there opens a form saying
 where to get them, each typed unseen, then the account's name when the service doesn't say.
 
 A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
