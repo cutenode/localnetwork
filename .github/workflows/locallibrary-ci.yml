@@ -340,7 +340,9 @@ jobs:
           cargo llvm-cov nextest-archive --workspace --locked --archive-file "$RUNNER_TEMP/base.tar.zst"
           "$RUNNER_TEMP/measure-archive.sh" "$RUNNER_TEMP/base.tar.zst" "$PWD/target/budgets-base"
           git checkout -q --detach "$head"
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
       - if: github.event_name == 'pull_request'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -442,7 +444,9 @@ jobs:
         with:
           root: ${{ runner.temp }}/base
           out: ${{ github.workspace }}/target/budgets-base
-      - env:
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - shell: bash
+        env:
           ENTRIES: ${{ steps.base.outputs.entries }}
         run: node tools/budgets/cli.ts check release target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
       # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
