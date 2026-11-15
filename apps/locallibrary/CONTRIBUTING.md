@@ -281,7 +281,9 @@ The parsers for what a drive or an import hands locallibrary have
 root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
 their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
 mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+runaway allocation. The `pdb` and `anlz` aliases also hand libFuzzer a dictionary from `fuzz/dicts/`
+(the tags, page types and other values the readers branch on), so it gets past a header without
+guessing four bytes at once. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
