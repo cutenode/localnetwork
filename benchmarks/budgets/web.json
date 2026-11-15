@@ -1,0 +1,21 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "web",
+	"metrics": {
+		"initial_js": {
+			"allowance": 1024,
+			"unit": "bytes",
+			"measures": "JavaScript every page loads, uncompressed: the entry, the root layout and the root error page, with everything they import (apps/web/scripts/bundle-sizes.ts)."
+		},
+		"page_js": {
+			"allowance": 1024,
+			"unit": "bytes",
+			"measures": "JavaScript the largest page loads on top of that, uncompressed."
+		},
+		"css": {
+			"allowance": 1024,
+			"unit": "bytes",
+			"measures": "Every page's CSS together, uncompressed."
+		}
+	}
+}
