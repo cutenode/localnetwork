@@ -262,7 +262,7 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const listings = new ListingWriter(core, { performer: performerListingSource(db), ...options.listingSources });
+	const listings = new ListingWriter(core, flags, { performer: performerListingSource(db), ...options.listingSources });
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
