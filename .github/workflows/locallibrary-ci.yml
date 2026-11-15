@@ -346,10 +346,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          # From the API: a body edited since this run's event wouldn't be in it.
-          gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
-          node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets "$RUNNER_TEMP/body.md" | tee -a "$GITHUB_STEP_SUMMARY"
-          node tools/budgets/cli.ts raises HEAD^1 "$RUNNER_TEMP/body.md"
+          # The pull request's commits' Budget-Raise trailers, and its body, from the API: a body
+          # edited since this run's event wouldn't be in it.
+          {
+            git log --format='%(trailers:key=Budget-Raise)' HEAD^1..HEAD
+            gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""'
+          } > "$RUNNER_TEMP/raises.md"
+          node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" | tee -a "$GITHUB_STEP_SUMMARY"
+          node tools/budgets/cli.ts raises HEAD^1 "$RUNNER_TEMP/raises.md"
       # Under the run's own commit: for a push to main, main's measurement.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -377,7 +381,7 @@ jobs:
       contents: read
       # The base's measurements, from its run's artifact.
       actions: read
-      # The bodies of the pull requests, for their budget-raise lines.
+      # The bodies of the pull requests, for budget-raise lines from before trailers.
       pull-requests: read
     steps:
       # The base and a group's pull requests' merge commits, and enough of main before them for the
@@ -399,8 +403,8 @@ jobs:
       - uses: ./.github/actions/release-budgets
         with:
           out: ${{ github.workspace }}/target/budgets
-      # A merge queue group's base, how many pull requests it holds and their bodies, or a pull
-      # request's base and its body.
+      # A merge queue group's base, how many pull requests it holds, and their commits' Budget-Raise
+      # trailers and bodies, or a pull request's base, trailers and body.
       - id: base
         env:
           GH_TOKEN: ${{ github.token }}
@@ -409,16 +413,15 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
-          : > "$RUNNER_TEMP/raises.md"
+          if [ "$EVENT" = merge_group ]; then base=$GROUP_BASE; else base=$(git rev-parse HEAD^1); fi
+          git log --format='%(trailers:key=Budget-Raise)' "$base..HEAD" > "$RUNNER_TEMP/raises.md"
           if [ "$EVENT" = merge_group ]; then
-            base=$GROUP_BASE
             numbers=$(git log --first-parent --merges --format=%s "$base..HEAD" | sed -n 's/^Merge pull request #\([0-9]*\) .*/\1/p')
             for number in $numbers; do gh api "repos/$GH_REPO/pulls/$number" --jq '.body // ""' >> "$RUNNER_TEMP/raises.md"; done
             entries=$(git rev-list --first-parent --merges --count "$base..HEAD")
           else
-            base=$(git rev-parse HEAD^1)
             # From the API: a body edited since this run's event wouldn't be in it.
-            if [ "$EVENT" = pull_request ]; then gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' > "$RUNNER_TEMP/raises.md"; fi
+            if [ "$EVENT" = pull_request ]; then gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' >> "$RUNNER_TEMP/raises.md"; fi
             entries=1
           fi
           echo "sha=$base" >> "$GITHUB_OUTPUT"
