@@ -208,6 +208,8 @@ jobs:
             # tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
             web: &web
               - 'apps/web/**'
+              - 'tools/budgets/**'
+              - 'benchmarks/budgets/web.json'
               - 'apps/*/README.md'
               - 'apps/*/docs/*.md'
               - 'README.md'
