@@ -11,14 +11,17 @@ import {
 	type SpaceKind
 } from '#lib/capabilities.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
+import type { ActForm, BasicsSection, PerformerSection, SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { memberSpacePolicy, type RepoWrite, type RootRepoClient } from '../atproto/repo-client';
 import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind } from '../atproto/spaces';
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import type { Upload } from '../forms/project';
 import type { ListingWriter } from './listings';
+import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
+import { slugify } from './projects';
 import { actorRole } from './requests';
 import { reconcileMembers } from './space-members';
 
@@ -105,6 +108,28 @@ type SpaceRecordChange = { space: string; collection: string; rkey: string; valu
 /** What a change sees and does: the space's kind, and its people as the root's repo has them now, by DID. */
 export type LiveSpace = { space: string; kind: SpaceKind; root: RootRepoClient; people: Map<string, PersonRecord> };
 
+/** What starting an act takes: its address on the site, what kind of act it is, and who it is. */
+export type ActInput = {
+	slug: string;
+	form: ActForm;
+	basics: Omit<BasicsSection, 'avatar'>;
+	performer?: PerformerSection;
+};
+
+/**
+ * What saving an act's page writes, what happens to its avatar, and the version of the page the form was opened on, so
+ * a change made elsewhere since isn't overwritten.
+ */
+export type PageInput = {
+	form: ActForm;
+	basics: Omit<BasicsSection, 'avatar'>;
+	performer: PerformerSection;
+	avatar: { upload: Upload } | 'keep' | 'remove';
+	swap: string;
+};
+
+const STALE_PAGE = 'The page changed since you opened it. Reload to see the latest, then save again.';
+
 export const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined, capability: Capability) =>
 	!!person && capabilitiesIn(kind, person.capabilities).includes(capability);
 
@@ -117,7 +142,8 @@ export const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined,
 export class SharedSpaces {
 	/**
 	 * One change at a time in each space, so a check like "someone can still manage its people" sees the change before
-	 * it. The lock is in this process, which assumes one app instance, as the sync engine's space locks do.
+	 * it, and one act start at a time for each slug. The lock is in this process, which assumes one app instance, as the
+	 * sync engine's space locks do.
 	 */
 	private readonly locks = new Map<string, Promise<void>>();
 
@@ -126,8 +152,16 @@ export class SharedSpaces {
 		private readonly listings: ListingWriter
 	) {}
 
-	/** Starts a space of `kind` with `actor` in it, in the role that gets every capability of its kind. */
-	async create(actor: Viewer, kind: SpaceKind): Promise<string> {
+	/**
+	 * Starts a space of `kind` with `actor` in it, in the role that gets every capability of its kind. `start.writes`
+	 * go in the same batch as their person record, and `start.summary` replaces the audit entry's.
+	 */
+	async create(
+		actor: Viewer,
+		kind: SpaceKind,
+		start: { writes?: RepoWrite[]; summary?: string } = {}
+	): Promise<string> {
+		const { writes = [], summary = `Started a ${kind}` } = start;
 		const root = await this.core.root();
 		const skey = TID.nextStr();
 		const space = sharedSpace(root.did, kind, skey);
@@ -163,16 +197,99 @@ export class SharedSpaces {
 				collection: COLLECTION.person,
 				rkey: actor.did,
 				record: validateRecord(COLLECTION.person, person)
-			}
+			},
+			...writes
 		]);
 		await this.saveStatus(space, kind, status);
 		await this.savePerson(space, kind, person);
+
+		for (const write of writes)
+			if (write.action !== 'delete')
+				await this.index({ space, collection: write.collection, rkey: write.rkey, value: write.record });
+
 		await this.syncPeople({ space, kind, root, people: new Map([[actor.did, person]]) });
 		await this.core.watchSpace?.(space);
 		this.core.logger.info('created a shared space', { space, kind });
-		await this.record(actor, 'member', 'space.create', space, `Started a ${kind}`, { person: actor.did, role });
+		await this.record(actor, 'member', 'space.create', space, summary, { person: actor.did, role });
 
 		return space;
+	}
+
+	/**
+	 * Starts an act with `actor` as its member, its page and their person record written together. Its slug has to be
+	 * one no other act has.
+	 */
+	async createAct(actor: Viewer, input: ActInput): Promise<string> {
+		const { slug } = input;
+
+		if (slugify(slug) !== slug) throw new UserError('Use lowercase letters, numbers and dashes for the address');
+
+		// One start per slug at a time, so two can't both find it free.
+		return this.locked(`act:${slug}`, async () => {
+			const taken = await this.core.db
+				.selectFrom('performer')
+				.select('spaceUri')
+				.where('slug', '=', slug)
+				.executeTakeFirst();
+
+			if (taken) throw new UserError('Another act has that address');
+			const now = nowIso();
+
+			const record = validateRecord(COLLECTION.performer, {
+				subject: { $type: ACT_TYPE, slug, form: input.form, basics: input.basics, performer: input.performer ?? {} },
+				createdAt: now,
+				updatedAt: now
+			});
+
+			return this.create(actor, 'performer', {
+				writes: [{ action: 'create', collection: COLLECTION.performer, rkey: PERFORMER_KEY, record }],
+				summary: `Started ${input.basics.name}`
+			});
+		});
+	}
+
+	/** Saves an act's page. Needs page.edit. */
+	async updatePage(actor: Viewer, space: string, input: PageInput): Promise<void> {
+		await this.change(space, async (live) => {
+			const actingAs = this.authorize(actor, live, 'page.edit');
+
+			const stored = await live.root.getSpaceRecord({
+				space,
+				repo: live.root.did,
+				collection: COLLECTION.performer,
+				rkey: PERFORMER_KEY
+			});
+
+			const current = performerRecord(stored?.value);
+
+			if (!stored || current?.subject.$type !== ACT_TYPE) throw new NotFoundError('That act does not exist');
+
+			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE);
+
+			const avatar =
+				input.avatar === 'remove'
+					? undefined
+					: input.avatar === 'keep'
+						? current.subject.basics.avatar
+						: await live.root.uploadBlob(input.avatar.upload.bytes, input.avatar.upload.mimeType);
+
+			const record = validateRecord(COLLECTION.performer, {
+				...current,
+				subject: {
+					...current.subject,
+					form: input.form,
+					basics: avatar ? { ...input.basics, avatar } : input.basics,
+					performer: input.performer
+				},
+				updatedAt: nowIso()
+			});
+
+			await live.root.putSpaceRecord({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, record });
+			await this.index({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, value: record });
+			await this.record(actor, actingAs, 'page.update', space, `Updated ${input.basics.name}'s page`, {
+				slug: current.subject.slug
+			});
+		});
 	}
 
 	async get(space: string): Promise<SharedSpaceView | null> {
@@ -559,6 +676,9 @@ export class SharedSpaces {
 				return true;
 			}
 
+			case COLLECTION.performer:
+				return kind === 'performer' && rkey === PERFORMER_KEY && indexPerformer(db, space, value);
+
 			default:
 				return false;
 		}
@@ -579,11 +699,20 @@ export class SharedSpaces {
 			await db.deleteFrom('spaceJoinRequest').where('spaceUri', '=', space).where('did', '=', rkey).execute();
 		else if (collection === COLLECTION.listingStatus && rkey === LISTING_STATUS_KEY)
 			await db.deleteFrom('sharedSpace').where('spaceUri', '=', space).execute();
+		else if (collection === COLLECTION.performer && rkey === PERFORMER_KEY)
+			await db.deleteFrom('performer').where('spaceUri', '=', space).execute();
 	}
 
 	/** Forgets a space that's gone, and takes down its listing. */
 	async forget(space: string): Promise<void> {
-		for (const table of ['spacePerson', 'spaceInvite', 'spaceInviteLink', 'spaceJoinRequest', 'sharedSpace'] as const)
+		for (const table of [
+			'spacePerson',
+			'spaceInvite',
+			'spaceInviteLink',
+			'spaceJoinRequest',
+			'performer',
+			'sharedSpace'
+		] as const)
 			await this.core.db.deleteFrom(table).where('spaceUri', '=', space).execute();
 		await this.listings.refresh(space);
 	}
@@ -593,28 +722,40 @@ export class SharedSpaces {
 	 * and listing in line with what the task left.
 	 */
 	async change(space: string, task: (live: LiveSpace) => Promise<void>): Promise<void> {
-		const previous = this.locks.get(space);
-
-		const run = (async () => {
-			await previous;
+		await this.locked(space, async () => {
 			const live = await this.live(space);
 			await task(live);
 			await this.syncPeople(live);
 			await this.listings.refresh(space);
+		});
+	}
+
+	/** Runs `task` once the last task under `key` has settled. */
+	private async locked<T>(key: string, task: () => Promise<T>): Promise<T> {
+		const previous = this.locks.get(key);
+
+		const run = (async () => {
+			await previous;
+
+			return task();
 		})();
 
-		const settled = run.catch(() => undefined);
-		this.locks.set(space, settled);
+		const settled = run.then(
+			() => undefined,
+			() => undefined
+		);
+
+		this.locks.set(key, settled);
 
 		try {
-			await run;
+			return await run;
 		} finally {
-			if (this.locks.get(space) === settled) this.locks.delete(space);
+			if (this.locks.get(key) === settled) this.locks.delete(key);
 		}
 	}
 
 	/** The space's people as the root's own repo has them, since the index can be behind. */
-	private async live(space: string): Promise<LiveSpace> {
+	async live(space: string): Promise<LiveSpace> {
 		const ref = parseSpaceUri(space);
 		const kind = ref?.authority === this.core.rootDid ? sharedSpaceKind(ref.type) : null;
 

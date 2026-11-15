@@ -26,14 +26,16 @@ const here = import.meta.dirname;
 
 const root = resolve(here, 'src');
 
-// The script the popup shares with the content script. It defines a page
-// global (TbxDownloaded), which only a classic script can do, so it is
-// injected as a plain <script src> tag rather than imported: Vite leaves tags
-// it injects itself alone, and `pageScripts` below puts the file beside the
-// page. state-transfer.js is a classic script too (TbxState), but only the
+// The popup's classic scripts, injected as plain <script src> tags ahead of the
+// bundle rather than imported: Vite leaves tags it injects itself alone, and
+// `pageScripts` below puts each file beside the page. theme-prepaint.js puts
+// the saved theme on <html> before the first paint, which the bundle, a module
+// script, runs too late to do. downloaded-store.js is the script the popup
+// shares with the content scripts; it defines a page global (TbxDownloaded),
+// which only a classic script can do. state-transfer.js is a classic script too (TbxState), but only the
 // settings sheet uses it, so src/lib/globals.ts adds it when the sheet opens
 // instead of every popup reading it before anything is drawn.
-const classicScripts = ['downloaded-store.js'];
+const classicScripts = ['theme-prepaint.js', 'downloaded-store.js'];
 
 // What ships as written, because it does not run in the popup: the content
 // script's stylesheet, the icons, and the manifest, which lives under src/
@@ -48,15 +50,17 @@ const unbundled = {
 	icons: 'icons'
 };
 
-// The classic scripts: the content script and the two the popup reads. A classic
+// The classic scripts: the two content scripts and the three the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
 // annotation with spaces and leaves every line and column where it was, so an
 // error on soundcloud.com points at the same place in the source, with no
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
 	'content.js': 'content.ts',
+	'gate-page.js': 'gate-page.ts',
 	'downloaded-store.js': 'downloaded-store.ts',
-	'state-transfer.js': 'state-transfer.ts'
+	'state-transfer.js': 'state-transfer.ts',
+	'theme-prepaint.js': 'theme-prepaint.ts'
 };
 
 const shipUnbundled = (): Plugin => ({
@@ -182,8 +186,9 @@ export default defineConfig(({ mode }) => ({
 		// a release does not.
 		sourcemap: mode === 'development',
 		rollupOptions: {
-			// The popup, and the two that walk a gate for the page's Download button:
-			// the background worker and the offscreen page it opens (background.ts).
+			// The popup, and the background worker with the offscreen page it opens,
+			// which walk a gate for the page's Download button and run the gates
+			// done on their own page (background.ts).
 			input: {
 				popup: resolve(root, 'popup.html'),
 				offscreen: resolve(root, 'offscreen.html'),

@@ -6,9 +6,9 @@ use std::sync::LazyLock;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use loclib_mixid::fingerprint::{self, Analyzer, LIBRARY, Peak, QUERY, RATE};
-use loclib_mixid::test_util::{resample, synth};
 use loclib_mixid::{LibraryIndex, TrackPrint, matcher};
 use loclib_progress::Ctx;
+use loclib_testkit::audio::{resample, synth};
 
 /// Library size and track length for the index and the search.
 const TRACKS: u32 = 200;

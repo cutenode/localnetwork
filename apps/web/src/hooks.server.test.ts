@@ -15,10 +15,11 @@ import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import type { Logger } from '#lib/server/logger.ts';
 import type { Viewer } from '#lib/types.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
 import type { App as ServerApp } from '#lib/server/app.ts';
 import { init, serverHooks } from './hooks.server';
-import type { FlagService } from '#lib/server/services/flags.ts';
+import { FlagService } from '#lib/server/services/flags.ts';
 
 let dir: string;
 
@@ -168,7 +169,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 		cookies: { [SESSION_COOKIE]: adminToken, [PREVIEW_COOKIE]: preview(ADMIN, adminToken) }
 	});
 
-	expect(admin.locals.flags).toEqual({ parityCanary: true });
+	expect(admin.locals.flags).toEqual({ ...flagsOff, parityCanary: true });
 	expect(admin.locals.flagPreview).toEqual({ parityCanary: true });
 
 	// The admin's cookie, copied into someone else's browser, and one they signed for themselves.
@@ -178,7 +179,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 			cookies: { [SESSION_COOKIE]: djToken, [PREVIEW_COOKIE]: cookie }
 		});
 
-		expect(dj.locals.flags).toEqual({ parityCanary: false });
+		expect(dj.locals.flags).toEqual(flagsOff);
 		expect(dj.locals.flagPreview).toBeUndefined();
 		expect(dj.cookies.deleted).toContain(PREVIEW_COOKIE);
 	}
@@ -188,7 +189,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 		cookies: { [PREVIEW_COOKIE]: preview(ADMIN, adminToken) }
 	});
 
-	expect(signedOut.locals.flags).toEqual({ parityCanary: false });
+	expect(signedOut.locals.flags).toEqual(flagsOff);
 	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
 });
 
@@ -218,6 +219,28 @@ it("doesn't read the session cookie on an xrpc call, or rate limit it", async ()
 
 	expect(response.status).toBe(200);
 	expect(locals.viewer).toBeNull();
+});
+
+it("gives an xrpc call a signed-out visitor's flags, and ignores a staff preview there", async () => {
+	const s = await services({ admins: [ADMIN], flagOverrides: { parityCanary: true } });
+	const token = await s.sessions.create(ADMIN, null);
+	const resolve = vi.spyOn(s.sessions, 'resolve');
+	const { handle } = hooksWith(async () => s.app);
+
+	const preview = sealPreview(
+		{ did: ADMIN, flags: { parityCanary: false }, expiresAt: Date.now() + PREVIEW_MS },
+		token
+	);
+
+	const { locals, cookies } = await handledWithLocals(handle, {
+		url: '/xrpc/computer.localnetwork.flags.getFlags',
+		cookies: { [SESSION_COOKIE]: token, [PREVIEW_COOKIE]: preview }
+	});
+
+	expect(locals.flags?.parityCanary).toBe(true);
+	expect(locals.flagPreview).toBeUndefined();
+	expect(cookies.deleted).not.toContain(PREVIEW_COOKIE);
+	expect(resolve).not.toHaveBeenCalled();
 });
 
 it('limits writes by address, and counts an unknown address as one', async () => {
@@ -447,8 +470,10 @@ function capturingLogger(logs: WrittenLine[]) {
 	return writtenLog('info', logs).logger;
 }
 
-/** The app parts the hook reads: real sessions and viewers over test services, and a write limit of `writes`. */
-async function services(options: { writes?: number; publicUrl?: string; admins?: string[] } = {}) {
+/** The app parts the hook reads: real sessions and viewers over test services, a write limit of `writes`, and flags with `flagOverrides` forced. */
+async function services(
+	options: { writes?: number; publicUrl?: string; admins?: string[]; flagOverrides?: Record<string, boolean> } = {}
+) {
 	const t = await createTestServices({ admins: options.admins });
 	const sessions = new WebSessions(t.db, 30);
 	const logs: WrittenLine[] = [];
@@ -457,7 +482,7 @@ async function services(options: { writes?: number; publicUrl?: string; admins?:
 		logger: capturingLogger(logs),
 		sessions,
 		limits: { write: new RateLimiter(options.writes ?? 30, 0) },
-		flags: t.flags,
+		flags: options.flagOverrides ? new FlagService(t.core, t.staff, options.flagOverrides) : t.flags,
 		viewer: async (did: string) => (did === STALE ? null : t.viewer(did)),
 		config: { publicUrl: options.publicUrl ?? 'http://127.0.0.1:5173' }
 	};

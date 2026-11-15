@@ -23,8 +23,9 @@ flowchart LR
   App -- "first press kit publish" --> Epk["epk,<br/>one per press kit"]
   App -- "first request or grant" --> Requests["epkRequests,<br/>one per performer"]
   App -- "first draft saved" --> Backstage["backstage,<br/>one per performer"]
-  App -- "SharedSpaces.create,<br/>no page calls it yet" --> Shared["performer, party, venue"]
+  App -- "SharedSpaces.create or createAct,<br/>no page calls them yet" --> Shared["performer, party, venue"]
   App -- "first planner read or write" --> Planner["planner, under the<br/>person's own DID"]
+  App -- "nothing yet" --> Details["bookingDetails, one per<br/>performer, root only"]
   Four --> Watch["Syncer watches it,<br/>reading with the<br/>root's credential"]
   Booking --> Watch
   Epk --> Watch
@@ -34,7 +35,7 @@ flowchart LR
   Planner --> Session["Read with their session,<br/>no copy kept"]
 ```
 
-Source: [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/atproto/spaces.ts`](../../src/lib/server/atproto/spaces.ts), [`src/lib/server/services/space-members.ts`](../../src/lib/server/services/space-members.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts)
+Source: [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/atproto/spaces.ts`](../../src/lib/server/atproto/spaces.ts), [`src/lib/nsid.ts`](../../src/lib/nsid.ts), [`src/lib/server/services/space-members.ts`](../../src/lib/server/services/space-members.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts)
 
 ## Space credentials
 
@@ -93,6 +94,8 @@ flowchart TD
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
   List -- "never synced" --> Star["getRepo: verified STAR archive"]
   Ops -- "fails, not on a MAC<br/>or credential" --> Star
+  Ops -- "writer taken down,<br/>suspended or deactivated" --> Skip["Skip, retry on backoff"]
+  Star -- "same errors" --> Skip
   Ops --> Apply["Transaction: space_record, pending_projection,<br/>synced_repo"]
   Star --> Apply
   Apply --> Project["Project each change.<br/>A failure stays in pending_projection"]
@@ -166,14 +169,15 @@ flowchart LR
   Sync -- "booking.inquiry, message, status,<br/>participants and the root" --> A6["booking_thread, booking_event,<br/>inbox items"]
   Sync -- "epk.request, and epk.grant<br/>from the authority only" --> A7["epk_request, epk_grant"]
   Sync -- "epk.draft in a backstage" --> A8["epk_draft"]
-  Sync -- "people.*, listing.status,<br/>root only" --> A9["shared space tables,<br/>then its listing"]
+  Sync -- "people.*, listing.status,<br/>performer, root only" --> A9["shared space tables and<br/>performer, then its listing"]
+  Sync -- "staff.flag, staff.group,<br/>root only" --> A10["feature_flag, flag_group"]
 ```
 
-Source: [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/epk.ts`](../../src/lib/server/services/epk.ts)
+Source: [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/epk.ts`](../../src/lib/server/services/epk.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts)
 
 ## Member list upkeep
 
-What keeps each space's member list right. Manager and shared space runs compare with the live list, so a run that failed part way is finished by the next. The staff run only adds current staff, so a failed removal stays.
+What keeps each space's member list right. Every run compares with the live list, so a run that failed part way is finished by the next.
 
 ```mermaid
 flowchart TD
@@ -186,7 +190,7 @@ flowchart TD
   Managers --> Kits["epk spaces: read,<br/>granted people stay"]
   Hourly --> Shared["SharedSpaces:<br/>members follow people records"]
   People["A change to a space's people"] --> Shared
-  Boot["Startup, System page"] --> Staff["Staff added to audit, moderation,<br/>staff and industry spaces"]
+  Boot["Startup, every 5 minutes,<br/>System page"] --> Staff["audit, moderation, staff and<br/>industry spaces: staff join,<br/>leavers go"]
   Threads -. "only with a root record<br/>naming the performer" .-> Root["Opening record or<br/>booking.create audit entry"]
 ```
 

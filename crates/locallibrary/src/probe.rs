@@ -22,8 +22,8 @@ use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, TimeBase};
 
 /// For the player, which opens files through rodio rather than [`open`].
-pub use loclib_mixid::audio::vet_container;
-use loclib_mixid::audio::{CRASHED, open};
+pub use loclib_audio::vet_container;
+use loclib_audio::{CRASHED, open};
 use loclib_model::audio;
 
 use crate::device::Device;

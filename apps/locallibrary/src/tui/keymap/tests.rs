@@ -1,4 +1,5 @@
 use super::super::app::testing::{app_with, library};
+use super::super::edits::Modal;
 use super::super::ui::screen;
 use super::*;
 
@@ -120,14 +121,14 @@ fn the_footer_drops_the_least_important_hints_to_fit() {
 }
 
 /// Each view's help starts with its own keys under its own heading; the keys for everywhere
-/// follow, the commands with no key last.
+/// follow. The commands with no key are the palette's alone.
 #[test]
 fn each_views_help_starts_with_its_own_keys() {
     for (view, title) in [(View::Prepare, "Prepare"), (View::Drives, "Drives"), (View::Mixes, "Recordings")] {
         let (own, global) = help(view);
         assert_eq!(own[0].0, title);
         assert!(global.iter().all(|(t, _)| *t != title), "{view:?}");
-        assert!(global.last().is_some_and(|(t, _)| t.starts_with("Commands")), "{view:?}");
+        assert!(own.iter().chain(&global).all(|(t, _)| !t.starts_with("Commands")), "{view:?}");
     }
 }
 
@@ -157,7 +158,7 @@ fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
 /// and for any letters typed the palette shows just the commands they're in, best first.
 #[hegel::test(test_cases = 50)]
 fn every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
-    use super::super::palette::{Picker, Then, commands, fuzzy};
+    use super::super::palette::{Picker, Then, commands};
     use hegel::generators as gs;
     let typed: String = tc.draw(gs::text().alphabet("aeioustr ").max_size(4));
     for v in View::ALL {
@@ -181,7 +182,7 @@ fn every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
         let mut p = Picker::new("Commands", items, Then::Act(acts));
         p.query = typed.clone();
         p.filter();
-        let score = |i: usize| fuzzy(&typed, &p.items[i].label).max(fuzzy(&typed, &p.items[i].detail));
+        let score = |i: usize| p.items[i].score(&typed);
         let matching = (0..p.items.len()).filter(|&i| score(i).is_some()).count();
         assert_eq!(p.shown.len(), matching, "{v:?}: {typed:?}");
         assert!(p.shown.windows(2).all(|w| score(w[0]) >= score(w[1])), "best first");
@@ -200,6 +201,7 @@ fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
         Some((label, prio)) => rebuilt.hint(label, prio),
         None => rebuilt,
     };
+    let rebuilt = rebuilt.words(b.words);
     assert_eq!(format!("{rebuilt:?}"), format!("{b:?}"));
     if b.keys.is_empty() && b.act == Act::None {
         let as_note = format!("{:?}", note(b.scope, b.shown, b.help, b.group));
@@ -214,13 +216,15 @@ fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
     assert_eq!(t.hint, Some((label, prio)));
 }
 
-/// Every view's help says how to report a bug.
+/// Every view's palette says how to report a bug; the help, which lists keys, doesn't.
 #[test]
-fn every_views_help_says_how_to_report_a_bug() {
+fn every_views_palette_says_how_to_report_a_bug() {
+    use super::super::palette::commands;
     for view in View::ALL {
-        let (_, global) = help(view);
-        let mut lines = global.iter().flat_map(|(_, lines)| lines);
-        assert!(lines.any(|(_, help)| help.contains("locallibrary bug")), "{view:?}");
+        assert!(commands(view).iter().any(|(act, _)| *act == Act::Copy("bug")), "{view:?}");
+        let (own, global) = help(view);
+        let mut lines = own.iter().chain(&global).flat_map(|(_, lines)| lines);
+        assert!(!lines.any(|(_, help)| help.contains("reports a bug")), "{view:?}");
     }
 }
 
@@ -247,7 +251,7 @@ fn reached(act: Act) -> Reached {
             LeftOut("moving about means nothing from a list over the view")
         }
         Act::Remove | Act::DriveActions => LeftOut("acts on what the pane selected"),
-        Act::Browse | Act::NextBands => LeftOut("only the Deck layout's; the palette has the choices"),
+        Act::Browse | Act::NextBands => LeftOut("only player mode's; the palette has the choices"),
         Act::Bands(_)
         | Act::KeyNotation(_)
         | Act::KeyPalette(_)
@@ -330,6 +334,8 @@ fn reached(act: Act) -> Reached {
         | Act::SmartApply
         | Act::SmartNew
         | Act::ExportList
+        | Act::Run(_)
+        | Act::Copy(_)
         | Act::OpenFolder
         | Act::Snapshots
         | Act::SignIn
@@ -434,7 +440,8 @@ fn the_help_starts_at_the_pane_with_focus_and_narrows() {
     assert!(!cue.is_empty() && cue.len() < n, "{}", cue.len());
     assert!(cue.iter().all(|r| format!("{} {}", r.binding.help, r.binding.name).to_lowercase().contains("cue")));
     assert_eq!(first(&app, "e"), Some("e"), "the keys typed come first");
-    assert_eq!(first(&app, "smart rule"), Some("smart"), "each word typed");
+    assert_eq!(first(&app, "waveform out"), Some("[  ]"), "each word typed");
+    assert_eq!(first(&app, "smart rule"), None, "a command with no key is the palette's");
     assert!(help_rows(&app, "zzzz").is_empty());
 }
 
@@ -448,7 +455,7 @@ fn only_what_stands_alone_runs_from_the_help() {
 }
 
 /// Typing into the help narrows it, one row selected; enter runs that row and closes the help. A row
-/// that needs its key leaves the help open.
+/// that needs its key leaves the help open; with no row, enter searches the palette instead.
 #[test]
 fn the_help_runs_the_row_selected() {
     let (mut app, _dir) = app_with(library());
@@ -465,10 +472,12 @@ fn the_help_runs_the_row_selected() {
 
     typing(&mut app, "\u{1b}?zzzz");
     assert!(screen(&mut app, 80, 24).contains("no key has those words"));
-    typing(&mut app, "\n");
-    assert!(app.help);
     app.on_key(press(KeyCode::Backspace));
     assert_eq!(app.help_query, "zzz");
+    // Enter searches the palette for what no key has.
+    typing(&mut app, "\n");
+    assert!(!app.help);
+    assert!(matches!(&app.modal, Some(Modal::Pick(p)) if p.query == "zzz"));
 }
 
 /// Opening it starts over: nothing typed last time stays.

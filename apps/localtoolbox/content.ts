@@ -2837,14 +2837,15 @@
 		return { permalink, href, from: hostOf(href) || href };
 	};
 
-	// The gate sites whose walk always ends in a file (`yields: 'file'` under
-	// src/tools/third-party-downloads/sites/), by the hosts their links arrive
-	// on. A link to one of them is walked and saved where it is clicked; the
-	// rest end in a page to open or a signup, and opening the link is already
-	// the answer for those. test/consistency.test.ts holds this to the sites.
-	const WALKED_HOSTS = new Set(['hypeddit.com', 'droploud.com', 'pumpyoursound.com']);
+	// The gate sites the background worker takes a link to on a click, by the
+	// hosts their links arrive on (`how: 'walk'` and `how: 'page'` under
+	// src/tools/third-party-downloads/sites/): a walked gate is saved where it is
+	// clicked, and a page gate opens with the extension's help on its page. The
+	// rest only open, and opening the link is already the answer for those.
+	// test/consistency.test.ts holds this to the sites.
+	const HANDED_HOSTS = new Set(['hypeddit.com', 'droploud.com', 'pumpyoursound.com', 'laylo.com']);
 
-	const isWalked = (href: string) => WALKED_HOSTS.has(hostOf(href));
+	const isHanded = (href: string) => HANDED_HOSTS.has(hostOf(href));
 
 	const STATUS_CLASS = 'tbx-status';
 
@@ -2866,10 +2867,11 @@
 		return region;
 	};
 
-	// A gate link, walked to its file by the background worker (background.ts)
-	// instead of opened. Saved, the track is marked the way the Downloader
-	// marks it; anything else and the worker has opened the gate in a tab,
-	// so the track is queued as any opened link is. `aria-busy` is the button
+	// A gate link, handed to the background worker (background.ts) instead of
+	// opened. Walked and saved, the track is marked the way the Downloader marks
+	// it; anything else and the worker has opened the gate in a tab, so the
+	// track is queued as any opened link is (a gate done on its page marks it
+	// once its file lands). `aria-busy` is the button
 	// saying it heard, and keeps a second click from walking it twice. The
 	// status region says how it ended, which nothing on the page shows.
 	const saveGate = async (button: HTMLElement, url: string, permalink: string, fields: Partial<RowFields>) => {
@@ -2882,7 +2884,8 @@
 		try {
 			const answer: SaveGateAnswer | undefined = await chrome.runtime.sendMessage({
 				type: 'SAVE_GATE',
-				url
+				url,
+				permalink
 			} satisfies SaveGateRequest);
 
 			if (!answer?.saved) await enqueue(permalink, fields);
@@ -2934,7 +2937,7 @@
 			const modified =
 				event instanceof MouseEvent && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
 
-			if (!modified && isWalked(link)) {
+			if (!modified && isHanded(link)) {
 				event.preventDefault();
 				void saveGate(el, link, permalink, fieldsAround(native));
 
@@ -3062,9 +3065,10 @@
 	// are; a 401 stops the lot, since it says nothing about any one artist.
 	//
 	// Nothing here is cached beyond the document. The panel keeps what it is
-	// told on the entry it asked for, and asks only about the ones it has no
-	// answer for; the /resolve half is shared with the Likes lookup through
-	// `resolveOnce`, so a profile asked about twice in one page is one request.
+	// told for the browser session (chrome.storage.session, never the list it
+	// keeps for good), and asks only about the rows it shows with no answer;
+	// the /resolve half is shared with the Likes lookup through `resolveOnce`,
+	// so a profile asked about twice in one page is one request.
 
 	const BIO_MAX = 1000; // characters of a bio the panel keeps
 	const LINKS_MAX = 20; // links per profile

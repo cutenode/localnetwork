@@ -5,7 +5,7 @@ both against annotated datasets. It was split out of
 [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), which checks
 the BPMs and keys rekordbox stored on a USB drive, but all it needs is audio files.
 
-- `analyze` decodes a track once (through symphonia, like loclib-mixid: MP3, AAC and ALAC in
+- `analyze` decodes a track once (through loclib-audio's symphonia loop: MP3, AAC and ALAC in
   `.m4a`, FLAC, WAV, AIFF) and measures what you ask for: tempo and key from
   [stratum-dsp](https://github.com/HLLMR/stratum-dsp); loudness from
   [ebur128](https://github.com/sdroege/ebur128): integrated loudness, loudness range, sample and

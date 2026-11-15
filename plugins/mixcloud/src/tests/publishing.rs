@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, method};
+use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, TracklistEntry, method};
 use serde_json::json;
 
 use super::mixcloud::{Mixcloud, PAGE, Part, Reply, SIGNED_OUT, error, file, rate_limited, start};
@@ -156,6 +156,39 @@ fn a_dry_run_says_what_would_go_and_sends_nothing() {
     assert_eq!(answer.unwrap().warnings, [what, MIXCLOUD]);
     assert!(started.is_empty());
     assert!(s.stop().is_empty());
+}
+
+/// A dry run and publishing both warn about Mixcloud's rules for the music, as `sets export
+/// --format mixcloud` does: a show under 15 minutes, and more tracks from one release or by one
+/// artist than it allows, in all or in a row.
+#[test]
+fn mixclouds_rules_for_the_music_are_warned_about() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = file(dir.path(), "set.mp3", 10);
+    let track = |artist: &str, album: &str| TracklistEntry {
+        artist: Some(artist.into()),
+        title: Some("Track".into()),
+        album: Some(album.into()),
+        duration_seconds: Some(300),
+        ..TracklistEntry::default()
+    };
+    let s = start(Mixcloud::new());
+    let (answer, ..) = s.publish(&set(), &recording, &[track("A", "X"), track("B", "Y")], json!({}), true);
+    let under = "it's 10 minutes long: Mixcloud doesn't allow copyrighted music in uploads under 15 minutes";
+    assert_eq!(answer.unwrap().warnings[1..], [under, MIXCLOUD]);
+
+    let limited = "before it limits the show to subscribers";
+    let rules = [
+        format!("tracks 1-3 are from \"X\": Mixcloud allows 2 in a row {limited}"),
+        format!("5 tracks by A: Mixcloud allows 4 {limited}"),
+        format!("tracks 1-5 are by A: Mixcloud allows 3 in a row {limited}"),
+    ];
+    let tracklist = [track("A", "X"), track("A", "X"), track("A", "X"), track("A", "Y"), track("A feat. B", "Z")];
+    let (answer, ..) = s.publish(&set(), &recording, &tracklist, json!({}), true);
+    assert_eq!(answer.unwrap().warnings[1..], [&rules[..], &[MIXCLOUD.to_string()]].concat());
+    let (answer, ..) = s.publish(&set(), &recording, &tracklist, json!({}), false);
+    assert_eq!(answer.unwrap().warnings, rules);
+    s.stop();
 }
 
 /// A recording Mixcloud doesn't take (its format, empty, over 4 GB) or a picture it can't send

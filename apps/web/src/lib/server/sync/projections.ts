@@ -21,7 +21,8 @@ const SHARED_SPACE_COLLECTIONS = new Set<string>([
 	COLLECTION.invite,
 	COLLECTION.inviteLink,
 	COLLECTION.joinRequest,
-	COLLECTION.listingStatus
+	COLLECTION.listingStatus,
+	COLLECTION.performer
 ]);
 
 /**
@@ -50,7 +51,8 @@ export function createProjections(deps: {
 		const fromRoot = change.repoDid === rootDid;
 		const ref = parseSpaceUri(change.space);
 		const type = ref?.type;
-		// Who's in a performer's, party's or venue's space, and how it's listed, is the root's to write, in its own space.
+		// Who's in a performer's, party's or venue's space, who a performer's is for, and how it's listed, is the root's to
+		// write, in its own space.
 		const governs = fromRoot && ref?.authority === rootDid && !!sharedSpaceKind(ref.type);
 
 		if (change.kind === 'delete') {
@@ -218,6 +220,7 @@ export function createProjections(deps: {
 			case COLLECTION.inviteLink:
 			case COLLECTION.joinRequest:
 			case COLLECTION.listingStatus:
+			case COLLECTION.performer:
 				if (!governs) return;
 				await sharedSpaces.index({ ...change, value });
 				await listings.refresh(change.space);

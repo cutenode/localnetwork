@@ -18,8 +18,10 @@ exclude_globs = [
     # Generated from packages/tokens/colors.json; its test compares it with the JSON, so a mutant
     # here says nothing about the tests.
     "crates/loclib-model/src/tokens.rs",
-    # Helpers for tests and benchmarks, built into the crates under their `test-util` feature.
+    # Helpers for tests and benchmarks, built into the crates under their `test-util` feature or
+    # kept in loclib-testkit.
     "**/test_util.rs",
+    "crates/loclib-testkit/**",
 ]
 
 # Mutants that loop forever, so each one waits out the whole timeout (253 s a mutant in the

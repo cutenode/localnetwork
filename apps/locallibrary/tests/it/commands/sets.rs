@@ -70,8 +70,8 @@ fn sets_are_listed_written_out_searched_and_deleted() {
     // Written out in every format: printed, or to the file the extension names.
     let export = ["sets", "export", "Friday"];
     assert_eq!(env.ok(&export), "01. Floorplan - Never Grow Old\n02. [a]pendics.shuffle - Deluxe Cynic\n");
-    let err = env.fails(1, &[&export[..], &["--format", "youtube"]].concat());
-    assert!(err.contains("YouTube needs one for every track"), "{err}");
+    let youtube = env.ok(&[&export[..], &["--format", "youtube"]].concat());
+    assert_eq!(youtube, "Floorplan - Never Grow Old\n[a]pendics.shuffle - Deluxe Cynic\n", "untimed: no chapters");
     assert!(env.ok(&[&export[..], &["--format", "1001"]].concat()).contains("Floorplan - Never Grow Old"));
     let err = env.fails(1, &[&export[..], &["--format", "cue"]].concat());
     assert!(err.contains("attach it to the set first"), "{err}");

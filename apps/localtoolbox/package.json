@@ -21,7 +21,7 @@
 		"test:coverage": "vitest run --coverage",
 		"test:mutation": "stryker run",
 		"validate:state": "node scripts/validate-state.mts",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test:coverage && pnpm test:shuffle && pnpm test:repeat && pnpm build"
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test:coverage && pnpm test:shuffle && pnpm test:repeat && pnpm build"
 	},
 	"dependencies": {
 		"@fontsource-variable/instrument-sans": "^5.3.0",

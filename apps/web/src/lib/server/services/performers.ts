@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import type { PerformerResult } from '#lib/types.ts';
 import type { Core } from '../core';
 import type { HappyViewClient } from '../happyview/client';
@@ -21,7 +22,7 @@ export class PerformerSearch {
 	async search(params: Omit<ProjectSearch, 'manager' | 'status' | 'includeInactive'>): Promise<PerformerSearchResult> {
 		const { page, pageSize, query } = searchQuery(params);
 		const output = await this.directory.query('searchPerformers', query);
-		const dids = output.performers.flatMap((found) => ('profile' in found ? [found.profile.uri.split('/')[2]] : []));
+		const dids = output.performers.flatMap((found) => ('profile' in found ? [new AtUri(found.profile.uri).host] : []));
 		const accounts = await this.core.accounts.views(dids);
 
 		const items = output.performers.flatMap((found): PerformerResult[] => {
@@ -32,7 +33,7 @@ export class PerformerSearch {
 			}
 
 			const { uri, cid, record, genres, distanceM } = found.profile;
-			const did = uri.split('/')[2];
+			const did = new AtUri(uri).host;
 			const profile = this.profiles.toView(did, uri, cid, record);
 
 			if (!profile) return [];

@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_util::{resample, synth, wav, wav_of};
+use loclib_testkit::audio::{resample, synth, wav, wav_of};
 
 /// Fingerprint `x` as a library track would be.
 fn print(x: &[f32]) -> TrackPrint {
