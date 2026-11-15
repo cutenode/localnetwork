@@ -45,6 +45,10 @@ on:
         description: Whether a pull request changed what decides which commands each build has (ci.yml's locallibrary_commands paths).
         type: boolean
         required: true
+      fuzz:
+        description: Whether a pull request changed what the fuzz targets reach (ci.yml's locallibrary_fuzz paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
@@ -409,6 +413,31 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
+
+  # A minute of every fuzz target, from the corpus the weekly run keeps (locallibrary-scheduled.yml),
+  # so a pull request that breaks a parser finds out before it merges rather than the next Monday.
+  # A crash fails the job and uploads its input.
+  fuzz:
+    if: inputs.fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      # The corpus the weekly run keeps.
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/fuzz
+        with:
+          seconds: 60
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+          if-no-files-found: ignore
 
   coverage:
     needs: [test, hegel]
