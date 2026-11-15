@@ -897,7 +897,12 @@ fn the_library_from_root_names_files_where_they_are_on_this_computer() {
     let dir = tempfile::tempdir().unwrap();
     let rb = dir.path().join("rekordbox");
     std::fs::create_dir(&rb).unwrap();
-    let c = open(&write(&rb, &cloud_sample().encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+    let f = cloud_sample();
+    // rekordbox on Windows names a file on this computer from its drive.
+    if cfg!(windows) {
+        f.exec("UPDATE djmdContent SET FolderPath = 'C:' || FolderPath WHERE FolderPath NOT LIKE '/contents_%'");
+    }
+    let c = open(&write(&rb, &f.encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
     let dropbox = dir.path().join("Dropbox");
     let audio = dropbox.join("rekordbox/contents_2354715273/Floorplan/ngo.mp3");
     std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
