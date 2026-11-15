@@ -35,7 +35,6 @@ import {
 import { artworkUrlAtSize, FULL_SIZE } from '../../src/lib/artwork.ts';
 import {
 	unwrapGate,
-	hostOf,
 	domainOf,
 	entriesFor,
 	splitEntries,
@@ -54,8 +53,10 @@ import {
 	SITES,
 	HOSTS,
 	CLAIMED,
-	unwrapGate as unwrapGateSites
+	unwrapGate as unwrapGateSites,
+	hostOf
 } from '../../src/tools/third-party-downloads/sites/index.ts';
+import { knownDetails, listedEntry } from '../helpers/state-fixtures.ts';
 
 // Enough runs to be worth the name, few enough to keep the suite quick.
 const RUNS = { numRuns: 300 };
@@ -618,6 +619,19 @@ describe('download links (links.js)', () => {
 			}),
 			RUNS
 		);
+	});
+
+	it('lists no link for a purchase address that is not a web address', () => {
+		const notWeb = 'javascript://x.com/%0aalert(1)';
+
+		for (const purchaseUrl of [notWeb, `https://gate.sc?url=${encodeURIComponent(notWeb)}&token=abc`]) {
+			const track = listedEntry({
+				permalink: '/user/track',
+				details: knownDetails({ downloadable: false, purchaseUrl })
+			});
+
+			expect(entriesFor(track)).toEqual([]);
+		}
 	});
 
 	it('leads with one link and trails the rest, best first', () => {
