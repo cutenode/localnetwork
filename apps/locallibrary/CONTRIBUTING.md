@@ -39,11 +39,11 @@ The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrar
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
 every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
-Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host
-(loclib-plugin's `FakeHost` for new ones, see its README's "Testing a plugin"); the
-CLI's tests run them through the real one. Account plugins are the exception: each is a
-`locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
-`build.rs` includes and nothing runs, so adding one is adding its folder.
+Their tests sit beside their code, driving the plugin over in-memory pipes with loclib-plugin's
+`FakeHost` (see its README's "Testing a plugin"); the CLI's tests run them through the real one.
+Account plugins are the exception: each is a `locallibrary-plugin.toml` alone in
+`plugins/accounts/<id>/`, outside the workspace, which `build.rs` includes and nothing runs, so
+adding one is adding its folder.
 
 `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with clippy, rustfmt
 and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that
@@ -225,8 +225,9 @@ Crates with work that grows with a library or a recording have
 `locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
 of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
-`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
-`loclib-analysis`. `loclib-model` needs `--features test-util`. The first
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget),
+`loclib-sqlcipher` (decrypting a database, with and without a WAL) and `loclib-analysis`.
+`loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 
@@ -278,10 +279,12 @@ failing examples it finds for the next week's run.
 
 The parsers for what a drive or an import hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
-root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
-their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+root): `pdb` (`export.pdb` and `exportExt.pdb`), `pdb_edit` (`PdbEditor`'s playlist, entry,
+track string and history edits on the vendored fixtures, each read back and checked against a
+model of what it changes), `anlz` (analysis files, and the rewrites of their paths, cues and
+times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer mutates the test
+fixtures (and `fuzz/seeds/` for tracklists; `pdb_edit` grows its edit sequences from nothing)
+looking for a panic, a hang or a runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked

@@ -222,7 +222,7 @@ impl Env {
     /// [`Env::drive`], adopted as `name` and pulled into the store as the library `name`.
     pub fn pulled(&self, name: &str) -> PathBuf {
         let root = self.drive(name);
-        self.ok(&["--yes", "adopt", path(&root), "--name", name]);
+        self.ok(&["--yes", "drive", "adopt", path(&root), "--name", name]);
         self.ok(&["pull", name]);
         root
     }

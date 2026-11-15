@@ -197,7 +197,7 @@ flowchart TD
     hub --> sets["Sets and profile<br/>sets.new, sets.edit, sets.delete, sets.export, sets.lookup, sessions.dismiss, sessions.import, profile.prefs.set"]
     hub --> mix["Mixes and files<br/>mix.index, mix.identify, mix.export, mix.reports.html, export"]
     hub --> drive["Drives<br/>drive.role, drive.retire, drive.forget, drive.repair, drive.fsck, drive.speed.measure"]
-    hub --> account["Accounts<br/>account.login.begin, finish, paste, cancel, account.logout, accounts.sign_in.begin, finish, paste, cancel, accounts.sign_out, accounts.access.give, set_default, take_away"]
+    hub --> account["Accounts<br/>account.login.begin, finish, paste, cancel, account.logout, accounts.sign_in.begin, finish, paste, cancel, accounts.sign_out, accounts.access.give, set_default, take_away, restore, accounts.restore_automatically"]
     hub --> plugins["Plugins<br/>plugins.settings.set, plugins.analyze, plugins.checks.set, plugins.checks.timeout.set, plugins.providers.set, plugins.roles.set, plugins.store.copy, plugins.store.restore, plugins.store.repair"]
     store ~~~ drive
     sets ~~~ account
@@ -212,7 +212,7 @@ One list of methods is behind dispatch, `rpc.describe` and the files in `docs/rp
 
 ```mermaid
 flowchart TD
-    registry["Method registry: name, kind, aliases,<br/>params and result types"] --> dispatch["Dispatch at run time"]
+    registry["Method registry: name, kind,<br/>params and result types"] --> dispatch["Dispatch at run time"]
     registry --> kinds["Kinds: read, plan, apply,<br/>immediate, control"]
     registry -->|"a debug build, or one<br/>without account or peers"| contract["The contract"]
     docs["docs/rpc/schema.json,<br/>bundled at build time"] -->|"a release build<br/>with both"| contract

@@ -9,7 +9,7 @@ export type NoParams = { [key: string]: unknown };
 
 /** `rpc.describe`. */
 export type DescribeRequest = {
-  /** One method (or an alias of one); default every method. */
+  /** One method; default every method. */
   method?: string | null;
 };
 
@@ -40,7 +40,7 @@ export type Subscribe = {
 export type StartWatch = {
   /** Pull drives that hold changes the store lacks. */
   pull?: boolean;
-  /** Then sync the rest of the drive's group from it (`sync_set`, the old name, works too). */
+  /** Then sync the rest of the drive's group from it. */
   sync_group?: boolean;
   /** How long a drive must go unchanged before it's looked at, in milliseconds. */
   settle_ms?: number | null;
@@ -1938,7 +1938,7 @@ export type RenameDrive = {
 
 export type SetRole = {
   drive: string;
-  /** `primary`, `backup`, `set` (or `gig`, its old name) or `archive`; `None` clears it. */
+  /** `primary`, `backup`, `set` or `archive`; `None` clears it. */
   role?: string | null;
 };
 
@@ -2828,7 +2828,7 @@ export type Initialized = {
    * and `settings.import_published.*`).
    */
   capabilities: string[];
-  /** Every method's name, aliases included (`rpc.describe` says more about each). */
+  /** Every method's name (`rpc.describe` says more about each). */
   methods: string[];
 };
 
@@ -3520,7 +3520,7 @@ export type Action = {
   /** What a button offering it says. */
   label: string;
   /**
-   * The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
+   * The RPC method to call (`pull.apply`, `sync.plan`). Absent: the request that failed, again,
    * with `params` added to its own.
    */
   method?: string | null;
@@ -6263,7 +6263,7 @@ export type Role =
   | "backup"
   /** Where rekordbox exports go: the source for the rest of its group. */
   | "primary"
-  /** Taken out to play sets (`gig`, its old name, is read too). */
+  /** Taken out to play sets. */
   | "set"
   /** Kept as it is: never overwritten by a sync unless forced. */
   | "archive";
@@ -10065,7 +10065,7 @@ export type FileProblemOutput = {
   repair: RepairSource | null;
 };
 
-/** Every method, by name (aliases included): its parameters and result. */
+/** Every method, by name: its parameters and result. */
 export interface Methods {
   /** control method */
   initialize: { params: NoParams; result: Initialized };
@@ -10099,8 +10099,6 @@ export interface Methods {
   "drive.adopt.plan": { params: AdoptDrive & WriteOptions; result: AdoptPlan & PlanFields };
   /** apply method; paired with `drive.adopt.plan` */
   "drive.adopt.apply": { params: ApplyPlan | (AdoptDrive & WriteOptions); result: DeviceInfo };
-  /** apply method; paired with `drive.adopt.plan`; an older name for `drive.adopt.apply` */
-  "drive.adopt": { params: ApplyPlan | (AdoptDrive & WriteOptions); result: DeviceInfo };
   /** read method */
   "drive.library": { params: LibraryRequest; result: LibraryPage };
   /** read method */
@@ -10127,8 +10125,6 @@ export interface Methods {
   "drive.restore.plan": { params: RestoreBackup & WriteOptions; result: UndoPlan & PlanFields };
   /** apply method; paired with `drive.restore.plan`; can delete or overwrite something */
   "drive.restore.apply": { params: ApplyPlan | (RestoreBackup & WriteOptions); result: BackupInfo };
-  /** apply method; paired with `drive.restore.plan`; can delete or overwrite something; an older name for `drive.restore.apply` */
-  "drive.restore": { params: ApplyPlan | (RestoreBackup & WriteOptions); result: BackupInfo };
   /** read method */
   "undo.list": { params: UndoListRequest; result: UndoList };
   /** plan method; paired with `undo.apply`; can delete or overwrite something */
@@ -10143,30 +10139,16 @@ export interface Methods {
   "sync.apply": { params: ApplyPlan | (SyncRequest & WriteOptions); result: SyncResult };
   /** plan method; paired with `sync.many.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "sync.many.plan": { params: SyncManyRequest & WriteOptions; result: SyncManyPreview & PlanFields };
-  /** plan method; paired with `sync.many.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `sync.many.plan` */
-  "sync_many.plan": { params: SyncManyRequest & WriteOptions; result: SyncManyPreview & PlanFields };
   /** apply method; paired with `sync.many.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "sync.many.apply": { params: ApplyPlan | (SyncManyRequest & WriteOptions); result: TargetResult[] };
-  /** apply method; paired with `sync.many.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `sync.many.apply` */
-  "sync_many.apply": { params: ApplyPlan | (SyncManyRequest & WriteOptions); result: TargetResult[] };
   /** plan method; paired with `sync.group.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "sync.group.plan": { params: SyncSetRequest & WriteOptions; result: SyncManyPreview & PlanFields };
-  /** plan method; paired with `sync.group.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `sync.group.plan` */
-  "sync_group.plan": { params: SyncSetRequest & WriteOptions; result: SyncManyPreview & PlanFields };
-  /** plan method; paired with `sync.group.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `sync.group.plan` */
-  "sync_set.plan": { params: SyncSetRequest & WriteOptions; result: SyncManyPreview & PlanFields };
   /** apply method; paired with `sync.group.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "sync.group.apply": { params: ApplyPlan | (SyncSetRequest & WriteOptions); result: TargetResult[] };
-  /** apply method; paired with `sync.group.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `sync.group.apply` */
-  "sync_group.apply": { params: ApplyPlan | (SyncSetRequest & WriteOptions); result: TargetResult[] };
-  /** apply method; paired with `sync.group.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `sync.group.apply` */
-  "sync_set.apply": { params: ApplyPlan | (SyncSetRequest & WriteOptions); result: TargetResult[] };
   /** plan method; paired with `pull.apply`; long running: sends `progress`, can be cancelled */
   "pull.plan": { params: PullRequest & WriteOptions; result: PullPlan & PlanFields };
   /** apply method; paired with `pull.plan`; long running: sends `progress`, can be cancelled */
   "pull.apply": { params: ApplyPlan | (PullRequest & WriteOptions); result: PullReport };
-  /** apply method; paired with `pull.plan`; long running: sends `progress`, can be cancelled; an older name for `pull.apply` */
-  pull: { params: ApplyPlan | (PullRequest & WriteOptions); result: PullReport };
   /** plan method; paired with `push.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "push.plan": { params: PushRequest & WriteOptions; result: PushPreview & PlanFields };
   /** apply method; paired with `push.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -10187,16 +10169,12 @@ export interface Methods {
   "store.gc.plan": { params: NoParams & WriteOptions; result: GcReport & PlanFields };
   /** apply method; paired with `store.gc.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "store.gc.apply": { params: ApplyPlan | (GcRequest & WriteOptions); result: GcReport };
-  /** apply method; paired with `store.gc.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `store.gc.apply` */
-  "store.gc": { params: ApplyPlan | (GcRequest & WriteOptions); result: GcReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "store.verify": { params: NoParams; result: VerifyReport };
   /** plan method; paired with `store.prune.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "store.prune.plan": { params: PruneOptions & WriteOptions; result: PruneReport & PlanFields };
   /** apply method; paired with `store.prune.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "store.prune.apply": { params: ApplyPlan | (PruneOptions & WriteOptions); result: PruneReport };
-  /** apply method; paired with `store.prune.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `store.prune.apply` */
-  "store.prune": { params: ApplyPlan | (PruneOptions & WriteOptions); result: PruneReport };
   /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "store.copy": { params: StoreCopyRequest & WriteOptions; result: CopyReport };
   /** read method */
@@ -10227,8 +10205,6 @@ export interface Methods {
   "edits.clear.plan": { params: ClearEdits & WriteOptions; result: ClearEditsPlan & PlanFields };
   /** apply method; paired with `edits.clear.plan`; can delete or overwrite something */
   "edits.clear.apply": { params: ApplyPlan | (ClearEdits & WriteOptions); result: ClearedEdits };
-  /** apply method; paired with `edits.clear.plan`; can delete or overwrite something; an older name for `edits.clear.apply` */
-  "edits.clear": { params: ApplyPlan | (ClearEdits & WriteOptions); result: ClearedEdits };
   /** read method */
   "smart.list": { params: NoParams; result: SmartPlaylists };
   /** immediate method */
@@ -10237,12 +10213,8 @@ export interface Methods {
   "smart.remove": { params: RemoveSmartPlaylist & WriteOptions; result: SmartPlaylists };
   /** plan method; paired with `smart.write.apply`; can delete or overwrite something */
   "smart.write.plan": { params: DriveRef & WriteOptions; result: EditPlan & PlanFields };
-  /** plan method; paired with `smart.write.apply`; can delete or overwrite something; an older name for `smart.write.plan` */
-  "smart.apply.plan": { params: DriveRef & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `smart.write.plan`; can delete or overwrite something */
   "smart.write.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: EditReport };
-  /** apply method; paired with `smart.write.plan`; can delete or overwrite something; an older name for `smart.write.apply` */
-  "smart.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: EditReport };
   /** plan method; paired with `dedupe.apply`; can delete or overwrite something */
   "dedupe.plan": { params: DedupeRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `dedupe.plan`; can delete or overwrite something */
@@ -10279,8 +10251,6 @@ export interface Methods {
   "playlist.restore.plan": { params: PlaylistRestoreRequest & WriteOptions; result: PlaylistRestorePreview & PlanFields };
   /** apply method; paired with `playlist.restore.plan`; can delete or overwrite something */
   "playlist.restore.apply": { params: ApplyPlan | (PlaylistRestoreRequest & WriteOptions); result: EditReport };
-  /** apply method; paired with `playlist.restore.plan`; can delete or overwrite something; an older name for `playlist.restore.apply` */
-  "playlist.restore": { params: ApplyPlan | (PlaylistRestoreRequest & WriteOptions); result: EditReport };
   /** read method */
   "settings.schema": { params: NoParams; result: SettingDef[] };
   /** read method */
@@ -10293,18 +10263,12 @@ export interface Methods {
   "settings.show": { params: DriveRef; result: DriveSettingsView };
   /** plan method; paired with `settings.write.apply`; can delete or overwrite something */
   "settings.write.plan": { params: SettingsApplyRequest & WriteOptions; result: SettingsApplyPlan & PlanFields };
-  /** plan method; paired with `settings.write.apply`; can delete or overwrite something; an older name for `settings.write.plan` */
-  "settings.apply.plan": { params: SettingsApplyRequest & WriteOptions; result: SettingsApplyPlan & PlanFields };
   /** apply method; paired with `settings.write.plan`; can delete or overwrite something */
   "settings.write.apply": { params: ApplyPlan | (ApplySettings & WriteOptions); result: DriveSettingsResult[] | ApplyReport };
-  /** apply method; paired with `settings.write.plan`; can delete or overwrite something; an older name for `settings.write.apply` */
-  "settings.apply": { params: ApplyPlan | (ApplySettings & WriteOptions); result: DriveSettingsResult[] | ApplyReport };
   /** plan method; paired with `settings.import.apply`; can delete or overwrite something */
   "settings.import.plan": { params: ImportSettings & WriteOptions; result: ImportSettingsPlan & PlanFields };
   /** apply method; paired with `settings.import.plan`; can delete or overwrite something */
   "settings.import.apply": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
-  /** apply method; paired with `settings.import.plan`; can delete or overwrite something; an older name for `settings.import.apply` */
-  "settings.import": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
   /** read method */
   "settings.export": { params: NoParams; result: SettingsExport };
   /** plan method; paired with `settings.import_file.apply`; can delete or overwrite something */
@@ -10321,8 +10285,6 @@ export interface Methods {
   "art.set.plan": { params: SetArtwork & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `art.set.plan`; can delete or overwrite something */
   "art.set.apply": { params: ApplyPlan | (SetArtwork & WriteOptions); result: EditReport };
-  /** apply method; paired with `art.set.plan`; can delete or overwrite something; an older name for `art.set.apply` */
-  "art.set": { params: ApplyPlan | (SetArtwork & WriteOptions); result: EditReport };
   /** plan method; paired with `art.auto.apply` */
   "art.auto.plan": { params: DriveRef & WriteOptions; result: AutoArtworkPlan & PlanFields };
   /** apply method; paired with `art.auto.plan`; long running: sends `progress`, can be cancelled */
@@ -10331,14 +10293,10 @@ export interface Methods {
   "art.embed.plan": { params: EmbedArtwork & WriteOptions; result: EmbedPlan & PlanFields };
   /** apply method; paired with `art.embed.plan`; can delete or overwrite something */
   "art.embed.apply": { params: ApplyPlan | (EmbedArtwork & WriteOptions); result: EmbedReport };
-  /** apply method; paired with `art.embed.plan`; can delete or overwrite something; an older name for `art.embed.apply` */
-  "art.embed": { params: ApplyPlan | (EmbedArtwork & WriteOptions); result: EmbedReport };
   /** plan method; paired with `art.unembed.apply`; can delete or overwrite something */
   "art.unembed.plan": { params: UnembedRequest & WriteOptions; result: UnembedPlan & PlanFields };
   /** apply method; paired with `art.unembed.plan`; can delete or overwrite something */
   "art.unembed.apply": { params: ApplyPlan | (UnembedRequest & WriteOptions); result: UnembedReport };
-  /** apply method; paired with `art.unembed.plan`; can delete or overwrite something; an older name for `art.unembed.apply` */
-  "art.unembed": { params: ApplyPlan | (UnembedRequest & WriteOptions); result: UnembedReport };
   /** immediate method; long running: sends `progress`, can be cancelled */
   export: { params: ExportPlaylist & WriteOptions; result: ExportReport };
   /** read method */
@@ -10367,14 +10325,10 @@ export interface Methods {
   "players.set.plan": { params: SetPlayers & WriteOptions; result: PlayersPlan & PlanFields };
   /** apply method; paired with `players.set.plan` */
   "players.set.apply": { params: ApplyPlan | (SetPlayers & WriteOptions); result: RememberedPlayers };
-  /** apply method; paired with `players.set.plan`; an older name for `players.set.apply` */
-  "players.set": { params: ApplyPlan | (SetPlayers & WriteOptions); result: RememberedPlayers };
   /** plan method; paired with `players.clear.apply` */
   "players.clear.plan": { params: ClearPlayers & WriteOptions; result: PlayersPlan & PlanFields };
   /** apply method; paired with `players.clear.plan` */
   "players.clear.apply": { params: ApplyPlan | (ClearPlayers & WriteOptions); result: RememberedPlayers };
-  /** apply method; paired with `players.clear.plan`; an older name for `players.clear.apply` */
-  "players.clear": { params: ApplyPlan | (ClearPlayers & WriteOptions); result: RememberedPlayers };
   /** read method */
   "disks.list": { params: NoParams; result: DiskView[] };
   /** plan method; paired with `format.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -10469,8 +10423,6 @@ export interface Methods {
   "drive.rename.plan": { params: RenameDrive & WriteOptions; result: RenamePlan & PlanFields };
   /** apply method; paired with `drive.rename.plan` */
   "drive.rename.apply": { params: ApplyPlan | (RenameDrive & WriteOptions); result: RenameReport };
-  /** apply method; paired with `drive.rename.plan`; an older name for `drive.rename.apply` */
-  "drive.rename": { params: ApplyPlan | (RenameDrive & WriteOptions); result: RenameReport };
   /** immediate method; can delete or overwrite something */
   "drive.forget": { params: DriveRef & WriteOptions; result: DriveRecord };
   /** immediate method */
@@ -10489,24 +10441,16 @@ export interface Methods {
   "drive.adopt_as.plan": { params: AdoptAs & WriteOptions; result: AdoptAsPlan & PlanFields };
   /** apply method; paired with `drive.adopt_as.plan`; can delete or overwrite something */
   "drive.adopt_as.apply": { params: ApplyPlan | (AdoptAs & WriteOptions); result: DeviceInfo };
-  /** apply method; paired with `drive.adopt_as.plan`; can delete or overwrite something; an older name for `drive.adopt_as.apply` */
-  "drive.adopt_as": { params: ApplyPlan | (AdoptAs & WriteOptions); result: DeviceInfo };
   /** plan method; paired with `drive.reidentify.apply`; can delete or overwrite something */
   "drive.reidentify.plan": { params: Reidentify & WriteOptions; result: ReidentifyPlan & PlanFields };
   /** apply method; paired with `drive.reidentify.plan`; can delete or overwrite something */
   "drive.reidentify.apply": { params: ApplyPlan | (Reidentify & WriteOptions); result: DeviceInfo };
-  /** apply method; paired with `drive.reidentify.plan`; can delete or overwrite something; an older name for `drive.reidentify.apply` */
-  "drive.reidentify": { params: ApplyPlan | (Reidentify & WriteOptions); result: DeviceInfo };
   /** read method */
   "drive.groups": { params: NoParams; result: DriveSet[] };
-  /** read method; an older name for `drive.groups` */
-  "drive.sets": { params: NoParams; result: DriveSet[] };
   /** plan method; paired with `drive.eject.apply` */
   "drive.eject.plan": { params: EjectDrives & WriteOptions; result: EjectPlan & PlanFields };
   /** apply method; paired with `drive.eject.plan` */
   "drive.eject.apply": { params: ApplyPlan | (EjectDrives & WriteOptions); result: EjectReport[] };
-  /** apply method; paired with `drive.eject.plan`; an older name for `drive.eject.apply` */
-  "drive.eject": { params: ApplyPlan | (EjectDrives & WriteOptions); result: EjectReport[] };
   /** read method; long running: sends `progress`, can be cancelled */
   "drive.verify": { params: VerifyRequest; result: ScrubReport };
   /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -10519,16 +10463,12 @@ export interface Methods {
   "drive.contact.plan": { params: SetContact & WriteOptions; result: ContactPlan & PlanFields };
   /** apply method; paired with `drive.contact.plan` */
   "drive.contact.apply": { params: ApplyPlan | (SetContact & WriteOptions); result: ContactReport };
-  /** apply method; paired with `drive.contact.plan`; an older name for `drive.contact.apply` */
-  "drive.contact": { params: ApplyPlan | (SetContact & WriteOptions); result: ContactReport };
   /** read method */
   "player.show": { params: DriveRef; result: PlayerIdentity };
   /** plan method; paired with `player.set.apply` */
   "player.set.plan": { params: SetPlayerIdentity & WriteOptions; result: PlayerPlan & PlanFields };
   /** apply method; paired with `player.set.plan` */
   "player.set.apply": { params: ApplyPlan | (SetPlayerIdentity & WriteOptions); result: PlayerIdentity };
-  /** apply method; paired with `player.set.plan`; an older name for `player.set.apply` */
-  "player.set": { params: ApplyPlan | (SetPlayerIdentity & WriteOptions); result: PlayerIdentity };
   /** plan method; paired with `tidy.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "tidy.plan": { params: TidyRequest & WriteOptions; result: TidyPlan & PlanFields };
   /** apply method; paired with `tidy.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -10539,8 +10479,6 @@ export interface Methods {
   "recordings.collect.plan": { params: CollectRecordings & WriteOptions; result: CollectPlan & PlanFields };
   /** apply method; paired with `recordings.collect.plan`; long running: sends `progress`, can be cancelled */
   "recordings.collect.apply": { params: ApplyPlan | (CollectRecordings & WriteOptions); result: CollectReport };
-  /** apply method; paired with `recordings.collect.plan`; long running: sends `progress`, can be cancelled; an older name for `recordings.collect.apply` */
-  "recordings.collect": { params: ApplyPlan | (CollectRecordings & WriteOptions); result: CollectReport };
   /** plan method; paired with `firmware.apply` */
   "firmware.plan": { params: FirmwareRequest & WriteOptions; result: FirmwarePlan & PlanFields };
   /** apply method; paired with `firmware.plan`; long running: sends `progress`, can be cancelled */
@@ -10549,8 +10487,6 @@ export interface Methods {
   "firmware.remove.plan": { params: DriveRef & WriteOptions; result: FirmwareRemovePlan & PlanFields };
   /** apply method; paired with `firmware.remove.plan`; can delete or overwrite something */
   "firmware.remove.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: string[] };
-  /** apply method; paired with `firmware.remove.plan`; can delete or overwrite something; an older name for `firmware.remove.apply` */
-  "firmware.remove": { params: ApplyPlan | (DriveRef & WriteOptions); result: string[] };
   /** plan method; paired with `provision.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "provision.plan": { params: ProvisionRequest & WriteOptions; result: ProvisionPlan & PlanFields };
   /** apply method; paired with `provision.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -10561,12 +10497,8 @@ export interface Methods {
   "refresh.apply": { params: ApplyPlan | (RefreshRequest & WriteOptions); result: JobReport };
   /** plan method; paired with `prep.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "prep.plan": { params: SetJobRequest & WriteOptions; result: JobPlan & PlanFields };
-  /** plan method; paired with `prep.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `prep.plan` */
-  "set.plan": { params: SetJobRequest & WriteOptions; result: JobPlan & PlanFields };
   /** apply method; paired with `prep.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "prep.apply": { params: ApplyPlan | (SetJobRequest & WriteOptions); result: JobReport };
-  /** apply method; paired with `prep.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `prep.apply` */
-  "set.apply": { params: ApplyPlan | (SetJobRequest & WriteOptions); result: JobReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "collection.info": { params: CollectionRef; result: CollectionInfo };
   /** read method; long running: sends `progress`, can be cancelled */

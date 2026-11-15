@@ -4,7 +4,7 @@
 	"tolerance_percent": 0.5,
 	"metrics": {
 		"locallibrary": {
-			"limit": 58463872,
+			"limit": 58773248,
 			"unit": "bytes",
 			"measures": "The release binary, stripped."
 		},

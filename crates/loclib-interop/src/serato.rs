@@ -532,8 +532,8 @@ fn marked_tag(
         if !chunks_end_at(&mut f, end, little).map_err(io)? {
             return Err(tag_error(named, &"its header's size doesn't end where one of its chunks does"));
         }
-        if last_chunk_unpadded(&mut f, little, end, len).map_err(io)? {
-            return Err(tag_error(named, &"its last chunk is missing the pad byte after it"));
+        if let Some(why) = last_chunk_unwritable(&mut f, little, end, len).map_err(io)? {
+            return Err(tag_error(named, &why));
         }
         f.rewind().map_err(io)?;
     }
@@ -618,12 +618,18 @@ fn is_chunk_id(id: [u8; 4]) -> bool {
     id.iter().all(|b| (0x20..=0x7e).contains(b)) && id[first_space..].iter().all(|&b| b == b' ')
 }
 
-/// Whether the chunks of an AIFF or WAV file `len` bytes long, walked as lofty walks them to write
-/// a tag, end in an odd-sized chunk with no pad byte after it: lofty reads such a file but fails
-/// writing into it. The chunks end at `end`, as the file's header says. As in lofty, a pad byte
-/// missing mid-file (where the next chunk's id starts instead) is let go, and the walk stops at an
-/// id that isn't a chunk's.
-fn last_chunk_unpadded(f: &mut std::fs::File, wav: bool, end: u64, len: u64) -> std::io::Result<bool> {
+/// What's wrong with how the chunks of an AIFF or WAV file `len` bytes long end, walked as lofty
+/// walks them to write a tag, if anything: an odd-sized last chunk with no pad byte after it, or
+/// with one that isn't 0 too close to the file's end for lofty to read the 3 bytes after it (it
+/// checks whether they start a chunk id). lofty reads such a file but fails writing into it. The
+/// chunks end at `end`, as the file's header says. As in lofty, a pad byte missing mid-file (where
+/// the next chunk's id starts instead) is let go, and the walk stops at an id that isn't a chunk's.
+fn last_chunk_unwritable(
+    f: &mut std::fs::File,
+    little: bool,
+    end: u64,
+    len: u64,
+) -> std::io::Result<Option<&'static str>> {
     use std::io::{Read, Seek, SeekFrom};
 
     let mut at = 12;
@@ -632,23 +638,34 @@ fn last_chunk_unpadded(f: &mut std::fs::File, wav: bool, end: u64, len: u64) -> 
         f.seek(SeekFrom::Start(at))?;
         f.read_exact(&mut header)?;
         if !is_chunk_id([header[0], header[1], header[2], header[3]]) {
-            return Ok(false);
+            return Ok(None);
         }
-        let size = [header[4], header[5], header[6], header[7]];
-        let size = if wav { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) };
+        let size = chunk_size(&header, little);
         at += 8 + u64::from(size);
-        if size % 2 == 0 {
+        if size.is_multiple_of(2) {
             continue;
         }
         if at >= len {
-            return Ok(true);
+            return Ok(Some("its last chunk is missing the pad byte after it"));
         }
-        let mut next = [0; 4];
+        let mut pad = [0; 1];
         f.seek(SeekFrom::Start(at))?;
-        let pad_left_out = f.read_exact(&mut next).is_ok() && next[0] != 0 && is_chunk_id(next);
-        at += u64::from(!pad_left_out);
+        f.read_exact(&mut pad)?;
+        if pad[0] == 0 {
+            at += 1;
+            continue;
+        }
+        let mut next = [0; 3];
+        match f.read_exact(&mut next) {
+            // lofty reads them only for a pad byte before `end`.
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok((at < end).then_some("its last chunk's pad byte isn't 0"));
+            }
+            r => r?,
+        }
+        at += u64::from(!is_chunk_id([pad[0], next[0], next[1], next[2]]));
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// The most bytes [`write_markers`] adds to the file at `path`: the whole new tag, in its chunk for

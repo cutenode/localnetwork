@@ -5,15 +5,27 @@ Tools for DJs and the people who book them. This glossary covers the website at 
 ## Site areas
 
 **Public page**:
-A page anyone can read without signing in. Viewers allowed to read more, like members or people granted a press kit, see more on it, but nobody sees controls for changing it there, apart from following, saving or saying they're going. Every profile, act, party, venue, event, set, mix, press kit, artist and track has one (an act's opens to everyone once staff list it), and each links to the others the link matrix lists for it.
+A page anyone can read without signing in. Viewers allowed to read more, like members or people granted a press kit, see more on it. People who can change it see the controls for that there, in edit mode; everyone else only follows, saves or says they're going. Every profile, act, party, venue, event, set, mix, press kit, artist and track has one (an act's opens to everyone once staff list it), and each links to the others the link matrix lists for it.
 _Avoid_: profile view, read-only page
+
+**Edit mode**:
+A public page laid out as visitors see it, with its fields in place of its text, for someone who can change it. Nothing changes until Save writes every change at once; Discard drops them. Creating something opens its page empty in edit mode, as a draft until it's published.
+_Avoid_: edit view, editor, admin mode
+
+**View as visitor**:
+Seeing a page you can change exactly as a signed-out visitor sees it, with no controls.
+_Avoid_: preview (on its own), public view
+
+**Edit bar**:
+The bar on a page that holds the controls for the thing on screen, for whoever can change it. Staff see their own section in it, and everything they do from there is logged.
+_Avoid_: staff toolbar, toolbar, admin bar
 
 **Link matrix**:
 The list of which other public pages each kind of public page links to whenever the data for that link exists.
 _Avoid_: sitemap, related links
 
 **Dashboard**:
-The signed-in area where every change to what public pages show happens. There's one per account. Its sections follow who the switcher says you're acting as, and its home starts with the onboarding checklist until that's done.
+Your hub once signed in: the inbox, bookings, plans, settings, onboarding, and lists of what's yours. There's one per account, and editing a page happens on the page. Its sections follow who the switcher says you're acting as, and its home starts with the onboarding checklist until that's done.
 _Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
 
 **Switcher**:
@@ -37,11 +49,11 @@ The four spaces staff can read from any client: audit, moderation, staff and ind
 _Avoid_: staff spaces, root spaces (those include public ones)
 
 **Staff console**:
-The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged.
+The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged. The edit bar acts on one thing on screen; the staff console does everything else.
 _Avoid_: admin dashboard, admin panel
 
 **Flag**:
-A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on.
+A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
 _Avoid_: feature toggle, experiment, setting
 
 **Flag group**:
@@ -100,7 +112,7 @@ _Avoid_: module, facet, field group
 
 **Capability**:
 One thing someone can do for a performer or a party, like editing its page, answering bookings, or checking guests in. Everything people can do for a performer or party is a capability.
-_Avoid_: permission, right
+_Avoid_: permission (that's staff), right
 
 **Role**:
 A named starting set of capabilities, like member, manager, host, cohost or door. A person's capabilities can be adjusted after a role is given.
@@ -174,6 +186,10 @@ _Avoid_: gig, booking (a booking is the conversation that leads to one), set (th
 An event you're going to or interested in, or a show you're on the lineup for. Your plans are one list on the dashboard, and you can keep them in a space when you don't want them public.
 _Avoid_: planner (that's where promoters work out shows), RSVP, saved show
 
+**Planner**:
+Where a promoter works out shows before they're public, privately in their own space. A **planner show** is one of those. A booking started from a planner show stays linked to it, and when the promoter announces the show, the booking also links the **announced show**, the public one. Nothing public points back at the private booking.
+_Avoid_: draft show, plan (a plan is what someone's going to)
+
 **Booking**:
 The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
 _Avoid_: gig, inquiry (the inquiry is what opens one)
@@ -191,12 +207,12 @@ A performer's private area, where the people working on it keep work in progress
 _Avoid_: workspace, managers' space, team space
 
 **Draft**:
-One person's unpublished changes to a press kit, kept in backstage and visible to the others there. Publishing applies only what it changed onto the published press kit.
+Something not yet published: a new page someone has started, or one person's changes to a press kit, kept in backstage and visible to the others there. Publishing a press kit's draft applies only what it changed.
 _Avoid_: edit, revision, review request (those go to staff)
 
 **Grant**:
-Permission for one account to read one press kit's private part.
-_Avoid_: access, approval
+Letting one account read one press kit's private part.
+_Avoid_: access, approval, permission (that's staff)
 
 ## Music
 
@@ -241,3 +257,11 @@ _Avoid_: index, catalogue
 **Staff**:
 The people who moderate and run the site. A moderator decides review requests, hides what shouldn't show and changes who's in a space. An admin can do all that, edit directly, and decide who's staff.
 _Avoid_: mod, team, superuser
+
+**Permission**:
+Something extra an admin lets a moderator do, like changing who a flag is on for or managing flag groups. Admins hold every permission.
+_Avoid_: grant (that's press kit access), capability (that's for performers and parties)
+
+**Subject**:
+The thing an action, audit entry or follow is about.
+_Avoid_: target, object, entity
