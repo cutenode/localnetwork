@@ -4028,6 +4028,12 @@ export type PullReport = {
   up_to_date: boolean;
   imported_files: number;
   imported_bytes: number;
+  /**
+   * Of the new files, those made from rekordbox's collection's copy of the file, copy-on-write
+   * where the volume can (with [`crate::store::prefs::StorePrefs::copy_on_write`] on); the rest
+   * were copied from the drive.
+   */
+  from_collection: number;
   reused_files: number;
 };
 
@@ -4042,8 +4048,13 @@ export type MergePlan = {
   new_tracks: PlannedTrack[];
   /** Source tracks already in the target. */
   matched_tracks: number;
-  /** Those whose details, file or analysis differ: the target's stay as they are. */
+  /** Those whose details, file, analysis or My Tags differ: the target's stay as they are. */
   differing_tracks: TrackChange[];
+  /**
+   * Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so
+   * they aren't brought across, and with any the source isn't taken in.
+   */
+  source_onelibrary_only: TrackRef[];
   /**
    * Whether the target holds everything the source has once merged (every track, its
    * playlists and history), `differing_tracks` aside. Then the source's state goes into the
@@ -5192,6 +5203,11 @@ export type SettingsExport = {
   player: { [key: string]: unknown };
   /** What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept. */
   mix: { [key: string]: unknown };
+  /**
+   * What's set for the store ([`StorePrefs`]): whether a pull makes copy-on-write copies of
+   * rekordbox's collection.
+   */
+  store: { [key: string]: unknown };
   /**
    * The host's settings for plugins: which analyzer each field role is read from, when a
    * provider's candidate is picked, and whether each check runs.

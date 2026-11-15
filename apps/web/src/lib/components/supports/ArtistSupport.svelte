@@ -11,6 +11,7 @@
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 	import ArtistLinks from './ArtistLinks.svelte';
+	import MusicBrainzLink from './MusicBrainzLink.svelte';
 
 	/**
 	 * An artist's page below the breadcrumb: their name and supports, then each of their tracks DJs played with every
@@ -63,7 +64,7 @@
 					<div class="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
 						<div class="flex min-w-0 flex-col">
 							<h3 class="m-0 text-emphasis font-semibold">
-								{track.title}{#if track.recordingMbId}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}
+								{track.title}{#if track.recordingMbId}{' '}<MusicBrainzLink kind="recording" mbid={track.recordingMbId} name={track.title} />{/if}
 							</h3>
 							<span class="text-small"><ArtistLinks artists={track.artists} /></span>
 						</div>

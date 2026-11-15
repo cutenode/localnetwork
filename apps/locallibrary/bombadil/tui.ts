@@ -319,14 +319,14 @@ export const escapeLeavesSearch = always(() => {
 // Actions
 // ---------------------------------------------------------------------------------------------
 
-// Every key the TUI binds, except the ones that leave the run or the machine: `q`, Ctrl-C and
+// Every key the TUI binds, except the ones that leave the run or the machine: `Q`, Ctrl-C and
 // Ctrl-Q quit (which ends the test), `L` signs in and out over the network, `:` opens the command
 // palette, which reaches signing in too, and `O` opens any folder typed in the Mixes view. `y` and
 // `u` stay in: they write edits (and undo them), and the only drive the TUI can see is a
 // throwaway copy (which it won't eject: it's no volume). Text (`TEXT`) is typed only where a line
-// is being typed, so `q`, `L` and `:` there are just letters.
+// is being typed, so `Q`, `L` and `:` there are just letters.
 const KEYS = CharSet.fromLiterals(
-	..."1234567890?!/abcdefghijklmnoprstuvwxyzABCDEGHJKMNPQRSTUX*#[]+=-_ ',.<>{}()".split('')
+	..."1234567890?!/abcdefghijklmnopqrstuvwxyzABCDEGHJKMNPRSTUXZ*#[]+=-_ ',.<>{}()".split('')
 );
 
 /** `g` and each view's letter, typed at once. */

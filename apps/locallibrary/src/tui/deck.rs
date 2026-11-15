@@ -134,12 +134,12 @@ impl BandMode {
 }
 
 impl App {
-    /// Whether the digit row plays hot cues: with the pads on, or in the Deck layout.
+    /// Whether the digit row plays hot cues: with the pads on, or in player mode.
     pub fn pads_on(&self) -> bool {
         self.deck.pads || self.deck_showing()
     }
 
-    /// Whether the deck has the screen: the Library view's Deck layout, with Browse closed.
+    /// Whether the deck has the screen: player mode, with Browse closed.
     pub fn deck_showing(&self) -> bool {
         self.view == View::Library && self.deck_layout && !self.browsing
     }

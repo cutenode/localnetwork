@@ -127,6 +127,13 @@ _Avoid_: stick, device, volume, USB
 A saved copy of a drive's library in the store.
 _Avoid_: backup, version, commit
 
+**Fingerprint**:
+What a library state goes by: every library file's path and size, and the bytes of each one but the
+audio. `exportLibrary.db` and its WAL count by the library they hold when it can be read, so
+drives with the same export share a fingerprint. `drive verify` finds a state's snapshot by it, and a lineage is a list
+of them. A track's audio fingerprint, which `mix` matches recordings with, is a different thing.
+_Avoid_: hash, checksum, state ID
+
 **View**:
 A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
 nothing copied.
@@ -169,12 +176,13 @@ _Avoid_: channel, turntable
 The Library view with its panes and the deck strip.
 _Avoid_: list mode
 
-**Deck layout**:
-The Library view with the deck on the whole screen.
-_Avoid_: full screen
+**Player mode**:
+The playing track on the whole screen: its waveforms, numbers and what mixes into it. `f` opens it
+from any tab and goes back to that tab.
+_Avoid_: Deck layout, deck mode, full screen
 
 **Browse overlay**:
-The Library view's panes opened over the Deck layout until a track's loaded, as a CDJ's BROWSE
+The Library view's panes opened over player mode until a track's loaded, as a CDJ's BROWSE
 button does. Not the Browse node at the top of the tree.
 _Avoid_: library popup
 

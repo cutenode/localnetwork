@@ -1,12 +1,12 @@
 <script module lang="ts">
 	import type { HeldRecordKind } from '#lib/types.ts';
 
-	/** Each kind's heading and what deleting one does, in the order they show. */
-	const GROUPS: { kind: HeldRecordKind; label: string; hint: string }[] = [
-		{ kind: 'request', label: 'Submissions', hint: 'Deleting a pending one withdraws it. A decided one keeps its decision.' },
-		{ kind: 'booking', label: 'Booking messages', hint: 'Inquiries and messages. Deleting one takes it out of the thread for everyone.' },
-		{ kind: 'epkRequest', label: 'Press kit requests', hint: 'Deleting a pending one withdraws it. An answer stays.' },
-		{ kind: 'epkDraft', label: 'Press kit drafts', hint: "Changes you haven't published yet." }
+	/** Each kind's heading, what it is, and what deleting one does, in the order they show. */
+	export const HELD_GROUPS: { kind: HeldRecordKind; label: string; about: string; hint: string }[] = [
+		{ kind: 'request', label: 'Requests to staff', about: "What you've asked staff for", hint: 'Deleting a pending one withdraws it. A decided one keeps its decision.' },
+		{ kind: 'booking', label: 'Booking messages', about: 'Inquiries and messages', hint: 'Deleting one takes it out of the booking for everyone.' },
+		{ kind: 'epkRequest', label: 'Press kit access', about: 'Asks to see a press kit', hint: 'Deleting a pending one withdraws it. An answer stays.' },
+		{ kind: 'epkDraft', label: 'Press kit drafts', about: "Changes you haven't published yet", hint: 'Deleting one drops those changes.' }
 	];
 </script>
 
@@ -21,9 +21,10 @@
 
 	/**
 	 * The records Local Network wrote for the viewer, by kind, each with a delete, and a delete for each kind. Keeps
-	 * showing the last list while a new one loads, so deleting doesn't flash the placeholder.
+	 * showing the last list while a new one loads, so deleting doesn't flash the placeholder. `retry` is where Try again
+	 * goes when the list fails.
 	 */
-	let { records, form }: { records: Promise<HeldRecordView[]>; form?: { error?: string; success?: string } | null } = $props();
+	let { records, form, retry }: { records: Promise<HeldRecordView[]>; form?: { error?: string; success?: string } | null; retry: string } = $props();
 
 	let loaded = $state<{ list: HeldRecordView[] } | 'failed' | null>(null);
 
@@ -42,7 +43,7 @@
 
 	const list = $derived(loaded === null || loaded === 'failed' ? [] : loaded.list);
 
-	const groups = $derived(GROUPS.map((group) => ({ ...group, records: list.filter((record) => record.kind === group.kind) })).filter((group) => group.records.length));
+	const groups = $derived(HELD_GROUPS.map((group) => ({ ...group, records: list.filter((record) => record.kind === group.kind) })).filter((group) => group.records.length));
 </script>
 
 <FormMessage {form} />
@@ -50,24 +51,23 @@
 {#if loaded === null}
 	<div class="flex flex-col gap-6" aria-busy="true">
 		<p class="sr-only">Loading your data</p>
-		{#each [3, 2] as rows, index (index)}
-			<Card padding="none">
-				<div class="flex flex-col gap-1.5 border-b border-line px-5 py-4">
-					<span class="flex h-[1lh] items-center text-emphasis"><span class="h-4 w-36 animate-pulse rounded-sm bg-raised"></span></span>
-					<span class="flex h-[1lh] items-center text-small"><span class="h-3.5 w-64 max-w-full animate-pulse rounded-sm bg-raised"></span></span>
+		<Card padding="none">
+			<div class="flex flex-col gap-1.5 border-b border-line px-5 py-4">
+				<span class="flex h-[1lh] items-center text-emphasis"><span class="h-4 w-36 rounded-sm bg-well motion-safe:animate-pulse"></span></span>
+				<span class="flex h-[1lh] items-center text-small"><span class="h-3.5 w-64 max-w-full rounded-sm bg-well motion-safe:animate-pulse"></span></span>
+			</div>
+			{#each { length: 3 }, row (row)}
+				<div class="flex flex-col gap-1 border-b border-line px-5 py-3.5 last:border-b-0">
+					<span class="flex h-[1lh] items-center"><span class="h-4 w-1/2 rounded-sm bg-well motion-safe:animate-pulse"></span></span>
+					<span class="flex h-[1lh] items-center text-small"><span class="h-3.5 w-3/4 rounded-sm bg-well motion-safe:animate-pulse"></span></span>
+					<span class="flex h-[1lh] items-center text-caption"><span class="h-3 w-24 rounded-sm bg-well motion-safe:animate-pulse"></span></span>
 				</div>
-				{#each { length: rows }, row (row)}
-					<div class="flex flex-col gap-1 border-b border-line px-5 py-3.5 last:border-b-0">
-						<span class="flex h-[1lh] items-center"><span class="h-4 w-1/2 animate-pulse rounded-sm bg-raised"></span></span>
-						<span class="flex h-[1lh] items-center text-caption"><span class="h-3 w-24 animate-pulse rounded-sm bg-raised"></span></span>
-					</div>
-				{/each}
-			</Card>
-		{/each}
+			{/each}
+		</Card>
 	</div>
 {:else if loaded === 'failed'}
 	<EmptyState title="Couldn't load your data" body="Something went wrong on our side. Try again in a minute.">
-		<Button variant="secondary" size="sm" href="/dashboard/data" data-sveltekit-reload>Try again</Button>
+		<Button variant="secondary" size="sm" href={retry} data-sveltekit-reload>Try again</Button>
 	</EmptyState>
 {:else}
 	{#each groups as group (group.kind)}
@@ -99,6 +99,6 @@
 			</ul>
 		</section>
 	{:else}
-		<EmptyState title="Nothing here" body="Local Network isn't holding anything for you." />
+		<EmptyState title="Nothing here" body="Local Network isn't holding any of these for you." />
 	{/each}
 {/if}

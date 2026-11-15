@@ -168,7 +168,9 @@ flowchart TD
   Is401{"a 401?"}
   Stop["stop the rest,<br/>error: unauthorized"]
   TrackFail["a track: remembered as failed, a day"]
-  ArtistFail["an artist: in the failed list"]
+  Is404{"an artist: a 404?"}
+  ArtistMissing["in the missing list,<br/>no profile, stored"]
+  ArtistFail["in the failed list,<br/>the row keeps what it had"]
   Links["web-profiles: a profile with no links"]
 
   Get --> Status
@@ -181,7 +183,9 @@ flowchart TD
   Who -->|"one track or artist"| Is401
   Is401 -->|yes| Stop
   Is401 -->|no| TrackFail
-  Is401 -->|no| ArtistFail
+  Is401 -->|no| Is404
+  Is404 -->|yes| ArtistMissing
+  Is404 -->|no| ArtistFail
   Is401 -->|no| Links
 ```
 

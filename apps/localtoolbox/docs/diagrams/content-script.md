@@ -96,20 +96,27 @@ stateDiagram-v2
 
 Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css)
 
-And one queue button that says whether the track is queued. Small art has room for a plus sign alone.
+And one queue button that says whether the track is queued. Small art has room for one sign: a plus, a check once queued, a minus under the pointer. Small art that's downloaded already shows the mark's check, so a queued button there hides until hovered.
 
 ```mermaid
 stateDiagram-v2
   state "No button" as Off
-  state "Offers + queue, on hover" as Offer
-  state "Stays up reading queued, or + on small art" as Queued
+  state "Offers + queue, or + on small art, on hover" as Offer
+  state "Stays up reading queued, or a check on small art" as Queued
+  state "Small art, downloaded: hidden, a minus on hover" as SmallDone
   [*] --> Off
   Off --> Offer: queue reachable, row names a track
   Off --> Queued: same, track already queued
+  Off --> SmallDone: same, small art, queued and downloaded
   Offer --> Queued: queued, here or anywhere
+  Offer --> SmallDone: queued on small art, downloaded
   Queued --> Offer: taken out, here or anywhere
+  Queued --> SmallDone: small art, marked downloaded
+  SmallDone --> Queued: unmarked
+  SmallDone --> Offer: taken out, here or anywhere
   Offer --> Off: row names no track
   Queued --> Off: row names no track
+  SmallDone --> Off: row names no track
 ```
 
 Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css)

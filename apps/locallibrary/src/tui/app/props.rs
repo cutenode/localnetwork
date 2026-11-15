@@ -7,8 +7,6 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::query::QueryContext;
 
-use crate::output::plural;
-
 use super::testing::*;
 use super::*;
 
@@ -284,7 +282,7 @@ fn quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
     let (mut waiting, mut armed) = (false, 0);
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
         match tc.draw(gs::integers::<u8>().max_value(4)) {
-            0 => press(&mut app, "q"),
+            0 => press(&mut app, "Q"),
             1 => app.on_key(key_of(KeyCode::Char('c'), true)),
             2 => app.on_key(key_of(KeyCode::Char('q'), true)),
             3 => app.request_quit(),
@@ -671,10 +669,11 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
         drive: "TEST".into(),
         order: order.clone(),
         pos,
+        name: String::new(),
     };
     app.resume = Some(at);
     app.save_state();
-    let read = state::load(&app.store_root);
+    let read = state::load(&app.store_root).unwrap();
     assert_eq!(read, app.saved_state(), "saved as it is");
 
     // Unchanged, nothing is written; changed, it is.
@@ -686,10 +685,10 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     press(&mut app, "+");
     app.last_save_check = Instant::now() - Duration::from_secs(3);
     app.tick();
-    assert_eq!(state::load(&app.store_root).volume, Some(app.volume));
+    assert_eq!(state::load(&app.store_root).unwrap().volume, Some(app.volume));
 
     let mut next = App::blank(app.store_root.clone(), None);
-    let mut saved = state::load(&app.store_root);
+    let mut saved = state::load(&app.store_root).unwrap();
     // The next run: as it was left, already playing something else, or with the drive's tracks
     // gone since; with the My Tags column shown, or not.
     let (how, tags) = (tc.draw(gs::integers::<u8>().max_value(2)), tc.draw(gs::booleans()));
@@ -701,7 +700,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     saved.tags_column = tags;
     app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]));
     app.save_state();
-    assert_eq!(state::load(&app.store_root).vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
+    assert_eq!(state::load(&app.store_root).unwrap().vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
     // Showing a set last time, or not.
     let a_set = tc.draw(gs::booleans());
     if a_set {
@@ -722,6 +721,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
             drive: "OTHER".into(),
             order: vec![0],
             pos: 0,
+            name: String::new(),
         };
     }
     next.install(root.clone(), Loaded::prepare(Device::open(&root).unwrap(), (*library).clone()));
@@ -869,11 +869,13 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     }
                     let Some(now) = app.now.as_ref().filter(|n| n.track.id == 1 && files[0].1 > 0) else { continue };
                     assert!(now.art.is_some() || now.loading, "its artwork read from the drive");
-                    let next = app.next_pos(true);
+                    // What plays next: a pick, else the list's next.
+                    let next = app.next_up(true).and_then(|n| Some(app.track_of(&n)?.0.file_path.clone()));
                     (&mut out).take(4100).for_each(drop);
                     app.tick();
                     if let Some(p) = next.filter(|_| app.now.is_none() && app.resume.is_some()) {
-                        assert_eq!((app.queue.pos, app.resume), (p, Some(Duration::ZERO)), "ready for space");
+                        let ready = app.resumable().map(|(t, at)| (t.file_path.clone(), at));
+                        assert_eq!(ready, Some((p, Duration::ZERO)), "ready for space");
                         // From wherever it was left (the last run's, say).
                         app.resume = Some(Duration::from_millis(100));
                         press(&mut app, " ");
@@ -921,7 +923,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 }
                 // Both with audio in them.
                 let up = app.upcoming.as_ref().unwrap();
-                let (next, id) = (up.pos, up.now.id);
+                let (next, id) = (up.next.clone(), up.now.id);
                 let audible = |t: &Track| {
                     let i = t.id as usize - 1;
                     files[i].1 > 0 && app.queue.root.join(format!("Contents/{}.wav", t.id)).is_file()
@@ -949,9 +951,13 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 app.tick();
                 if fine {
                     let said: Vec<&str> = app.log.iter().rev().take(3).map(|(m, ..)| m.as_str()).collect();
+                    let pos = match next {
+                        Next::From { pos, .. } => pos,
+                        Next::Pick(..) => app.queue.pos,
+                    };
                     assert_eq!(
                         (app.queue.pos, app.now.as_ref().map(|n| n.id)),
-                        (next, Some(id)),
+                        (pos, Some(id)),
                         "on to the one opened ahead: {was}; {said:?}"
                     );
                 }
@@ -1044,7 +1050,10 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let mut t = track(9, "DJ", "Set");
                 t.file_path = set.display().to_string();
                 app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300))));
-                assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
+                assert_eq!(
+                    app.now.as_ref().map(|n| (n.track.title.as_str(), n.root.as_path())),
+                    Some(("Set", set.parent().unwrap()))
+                );
                 assert!(!app.playing_queue());
                 // Played to its end (through the output it started on), it stops.
                 let t = Instant::now();
@@ -1060,12 +1069,11 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 assert_eq!((app.queue.len(), app.queue.pos), (len, pos), "the queue stays, for afterwards");
             }
             8 => {
-                // The crate, played from one of its tracks: those on the drive, from that one.
+                // A track of the queue, played from the panel: it plays now, the others stay to play.
                 let paths: Vec<String> = app.queue.library.tracks.iter().map(|t| t.file_path.clone()).collect();
                 app.crate_list.clear();
                 app.add_to_crate(&root, &paths);
                 let elsewhere = tc.draw(gs::booleans());
-                let before = said(&app, "playing the crate's tracks on ");
                 if elsewhere {
                     app.crate_list.add(Path::new("/Volumes/OTHER"), "OTHER", [track(7, "DJ", "Elsewhere")]);
                 }
@@ -1077,10 +1085,10 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 press(&mut app, "\n");
                 app.focus = Focus::Tracks;
                 if let Some(now) = app.now.as_ref().filter(|n| Some(n.id) != was) {
-                    assert_eq!(now.track.file_path, paths[i], "the crate plays from the one picked");
+                    assert_eq!(now.track.file_path, paths[i], "the queue plays the one picked");
+                    let up = app.crate_list.up_next().count();
+                    assert_eq!(up, paths.len() - 1 + usize::from(elsewhere), "the others stay to play");
                 }
-                // With tracks of another drive in it, it says which drive's it plays.
-                assert_eq!(said(&app, "playing the crate's tracks on "), before + usize::from(elsewhere));
             }
             9 => wait(&mut app, |a| a.now.as_ref().is_none_or(|n| !n.opening)),
             10 => {
@@ -1123,9 +1131,8 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     mouse(&mut app, LEFT, at);
                 }
                 if queued {
-                    assert_eq!(app.queue.len(), len + 1, "the pick queued");
                     assert!(last_message(&app).starts_with("next: "));
-                    assert_eq!(app.queue.order[app.queue.pos + 1], app.queue.len() - 1, "to play next");
+                    assert!(matches!(app.next_up(true), Some(Next::Pick(..))), "the pick plays next");
                 }
             }
             11 => {
@@ -1154,10 +1161,8 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 match key {
                     "x" => assert!(app.now.is_none(), "x stops"),
                     "\n" if queued => {
-                        assert_eq!(app.queue.len(), len + 1, "full screen, enter queues the pick");
-                        assert!(last_message(&app).starts_with("next: "));
-                        let next = app.queue.order[app.queue.pos + 1];
-                        assert_eq!(next, app.queue.len() - 1, "to play next");
+                        assert!(last_message(&app).starts_with("next: "), "full screen, enter queues the pick");
+                        assert!(matches!(app.next_up(true), Some(Next::Pick(..))), "to play next");
                     }
                     "o" if set => assert_eq!(app.view, View::Mixes, "a set is shown with the mixes"),
                     "o" if app.now.is_some() && app.loaded.as_ref().is_some_and(|l| l.root() == root) => {
@@ -1177,11 +1182,15 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
         assert_eq!(order, (0..q.len()).collect::<Vec<_>>(), "the play order is the queue's tracks");
         assert!(q.is_empty() || q.pos < q.len());
         if let Some(now) = &app.now {
-            let theirs = app.playing_queue() || now.drive == "recorded set" || app.queue.root != now.root;
+            // A recorded set plays from its own folder, not the queue's drive.
+            let theirs = app.playing_queue() || app.queue.root != now.root;
             assert!(theirs, "{} plays, not the queue's", now.track.title);
         }
         if app.audio.is_none() {
             assert!(!app.is_playing());
+        }
+        if let Some(u) = &app.upcoming {
+            assert_eq!(Some(&u.next), app.next_up(true).as_ref(), "what's opened ahead is what plays next");
         }
         let (w, h) = (tc.draw(gs::integers::<u16>().min_value(1).max_value(200)), 40);
         assert_eq!(super::super::ui::screen(&mut app, w, h).lines().count(), h as usize);
@@ -1550,32 +1559,20 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     assert_eq!(app.vis, vis[turns % 4]);
     let s = super::super::ui::screen(&mut app, 220, 60);
     let now = app.now.as_ref().unwrap();
-    let (t, a) = (&now.track, &now.analysis);
+    let t = &now.track;
     let says = |what: &str| s.contains(what);
     assert!(says(&t.title) && says(&t.artist));
     assert_eq!(says("Warp"), !t.label.is_empty(), "the label\n{s}");
     assert_eq!(says("1997"), t.year > 0, "the year\n{s}");
-    assert_eq!(says("“Peak time”"), !t.comment.is_empty(), "the comment\n{s}");
-    assert_eq!(says("composer Bangalter"), !t.composer.is_empty(), "the credits\n{s}");
+    // The comment and credits are the info panel's, not the deck's.
+    assert!(!says("“Peak time”") && !says("composer Bangalter"), "{s}");
     match now.key {
         Some(k) => assert!(says(&format!(" {} {} ", k.code(), k.note())), "the key\n{s}"),
         None if !t.key.is_empty() => assert!(says(&format!(" {} ", t.key)), "the key as stored\n{s}"),
         None => {}
     }
-    if !a.beats.is_empty() {
-        let tempo = if a.beats.iter().any(|b| b.bpm != 120.0) { "120.0–126.0 BPM" } else { "steady tempo" };
-        let (beats, bars) = (a.beats.len(), a.beats.len().div_ceil(4));
-        assert!(says(&format!("{} · {} · {tempo}", plural(beats, "beat"), plural(bars, "bar"))), "{s}");
-    }
-    if !a.cues.is_empty() {
-        let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
-        let loops = a.cues.iter().filter(|c| c.end_ms.is_some()).count();
-        let memory = a.cues.len() - hot;
-        assert!(says(&format!("{} ({}) · {memory} memory", plural(hot, "hot cue"), plural(loops, "loop"))), "{s}");
-    }
-    if !now.phrases.is_empty() {
-        assert!(says(&plural(now.phrases.len(), "phrase")), "{s}");
-    }
+    // What the analysis found is on the waveforms: no panel counts it.
+    assert!(!says(" beats · ") && !says(" memory") && !says("steady tempo"), "{s}");
     if let Some((i, _, _)) = now.phrase_at(pos as f64) {
         let next = match now.phrases.get(i + 1) {
             Some(p) => format!("phrase  {} ", p.kind.name()),
@@ -1651,10 +1648,15 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
     for step in 0..tc.draw(gs::integers::<usize>().min_value(14).max_value(28)) {
         (app.view, app.modal, app.deck.outputs, app.picking) = (View::Library, None, None, None);
         (app.drive_pane, app.drive_tab) = (DrivePane::List, DrivePane::Info);
-        draw(&mut app);
+        let kind = kinds[step % kinds.len()];
+        // The Library view's areas, which the kinds that show another view (or click nothing)
+        // don't use: those draw what they show themselves.
+        if !matches!(kind, 9 | 12 | 13) {
+            draw(&mut app);
+        }
         let a = &app.areas;
         let mid = |r: Rect| (r.x + r.width / 2, r.y + r.height / 2);
-        match kinds[step % kinds.len()] {
+        match kind {
             13 => {
                 // The Drives view's snapshots, under their header.
                 let record = LibraryRecord {
@@ -1792,7 +1794,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                     continue;
                 }
                 let x = tc.draw(gs::integers::<u16>().max_value(r.width - 1));
-                if kinds[step % kinds.len()] == 6 {
+                if kind == 6 {
                     app.last_seek = Instant::now() - Duration::from_secs(1);
                     mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (r.x + x, r.y));
                 } else {
@@ -1972,16 +1974,16 @@ fn the_marks_and_the_crate_answer_to_their_keys(tc: TestCase) {
                 match &app.modal {
                     Some(Modal::Prompt(p)) => {
                         let n = crated.len();
-                        assert_eq!(p.label, format!("Save the crate's {n} track{} as", if n == 1 { "" } else { "s" }));
+                        assert_eq!(p.label, format!("Save the queue's {n} track{} as", if n == 1 { "" } else { "s" }));
                     }
-                    _ => assert_eq!((crated.len(), last_message(&app)), (0, "the crate has nothing from this drive")),
+                    _ => assert_eq!((crated.len(), last_message(&app)), (0, "the queue has nothing from this drive")),
                 }
             }
             _ => {
                 app.focus = Focus::Tracks;
                 app.perform(Act::CrateClear, None);
                 if crated.is_empty() {
-                    assert_eq!(last_message(&app), "the crate is empty");
+                    assert_eq!(last_message(&app), "the queue is empty");
                 } else {
                     assert!(matches!(app.modal, Some(Modal::Ask(..))), "asks first");
                     press(&mut app, "y");
@@ -2246,7 +2248,7 @@ fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
 
     // The next run.
     app.save_state();
-    let saved = state::load(&app.store_root);
+    let saved = state::load(&app.store_root).unwrap();
     assert_eq!(saved.field_columns, ["echo.bytes"]);
     let mut next = App::blank(app.store_root.clone(), None);
     next.apply_saved(&saved, false);
@@ -2259,7 +2261,7 @@ fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
     assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&next, i)).collect::<Vec<_>>(), want);
     press(&mut app, ":hide the echo.bytes column\n");
     app.save_state();
-    assert!(app.field_columns.is_empty() && state::load(&app.store_root).field_columns.is_empty());
+    assert!(app.field_columns.is_empty() && state::load(&app.store_root).unwrap().field_columns.is_empty());
 }
 
 /// Plugins' fields of each kind, as an analyzer declares them.
@@ -2415,5 +2417,89 @@ fn prop_the_ways_of_mixing_in_take_turns(tc: TestCase) {
         let theirs: Vec<u32> =
             (all.iter()).filter(|s| s.relation == way).map(|s| s.track.id).take(mine.len()).collect();
         assert_eq!(mine, theirs, "{way:?}");
+    }
+}
+
+/// Picks play in the order they're queued (`q n` puts its block at the front of those still to
+/// play, `q a` and `a` at the end), before the list they were started from, whatever shuffle,
+/// repeat and new lists happen meanwhile. The list's play order stays a permutation of its tracks,
+/// the queue holds each track once, and played picks stay in it.
+#[hegel::test(test_cases = 150)]
+fn picks_play_in_the_order_picked(tc: TestCase) {
+    let (mut app, _dir) = app_with(library());
+    let n = app.visible.len();
+    // The picks still to play, by file path, in the order they play.
+    let mut model: Vec<String> = Vec::new();
+    let path = |app: &App, k: usize| {
+        let l = app.loaded.as_ref().unwrap();
+        l.library.tracks[app.visible[k]].file_path.clone()
+    };
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(4).max_value(30)) {
+        (app.modal, app.view, app.focus) = (None, View::Library, Focus::Tracks);
+        match tc.draw(gs::integers::<u8>().max_value(7)) {
+            0..=2 => {
+                // Some tracks marked (or the one selected), queued next or at the end.
+                app.marks.clear();
+                let ks: Vec<usize> =
+                    tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).min_size(1).max_size(3));
+                app.track_state.select(Some(ks[0]));
+                let block: Vec<String> = if ks.len() > 1 {
+                    let marked: Vec<String> = ks.iter().map(|&k| path(&app, k)).collect();
+                    app.marks.extend(marked);
+                    // In the list's order, once each.
+                    (0..n).filter(|k| ks.contains(k)).map(|k| path(&app, k)).collect()
+                } else {
+                    vec![path(&app, ks[0])]
+                };
+                match tc.draw(gs::integers::<u8>().max_value(2)) {
+                    0 => {
+                        press(&mut app, "qn");
+                        model.retain(|p| !block.contains(p));
+                        model.splice(0..0, block);
+                    }
+                    k => {
+                        press(&mut app, if k == 1 { "qa" } else { "a" });
+                        for p in block {
+                            if !model.contains(&p) {
+                                model.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+            3 => press(&mut app, "s"),
+            4 => press(&mut app, "r"),
+            5 => {
+                // A new list started: only what plays after the picks changes.
+                app.track_state.select(Some(tc.draw(gs::integers::<usize>().max_value(n - 1))));
+                press(&mut app, "\n");
+                assert!(app.crate_list.playing.is_none(), "the list's track plays");
+            }
+            _ => {
+                let had_list = app.next_pos(false).is_some();
+                press(&mut app, "n");
+                if model.is_empty() {
+                    assert_eq!(app.now.is_some(), had_list, "the list plays on, or it stops");
+                    if had_list {
+                        assert!(app.crate_list.playing.is_none(), "no pick to play: the list's");
+                    }
+                } else {
+                    let first = model.remove(0);
+                    assert_eq!(app.now.as_ref().map(|n| n.track.file_path.clone()), Some(first), "the first pick");
+                    assert!(app.crate_list.playing.is_some() && app.playing_queue());
+                }
+            }
+        }
+        let up: Vec<String> = app.crate_list.up_next().map(|t| t.track.file_path.clone()).collect();
+        assert_eq!(up, model, "the picks to play, in order");
+        let mut seen: Vec<&str> = app.crate_list.items.iter().map(|t| t.track.file_path.as_str()).collect();
+        let all = seen.len();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), all, "each track once");
+        let q = &app.queue;
+        let mut order = q.order.clone();
+        order.sort_unstable();
+        assert_eq!(order, (0..q.len()).collect::<Vec<_>>(), "the play order is the list's tracks");
     }
 }
