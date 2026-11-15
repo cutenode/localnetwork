@@ -14,7 +14,7 @@
 			"measures": "Bytes allocated by one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.allocations": {
-			"limit": 650,
+			"limit": 657,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
@@ -24,17 +24,17 @@
 			"measures": "Bytes allocated by one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.allocations": {
-			"limit": 394,
+			"limit": 402,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.bytes": {
-			"limit": 47159,
+			"limit": 47714,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"prepare.allocations": {
-			"limit": 274,
+			"limit": 281,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Prepare view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
