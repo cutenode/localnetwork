@@ -21,8 +21,8 @@ fn every_method_is_described_once_with_its_schemas() {
     );
     let any_of = sync["params"]["anyOf"].as_array().unwrap();
     assert_eq!(any_of[0]["$ref"], "#/$defs/ApplyPlan");
-    let many = methods.iter().find(|m| m["name"] == "sync.many.plan").unwrap();
-    assert_eq!(many["aliases"], json!(["sync_many.plan"]));
+    // A method is described by its name alone: there are no other names for it.
+    assert!(methods.iter().all(|m| m.get("aliases").is_none()));
     // A plan's result is the plan and what every plan says.
     let plan = &methods.iter().find(|m| m["name"] == "edit.plan").unwrap()["result"];
     assert_eq!(plan["allOf"][1]["$ref"], "#/$defs/PlanFields", "{plan}");
@@ -30,15 +30,17 @@ fn every_method_is_described_once_with_its_schemas() {
 
 #[test]
 fn one_method_comes_with_only_what_it_uses() {
-    let one = describe(Some("drive.adopt")).unwrap();
+    let one = describe(Some("drive.adopt.apply")).unwrap();
     assert_eq!(one["methods"].as_array().unwrap().len(), 1);
     assert_eq!(one["methods"][0]["name"], "drive.adopt.apply");
     let defs = one["$defs"].as_object().unwrap();
     assert!(defs.contains_key("AdoptDrive") && !defs.contains_key("MixReport"), "{:?}", defs.keys());
     assert!(describe(Some("no.such")).is_none() && describe(Some("$/test.wait")).is_none());
+    // A development build's name for it is no method.
+    assert!(describe(Some("drive.adopt")).is_none());
 }
 
-/// One method described, by its name or an old one, is the contract's entry for it, with
+/// One method described by its name is the contract's entry for it, with
 /// exactly the definitions it uses, each as the contract has it; a name no method has
 /// describes nothing.
 #[hegel::test(test_cases = 60)]
@@ -46,9 +48,7 @@ fn one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let all = contract()["methods"].as_array().unwrap();
     let m = &tc.draw(gs::sampled_from(&all[..]));
-    let names: Vec<&str> =
-        std::iter::once(&m["name"]).chain(m["aliases"].as_array().unwrap()).filter_map(Value::as_str).collect();
-    let name = tc.draw(gs::sampled_from(&names[..]));
+    let name = m["name"].as_str().unwrap();
     let one = describe(Some(name)).unwrap();
     assert_eq!(one["methods"], json!([m]), "{name}");
     assert_eq!(one["version"], env!("CARGO_PKG_VERSION"));

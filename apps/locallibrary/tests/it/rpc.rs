@@ -261,10 +261,7 @@ fn initialize_describes_the_sidecar() {
     for m in ["initialize", "version", "jobs.list", "$/cancel", "shutdown", "sync.apply", "rpc.describe"] {
         assert!(has(&v["methods"], m), "{m}");
     }
-    // Older names are listed too: they still work.
-    for m in ["sync_many.apply", "drive.adopt", "store.gc", "drive.restore.preview", "drive.sets"] {
-        assert!(has(&v["methods"], m), "{m}");
-    }
+    assert!(has(&v["methods"], "drive.restore.preview"));
     assert!(has(&v["capabilities"], "describe"));
     assert!(!has(&v["methods"], "$/test.wait"));
     // `version` still answers as it did.
@@ -360,14 +357,13 @@ fn describe_says_what_each_method_takes_and_returns() {
     assert_eq!((&all["protocol"], &all["version"]), (&json!(1), &json!(env!("CARGO_PKG_VERSION"))));
     let methods = all["methods"].as_array().unwrap();
     let listed = s.call(2, "initialize", json!({}))["result"]["methods"].as_array().unwrap().len();
-    let names = methods.iter().map(|m| 1 + m["aliases"].as_array().unwrap().len()).sum::<usize>();
-    assert_eq!(names, listed, "initialize lists every method and alias rpc.describe does");
+    assert_eq!(methods.len(), listed, "initialize lists every method rpc.describe does");
     let defs = all["$defs"].as_object().unwrap();
     assert!(defs.contains_key("SyncRequest") && defs.contains_key("PlanFields"));
     assert!(all["notifications"]["progress"].is_object() && all["notifications"]["event"].is_object());
 
-    // One method, by an old name: its schemas, and only the definitions they use.
-    let one = s.call(3, "rpc.describe", json!({ "method": "sync_set.plan" }))["result"].clone();
+    // One method: its schemas, and only the definitions they use.
+    let one = s.call(3, "rpc.describe", json!({ "method": "sync.group.plan" }))["result"].clone();
     let m = &one["methods"][0];
     assert_eq!(
         (&m["name"], &m["kind"], &m["pair"]),
@@ -378,14 +374,11 @@ fn describe_says_what_each_method_takes_and_returns() {
     let unknown = s.call(4, "rpc.describe", json!({ "method": "no.such" }));
     assert_eq!(kind(&unknown), "invalid_params", "{unknown}");
 
-    // Old and new names answer alike.
-    let new = s.call(5, "drive.groups", json!({}))["result"].clone();
-    assert_eq!(s.call(6, "drive.sets", json!({}))["result"], new);
     let made = s.call(9, "players.set.apply", json!({ "models": ["CDJ-3000"] }));
     assert!(made["error"].is_null(), "a store to collect in: {made}");
     let stats = s.call(7, "store.gc.plan", json!({}))["result"].clone();
     assert_eq!(stats["operation"], "store.gc");
-    let gc = s.call(8, "store.gc", json!({ "plan_id": stats["plan_id"] }));
+    let gc = s.call(8, "store.gc.apply", json!({ "plan_id": stats["plan_id"] }));
     assert!(gc["error"].is_null(), "{gc}");
     assert!(s.exit().success());
 }
@@ -513,7 +506,7 @@ fn progress_says_which_drive_and_step() {
 
     // Several drives at once: each target's events carry its root, as in the results.
     let (b, c) = (blank_drive(&root, "B"), blank_drive(&root, "C"));
-    let (events, reply) = run(&mut s, 1, "sync_many.apply", json!({ "drives": [a, b, c] }));
+    let (events, reply) = run(&mut s, 1, "sync.many.apply", json!({ "drives": [a, b, c] }));
     let results = reply["result"].as_array().unwrap_or_else(|| panic!("{reply}"));
     let mut targets: Vec<&Value> = results.iter().map(|r| &r["target"]).collect();
     targets.sort_by_key(|t| t.to_string());
@@ -569,7 +562,7 @@ fn events_say_what_drives_the_store_and_requests_do() {
     assert_eq!((&finished["ok"], &finished["kind"]), (&json!(false), &json!("not_found")));
 
     // Pulled: the drive is given an identity, and the store a library and a snapshot.
-    let v = s.call(5, "pull", json!({ "drive": a, "library": "Main", "new_library": true }));
+    let v = s.call(5, "pull.apply", json!({ "drive": a, "library": "Main", "new_library": true }));
     assert!(v["result"]["snapshot"].is_object(), "{v}");
     let changed = s.event("drive.changed", json!({ "root": a }));
     assert!(changed["id"].is_string() && changed["changed"].as_array().unwrap().contains(&json!("state")), "{changed}");
@@ -614,7 +607,7 @@ fn events_say_what_drives_the_store_and_requests_do() {
 fn a_store_is_served_and_fetched_through_the_sidecar() {
     let mut laptop = Sidecar::start();
     let main = demo_drive(laptop.root(), "Main");
-    let pulled = laptop.call(1, "pull", json!({ "drive": main, "library": "Main", "new_library": true }));
+    let pulled = laptop.call(1, "pull.apply", json!({ "drive": main, "library": "Main", "new_library": true }));
     assert!(pulled["result"]["snapshot"].is_object(), "{pulled}");
     laptop.send(2, "store.serve", json!({ "local_only": true }));
     let ready = laptop.served(2);
@@ -652,7 +645,7 @@ fn watching_pulls_drives_as_they_are_plugged_in() {
     let mut s = Sidecar::start();
     let root = s.root().to_path_buf();
     let main = demo_drive(&root, "Main");
-    let v = s.call(1, "pull", json!({ "drive": main, "library": "Main", "new_library": true }));
+    let v = s.call(1, "pull.apply", json!({ "drive": main, "library": "Main", "new_library": true }));
     assert!(v["result"]["snapshot"].is_object(), "{v}");
     // A player records a history list.
     let pdb = Path::new(&main).join("PIONEER/rekordbox/export.pdb");
@@ -817,18 +810,18 @@ fn errors_say_why_and_what_would_resolve_them() {
 
     // A library the store doesn't have: start it, by sending the same request with one more
     // parameter.
-    let v = s.call(2, "pull", json!({ "drive": a, "library": "Main" }));
+    let v = s.call(2, "pull.apply", json!({ "drive": a, "library": "Main" }));
     let d = data(&v);
     assert_eq!(
         (&d["kind"], &d["reason"], &d["fields"]["library"]),
         (&json!("not_found"), &json!("unknown_library"), &json!("Main"))
     );
     let start = &d["actions"][0];
-    assert_eq!(start["method"], "pull");
+    assert_eq!(start["method"], "pull.apply");
     assert_eq!(start["params"], json!({ "drive": a, "library": "Main", "new_library": true }));
     assert!(start["label"].as_str().is_some_and(|l| !l.is_empty()));
-    assert!(s.call(3, "pull", start["params"].clone())["error"].is_null());
-    assert!(s.call(4, "pull", json!({ "drive": b, "library": "Main" }))["error"].is_null());
+    assert!(s.call(3, "pull.apply", start["params"].clone())["error"].is_null());
+    assert!(s.call(4, "pull.apply", json!({ "drive": b, "library": "Main" }))["error"].is_null());
 
     // A retired drive: bring it back, or write to it anyway.
     assert!(s.call(5, "drive.retire", json!({ "drive": b }))["error"].is_null());
@@ -983,7 +976,7 @@ fn an_apply_refused_before_writing_keeps_its_plan() {
     let mut s = Sidecar::start();
     let root = s.root().to_path_buf();
     let a = demo_drive(&root, "A");
-    assert!(s.call(1, "pull", json!({ "drive": a, "library": "Main", "new_library": true }))["error"].is_null());
+    assert!(s.call(1, "pull.apply", json!({ "drive": a, "library": "Main", "new_library": true }))["error"].is_null());
     let edit = json!({ "drive": a, "edits": [{ "op": "create_playlist", "path": "Friday" }] });
     let id = s.call(2, "edit.plan", edit)["result"]["plan_id"].clone();
     assert!(s.call(3, "drive.role", json!({ "drive": a, "role": "archive" }))["error"].is_null());
@@ -1060,7 +1053,7 @@ fn reidentify_is_planned_then_applied() {
     let mut s = Sidecar::start();
     let root = s.root().to_path_buf();
     let a = demo_drive(&root, "A");
-    assert!(s.call(1, "drive.adopt", json!({ "drive": a, "name": "A" }))["error"].is_null());
+    assert!(s.call(1, "drive.adopt.apply", json!({ "drive": a, "name": "A" }))["error"].is_null());
     let refused = s.call(2, "drive.reidentify.plan", json!({ "drive": a }));
     assert_eq!(kind(&refused), "conflict", "nothing shows it's a copy: {refused}");
     let plan = s.call(3, "drive.reidentify.plan", json!({ "drive": a, "force": true }))["result"].clone();
@@ -1070,20 +1063,57 @@ fn reidentify_is_planned_then_applied() {
     assert!(s.exit().success());
 }
 
+/// The names development builds answered to are gone: none is listed, described or answered.
 #[test]
-fn drive_groups_answer_under_their_old_names_too() {
+fn old_method_names_are_not_found() {
     let mut s = Sidecar::start();
     let methods = s.call(1, "version", json!({}))["result"]["methods"].clone();
     let listed = |m: &str| methods.as_array().unwrap().iter().any(|v| v == m);
     assert!(listed("drive.groups") && listed("sync.group.plan"), "{methods}");
-    // The other spellings are one method's aliases.
-    let described = s.call(5, "rpc.describe", json!({ "method": "sync_group.plan" }))["result"]["methods"][0].clone();
-    assert_eq!(described["name"], "sync.group.plan");
-    assert_eq!(described["aliases"], json!(["sync_group.plan", "sync_set.plan"]));
-    assert_eq!(s.call(2, "drive.groups", json!({}))["result"], json!([]));
-    assert_eq!(s.call(3, "drive.sets", json!({}))["result"], json!([]));
-    // The old name plans under the new one.
-    let v = s.call(4, "sync_set.plan", json!({}));
-    assert_eq!(kind(&v), "not_found", "{v}");
+    for (id, old) in [
+        "drive.adopt",
+        "drive.adopt_as",
+        "drive.contact",
+        "drive.eject",
+        "drive.reidentify",
+        "drive.rename",
+        "drive.restore",
+        "drive.sets",
+        "edits.clear",
+        "firmware.remove",
+        "player.set",
+        "players.clear",
+        "players.set",
+        "playlist.restore",
+        "pull",
+        "recordings.collect",
+        "set.plan",
+        "set.apply",
+        "settings.apply",
+        "settings.apply.plan",
+        "settings.import",
+        "smart.apply",
+        "smart.apply.plan",
+        "store.gc",
+        "store.prune",
+        "art.set",
+        "art.embed",
+        "art.unembed",
+        "sync_group.plan",
+        "sync_group.apply",
+        "sync_set.plan",
+        "sync_set.apply",
+        "sync_many.plan",
+        "sync_many.apply",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert!(!listed(old), "{old} is listed");
+        let v = s.call(2 * id as u64 + 2, old, json!({}));
+        assert_eq!((&v["error"]["code"], kind(&v)), (&json!(-32601), &json!("method_not_found")), "{old}: {v}");
+        let described = s.call(2 * id as u64 + 3, "rpc.describe", json!({ "method": old }));
+        assert_eq!(kind(&described), "invalid_params", "{old}: {described}");
+    }
     assert!(s.exit().success());
 }
