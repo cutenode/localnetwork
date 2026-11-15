@@ -1,7 +1,9 @@
 import { Secp256k1Keypair } from '@atproto/crypto';
 import type { JsonObject } from '@atproto/lex-json';
-import { afterEach, beforeEach, expect, it } from 'vitest';
-import { type Db, nowIso, openDatabase } from '#lib/server/db/index.ts';
+import * as fc from 'fast-check';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type Db, nowIso, openDatabase, parseJson } from '#lib/server/db/index.ts';
+import { remoteObject } from '#lib/server/testing/remote-bodies.ts';
 import { serviceJwt } from '#lib/server/testing/service-jwt.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import { callRoute } from '#lib/testing/route-event.ts';
@@ -128,4 +130,72 @@ it('refuses a call without valid service auth from the space authority', async (
 	expect(await notify(body, await token({ iss: 'did:plc:someone-else' }))).toEqual(refused);
 	expect(await notify(body, await token({ aud: 'did:web:elsewhere.test' }))).toEqual(refused);
 	expect(syncer.synced).toEqual([]);
+});
+
+describe('for any body and Authorization header', () => {
+	// Fixed time, so tokens expire against the same clock every run.
+	const NOW = 1_800_000_000;
+
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(NOW * 1000);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	// Mostly real space URIs, so a good token for a space nobody watches comes up in most runs.
+	const space = fc.oneof(
+		{ arbitrary: fc.constant(SPACE), weight: 3 },
+		{
+			arbitrary: fc.constantFrom(
+				`at://${AUTHORITY}/space/computer.localnetwork.space.booking/other`,
+				'at://did:plc:else/space/a.b.c/x'
+			),
+			weight: 2
+		},
+		{ arbitrary: fc.jsonValue(), weight: 1 }
+	);
+
+	const body = fc.oneof(
+		{ arbitrary: space.map((value) => JSON.stringify({ space: value })), weight: 3 },
+		{ arbitrary: remoteObject({ space }), weight: 1 }
+	);
+
+	/** Claims a token is minted with: the authority's own, another issuer's otherwise valid one, or one that's wrong. */
+	const claims = fc.oneof(
+		{ arbitrary: fc.constant<JsonObject | null>({}), weight: 4 },
+		{
+			arbitrary: fc
+				.constantFrom('did:plc:someone-else', 'did:web:elsewhere.test')
+				.map<JsonObject | null>((iss) => ({ iss })),
+			weight: 3
+		},
+		{
+			arbitrary: fc.constantFrom<JsonObject | null>(
+				{ aud: 'did:web:elsewhere.test' },
+				{ lxm: 'com.atproto.space.notifySpaceDeleted' },
+				{ exp: NOW - 1 },
+				null
+			),
+			weight: 4
+		}
+	);
+
+	it('syncs only for the authority of a watched space, and answers a 4xx to everything else', async () => {
+		await fc.assert(
+			fc.asyncProperty(body, claims, fc.string({ unit: 'grapheme-ascii' }), async (sent, changed, garbage) => {
+				const authorization = changed ? await token({ exp: NOW + 60, ...changed }) : garbage;
+				const before = syncer.synced.length;
+				const { status } = await notify(sent, authorization);
+				const named = parseJson<{ space?: unknown } | null>(sent, null)?.space;
+				const accepted = named === SPACE && changed !== null && Object.keys(changed).length === 0;
+
+				expect(accepted ? [200] : [400, 401, 404]).toContain(status);
+				expect(syncer.synced.length - before).toBe(accepted ? 1 : 0);
+			}),
+			{ numRuns: 100 }
+		);
+	});
 });
