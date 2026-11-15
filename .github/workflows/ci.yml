@@ -524,10 +524,11 @@ jobs:
           # A merge queue group: the quick static checks again on the commit that goes on main, so
           # two pull requests that each passed alone can't break it together. The Rust ones are in
           # other-os below, beside the release budgets, which hold the group's pull requests' growth
-          # together and measure what main becomes. Integration, e2e, Lighthouse and Docker stay on
-          # pull requests.
+          # together and measure what main becomes, and Lighthouse's assertions that don't depend on
+          # the runner's speed. Integration, e2e and Docker stay on pull requests.
           if [ "$EVENT" = merge_group ]; then
             set_if locallibrary_release changed locallibrary_release
+            set_if web_lighthouse changed web_lighthouse
             set_if web_verify changed web
             set_if localtoolbox changed localtoolbox
             set_if atstore changed atstore
