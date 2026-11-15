@@ -160,7 +160,7 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue reaches the directory. Acts and venues have something to list so far, from the root's performer or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and parties have nothing to show, so they're never listed. HappyView keeps only the root's listings.
+How a listed act, party or venue reaches the directory. Acts and venues have something to list so far, from the root's performer or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and parties have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for everyone. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD
@@ -169,13 +169,15 @@ flowchart TD
   Hourly["Startup and hourly reconcile"] --> Refresh
   Refresh --> Source{"Listed, with a<br/>page to show?"}
   Source -- "no" --> Delete["Delete any listing"]
-  Source -- "yes" --> Build["Public fields, plus people in a<br/>listed role and a performer's<br/>managers, if they haven't hidden"]
+  Source -- "yes" --> Flag{"spacePages on<br/>for everyone?"}
+  Flag -- "no" --> Delete
+  Flag -- "yes" --> Build["Public fields, plus people in a<br/>listed role and a performer's<br/>managers, if they haven't hidden"]
   Build --> Same{"Differs from<br/>the published one?"}
   Same -- "no" --> Skip["No write"]
   Same -- "yes" --> Put["Root writes computer.localnetwork.listing"]
 ```
 
-Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
+Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
 
 ## Backup and restore
 
