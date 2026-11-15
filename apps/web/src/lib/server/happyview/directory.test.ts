@@ -198,6 +198,24 @@ describe('getProject, getProjects, and getStats', () => {
 		expect(await query(hv, 'getProject', { slug: 'nope', counts: true })).toEqual({});
 	});
 
+	it('counts the managers with DJ stats or sets on file, once each', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { slug: 'duo', managers: ['did:plc:stats', 'did:plc:sets', 'did:plc:none'] });
+		await publish(hv, {}, { slug: 'quiet', managers: ['did:plc:none'] });
+		await publish(hv, {}, { slug: 'unclaimed', managers: [] });
+
+		const set = { date: '2026-01-01', tracks: [{ title: 'One', artist: 'A' }], createdAt: '2026-10-01T00:00:00.000Z' };
+		await ingest(hv, 'did:plc:stats', COLLECTION.djProfile, 'self', { generatedAt: '2026-10-01T00:00:00.000Z' });
+		await ingest(hv, 'did:plc:stats', COLLECTION.djSet, 'a', set);
+		await ingest(hv, 'did:plc:sets', COLLECTION.djSet, 'a', set);
+		await ingest(hv, 'did:plc:sets', COLLECTION.djSet, 'b', set);
+		await ingest(hv, 'did:plc:elsewhere', COLLECTION.djSet, 'a', set);
+
+		expect(await query(hv, 'getProject', { slug: 'duo', counts: true })).toMatchObject({ djs: 2 });
+		expect(await query(hv, 'getProject', { slug: 'quiet', counts: true })).toMatchObject({ djs: 0 });
+		expect(await query(hv, 'getProject', { slug: 'unclaimed', counts: true })).toMatchObject({ djs: 0 });
+	});
+
 	it('returns projects in the order asked for, once each, without unknown ones', async () => {
 		const hv = new FakeHappyView(ROOT);
 		const a = await publish(hv, { name: 'A' }, { status: 'archived' });

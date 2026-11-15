@@ -327,10 +327,10 @@ export type ProjectView = {
 };
 
 /**
- * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
- * lists stream in so their placeholders hold that much room.
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, and how many of its
+ * managers have DJ stats or sets, known before those stream in so their placeholders hold that much room (or none).
  */
-export type ProjectCounts = { pressKits: number; upcomingShows: number };
+export type ProjectCounts = { pressKits: number; upcomingShows: number; djs: number };
 
 export type AccountView = { did: string; handle: string | null };
 
