@@ -21,7 +21,7 @@ export const projectPlan = (slug: string, name: string, overrides: Partial<Proje
 	drafts: [],
 	pressKits: [{ uri: `at://${ROOT}/computer.localnetwork.epk/3kkit`, title: 'Clubs' }],
 	bookingThreads: [{ space: 'ats://booking', title: 'Rooftop', status: 'open' }],
-	lazy: { follows: 2, upcomingShows: 1 },
+	rewrites: { follows: 2, upcomingShows: 1 },
 	decline: [],
 	redirect: { from: `/projects/${slug}`, to: `/act/${slug}` },
 	unmapped: [],
@@ -44,8 +44,8 @@ export const migrationPlan: MigrationPlan = {
 			listed: false,
 			hasDetails: false,
 			people: [],
-			lazy: { follows: 0, upcomingShows: 0 },
-			unmapped: [{ field: 'kind', reason: 'An act has no "live" form, so it\'s planned as a group' }],
+			rewrites: { follows: 0, upcomingShows: 0 },
+			unmapped: [{ field: 'fee', reason: 'Dropped: only fees carries over' }],
 			blockers: [{ kind: 'noManagers' }]
 		}),
 		projectPlan('pirate-signal', 'Pirate Signal', {

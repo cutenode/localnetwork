@@ -1,4 +1,3 @@
-import { feeLevels } from './format';
 import type { ActForm, ActSubject, PerformerRecord, ProjectProfile } from './types';
 
 /** How a solo project's DJ was found: their own `self` claim, having created it, staff naming them, or not at all. */
@@ -48,8 +47,11 @@ export type ProjectPlan = {
 	/** The root's press kits whose `project` would change to `performerUri`. */
 	pressKits: { uri: string; title: string }[];
 	bookingThreads: { space: string; title: string | null; status: string }[];
-	/** Records in other people's repos that name the project, left for a lazy rewrite. */
-	lazy: { follows: number; upcomingShows: number };
+	/**
+	 * Records in other people's repos that name the project, which the migration rewrites to the performer. Planner
+	 * saves and past shows can't be counted from here; pre-launch there are none outside seed data.
+	 */
+	rewrites: { follows: number; upcomingShows: number };
 	decline: PendingRequest[];
 	/** `from/**` redirects to `to/**`; null when there's nowhere to send it yet. */
 	redirect: { from: string; to: string | null };
@@ -80,7 +82,7 @@ export const FIELD_HOMES = {
 	activeSince: 'performer.activeSince',
 	capacity: 'performer.capacity',
 	fees: 'performer.fees',
-	fee: 'performer.fees, when fees is empty',
+	fee: 'dropped',
 	links: 'basics.links',
 	mixes: 'performer.mixes',
 	highlights: 'performer.highlights',
@@ -91,23 +93,29 @@ export const FIELD_HOMES = {
 /** The act forms a project's kind names the same way. A solo project becomes a DJ, not an alias. */
 const SHARED_FORMS = ['duo', 'group', 'collective'] as const satisfies readonly ActForm[];
 
-/** An act's subject from a project's profile, and the fields it can't carry. */
+/**
+ * An act's subject from a project's profile, and the fields it can't carry. A live project is a group that plays
+ * live, so `live` goes in its formats instead. The legacy single `fee` is dropped.
+ */
 export function actSubject(slug: string, profile: ProjectProfile) {
-	const { kind, fee, fees: _fees, name, bio, pronouns, location, links, avatar, ...performer } = profile;
+	const { kind, fee, name, bio, pronouns, location, links, avatar, ...performer } = profile;
 	const form = SHARED_FORMS.find((shared) => shared === kind);
-	const fees = feeLevels(profile);
+	const isLive = kind === 'live';
 	const unmapped: UnmappedField[] = [];
 
-	if (!form) unmapped.push({ field: 'kind', reason: `An act has no "${kind}" form, so it's planned as a group` });
+	if (!form && !isLive)
+		unmapped.push({ field: 'kind', reason: `An act has no "${kind}" form, so it's planned as a group` });
 
-	if (fee && profile.fees) unmapped.push({ field: 'fee', reason: 'Dropped: fees already lists the fee levels' });
+	if (fee) unmapped.push({ field: 'fee', reason: 'Dropped: only fees carries over' });
+
+	const formats = isLive ? [...new Set([...(performer.formats ?? []), 'live'])] : performer.formats;
 
 	return {
 		subject: {
 			slug,
 			form: form ?? 'group',
 			basics: { name, avatar, bio, pronouns, location, links },
-			performer: fees.length ? { ...performer, fees } : performer
+			performer: formats ? { ...performer, formats } : performer
 		} satisfies ActSubject,
 		unmapped
 	};

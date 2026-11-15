@@ -251,14 +251,26 @@ describe('a duo', () => {
 });
 
 describe('fields an act has no place for', () => {
-	it('plans a live act as a group and says so', async () => {
-		const planned = await planFor(await publish(profile('Glasshouse', 'live'), { managers: [MEMBER] }));
+	it('plans a live act as a group with the live format', async () => {
+		const planned = await planFor(
+			await publish(profile('Glasshouse', 'live', { formats: ['modular', 'live'] }), { managers: [MEMBER] })
+		);
 
-		expect(planned.record?.subject).toMatchObject({ form: 'group' });
-		expect(planned.unmapped).toEqual([{ field: 'kind', reason: expect.stringContaining('"live"') }]);
+		const bare = await planFor(await publish(profile('Moss', 'live'), { managers: [MEMBER] }));
+
+		expect(planned.record?.subject).toMatchObject({ form: 'group', performer: { formats: ['modular', 'live'] } });
+		expect(bare.record?.subject).toMatchObject({ form: 'group', performer: { formats: ['live'] } });
+		expect(planned.unmapped).toEqual([]);
 	});
 
-	it('folds a legacy fee into fees, and drops it when fees already lists them', async () => {
+	it('plans a kind no act has as a group and says so', async () => {
+		const planned = await planFor(await publish(profile('Odd', 'orchestra'), { managers: [MEMBER] }));
+
+		expect(planned.record?.subject).toMatchObject({ form: 'group' });
+		expect(planned.unmapped).toEqual([{ field: 'kind', reason: expect.stringContaining('"orchestra"') }]);
+	});
+
+	it('drops a legacy fee, with or without fees', async () => {
 		const legacy = await publish(profile('Old Fee', 'duo', { fee: { tier: 'emerging' } }), { managers: [MEMBER] });
 
 		const both = await publish(
@@ -269,8 +281,8 @@ describe('fields an act has no place for', () => {
 		const plan = await t.projectMigration.plan();
 		const of = (project: ProjectView) => plan.projects.find((planned) => planned.uri === project.uri)!;
 
-		expect(of(legacy).record?.subject).toMatchObject({ performer: { fees: [{ tier: 'emerging' }] } });
-		expect(of(legacy).unmapped).toEqual([]);
+		expect(of(legacy).record?.subject).not.toHaveProperty('performer.fees');
+		expect(of(legacy).unmapped).toEqual([{ field: 'fee', reason: expect.stringContaining('Dropped') }]);
 		expect(of(both).record?.subject).toMatchObject({ performer: { fees: [{ tier: 'headliner' }] } });
 		expect(of(both).unmapped).toEqual([{ field: 'fee', reason: expect.stringContaining('Dropped') }]);
 	});
@@ -298,7 +310,7 @@ describe('what moves with a project', () => {
 		expect((await planFor(without)).hasDetails).toBe(false);
 	});
 
-	it('repoints booking threads, counts follows and upcoming shows, and blocks a project nobody manages', async () => {
+	it('repoints booking threads, counts the follows and upcoming shows to rewrite, and blocks a project nobody manages', async () => {
 		const project = await publish(profile('Booked', 'duo'), { managers: [SOLO] });
 		const orphan = await publish(profile('Orphan', 'duo'));
 
@@ -317,7 +329,7 @@ describe('what moves with a project', () => {
 		const planned = await planFor(project);
 
 		expect(planned.bookingThreads).toEqual([{ space, title: 'Night', status: 'open' }]);
-		expect(planned.lazy).toEqual({ follows: 1, upcomingShows: 1 });
+		expect(planned.rewrites).toEqual({ follows: 1, upcomingShows: 1 });
 		expect((await planFor(orphan)).blockers).toEqual([{ kind: 'noManagers' }]);
 	});
 
@@ -452,8 +464,12 @@ describe('the seed data', () => {
 			glasshouse: [],
 			'footwork-fever': []
 		});
-		expect(plan.projects.find((planned) => planned.slug === 'moss-and-marrow')?.unmapped).toEqual([
-			{ field: 'kind', reason: expect.stringContaining('"live"') }
-		]);
+		const moss = plan.projects.find((planned) => planned.slug === 'moss-and-marrow');
+
+		expect(moss?.record?.subject).toMatchObject({
+			form: 'group',
+			performer: { formats: expect.arrayContaining(['live']) }
+		});
+		expect(moss?.unmapped).toEqual([]);
 	});
 });

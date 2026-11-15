@@ -163,7 +163,7 @@ export class ProjectMigration {
 			drafts,
 			pressKits: kits.flatMap((kit) => (kit.legacy ? [] : [{ uri: kit.uri, title: kit.record.title }])),
 			bookingThreads: threads,
-			lazy: { follows: follows.followers, upcomingShows },
+			rewrites: { follows: follows.followers, upcomingShows },
 			decline: requests.filter((row) => row.projectUri === uri && isOpen(row)).flatMap(pending),
 			redirect: {
 				from: `/projects/${slug}`,

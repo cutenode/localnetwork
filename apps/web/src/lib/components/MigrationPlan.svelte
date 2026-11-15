@@ -64,8 +64,8 @@
 				<dd class="max-sm:mb-2">{#each project.people as person, index (person.did)}{index ? ', ' : ''}{who(person)} <span class="text-fg-muted">({roleOf(person)})</span>{:else}none{/each}</dd>
 				<dt class="text-label text-fg-subtle">Moves</dt>
 				<dd class="max-sm:mb-2">{project.hasDetails ? 'booking details, ' : ''}{count(project.drafts.length, 'draft')}, {count(project.pressKits.length, 'press kit')}, {count(project.bookingThreads.length, 'booking thread')}</dd>
-				<dt class="text-label text-fg-subtle">Left for later</dt>
-				<dd class="max-sm:mb-2">{count(project.lazy.follows, 'follow')}, {count(project.lazy.upcomingShows, 'upcoming show')}</dd>
+				<dt class="text-label text-fg-subtle">Rewrites</dt>
+				<dd class="max-sm:mb-2">{count(project.rewrites.follows, 'follow')}, {count(project.rewrites.upcomingShows, 'upcoming show')}</dd>
 				{#if project.decline.length}
 					<dt class="text-label text-fg-subtle">Declines</dt>
 					<dd class="max-sm:mb-2">{project.decline.map((request) => `${request.kind} request`).join(', ')}</dd>
