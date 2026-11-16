@@ -604,6 +604,44 @@ fn discogs_out_of_reach_fails_it() {
     assert!(e.message.starts_with("Discogs answered what isn't a search result: "), "{e:?}");
 }
 
+/// Discogs out of reach fails the request at a search by a track's label or by its title too,
+/// asking once.
+#[test]
+fn discogs_out_of_reach_fails_a_label_or_title_search() {
+    let by_label = (vec![(1, "Ninja Tune")], tags(1, "Bicep", "Bicep", "Glue"));
+    let by_title = (Vec::new(), tags(1, "Bicep", "", "Glue"));
+    let label_search = search(&[("artist", "Bicep"), ("release_title", "Bicep"), ("label", "Ninja Tune")]);
+    let title_search = search(&[("artist", "Bicep"), ("track", "Glue")]);
+    for ((labels, track), asked) in [(by_label, label_search), (by_title, title_search)] {
+        let session = start(true, &labels, |_, _| Reply::Fails("external"));
+        let e = session.send(ProviderKind::Metadata, &[track]).wait::<Candidates>().unwrap_err();
+        assert_eq!((e.kind(), e.message.as_str()), (Some("external"), "couldn't reach Discogs: no answer (external)"));
+        assert_eq!(session.searches(), [asked]);
+    }
+}
+
+/// Covers asked for by a host that gives no scratch folder (one without the `blobs` feature) have
+/// nowhere to go: the request fails saying so, before it reads a label or asks Discogs anything.
+#[test]
+fn covers_without_a_scratch_folder_fail_it() {
+    let session = start(true, &[(1, "Ninja Tune")], as_they_are);
+    let tracks = [tags(1, "Bicep", "Bicep", "Glue")];
+    let context = json!({ "drive": "USB", "scratch": null });
+    let req = json!({ "provider": "covers", "kind": ProviderKind::Artwork, "tracks": tracks, "context": context });
+    let sent = session.host.send(method::PROVIDE, &req);
+    assert_eq!(sent.scratch(), None);
+    let e = sent.wait::<Candidates>().unwrap_err();
+    assert_eq!(
+        (e.kind(), e.message.as_str()),
+        (
+            Some("invalid_params"),
+            "invalid params: the host gives the plugin no scratch folder for the covers (the blobs feature)"
+        )
+    );
+    assert_eq!(session.reads(), Vec::<(String, Value)>::new());
+    assert!(session.asked().is_empty());
+}
+
 /// Cancelled while it waits out Discogs' limit, it stops there, and searches no more.
 #[test]
 fn cancelling_while_it_waits_stops_it() {
