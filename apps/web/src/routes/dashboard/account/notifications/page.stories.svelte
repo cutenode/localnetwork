@@ -12,11 +12,11 @@
 
 	const on: ChannelView = { status: 'active', pausedReason: null, address: 'neon@example.test', topics: ['bookings'] };
 
-	const data = (email: ChannelView | null, dm: ChannelView | null, availability: DmAvailability = 'ok'): PageProps['data'] => ({
+	const data = (email: ChannelView | null, dm: ChannelView | null, availability: DmAvailability = 'ok', available = true): PageProps['data'] => ({
 		...accountLayout,
 		topics: ['bookings'],
-		email: { available: true, channel: email, returned: null },
-		dm: { available: true, channel: dm, availability: Promise.resolve(availability), root: 'localnetwork.computer' }
+		email: { available, channel: email, returned: null },
+		dm: { available, channel: dm, availability: Promise.resolve(availability), root: 'localnetwork.computer' }
 	});
 </script>
 
@@ -34,4 +34,13 @@
 
 <Story name="Waiting on the link, DMs held, on a phone" asChild globals={phone}>
 	<Page params={{}} form={null} data={data({ ...on, status: 'paused', pausedReason: 'email_unverified' }, { ...on, address: null, status: 'paused', pausedReason: 'dm_not_allowed' }, 'not_allowed')} />
+</Story>
+
+<!-- With neither set up on this site, there's nothing to choose, so the grid goes and the cards say why. -->
+<Story name="Neither set up here" asChild>
+	<Page params={{}} form={null} data={data(null, null, 'ok', false)} />
+</Story>
+
+<Story name="Neither set up here, on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={data(null, null, 'ok', false)} />
 </Story>

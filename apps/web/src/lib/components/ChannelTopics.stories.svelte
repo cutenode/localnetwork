@@ -16,6 +16,4 @@
 
 <Story name="DMs paused" args={{ topics: ['bookings'], channels: [{ channel: 'email', view: { ...on, topics: [] } }, { channel: 'dm', view: { ...on, status: 'paused', pausedReason: 'dm_not_allowed' } }] }} />
 
-<Story name="Only the site" args={{ topics: ['bookings'], channels: [] }} />
-
-<Story name="Every topic, on a phone" args={{ topics: all, channels: [{ channel: 'email', view: { ...on, topics: ['bookings', 'events'] } }, { channel: 'dm', view: on }] }} globals={phone} />
+<Story name="Every inbox section, on a phone" args={{ topics: all, channels: [{ channel: 'email', view: { ...on, topics: ['bookings', 'events'] } }, { channel: 'dm', view: on }] }} globals={phone} />

@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import type { ChannelView, NotificationChannel, NotificationTopic } from '#lib/types.ts';
 
-	/** Each topic's name, and what it covers in a few words. */
+	/** Each inbox section's name, and what it covers in a few words. */
 	const TOPICS: Record<NotificationTopic, { label: string; hint: string }> = {
 		bookings: { label: 'Bookings', hint: 'Inquiries, messages, status' },
 		guests: { label: 'Guests', hint: 'Guest list changes' },
@@ -20,9 +20,9 @@
 	import { formFields } from '#lib/form-fields.svelte.ts';
 
 	/**
-	 * Which topics go where: a row per topic, a column for the site (which always gets everything) and one per channel
-	 * the site can send by. A ticked box saves its channel's column on the spot, posting the checked topics as `topic`
-	 * to `?/emailTopics` or `?/dmTopics`; without JavaScript, a Save button per channel does.
+	 * Which inbox sections also go by email or Bluesky DM: a row per section and a column for each of the two the site
+	 * can send by. The inbox gets everything, so it has no column. A ticked box saves its column on the spot, posting the
+	 * checked sections as `topic` to `?/emailTopics` or `?/dmTopics`; without JavaScript, a Save button per column does.
 	 */
 	let { topics, channels }: { topics: NotificationTopic[]; channels: ChannelColumn[] } = $props();
 
@@ -61,11 +61,10 @@
 	</div>
 	<div class="card overflow-hidden p-0">
 		<table class="w-full border-collapse text-left">
-			<caption class="sr-only">Where each kind of news goes</caption>
+			<caption class="sr-only">Which inbox sections go by email or Bluesky DM</caption>
 			<thead>
 				<tr class="border-b border-line">
-					<th scope="col" class="px-4 py-3 text-label font-medium text-fg-muted sm:px-5"><span class="sr-only">Topic</span></th>
-					<th scope="col" class="w-16 px-2 py-3 text-center text-label font-medium text-fg sm:w-24">Site</th>
+					<th scope="col" class="px-4 py-3 text-label font-medium text-fg-muted sm:px-5"><span class="sr-only">Inbox section</span></th>
 					{#each channels as { channel, view } (channel)}
 						<th scope="col" class="w-20 px-2 py-3 text-center text-label font-medium text-fg sm:w-28">
 							<span class="flex flex-col items-center gap-0.5">
@@ -85,7 +84,6 @@
 						<th scope="row" class="px-4 py-3 font-normal sm:px-5">
 							<span class="flex flex-col"><span class="text-small font-medium text-fg">{TOPICS[topic].label}</span><span class="text-caption text-fg-muted">{TOPICS[topic].hint}</span></span>
 						</th>
-						<td class="px-2 py-3 text-center"><input type="checkbox" class="checkbox" checked disabled aria-label="{TOPICS[topic].label} on the site, always" /></td>
 						{#each channels as { channel, view } (channel)}
 							<td class="px-2 py-3 text-center">
 								<input
