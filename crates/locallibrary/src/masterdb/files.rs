@@ -149,7 +149,8 @@ fn write_pages(plain: &Path, codec: Option<&Codec>, out: &mut File, into: &Path)
 
 impl Db<'_> {
     /// Removes the cloud agent's sign-in rows from `agentRegistry` ([`CREDENTIALS`]), answering
-    /// how many there were. A database without the table has none.
+    /// how many there were. A database without the table has none. One with a trigger is refused:
+    /// the `DELETE` would fire it, and it could keep the rows somewhere else in the copy.
     fn remove_credentials(&self) -> Result<u64> {
         let columns = self.columns("agentRegistry")?;
         if columns.is_empty() {
@@ -158,6 +159,11 @@ impl Db<'_> {
         if !columns.contains("registry_id") {
             let why = "its agentRegistry has no registry_id, which tells the sign-in rows apart";
             return Err(Error::parse(self.path, why));
+        }
+        let trigger = crate::onelibrary::distrust(&self.conn, &["trigger"], "rekordbox").map_err(|e| self.sql(e))?;
+        if let Some(why) = trigger {
+            let instead = "copy it with the credentials kept (with_credentials)";
+            return Err(Error::parse(self.path, format!("{why}; {instead}")));
         }
         let removed = self.conn.execute(&format!("DELETE FROM agentRegistry WHERE {CREDENTIALS}"), []);
         Ok(removed.map_err(|e| self.sql(e))? as u64)

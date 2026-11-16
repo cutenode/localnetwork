@@ -365,3 +365,66 @@ fn prop_a_copy_round_trips_the_rows(tc: TestCase) {
     assert_eq!(registry(&into), kept);
     assert_eq!(has(&plain(&into), SECRET), with);
 }
+
+/// A collection a table of which a backup reads can't be read (a view of a table that's gone) has
+/// no tracks to list and no copy to make, and leaves none behind; nor has one under another key.
+#[test]
+fn a_collection_that_cant_be_read_is_neither_listed_nor_copied() {
+    let dir = tempfile::tempdir().unwrap();
+    let into = dir.path().join("copy.db");
+    for table in ["djmdContent", "djmdArtist", "djmdAlbum", "djmdProperty"] {
+        let f = library();
+        f.exec(&format!("DROP TABLE {table}; CREATE VIEW {table} AS SELECT * FROM gone;"));
+        let path = write(dir.path(), "master.db", &f.encrypted(DEFAULT_KEY));
+        let e = tracks(&path, DEFAULT_KEY, 0, 500).unwrap_err();
+        assert!(e.to_string().contains("no such table: main.gone"), "{table}: {e}");
+        if matches!(table, "djmdContent" | "djmdProperty") {
+            let e = export(&path, DEFAULT_KEY, false, &into).unwrap_err();
+            assert!(e.to_string().contains("no such table: main.gone"), "{table}: {e}");
+            assert!(!into.exists(), "{table}");
+        }
+    }
+    let path = write(dir.path(), "master.db", &library().encrypted(DEFAULT_KEY));
+    assert_eq!(tracks(&path, "another key", 0, 1).unwrap_err().code(), "invalid");
+}
+
+/// A collection with a trigger is refused a copy without the sign-in: taking the rows out would
+/// fire it, and this one keeps them in another table. Nothing is left behind. Asked for with
+/// the sign-in, nothing fires, so it's copied.
+#[test]
+fn a_trigger_cant_keep_the_sign_in_in_a_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = library();
+    f.exec(
+        "CREATE TABLE kept (v TEXT);
+         CREATE TRIGGER keep BEFORE DELETE ON agentRegistry BEGIN INSERT INTO kept VALUES (old.str_1); END;",
+    );
+    let source = write(dir.path(), "master.db", &f.encrypted(DEFAULT_KEY));
+    let into = dir.path().join("copy.db");
+    let e = export(&source, DEFAULT_KEY, false, &into).unwrap_err();
+    assert_eq!(e.code(), "parse", "{e}");
+    let why = "it has a trigger keep, which rekordbox never makes";
+    let instead = "copy it with the credentials kept (with_credentials)";
+    assert!(e.to_string().ends_with(&format!("{why}; {instead}")), "{e}");
+    assert!(!into.exists());
+    assert_eq!(export(&source, DEFAULT_KEY, true, &into).unwrap().credentials_removed, 0);
+}
+
+/// A registry the sign-in rows can't be taken out of (a view of another table) is refused, not
+/// copied with them, and no copy is left behind.
+#[test]
+fn a_registry_whose_sign_in_cant_be_left_out_isnt_copied() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = sample();
+    f.exec(&format!(
+        "CREATE TABLE registry (registry_id VARCHAR(255), str_1 VARCHAR(255));
+         INSERT INTO registry VALUES ('agentCredentials', '{SECRET}');
+         CREATE VIEW agentRegistry AS SELECT * FROM registry;"
+    ));
+    let source = write(dir.path(), "master.db", &f.encrypted(DEFAULT_KEY));
+    let into = dir.path().join("copy.db");
+    let e = export(&source, DEFAULT_KEY, false, &into).unwrap_err();
+    assert_eq!(e.code(), "parse", "{e}");
+    assert!(e.to_string().contains("cannot modify agentRegistry because it is a view"), "{e}");
+    assert!(!into.exists());
+}
