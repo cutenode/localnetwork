@@ -37,7 +37,7 @@
 //!   `no_space`, `cancelled`, ...).
 //! * `initialize` returns the protocol version, the sidecar's version, its capabilities and its
 //!   methods; `version` the last two. `rpc.describe` (`{"method": ...}` for one) describes them:
-//!   kind, paired plan or apply, aliases, and the schemas of their parameters and results.
+//!   kind, paired plan or apply, and the schemas of their parameters and results.
 //! * `events.subscribe` (`{"kinds": [...]}`, default every kind) sends `event` notifications,
 //!   `{"method":"event","params":{"event":"drive.attached", ...}}`, for drives attached, detached
 //!   and changed and the store changing (polled cheaply, see [`locallibrary::watch`]), and for
@@ -943,6 +943,12 @@ impl Server {
 
 /// What the methods about plugins are named with: their plans are kept apart (see [`Plans`]).
 const PLUGINS: &str = "plugins.";
+
+/// Whether the sidecar answers `name`: the hints' tests check the methods errors name with it.
+#[cfg(test)]
+pub(crate) fn answers(name: &str) -> bool {
+    registry().get(name).is_some()
+}
 
 /// The namespaces of the sidecar's methods: `drive` for `drive.info`.
 pub fn namespaces() -> Vec<&'static str> {

@@ -15,7 +15,7 @@
 			"badge": "bc",
 			"url": "https://bandcamp.com/search?q={artist}",
 			"background": "#1da0c3",
-			"color": "#ffffff"
+			"color": "#000000"
 		},
 		{
 			"id": "zipdj",

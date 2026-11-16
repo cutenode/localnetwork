@@ -301,7 +301,7 @@ export async function chooseOption(label: string, option: string) {
 
 /** The queue button, which is in the header of whatever view is up. */
 export const queueButton = () =>
-	buttons().find((b) => (b.getAttribute('aria-label') ?? '').startsWith('session queue'));
+	buttons().find((b) => (b.getAttribute('aria-label') ?? '').startsWith('open the session queue'));
 
 /** The queue sheet, if it is up. */
 export const queueSheet = () => document.querySelector('[role="dialog"]');
@@ -321,7 +321,7 @@ export async function openQueue() {
 // --- the settings sheet ------------------------------------------------------
 
 /** The settings button, which is in the header of whatever view is up. */
-export const settingsButton = () => buttons().find((b) => b.getAttribute('aria-label') === 'settings');
+export const settingsButton = () => buttons().find((b) => b.getAttribute('aria-label') === 'open settings');
 
 /** The settings sheet, if it is up. Named, because the queue's is a dialog too. */
 export const settingsSheet = () => document.querySelector('[role="dialog"][aria-label="settings"]');

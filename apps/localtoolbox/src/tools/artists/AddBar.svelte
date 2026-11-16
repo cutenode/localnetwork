@@ -175,7 +175,7 @@
           variant="outline"
           class={big ? 'w-full' : ''}
           disabled={!canAddList}
-          aria-label={`add the Manager’s list — ${count(listedFresh, 'artist')}`}
+          aria-label={`add ${count(listedFresh, 'artist')} from the Manager’s list`}
           title={listTitle}
           onclick={() => onadd('list')}
         >
@@ -190,7 +190,7 @@
           variant="outline"
           class={big ? 'w-full' : ''}
           disabled={!canAddQueue}
-          aria-label={`add the session queue — ${count(queuedFresh, 'artist')}`}
+          aria-label={`add ${count(queuedFresh, 'artist')} from the session queue`}
           title={queueTitle}
           onclick={() => onadd('queue')}
         >

@@ -71,6 +71,33 @@ fn a_handle_without_a_dns_record_is_only_looked_for_at_its_web_address() {
     assert!(block_on(resolver.resolve_handle(&handle)).is_err());
 }
 
+/// A handle that isn't found says what each place it was looked for answered, and signing in
+/// with it says so too, with what to try instead, rather than jacquard's "exhausted all
+/// configured methods".
+#[test]
+fn a_handle_not_found_says_where_it_was_looked_for() {
+    let records = Records::default();
+    records.lock().unwrap().insert("_atproto.spf.test".into(), vec![vec!["v=spf1 -all".to_string()]]);
+    let resolver = asking(records);
+    let said = |handle: &str| {
+        let handle = Handle::<SmolStr>::new_owned(handle).unwrap();
+        let e = block_on(resolver.resolve_handle(&handle)).unwrap_err();
+        crate::net::with_causes(&e)
+    };
+    let web = "https://nobody.test/.well-known/atproto-did doesn't give a DID";
+    let nobody = said("Nobody.test");
+    assert!(nobody.contains(&format!("DNS has no _atproto.nobody.test record, and {web}")), "{nobody}");
+    let spf = said("spf.test");
+    assert!(spf.contains("DNS's _atproto.spf.test record has no did=… in it"), "{spf}");
+
+    let handle = Handle::<SmolStr>::new_owned("nobody.test").unwrap();
+    let e = block_on(resolver.resolve_handle(&handle)).unwrap_err();
+    let signing_in = crate::atmosphere::oauth_error(jacquard_oauth::resolver::ResolverError::from(e).into());
+    let signing_in = signing_in.to_string();
+    assert!(signing_in.starts_with("no Atmosphere account has the handle nobody.test: DNS has no"), "{signing_in}");
+    assert!(signing_in.ends_with("(https://bsky.social for a Bluesky account)"), "{signing_in}");
+}
+
 /// A TXT string, and the DID it names when it's a valid `did=` one.
 fn txt() -> impl hegel::PrintableGenerator<(String, Option<String>)> {
     hegel::compose!(|tc| {
@@ -101,5 +128,5 @@ fn the_first_valid_did_in_dns_names_the_account(tc: TestCase) {
         records.lock().unwrap().insert("_atproto.dj.test".into(), strings);
     }
     let found = block_on(asking(records).dns_did("dj.test"));
-    assert_eq!(found.map(|did| did.as_str().to_string()), expected, "{drawn:?}");
+    assert_eq!(found.ok().map(|did| did.as_str().to_string()), expected, "{drawn:?}");
 }

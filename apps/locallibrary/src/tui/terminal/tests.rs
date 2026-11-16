@@ -421,14 +421,15 @@ fn prop_the_player_starts_asks_draws_and_quits(tc: TestCase) {
     let terminal = Terminal { capability: true, read_back: false, colours: true, dark: false, device: !late };
     let mut command = player(dir.path());
     command.env("TERM", "xterm-256color");
-    let (out, status) = on_a_pty(command, terminal, b"\x1b[?2026l", b"q");
+    let (out, status) = on_a_pty(command, terminal, b"\x1b[?2026l", b"Q");
     let shown = String::from_utf8_lossy(&out);
     assert!(status.success(), "{shown}");
     let at = |needle: &[u8]| out.windows(needle.len()).position(|w| w == needle);
     let (asked, screen, begin, end) = (at(b"\x1bP+q"), at(b"\x1b[?1049h"), at(b"\x1b[?2026h"), at(b"\x1b[?2026l"));
     assert!(asked.unwrap() < screen.unwrap(), "asked before the screen is taken over");
     assert!(screen.unwrap() < begin.unwrap() && begin.unwrap() < end.unwrap(), "{shown}");
-    let drawn = out[begin.unwrap()..end.unwrap()].windows(10).any(|w| w == b"locallibra");
+    // The Library tab: at 80 columns the top bar has no room for the player's name.
+    let drawn = out[begin.unwrap()..end.unwrap()].windows(7).any(|w| w == b"Library");
     assert!(drawn, "the frame is between the marks");
 }
 

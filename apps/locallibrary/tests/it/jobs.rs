@@ -85,14 +85,14 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
     let export = std::fs::read(main.join(PDB)).unwrap();
 
     // The first run: no store yet, so a hint; `pull` with no drive starts the library.
-    let (_, err, code) = env.run(&["--yes", "adopt", path(&main), "--name", "Main"]);
+    let (_, err, code) = env.run(&["--yes", "drive", "adopt", path(&main), "--name", "Main"]);
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("`locallibrary setup`"), "{err}");
     let (v, code) = env.json(&["pull"]);
     assert_eq!(code, 0, "{v}");
     assert_eq!((&v["schema"], &v["plan"], &v["outcome"]), (&json!(1), &json!(null), &json!("applied")), "{v}");
     assert!(v["report"]["steps"][0]["done"][0].as_str().unwrap().starts_with("saved Main in a new library"), "{v}");
-    let (_, err, _) = env.run(&["drives"]);
+    let (_, err, _) = env.run(&["drive", "ls"]);
     assert!(!err.contains("setup"), "{err}");
 
     // An edit, recorded; then rekordbox exports over it.
@@ -127,7 +127,7 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
     assert!(out.contains("✓ remove 1 of rekordbox's demo track(s) and their files"), "{out}");
     assert!(!out.contains("skipped an edit"), "the replay finds the sample gone: {out}");
     assert!(!main.join(SAMPLE.trim_start_matches('/')).exists());
-    let (v, _) = env.json(&["playlists", "Main"]);
+    let (v, _) = env.json(&["playlist", "ls", "Main"]);
     assert!(v.to_string().contains("Friday"), "{v}");
     let (v, _) = env.json(&["status"]);
     let main_status = &v["mounted"][0];
@@ -163,7 +163,7 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
     assert_eq!(applied["result"]["steps"].as_array().unwrap().len(), 3, "{applied}");
     let again = call(3, "refresh.apply", json!({ "plan_id": id }));
     assert_eq!(again["error"]["data"]["kind"], "stale_plan", "a plan is applied once");
-    let set = call(4, "set.plan", json!({ "eject": false }));
+    let set = call(4, "prep.plan", json!({ "eject": false }));
     assert_eq!(running(&set["result"]), ["check"], "{set}");
     drop(stdin);
     rpc.wait().unwrap();
@@ -171,12 +171,12 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
 
 /// The commands that, given no drive, read every mounted one.
 const READS: [&[&str]; 11] = [
-    &["info"],
+    &["drive", "info"],
     &["tracks"],
-    &["playlists"],
-    &["backups"],
+    &["playlist", "ls"],
+    &["drive", "backups"],
     &["doctor"],
-    &["space"],
+    &["drive", "space"],
     &["settings", "show"],
     &["art"],
     &["tags"],
@@ -225,7 +225,7 @@ fn a_read_given_no_drive_reads_every_mounted_drive() {
     assert_eq!(code, 5, "{out}\n{err}");
     assert!(err.contains("B left out: "), "{err}");
     assert!(out.contains("A  ") && out.contains("track(s)") && !out.contains("B  "), "{out}");
-    let (v, code) = env.json(&["playlists"]);
+    let (v, code) = env.json(&["playlist", "ls"]);
     assert_eq!(code, 5, "{v}");
     assert!(v[0]["error"].is_null() && v[0]["result"].is_array(), "{v}");
     assert!(v[1]["result"].is_null() && v[1]["error"]["kind"].is_string(), "{v}");
@@ -271,20 +271,20 @@ fn which_drive_a_command_means() {
     let (v, code) = env.json(&["xml", "-o", path(&xml)]);
     assert_eq!((code, &v["error"]["kind"], &v["outcome"]), (2, &json!("usage"), &json!("error")), "{v}");
     assert_eq!((&v["schema"], &v["error"]["code"]), (&json!(1), &json!("usage")), "{v}");
-    let (v, code) = env.json(&["info", "A"]);
+    let (v, code) = env.json(&["drive", "info", "A"]);
     assert_eq!((code, &v["volume_name"]), (0, &json!("A")));
     let (_, err, code) = env.run(&["pull"]);
     assert_eq!(code, 2, "{err}");
     assert!(err.contains("none belongs to a library"), "{err}");
 
     // A name nobody has, and a known drive that isn't plugged in.
-    let (_, err, code) = env.run(&["info", "Nobody"]);
+    let (_, err, code) = env.run(&["drive", "info", "Nobody"]);
     assert_eq!(code, 1);
     assert!(err.contains("no mounted drive matches \"Nobody\"") && err.contains("mounted: A ("), "{err}");
-    env.run(&["--yes", "adopt", path(&b), "--name", "Club drive"]);
+    env.run(&["--yes", "drive", "adopt", path(&b), "--name", "Club drive"]);
     env.run(&["pull", "Club drive"]);
     std::fs::rename(&b, env.root.join("B")).unwrap();
-    let (_, err, code) = env.run(&["info", "club drive"]);
+    let (_, err, code) = env.run(&["drive", "info", "club drive"]);
     assert_eq!(code, 1);
     assert!(err.contains("Club drive is known but not mounted; last seen"), "{err}");
 
@@ -304,11 +304,11 @@ fn prep_saves_syncs_checks_and_keeps_problems_mounted() {
     let main = demo_drive(&env.volumes, "MAIN");
     let backup = env.volumes.join("BACKUP");
     std::fs::create_dir(&backup).unwrap();
-    env.run(&["--yes", "adopt", path(&main), "--name", "Main"]);
+    env.run(&["--yes", "drive", "adopt", path(&main), "--name", "Main"]);
     env.run(&["pull", "Main", "--library", "Home", "--new-library"]);
     let (_, err, code) = env.run(&["--yes", "sync", path(&main), path(&backup)]);
     assert_eq!(code, 0, "{err}");
-    env.run(&["--yes", "adopt", path(&backup), "--name", "Backup"]);
+    env.run(&["--yes", "drive", "adopt", path(&backup), "--name", "Backup"]);
     env.run(&["--yes", "drive", "role", "Main", "primary"]);
 
     // Main has a newer export: the plan saves it, copies it onto Backup, checks both.
@@ -326,7 +326,7 @@ fn prep_saves_syncs_checks_and_keeps_problems_mounted() {
     let (v, code) = env.json(&["--yes", "prep", "--no-eject"]);
     assert_eq!((code, &v["outcome"]), (0, &json!("applied")), "{v}");
     assert_eq!(running(&v["plan"]), ["pull", "sync", "check"]);
-    let (c, _) = env.json(&["compare", "Main", "Backup"]);
+    let (c, _) = env.json(&["diff", "Main", "Backup", "--summary"]);
     assert_eq!(c["relation"], "identical");
 
     // A check that finds problems (placeholder audio doesn't decode) leaves the drives mounted.
@@ -374,7 +374,7 @@ fn sync_says_how_many_sessions_a_drive_came_back_with() {
 fn set_is_the_sets_you_played_and_the_job_is_prep() {
     let env = Env::new();
     let main = demo_drive(&env.volumes, "MAIN");
-    env.run(&["--yes", "adopt", path(&main), "--name", "Main"]);
+    env.run(&["--yes", "drive", "adopt", path(&main), "--name", "Main"]);
     env.run(&["pull", "Main", "--library", "Home", "--new-library"]);
     let (out, _, code) = env.run(&["set", "list"]);
     assert_eq!(
@@ -463,13 +463,13 @@ fn setup_names_drives_and_starts_the_library() {
     assert!(out.contains("locallibrary refresh"), "{out}");
     let (libs, _) = env.json(&["library", "ls"]);
     assert_eq!(libs[0]["name"], "Home", "{libs}");
-    let (drives, _) = env.json(&["drive", "list"]);
+    let (drives, _) = env.json(&["drive", "ls", "--known"]);
     let role = |name: &str| drives.as_array().unwrap().iter().find(|d| d["name"] == name).map(|d| d["role"].clone());
     assert_eq!(role("Main"), Some(json!("primary")), "{drives}");
     assert_eq!(role("Backup"), Some(json!("set")), "{drives}");
     let (players, _) = env.json(&["players"]);
     assert_eq!(players["default"], json!(["CDJ-3000", "CDJ-2000NXS2"]), "{players}");
-    let (profile, _) = env.json(&["settings", "profile"]);
+    let (profile, _) = env.json(&["settings", "base"]);
     assert!(!profile["base"].as_object().unwrap().is_empty(), "My Settings imported from Main: {profile}");
     let (group, code) = env.json(&["check", "--players", "CDJ-3000"]);
     assert_eq!(code, 0, "{group}");
@@ -483,7 +483,7 @@ fn setup_refuses_a_name_two_drives_answer_to() {
     let env = Env::new();
     let main = demo_drive(&env.volumes, "REKORDBOX");
     let other = demo_drive(&env.volumes, "OTHER");
-    let (_, err, code) = env.run(&["--yes", "adopt", path(&other), "--name", "REKORDBOX"]);
+    let (_, err, code) = env.run(&["--yes", "drive", "adopt", path(&other), "--name", "REKORDBOX"]);
     assert_eq!(code, 0, "{err}");
     for named in [&["REKORDBOX"][..], &[path(&main), "--name", "REKORDBOX=Main"]] {
         let (_, err, code) = env.run(&[&["--yes", "setup", "--library", "Home"], named].concat());
@@ -581,7 +581,7 @@ fn setup_takes_the_drives_named_and_joins_their_library() {
     let zed = demo_drive(&env.volumes, "ZED");
     let (out, err, code) = env.run(&["--yes", "setup", path(&zed), "REKORDBOX", "--library", "Mine", "--no-settings"]);
     assert_eq!(code, 0, "{out}\n{err}");
-    let (drives, _) = env.json(&["drive", "list"]);
+    let (drives, _) = env.json(&["drive", "ls", "--known"]);
     let role = |name: &str| drives.as_array().unwrap().iter().find(|d| d["name"] == name).map(|d| d["role"].clone());
     assert_eq!((role("ZED"), role("REKORDBOX")), (Some(json!("primary")), Some(json!("backup"))), "{drives}");
 }

@@ -44,7 +44,8 @@ const data = {
 	projects: { [neon.uri]: neon, [unclaimed.uri]: unclaimed },
 	saves: [],
 	show,
-	isNew: false
+	isNew: false,
+	bookings: {}
 };
 
 it('links each lineup project that can be contacted to an inquiry filled in from the show', async () => {
@@ -54,4 +55,17 @@ it('links each lineup project that can be contacted to an inquiry filled in from
 		.element(page.getByRole('link', { name: 'Inquire with Neon Tide' }))
 		.toHaveAttribute('href', '/dashboard/bookings/new?project=neon-tide&show=3kshow');
 	await expect.element(page.getByRole('link', { name: 'Inquire with Static Bloom' })).not.toBeInTheDocument();
+});
+
+it('opens the booking a lineup project was already asked through, instead of asking again', async () => {
+	await render(Page, {
+		params: { rkey: '3kshow' },
+		data: { ...data, bookings: { [neon.uri]: '3kbooking' } },
+		form: null
+	});
+
+	await expect
+		.element(page.getByRole('link', { name: 'Booking with Neon Tide' }))
+		.toHaveAttribute('href', '/dashboard/bookings/3kbooking');
+	await expect.element(page.getByRole('link', { name: 'Inquire with Neon Tide' })).not.toBeInTheDocument();
 });

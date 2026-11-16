@@ -376,7 +376,7 @@ fn check_exits_on_a_plugins_problems_as_on_its_own(tc: TestCase) {
 #[test]
 fn prep_stops_on_a_plugins_problems_never_on_its_failing() {
     let env = env();
-    env.ok(&["--yes", "adopt", path(&env.volumes.join("USB")), "--name", "USB"]);
+    env.ok(&["--yes", "drive", "adopt", path(&env.volumes.join("USB")), "--name", "USB"]);
     env.ok(&["pull", "USB"]);
     env.ok(&["--yes", "plugin", "checks", "--timeout", "0.5"]);
     let prep = |answer: Value| {
@@ -413,7 +413,7 @@ fn prep_stops_on_a_plugins_problems_never_on_its_failing() {
 fn a_blocking_guard_stops_cues_a_restore_and_a_contacts_playlist() {
     let env = env();
     let usb = env.volumes.join("USB");
-    env.ok(&["--yes", "adopt", path(&usb), "--name", "USB"]);
+    env.ok(&["--yes", "drive", "adopt", path(&usb), "--name", "USB"]);
     env.ok(&["--yes", "playlist", "new", "USB", "Keep"]);
     env.ok(&["pull", "USB"]);
     env.ok(&["--yes", "playlist", "delete", "USB", "Keep"]);
@@ -423,7 +423,7 @@ fn a_blocking_guard_stops_cues_a_restore_and_a_contacts_playlist() {
     find(&env, json!({ "about_edits": true, "findings": [{ "level": "warning", "message": "not tonight" }] }));
     let plans: [(&[&str], &str); 3] = [
         (&["cues", "set", "USB", "--track", "1", "--hot", "A", "--at", "1"], "cues"),
-        (&["restore", "USB", "--playlist", "Keep"], "playlist.restore"),
+        (&["drive", "restore", "USB", "--playlist", "Keep"], "playlist.restore"),
         (&["drive", "contact", "USB", "dj@example.com", "--playlist"], "drive.contact"),
     ];
     for (args, operation) in plans {

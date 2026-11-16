@@ -17,7 +17,7 @@
 //!   [`Disk::identity`], so if a different disk now answers to the same name (drives were
 //!   swapped, partitions changed), nothing happens; it looks again just before erasing.
 
-pub mod capacity;
+pub use loclib_capacity as capacity;
 pub mod fat32;
 pub mod players;
 
@@ -695,8 +695,8 @@ fn probe_capacity(disk: &Disk, ctx: &Ctx<'_>) -> Result<capacity::ProbeReport> {
         }
         disk.device.clone()
     };
-    let mut dev = capacity::DeviceFile::open(&raw)?;
-    capacity::probe(&mut dev, disk.size, disk.sector_size, ctx)
+    let mut dev = capacity::DeviceFile::open_to_overwrite(&raw)?;
+    Ok(capacity::probe(&mut dev, disk.size, disk.sector_size, ctx)?)
 }
 
 impl From<Filesystem> for FsKind {
