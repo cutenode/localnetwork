@@ -186,7 +186,7 @@ flowchart LR
   Dash -- "308 from /activity, /data,<br/>/requests, /inbox/settings" --> Account
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
-  Dash --> Claim["/claim/[slug], /projects/new,<br/>/venues/[key]/claim and /settings<br/>(peopleSpaces)"]
+  Dash --> Claim["/claim/[slug], /projects/new,<br/>/venues/[key]/claim, /settings<br/>and /events (peopleSpaces)"]
   Dash --> Access["/access/[slug]/[rkey]"]
   Dash --> Manage["/projects/[slug]<br/>the performer's managers"]
   Manage --> Mine["/profile, /shows/[rkey]"]

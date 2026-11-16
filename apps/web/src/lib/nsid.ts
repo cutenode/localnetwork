@@ -58,6 +58,10 @@ export const COLLECTION = {
 	venue: `${NS}.venue`,
 	/** Someone a venue doesn't take events, relationships or inquiries from, written by the root into its own public repo. */
 	venueBlock: `${NS}.venue.block`,
+	/** That a venue confirms an event naming it, written by the root into the venue's space. */
+	venueApproval: `${NS}.venue.approval`,
+	/** A night a party puts on, written by the root into the party's space. */
+	event: `${NS}.event`,
 	/** A named night or series and what its page shows, written by the root at the key `self` in the party's space. */
 	party: `${NS}.party`
 } as const;

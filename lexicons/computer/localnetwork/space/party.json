@@ -13,7 +13,8 @@
 				"computer.localnetwork.people.link",
 				"computer.localnetwork.people.request",
 				"computer.localnetwork.listing.status",
-				"computer.localnetwork.party"
+				"computer.localnetwork.party",
+				"computer.localnetwork.event"
 			]
 		}
 	}

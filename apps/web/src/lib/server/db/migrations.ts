@@ -569,6 +569,42 @@ export const migrations = {
 				.execute(db);
 			await sql.raw('CREATE INDEX party_skey ON party (skey)').execute(db);
 		}
+	},
+	'019_events': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE event (
+						uri TEXT PRIMARY KEY,
+						space_uri TEXT NOT NULL,
+						rkey TEXT NOT NULL,
+						venue_space TEXT,
+						starts_at TEXT,
+						status TEXT NOT NULL,
+						audience TEXT NOT NULL,
+						published_at TEXT,
+						record TEXT NOT NULL,
+						cid TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX event_space ON event (space_uri)').execute(db);
+			await sql.raw('CREATE INDEX event_venue ON event (venue_space, starts_at)').execute(db);
+			await sql
+				.raw(
+					`CREATE TABLE venue_approval (
+						space_uri TEXT NOT NULL,
+						rkey TEXT NOT NULL,
+						event_uri TEXT NOT NULL,
+						approved_by TEXT NOT NULL,
+						created_at TEXT NOT NULL,
+						PRIMARY KEY (space_uri, rkey)
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX venue_approval_event ON venue_approval (event_uri)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 
