@@ -33,6 +33,7 @@ import { type ChannelSender, Outbox } from './notifications/outbox';
 import { PlyrClient } from './plyr';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
+import { BookingPerformers } from './services/booking-performers';
 import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
@@ -239,7 +240,6 @@ export async function createApp(options: CreateAppOptions) {
 
 	if (Object.keys(config.flagOverrides).length > 0)
 		logger.warn('flags forced by FLAG_OVERRIDES', { flags: config.flagOverrides });
-	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
@@ -247,6 +247,7 @@ export async function createApp(options: CreateAppOptions) {
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const bookings = new BookingService(core, new BookingPerformers(core, projects, profiles, djListings));
 	const performers = new PerformerSearch(core, happyView, projects, profiles);
 
 	const recordings = new RecordingService(
