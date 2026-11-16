@@ -125,7 +125,7 @@ flowchart LR
   Jet -- "the root's only" --> Root["project, listing, listing.profile,<br/>verification"]
   Jet -- "every account's" --> All["profile, dj.set, dj.recording,<br/>dj.profile, locallibrary.settings"]
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]
-  Jet -- "managers, and accounts<br/>the root verified" --> Names["Bluesky display names"]
+  Jet -- "managers, accounts the root<br/>verified, and accounts with a profile" --> Names["Bluesky display names<br/>and pronouns"]
   Jet -- "press kits of the<br/>root's performers" --> Kits["The root's, and a<br/>manager's older ones"]
   Jet -- "of the root's performers,<br/>and of others' profiles" --> Follows["computer.localnetwork.follow"]
   Jet -- "managers of a performer whose<br/>press kit reads follows" --> Bsky["Bluesky follows"]
