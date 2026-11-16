@@ -1,21 +1,15 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"title": "A performance budget",
-	"description": "An area's limits: see benchmarks/README.md.",
+	"description": "How much a pull request may grow an area's numbers: see benchmarks/README.md.",
 	"type": "object",
 	"additionalProperties": false,
-	"required": ["$schema", "job", "tolerance_percent", "metrics"],
+	"required": ["$schema", "job", "metrics"],
 	"properties": {
 		"$schema": { "const": "../budget.schema.json" },
 		"job": {
 			"description": "Which job measures this area: pull-request is locallibrary-ci.yml's budgets job, release the release-budgets action, a target's triple its release-build job in locallibrary-scheduled.yml.",
 			"enum": ["pull-request", "release", "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
-		},
-		"tolerance_percent": {
-			"description": "How far a measurement may stray from its limit, either way, before the check fails.",
-			"type": "number",
-			"minimum": 0,
-			"maximum": 5
 		},
 		"metrics": {
 			"type": "object",
@@ -27,11 +21,11 @@
 		"metric": {
 			"type": "object",
 			"additionalProperties": false,
-			"required": ["limit", "unit", "measures"],
+			"required": ["allowance", "unit", "measures"],
 			"properties": {
-				"limit": {
-					"description": "The measured number, or null until a run on the right machine has measured it.",
-					"type": ["number", "null"],
+				"allowance": {
+					"description": "How much a pull request may grow the number over the commit it merges into, in its unit, without a budget-raise line: the run-to-run noise of the measurement, and no more.",
+					"type": "number",
 					"minimum": 0
 				},
 				"unit": { "enum": ["bytes", "allocations", "instructions", "packages", "files", "calls"] },

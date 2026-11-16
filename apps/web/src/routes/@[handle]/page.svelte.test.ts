@@ -16,17 +16,19 @@ type Extras = {
 	playsIn?: ProjectView[];
 	follow?: Promise<FollowState | null>;
 	pronouns?: string | null;
+	bookable?: boolean;
 };
 
 /**
  * The page's data for `profile` (null for an account without one, shown as `name`), as `viewer`, with their pronouns
  * and what streams in: their DJ records, the projects they play in, and their followers when they can be followed.
+ * `bookable` is a DJ Find DJs lists.
  */
 const pageData = (
 	profile: ProfileView | null,
 	viewer: Viewer | null = null,
 	name = profile?.record.basics.name ?? '',
-	{ dj = [], playsIn = [NEON_CREW], follow, pronouns = null }: Extras = {}
+	{ dj = [], playsIn = [NEON_CREW], follow, pronouns = null, bookable = false }: Extras = {}
 ) => ({
 	viewer,
 	pendingRequests: 0,
@@ -34,6 +36,7 @@ const pageData = (
 	name,
 	pronouns,
 	account: { did: NEON, handle: 'neon.test' },
+	bookable,
 	meta: PAGE_META,
 	dj: Promise.resolve(dj),
 	sets: undefined,
@@ -189,6 +192,41 @@ it('gives each section with something in it a tab, opening the first', async () 
 		.element(page.getByRole('tabpanel', { name: 'Mixes' }).getByText('Warehouse Hours', { exact: true }))
 		.toBeInTheDocument();
 	await expect.element(page.getByRole('tab', { name: 'Sets' })).toHaveAttribute('href', '?tab=sets');
+});
+
+it('offers an inquiry to a listed DJ, or sign-in to send one, but not on their own page or an unlisted one', async () => {
+	const dj = view({ performer: { genres: ['techno'] } });
+
+	const pat: Viewer = {
+		did: 'did:plc:pat',
+		handle: 'pat.test',
+		roles: [],
+		isAdmin: false,
+		isStaff: false,
+		spacesCapable: true
+	};
+
+	const inquiry = page.getByRole('link', { name: 'Send inquiry' });
+
+	const signIn = page.getByRole('link', { name: 'Sign in to book' });
+
+	let shown = await open(dj, pat, undefined, { bookable: true });
+	await expect.element(inquiry).toHaveAttribute('href', `/dashboard/bookings/new?dj=${NEON}`);
+	await shown.unmount();
+
+	shown = await open(dj, null, undefined, { bookable: true });
+	await expect.element(signIn).toHaveAttribute('href', '/login?next=%2F%40neon.test');
+	await shown.unmount();
+
+	shown = await open(dj, { ...pat, did: NEON, handle: 'neon.test' }, undefined, { bookable: true });
+	await expect.element(page.getByRole('link', { name: 'Manage' })).toBeInTheDocument();
+	await expect.element(inquiry).not.toBeInTheDocument();
+	await shown.unmount();
+
+	await open(dj, pat);
+	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeInTheDocument();
+	await expect.element(inquiry).not.toBeInTheDocument();
+	await expect.element(signIn).not.toBeInTheDocument();
 });
 
 it('shows the follower count, and links to sign-in to follow when signed out', async () => {

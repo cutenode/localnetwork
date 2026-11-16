@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { CalendarPlus, Clock, ExternalLink, MapPin } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import FollowButton from '#lib/components/FollowButton.svelte';
@@ -24,6 +24,9 @@
 	const promoter = $derived(data.profile?.record.promoter);
 
 	const place = $derived(basics?.location && placeLabel({ location: basics.location }));
+
+	// A listed DJ takes inquiries from anyone but themself, as an act does from anyone but its managers.
+	const inquire = $derived(data.bookable && data.viewer?.did !== data.account.did);
 
 	// `#follow` lets sign-in say it's to follow them, and brings them back to the button.
 	const followLogin = $derived(data.viewer ? undefined : `/login?next=${encodeURIComponent(`${profileHref(data.account)}#follow`)}`);
@@ -50,7 +53,7 @@
 				{#each performer.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
-		<div id="follow" class="flex flex-wrap gap-2 empty:hidden">{#if data.follow}{#await data.follow}<FollowButton follow={undefined} loginHref={followLogin} />{:then follow}<FollowButton {follow} loginHref={followLogin} />{/await}{/if}<ManageLink viewer={data.viewer} profile={data.account} /></div>
+		<div id="follow" class="flex flex-wrap gap-2 empty:hidden">{#if inquire && !data.viewer}<a href="/login?next={encodeURIComponent(profileHref(data.account))}" class="btn-primary"><CalendarPlus class="size-4" />Sign in to book</a>{:else if inquire}<a href="/dashboard/bookings/new?dj={data.account.did}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>{/if}{#if data.follow}{#await data.follow}<FollowButton follow={undefined} loginHref={followLogin} />{:then follow}<FollowButton {follow} loginHref={followLogin} />{/await}{/if}<ManageLink viewer={data.viewer} profile={data.account} /></div>
 	</div>
 </div>
 

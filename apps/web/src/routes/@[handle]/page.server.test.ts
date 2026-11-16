@@ -127,6 +127,39 @@ it('shows an account without a profile by its handle, without structured data', 
 	expect(locals).toMatchObject({ crawlerHead: expect.not.stringContaining('application/ld+json') });
 });
 
+it('offers an inquiry to a listed DJ only once they turn on Take inquiries', async () => {
+	const listing = {
+		uri: `at://did:plc:root/computer.localnetwork.listing.profile/${MARA}`,
+		cid: 'bafy',
+		createdAt: '2026-10-30T00:00:00.000Z'
+	};
+
+	const listed = { ...app(), djListings: { get: async () => listing } };
+
+	const profile = async (takesInquiries?: boolean) => {
+		await t.net.client(MARA).putRecord({
+			collection: COLLECTION.profile,
+			rkey: 'self',
+			record: {
+				$type: COLLECTION.profile,
+				basics: { name: 'Mara Lind' },
+				performer: {},
+				...(takesInquiries !== undefined && { takesInquiries }),
+				createdAt: '2026-10-30T00:00:00.000Z',
+				updatedAt: '2026-10-30T00:00:00.000Z'
+			}
+		});
+
+		return routeEvent({ app: listed, params: { handle: 'mara.test' }, url: '/@mara.test' }).loadData<PageServerData>(
+			load
+		);
+	};
+
+	expect(await profile()).toMatchObject({ bookable: false });
+	expect(await profile(false)).toMatchObject({ bookable: false });
+	expect(await profile(true)).toMatchObject({ bookable: true });
+});
+
 it('streams what the tabs show, except to a link that opens a tab, which gets it with the page', async () => {
 	const loadAt = (url: string) =>
 		routeEvent({ app: app(), params: { handle: 'mara.test' }, url }).loadData<PageServerData>(load);

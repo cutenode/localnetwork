@@ -4,6 +4,7 @@ import { accountLabel, profileHref } from '#lib/format.ts';
 import type { AccountView } from '#lib/types.ts';
 import type { IdentityResolver } from './atproto/identity';
 import { unlessOffline } from './happyview/offline';
+import { takesInquiries } from './services/booking-performers';
 
 const NOT_FOUND = 'No account goes by that name';
 
@@ -81,15 +82,21 @@ export async function personName(app: App.Locals['app'], account: AccountView) {
 }
 
 /**
- * What a person's public profile page loads: their profile, the DJ stats and sets they publish (streamed, unless
- * they're fresh in the cache), and the active projects they manage, streamed too. A link that opens one of the page's
- * tabs (`?tab=`) gets both with the page instead, so the tab it names works without scripts. Every account has a
- * profile page, named as personName says even without a profile record.
+ * What a person's public profile page loads: their profile, whether they take booking inquiries (a DJ Find DJs lists),
+ * the DJ stats and sets they publish (streamed, unless they're fresh in the cache), and the active projects they
+ * manage, streamed too. A link that opens one of the page's tabs (`?tab=`) gets both with the page instead, so the tab
+ * it names works without scripts. Every account has a profile page, named as personName says even without a profile
+ * record.
  */
 export async function loadProfilePage(locals: App.Locals, param: string, search: string, ip: string) {
 	const { app } = locals;
 	const account = await pageAccount(locals, param, search, ip);
-	const { profile, name, pronouns } = await personName(app, account);
+
+	const [{ profile, name, pronouns }, listing] = await Promise.all([
+		personName(app, account),
+		app.djListings.get(account.did)
+	]);
+
 	const linked = (profile?.record.performer?.mixes ?? []).flatMap((mix) => mix.set ?? []);
 	const opensTab = new URLSearchParams(search).has('tab');
 	const dj = app.dj.fresh([account]) ?? app.dj.activity([account]);
@@ -103,6 +110,7 @@ export async function loadProfilePage(locals: App.Locals, param: string, search:
 		name,
 		pronouns,
 		account,
+		bookable: takesInquiries(listing, profile),
 		dj: opensTab ? await dj : dj,
 		sets: linked.length ? app.sets.linked(linked) : undefined,
 		playsIn: opensTab ? await playsIn : playsIn

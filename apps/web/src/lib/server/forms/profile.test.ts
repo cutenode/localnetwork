@@ -83,6 +83,15 @@ describe('parseProfileForm', () => {
 		).toEqual({});
 	});
 
+	it('reads Take inquiries only with the performer section on', async () => {
+		const parsed = async (...fields: [string, string][]) =>
+			(await parseProfileForm(form([['name', 'Neon'], ...fields]), undefined)).takesInquiries;
+
+		expect(await parsed(['section', 'performer'], ['takesInquiries', 'on'])).toBe(true);
+		expect(await parsed(['section', 'performer'])).toBe(false);
+		expect(await parsed(['takesInquiries', 'on'])).toBeUndefined();
+	});
+
 	it('says what to fix', async () => {
 		await expect(parseProfileForm(form([['name', '']]), undefined)).rejects.toThrow('Add your name');
 		await expect(
@@ -168,6 +177,8 @@ describe('profileFormValues and sectionsOf', () => {
 			highlights: 'Tresor\nPanorama Bar',
 			cities: [{ city: 'Leipzig', region: 'Saxony', country: 'DE' }]
 		});
+		expect(profileFormValues(record).takesInquiries).toBe(false);
+		expect(profileFormValues({ ...record, takesInquiries: true }).takesInquiries).toBe(true);
 		expect(sectionsOf(record)).toEqual({ performer: true, promoter: true });
 		expect(sectionsOf({ ...record, performer: undefined, promoter: undefined })).toEqual({
 			performer: false,

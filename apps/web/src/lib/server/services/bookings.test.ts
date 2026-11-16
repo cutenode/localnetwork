@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
-import type { ProjectProfile } from '#lib/types.ts';
+import type { PerformerSection, ProjectProfile } from '#lib/types.ts';
 import { RecordValidationError } from '../atproto/lexicons';
 import { memberSpacePolicy } from '../atproto/repo-client';
 import { bookingSpace, parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
@@ -1106,6 +1106,102 @@ describe('BookingService', () => {
 
 			const [thread] = await t.bookings.threadsFor(PROMOTER);
 			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+	});
+
+	describe('inquiries to a listed DJ', () => {
+		const DJ_PROFILE = `at://${DJ}/${COLLECTION.profile}/self`;
+
+		/**
+		 * Saves DJ's profile as Neon with `performer` as its performer section (off when null) and Take inquiries as
+		 * `takesInquiries`, and has staff list them.
+		 */
+		const listDj = async (performer: PerformerSection | null = { genres: ['techno'] }, takesInquiries = true) => {
+			const current = await t.profiles.get(DJ);
+
+			await t.profiles.save(await t.viewer(DJ), {
+				basics: { name: 'Neon' },
+				performer: performer ?? undefined,
+				takesInquiries,
+				avatar: 'keep',
+				swap: current?.cid ?? null
+			});
+			await t.djListings.list(await t.viewer(ADMIN), DJ);
+		};
+
+		const ask = async (actor = PROMOTER) =>
+			t.bookings.start({
+				actor: await t.viewer(actor),
+				projectUri: DJ_PROFILE,
+				show: { title: 'Night' },
+				message: 'Free?'
+			});
+
+		it('opens a thread with their profile that they answer for themself, and tells them', async () => {
+			await listDj();
+			const space = await ask();
+
+			const { thread } = await t.bookings.thread(await t.viewer(DJ), space);
+			expect(thread.project).toEqual({ uri: DJ_PROFILE, slug: null, name: 'Neon', href: `/@${DJ}` });
+			expect(
+				thread.participants.map(({ did, role }) => [did, role]).toSorted(([a], [b]) => a.localeCompare(b))
+			).toEqual([
+				[DJ, 'performer'],
+				[PROMOTER, 'promoter']
+			]);
+			expect(await titles(DJ)).toEqual(['New booking inquiry for Neon']);
+
+			await t.bookings.message({ actor: await t.viewer(DJ), space, text: 'Yes' });
+			await t.bookings.setStatus({ actor: await t.viewer(DJ), space, status: 'confirmed' });
+
+			expect(await titles(PROMOTER)).toEqual(['Neon marked the booking confirmed', 'Neon sent a message']);
+			expect(await t.bookings.threadsFor(PROMOTER)).toMatchObject([
+				{ space, status: 'confirmed', project: { name: 'Neon' } }
+			]);
+		});
+
+		it("refuses one to a DJ who isn't listed, has the DJ section off or hasn't turned on Take inquiries, and to themself", async () => {
+			await expect(ask()).rejects.toThrow(NotFoundError);
+
+			await listDj(null);
+			await expect(ask()).rejects.toThrow(NotFoundError);
+
+			await listDj({ genres: ['techno'] }, false);
+			await expect(ask()).rejects.toThrow(NotFoundError);
+
+			await listDj();
+			await expect(ask(DJ)).rejects.toThrow("You can't send an inquiry to yourself");
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+		});
+
+		it("gives the DJ the same answers as an act's manager", () => {
+			for (const status of ['open', 'negotiating', 'confirmed', 'declined'])
+				for (const answered of [false, true])
+					expect(bookingActions('performer', status, answered)).toEqual(bookingActions('manager', status, answered));
+
+			expect(bookingActions('performer', 'open', false).map((action) => action.status)).toEqual([
+				'negotiating',
+				'confirmed',
+				'declined'
+			]);
+		});
+
+		it('opens a synced thread with the DJ in it, but not from an inquiry the DJ sent themself', async () => {
+			const value = { project: DJ_PROFILE, message: 'Free?', createdAt: new Date().toISOString() };
+			const space = await syncedSpace([PROMOTER, DJ]);
+			const own = await syncedSpace([DJ]);
+
+			await synced(space, PROMOTER, COLLECTION.bookingInquiry, value);
+			await synced(own, DJ, COLLECTION.bookingInquiry, value);
+
+			const threads = await t.bookings.threadsFor(DJ);
+			expect(threads).toMatchObject([{ space, promoter: { did: PROMOTER } }]);
+			expect(
+				threads[0].participants.map(({ did, role }) => [did, role]).toSorted(([a], [b]) => a.localeCompare(b))
+			).toEqual([
+				[DJ, 'performer'],
+				[PROMOTER, 'promoter']
+			]);
 		});
 	});
 });
