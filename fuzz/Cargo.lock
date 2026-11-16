@@ -2249,7 +2249,6 @@ dependencies = [
  "loclib-progress",
  "schemars",
  "serde",
- "symphonia",
  "thiserror 2.0.21",
 ]
 
