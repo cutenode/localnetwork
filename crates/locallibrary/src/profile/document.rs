@@ -1,11 +1,12 @@
 //! The public part of a profile: what the DJ chose to show, rounded so it describes a style
 //! without being an inventory.
 //!
+//! Only the [publishable](Section::publishable) sections ever go in: Energy, Genres, Artists and
+//! Era (counted over the collection, each track once), Sets, and Collection. The rest (tempo,
+//! mixing, keys, signature tracks and so on) stay on this computer, whatever the preferences say.
 //! A [`ProfileDocument`] never holds file paths, drive or history-list names, ratings, comments,
-//! bitrates or exact dates, whatever the preferences say, and never counts sessions (they stand in
-//! for sets until the DJ declares some, [`super::Basis::Sessions`]). Tracks are only named in the
-//! `signature` section, and never when the DJ hid the track or its artist, or a set marks it
-//! unnamed.
+//! bitrates or exact dates, and never counts sessions (they stand in for sets until the DJ declares
+//! some, [`super::Basis::Sessions`]). No track is named, and an artist the DJ hid never is.
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -23,7 +24,10 @@ use crate::{Error, Result, fsutil};
 pub const PREFS_FILE: &str = "profile.json";
 
 /// Document format version.
-pub const DOCUMENT_VERSION: u32 = 1;
+///
+/// 2: only the publishable sections, with genres, artists, era and energy counted over the
+/// collection rather than plays.
+pub const DOCUMENT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "ProfileSection")]
@@ -114,7 +118,8 @@ impl Section {
         }
     }
 
-    /// What publishing the section tells people.
+    /// What the section says: what publishing it would tell people, for those that can be
+    /// published ([`Section::publishable`]).
     pub fn reveals(self) -> &'static str {
         match self {
             Section::Summary => "a one-line description and traits like \"Mixes in key\"",
@@ -123,11 +128,11 @@ impl Section {
             Section::Arc => "whether your sets build, hold or wind down in tempo",
             Section::Mixing => "how often you mix in key and how smoothly you change tempo",
             Section::Keys => "the keys you play most",
-            Section::Energy => "the mix of high, mid and low mood tracks you play",
-            Section::Genres => "the genres you play",
+            Section::Energy => "the mix of high, mid and low mood tracks in your collection",
+            Section::Genres => "the genres in your collection",
             Section::Labels => "the labels you play most (can reveal promo pools)",
-            Section::Artists => "the artists you play most",
-            Section::Era => "how new or old the music you play is",
+            Section::Artists => "the artists in your collection, most tracks first",
+            Section::Era => "when the music in your collection was released",
             Section::Signature => "tracks you play again and again, by name",
             Section::Prep => "how many of your tracks have cues and loops set",
             Section::Collection => "roughly how big your collection is",
@@ -135,10 +140,21 @@ impl Section {
         }
     }
 
-    /// Published unless the DJ turns them off. Sections that name tracks, artists or labels, or
-    /// describe the collection itself, are opt-in.
+    /// Whether the section can go in the document at all. The rest describe what was played,
+    /// which locallibrary only partly sees (sets it was told about, history lists on drives it
+    /// read), so they're shown on this computer and never published, whatever the preferences
+    /// say.
+    pub fn publishable(self) -> bool {
+        matches!(
+            self,
+            Section::Sets | Section::Energy | Section::Genres | Section::Artists | Section::Era | Section::Collection
+        )
+    }
+
+    /// Published unless the DJ turns them off. Of the publishable sections, those that name
+    /// artists or describe the collection itself are opt-in.
     pub fn published_by_default(self) -> bool {
-        !matches!(self, Section::Labels | Section::Artists | Section::Signature | Section::Prep | Section::Collection)
+        self.publishable() && !matches!(self, Section::Artists | Section::Collection)
     }
 
     pub fn parse(s: &str) -> Option<Section> {
@@ -176,7 +192,8 @@ pub enum Precision {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ProfilePrefs {
     /// Sections the document includes (`None`: the defaults, see
-    /// [`Section::published_by_default`]).
+    /// [`Section::published_by_default`]). One that isn't [publishable](Section::publishable)
+    /// (saved before it stopped being) is ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<BTreeSet<Section>>,
     #[serde(default)]
@@ -207,9 +224,12 @@ impl ProfilePrefs {
         fsutil::write_json_atomic(&store.root().join(PREFS_FILE), self)
     }
 
-    /// The sections the document includes.
+    /// The sections the document includes: never one that isn't [publishable](Section::publishable).
     pub fn published(&self) -> BTreeSet<Section> {
-        self.sections.clone().unwrap_or_else(|| Section::ALL.into_iter().filter(|s| s.published_by_default()).collect())
+        match &self.sections {
+            Some(s) => s.iter().copied().filter(|s| s.publishable()).collect(),
+            None => Section::ALL.into_iter().filter(|s| s.published_by_default()).collect(),
+        }
     }
 
     pub fn is_pinned(&self, name: &str) -> bool {
@@ -241,6 +261,18 @@ impl ProfilePrefs {
     pub fn apply(&mut self, u: &PrefsUpdate) -> Result<()> {
         if u.reset {
             *self = ProfilePrefs::default();
+        }
+        // Asking for a section that can't be published is a mistake to say, not to ignore.
+        let asked = u.sections.iter().flatten().chain(&u.include);
+        if let Some(s) = asked.copied().find(|s| !s.publishable()) {
+            return Err(Error::invalid(format!(
+                "{} stays on this computer: only {} can be published",
+                s.title(),
+                crate::op::and_list(
+                    &Section::ALL.iter().filter(|s| s.publishable()).map(|s| s.name()).collect::<Vec<_>>()
+                )
+            ))
+            .with("section", s));
         }
         if let Some(sections) = &u.sections {
             self.sections = Some(sections.iter().copied().collect());
@@ -623,8 +655,9 @@ fn split_name(name: &str) -> DocTrack {
 
 /// The public part of `report`, as `prefs` allow.
 pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument {
+    // `published` holds only publishable sections; said again here, as this is what goes out.
     let on = prefs.published();
-    let shows = |s: Section| on.contains(&s) && report.basis.publishes(s);
+    let shows = |s: Section| on.contains(&s) && s.publishable() && report.basis.publishes(s);
     let r = Round(prefs.precision);
     let mut d = ProfileDocument {
         version: DOCUMENT_VERSION,
@@ -649,7 +682,7 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         style: None,
     };
 
-    if on.contains(&Section::Summary) {
+    if shows(Section::Summary) {
         // The generated headline says only what the sections in the document say, counted as
         // they count.
         let count = |n| match r.count(n) {
@@ -675,13 +708,13 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
             median_tracks: s.median_tracks as u64,
         });
     }
-    if on.contains(&Section::Tempo)
+    if shows(Section::Tempo)
         && let (Some(core), Some(median)) = (report.tempo.core, report.tempo.median)
     {
         d.tempo = Some(DocTempo { low: r.bpm(core.low), high: r.bpm(core.high), median: r.bpm(median) });
     }
     let a = &report.arc;
-    if on.contains(&Section::Arc) && a.sets > 0 {
+    if shows(Section::Arc) && a.sets > 0 {
         // The shape from the shares as published, so the two never disagree.
         let s = r.shares(&[a.builds, a.steady, a.winds_down]);
         let (builds, steady, winds_down) = (s[0], s[1], s[2]);
@@ -697,26 +730,26 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         d.arc = Some(DocArc { shape, builds, steady, winds_down });
     }
     let m = &report.mixing;
-    if on.contains(&Section::Mixing) && m.transitions > 0 {
+    if shows(Section::Mixing) && m.transitions > 0 {
         d.mixing = Some(DocMixing {
             harmonic: m.harmonic_share.map(|x| r.share(x)),
             smooth_tempo: m.within_3pct.map(|x| r.share(x)),
             genre_changes: m.genre_change_share.map(|x| r.share(x)),
         });
     }
-    if on.contains(&Section::Keys) && report.keys.tracks > 0 {
+    if shows(Section::Keys) && report.keys.tracks > 0 {
         d.keys = Some(DocKeys {
             top: report.keys.top.iter().take(3).map(|k| k.name.clone()).collect(),
             minor: report.keys.minor_share.map(|x| r.share(x)),
         });
     }
-    if on.contains(&Section::Energy)
+    if shows(Section::Energy)
         && let Some(e) = &report.energy
     {
         let s = r.shares(&[e.high, e.mid, e.low]);
         d.energy = Some(DocEnergy { high: s[0], mid: s[1], low: s[2] });
     }
-    if on.contains(&Section::Genres) && !report.genres.top.is_empty() {
+    if shows(Section::Genres) && !report.genres.top.is_empty() {
         let top = &report.genres.top[..report.genres.top.len().min(5)];
         let shares = r.shares(&top.iter().map(|g| g.share).collect::<Vec<_>>());
         d.genres = Some(
@@ -727,13 +760,13 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
                 .collect(),
         );
     }
-    if on.contains(&Section::Labels) && !report.labels.top.is_empty() {
+    if shows(Section::Labels) && !report.labels.top.is_empty() {
         // A track has one label: the shares are parts of one whole, like genres'.
         let top = &report.labels.top[..report.labels.top.len().min(5)];
         let shares = r.shares(&top.iter().map(|l| l.share).collect::<Vec<_>>());
         d.labels = Some(top.iter().zip(shares).map(|(l, share)| DocShare { name: l.name.clone(), share }).collect());
     }
-    if on.contains(&Section::Artists) {
+    if shows(Section::Artists) {
         let artists: Vec<DocShare> = report
             .artists
             .top
@@ -744,11 +777,11 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
             .collect();
         d.artists = (!artists.is_empty()).then_some(artists);
     }
-    if on.contains(&Section::Era) && report.era.tracks > 0 {
+    if shows(Section::Era) && report.era.tracks > 0 {
         d.era =
             Some(DocEra { median_year: report.era.median_year, recent: report.era.recent_share.map(|x| r.share(x)) });
     }
-    if on.contains(&Section::Signature) {
+    if shows(Section::Signature) {
         let mut tracks: Vec<DocTrack> = Vec::new();
         let played = &report.signature.played;
         for pin in &prefs.pinned {
@@ -771,7 +804,7 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         }
         d.signature = (!tracks.is_empty()).then_some(tracks);
     }
-    if on.contains(&Section::Prep)
+    if shows(Section::Prep)
         && let Some(p) = &report.prep
     {
         d.prep = Some(DocPrep {
@@ -780,13 +813,13 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
             loops: r.share(p.loop_share),
         });
     }
-    if on.contains(&Section::Collection) && report.collection.tracks > 0 {
+    if shows(Section::Collection) && report.collection.tracks > 0 {
         d.collection = Some(DocCollection {
             tracks: r.count(report.collection.tracks),
             playlists: r.count(report.collection.playlists),
         });
     }
-    if on.contains(&Section::Style)
+    if shows(Section::Style)
         && let Some(s) = &report.style
     {
         d.style = Some(s.values.iter().map(|v| (camel(&v.key), v.value.clone())).collect());

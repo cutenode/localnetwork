@@ -151,6 +151,29 @@ it("shows the managers' playing stats and sets once they arrive", async () => {
 		.not.toBeInTheDocument();
 });
 
+it('holds room for "How they play" while it loads only when a manager has DJ records', async () => {
+	const loading = new Promise<never>(() => {});
+	const counts = { pressKits: 0, upcomingShows: 0 };
+
+	const { unmount } = await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...base, project: { ...neon, counts: { ...counts, djs: 1 } }, dj: loading },
+		form: null
+	});
+
+	await expect.element(page.getByRole('status', { name: 'Loading how they play' })).toBeInTheDocument();
+	await unmount();
+
+	await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...base, project: { ...neon, counts: { ...counts, djs: 0 } }, dj: loading },
+		form: null
+	});
+
+	await expect.element(page.getByRole('heading', { name: 'Booking details' })).toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading how they play' })).not.toBeInTheDocument();
+});
+
 it('names each member beside "How they play", linking their profile', async () => {
 	const profile = djProfileSchema.parse(DEMO_DJ_PROFILE);
 

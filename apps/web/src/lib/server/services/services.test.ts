@@ -157,7 +157,8 @@ describe('services', () => {
 			expect((await t.projects.bySlug(mine.slug))?.counts).toBeUndefined();
 			expect((await t.projects.bySlug(mine.slug, { counts: true }))?.counts).toEqual({
 				pressKits: 0,
-				upcomingShows: 0
+				upcomingShows: 0,
+				djs: 0
 			});
 			expect((await t.projects.recent(2)).map((p) => p.profile.name)).toEqual(['Other', 'Zephyr']);
 			expect(await t.projects.stats()).toMatchObject({

@@ -258,8 +258,8 @@ impl App {
             self.toast("select one of these drives", Level::Info);
             return;
         };
+        self.set_view(View::Library);
         self.open_library(id);
-        self.view = View::Library;
         self.focus = Focus::Playlists;
     }
 

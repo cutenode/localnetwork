@@ -89,11 +89,11 @@ One pass over one space. A second request while it runs queues one more pass.
 
 ```mermaid
 flowchart TD
-  Trigger["Poll, notifyWrite, or watchSpace"] --> List["registerNotify if it's due, then<br/>listRepos from spaceRev, 500 a page"]
+  Trigger["Poll, notifyWrite, or watchSpace"] --> List["registerNotify if it's due, then listRepos<br/>from spaceRev, 500 a page, 100 pages a pass"]
   List -- "authority says<br/>it's gone" --> Drop["Drop the local copy<br/>and what came from it"]
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
   List -- "never synced" --> Star["getRepo: verified STAR archive"]
-  Ops -- "fails, not on a MAC<br/>or credential" --> Star
+  Ops -- "fails, not on a MAC or credential,<br/>or runs past 100 pages" --> Star
   Ops -- "writer taken down,<br/>suspended or deactivated" --> Skip["Skip, retry on backoff"]
   Star -- "same errors" --> Skip
   Ops --> Apply["Transaction: space_record, pending_projection,<br/>synced_repo"]

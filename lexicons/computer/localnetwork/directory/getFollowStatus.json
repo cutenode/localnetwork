@@ -4,12 +4,16 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "How many accounts follow a project, and whether one of them does.",
+			"description": "How many accounts follow a project or a profile, and whether one of them does.",
 			"parameters": {
 				"type": "params",
-				"required": ["project"],
+				"required": ["subject"],
 				"properties": {
-					"project": { "type": "string", "format": "at-uri" },
+					"subject": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The project or profile record followed."
+					},
 					"actor": { "type": "string", "format": "did", "description": "The account to look up a follow for." }
 				}
 			},
@@ -22,7 +26,7 @@
 						"followers": { "type": "integer", "minimum": 0 },
 						"follows": {
 							"type": "array",
-							"description": "The actor's computer.localnetwork.follow records of the project, oldest first. Usually one, but nothing stops an account writing two.",
+							"description": "The actor's computer.localnetwork.follow records of the subject, oldest first. Usually one, but nothing stops an account writing two.",
 							"items": { "type": "string", "format": "at-uri" }
 						}
 					}

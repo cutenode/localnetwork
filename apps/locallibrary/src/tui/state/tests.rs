@@ -298,3 +298,16 @@ fn a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
     mode(0o644);
     assert_eq!(load(&store).as_ref(), Some(&kept));
 }
+
+/// The crate's fields answer only to their own names: what development builds wrote before the
+/// crate was called that (`tags`, `tag_list`) is left out, not read as the crate.
+#[test]
+fn the_crates_old_names_are_not_read() {
+    let old: Saved =
+        serde_json::from_str(r#"{"tags": true, "tag_list": [{"root": "/Volumes/A", "path": "/Contents/a.mp3"}]}"#)
+            .unwrap();
+    assert!(!old.crate_panel);
+    assert!(old.crate_list.is_empty());
+    let new: Saved = serde_json::from_str(r#"{"crate_panel": true}"#).unwrap();
+    assert!(new.crate_panel);
+}

@@ -144,9 +144,9 @@ fn a_tracks_details_say_what_a_dj_looks_for() {
 fn playlists_are_a_tree() {
     let env = Env::new();
     env.demo("A");
-    assert_eq!(env.ok(&["playlists", "A"]).trim(), "no playlists");
+    assert_eq!(env.ok(&["playlist", "ls", "A"]).trim(), "no playlists");
     env.ok(&["--yes", "playlist", "new", "A", "Sets/Friday", "--track", "1", "--track", "2"]);
     env.ok(&["--yes", "playlist", "new", "A", "Warmup", "--track", "1"]);
-    let tree = env.ok(&["playlists", "A"]);
+    let tree = env.ok(&["playlist", "ls", "A"]);
     assert_eq!(tree.lines().collect::<Vec<_>>(), ["Sets/", "  Friday (2)", "Warmup (1)"]);
 }
