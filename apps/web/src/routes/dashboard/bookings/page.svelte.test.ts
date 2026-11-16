@@ -99,7 +99,7 @@ it('groups threads by whose turn it is, with a filter once there are several act
 		['Your turn', 'Show a'],
 		['Waiting on them', 'Show b'],
 		['Confirmed', 'Show c'],
-		['Closed', 'Show d']
+		['Settled', 'Show d']
 	]) {
 		await expect.element(region(group).getByText(show)).toBeInTheDocument();
 	}
@@ -162,7 +162,7 @@ it('shows a pill only where it adds to the group', async () => {
 	await expect.element(row('Show e').getByText('Date passed')).toBeVisible();
 });
 
-it('puts Closed away, each row saying how it ended', async () => {
+it('puts Settled away, each row saying how it ended', async () => {
 	await list(
 		data(PAT, [
 			thread('a', 'declined', NEON),
@@ -173,7 +173,7 @@ it('puts Closed away, each row saying how it ended', async () => {
 	);
 
 	await expect.element(page.getByText('Show a')).not.toBeVisible();
-	await page.getByText('Closed', { exact: false }).click();
+	await page.getByText('Settled', { exact: false }).click();
 
 	const row = (show: string) => page.getByRole('listitem').filter({ hasText: show });
 

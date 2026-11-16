@@ -47,7 +47,7 @@ it("lists the sections and everything that is the viewer's own", async () => {
 	const nav = await menu();
 
 	for (const [name, href] of [
-		['Home', '/dashboard'],
+		['Overview', '/dashboard'],
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
 		['Planner', '/dashboard/planner'],
@@ -114,7 +114,7 @@ it('marks the inbox with a dot, not a count, while something is unread', async (
 	await expect.element(nav.getByRole('link', { name: 'Inbox Unread' })).toHaveAttribute('href', '/dashboard/inbox');
 });
 
-it('counts everything waiting on the viewer on Home, press kit asks once they arrive', async () => {
+it('counts everything waiting on the viewer on Overview, press kit asks once they arrive', async () => {
 	const row = (key: string) => ({
 		key,
 		scope: 'Neon Tide',
@@ -139,7 +139,7 @@ it('counts everything waiting on the viewer on Home, press kit asks once they ar
 		children
 	});
 
-	await expect.element(page.getByRole('link', { name: 'Home 2' }).first()).toHaveAttribute('href', '/dashboard');
+	await expect.element(page.getByRole('link', { name: 'Overview 2' }).first()).toHaveAttribute('href', '/dashboard');
 });
 
 it('still offers to list a project when the directory is offline', async () => {

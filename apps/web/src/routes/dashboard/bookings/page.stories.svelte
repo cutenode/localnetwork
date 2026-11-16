@@ -45,14 +45,14 @@
 		thread('7', 'Warehouse Weekender', 'confirmed', day(71), NEON)
 	];
 
-	const closed = [
+	const settled = [
 		thread('8', 'Garden Party', 'declined', day(29), NEON),
 		thread('9', 'Pop Up Night', 'cancelled', day(43), PAT, { withdrawn: true }),
 		thread('10', 'Harbour Boat Party', 'cancelled', day(92), NEON),
 		thread('11', 'Spring Opening', 'confirmed', day(-209), NEON)
 	];
 
-	const threads = [...live, ...closed];
+	const threads = [...live, ...settled];
 
 	const act = (slug: string, name: string) => ({ uri: `at://did:plc:root/computer.localnetwork.project/${slug}`, slug, name });
 
@@ -88,7 +88,7 @@
 
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
-	const openClosed = async ({ canvasElement }: { canvasElement: HTMLElement }) => canvasElement.querySelector('summary')?.click();
+	const openSettled = async ({ canvasElement }: { canvasElement: HTMLElement }) => canvasElement.querySelector('summary')?.click();
 </script>
 
 <Story name="Manager" asChild>
@@ -108,11 +108,11 @@
 	<Page params={{}} form={null} data={promoter} />
 </Story>
 
-<Story name="Closed, opened" asChild play={openClosed}>
+<Story name="Settled, opened" asChild play={openSettled}>
 	<Page params={{}} form={null} data={twoActs} />
 </Story>
 
-<Story name="Closed, opened, on a phone" asChild globals={phone} play={openClosed}>
+<Story name="Settled, opened, on a phone" asChild globals={phone} play={openSettled}>
 	<Page params={{}} form={null} data={twoActs} />
 </Story>
 
@@ -120,8 +120,8 @@
 	<Page params={{}} form={null} data={data(NEON, threads)} />
 </Story>
 
-<Story name="Only closed" asChild>
-	<Page params={{}} form={null} data={data(NEON, closed)} />
+<Story name="Only settled" asChild>
+	<Page params={{}} form={null} data={data(NEON, settled)} />
 </Story>
 
 <!-- Everything but the act names is here already, and they fill in without moving a row. -->

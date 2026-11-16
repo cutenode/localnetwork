@@ -59,7 +59,8 @@
 	// Only a confirmed booking can be cancelled, so a cancelled one that never was is an inquiry someone took back.
 	const withdrawn = $derived(thread.status === 'cancelled' && !data.events.some((event) => event.status === 'confirmed'));
 
-	const isSettled = $derived(thread.status === 'declined' || thread.status === 'cancelled');
+	// Declined and cancelled already say how it ended, so a date going by adds nothing. A confirmed one shows both.
+	const ended = $derived(thread.status === 'declined' || thread.status === 'cancelled');
 
 	/** The settling change waiting for its confirm. */
 	let pending = $state<BookingAction>();
@@ -170,7 +171,7 @@
 					<div class="flex flex-wrap items-center gap-2">
 						<h2 bind:this={statusHeading} tabindex="-1" class="m-0 text-small font-medium text-fg-soft outline-none">Status</h2>
 						<StatusPill status={withdrawn ? 'withdrawn' : thread.status} />
-						{#if !isSettled && datePassed(thread)}<StatusPill status="date_passed" />{/if}
+						{#if !ended && datePassed(thread)}<StatusPill status="date_passed" />{/if}
 						<p role="status" class="sr-only">{announced}</p>
 					</div>
 					{#if canAnnounce}

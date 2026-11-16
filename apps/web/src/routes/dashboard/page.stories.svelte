@@ -6,9 +6,9 @@
 	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
-	/** Home: what needs the viewer and their next night, whatever they take part in. Each section arrives on its own. */
+	/** Overview: what needs the viewer and their next night, whatever they take part in. Each section arrives on its own. */
 	const { Story } = defineMeta({
-		title: 'Patterns/Dashboard home',
+		title: 'Patterns/Overview',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard') } } } }
 	});
 

@@ -85,11 +85,11 @@
 			{:else}
 				{#each groups as { value, label, threads } (value)}
 					<section aria-labelledby="group-{value}" class="flex flex-col gap-3">
-						{#if value === 'closed'}
-							<details class="group/closed">
+						{#if value === 'settled'}
+							<details class="group/settled">
 								<summary class="flex min-h-11 cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
 									{@render heading(value, label, threads.length)}
-									<ChevronDown class="size-4 text-fg-subtle group-open/closed:rotate-180 motion-safe:transition-transform" aria-hidden="true" />
+									<ChevronDown class="size-4 text-fg-subtle group-open/settled:rotate-180 motion-safe:transition-transform" aria-hidden="true" />
 								</summary>
 								<div class="mt-1"><BookingRows {threads} group={value} {viewer} {actsPending} /></div>
 							</details>

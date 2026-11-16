@@ -64,19 +64,22 @@ export const BOOKING_GROUPS = [
 	{ value: 'reply', label: 'Your turn' },
 	{ value: 'active', label: 'Waiting on them' },
 	{ value: 'confirmed', label: 'Confirmed' },
-	{ value: 'closed', label: 'Closed' }
+	{ value: 'settled', label: 'Settled' }
 ] as const;
 
 export type BookingGroup = (typeof BOOKING_GROUPS)[number]['value'];
 
-/** Where a thread sits for `viewer`: a live one waits on them when someone on the other side wrote in it last. */
+/**
+ * Where a thread sits for `viewer`: a live one is their turn when someone on the other side wrote in it last. Declined
+ * and cancelled threads are settled.
+ */
 export function bookingGroup(
 	thread: Pick<BookingThreadView, 'status' | 'lastAuthor'> & { participants: { did: string; role: string }[] },
 	viewer: string
 ): BookingGroup {
 	if (thread.status === 'confirmed') return 'confirmed';
 
-	if (thread.status === 'declined' || thread.status === 'cancelled') return 'closed';
+	if (thread.status === 'declined' || thread.status === 'cancelled') return 'settled';
 	const roleOf = (did: string) => thread.participants.find((participant) => participant.did === did)?.role;
 
 	return thread.lastAuthor && roleOf(thread.lastAuthor) !== roleOf(viewer) ? 'reply' : 'active';
@@ -88,7 +91,7 @@ export const datePassed = ({ showDate }: Pick<BookingThreadView, 'showDate'>, no
 
 /**
  * The threads by turn, in the order the list shows them. Within a group the nights still to come lead, soonest first,
- * then threads with no date, then ones whose date went by. Closed keeps the newest on top, and takes confirmed
+ * then threads with no date, then ones whose date went by. Settled keeps the newest on top, and takes confirmed
  * bookings once their night has passed, so Confirmed only ever holds what's ahead.
  */
 export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0] & Pick<BookingThreadView, 'showDate'>>(
@@ -99,7 +102,7 @@ export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0]
 	const groupOf = (thread: Thread): BookingGroup => {
 		const group = bookingGroup(thread, viewer);
 
-		return group === 'confirmed' && datePassed(thread, now) ? 'closed' : group;
+		return group === 'confirmed' && datePassed(thread, now) ? 'settled' : group;
 	};
 
 	const rank = (thread: Thread) => {
@@ -115,14 +118,14 @@ export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0]
 
 		if (inGroup.length === 0) return [];
 
-		return [{ ...group, threads: group.value === 'closed' ? inGroup : inGroup.toSorted(byNight) }];
+		return [{ ...group, threads: group.value === 'settled' ? inGroup : inGroup.toSorted(byNight) }];
 	});
 }
 
 /**
- * The status a row in `group` adds to what the group already says, if any: how a closed thread ended, a live one's
+ * The status a row in `group` adds to what the group already says, if any: how a settled thread ended, a live one's
  * date going by, and otherwise how far along it is, where an inquiry the manager has to answer is new. A confirmed row
- * in Closed got there by its date passing.
+ * in Settled got there by its date passing.
  */
 export function bookingMark(
 	thread: Pick<BookingListThread, 'status' | 'showDate' | 'withdrawn'>,
@@ -132,7 +135,7 @@ export function bookingMark(
 ): string | null {
 	if (group === 'confirmed') return null;
 
-	if (group === 'closed') {
+	if (group === 'settled') {
 		if (thread.withdrawn) return 'withdrawn';
 
 		return thread.status === 'confirmed' ? 'date_passed' : thread.status;
