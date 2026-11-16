@@ -56,6 +56,11 @@ env:
   # of their times that the test, hegel and other-os jobs upload.
   NEXTEST_PROFILE: ci
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
 # install` with no arguments installs it, with clippy and rustfmt.

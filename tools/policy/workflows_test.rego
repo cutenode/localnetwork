@@ -212,14 +212,56 @@ test_project_outside_every_filter if {
 	"packages/kit/package.json: no pull request workflow runs when it changes; add its folder to one's path filter" in denied
 }
 
-embedded(files) := fixtures.with_file("/scratch/embedded-files.json", {"files": files})
-
-test_embedded_file_outside_the_filter if {
-	".github/labels.yml: the Rust code embeds it, so add it to the locallibrary paths filter" in workflows.deny with input as embedded([".github/labels.yml"])
+# repo_checks takes every file, so a project only it matches still gets none of its own checks.
+test_project_only_a_catch_all_filter_has if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": "run:\n  - 'apps/tool/**'\nrepo_checks:\n  - '**'\n"}])
+	"apps/site/package.json: no pull request workflow runs when it changes; add its folder to one's path filter" in workflows.deny with input as with_ci(broken)
 }
 
-test_embedded_file_the_filter_excludes if {
-	"crates/x/README.md: the Rust code embeds it, so add it to the locallibrary paths filter" in workflows.deny with input as embedded(["crates/x/README.md"])
+with_files_filter(statuses) := with_ci(json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": sprintf("run:\n  - 'apps/**'\n  - 'packages/**'\nfiles:\n  - %s: '**'\n", [statuses])}]))
+
+test_added_or_deleted_without_renamed if {
+	".github/workflows/site-ci.yml: filter \"files\" matches added|deleted files, so add renamed: a moved file is renamed, not added or deleted" in workflows.deny with input as with_files_filter("added|deleted")
+}
+
+test_added_deleted_and_renamed if {
+	count(workflows.deny) == 0 with input as with_files_filter("added|deleted|renamed")
+}
+
+test_modified_needs_no_renamed if {
+	count(workflows.deny) == 0 with input as with_files_filter("modified")
+}
+
+reads(list) := fixtures.with_file("/scratch/reads.json", {"reads": list})
+
+test_read_outside_the_filter if {
+	".github/labels.yml: crates/x/src/lib.rs reads it, so add it to the locallibrary paths filter" in workflows.deny with input as reads([{"from": "crates/x/src/lib.rs", "path": ".github/labels.yml"}])
+}
+
+test_read_the_filter_excludes if {
+	"crates/y/README.md: apps/locallibrary/src/x.rs reads it, so add it to the locallibrary paths filter" in workflows.deny with input as reads([{"from": "apps/locallibrary/src/x.rs", "path": "crates/y/README.md"}])
+}
+
+test_read_of_a_folder_outside_the_filter if {
+	"docs/: crates/x/tests/a.rs reads it, so add it to the locallibrary paths filter" in workflows.deny with input as reads([{"from": "crates/x/tests/a.rs", "path": "docs/"}])
+}
+
+# Bombadil is in apps/locallibrary/, but only a weekly run reads what its specs read.
+test_read_from_a_folder_no_pull_request_runs if {
+	count(workflows.deny) == 0 with input as reads([{"from": "apps/locallibrary/bombadil/lib.mjs", "path": "docs/a.pdb"}])
+}
+
+test_read_from_the_longest_folder if {
+	"docs/a.pdb: apps/locallibrary/bombadil/lib.mjs reads it, so add it to the locallibrary paths filter" in workflows.deny with input as reads([{"from": "apps/locallibrary/bombadil/lib.mjs", "path": "docs/a.pdb"}])
+		with workflows.readers as {"apps/": set(), "apps/locallibrary/bombadil/": {"locallibrary"}}
+}
+
+test_read_any_of_several_filters_can_have if {
+	"crates/x/README.md: tools/a.test.ts reads it, so add it to the repo_checks or repo_checks_md paths filter" in workflows.deny with input as reads([{"from": "tools/a.test.ts", "path": "crates/x/README.md"}])
+}
+
+test_read_from_a_folder_with_no_filters if {
+	"scripts/a.ts: it reads crates/x/src/lib.rs, so add its folder to workflows.rego's readers with the filters that run its checks" in workflows.deny with input as reads([{"from": "scripts/a.ts", "path": "crates/x/src/lib.rs"}])
 }
 
 with_codeql_filter(globs) := with_ci(json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": sprintf("run:\n  - 'apps/**'\n  - 'packages/**'\ncodeql_rust:\n%s", [concat("", [sprintf("  - '%s'\n", [g]) | some g in globs])])}]))
