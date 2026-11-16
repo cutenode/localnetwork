@@ -28,7 +28,7 @@
 
 {#snippet calls()}
 	<Button size="lg" href="/dashboard/projects/new">Get listed</Button>
-	<Button size="lg" variant="secondary" href="/projects?unclaimed=1">Find and claim yours</Button>
+	<Button size="lg" variant="secondary" href="/djs?unclaimed=1">Find and claim yours</Button>
 {/snippet}
 
 <Section tone="grid" labelledby="hero-title">
@@ -69,7 +69,7 @@
 					{#await data.directory}
 						A listing from the directory, as promoters see it in search.
 					{:then directory}
-						{#if directory?.djs}A listing from the directory, as promoters see it. {pluralize(directory.djs, 'DJ')} in {pluralize(directory.cities, 'city', 'cities')} so far{#if directory.unclaimed}, <a class="link" href="/projects?unclaimed=1">{directory.unclaimed} waiting to be claimed</a>{/if}.{:else}A listing from the directory, as promoters see it in search.{/if}
+						{#if directory?.djs}A listing from the directory, as promoters see it. {pluralize(directory.djs, 'DJ')} in {pluralize(directory.cities, 'city', 'cities')} so far{#if directory.unclaimed}, <a class="link" href="/djs?unclaimed=1">{directory.unclaimed} waiting to be claimed</a>{/if}.{:else}A listing from the directory, as promoters see it in search.{/if}
 					{/await}
 				</figcaption>
 			</figure>

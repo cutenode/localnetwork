@@ -60,7 +60,7 @@
 		</div>
 		{#if profile.genres.length}
 			<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Sound">
-				{#each profile.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
+				{#each profile.genres as genre, index (index)}<li><Tag href="/djs?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
 		<div id="follow" class="flex flex-wrap gap-2">

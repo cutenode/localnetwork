@@ -88,7 +88,7 @@ describe('act', () => {
 
 describe('safeNext', () => {
 	it('only allows same-site paths', () => {
-		expect(safeNext('/projects?q=a')).toBe('/projects?q=a');
+		expect(safeNext('/djs?q=a')).toBe('/djs?q=a');
 		expect(safeNext('//evil.test')).toBe('/dashboard');
 		expect(safeNext('/\\evil.test')).toBe('/dashboard');
 		expect(safeNext('https://evil.test', '/')).toBe('/');
