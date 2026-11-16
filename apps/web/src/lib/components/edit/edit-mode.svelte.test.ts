@@ -122,6 +122,17 @@ async function editPage(props: Partial<Parameters<typeof render<typeof EditPageH
 	return { screen, went, follow };
 }
 
+/** The editor loads after the page draws, and puts focus on the name once its form is listening for changes. */
+async function editorReady() {
+	await expect.element(page.getByRole('textbox', { name: 'Name (required)' })).toHaveFocus();
+}
+
+/** Types into the name once the editor is ready, so what's typed counts as a change. */
+async function typeInName(text: string) {
+	await editorReady();
+	await userEvent.keyboard(text);
+}
+
 beforeEach(() => {
 	hotkeys.enabled = true;
 	localStorage.clear();
@@ -167,7 +178,7 @@ describe('edit mode', () => {
 		await expect.element(page.getByRole('link', { name: 'Done' })).toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: /^Add links/ })).toBeInTheDocument();
 
-		await userEvent.keyboard(' Duo{Enter}');
+		await typeInName(' Duo{Enter}');
 		await expect.element(bar()).toMatchTextContent(/Unsaved changes Kept in this browser/);
 		// A name is one line, so Enter adds nothing.
 		await expect.element(page.getByRole('textbox', { name: 'Name (required)' })).toHaveValue('Halflight Duo');
@@ -233,7 +244,7 @@ describe('edit mode', () => {
 		const { went } = await editPage();
 
 		await page.getByRole('link', { name: 'Edit' }).click();
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await userEvent.keyboard('{Meta>}s{/Meta}');
 
 		await expect.element(status('Saved')).toBeInTheDocument();
@@ -263,6 +274,7 @@ describe('edit mode', () => {
 		await editPage({ editing: true });
 
 		const field = page.getByRole('textbox', { name: 'Tagline' });
+		await editorReady();
 		await field.fill(tagline);
 		await page.getByRole('button', { name: 'Save' }).click();
 
@@ -277,7 +289,7 @@ describe('edit mode', () => {
 		answer({ type: 'failure', status: 401, data: { error: 'Sign in again', reauth: true } });
 		await editPage({ editing: true });
 
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await page.getByRole('button', { name: 'Save' }).click();
 		await expect.element(bar()).toMatchTextContent(/Sign in again to save Your changes stay in this browser/);
 		await expect
@@ -290,7 +302,7 @@ describe('edit mode', () => {
 		answer();
 		await editPage({ editing: true });
 
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await page.getByRole('button', { name: 'Save' }).click();
 		await expect.element(bar()).toMatchTextContent(/Couldn't save Your changes are still here\. Try again/);
 		await expect.element(page.getByRole('button', { name: 'Save' })).toBeEnabled();
@@ -312,7 +324,7 @@ describe('edit mode', () => {
 		);
 		await editPage({ editing: true });
 
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await page.getByRole('button', { name: 'Save' }).click();
 
 		await expect.element(bar()).toMatchTextContent(/Someone else saved Pick what to keep, then save/);
@@ -336,7 +348,7 @@ describe('edit mode', () => {
 	it('discards back to the page, and Undo brings the changes back', async () => {
 		const { went } = await editPage({ editing: true });
 
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await page.getByRole('link', { name: 'Discard' }).click();
 
 		expect(went).toEqual([VIEW]);
@@ -370,7 +382,7 @@ describe('edit mode', () => {
 		// Once the editor is in, with nothing changed, links just go.
 		await expect.element(page.getByRole('textbox', { name: 'Name (required)' })).toHaveFocus();
 		expect(follow('/shows')).toBe(true);
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		expect(follow('/shows')).toBe(false);
 
 		const dialog = page.getByRole('dialog', { name: 'Leave without saving?' });
@@ -394,7 +406,7 @@ describe('edit mode', () => {
 	it('discards on the way out when asked to', async () => {
 		const { went, follow } = await editPage({ editing: true });
 
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		expect(follow('/shows')).toBe(false);
 		await page.getByRole('dialog').getByRole('button', { name: 'Discard and leave' }).click();
 
@@ -404,10 +416,7 @@ describe('edit mode', () => {
 
 	it('keeps unsaved changes in this browser through View as visitor and back', async () => {
 		await editPage({ editing: true });
-		// Focus on the name is the editor saying it's ready, so what's typed reaches its draft.
-		await expect.element(page.getByRole('textbox', { name: 'Name (required)' })).toHaveFocus();
-
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await expect.poll(() => localStorage.length).toBe(1);
 		await page.getByRole('button', { name: 'View as visitor' }).click();
 
@@ -468,7 +477,7 @@ describe('edit mode', () => {
 			.click();
 		expect(went).toEqual([EDIT]);
 		await expect.element(bar()).toMatchTextContent(/Opening this was logged/);
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await expect.element(bar()).toMatchTextContent(/Logged as staff on save/);
 	});
 
@@ -588,8 +597,7 @@ describe('edit mode', () => {
 		const { url: _url, viewer: _viewer, ...signedOut } = owner;
 		await render(EditPageHarness, { ...signedOut, editing: true });
 
-		await expect.element(page.getByRole('textbox', { name: 'Name (required)' })).toHaveFocus();
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await expect.element(bar()).toMatchTextContent(/Unsaved changes/);
 		expect(localStorage.length).toBe(0);
 	});
@@ -607,7 +615,7 @@ describe('edit mode', () => {
 		});
 		await editPage({ editing: true });
 
-		await userEvent.keyboard(' Duo');
+		await typeInName(' Duo');
 		await page.getByRole('button', { name: 'Save' }).click();
 
 		await expect
