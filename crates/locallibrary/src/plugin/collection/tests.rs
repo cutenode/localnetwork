@@ -100,3 +100,25 @@ fn files_outside_the_scratch_folder_are_refused() {
     let e = call(&live, "collection.copy", json!({ "with_credentials": true })).unwrap_err();
     assert_eq!(e.kind, "invalid_params");
 }
+
+/// Tracks asked for without saying how many, or of a file in the folder that isn't a collection,
+/// are refused; and without rekordbox's own collection, a copy of it and its tracks say it isn't
+/// there, leaving nothing in the folder.
+#[test]
+fn reads_that_cant_be_answered_say_why() {
+    let (dir, live, _scratch, folder) = under_way();
+    let e = call(&live, "collection.tracks", json!({ "offset": 1 })).unwrap_err();
+    assert_eq!(e.kind, "invalid_params", "{}", e.message);
+    let notes = folder.join("notes.db");
+    std::fs::write(&notes, "not a database").unwrap();
+    let e = call(&live, "collection.tracks", json!({ "db": notes, "limit": 1 })).unwrap_err();
+    assert_eq!(e.kind, "parse", "{}", e.message);
+    std::fs::remove_file(dir.path().join("rekordbox/master.db")).unwrap();
+    let into = folder.join("copy.db");
+    let reads = [("collection.copy", json!({ "into": into })), ("collection.tracks", json!({ "limit": 1 }))];
+    for (method, params) in reads {
+        let e = call(&live, method, params).unwrap_err();
+        assert_eq!(e.kind, "not_found", "{method}: {}", e.message);
+    }
+    assert!(!into.exists());
+}

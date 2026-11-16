@@ -78,7 +78,8 @@ and typed table columns, see [views](#views)).
    `collection.copy` writes a copy of `master.db` as of one moment, rebuilt and still
    encrypted as rekordbox's own backup writes it, to `into`: a new file in the request's
    scratch folder (absolute), as far as the folder has room. The copy leaves out the cloud
-   agent's sign-in (`agentRegistry`'s `agentCredentials` row) unless `with_credentials` is true. `collection.tracks`
+   agent's sign-in (`agentRegistry`'s `agentCredentials` row) unless `with_credentials` is true.
+   A `master.db` with a trigger can't be copied without it, as the trigger could keep it. `collection.tracks`
    lists every track row, deleted ones too, in pages of at most 500: `path` is the audio file
    on this computer (`OrgFolderPath` for a Cloud Library Sync track), and `analysis_path` and
    `image_path` are in `share`, as stored. `artist` and `album` are the names rekordbox has for

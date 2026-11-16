@@ -1363,3 +1363,47 @@ fn prop_tags_by_track_name_each_tracks_tags(tc: hegel::TestCase) {
     }
     assert!(by_track.by_id.len() <= library.tracks.len(), "only the library's tracks: {by_track:?}");
 }
+
+/// Every table the collection is read from has to read: one that can't (a view of a table that's
+/// gone) refuses the whole collection, saying why, rather than reading it without that table.
+#[test]
+fn a_collection_any_of_whose_tables_cant_be_read_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    for table in [
+        "djmdContent",
+        "djmdArtist",
+        "djmdGenre",
+        "djmdLabel",
+        "djmdKey",
+        "djmdAlbum",
+        "djmdPlaylist",
+        "djmdSongPlaylist",
+        "djmdHistory",
+        "djmdSongHistory",
+        "djmdMyTag",
+        "djmdSongMyTag",
+        "djmdCue",
+        "djmdProperty",
+        "djmdCloudProperty",
+        "contentFile",
+    ] {
+        let f = sample();
+        f.exec(&format!("DROP TABLE IF EXISTS {table}; CREATE VIEW {table} AS SELECT * FROM gone;"));
+        let path = write(dir.path(), &f.plain());
+        let message = open(&path, DEFAULT_KEY).unwrap_err().to_string();
+        assert!(message.starts_with(&format!("could not parse {}: ", path.display())), "{table}: {message}");
+        assert!(message.contains("no such table: main.gone"), "{table}: {message}");
+    }
+}
+
+/// The key comes from [`KEY_ENV`] when none is given, unless it's empty there.
+#[test]
+fn a_key_from_the_environment_is_used_unless_its_empty() {
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var(KEY_ENV, "from the environment") };
+    assert_eq!(resolve_key(None), "from the environment");
+    assert_eq!(resolve_key(Some("given")), "given");
+    // SAFETY: as above.
+    unsafe { std::env::set_var(KEY_ENV, "") };
+    assert_eq!(resolve_key(None), DEFAULT_KEY);
+}
