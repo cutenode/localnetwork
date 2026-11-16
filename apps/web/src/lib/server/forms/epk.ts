@@ -324,8 +324,8 @@ async function parseUploads(form: FormData): Promise<PhotoUpload[]> {
 	return uploads;
 }
 
-/** A photo's size in pixels, which the press kit shows against what press asks for. */
-function dimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+/** A photo's size in pixels, which the press kit shows against what press asks for. @internal */
+export function dimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
 	try {
 		const { width, height } = imageSize(bytes);
 

@@ -1,0 +1,42 @@
+{
+	"format": "locallibrary.mix-report",
+	"version": 2,
+	"generator": { "name": "locallibrary", "version": "0.1.0" },
+	"analysedAt": "2026-11-02T14:33:42Z",
+	"mix": { "title": "t", "durationSecs": 60 },
+	"tempoRange": 0.16,
+	"coverage": 1,
+	"waveform": { "secondsPerColumn": 1, "low": [1], "mid": [2], "high": [3] },
+	"plays": [
+		{
+			"track": { "title": "a", "durationSecs": 30 },
+			"start": 0,
+			"end": 30,
+			"trackStart": 0,
+			"trackEnd": 30,
+			"tempo": 1,
+			"keyLock": null,
+			"semitones": 0,
+			"confidence": 1,
+			"presence": [100],
+			"presenceStep": 30,
+			"jumps": 0
+		},
+		{
+			"track": { "title": "b", "durationSecs": 30 },
+			"start": 30,
+			"end": 60,
+			"trackStart": 0,
+			"trackEnd": 30,
+			"tempo": 1,
+			"keyLock": true,
+			"semitones": 0,
+			"confidence": 0.5,
+			"presence": [90],
+			"presenceStep": 30,
+			"jumps": 0
+		}
+	],
+	"transitions": [{ "from": 0, "to": 1, "at": 30, "overlap": 2 }],
+	"unidentified": [{ "start": 59, "end": 60 }]
+}

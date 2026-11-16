@@ -78,7 +78,7 @@ describe('what the build produces', () => {
 		// what runs on soundcloud.com is the file in the repository with each
 		// annotation and comment blanked out, so every line and column of code is
 		// where it was (test/page-script.test.ts).
-		for (const name of ['content', 'gate-page', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
+		for (const name of ['content', 'gate-page', 'page-data', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
 			const shipped = read(`${name}.js`);
 			expect(shipped, name).toBe(pageScript(source(`${name}.ts`)));
 			// Still a classic script: a content script cannot be a module, the shared
@@ -103,6 +103,7 @@ describe('what the build produces', () => {
 				'icons',
 				'manifest.json',
 				'offscreen.html',
+				'page-data.js',
 				'popup.html',
 				'state-transfer.js',
 				'theme-prepaint.js'
@@ -268,7 +269,12 @@ describe('the bundle', () => {
 		// passing on nothing.
 		const chunks = js();
 
-		for (const marker of ['/verifyEmailAddress', 'checking download details', 'close the queue', 'close settings']) {
+		for (const marker of [
+			'/verifyEmailAddress',
+			'scroll to them or open the track',
+			'close the queue',
+			'close settings'
+		]) {
 			expect(
 				chunks.some(([file, code]) => !boot.has(file) && code.includes(marker)),
 				`${marker} is in no chunk at all`
@@ -485,7 +491,8 @@ const MV3_SCHEMA = {
 					js: { type: 'array', items: { type: 'string' } },
 					css: { type: 'array', items: { type: 'string' } },
 					run_at: { enum: ['document_start', 'document_end', 'document_idle'] },
-					all_frames: { type: 'boolean' }
+					all_frames: { type: 'boolean' },
+					world: { enum: ['ISOLATED', 'MAIN'] }
 				}
 			}
 		},

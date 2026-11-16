@@ -1,32 +1,30 @@
 # localtoolbox diagrams: Outside requests
 
-What each host is asked and what else leaves the browser. The rest are listed in the [README](../../README.md#diagrams).
+What is read from SoundCloud's own page, what each gate host is asked, and what else leaves the browser. The rest are listed in the [README](../../README.md#diagrams).
 
-- [What SoundCloud is asked](#what-soundcloud-is-asked)
+- [What is read from SoundCloud's page](#what-is-read-from-soundclouds-page)
 - [What the gate hosts are asked](#what-the-gate-hosts-are-asked)
 - [What else leaves the browser](#what-else-leaves-the-browser)
 
-## What SoundCloud is asked
+## What is read from SoundCloud's page
 
-Every API request goes out from the content script, anonymous and `GET` only, because the API takes calls from `soundcloud.com` alone.
+The extension sends SoundCloud's API nothing. The content script reads the JSON the page was served with, and `page-data.ts` passes on the answers to requests SoundCloud's own web app makes as it is browsed. Dotted lines are requests the page makes, listened to and never repeated.
 
 ```mermaid
 flowchart LR
   Content["Content script"]
-  Hydration["window.__sc_hydration<br/>client id and full tracks, no request"]
-  Tracks["/tracks?ids=<br/>50 ids a batch, at most 4 at once"]
-  Likes["/users/id/likes<br/>up to 200 a page, 10 pages a lookup"]
-  Resolve["/resolve?url=<br/>a playlist or user once a document,<br/>a track 4 at a time"]
-  Web["/users/id/web-profiles<br/>an artist's links, 4 artists at a time"]
+  PageData["page-data.ts<br/>in the page's main world"]
+  Hydration["window.__sc_hydration<br/>a script element, no request"]
+  Page["SoundCloud's web app"]
+  Api["api-v2.soundcloud.com, GET<br/>/tracks, /resolve, /playlists/id,<br/>/users/x, its likes and track_likes,<br/>its web-profiles"]
 
   Content --> Hydration
-  Content --> Tracks
-  Content --> Likes
-  Content --> Resolve
-  Content --> Web
+  Page -.-> Api
+  Api -.->|"the answer, as the page got it"| PageData
+  PageData -->|"tbx:page-data event"| Content
 ```
 
-Source: [`content.ts`](../../content.ts)
+Source: [`content.ts`](../../content.ts), [`page-data.ts`](../../page-data.ts)
 
 ## What the gate hosts are asked
 
