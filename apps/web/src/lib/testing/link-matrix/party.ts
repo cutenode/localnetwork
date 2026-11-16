@@ -26,7 +26,8 @@ export default {
 						status: EVENT_STATUS.scheduled,
 						venue: 'Tresor',
 						draft: false,
-						private: false
+						private: false,
+						neverConfirmed: false
 					}
 				],
 				newEventHref: null,

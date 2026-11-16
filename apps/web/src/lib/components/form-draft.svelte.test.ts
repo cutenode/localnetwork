@@ -1,6 +1,6 @@
 import { page } from 'vitest/browser';
 import { tick } from 'svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { draftKey, FormDraft, hasDraft } from '#lib/form-draft.svelte.ts';
 import { clearSignedOutDrafts, SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
@@ -20,6 +20,9 @@ const values = {
 const stored = () => JSON.parse(localStorage.getItem(KEY) ?? 'null');
 
 const notice = () => page.getByRole('status').filter({ hasText: 'unsent changes' });
+
+// Browser test files share one localStorage, and other pages' tests leave their own drafts in it.
+beforeEach(() => localStorage.clear());
 
 afterEach(() => localStorage.removeItem(KEY));
 

@@ -1,5 +1,6 @@
 import tzlookup from '@photostructure/tz-lookup';
-import type { Location } from '#lib/types.ts';
+import { toE6 } from '#lib/geo.ts';
+import type { Location, VenueRecord } from '#lib/types.ts';
 import { showDate } from './forms/show';
 
 /**
@@ -7,6 +8,12 @@ import { showDate } from './forms/show';
  * venue's UTC offset, found from its coordinates, which also keeps the venue's clock readable in the string.
  */
 type Place = Required<Pick<Location, 'latE6' | 'lngE6'>>;
+
+/** A venue's coordinates, as its record keeps them, as the place its clock is found from. */
+export const venuePlace = (geo: NonNullable<VenueRecord['geo']>): Place => ({
+	latE6: toE6(Number(geo.latitude)),
+	lngE6: toE6(Number(geo.longitude))
+});
 
 const MINUTE = 60_000;
 
@@ -73,3 +80,23 @@ export function atVenue(value: string, zone: string): string {
 
 	return withOffset(instant, offsetMinutes(zone, instant));
 }
+
+/** When a night ends on the venue's clock. A venue can't set a later time yet. */
+const NIGHT_ENDS = '06:00';
+
+/**
+ * When the night an event starting at `startsAt` belongs to is over: 6:00 the next morning on the clock of `zone` (the
+ * venue's). A start before 6:00 still belongs to the evening before, so its night ends that same morning.
+ */
+export function nightEnd(startsAt: string, zone: string): string {
+	const clock = atVenue(startsAt, zone);
+	const day = clock.slice(0, 10);
+
+	return venueTime(clock.slice(11, 16) < NIGHT_ENDS ? day : nextDay(day), NIGHT_ENDS, zone);
+}
+
+/**
+ * The earliest start, as stored, whose night can still be going at `now`, for a query to narrow by before nightEnd
+ * decides. A night ends at most a day after it starts, and a stored start's offset puts it up to 14 hours off UTC.
+ */
+export const nightsSince = (now: number) => new Date(now - 2 * DAY_MS).toISOString();

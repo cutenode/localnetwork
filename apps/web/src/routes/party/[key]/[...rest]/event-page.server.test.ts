@@ -151,6 +151,7 @@ it('shows a published event to anyone at its own address under the party, waitin
 			venue: { space: venue.space, skey: venue.skey, name: 'Tresor', locality: 'Berlin', country: 'DE' },
 			timeZone: 'Europe/Berlin',
 			confirmed: false,
+			neverConfirmed: false,
 			lineup: []
 		},
 		party: { name: 'Night Shift', href: `/party/${key}/night-shift` },
@@ -439,11 +440,15 @@ it("resets a private event's link, so the old one stops opening it", async () =>
 	await expect(post('resetLink', HOST, `/party/${key}`, {})).rejects.toMatchObject({ status: 404 });
 });
 
-it("lists the party's upcoming events: public ones for visitors, drafts and private ones too for its people", async () => {
+it("lists the party's upcoming events: public ones for visitors, and drafts, private ones and ones never confirmed too for its people", async () => {
 	const winter = await make();
 	const hidden = await make({ name: 'Back Room', audience: 'private', date: '2026-12-12' });
 	const draft = await make({ name: 'Spring', publish: false, date: undefined, start: undefined, end: undefined });
-	await make({ name: 'Last Week', date: '2026-11-01' });
+	const never = await make({ name: 'Last Week', date: '2026-11-01' });
+	const past = await make({ name: 'Confirmed Last Week', date: '2026-11-02' });
+	const owner = 'did:plc:owner';
+	await t.sharedSpaces.addPerson(await t.viewer(ADMIN), venue.space, { did: owner, role: 'owner' });
+	await t.events.approve(await t.viewer(owner), uriOf(past));
 	const path = `/party/${key}/night-shift`;
 
 	expect((await opened(STRANGER, path)).events).toEqual([
@@ -454,16 +459,40 @@ it("lists the party's upcoming events: public ones for visitors, drafts and priv
 			status: EVENT_STATUS.scheduled,
 			venue: 'Tresor',
 			draft: false,
-			private: false
+			private: false,
+			neverConfirmed: false
 		}
 	]);
 	expect(
-		(await opened(DOOR, path)).events?.map(({ href, draft, private: isPrivate }) => ({ href, draft, isPrivate }))
+		(await opened(DOOR, path)).events?.map(({ href, draft, private: isPrivate, neverConfirmed }) => ({
+			href,
+			draft,
+			isPrivate,
+			neverConfirmed
+		}))
 	).toEqual([
-		{ href: `/party/${key}/${winter}/winter-opening`, draft: false, isPrivate: false },
-		{ href: `/party/${key}/${hidden}/back-room`, draft: false, isPrivate: true },
-		{ href: `/party/${key}/${draft}/spring`, draft: true, isPrivate: false }
+		{ href: `/party/${key}/${never}/last-week`, draft: false, isPrivate: false, neverConfirmed: true },
+		{ href: `/party/${key}/${winter}/winter-opening`, draft: false, isPrivate: false, neverConfirmed: false },
+		{ href: `/party/${key}/${hidden}/back-room`, draft: false, isPrivate: true, neverConfirmed: false },
+		{ href: `/party/${key}/${draft}/spring`, draft: true, isPrivate: false, neverConfirmed: false }
 	]);
 	expect(await opened(HOST, path)).toMatchObject({ newEventHref: `/party/${key}/new` });
 	expect(await opened(DOOR, path)).toMatchObject({ newEventHref: null });
+});
+
+it("keeps an event never confirmed to its party's people, marked, and a past confirmed one open to anyone", async () => {
+	const never = await make({ date: '2026-11-01' });
+	const path = `/party/${key}/${never}/winter-opening`;
+
+	await expect(opened(STRANGER, path)).rejects.toMatchObject({ status: 404 });
+	expect(await opened(DOOR, path)).toMatchObject({ event: { confirmed: false, neverConfirmed: true } });
+
+	const past = await make({ date: '2026-11-02' });
+	const owner = 'did:plc:owner';
+	await t.sharedSpaces.addPerson(await t.viewer(ADMIN), venue.space, { did: owner, role: 'owner' });
+	await t.events.approve(await t.viewer(owner), uriOf(past));
+
+	expect(await opened(STRANGER, `/party/${key}/${past}/winter-opening`)).toMatchObject({
+		event: { confirmed: true, neverConfirmed: false }
+	});
 });
