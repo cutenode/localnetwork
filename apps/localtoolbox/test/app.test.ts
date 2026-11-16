@@ -344,7 +344,7 @@ describe('the theme', () => {
 		await mountApp();
 		expect(isDark()).toBe(false);
 		expect(document.querySelector('[aria-label^="theme:"]')!.getAttribute('aria-label')).toBe(
-			'theme: follows the browser'
+			'theme: follows the browser. switch to light'
 		);
 	});
 
@@ -401,7 +401,7 @@ describe('the toasts', () => {
 		expect(shown()).toEqual(['copied', 'couldn’t copy']);
 		expect(document.querySelectorAll('[aria-live] button')).toHaveLength(1);
 
-		await click(document.querySelector('[aria-live] [aria-label="dismiss"]'));
+		await click(document.querySelector('[aria-live] [aria-label="dismiss the message"]'));
 		expect(shown()).toEqual(['copied']);
 	});
 

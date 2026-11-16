@@ -29,10 +29,10 @@ export const isHeldRecordKind = (value: string): value is HeldRecordKind => Obje
  * the thread's status comes from them, so deleting a cancellation would quietly reopen the booking for the other side.
  */
 const COLLECTIONS = new Map<string, { kind: HeldRecordKind; label: string }>([
-	[COLLECTION.request, { kind: 'request', label: 'a submission' }],
+	[COLLECTION.request, { kind: 'request', label: 'a request to staff' }],
 	[COLLECTION.bookingInquiry, { kind: 'booking', label: 'a booking inquiry' }],
 	[COLLECTION.bookingMessage, { kind: 'booking', label: 'a booking message' }],
-	[COLLECTION.epkRequest, { kind: 'epkRequest', label: 'a press kit request' }],
+	[COLLECTION.epkRequest, { kind: 'epkRequest', label: 'a press kit access request' }],
 	[COLLECTION.epkDraft, { kind: 'epkDraft', label: 'a press kit draft' }]
 ]);
 
@@ -112,7 +112,7 @@ export class HeldRecords {
 			...kitRequests.map((row) => ({
 				uri: row.uri,
 				kind: 'epkRequest' as const,
-				title: `Press kit request${of(row.spaceUri)}`,
+				title: `Press kit access${of(row.spaceUri)}`,
 				excerpt: row.message,
 				createdAt: row.createdAt
 			})),

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { UserError } from './core';
 import { silentLogger } from './logger';
 import { loadPlanner } from './planner-page';
 import { createTestServices } from './testing/core';
@@ -54,5 +55,21 @@ describe('loadPlanner', () => {
 			problem: 'Your PDS did not respond'
 		});
 		expect(lines.map((line) => line.message)).toEqual(['planner unavailable']);
+	});
+
+	it('says what to do when the account has to sign in again', async () => {
+		// SAFETY: the object inherits every member of the real service; only `saves` is its own.
+		const planner = Object.assign(Object.create(t.planner) as typeof t.planner, {
+			saves: async () => {
+				throw new UserError('Sign in again to see your planner');
+			}
+		});
+
+		const loaded = await loadPlanner(
+			{ app: { planner, projects: t.projects }, log: silentLogger },
+			await t.viewer(PROMOTER)
+		);
+
+		expect(loaded).toMatchObject({ available: false, problem: 'Sign in again to see your planner' });
 	});
 });

@@ -8,6 +8,7 @@
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import Monogram from '#lib/ui/Monogram.svelte';
+	import { webHref } from '#lib/web-url.ts';
 	import KeyWheel from './KeyWheel.svelte';
 	import MixTimeline from './MixTimeline.svelte';
 	import MixTracklist from './MixTracklist.svelte';
@@ -46,10 +47,13 @@
 
 	const keys = $derived(keyPath(report));
 
-	const platform = $derived(listen ? mixPlatform(listen) : null);
+	// The link comes from the project's record, or the requester's on a request, so only a web address shows.
+	const link = $derived(webHref(listen));
+
+	const platform = $derived(link ? mixPlatform(link) : null);
 
 	/** What the link alone plays, when the server didn't say. */
-	const fromLink = $derived(preferred(linkSources(listen ? [{ uri: listen }] : [])));
+	const fromLink = $derived(preferred(linkSources(link ? [{ uri: link }] : [])));
 
 	const playable = $derived(source ?? Promise.resolve(fromLink));
 
@@ -105,7 +109,7 @@
 				</div>
 			</div>
 		</div>
-		{#if listen || source || actions}
+		{#if link || source || actions}
 			<div class="flex flex-col gap-3 max-sm:w-full sm:flex-row sm:flex-wrap">
 				{#snippet play()}
 					<Button aria-expanded={open} aria-controls="mix-player" onclick={() => (open = !open)}>
@@ -114,8 +118,8 @@
 				{/snippet}
 				<!-- Shown while the server looks, and kept unless it finds nothing to play. -->
 				{#await playable}{@render play()}{:then found}{#if found}{@render play()}{/if}{/await}
-				{#if listen}
-					<Button variant={fromLink || source ? 'secondary' : 'primary'} href={listen} rel="noopener noreferrer nofollow" target="_blank">{fromLink ? 'Open' : 'Listen'} on {platform}<ExternalLink class="size-4" /></Button>
+				{#if link}
+					<Button variant={fromLink || source ? 'secondary' : 'primary'} href={link} rel="noopener noreferrer nofollow" target="_blank">{fromLink ? 'Open' : 'Listen'} on {platform}<ExternalLink class="size-4" /></Button>
 				{/if}
 				{@render actions?.()}
 			</div>

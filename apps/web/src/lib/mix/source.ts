@@ -33,7 +33,11 @@ function archiveAudio(uri: string): PlayerSource | null {
 
 	if (!isDownload || !ARCHIVE_AUDIO.test(url.pathname)) return null;
 
-	return { kind: 'audio', src: url.href, from: 'archive.org', link: `https://archive.org/details/${item}` };
+	// Rebuilt on archive.org's own origin: a browser won't fetch media from an address with a username in it, and
+	// the item has no other host or port to come from. The path, query and fragment (a start time) are kept.
+	const src = `https://archive.org${url.pathname}${url.search}${url.hash}`;
+
+	return { kind: 'audio', src, from: 'archive.org', link: `https://archive.org/details/${item}` };
 }
 
 /** What each of a set's links can play: an archive.org file directly, or a platform's player. */

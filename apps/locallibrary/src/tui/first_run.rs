@@ -75,7 +75,7 @@ impl App {
         self.show_drive_pane(super::app::DrivePane::Snapshots);
     }
 
-    /// The Publish view, ready for the handle.
+    /// The localnetwork view, ready for the handle.
     pub(super) fn sign_in(&mut self) {
         self.set_view(View::Profile);
         self.perform(Act::ProfileAccount, None);

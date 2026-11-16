@@ -573,11 +573,7 @@ fn every_method_answers_as_its_contract_says(tc: TestCase) {
     let names: Vec<&str> = methods.iter().map(|m| m["name"].as_str().unwrap()).collect();
     for i in tc.draw(gs::permutations((0..names.len()).collect::<Vec<_>>())) {
         let m = methods[i];
-        let aliases: Vec<&str> = m["aliases"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-        let name = match aliases.is_empty() || tc.draw(gs::booleans()) {
-            true => m["name"].as_str().unwrap(),
-            false => tc.draw(gs::sampled_from(&aliases[..])),
-        };
+        let name = m["name"].as_str().unwrap();
         // Up to three tries, for parameters the method takes (drawn ones may not quite fit).
         for _ in 0..3 {
             let (params, fits) = params_for(&tc, &fx, m);

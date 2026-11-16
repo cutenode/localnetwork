@@ -10,8 +10,9 @@
 		"lint": "oxlint --type-aware",
 		"format": "oxfmt",
 		"format:check": "oxfmt --check",
-		"test": "vitest run",
-		"test:coverage": "vitest run --coverage",
+		"test": "vitest run --project unit",
+		"test:coverage": "vitest run --project unit --coverage",
+		"test:sticks": "vitest run --project sticks",
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test:coverage"
 	},
 	"devDependencies": {

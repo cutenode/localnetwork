@@ -123,22 +123,24 @@ export const nameOf = (entry: ArtistEntry) => entry.name || entry.profile?.usern
 //
 // A badge per network: a lettered monogram in the site's colour rather than
 // its logo, so the panel ships no third-party artwork (the search badges do
-// the same). Which network a link is on is read off its address rather than
+// the same). Where white letters on the colour read under 4.5:1, the colour
+// is a shade darker or the letters are black, whichever keeps it closer to
+// the site's own (test/contrast.test.ts). Which network a link is on is read off its address rather than
 // trusted from SoundCloud's own `network` field, so a link written into a
 // bio is filed exactly as one put on the profile would be, and the field is
 // the fallback for an address on a host this list does not know.
 
 /** By the id a link is filed under. */
 export const NETWORKS = {
-	instagram: { name: 'Instagram', badge: 'IG', hosts: ['instagram.com'], background: '#e1306c' },
+	instagram: { name: 'Instagram', badge: 'IG', hosts: ['instagram.com'], background: '#da2f69' },
 	twitter: { name: 'X', badge: 'X', hosts: ['twitter.com', 'x.com'], background: '#000000' },
 	facebook: {
 		name: 'Facebook',
 		badge: 'fb',
 		hosts: ['facebook.com', 'fb.com', 'fb.me'],
-		background: '#1877f2'
+		background: '#1772e8'
 	},
-	youtube: { name: 'YouTube', badge: 'YT', hosts: ['youtube.com', 'youtu.be'], background: '#ff0000' },
+	youtube: { name: 'YouTube', badge: 'YT', hosts: ['youtube.com', 'youtu.be'], background: '#ed0000' },
 	tiktok: { name: 'TikTok', badge: 'TT', hosts: ['tiktok.com'], background: '#010101' },
 	threads: { name: 'Threads', badge: 'TH', hosts: ['threads.net', 'threads.com'], background: '#000000' },
 	spotify: {
@@ -152,9 +154,9 @@ export const NETWORKS = {
 		name: 'Apple Music',
 		badge: 'AM',
 		hosts: ['music.apple.com', 'itunes.apple.com'],
-		background: '#fa243c'
+		background: '#e62137'
 	},
-	bandcamp: { name: 'Bandcamp', badge: 'bc', hosts: ['bandcamp.com'], background: '#1da0c3' },
+	bandcamp: { name: 'Bandcamp', badge: 'bc', hosts: ['bandcamp.com'], background: '#1da0c3', color: '#000000' },
 	beatport: {
 		name: 'Beatport',
 		badge: 'BP',
@@ -172,7 +174,7 @@ export const NETWORKS = {
 	discogs: { name: 'Discogs', badge: 'DG', hosts: ['discogs.com'], background: '#333333' },
 	twitch: { name: 'Twitch', badge: 'TW', hosts: ['twitch.tv'], background: '#9146ff' },
 	discord: { name: 'Discord', badge: 'DC', hosts: ['discord.gg', 'discord.com'], background: '#5865f2' },
-	telegram: { name: 'Telegram', badge: 'TG', hosts: ['t.me', 'telegram.me'], background: '#26a5e4' },
+	telegram: { name: 'Telegram', badge: 'TG', hosts: ['t.me', 'telegram.me'], background: '#26a5e4', color: '#000000' },
 	snapchat: {
 		name: 'Snapchat',
 		badge: 'SN',
@@ -180,7 +182,7 @@ export const NETWORKS = {
 		background: '#fffc00',
 		color: '#000000'
 	},
-	patreon: { name: 'Patreon', badge: 'PT', hosts: ['patreon.com'], background: '#ff424d' },
+	patreon: { name: 'Patreon', badge: 'PT', hosts: ['patreon.com'], background: '#ff424d', color: '#000000' },
 	linktree: {
 		name: 'Linktree',
 		badge: 'LT',
@@ -188,7 +190,7 @@ export const NETWORKS = {
 		background: '#43e660',
 		color: '#000000'
 	},
-	soundcloud: { name: 'SoundCloud', badge: 'sc', hosts: ['soundcloud.com'], background: '#ff5500' },
+	soundcloud: { name: 'SoundCloud', badge: 'sc', hosts: ['soundcloud.com'], background: '#ff5500', color: '#000000' },
 	email: { name: 'email', badge: '@', hosts: [], background: '#52525b' },
 	personal: { name: 'website', badge: 'www', hosts: [], background: '#52525b' }
 } satisfies Record<string, Network>;

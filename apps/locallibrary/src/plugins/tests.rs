@@ -214,7 +214,8 @@ fn ids_and_places_that_clash_are_refused() {
     let echo = manifest("echo", &command("say", "cli = \"say\""));
     assert_eq!(check(&[&echo], false), [None]);
     assert_eq!(refused(&[manifest("eject", "")]), "the eject plugin's id is a locallibrary command already");
-    assert_eq!(refused(&[manifest("info", "")]), "the info plugin's id is a locallibrary command already");
+    // `set` is an alias of `sets`.
+    assert_eq!(refused(&[manifest("set", "")]), "the set plugin's id is a locallibrary command already");
     assert_eq!(
         refused(&[manifest("events", "")]),
         "the events plugin's id is the sidecar's events.* methods' too: its plans would be named like them"

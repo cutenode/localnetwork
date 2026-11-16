@@ -10,7 +10,7 @@ The status column says where main stands, read at [`fe5cadef`](https://github.co
 - **missing**: both pages exist and the link doesn't.
 - **new page**: one end has no page yet, so the link comes with that page.
 
-On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<slug>`.
+On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<key>/<name>` ([ADR 0016](adr/0016-names-repeat-keys-and-handles-identify.md)).
 
 - [Page types](#page-types)
 - [Profile](#profile)
@@ -25,6 +25,7 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 - [Area](#area)
 - [Search](#search)
 - [Followers and Following](#followers-and-following)
+- [For promoters](#for-promoters)
 - [Home](#home)
 - [Diagrams](#diagrams)
 
@@ -33,9 +34,9 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | Page type               | Path                                                                 | On main                                                                                                                                                                                                    |
 | ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Profile                 | `/@<handle>`, tabs as `?tab=`                                        | yes, without tabs                                                                                                                                                                                          |
-| Act                     | `/act/<slug>`                                                        | as `/projects/<slug>`                                                                                                                                                                                      |
-| Party                   | `/party/<slug>`                                                      | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
-| Venue                   | `/venue/<slug>`                                                      | no                                                                                                                                                                                                         |
+| Act                     | `/act/<key>/<name>`                                                  | as `/projects/<slug>`                                                                                                                                                                                      |
+| Party                   | `/party/<key>/<name>`                                                | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
+| Venue                   | `/venue/<key>/<name>`                                                | no                                                                                                                                                                                                         |
 | Event                   | `/party/<slug>/<event>`, or `/@<handle>/events/<rkey>` with no party | no: shows are rows in `/shows` and on act pages                                                                                                                                                            |
 | Set (and mix)           | `/@<handle>/sets/<rkey>`; `/mixes` lists                             | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>`                                                                                                                    |
 | Press kit               | under its performer                                                  | `/projects/<slug>/press-kits/<rkey>`                                                                                                                                                                       |
@@ -45,6 +46,7 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | Search                  | `/search?q=&type=`                                                   | no: Find DJs (`/projects`) searches acts and listed DJs                                                                                                                                                    |
 | Followers and Following | on every profile, act, party and venue                               | no ([routes/shows/+page.svelte:16-17](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/shows/%2Bpage.svelte#L16-L17) is the only use of follows) |
 | Home                    | `/`                                                                  | yes                                                                                                                                                                                                        |
+| For promoters           | `/for-promoters`                                                     | yes                                                                                                                                                                                                        |
 
 Wherever a handle shows, it links to that profile. That's on main through `profileHref` ([lib/format.ts:37-39](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/format.ts#L37-L39), [lib/components/Handle.svelte:14](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/Handle.svelte#L14)), so the tables below leave it out.
 
@@ -190,14 +192,29 @@ One tab per kind. Each result links its page.
 
 Each row links the profile, act, party or venue it names, with a filter by kind. Neither list exists on main.
 
+## For promoters
+
+The landing page for people who book DJs. It links what a promoter uses, with real listings from the directory.
+
+| Links to             | When                        | On main | Source                                                                                                                |
+| -------------------- | --------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
+| Find DJs             | always                      | on main | the search and "Open Find DJs" [routes/for-promoters/+page.svelte](../apps/web/src/routes/for-promoters/+page.svelte) |
+| Acts and listed DJs  | the directory has a listing | on main | the example listing and the shortlist                                                                                 |
+| Match a show         | always                      | on main | the shortlist's search on `/match`                                                                                    |
+| Press kits           | the directory has a listing | on main | the example listing's press kits                                                                                      |
+| For DJs              | always                      | on main | under the search                                                                                                      |
+| Turning on promoting | not promoting yet           | on main | Sign in, or the promoter section of the profile editor                                                                |
+| Planner              | promoting                   | on main | the closing call                                                                                                      |
+
 ## Home
 
-| Links to                               | When       | On main  | Source                                                                                                                                                                                       |
-| -------------------------------------- | ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Upcoming events in your area           | signed out | new page | upcoming shows, each linking its act [routes/+page.svelte:53](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%2Bpage.svelte#L53) |
-| DJs and mixes from your area           | signed out | new page |                                                                                                                                                                                              |
-| What your network did, under Following | signed in  | new page |                                                                                                                                                                                              |
-| Suggestions, under For you             | signed in  | new page |                                                                                                                                                                                              |
+| Links to                               | When                               | On main  | Source                                                                                                                                                                                       |
+| -------------------------------------- | ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upcoming events in your area           | signed out                         | new page | upcoming shows, each linking its act [routes/+page.svelte:53](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%2Bpage.svelte#L53) |
+| DJs and mixes from your area           | signed out, the socialHome flag on | on main  | "Who's playing near" and "Mixes from around" [lib/components/home/SocialHome.svelte](../apps/web/src/lib/components/home/SocialHome.svelte)                                                  |
+| For promoters                          | signed out, the socialHome flag on | on main  | "Local Network for promoters" under the search [lib/components/home/SocialHome.svelte](../apps/web/src/lib/components/home/SocialHome.svelte)                                                |
+| What your network did, under Following | signed in                          | new page |                                                                                                                                                                                              |
+| Suggestions, under For you             | signed in                          | new page |                                                                                                                                                                                              |
 
 ## Diagrams
 
@@ -246,6 +263,7 @@ flowchart LR
     shows["Shows /shows"]
     artist["Artist /artists/id"]
     find["Find DJs /projects"]
+    promoters["For promoters /for-promoters"]
 
     profile -->|"Plays in"| act
     profile --> set
@@ -271,6 +289,9 @@ flowchart LR
     artist --> set
     find --> act
     find --> profile
+    promoters --> find
+    promoters --> act
+    promoters --> kit
     profile -.->|"mixes"| mix
     profile -.->|"press kits"| kit
     kit -.->|"performer"| act

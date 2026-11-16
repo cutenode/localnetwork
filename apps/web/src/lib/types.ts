@@ -215,6 +215,24 @@ export type PerformerRecord = {
 	updatedAt: string;
 };
 
+/** How a venue takes events that name it (`computer.localnetwork.venue#approval`'s knownValues). */
+export type VenueApproval = 'open' | 'approval';
+
+/** A real place events happen (`computer.localnetwork.venue`), as the root wrote it into the venue's space. */
+export type VenueRecord = {
+	name: string;
+	/** `community.lexicon.location.address`: only the country is required. */
+	address: { country: string; locality?: string; region?: string; street?: string; postalCode?: string; name?: string };
+	/** `community.lexicon.location.geo`, its coordinates as decimal strings. */
+	geo?: { latitude: string; longitude: string; name?: string };
+	/** `community.lexicon.location.fsq`. */
+	fsq?: { fsq_place_id: string; latitude?: string; longitude?: string; name?: string };
+	/** Missing reads as open; a value a newer app added reads as open too. */
+	approval?: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
 /**
  * A performer by what names it: a DJ by their profile, an act by its listing (whose key is its space's key), or a
  * project that hasn't become an act yet.
@@ -327,10 +345,10 @@ export type ProjectView = {
 };
 
 /**
- * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
- * lists stream in so their placeholders hold that much room.
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, and how many of its
+ * managers have DJ stats or sets, known before those stream in so their placeholders hold that much room (or none).
  */
-export type ProjectCounts = { pressKits: number; upcomingShows: number };
+export type ProjectCounts = { pressKits: number; upcomingShows: number; djs: number };
 
 export type AccountView = { did: string; handle: string | null };
 
@@ -378,6 +396,8 @@ export type RequestRecord = LexiconRead<
 	{
 		kind: RequestKind;
 		project?: string;
+		/** For a claim on a venue: its space. */
+		space?: string;
 		baseRevision?: number;
 		profile?: ProjectProfile;
 		details?: ProjectDetails;
@@ -403,6 +423,8 @@ export type RequestView = {
 	repoDid: string;
 	projectUri: string | null;
 	project: { slug: string; name: string } | null;
+	/** The venue a claim is for, when it's a venue's. */
+	venue: { key: string; name: string } | null;
 	record: RequestRecord;
 	createdAt: string;
 	updatedAt: string;
@@ -531,6 +553,14 @@ export type BookingThreadView = {
 	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
+};
+
+/** The shows a booking thread links to, which its page shows beside the details. */
+export type BookingShowLinks = {
+	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */
+	plannerShow: string | null;
+	/** The public show a manager announced from the thread, as the account that wrote it and its key. */
+	announcedShow: { did: string; rkey: string } | null;
 };
 
 export type BookingEventView = {
