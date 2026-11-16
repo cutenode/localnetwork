@@ -27,8 +27,7 @@ fn playlists_are_made_filled_reordered_moved_and_deleted() {
     assert!(out.contains("    ~ Sets/Friday reordered, 4 -> 4 entries"), "{out}");
     let out = yes(&["remove", d, "Friday", "--at", "1"]);
     assert!(out.contains("    ~ Sets/Friday -1, 4 -> 3 entries"), "{out}");
-    // `move --at --to` is `reorder`'s old spelling.
-    let out = yes(&["move", d, "Friday", "--at", "1", "--to", "3"]);
+    let out = yes(&["reorder", d, "Friday", "--at", "1", "--to", "3"]);
     assert!(out.contains("  - move 1 entr(ies) in Sets/Friday to position 3"), "{out}");
     let out = yes(&["sort", d, "Friday", "--sort", "-bpm"]);
     assert!(out.contains("  - sort Sets/Friday by -bpm"), "{out}");

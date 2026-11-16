@@ -512,7 +512,7 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     // The profile's base is then what the plan said each setting would come to; a setting this
     // version doesn't know is left out, saying so.
-    let base = fx.json(&["settings", "profile"])["base"].clone();
+    let base = fx.json(&["settings", "base"])["base"].clone();
     for c in changes {
         assert_eq!(&base[c["key"].as_str().unwrap()], &c["to"], "{c}: {base}");
     }

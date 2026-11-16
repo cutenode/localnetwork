@@ -145,7 +145,7 @@ fn identities_go_back_only_where_they_belong(tc: TestCase) {
     let err = fleet::adopt_as(&store, &mut other, &id.to_string(), &[], &Ctx::silent()).unwrap_err();
     assert_eq!(err.reason(), Some(Reason::HasIdentity), "{err}");
     let methods: Vec<_> = err.detail().actions.iter().map(|a| a.method.clone()).collect();
-    assert_eq!(methods, [Some("drive.reidentify".to_string())]);
+    assert_eq!(methods, [Some("drive.reidentify.apply".to_string())]);
 
     let blank = Device::open(common::blank(dir.path(), "Blank")).unwrap();
     let found = fleet::recognise(&store, &blank, &Ctx::silent()).unwrap();

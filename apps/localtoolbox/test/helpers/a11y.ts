@@ -1,14 +1,18 @@
-// A small accessibility audit, run over whatever a panel has drawn.
+// A small accessibility audit, run over whatever a panel has drawn, and axe's
+// rules about names beside it.
 //
 // This does not replace a real one: no browser here computes a layout, and a
-// contrast ratio cannot be measured in jsdom. It checks the part that breaks
+// contrast ratio cannot be measured in jsdom (test/contrast.test.ts reads the
+// colours instead). It checks the part that breaks
 // silently and is invisible to every other test in this suite: an icon-only
 // button with no name, a label pointing at an id that is not there, a toggle
 // whose state is only a colour, an id used twice because two rows rendered the
 // same component.
 //
 // `audit(root)` returns a list of problems, each naming the element and what
-// is wrong with it. An empty list is the assertion.
+// is wrong with it. An empty list is the assertion. `axeNames(root)` is the
+// same for axe's naming rules.
+import axe from 'axe-core';
 
 const INTERACTIVE = [
 	'button',
@@ -240,7 +244,43 @@ export function audit(root: ParentNode = document.body) {
 		if (!CONTROL_ROLES.has(role)) report(el, `is a tab stop but its role is "${role}"`);
 	}
 
+	// 9. A button with nothing but an icon in it says what it does where a
+	//    pointer can see it too: a title, or the tooltip it is the trigger of.
+	//    A tick box or a switch is not asked: what it is draws itself.
+	for (const el of root.querySelectorAll('button:not([role]), a[href], [role="button"]')) {
+		if (hiddenFromAssistiveTech(el) || contentName(el)) continue;
+
+		if (!el.getAttribute('title')?.trim() && !el.closest('[data-tooltip-trigger]')) {
+			report(el, 'is icon-only with no title or tooltip');
+		}
+	}
+
 	return problems;
+}
+
+// axe's rules that name things: every control, link, image and field has a
+// name a screen reader can read out. The rest of axe needs a layout jsdom
+// doesn't have.
+const NAME_RULES = [
+	'button-name',
+	'link-name',
+	'label',
+	'select-name',
+	'input-button-name',
+	'aria-command-name',
+	'aria-input-field-name',
+	'aria-toggle-field-name',
+	'aria-dialog-name',
+	'image-alt',
+	'role-img-alt',
+	'svg-img-alt'
+];
+
+/** What axe's naming rules find, one line per element: the rule and where. */
+export async function axeNames(root: Element = document.body) {
+	const { violations } = await axe.run(root, { runOnly: { type: 'rule', values: NAME_RULES } });
+
+	return violations.flatMap((rule) => rule.nodes.map((node) => `${rule.id}: ${node.target.join(' ')}`));
 }
 
 /** Elements a keyboard reaches, in order. */

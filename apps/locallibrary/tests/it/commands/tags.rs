@@ -42,7 +42,7 @@ fn tag_edits_show_their_plan_and_say_when_theres_nothing_to_do() {
     let out = env.ok(&["--yes", "tags", "untag", d, "Genre/Dark", "--track", "2"]);
     assert!(out.contains("nothing to change: none of the selected tracks has Genre/Dark"), "{out}");
 
-    let out = env.ok(&["tags", "remove", d, "Genre/Dark", "--query", "Demo Track", "--dry-run"]);
+    let out = env.ok(&["tags", "untag", d, "Genre/Dark", "--query", "Demo Track", "--dry-run"]);
     assert!(out.contains("Demo: remove Genre/Dark from 1 track(s)"), "{out}");
     assert!(out.contains("    - Loopmasters - Demo Track 1"), "{out}");
     assert!(out.contains("1 selected track(s) don't have it"), "{out}");

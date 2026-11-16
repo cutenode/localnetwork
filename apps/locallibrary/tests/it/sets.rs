@@ -283,7 +283,7 @@ fn sets_and_sessions_over_rpc() {
     assert_eq!(played["result"][0]["position"], 2, "{played}");
     let gone = rpc.call(8, "sets.delete", json!({ "set": "Friday" }));
     assert_eq!(gone["result"]["title"], "Friday", "{gone}");
-    // The night-before job's methods are `prep.*`, and still answer to `set.*`.
-    let prep = rpc.call(9, "set.plan", json!({ "drives": [path(&main)], "eject": false }));
+    // The night-before job's methods are `prep.*`; its plans' operation is `set`.
+    let prep = rpc.call(9, "prep.plan", json!({ "drives": [path(&main)], "eject": false }));
     assert_eq!(prep["result"]["operation"], "set", "{prep}");
 }
