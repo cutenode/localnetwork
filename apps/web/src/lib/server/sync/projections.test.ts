@@ -471,6 +471,28 @@ describe('createProjections', () => {
 			expect(await rows()).toEqual([]);
 		});
 
+		it("indexes a venue space's venue record only from the root, at its key, and drops it when deleted", async () => {
+			const venueSpace = sharedSpace(ROOT, 'venue', '3venue');
+			const venue = { name: 'Tresor', address: { country: 'DE' }, createdAt: now, updatedAt: now };
+			const rows = () => t.db.selectFrom('venue').select(['spaceUri', 'skey', 'nameKey']).execute();
+
+			await upsert(venueSpace, ALICE, COLLECTION.venue, 'self', venue);
+			await upsert(sharedSpace(ALICE, 'venue', '3venue'), ROOT, COLLECTION.venue, 'self', venue);
+			await upsert(venueSpace, ROOT, COLLECTION.venue, 'other', venue);
+			// Only a venue's space holds a venue.
+			await upsert(space, ROOT, COLLECTION.venue, 'self', venue);
+			await upsert(venueSpace, ROOT, COLLECTION.venue, 'self', { ...venue, address: {} });
+			expect(await rows()).toEqual([]);
+
+			await upsert(venueSpace, ROOT, COLLECTION.venue, 'self', venue);
+			expect(await rows()).toEqual([{ spaceUri: venueSpace, skey: '3venue', nameKey: 'tresor' }]);
+
+			await remove(venueSpace, ALICE, COLLECTION.venue, 'self');
+			expect(await rows()).toHaveLength(1);
+			await remove(venueSpace, ROOT, COLLECTION.venue, 'self');
+			expect(await rows()).toEqual([]);
+		});
+
 		it('ignores records keyed by the wrong DID and listing statuses under any other key', async () => {
 			await upsert(space, ROOT, COLLECTION.invite, ALICE, {
 				subject: BOB,
