@@ -91,7 +91,9 @@ fn a_missing_scope_names_what_couldnt_be_published() {
     assert!(said(lexicon::SET).contains("publish sets;"));
     assert!(said("app.example.thing").contains("publish records; sign in again, allowing app.example.thing records"));
     let again = &scope_error(&info, "app.example.thing").detail().actions[0];
-    assert_eq!(again.params["scopes"], json!(["atproto", "repo:app.example.thing?action=create&action=update"]));
+    let asked =
+        json!(["atproto", crate::atmosphere::FLAGS_SCOPE, "repo:app.example.thing?action=create&action=update"]);
+    assert_eq!(again.params["scopes"], asked);
 }
 
 /// A blob as a data server answers an upload.

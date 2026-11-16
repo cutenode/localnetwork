@@ -18,8 +18,8 @@ use locallibrary::api::{self, AccountLoginRequest};
 use locallibrary::atmosphere::lexicon::{PROFILE, RECORDING, SET, SETTINGS};
 use locallibrary::atmosphere::store::{self, AccountFile, StoredAccount};
 use locallibrary::atmosphere::{
-    self, AccountInfo, CallbackQuery, Client, PUBLISH_SCOPES, PUBLISH_SET, REPORT_SCOPE, SESSION_LIMIT_DAYS, Storage,
-    UPLOAD_SCOPE, publish_scopes,
+    self, AccountInfo, CallbackQuery, Client, FLAGS_SCOPE, PUBLISH_SCOPES, PUBLISH_SET, REPORT_SCOPE,
+    SESSION_LIMIT_DAYS, Storage, UPLOAD_SCOPE, publish_scopes,
 };
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
@@ -112,12 +112,13 @@ fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
 /// else.
 #[hegel::test(test_cases = 50)]
 fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
-    assert_eq!(publish_scopes(), ["atproto".to_string(), format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.into()]);
+    let asked = ["atproto".to_string(), FLAGS_SCOPE.into(), format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.into()];
+    assert_eq!(publish_scopes(), asked);
     let granted = crate::mock_pds::granted(&publish_scopes());
     let mut want: Vec<String> = PUBLISH_SCOPES.map(String::from).to_vec();
     // Servers write the `rpc` one with the audience jacquard leaves out.
     want[4] += "?aud=*";
-    want.extend(["atproto".into(), UPLOAD_SCOPE.into()]);
+    want.extend(["atproto".into(), FLAGS_SCOPE.into(), UPLOAD_SCOPE.into()]);
     assert_eq!(granted, want);
     let order = tc.draw(gs::permutations(granted));
     let account = info("did:plc:abc", None, order, Utc::now());

@@ -571,4 +571,34 @@ pub mod account {
         account.info = serde_json::from_value(details).unwrap();
         file.save(store).unwrap();
     }
+
+    /// The feature flags `account flags` lists: the files in the repository's `flags/catalog/`,
+    /// each named for its key, in order, as the website reads them.
+    pub fn flag_catalog() -> Vec<String> {
+        let catalog = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flags/catalog");
+        let files = std::fs::read_dir(catalog).unwrap().map(|file| file.unwrap().path());
+        let json = files.filter(|path| path.extension().is_some_and(|e| e == "json"));
+        let mut keys: Vec<String> = json.map(|path| path.file_stem().unwrap().to_str().unwrap().to_string()).collect();
+        keys.sort();
+        keys
+    }
+
+    /// The line `account flags` prints for the flag `key`, padded as wide as the catalog's longest.
+    pub fn flag_line(key: &str, on: bool) -> String {
+        let width = flag_catalog().iter().map(String::len).max().unwrap_or(0);
+        format!("  {key:width$}  {}\n", if on { "on" } else { "off" })
+    }
+
+    /// What `account flags` prints: each flag in [`flag_catalog`], on when it's in `on`, then
+    /// `footer`.
+    pub fn flags_shown(on: &[&str], footer: &str) -> String {
+        let rows: String = flag_catalog().iter().map(|key| flag_line(key, on.contains(&key.as_str()))).collect();
+        format!("Feature flags\n{rows}  {footer}\n")
+    }
+
+    /// `account flags --json`'s `flags`: each flag in [`flag_catalog`], on when it's in `on`.
+    pub fn flag_states(on: &[&str]) -> Value {
+        let state = |key: &String| json!({ "key": key, "on": on.contains(&key.as_str()) });
+        Value::Array(flag_catalog().iter().map(state).collect())
+    }
 }

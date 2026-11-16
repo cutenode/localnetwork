@@ -195,6 +195,7 @@ its drives.
 | --- | --- |
 | `locallibrary account` | Your accounts: the DJ account, then those plugins use, with the plugins that have access to each, see [Accounts](plugins.md#accounts) |
 | `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account as the DJ account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
+| `locallibrary account flags [--refresh]` | Which feature flags are on for you, see [Feature flags](account.md#feature-flags) |
 | `locallibrary account <TYPE> sign-in [--with PLUGIN] [--for PLUGIN] [--scope NAME]...` | Sign in to an account of a type (`google`) in the browser, or with the keys its service gives you (`archive`, read from stdin), through an account plugin, giving the plugin `--for` names access to it, see [Accounts](plugins.md#accounts) |
 | `locallibrary account <TYPE>:<NAME> [status\|sign-out]` | One of those accounts, or sign out of it (plugins keep their access, unused until it's signed in again) |
 | `locallibrary plugin access <PLUGIN> [--give ACCOUNT [--scope S] \| --default ACCOUNT \| --take-away ACCOUNT]` | A plugin's access to your accounts: give it access to one, make one its default for its type, or take its access away, see [Accounts](plugins.md#accounts) |

@@ -78,7 +78,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Flags
 
-A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
+A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md), which locallibrary reads too. Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
 
 To see a flag without changing it for anyone, staff with the flags grant can turn it on or off for their own browser from its page. The preview is a cookie signed with their session, lasts an hour, shows a banner on every page until it's cleared, and is audited. In development and tests, `FLAG_OVERRIDES=key=on,other=off` forces flags for every request instead; the app won't start with it in production ([ADR 0010](../../docs/adr/0010-flags-turn-off-and-preview-without-touching-targeting.md)).
 
@@ -385,7 +385,7 @@ Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things i
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
-[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, its publishing permission set (`include:computer.localnetwork.locallibraryPublishing`, which grants create/update on `computer.localnetwork.locallibrary.settings` and `computer.localnetwork.dj.profile`, and create/update/delete on `computer.localnetwork.dj.set` and `computer.localnetwork.dj.recording`), `blob:audio/*` to upload a set's recording (a permission set can't grant blobs, so sign-in asks for it directly), and `repo:app.userinput.discussion?action=create` for `locallibrary bug`.
+[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, its publishing permission set (`include:computer.localnetwork.locallibraryPublishing`, which grants create/update on `computer.localnetwork.locallibrary.settings` and `computer.localnetwork.dj.profile`, and create/update/delete on `computer.localnetwork.dj.set` and `computer.localnetwork.dj.recording`), `blob:audio/*` to upload a set's recording (a permission set can't grant blobs, so sign-in asks for it directly), `repo:app.userinput.discussion?action=create` for `locallibrary bug`, and `rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags`, which every sign-in asks for, so locallibrary can call this app's `requestIndex` and `getFlags` with a service token.
 
 locallibrary writes the document; after changing its scopes, regenerate it here before releasing the locallibrary version that asks for them:
 
@@ -489,7 +489,7 @@ flowchart TD
   Jet["Jetstream"]
 
   Browser -- "pages, forms, /api" --> App
-  Tool -- "token exchange,<br/>requestIndex" --> App
+  Tool -- "token exchange,<br/>requestIndex, getFlags" --> App
   Tool -- "reads its<br/>records back" --> HV
   Tool -- "stats, sets,<br/>recordings" --> Pds
   App -- "the index, sessions,<br/>audit, inboxes" --> Db

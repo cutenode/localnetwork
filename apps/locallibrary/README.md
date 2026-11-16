@@ -159,7 +159,7 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 - [Drives](docs/drives.md): your library's drives, roles, health, space, formatting, the doctor's
   report
 - [Atmosphere account](docs/account.md) (alpha): signing in, publishing sets, settings and your
-  profile, and reporting bugs
+  profile, feature flags, and reporting bugs
 - [rekordbox and other DJ software](docs/other-software.md): rekordbox's own collection, Traktor,
   Serato and Engine DJ
 - [Plugins](docs/plugins.md): what plugins add, and where it shows up
@@ -501,7 +501,7 @@ The rest of the command tree, with the commands the help leaves out.
 ```mermaid
 flowchart TD
     hub["Other"]
-    hub --> account["account<br/>status, login, logout, TARGET status, TARGET sign-in, TARGET sign-out"]
+    hub --> account["account<br/>status, login, logout, flags, TARGET status, TARGET sign-in, TARGET sign-out"]
     hub --> plugin["plugin<br/>list, info, settings, access, roles, checks, providers"]
     hub --> misc["bug, completions, help"]
     hub --> more["import, analysis bench"]

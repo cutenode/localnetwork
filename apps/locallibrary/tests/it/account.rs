@@ -7,7 +7,7 @@
 use serde_json::{Value, json};
 
 use crate::mock_pds::MockPds;
-use crate::support::account::{DID, PUBLISHING, sign_in};
+use crate::support::account::{DID, PUBLISHING, flag_line, flag_states, flags_shown, sign_in};
 use crate::support::{Env, Rpc, path};
 
 #[test]
@@ -44,7 +44,8 @@ fn client_metadata_for_a_hosted_client() {
     // Every document allows publishing locallibrary's records (and uploading recordings) and filing
     // bug reports, so sign-in can ask for them.
     let scope = "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
-                 repo:app.example.thing repo:app.userinput.discussion?action=create";
+                 repo:app.example.thing repo:app.userinput.discussion?action=create \
+                 rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags";
     assert_eq!(v["scope"], scope);
     let file = env.outside("meta.json");
     let write = |more: &[&str]| {
@@ -75,7 +76,7 @@ fn rpc_account_methods() {
     let mut rpc = Rpc::start(env.command());
     let version = rpc.call(1, "version", Value::Null);
     let methods = version["result"]["methods"].as_array().unwrap();
-    for m in ["account.status", "account.login.begin", "account.login.finish", "account.logout"] {
+    for m in ["account.status", "account.flags", "account.login.begin", "account.login.finish", "account.logout"] {
         assert!(methods.contains(&Value::from(m)), "{m}");
     }
     assert!(rpc.call(2, "account.status", Value::Null)["result"]["account"].is_null());
@@ -85,6 +86,72 @@ fn rpc_account_methods() {
     let metadata = rpc.call(6, "account.client_metadata", json!({ "client_id": "https://x.example/c.json" }));
     assert_eq!(metadata["result"]["redirect_uris"][0], "http://127.0.0.1/callback");
     assert_eq!(rpc.call(7, "account.check", Value::Null)["error"]["data"]["kind"], "account");
+}
+
+/// `account flags` lists every flag in the repository's catalog, on or off as the website answers,
+/// where its text and its JSON agree, and `--refresh` asks again; a session from before the scope
+/// is told it needs a new sign-in, one with it sees the flags that target it, and one that's gone
+/// leaves no answer behind.
+#[test]
+fn the_flags_are_shown_as_the_website_answers() {
+    let pds = MockPds::start();
+    let env = Env::ascii().with_directory(&pds.url);
+    let flag = "parityCanary";
+    let calls = || pds.calls("computer.localnetwork.flags.getFlags").len();
+
+    // Nothing to read: every flag off, and it says so.
+    let website_down = Env::ascii().with_directory("http://127.0.0.1:9");
+    let out = website_down.ok(&["account", "flags"]);
+    assert_eq!(out, flags_shown(&[], "no recent answer from the website, so every flag is off"));
+
+    // A cache needs a store to be kept in: checking a flag doesn't make one.
+    assert!(!website_down.store.exists());
+    locallibrary::Store::open_or_init(&env.store).unwrap();
+
+    // A flag the website lists that this version doesn't know isn't shown.
+    pds.set_flags(&[(flag, true, 0), ("notInTheCatalog", true, 0)], &[]);
+    let v = env.json(&["account", "flags"]);
+    assert_eq!(v["flags"], flag_states(&[flag]), "{v}");
+    assert_eq!((&v["freshness"], &v["needs_sign_in"]), (&json!("fresh"), &json!(false)), "{v}");
+    assert_eq!(calls(), 1);
+
+    // The answer is fresh: no asking, unless told to.
+    pds.set_flags(&[(flag, false, 0)], &[]);
+    let at = locallibrary::local_time(
+        chrono::DateTime::parse_from_rfc3339(v["fetched_at"].as_str().unwrap()).unwrap(),
+        "%Y-%m-%d %H:%M",
+    );
+    assert_eq!(env.ok(&["account", "flags"]), flags_shown(&[flag], &format!("fetched {at}")));
+    assert_eq!(calls(), 1);
+    let v = env.json(&["account", "flags", "--refresh"]);
+    assert_eq!(v["flags"], flag_states(&[]), "{v}");
+    assert_eq!(calls(), 2);
+
+    // Signed in before the scope: the public gates hold, and it says what targeting needs.
+    pds.set_account(DID, "dj.example.com");
+    pds.set_flags(&[(flag, false, 100)], &[flag]);
+    sign_in(&env.store, &pds.url, &["atproto"], json!({}));
+    let out = env.ok(&["account", "flags", "--refresh"]);
+    assert!(out.contains(&flag_line(flag, true)), "{out}");
+    assert!(out.contains("flags for your account need a new sign-in: `locallibrary account login`\n"), "{out}");
+    assert_eq!(pds.calls("com.atproto.server.getServiceAuth").len(), 0);
+
+    // Allowed to ask: a flag on for nobody else is on for the account it targets, as the website
+    // says in answer to a token.
+    sign_in(&env.store, &pds.url, &["atproto", locallibrary::atmosphere::FLAGS_SCOPE], json!({}));
+    pds.set_flags(&[(flag, false, 0)], &[flag]);
+    let v = env.json(&["account", "flags", "--refresh"]);
+    assert_eq!((&v["flags"], &v["needs_sign_in"]), (&flag_states(&[flag]), &json!(false)), "{v}");
+    assert_eq!(pds.calls("com.atproto.server.getServiceAuth").len(), 1);
+
+    // Signing out takes the answer with it.
+    assert!(env.store.join("flags.json").exists());
+    env.ok(&["account", "logout"]);
+    assert!(!env.store.join("flags.json").exists());
+
+    let mut rpc = Rpc::start(env.command());
+    let result = &rpc.call(1, "account.flags", json!({ "refresh": true }))["result"];
+    assert_eq!((&result["freshness"], &result["flags"]), (&json!("fresh"), &flag_states(&[])), "{result}");
 }
 
 /// A day on the calendar, `hours` from now.
