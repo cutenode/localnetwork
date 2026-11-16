@@ -25,8 +25,7 @@ the library's: most commands take the library's name and mean its lead clone (se
 - `drive rename <drive> <name> [--label]` (`--label` changes the volume label too; experimental on
   Linux and Windows, see [Platforms](install.md#platforms)), `drive forget <drive>`,
   `drive retire <drive> [--undo]`, `drive ls --known` (every registered drive).
-- **Roles:** `drive role <drive> primary|backup|set|archive` (`gig`, the old name for `set`, works
-  too). A library has one primary: a primary that joins a library which has one becomes a backup.
+- **Roles:** `drive role <drive> primary|backup|set|archive`. A library has one primary: a primary that joins a library which has one becomes a backup.
   Archive and retired drives are never written to (by a sync, an edit, a format or anything else)
   unless `--overwrite-archive` is given (`--force` also does for push); locallibrary still keeps
   its own notes in their `.locallibrary/` (the file index, what it last saw). `locallibrary sync`
@@ -160,7 +159,7 @@ locallibrary drive contact REKORDBOX "sam@example.com" --playlist
 
 ### Back from a set
 
-Players write to the drive: a history list every session, memory cues, and on the CDJ-3000X
+Players write to the drive: a history list each time it goes in, memory cues, and on the CDJ-3000X
 playlist edits and TAG LIST playlists. If the primary got a new export in the meantime, both
 drives changed since they were last in sync, and a plain sync has to refuse. `sync` looks at what
 each drive changed since the last state both held, which must be in the store (pull before

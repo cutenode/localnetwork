@@ -173,7 +173,7 @@ export function renderDm(items: NotificationView[], publicUrl: string): DmMessag
 	const line = (item: NotificationView) =>
 		clip(defang([item.title, item.body].filter(Boolean).join(': ')), LINE_GRAPHEMES);
 
-	const settings = { text: 'Change what you get:', url: `${publicUrl}/dashboard/inbox/settings` };
+	const settings = { text: 'Change what you get:', url: `${publicUrl}/dashboard/account/notifications` };
 
 	if (items.length === 1) return compose([{ text: line(items[0]) }, { url: `${publicUrl}${items[0].href}` }, settings]);
 

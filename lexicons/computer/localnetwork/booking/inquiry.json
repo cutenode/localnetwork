@@ -24,6 +24,11 @@
 						"maxLength": 20000,
 						"maxGraphemes": 2000
 					},
+					"plannerShow": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The promoter's planner show the inquiry started from. The planner is the promoter's own private space, so only they can open it."
+					},
 					"onBehalfOf": {
 						"type": "string",
 						"format": "did",

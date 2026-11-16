@@ -1,24 +1,21 @@
 //! A host whose `net/fetch` SoundCloud answers as its API does (`POST /tracks`, `GET /me/tracks`),
-//! but as a test scripts it, and the plugin served to it over pipes.
+//! but as a test scripts it, and the plugin served to it by a fake host.
 
-use std::io::pipe;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use chrono::{TimeDelta, Utc};
-use loclib_plugin::test_util::Canceller;
+use loclib_plugin::test_util::{FakeHost, Response};
 use loclib_plugin::{
-    Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, Published, PublishedSet,
-    RpcError, TokenPlace, TracklistEntry, method,
+    Fetch, Fetched, ProgressReport, Progressed, Published, PublishedSet, RpcError, TokenPlace, TracklistEntry, method,
 };
 use loclib_progress::Event;
 use serde_json::{Value, json};
 
 use super::account_type;
-use crate::serve;
 use crate::upload::{AUTHORIZATION, NEWEST, TRACKS};
+use crate::{MANIFEST, serve};
 
 /// The access token the host fills in, and the page of the track the fake SoundCloud makes.
 pub(super) const TOKEN: &str = "2-290-tok";
@@ -90,8 +87,9 @@ pub(super) struct SoundCloud {
     received: Received,
     /// The account's tracks, oldest first.
     pub(super) tracks: Vec<Made>,
-    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
-    cancel: Arc<Canceller>,
+    /// Whether the publish is cancelled once the call in hand is answered, as [`Reply::Cancels`]
+    /// says.
+    cancels: bool,
 }
 
 impl SoundCloud {
@@ -106,7 +104,7 @@ impl SoundCloud {
 
     pub(super) fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> SoundCloud {
         let (received, tracks) = (Received::default(), Vec::new());
-        SoundCloud { signed_in: true, script: Box::new(script), received, tracks, cancel: Arc::default() }
+        SoundCloud { signed_in: true, script: Box::new(script), received, tracks, cancels: false }
     }
 
     /// With a track of the account's titled `title`, made `ago` before now.
@@ -141,7 +139,7 @@ impl SoundCloud {
         };
         let reply = match (self.script)(route, before) {
             Some(Reply::Cancels(then)) => {
-                self.cancel.arm();
+                self.cancels = true;
                 Some(*then)
             }
             reply => reply,
@@ -205,40 +203,29 @@ impl SoundCloud {
     }
 }
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose fetches `soundcloud` answers.
+/// The plugin served by a fake host, as [`serve`] serves it, whose fetches `soundcloud` answers.
 pub(super) struct Session {
-    pub(super) host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    pub(super) hello: HelloReply,
+    pub(super) host: FakeHost,
     soundcloud: Arc<Mutex<SoundCloud>>,
     /// The requests' scratch folder.
     pub(super) scratch: tempfile::TempDir,
 }
 
 pub(super) fn start(soundcloud: SoundCloud) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
+    let host = FakeHost::start(MANIFEST, serve);
     let soundcloud = Arc::new(Mutex::new(soundcloud));
-    let (to, answers) = (host.clone(), soundcloud.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let mut soundcloud = answers.lock().unwrap();
-            let answer = soundcloud.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            let cancel = soundcloud.cancel.clone();
-            drop(soundcloud);
-            cancel.respond(&to, &req.id, answer);
+    let answers = soundcloud.clone();
+    // A failed check in `answer` poisons the lock, failing the test where it's next read.
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let mut soundcloud = answers.lock().unwrap();
+        let answer = soundcloud.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+        match std::mem::take(&mut soundcloud.cancels) {
+            true => Response::AnswerThenCancel(answer),
+            false => Response::Answer(answer),
         }
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, hello, soundcloud, scratch: tempfile::tempdir().unwrap() }
+    Session { host, soundcloud, scratch: tempfile::tempdir().unwrap() }
 }
 
 /// What a publish answered, and the progress it reported.
@@ -258,10 +245,9 @@ impl Session {
         let context = json!({ "scratch": self.scratch.path(), "settings": settings });
         let req = json!({ "destination": "track", "set": set, "recording": recording, "tracklist": tracklist,
             "dry_run": dry_run, "context": context });
-        let cancel = self.soundcloud.lock().unwrap().cancel.clone();
-        let pending = cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap());
+        let pending = self.host.send(method::SET_PUBLISH, &req);
         let answer = pending.wait_timeout(Duration::from_secs(60)).expect("an answer in a minute");
-        let events = pending.progress().filter_map(|p| match p {
+        let events = pending.progress().into_iter().filter_map(|p| match p {
             ProgressReport::Known(e) => match e.event {
                 Progressed::Event(event) => Some(event),
                 Progressed::Step(_) => None,
@@ -273,21 +259,20 @@ impl Session {
 
     /// Its fetches answered by `soundcloud` from now on.
     pub(super) fn script(&self, soundcloud: SoundCloud) {
-        let mut answering = self.soundcloud.lock().unwrap();
-        *answering = SoundCloud { cancel: answering.cancel.clone(), ..soundcloud };
+        *self.soundcloud.lock().unwrap() = soundcloud;
     }
 
     /// What SoundCloud has been sent.
     pub(super) fn received(&self) -> Received {
+        let calls = self.host.calls();
+        assert!(calls.iter().all(|(m, _)| m == method::NET_FETCH), "the plugin reads nothing else: {calls:?}");
         std::mem::take(&mut self.soundcloud.lock().unwrap().received)
     }
 
     /// Closes the plugin's input: it stops. What SoundCloud was sent, read once all of it is
     /// answered: what the plugin sent before a cancel reached it may still be on its way.
     pub(super) fn stop(self) -> Received {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        std::mem::take(&mut self.soundcloud.lock().unwrap().received)
+        self.host.stop();
+        self.received()
     }
 }

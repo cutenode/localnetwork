@@ -694,6 +694,84 @@ describe('BookingService', () => {
 		expect((await t.bookings.thread(promoter, space)).events.at(-1)?.text).toBe('See you there');
 	});
 
+	it('links a thread to the planner show it started from, for the promoter only, and to the show announced from it', async () => {
+		const project = await bookable();
+		const promoter = await t.viewer(PROMOTER);
+		const dj = await t.viewer(DJ);
+		const planned = await t.planner.saveShow(promoter, { details: { title: 'Night' }, lineup: [] });
+
+		const space = await t.bookings.start({
+			actor: promoter,
+			projectUri: project.uri,
+			show: { title: 'Night' },
+			message: 'Free?',
+			plannerShow: planned
+		});
+
+		const skey = space.split('/').at(-1)!;
+		await t.bookings.message({ actor: dj, space, text: 'Yes' });
+		await t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' });
+
+		expect((await t.bookings.thread(promoter, space)).links).toEqual({ plannerShow: planned, announcedShow: null });
+		expect((await t.bookings.thread(dj, space)).links).toEqual({ plannerShow: null, announcedShow: null });
+		expect(await t.bookings.fromPlannerShow(promoter, planned)).toEqual({ [project.uri]: skey });
+		expect(await t.bookings.fromPlannerShow(promoter, 'other')).toEqual({});
+		expect(await t.bookings.fromPlannerShow(dj, planned)).toEqual({});
+
+		const show = `at://${DJ}/${COLLECTION.show}/3kshow`;
+		const before = await t.bookings.thread(promoter, space);
+		const told = await titles(PROMOTER);
+
+		// Only one of the act's managers notes a show of their own, for the project the booking is with.
+		for (const refused of [
+			{ actor: promoter, skey, projectUri: project.uri, show },
+			{ actor: dj, skey, projectUri: project.uri, show: `at://${OUTSIDER}/${COLLECTION.show}/3kshow` },
+			{ actor: dj, skey, projectUri: project.uri, show: `at://${DJ}/${COLLECTION.bookingStatus}/3kshow` },
+			{ actor: dj, skey, projectUri: `${project.uri}x`, show }
+		])
+			await expect(t.bookings.announced(refused)).rejects.toBeInstanceOf(ForbiddenError);
+		await expect(
+			t.bookings.announced({ actor: dj, skey: 'missing', projectUri: project.uri, show })
+		).rejects.toBeInstanceOf(NotFoundError);
+
+		// A participant's own record can't name the show either: only the root's counts.
+		await synced(space, DJ, COLLECTION.bookingStatus, {
+			status: 'confirmed',
+			announcedShow: show,
+			createdAt: new Date().toISOString()
+		});
+		expect((await t.bookings.thread(promoter, space)).links.announcedShow).toBeNull();
+
+		await t.bookings.announced({ actor: dj, skey, projectUri: project.uri, show });
+		const after = await t.bookings.thread(promoter, space);
+
+		// It stays confirmed, out of the timeline, and tells nobody.
+		expect(after.links).toEqual({ plannerShow: planned, announcedShow: { did: DJ, rkey: '3kshow' } });
+		expect(after.thread.status).toBe('confirmed');
+		expect(after.events).toEqual(before.events);
+		expect(await titles(PROMOTER)).toEqual(told);
+		expect(t.net.spaceRecordsIn(space, ROOT).map((record) => record.value)).toContainEqual(
+			expect.objectContaining({ status: 'confirmed', announcedShow: show })
+		);
+
+		// A promoter who rewrites their inquiry to name a planner show that isn't theirs gets no link back.
+		const [inquiry] = t.net.spaceRecordsIn(space, PROMOTER);
+		await t.bookings.indexEvent({
+			space,
+			uri: inquiry.uri,
+			repoDid: PROMOTER,
+			collection: COLLECTION.bookingInquiry,
+			value: {
+				project: project.uri,
+				show: { title: 'Night' },
+				message: 'Free?',
+				plannerShow: `at://${OUTSIDER}/space/${SPACE_TYPE.planner}/self/${OUTSIDER}/${COLLECTION.plannerShow}/${planned}`,
+				createdAt: new Date().toISOString()
+			}
+		});
+		expect((await t.bookings.thread(promoter, space)).links.plannerShow).toBeNull();
+	});
+
 	it('lets each side of a booking make only its own status changes', async () => {
 		const project = await t.projectAdmin.create({
 			actor: await t.viewer(ADMIN),

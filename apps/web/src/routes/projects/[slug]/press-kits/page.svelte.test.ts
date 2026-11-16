@@ -126,7 +126,7 @@ it('holds one card of room for each press kit the project has while they load, a
 
 	const { unmount } = await render(Page, {
 		params: { slug: 'neon-tide' },
-		data: { ...data, project: { ...project, counts: { pressKits: 3, upcomingShows: 0 } }, epks: loading },
+		data: { ...data, project: { ...project, counts: { pressKits: 3, upcomingShows: 0, djs: 0 } }, epks: loading },
 		form: null
 	});
 
@@ -137,7 +137,7 @@ it('holds one card of room for each press kit the project has while they load, a
 
 	await render(Page, {
 		params: { slug: 'neon-tide' },
-		data: { ...data, project: { ...project, counts: { pressKits: 0, upcomingShows: 0 } }, epks: loading },
+		data: { ...data, project: { ...project, counts: { pressKits: 0, upcomingShows: 0, djs: 0 } }, epks: loading },
 		form: null
 	});
 
@@ -145,4 +145,27 @@ it('holds one card of room for each press kit the project has while they load, a
 		.element(page.getByText('None published yet. Below is one put together from the profile.'))
 		.toBeInTheDocument();
 	await expect.element(page.getByRole('status', { name: 'Loading press kits' })).not.toBeInTheDocument();
+});
+
+it('holds room for the playing stats while they load only when a manager has DJ records', async () => {
+	const loading = new Promise<never>(() => {});
+	const counts = { pressKits: 0, upcomingShows: 0 };
+
+	const { unmount } = await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...data, project: { ...project, counts: { ...counts, djs: 1 } }, dj: loading },
+		form: null
+	});
+
+	await expect.element(page.getByRole('status', { name: 'Loading playing stats' })).toBeInTheDocument();
+	await unmount();
+
+	await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...data, project: { ...project, counts: { ...counts, djs: 0 } }, dj: loading },
+		form: null
+	});
+
+	await expect.element(page.getByRole('link', { name: 'Tidal Hours 004' })).toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading playing stats' })).not.toBeInTheDocument();
 });
