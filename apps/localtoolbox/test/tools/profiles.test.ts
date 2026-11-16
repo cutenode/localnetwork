@@ -322,7 +322,7 @@ describe('every link an artist offers', () => {
 		const links = linksOf(
 			profile({
 				links: [
-					{ url: 'ftp://files.example.com/https://mirror' },
+					{ url: 'https://files.example.com/https://mirror' },
 					{ url: 'https://example.com/www.bicep' },
 					{ url: 'https://example.com/mailto:bicep' }
 				]
@@ -330,7 +330,7 @@ describe('every link an artist offers', () => {
 		);
 
 		expect(links.map((link) => link.key)).toEqual([
-			'ftp://files.example.com/https://mirror',
+			'files.example.com/https://mirror',
 			'example.com/www.bicep',
 			'example.com/mailto:bicep'
 		]);
@@ -338,7 +338,9 @@ describe('every link an artist offers', () => {
 
 	it('names a website by its whole host, and one with no host as a website', () => {
 		const links = linksOf(
-			profile({ links: [{ url: 'https://shop.www.feelmybicep.com/' }, { url: 'feelmybicep', network: 'personal' }] })
+			profile({
+				links: [{ url: 'https://shop.www.feelmybicep.com/' }, { url: 'https://[feelmybicep', network: 'personal' }]
+			})
 		);
 
 		expect(links.map((link) => [link.network, link.name])).toEqual([
@@ -349,6 +351,22 @@ describe('every link an artist offers', () => {
 
 	it('skips a profile link whose address is only spaces', () => {
 		expect(linksOf(profile({ links: [{ url: '   ' }] }))).toEqual([]);
+	});
+
+	it('drops a stored link that is not a web address', () => {
+		const links = linksOf(
+			profile({
+				links: [
+					{ url: 'ftp://files.example.com/set.zip' },
+					{ url: 'feelmybicep.com' },
+					{ url: 'javascript:alert(1)//https://feelmybicep.com' },
+					{ url: 'mailto:bicep@example.com', network: 'email' },
+					{ url: ' HTTPS://feelmybicep.com ' }
+				]
+			})
+		);
+
+		expect(links.map((link) => link.url)).toEqual(['HTTPS://feelmybicep.com']);
 	});
 
 	it('is nothing for nobody asked, and for no public profile', () => {
