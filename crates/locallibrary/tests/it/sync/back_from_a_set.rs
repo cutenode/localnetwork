@@ -158,7 +158,7 @@ fn keeping_a_sets_changes_needs_the_store() {
     let err = api::sync_apply(None, &pinned, &Ctx::silent()).unwrap_err();
     assert_eq!(err.reason(), Some(Reason::NotSaved), "{err}");
     let offered: Vec<Option<String>> = err.detail().actions.into_iter().map(|a| a.method).collect();
-    assert_eq!(offered, [Some("pull".to_string())]);
+    assert_eq!(offered, [Some("pull.apply".to_string())]);
     assert!(Device::open(&club).unwrap().library().unwrap().history.iter().any(|h| h.name == "HISTORY 001"));
 }
 

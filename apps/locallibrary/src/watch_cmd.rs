@@ -33,7 +33,7 @@ pub struct WatchArgs {
     pull: bool,
     /// Then sync the library's other mounted drives (its drive group) from the drive, when it's the
     /// newest with confidence
-    #[arg(long, alias = "sync-set")]
+    #[arg(long)]
     sync_group: bool,
     /// Look at the drives mounted now (once they've settled), then stop
     #[arg(long)]
