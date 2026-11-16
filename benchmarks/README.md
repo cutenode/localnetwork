@@ -66,6 +66,21 @@ gh run download <base-run> -n budgets -D target/budgets-base
 node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets /dev/null
 ```
 
+## Creep and noise
+
+Each pull request is held to its own growth, so many small ones can still add up. The weekly
+`budget-creep` job in `repo-scheduled.yml` lays out what the merge queue's and main's runs measured
+over the week (`tools/budgets/points.sh`) and sums each metric's growth with `tools/budgets/cli.ts
+creep`: how much `Budget-Raise` trailers declared, how much came in under allowances, and the pull
+requests that grew it most. It fails, which opens a `scheduled-failure` issue, when a metric's
+undeclared growth passes five allowances.
+
+An allowance is only as good as the noise under it. The weekly `noise` job in
+`locallibrary-bench.yml` measures one commit five times over (`tools/budgets/measure-archive.sh`
+and `tools/budgets/measure-release.sh`) and fails a metric whose runs spread over half its
+allowance, with `tools/budgets/cli.ts noise`. Widen that allowance, with a `Budget-Raise: <metric>
++0: <why>` trailer.
+
 ## Adding a metric
 
 Add it to its area's file with an `allowance` and a sentence on what it measures, and write it to
