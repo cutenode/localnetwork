@@ -81,7 +81,8 @@
 	const statusLine: Record<PageStatus, string> = {
 		draft: 'Draft. Only its people can see it',
 		unlisted: 'Not public yet. Waiting for staff to list it',
-		listed: 'Public'
+		listed: 'Public',
+		private: 'Private. Anyone with the link can see it'
 	};
 
 	/** Two lines on the left: what's going on, then what it means. Errors and conflicts lead with an icon. */
@@ -100,7 +101,7 @@
 
 		if (activity === 'failed') return { title: "Couldn't save", detail: error ?? 'Your changes are still here. Try again', tone: 'critical' };
 
-		if (isDraft && missing.length) return { title: 'Draft', detail: `Needs ${missing.join(' and ')}` };
+		if (isDraft && missing.length) return { title: 'Draft', detail: `Needs ${new Intl.ListFormat('en').format(missing)}` };
 
 		if (isDraft) return { title: 'Draft', detail: dirty ? 'Unsaved changes' : 'Only its people see it' };
 
