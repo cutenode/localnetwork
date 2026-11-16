@@ -49,9 +49,10 @@ fn a_state_the_latest_went_through_unsaved_is_behind_the_snapshots_since() {
 fn roles_parse_by_name() {
     assert_eq!(Role::parse("Archive").unwrap(), Role::Archive);
     assert!(Role::parse("spare").is_err());
-    // `gig` is the old name of `set`: read in requests and the registry, written as `set`.
-    assert_eq!(Role::parse("GIG").unwrap(), Role::Set);
-    assert_eq!(serde_json::from_str::<Role>("\"gig\"").unwrap(), Role::Set);
+    assert_eq!(Role::parse("SET").unwrap(), Role::Set);
+    // `gig`, a development build's name for `set`, is no role, in requests or the registry.
+    assert!(Role::parse("gig").is_err());
+    assert!(serde_json::from_str::<Role>("\"gig\"").is_err());
     assert_eq!(serde_json::to_string(&Role::Set).unwrap(), "\"set\"");
 }
 

@@ -942,6 +942,25 @@ fn exports_a_set() {
     assert!(!m3u8.contains("elsewhere"), "{m3u8}");
 }
 
+/// Regression: a failed sign-in's error stayed on screen after leaving the Publish view, over
+/// every other view until esc. Leaving a view puts its errors away (they're still in the log);
+/// showing the same view again, or an info message, doesn't.
+#[test]
+fn leaving_a_view_puts_its_errors_away() {
+    let (mut app, _dir) = app_with(library());
+    app.set_view(View::Profile);
+    app.toast("signing in: it broke", Level::Error);
+    app.toast("older error held", Level::Error);
+    app.set_view(View::Profile);
+    assert!(app.toast.is_some() && app.held.is_some(), "the same view again keeps them");
+    app.set_view(View::Library);
+    assert!(app.toast.is_none() && app.held.is_none());
+    assert!(app.log.iter().any(|(m, ..)| m == "signing in: it broke"), "still in the log");
+    app.toast("loaded", Level::Info);
+    app.set_view(View::Drives);
+    assert!(app.toast.is_some(), "an info message goes in its own time");
+}
+
 #[test]
 fn errors_stay_until_esc_and_every_message_is_kept() {
     let (mut app, _dir) = app_with(library());
@@ -2765,9 +2784,13 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     assert_eq!(shown(&next), (Vis::Scope, true, true, true, true, true, 0.35));
     let deck = |a: &App| (a.deck.quantize, a.deck.single, a.deck.auto_cue, a.deck.output.clone());
     assert_eq!(deck(&next), (false, true, true, Some("Phones".into())));
-    for (title, view) in
-        [("History", View::Drives), ("Snapshots", View::Drives), ("Mixes", View::Mixes), ("Profile", View::Profile)]
-    {
+    for (title, view) in [
+        ("History", View::Drives),
+        ("Snapshots", View::Drives),
+        ("Mixes", View::Mixes),
+        ("Profile", View::Profile),
+        ("Publish", View::Profile),
+    ] {
         assert_eq!(View::from_title(title), Some(view), "what {title} is now");
     }
 }
@@ -2922,7 +2945,7 @@ fn clicks_in_the_crate_on_borders_and_on_dialogs() {
 fn tabs_from_every_view_and_enter_on_the_drive_list() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, "gr");
-    point(&mut app, LEFT, "u Publish");
+    point(&mut app, LEFT, "n localnetwork");
     assert_eq!(app.view, View::Profile);
     point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
@@ -3355,7 +3378,7 @@ fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     let titles = View::ALL
         .map(View::title)
         .into_iter()
-        .chain(["History", "Snapshots", "Mixes", "Profile", "Nowhere"])
+        .chain(["History", "Snapshots", "Mixes", "Profile", "Publish", "Nowhere"])
         .collect::<Vec<_>>();
     let saved = tc.draw(gs::sampled_from(titles));
     let dir = tempfile::tempdir().unwrap();
@@ -3364,7 +3387,7 @@ fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     let want = match saved {
         "History" | "Snapshots" => View::Drives,
         "Mixes" => View::Mixes,
-        "Profile" => View::Profile,
+        "Profile" | "Publish" => View::Profile,
         "Nowhere" => View::Library,
         title => View::ALL.into_iter().find(|v| v.title() == title).unwrap(),
     };

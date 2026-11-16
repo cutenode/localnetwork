@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn every_visible_command_has_a_heading_and_old_names_are_hidden() {
+fn every_visible_command_has_a_heading_and_old_names_are_gone() {
     let cmd = command();
     let help = cmd.clone().render_help().to_string();
     for heading in ["Everyday:", "Drives:", "Library and store:", "Editing:", "Plays and players:", "Other:"] {
@@ -31,12 +31,11 @@ fn every_visible_command_has_a_heading_and_old_names_are_hidden() {
         "compare",
         "push",
         "format",
-        "rpc",
     ] {
-        let sc = cmd.find_subcommand(old).unwrap_or_else(|| panic!("{old} is gone"));
-        assert!(sc.is_hide_set(), "{old} should be hidden");
-        assert!(!help.contains(&format!("\n  {old} ")), "{old} is listed:\n{help}");
+        assert!(cmd.find_subcommand(old).is_none(), "{old} is still a command");
     }
+    let rpc = cmd.find_subcommand("rpc").expect("rpc");
+    assert!(rpc.is_hide_set() && !help.contains("\n  rpc "), "rpc is listed:\n{help}");
     assert!(help.contains("Common tasks:"));
     assert!(help.contains("Options:") && help.contains("--json"));
 }
@@ -154,16 +153,15 @@ fn suggestions_for_a_subcommand_are_real_subcommands(tc: hegel::TestCase) {
 }
 
 /// A mistyped top-level command is a usage error whose suggestions, once tidied, are only
-/// visible commands or the new spelling of a moved one, each once.
+/// visible commands, each once.
 #[hegel::test(test_cases = 100)]
-fn suggestions_for_a_command_are_visible_or_moved(tc: hegel::TestCase) {
+fn suggestions_for_a_command_are_visible(tc: hegel::TestCase) {
     use clap::error::{ContextKind, ContextValue};
     use hegel::generators as gs;
     // Built once: it's the slow part.
     static COMMAND: std::sync::OnceLock<Command> = std::sync::OnceLock::new();
     let cmd = COMMAND.get_or_init(command);
-    let mut names: Vec<String> = cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
-    names.extend(MOVED.iter().map(|(old, _)| old.to_string()));
+    let names: Vec<String> = cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
     let name = &tc.draw(gs::sampled_from(&names[..]));
     let word = typo(&tc, name);
     // A slip that spells a command (swapping two letters that are the same) isn't one.
@@ -171,40 +169,18 @@ fn suggestions_for_a_command_are_visible_or_moved(tc: hegel::TestCase) {
         return;
     }
     let e = cmd.clone().try_get_matches_from(["locallibrary", word.as_str()]).expect_err(&word);
-    let tidied = tidy(e, cmd, std::slice::from_ref(&word));
+    let tidied = tidy_suggestions(e, cmd);
     assert_eq!(tidied.kind(), clap::error::ErrorKind::InvalidSubcommand, "{word:?}");
     let mut visible = Vec::new();
     visible_names(cmd, &mut visible);
-    let moved: Vec<&str> = MOVED.iter().map(|(_, new)| *new).collect();
     if let Some(ContextValue::Strings(kept)) = tidied.get(ContextKind::SuggestedSubcommand) {
         assert!(!kept.is_empty());
         for s in kept {
-            assert!(visible.contains(s) || moved.contains(&s.as_str()), "{word:?}: {s:?} is hidden");
+            assert!(visible.contains(s), "{word:?}: {s:?} is hidden");
             assert_eq!(kept.iter().filter(|k| *k == s).count(), 1, "{word:?}: {kept:?}");
         }
     }
     assert_eq!(tidied.get(ContextKind::InvalidSubcommand), Some(&ContextValue::String(word.clone())));
-}
-
-/// A slip in a group's subcommand is suggested as that subcommand, even where a moved
-/// top-level command had the same name.
-#[test]
-fn a_slip_in_a_group_keeps_the_groups_suggestion() {
-    use clap::error::{ContextKind, ContextValue};
-    let cmd = command();
-    let suggested = |words: &[&str]| {
-        let e =
-            cmd.clone().try_get_matches_from(std::iter::once("locallibrary").chain(words.iter().copied())).unwrap_err();
-        let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
-        match tidy(e, &cmd, &words).get(ContextKind::SuggestedSubcommand) {
-            Some(ContextValue::Strings(s)) => s.clone(),
-            _ => Vec::new(),
-        }
-    };
-    assert_eq!(suggested(&["collection", "qlaylists"]), ["playlists"]);
-    // At the top, the moved command is named by its new spelling.
-    let top = suggested(&["qlaylists"]);
-    assert!(top.contains(&"playlist ls".to_string()) && !top.contains(&"playlists".to_string()), "{top:?}");
 }
 
 /// What might show the top-level help gets the groups it lists; anything else skips building them.

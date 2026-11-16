@@ -18,10 +18,15 @@
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
 		"apps/web": {
-			// Vite's `#lexicon-files` alias (vite.config.ts); package.json's imports point Node elsewhere.
+			// Vite's `#lexicon-files` and `#notification-kinds` aliases (vite.config.ts); package.json's imports point Node
+			// elsewhere.
 			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
 			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
-			"entry": ["src/lib/server/atproto/lexicon-files.ts!", "scripts/db-backup.ts!"],
+			"entry": [
+				"src/lib/server/atproto/lexicon-files.ts!",
+				"src/lib/server/notifications/kind-files.ts!",
+				"scripts/db-backup.ts!"
+			],
 			"project": [
 				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,mdx,svelte,css}!",
 				"!{scripts,tests,.storybook}/**!",
@@ -49,11 +54,7 @@
 				"svelte.config.ts",
 				"vitest.stryker.config.ts"
 			],
-			"project": [
-				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,svelte,css}!",
-				"!{test,scripts}/**!",
-				"!stryker-load-time.mjs!"
-			],
+			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,svelte,css}!", "!{test,scripts}/**!", "!stryker-load-time.mjs!"],
 			// shadcn-svelte's generated components keep their whole API.
 			"ignoreIssues": { "src/lib/components/ui/**": ["exports", "types"] }
 		},

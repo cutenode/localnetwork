@@ -447,7 +447,7 @@ fn plays_print_what_their_json_says(tc: TestCase) {
     // without `--all`).
     let mut args = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 if !all => vec!["plays", d.as_str()],
-        1 => vec!["history", d.as_str()],
+        1 => vec!["plays", "lists", d.as_str()],
         _ => vec!["plays", "lists", d.as_str()],
     };
     if all {

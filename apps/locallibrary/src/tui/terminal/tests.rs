@@ -428,7 +428,8 @@ fn prop_the_player_starts_asks_draws_and_quits(tc: TestCase) {
     let (asked, screen, begin, end) = (at(b"\x1bP+q"), at(b"\x1b[?1049h"), at(b"\x1b[?2026h"), at(b"\x1b[?2026l"));
     assert!(asked.unwrap() < screen.unwrap(), "asked before the screen is taken over");
     assert!(screen.unwrap() < begin.unwrap() && begin.unwrap() < end.unwrap(), "{shown}");
-    let drawn = out[begin.unwrap()..end.unwrap()].windows(10).any(|w| w == b"locallibra");
+    // The Library tab: at 80 columns the top bar has no room for the player's name.
+    let drawn = out[begin.unwrap()..end.unwrap()].windows(7).any(|w| w == b"Library");
     assert!(drawn, "the frame is between the marks");
 }
 

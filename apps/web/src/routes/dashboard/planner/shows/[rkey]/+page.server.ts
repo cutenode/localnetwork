@@ -16,8 +16,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		const saves = await locals.app.planner.saves(viewer);
 		const uris = [...new Set([...saves.map((s) => s.project), ...(show?.lineup.map((l) => l.project) ?? [])])];
 		const projects = Object.fromEntries(await locals.app.projects.byUris(uris));
+		// The booking each act on the lineup was asked through from this show, to open instead of asking again.
+		const bookings = show ? await locals.app.bookings.fromPlannerShow(viewer, show.rkey) : {};
 
-		return { show, isNew, saves, projects };
+		return { show, isNew, saves, projects, bookings };
 	} catch (cause) {
 		if (cause instanceof UserError) error(cause.status, cause.message);
 		throw cause;

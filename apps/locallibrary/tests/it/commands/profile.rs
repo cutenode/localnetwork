@@ -15,7 +15,7 @@ fn a_collection_with_no_sets_is_described_as_it_is() {
         "  needs sets of 6 or more tracks with BPMs\n",
         "  needs sets\n",
         "  none tagged\n",
-        "  shares of 2 tracks with an artist - 1 different\n",
+        "  shares of 2 tracks in your collection with an artist - 1 different\n",
         "  no release years tagged\n",
         "  no track is in two or more sets yet (`profile pin` names one)\n",
         "  hot cues on 0% - memory cues on 0% - loops on 0%  of 2 tracks\n",
@@ -42,9 +42,16 @@ fn choices_are_said_as_they_are_made_and_shown_in_the_report() {
     env.ok(&["--yes", "settings", "set", "quantize=off"]);
 
     let out = env.ok(&["profile", "sections"]);
-    assert!(out.contains("  o signature   tracks you play again and again, by name\n"), "{out}");
-    let out = env.ok(&["profile", "include", "signature,artists"]);
-    assert!(out.starts_with("v sections updated\n  the document includes: summary, sets,"), "{out}");
+    assert!(out.contains("  o artists     the artists in your collection, most tracks first\n"), "{out}");
+    assert!(out.contains("only on this computer (never published): summary, tempo, arc,"), "{out}");
+    assert!(!out.contains("  o signature"), "{out}");
+    let err = env.fails(1, &["profile", "include", "signature"]);
+    assert!(err.contains("Signature tracks stays on this computer"), "{err}");
+    let out = env.ok(&["profile", "include", "artists,collection"]);
+    assert!(
+        out.starts_with("v sections updated\n  the document includes: sets, energy, genres, artists, era, collection"),
+        "{out}"
+    );
     assert!(env.ok(&["profile", "exclude", "artists"]).contains("v sections updated"));
     let out = env.ok(&["profile", "pin", "about to be", d]);
     assert_eq!(out, "v pinned [a]pendics.shuffle - B1 - About To Be\n");

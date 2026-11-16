@@ -53,7 +53,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   only catch mistakes.
 - [`docs/rpc/schema.json`](../docs/rpc/schema.json) describes every method:
   its `kind` (`read`; `plan` and `apply`, paired; `immediate`, a change with no plan step;
-  `control`, about the sidecar itself), its `aliases`, whether it's `long_running` (sends
+  `control`, about the sidecar itself), whether it's `long_running` (sends
   `progress`, can be cancelled) or `destructive` (can delete or overwrite something), and JSON
   Schemas for its `params` and `result`, with the `progress`, `event` and `serve` notifications. A `read`
   never makes a store: with none, it answers as if the store were empty, or fails with `not_found`
@@ -67,17 +67,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   one list of methods the sidecar dispatches from, and a test fails when the files in `docs/rpc`
   are out of date.
 - Names are `noun.verb` (`drive.info`, `tracks.query`); a change is `<op>.plan` and
-  `<op>.apply`. Older names still work as aliases: `drive.adopt` (now `drive.adopt.apply`, and
-  likewise `drive.adopt_as`, `drive.reidentify`, `drive.rename`, `drive.contact`, `drive.restore`,
-  `edits.clear`, `firmware.remove`, `recordings.collect`, `settings.import`, `art.set`, `art.embed`,
-  `art.unembed`, `store.gc`, `store.prune`, `players.set`, `players.clear`, `player.set`,
-  `playlist.restore`, `drive.eject`, `pull`), `sync_many.*` (`sync.many.*`), `sync_group.*` and
-  `sync_set.*` (`sync.group.*`), `smart.apply.plan` / `smart.apply` (`smart.write.*`),
-  `settings.apply.plan` / `settings.apply` (`settings.write.*`), `drive.sets` (`drive.groups`)
-  and `set.*` (`prep.*`).
-  `drive.restore.preview` is kept as it was; `drive.restore.plan` is the plan `drive.restore.apply`
-  applies (an `undo` plan), as `drive.eject.plan` makes `eject` plans. A few methods are a single
-  verb, as the CLI's commands are: `status`, `compare`, `diff`, `check`, `doctor`, `export`;
+  `<op>.apply`. `drive.restore.preview` is kept as it was; `drive.restore.plan` is the plan
+  `drive.restore.apply` applies (an `undo` plan), as `drive.eject.plan` makes `eject` plans. A few
+  methods are a single verb, as the CLI's commands are: `status`, `compare`, `diff`, `check`, `doctor`, `export`;
   `refresh` and `prep` are jobs of several steps.
 - Every `*.plan` answers with the plan's own fields plus `plan_id`, `operation` (the method's name
   without `.plan`, except `undo`, `eject` and `set` for `drive.restore.plan`, `drive.eject.plan` and
@@ -128,8 +120,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `items` fields above, `cancel`, `jobs.list`, `shutdown.cancel`, `events`, `plan_id`,
   `describe` for `rpc.describe`, `error.detail` for `error.data`'s `reason`, `fields` and
   `actions`, `account` in a build with the Atmosphere account, and `peers` in one with
-  `store.serve` and `store.fetch`); `methods` lists every name,
-  aliases included. `protocol`
+  `store.serve` and `store.fetch`); `methods` lists every name. `protocol`
   changes only when a change would break existing clients. An unknown method gets `-32601`
   (`kind: "method_not_found"`).
 - `$/cancel {id}` stops a request at the next safe point. It then fails with `kind: "cancelled"`.
@@ -186,7 +177,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `choose_library`, `needs_admin`, `not_signed_in`, `session_ended`, `missing_scope`...).
   `fields` holds what it's about (`path`, `needed` and `available` for `no_space`, `drive`,
   `left` and `right`, `libraries` to choose from). Each action is `{label, method, params}`: a
-  button's text and the call it makes, ready to send (`{"method": "pull", "params": {"drive":
+  button's text and the call it makes, ready to send (`{"method": "pull.apply", "params": {"drive":
   "/Volumes/DNA"}}`); one that repeats the request that failed carries its parameters with the
   new ones added (`force: true`, `overwrite_archive: true`, `new_library: true`), and `elevate:
   true` asks for the sidecar to run with administrator rights. A parameter set to `null` is one
@@ -333,7 +324,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `drive.recognise`, `drive.adopt_as.plan/apply`, `drive.reidentify.plan/apply`, `drive.groups`,
   `sync.group.plan/apply` (one library a plan: without `library`, the only one with two or more
   drives plugged in, and with several it's refused as `choose_library`, listing them, where
-  `locallibrary sync` syncs each; `watch.start` takes `sync_group`, or `sync_set` as before),
+  `locallibrary sync` syncs each; `watch.start` takes `sync_group`),
   `drive.eject.plan/apply`, `drive.verify`, `drive.repair` (takes the `problems` a verify returned;
   each is checked again first), `drive.fsck` (destructive: `repair: true` unmounts the drive and may
   truncate or remove damaged files), `drive.space`, `tidy.plan/apply`, `recordings.list`,

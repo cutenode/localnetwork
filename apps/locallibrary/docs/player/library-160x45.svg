@@ -11,8 +11,8 @@
 <text x="387 396 405 414 423 432" y="14" fill="#9494a8">Drives</text>
 <text x="459" y="14" fill="#9494a8">r</text>
 <text x="477 486 495 504 513 522 531 540 549 558" y="14" fill="#9494a8">Recordings</text>
-<text x="585" y="14" fill="#9494a8">u</text>
-<text x="603 612 621 630 639 648 657" y="14" fill="#9494a8">Publish</text>
+<text x="1305" y="14" fill="#9494a8">n</text>
+<text x="1323 1332 1341 1350 1359 1368 1377 1386 1395 1404 1413 1422" y="14" fill="#9494a8">localnetwork</text>
 <text x="9 18 27 36" y="32" fill="#e2e2ec" font-weight="bold">DEMO</text>
 <text x="54" y="32" fill="#78788e">›</text>
 <text x="72 81 90" y="32" fill="#9494a8">All</text>
