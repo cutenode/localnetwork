@@ -845,7 +845,7 @@ pub fn apply(
                 ),
             )
             .with("drive", &drive)
-            .action(Action::call("pull", serde_json::json!({ "drive": drive }), format!("Pull {}", plan.target)))
+            .action(Action::call("pull.apply", serde_json::json!({ "drive": drive }), format!("Pull {}", plan.target)))
             })?;
         let opts = PullOptions {
             library: None,

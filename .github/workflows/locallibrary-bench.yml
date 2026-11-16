@@ -190,7 +190,9 @@ jobs:
       - uses: ./.github/actions/release-budgets
         with:
           out: ${{ github.workspace }}/target/budgets
-      - env:
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - shell: bash
+        env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |

@@ -1,17 +1,7 @@
-//! Reading the command line and answering it: what a typo is taken for, where moved commands went,
-//! the commands that need something this run doesn't have, colour and symbols, and errors.
+//! Reading the command line and answering it: what a typo is taken for, the commands that need
+//! something this run doesn't have, colour and symbols, and errors.
 
 use crate::support::{Env, line, path};
-
-/// A typo of a command that moved into a group suggests its new spelling, never the old one.
-#[test]
-fn a_typo_suggests_where_a_moved_command_went() {
-    let env = Env::new();
-    let err = env.fails(2, &["histroy"]);
-    assert!(err.contains("tip: a similar subcommand exists: 'plays lists'"), "{err}");
-    let err = env.fails(2, &["statsu"]);
-    assert!(err.contains("'status'") && err.contains("'plays stats'") && !err.contains("'stats'"), "{err}");
-}
 
 /// A group that takes a drive in place of a subcommand (`settings Main`) takes a typo of a
 /// subcommand for what it is; a word like no subcommand is looked for as a drive.

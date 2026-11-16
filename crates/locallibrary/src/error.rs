@@ -220,7 +220,7 @@ pub enum Reason {
 pub struct Action {
     /// What a button offering it says.
     pub label: String,
-    /// The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
+    /// The RPC method to call (`pull.apply`, `sync.plan`). Absent: the request that failed, again,
     /// with `params` added to its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,

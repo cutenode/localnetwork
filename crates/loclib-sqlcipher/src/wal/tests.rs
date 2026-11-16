@@ -1,7 +1,7 @@
 use super::*;
 
 /// Build a WAL the way SQLite writes one: `frames` are (page number, commit size, page).
-pub(crate) fn build(page_size: usize, salts: (u32, u32), frames: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
+pub fn build(page_size: usize, salts: (u32, u32), frames: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
     let mut wal = Vec::new();
     wal.extend(MAGIC_LE.to_be_bytes());
     wal.extend(3_007_000u32.to_be_bytes());

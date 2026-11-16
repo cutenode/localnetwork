@@ -101,6 +101,16 @@ atstore:
           - "apps/web/src/lib/server/services/planner.*"
           - "lexicons/computer/localnetwork/planner/**"
 
+"web: events":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/{venue,party,events}/**"
+          - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
+          - "apps/web/src/lib/server/services/{venue,venues,venue-index,party,parties,party-index,event,events,event-index}.*"
+          - "apps/web/src/lib/components/{Venue,Party,Event}*"
+          - "lexicons/computer/localnetwork/{venue,party,event}.json"
+          - "lexicons/computer/localnetwork/space/{venue,party}.json"
+
 "web: staff":
   - changed-files:
       - any-glob-to-any-file:
@@ -174,7 +184,7 @@ atstore:
 "locallibrary: core":
   - changed-files:
       - any-glob-to-any-file:
-          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-capacity}/**"
+          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-capacity,loclib-sqlcipher}/**"
           - "vendor/**"
           - "fuzz/**"
 
@@ -306,7 +316,8 @@ tooling:
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,.railway,.regal,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,.npmrc,lefthook.yml,sgconfig.yml,knip.jsonc,.node-version}"
-          - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace,osv-scanner}.toml"
+          - "{rust-toolchain,rustfmt,clippy,deny,about,dist-workspace,osv-scanner}.toml"
+          - "about.hbs"
           - "{.oxlintrc.json,.oxfmtrc.json,tsconfig.json,commitlint.config.js,_typos.toml,taplo.toml,.lycheeignore,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
           - "apps/*/{package.json,tsconfig*.json,*.config.{ts,cjs},components.json,lighthouserc.cjs}"
           - "apps/*/.oxlintrc.json"

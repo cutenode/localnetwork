@@ -146,7 +146,7 @@ fn keys_change_the_view_and_save_choices() {
     // Keys the view doesn't use still work.
     press(&mut app, "gl");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "gu");
+    press(&mut app, "gn");
     assert_eq!(app.view, View::Profile);
     press(&mut app, "Q");
     assert!(app.quit);

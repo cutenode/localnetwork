@@ -30,6 +30,11 @@ export function artworkUrlAtSize(url: string, size: string) {
 /** The full-size address of a thumbnail the page rendered. */
 export const fullSizeArtwork = (url: string) => artworkUrlAtSize(url, FULL_SIZE);
 
+// An imported state file can carry any string as a cover, and the Manager opens
+// this address in a tab on a cmd-click, so only a web address counts.
+// Stryker disable next-line StringLiteral: equivalent. Whatever stands in for no address is no web address either.
+const isWebAddress = (url: string | undefined): url is string => /^https?:\/\//i.test(url ?? '');
+
 /**
  * The cover to show for a track: the thumbnail its row rendered, else the one
  * SoundCloud named when it was asked about the track.
@@ -45,6 +50,7 @@ export const fullSizeArtwork = (url: string) => artworkUrlAtSize(url, FULL_SIZE)
  * on them; this is also what fills those in, as soon as anything asks about
  * the track again.
  *
- * @returns '' where neither has one
+ * @returns '' where neither is a web address
  */
-export const artworkOf = (track: Track | null | undefined) => track?.artworkUrl || track?.details?.artworkUrl || '';
+export const artworkOf = (track: Track | null | undefined) =>
+	[track?.artworkUrl, track?.details?.artworkUrl].find(isWebAddress) ?? '';

@@ -169,11 +169,13 @@ jobs:
               - '!**/{tests,testing,test_util,screens,props}.rs'
               - '!**/tests/**'
               - '!**/*.md'
-            # What cargo-deny reads.
+            # What cargo-deny and `cargo notices` read.
             locallibrary_deny:
               - 'Cargo.lock'
               - '**/Cargo.toml'
               - 'deny.toml'
+              - 'about.{toml,hbs}'
+              - '.cargo/config.toml'
               - '.github/workflows/locallibrary-ci.yml'
             locallibrary_semver:
               - 'crates/loclib-*/**'
@@ -194,6 +196,7 @@ jobs:
               - '**/Cargo.toml'
               - 'dist-workspace.toml'
               - 'rust-toolchain.toml'
+              - '.github/build-setup.yml'
               - '.github/actions/install-dist/**'
               - '.github/workflows/locallibrary-release.yml'
               - '.github/workflows/locallibrary-ci.yml'

@@ -6,17 +6,20 @@ import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { DjService } from '#lib/server/services/dj.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { callRoute, routeEvent } from '#lib/testing/route-event.ts';
+import type { Viewer } from '#lib/types.ts';
 import type { PageServerData } from './$types';
-import { load } from './+page.server.ts';
+import { actions, load } from './+page.server.ts';
 
 const MARA = 'did:plc:mara';
 
 const OSKAR = 'did:plc:oskar';
 
+const FAN = 'did:plc:fan';
+
 let t: Awaited<ReturnType<typeof createTestServices>>;
 
 beforeEach(async () => {
-	t = await createTestServices();
+	t = await createTestServices({ capable: [FAN] });
 
 	// Mara has a profile here; Oskar has only his account.
 	await t.net.client(MARA).putRecord({
@@ -154,4 +157,44 @@ it('is a 404 for an address that names no account, and a 429 once a visitor has 
 	await expect(
 		callRoute(load, { app: limited, params: { handle: 'mara.test' }, url: '/@mara.test' })
 	).rejects.toMatchObject({ status: 429 });
+});
+
+/** The action `name` on `handle`'s page, as `viewer` posts it. */
+const post = (name: keyof typeof actions, viewer: Viewer | null, handle = 'mara.test') =>
+	callRoute(actions[name], { app: app(), viewer, params: { handle }, url: `/@${handle}?/${name}`, form: {} });
+
+it("streams a profile's followers, and offers no Follow to its own account or to an account without a profile", async () => {
+	const loadAs = async (viewer: Viewer | null, handle = 'mara.test') =>
+		routeEvent({ app: app(), viewer, params: { handle }, url: `/@${handle}` }).loadData<PageServerData>(load);
+
+	expect(await (await loadAs(null)).follow).toEqual({ followers: 0, following: false });
+	expect((await loadAs(await t.viewer(MARA))).follow).toBeUndefined();
+	expect((await loadAs(null, 'oskar.test')).follow).toBeUndefined();
+});
+
+it('follows a person, and unfollows them again', async () => {
+	const fan = await t.viewer(FAN);
+	const mara = await t.profiles.get(MARA);
+
+	expect(await post('follow', fan)).toEqual({ followed: true });
+	expect(await t.follows.state(mara!, FAN)).toEqual({ followers: 1, following: true });
+	expect(await post('unfollow', fan)).toEqual({ followed: false });
+	expect(await t.follows.state(mara!, FAN)).toEqual({ followers: 0, following: false });
+});
+
+it('sends someone signed out to sign in before following, and is a 404 for an account without a profile', async () => {
+	for (const name of ['follow', 'unfollow'] as const) {
+		await expect(post(name, null)).rejects.toMatchObject({
+			status: 303,
+			location: `/login?next=${encodeURIComponent(`/@mara.test?/${name}`)}`
+		});
+		await expect(post(name, await t.viewer(FAN), 'oskar.test')).rejects.toMatchObject({ status: 404 });
+	}
+});
+
+it('refuses to let someone follow themselves', async () => {
+	expect(await post('follow', await t.viewer(MARA))).toMatchObject({
+		status: 400,
+		data: { error: "You can't follow yourself" }
+	});
 });

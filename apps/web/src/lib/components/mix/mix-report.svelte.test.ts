@@ -37,6 +37,13 @@ describe('MixReport', () => {
 		expect(page.getByRole('heading', { level: 1 }).element().nextElementSibling?.querySelectorAll('p')).toHaveLength(1);
 	});
 
+	it('leaves out a link that isn’t a web address', async () => {
+		await render(MixReport, { report: sampleReport, listen: 'javascript://soundcloud.com/%0Aalert(document.domain)' });
+
+		await expect.element(page.getByRole('heading', { level: 1 })).toBeInTheDocument();
+		await expect.element(page.getByRole('link', { name: /^(Listen|Open) on/ })).not.toBeInTheDocument();
+	});
+
 	it('puts the project in place of the artist the export names, with its own actions', async () => {
 		const project = createRawSnippet(() => ({ render: () => '<a href="/@neon.test">Neon Tide</a>' }));
 		const actions = createRawSnippet(() => ({ render: () => '<a href="/edit">Edit</a>' }));
