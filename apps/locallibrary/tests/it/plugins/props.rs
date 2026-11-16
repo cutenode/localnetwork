@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 21] = [
+const CAPABILITIES: [&str; 22] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -43,6 +43,7 @@ const CAPABILITIES: [&str; 21] = [
     "sets:read",
     "account:status",
     "collection:read",
+    "collection:files",
     "library:plan",
     "library:delete",
     "tags:plan",

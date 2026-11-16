@@ -43,12 +43,18 @@ describe('parseProfileForm', () => {
 		expect(input).toEqual({
 			basics: {
 				name: 'Neon',
-				pronouns: 'they/them',
 				links: [{ kind: 'soundcloud', url: 'https://soundcloud.com/neon' }]
 			},
 			avatar: 'keep',
 			promoter: { cities: [{ city: 'Leipzig', country: 'DE' }] }
 		});
+	});
+
+	it("keeps the pronouns the profile had, since they're set on Bluesky, whatever the form posts", async () => {
+		const previous = { basics: { name: 'Neon', pronouns: 'she/her' }, createdAt: '', updatedAt: '' };
+
+		expect((await parseProfileForm(form(basics), previous)).basics.pronouns).toBe('she/her');
+		expect((await parseProfileForm(form(basics), undefined)).basics).not.toHaveProperty('pronouns');
 	});
 
 	it('reads the performer section like a project, with genres optional, and an empty section as on', async () => {
@@ -75,6 +81,15 @@ describe('parseProfileForm', () => {
 				)
 			).performer
 		).toEqual({});
+	});
+
+	it('reads Take inquiries only with the performer section on', async () => {
+		const parsed = async (...fields: [string, string][]) =>
+			(await parseProfileForm(form([['name', 'Neon'], ...fields]), undefined)).takesInquiries;
+
+		expect(await parsed(['section', 'performer'], ['takesInquiries', 'on'])).toBe(true);
+		expect(await parsed(['section', 'performer'])).toBe(false);
+		expect(await parsed(['takesInquiries', 'on'])).toBeUndefined();
 	});
 
 	it('says what to fix', async () => {
@@ -162,6 +177,8 @@ describe('profileFormValues and sectionsOf', () => {
 			highlights: 'Tresor\nPanorama Bar',
 			cities: [{ city: 'Leipzig', region: 'Saxony', country: 'DE' }]
 		});
+		expect(profileFormValues(record).takesInquiries).toBe(false);
+		expect(profileFormValues({ ...record, takesInquiries: true }).takesInquiries).toBe(true);
 		expect(sectionsOf(record)).toEqual({ performer: true, promoter: true });
 		expect(sectionsOf({ ...record, performer: undefined, promoter: undefined })).toEqual({
 			performer: false,

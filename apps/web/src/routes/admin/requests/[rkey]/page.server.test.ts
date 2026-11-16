@@ -286,3 +286,28 @@ it('keeps the moderator on the request when the decision is refused', async () =
 	});
 	expect((await t.requests.get(request.uri))?.status).toBe('approved');
 });
+
+it("shows staff a venue claim with the venue's name, and says the claimant was added as an owner", async () => {
+	const venue = await t.venues.add(await t.viewer(MC), {
+		name: 'Tresor',
+		address: { country: 'DE', locality: 'Berlin' }
+	});
+
+	const request = await t.requests.submit({
+		actor: await t.viewer(DJ),
+		kind: 'claim',
+		space: venue.space,
+		claim: { relationship: 'owner', evidence: 'I run the door and the bookings.' }
+	});
+
+	const page = await loadRoute<PageServerData>(load, await as(MOD, request));
+	expect(page.request).toMatchObject({ venue: { key: venue.skey, name: 'Tresor' }, project: null });
+	expect(page.project).toBeNull();
+
+	await expect(
+		callRoute(actions.decide, await as(MOD, request, { form: { outcome: 'approved' } }))
+	).rejects.toMatchObject({ status: 303, location: '/admin/requests?decided=owner' });
+	expect((await t.sharedSpaces.people(venue.space, await t.viewer(MOD))).map(({ did, role }) => [did, role])).toEqual([
+		[DJ, 'owner']
+	]);
+});

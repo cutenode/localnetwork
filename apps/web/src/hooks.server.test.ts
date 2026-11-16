@@ -3,13 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import type { RequestEvent } from '@sveltejs/kit';
+import { isHttpError, type RequestEvent } from '@sveltejs/kit';
 import type { CaughtError, HandleServerError, ResolveOptions } from '@sveltejs/kit/hooks';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
+import { requireFlag } from '#lib/server/http.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
@@ -191,6 +192,49 @@ it("applies a staff member's flag preview to their own requests only", async () 
 
 	expect(signedOut.locals.flags).toEqual(flagsOff);
 	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
+});
+
+it('lets a page behind a flag 404 until the flag is on for the viewer, a staff preview included', async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	const adminToken = await s.sessions.create(ADMIN, null);
+	const djToken = await s.sessions.create(DJ, null);
+
+	const page = async (cookies: Record<string, string>) => {
+		const { locals } = await handledWithLocals(handle, { url: '/party/night-shift', cookies });
+
+		try {
+			// SAFETY: the hook set flags on every request that isn't XRPC.
+			requireFlag(locals as App.Locals, 'spacePages');
+
+			return 200;
+		} catch (cause) {
+			if (!isHttpError(cause)) throw cause;
+
+			return cause.status;
+		}
+	};
+
+	const preview = sealPreview(
+		{ did: ADMIN, flags: { spacePages: true }, expiresAt: Date.now() + PREVIEW_MS },
+		adminToken
+	);
+
+	expect(await page({ [SESSION_COOKIE]: adminToken })).toBe(404);
+	expect(await page({ [SESSION_COOKIE]: adminToken, [PREVIEW_COOKIE]: preview })).toBe(200);
+	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(404);
+	expect(await page({})).toBe(404);
+
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', {
+		enabled: true,
+		everyone: true,
+		percentage: 0,
+		groups: [],
+		dids: []
+	});
+
+	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(200);
+	expect(await page({})).toBe(200);
 });
 
 it('drops a session cookie that names no session', async () => {
@@ -526,7 +570,7 @@ async function services(
 		config: { publicUrl: options.publicUrl ?? 'http://127.0.0.1:5173' }
 	};
 
-	return { app: parts, sessions, logs };
+	return { app: parts, sessions, logs, flags: t.flags, viewer: t.viewer };
 }
 
 /** Runs the handle hook on a request built from `init`, with a page that answers `status`. */

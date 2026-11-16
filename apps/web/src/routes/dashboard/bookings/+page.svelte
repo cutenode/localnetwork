@@ -14,15 +14,18 @@
 
 	const viewer = $derived(data.viewer?.did ?? '');
 
-	// The projects the threads are with, for the filter; it shows once there's more than one.
-	const projects = $derived([...new Map(data.threads.flatMap((thread) => (thread.project ? [[thread.project.slug, thread.project.name] as const] : []))).entries()]);
+	// Who the threads are with, for the filter, keyed by an act's slug or a DJ's `@handle`; it shows once there's more
+	// than one.
+	const filterKey = (project: NonNullable<(typeof data.threads)[number]['project']>) => project.slug ?? project.href.slice(1);
+
+	const projects = $derived([...new Map(data.threads.flatMap((thread) => (thread.project ? [[filterKey(thread.project), thread.project.name] as const] : []))).entries()]);
 
 	const filter = $derived(page.url.searchParams.get('project'));
 
 	const groups = $derived(
 		BOOKING_GROUPS.map((group) => ({
 			...group,
-			threads: data.threads.filter((thread) => (!filter || thread.project?.slug === filter) && bookingGroup(thread, viewer) === group.value)
+			threads: data.threads.filter((thread) => (!filter || (thread.project && filterKey(thread.project) === filter)) && bookingGroup(thread, viewer) === group.value)
 		})).filter((group) => group.threads.length)
 	);
 
@@ -32,11 +35,11 @@
 <svelte:head><title>Bookings · Local Network</title></svelte:head>
 
 <div class="flex max-w-4xl flex-col gap-8">
-	<SectionHeader level={1} eyebrow="Bookings" title="Your booking threads" lede="Each thread is private to the promoter and the project's managers." />
+	<SectionHeader level={1} eyebrow="Bookings" title="Your booking threads" lede="Each thread is private to the promoter and the act or DJ they asked." />
 	{#if data.threads.length === 0}
-		{#await data.projects then managed}
-			{#if managed?.length}
-				<EmptyState title="No booking threads yet" body="When a promoter sends an inquiry to one of your projects, the thread starts here." />
+		{#await Promise.all([data.projects, data.sections]) then [managed, sections]}
+			{#if managed?.length || sections?.performer}
+				<EmptyState title="No booking threads yet" body="When a promoter sends an inquiry to you or one of your projects, the thread starts here." />
 			{:else}
 				<EmptyState title="No booking threads yet" body="Find a project and send an inquiry with your show details.">
 					<Button href="/projects">Find DJs</Button>

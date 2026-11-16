@@ -22,6 +22,8 @@ import type { Upload } from '../forms/project';
 import type { ListingWriter } from './listings';
 import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
 import { slugify } from './projects';
+import { savedChanges } from './diff';
+import { indexVenue, VENUE_KEY } from './venue-index';
 import { actorRole } from './requests';
 import { reconcileMembers } from './space-members';
 
@@ -154,14 +156,15 @@ export class SharedSpaces {
 
 	/**
 	 * Starts a space of `kind` with `actor` in it, in the role that gets every capability of its kind. `start.writes`
-	 * go in the same batch as their person record, and `start.summary` replaces the audit entry's.
+	 * go in the same batch as their person record, and `start.summary` replaces the audit entry's. With `start.joins`
+	 * false the space starts with nobody in it, and with `start.listed` it's listed from the start.
 	 */
 	async create(
 		actor: Viewer,
 		kind: SpaceKind,
-		start: { writes?: RepoWrite[]; summary?: string } = {}
+		start: { writes?: RepoWrite[]; summary?: string; joins?: boolean; listed?: boolean } = {}
 	): Promise<string> {
-		const { writes = [], summary = `Started a ${kind}` } = start;
+		const { writes = [], summary = `Started a ${kind}`, joins = true, listed = false } = start;
 		const root = await this.core.root();
 		const skey = TID.nextStr();
 		const space = sharedSpace(root.did, kind, skey);
@@ -178,7 +181,8 @@ export class SharedSpaces {
 			updatedAt: now
 		};
 
-		const status: ListingStatusRecord = { listed: false, createdBy: actor.did, createdAt: now };
+		const status: ListingStatusRecord = { listed, createdBy: actor.did, createdAt: now };
+		const people = new Map(joins ? [[actor.did, person]] : []);
 
 		await root.createSpace({
 			spaceType: SHARED_SPACE_TYPES[kind],
@@ -192,25 +196,28 @@ export class SharedSpaces {
 				rkey: LISTING_STATUS_KEY,
 				record: validateRecord(COLLECTION.listingStatus, status)
 			},
-			{
+			...[...people.values()].map((record): RepoWrite => ({
 				action: 'create',
 				collection: COLLECTION.person,
-				rkey: actor.did,
-				record: validateRecord(COLLECTION.person, person)
-			},
+				rkey: record.subject,
+				record: validateRecord(COLLECTION.person, record)
+			})),
 			...writes
 		]);
 		await this.saveStatus(space, kind, status);
-		await this.savePerson(space, kind, person);
+
+		for (const record of people.values()) await this.savePerson(space, kind, record);
 
 		for (const write of writes)
 			if (write.action !== 'delete')
 				await this.index({ space, collection: write.collection, rkey: write.rkey, value: write.record });
 
-		await this.syncPeople({ space, kind, root, people: new Map([[actor.did, person]]) });
+		await this.syncPeople({ space, kind, root, people });
+
+		if (listed) await this.listings.refresh(space);
 		await this.core.watchSpace?.(space);
 		this.core.logger.info('created a shared space', { space, kind });
-		await this.record(actor, 'member', 'space.create', space, summary, { person: actor.did, role });
+		await this.record(actor, 'member', 'space.create', space, summary, joins ? { person: actor.did, role } : {});
 
 		return space;
 	}
@@ -264,7 +271,7 @@ export class SharedSpaces {
 
 			if (!stored || current?.subject.$type !== ACT_TYPE) throw new NotFoundError('That act does not exist');
 
-			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE);
+			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE, 409);
 
 			const avatar =
 				input.avatar === 'remove'
@@ -286,9 +293,15 @@ export class SharedSpaces {
 
 			await live.root.putSpaceRecord({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, record });
 			await this.index({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, value: record });
-			await this.record(actor, actingAs, 'page.update', space, `Updated ${input.basics.name}'s page`, {
-				slug: current.subject.slug
-			});
+			await this.record(
+				actor,
+				actingAs,
+				'page.update',
+				space,
+				`Updated ${input.basics.name}'s page`,
+				{ slug: current.subject.slug },
+				savedChanges(current, record)
+			);
 		});
 	}
 
@@ -367,8 +380,15 @@ export class SharedSpaces {
 		}));
 	}
 
-	/** Staff add someone straight to the space, in one of its kind's roles. */
-	async addPerson(actor: Viewer, space: string, input: { did: string; role: string; hidden?: boolean }): Promise<void> {
+	/**
+	 * Staff add someone straight to the space, in one of its kind's roles. `claim` is the request they asked through,
+	 * when staff are confirming a claim.
+	 */
+	async addPerson(
+		actor: Viewer,
+		space: string,
+		input: { did: string; role: string; hidden?: boolean; claim?: string }
+	): Promise<void> {
 		if (!actor.isStaff) throw new ForbiddenError('Only staff can add people directly');
 
 		await this.change(space, async (live) => {
@@ -382,7 +402,8 @@ export class SharedSpaces {
 				role: input.role,
 				capabilities: capabilitiesFor(live.kind, input.role),
 				hidden: input.hidden ?? false,
-				via: 'staff',
+				via: input.claim ? 'claim' : 'staff',
+				...(input.claim && { source: input.claim }),
 				addedBy: actor.did,
 				createdAt: now,
 				updatedAt: now
@@ -679,6 +700,9 @@ export class SharedSpaces {
 			case COLLECTION.performer:
 				return kind === 'performer' && rkey === PERFORMER_KEY && indexPerformer(db, space, value);
 
+			case COLLECTION.venue:
+				return kind === 'venue' && rkey === VENUE_KEY && indexVenue(db, space, value);
+
 			default:
 				return false;
 		}
@@ -701,6 +725,8 @@ export class SharedSpaces {
 			await db.deleteFrom('sharedSpace').where('spaceUri', '=', space).execute();
 		else if (collection === COLLECTION.performer && rkey === PERFORMER_KEY)
 			await db.deleteFrom('performer').where('spaceUri', '=', space).execute();
+		else if (collection === COLLECTION.venue && rkey === VENUE_KEY)
+			await db.deleteFrom('venue').where('spaceUri', '=', space).execute();
 	}
 
 	/** Forgets a space that's gone, and takes down its listing. */
@@ -711,6 +737,7 @@ export class SharedSpaces {
 			'spaceInviteLink',
 			'spaceJoinRequest',
 			'performer',
+			'venue',
 			'sharedSpace'
 		] as const)
 			await this.core.db.deleteFrom(table).where('spaceUri', '=', space).execute();
@@ -731,7 +758,7 @@ export class SharedSpaces {
 	}
 
 	/** Runs `task` once the last task under `key` has settled. */
-	private async locked<T>(key: string, task: () => Promise<T>): Promise<T> {
+	async locked<T>(key: string, task: () => Promise<T>): Promise<T> {
 		const previous = this.locks.get(key);
 
 		const run = (async () => {
