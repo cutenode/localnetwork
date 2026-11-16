@@ -222,7 +222,7 @@ describe('soon', () => {
 describe('accessWaiting', () => {
 	it("asks about each person waiting on a press kit, and drops them once they're answered", async () => {
 		const epk = await f.publish(DJ);
-		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), { role: 'press' });
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {});
 
 		const rows = await accessWaiting({ app: f.t, log: silentLogger }, [f.project], NOW);
 

@@ -728,7 +728,6 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: 'Ask for access' }).click();
 		await expect(page).toHaveURL(`/dashboard/access/neon-tide/${rkey}`);
 		await expectAccessible(page);
-		await page.getByLabel("You're a").selectOption('press');
 		await page.getByLabel(/Message/).fill('Writing about Berlin residents');
 		await page.getByRole('button', { name: 'Ask for access' }).click();
 		await expect(page.getByText(/You asked on/)).toBeVisible();
