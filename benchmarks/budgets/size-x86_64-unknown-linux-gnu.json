@@ -1,15 +1,14 @@
 {
 	"$schema": "../budget.schema.json",
 	"job": "release",
-	"tolerance_percent": 0.5,
 	"metrics": {
 		"locallibrary": {
-			"limit": 58773248,
+			"allowance": 16384,
 			"unit": "bytes",
 			"measures": "The release binary, stripped."
 		},
 		"archive": {
-			"limit": 18304124,
+			"allowance": 16384,
 			"unit": "bytes",
 			"measures": "The release archive."
 		}
