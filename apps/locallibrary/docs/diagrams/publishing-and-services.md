@@ -46,7 +46,7 @@ The record types locallibrary writes to the DJ account. Per-drive overrides, not
 ```mermaid
 flowchart LR
     settings["settings publish"] --> settingsrec["computer.localnetwork.locallibrary.settings<br/>key self: the profile's base values"]
-    profile["profile publish"] --> profilerec["computer.localnetwork.dj.profile<br/>key self: the profile document"]
+    profile["profile publish"] --> profilerec["computer.localnetwork.dj.profile<br/>key self: the profile document: sets,<br/>energy, genres, artists, era, collection"]
     sets["sets publish"] --> setrec["computer.localnetwork.dj.set<br/>keyed by the set's id or an older<br/>plays publish key, hidden tracks unnamed"]
     upload["sets publish --upload"] --> recording["computer.localnetwork.dj.recording<br/>the audio as a blob"]
     upload --> setrec

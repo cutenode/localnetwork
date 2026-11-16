@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use hegel::TestCase;
 use hegel::generators as gs;
 
-use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, TracklistEntry, method};
+use loclib_plugin::{Published, PublishedSet, TracklistEntry, method};
 use loclib_progress::{Event, Phase};
 use serde_json::json;
 
@@ -30,12 +30,10 @@ fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> Track
 /// account.
 #[test]
 fn it_serves_its_manifest() {
-    let manifest = Manifest::parse(MANIFEST).unwrap();
+    // `start` checks that it describes itself as its manifest.
     let s = start(YouTube::new());
-    let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.hello.features);
-    let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    let has = |f: &&str| s.host.hello().features.iter().any(|had| had == f);
+    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.host.hello().features);
     s.stop();
 }
 
@@ -52,8 +50,9 @@ fn without_a_scratch_folder_nothing_goes() {
     let path = tools::file(dir.path(), "set.m4a", 10);
     tools::working(tools::AAC, b"video");
     let s = start(YouTube::new());
-    let req = json!({ "destination": "video", "set": set(), "recording": path, "tracklist": [] });
-    let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+    let req = json!({ "destination": "video", "set": set(), "recording": path, "tracklist": [],
+        "context": { "scratch": null } });
+    let e = s.host.request::<Published>(method::SET_PUBLISH, &req).unwrap_err();
     assert_eq!(e.message, "invalid params: no scratch folder to make the video in");
     assert_eq!(tools::args("ffmpeg"), None);
     assert!(s.stop().requests.is_empty());
@@ -221,7 +220,7 @@ fn cancelling_stops_ffmpeg() {
         assert!(pending.wait_timeout::<Published>(Duration::from_millis(20)).is_none(), "it waits for ffmpeg");
     }
     let asked = Instant::now();
-    s.host.notify(method::CANCEL, &Cancel { id: pending.id().into() });
+    pending.cancel();
     let answer = pending.wait_timeout::<Published>(Duration::from_secs(30)).expect("an answer");
     assert!(asked.elapsed() < Duration::from_secs(10), "{:?}", asked.elapsed());
     assert_eq!(answer.unwrap_err().kind(), Some("cancelled"));
@@ -643,8 +642,9 @@ fn cant_make_its_video(tc: &TestCase, case: u8) {
         }
         _ => {
             let s = shared();
-            let req = json!({ "destination": "video", "set": set(), "recording": recording, "tracklist": [] });
-            let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+            let req = json!({ "destination": "video", "set": set(), "recording": recording, "tracklist": [],
+                "context": { "scratch": null } });
+            let e = s.host.request::<Published>(method::SET_PUBLISH, &req).unwrap_err();
             assert_eq!(e.message, "invalid params: no scratch folder to make the video in");
             assert_eq!((tools::args("ffmpeg"), s.received().requests.len()), (None, 0));
             return;

@@ -9,12 +9,14 @@ const ADMIN = 'did:plc:admin';
 
 const FAN = 'did:plc:fan';
 
+const MARA = 'did:plc:mara';
+
 describe('FollowService', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
 	let project: ProjectView;
 
 	beforeEach(async () => {
-		t = await createTestServices({ admins: [ADMIN], capable: [ADMIN, FAN] });
+		t = await createTestServices({ admins: [ADMIN], capable: [ADMIN, FAN, MARA] });
 		project = await t.projectAdmin.create({
 			actor: await t.viewer(ADMIN),
 			profile: { name: 'Followed', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } }
@@ -49,6 +51,53 @@ describe('FollowService', () => {
 
 		expect(await t.follows.followsAny(FAN)).toBe(true);
 		expect(await t.follows.followsAny(ADMIN)).toBe(false);
+	});
+
+	/** Mara's profile, as the directory serves it. */
+	const maraProfile = async () => {
+		await t.profiles.save(await t.viewer(MARA), { basics: { name: 'Mara Lind' }, avatar: 'keep', swap: null });
+		const profile = await t.profiles.get(MARA);
+
+		if (!profile) throw new Error('no profile for Mara');
+
+		return profile;
+	};
+
+	it('follows and unfollows a person, counted apart from the projects they follow', async () => {
+		const mara = await maraProfile();
+		const fan = await t.viewer(FAN);
+
+		await t.follows.follow(fan, mara);
+		await t.follows.follow(fan, mara);
+		await t.follows.follow(await t.viewer(ADMIN), mara);
+
+		expect(follows()).toHaveLength(1);
+		expect(await t.follows.state(mara, FAN)).toEqual({ followers: 2, following: true });
+		expect(await t.follows.state(project, FAN)).toEqual({ followers: 0, following: false });
+
+		await t.follows.follow(fan, project);
+		await t.follows.unfollow(fan, mara);
+
+		expect(await t.follows.state(mara, FAN)).toEqual({ followers: 1, following: false });
+		expect(await t.follows.state(project, FAN)).toEqual({ followers: 1, following: true });
+		await t.audit.idle();
+		const audited = await t.audit.list({ action: 'follow' });
+		expect(
+			audited.map(({ action, subject, subjectKind, summary }) => ({ action, subject, subjectKind, summary }))
+		).toEqual(
+			expect.arrayContaining([
+				{ action: 'follow.create', subject: mara.uri, subjectKind: 'profile', summary: 'Followed Mara Lind' },
+				{ action: 'follow.delete', subject: mara.uri, subjectKind: 'profile', summary: 'Unfollowed Mara Lind' },
+				{ action: 'follow.create', subject: project.uri, subjectKind: 'project', summary: 'Followed Followed' }
+			])
+		);
+	});
+
+	it("doesn't let a person follow themselves", async () => {
+		const mara = await maraProfile();
+
+		await expect(t.follows.follow(await t.viewer(MARA), mara)).rejects.toThrow("You can't follow yourself");
+		expect(await t.follows.state(mara, MARA)).toEqual({ followers: 0, following: false });
 	});
 
 	it('deletes nothing for a follow the directory names without a record key', async () => {

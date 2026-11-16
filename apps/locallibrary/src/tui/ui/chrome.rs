@@ -137,32 +137,59 @@ pub(super) fn draw_context(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+/// The view whose tab stands apart at the right end: localnetwork, what goes out to Local Network
+/// rather than work on the music.
+const ASIDE: View = View::Profile;
+
 /// The logo, a tab for each view and, when it has no row of its own (`carries_context`), the
-/// context on the right. The player's name goes first as the width runs out.
+/// context, then [`ASIDE`]'s tab at the right end. The player's name goes first as the width runs
+/// out, then the room around the logo and between the tabs.
 pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect, carries_context: bool) {
     // The logo dot pulses with the music.
     let pulse = theme::mix(theme::current().accent, theme::current().warning, app.analyzer.level);
     let pulsing = app.is_playing() && !theme::reduced_motion();
     let logo_style = bold(if pulsing { pulse } else { theme::current().accent });
+    let width = area.width as usize;
+    let label = |v: View, pad: &str| format!("{pad}{} {}{pad}", keymap::view_letter(v), v.title());
+    let style = |v: View| if app.view == v { theme::chip(theme::current().info) } else { dim() };
+    let views = View::ALL.into_iter().filter(|v| *v != ASIDE);
+    let aside = Span::styled(label(ASIDE, " "), style(ASIDE));
+    let aside_w = aside.width();
+    // Roomy: the logo and each tab padded; else the tabs touch but for a space between them.
+    let roomy_w = icons::LOGO.padded().width() + views.clone().map(|v| label(v, " ").width()).sum::<usize>();
+    let roomy = width > roomy_w + aside_w;
+    let (logo, pad, between) = if roomy { (icons::LOGO.padded(), " ", "") } else { (icons::LOGO.spaced(), "", " ") };
     let about = if carries_context { context(app) } else { Vec::new() };
-    let about_w: usize = about.iter().map(Span::width).sum();
-    let tabs: Vec<(View, String)> =
-        View::ALL.into_iter().map(|v| (v, format!(" {} {} ", keymap::view_letter(v), v.title()))).collect();
-    let tabs_w: usize = tabs.iter().map(|(_, l)| l.len()).sum();
-    let mut spans = vec![Span::styled(icons::LOGO.padded(), logo_style)];
-    if area.width as usize >= tabs_w + NAME.len() + 6 + about_w {
-        spans.extend([Span::styled(NAME, bold(theme::current().text)), Span::raw("   ")]);
+    let about_w: usize = about.iter().map(Span::width).sum::<usize>() + if about.is_empty() { 0 } else { 2 };
+    let mut left = vec![Span::styled(logo, logo_style)];
+    if roomy && width > roomy_w + NAME.len() + 3 + about_w + aside_w {
+        left.extend([Span::styled(NAME, bold(theme::current().text)), Span::raw("   ")]);
     }
-    let mut x = area.x + spans.iter().map(|s| s.width() as u16).sum::<u16>();
-    for (v, label) in tabs {
-        let w = label.chars().count() as u16;
-        let style = if app.view == v { theme::chip(theme::current().info) } else { dim() };
+    let mut x = area.x + left.iter().map(|s| s.width() as u16).sum::<u16>();
+    for (i, v) in views.enumerate() {
+        if i > 0 && !between.is_empty() {
+            left.push(Span::raw(between));
+            x += between.width() as u16;
+        }
+        let tab = Span::styled(label(v, pad), style(v));
+        let w = tab.width() as u16;
         app.areas.tabs.push((v, Rect::new(x, area.y, w, 1)));
-        spans.push(Span::styled(label, style));
+        left.push(tab);
         x += w;
     }
-    let room = (area.width as usize).saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 1);
-    f.render_widget(spread(spans, fit(about, room), area.width), area);
+    let left_w: usize = left.iter().map(Span::width).sum();
+    // The context sits two spaces before the aside's tab, with room to spare after the tabs.
+    let mut right = fit(about, width.saturating_sub(left_w + aside_w + 4));
+    if !right.is_empty() {
+        right.push(Span::raw("  "));
+    }
+    right.push(aside);
+    let right_w: usize = right.iter().map(Span::width).sum();
+    // `spread` leaves the right side out when it doesn't fit.
+    if left_w + right_w < width {
+        app.areas.tabs.push((ASIDE, Rect::new(area.right() - aside_w as u16, area.y, aside_w as u16, 1)));
+    }
+    f.render_widget(spread(left, right, area.width), area);
 }
 
 /// What the player's doing: the job's progress first, cut short if need be, else the first of what

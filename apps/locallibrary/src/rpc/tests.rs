@@ -136,13 +136,13 @@ fn whatever_applies_a_plan_clears_the_library_cache() {
         "edit.apply",
         "sync.apply",
         "undo.apply",
-        "drive.restore",
-        "art.embed",
-        "store.gc",
-        "players.set",
+        "drive.restore.apply",
+        "art.embed.apply",
+        "store.gc.apply",
+        "players.set.apply",
         #[cfg(feature = "account")]
         "settings.publish.apply",
-        "pull",
+        "pull.apply",
     ] {
         assert!(!registry().get(m).unwrap().changes_no_drive(), "{m}");
     }
@@ -360,7 +360,7 @@ fn only_listed_reads_are_run_for_plugins(tc: TestCase) {
     let others: Vec<&str> = registry()
         .methods()
         .filter(|m| m.kind != Kind::Read || m.hidden)
-        .flat_map(|m| std::iter::once(m.name).chain(m.aliases.iter().copied()))
+        .map(|m| m.name)
         .chain(["no.such", "", "plugins"])
         .collect();
     let name = match tc.draw(gs::booleans()) {

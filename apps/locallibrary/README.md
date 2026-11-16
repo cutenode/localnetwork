@@ -181,6 +181,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   writing and reading back test regions across the whole disk
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
+- [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
+  (rekordbox's OneLibrary and collection) in pure Rust, with their write-ahead log replayed
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
   tracklists, and finding their tracks in a library
 - [loclib-audio](../../crates/loclib-audio): decoding tracks and recordings without trusting their
@@ -231,7 +233,9 @@ run on macOS. [Platforms](docs/install.md#platforms) has the details.
 
 MIT: see [LICENSE](LICENSE). The vendored rekordbox-pdb is MIT as well
 ([its licence](../../vendor/rekordbox-pdb/LICENSE)), and the test fixtures carry their own
-([fixtures README](../../crates/locallibrary/tests/fixtures/README.md)).
+([fixtures README](../../crates/locallibrary/tests/fixtures/README.md)). The release archives
+include `THIRD-PARTY-NOTICES.md`, the licences of every crate the binary is built from
+([Releasing](CONTRIBUTING.md#releasing)).
 
 ## Diagrams
 
@@ -287,6 +291,7 @@ flowchart LR
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
+    core --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> cap["loclib-capacity<br/>fake-capacity probe"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
@@ -363,7 +368,7 @@ flowchart TD
     hub --> editing["Editing<br/>playlist, track, tags, cues, art, edits,<br/>smart, merge, pack, convert, clean, settings"]
     hub --> plays["Plays and players<br/>plays, sets, mix, profile, players"]
     hub --> other["Other<br/>account, plugin, bug, completions, help,<br/>analysis, import"]
-    hub --> hidden["Not in the help<br/>rpc, man, and the old names of moved commands"]
+    hub --> hidden["Not in the help<br/>rpc and man"]
     hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other"]
     everyday ~~~ plays
     drives ~~~ other
