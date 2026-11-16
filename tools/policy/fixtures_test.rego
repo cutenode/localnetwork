@@ -53,6 +53,10 @@ repo := [
 		"workspace": {"members": ["apps/tool", "crates/*", "plugins/*", "vendor/pdb"]},
 		"profile": {"dev": {"package": {"sha2": {"opt-level": 3}}}},
 	}},
+	{"path": "deny.toml", "contents": {"licenses": {"allow": ["Apache-2.0", "MIT"]}}},
+	{"path": "about.toml", "contents": {"accepted": ["MIT", "Apache-2.0"], "targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]}},
+	{"path": "dist-workspace.toml", "contents": {"dist": {"targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"], "include": ["target/NOTICES.md"]}}},
+	{"path": ".cargo/config.toml", "contents": {"alias": {"notices": ["about", "generate", "--output-file", "target/NOTICES.md", "about.hbs"]}}},
 	{"path": "/scratch/Cargo.lock.toml", "contents": {"package": [{"name": "sha2"}, {"name": "tool"}]}},
 	{"path": "crates/loclib-x/Cargo.toml", "contents": {"package": object.union({"name": "loclib-x", "readme": "README.md"}, package_fields), "lints": {"workspace": true}}},
 	{"path": "plugins/p/Cargo.toml", "contents": {"package": object.union({"name": "locallibrary-plugin-p", "publish": false}, package_fields), "lints": {"workspace": true}}},
@@ -106,6 +110,7 @@ repo := [
 	{"path": ".github/ISSUE_TEMPLATE/feature_request.yml", "contents": {"body": [{"id": "tool", "attributes": {"options": ["site", "tool", "Something new"]}}]}},
 	{"path": ".github/rulesets/protect-main.json", "contents": {"rules": [
 		{"type": "deletion"},
+		{"type": "pull_request", "parameters": {"dismiss_stale_reviews_on_push": true, "require_last_push_approval": true}},
 		{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Site CI passed"}, {"context": "Rust passed"}, {"context": "Deps passed"}, {"context": "Lint passed"}]}},
 	]}},
 	{"path": "lexicons/computer/localnetwork/tool/record.json", "contents": {"id": "computer.localnetwork.tool.record"}},

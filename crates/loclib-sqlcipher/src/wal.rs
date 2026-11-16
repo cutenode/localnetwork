@@ -1,8 +1,8 @@
-//! Reading SQLite's write-ahead log (`exportLibrary.db-wal`).
+//! Reading SQLite's write-ahead log (`<database>-wal`).
 //!
-//! rekordbox leaves `exportLibrary.db` in WAL mode, and its last changes often live only in the
-//! WAL. Reading the database means doing what SQLite does when it opens one: take the frames
-//! of every committed transaction and lay their pages over the main file (a checkpoint).
+//! A database left in WAL mode often has its last changes only in the WAL. Reading the database
+//! means doing what SQLite does when it opens one: take the frames of every committed transaction
+//! and lay their pages over the main file (a checkpoint, see [`crate::decrypt`]).
 //!
 //! Format (sqlite.org/fileformat2.html#walformat): a 32-byte header (magic, version, page size,
 //! checkpoint sequence, two salts, checksum) followed by frames of a 24-byte header (page number,
@@ -63,7 +63,7 @@ pub fn committed(wal: &[u8], page_size: usize) -> Result<Option<Committed<'_>>> 
         return Ok(None);
     }
     if be32(wal, 8) as usize != page_size {
-        return Err(Error::OneLibrary(format!("the WAL uses {}-byte pages, the database {page_size}", be32(wal, 8))));
+        return Err(Error::Malformed(format!("the WAL uses {}-byte pages, the database {page_size}", be32(wal, 8))));
     }
     let salts = (be32(wal, 16), be32(wal, 20));
 
@@ -90,5 +90,8 @@ pub fn committed(wal: &[u8], page_size: usize) -> Result<Option<Committed<'_>>> 
     Ok((out.db_pages > 0).then_some(out))
 }
 
-#[cfg(test)]
-pub(crate) mod tests;
+/// Building WALs for tests, in this crate and those built on it (the `test-util` feature). Not
+/// part of the stable API.
+#[cfg(any(test, feature = "test-util"))]
+#[doc(hidden)]
+pub mod tests;

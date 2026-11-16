@@ -2218,10 +2218,8 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 name = "locallibrary"
 version = "0.1.0"
 dependencies = [
- "aes",
  "base64 0.22.1",
  "blake3",
- "cbc",
  "chrono",
  "directories",
  "filetime",
@@ -2229,7 +2227,6 @@ dependencies = [
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
- "hmac 0.12.1",
  "image",
  "indexmap",
  "jacquard-common",
@@ -2245,6 +2242,7 @@ dependencies = [
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-sqlcipher",
  "loclib-tracklist",
  "loclib-transcode",
  "lofty",
@@ -2255,7 +2253,6 @@ dependencies = [
  "rayon",
  "rekordbox-pdb",
  "reqwest",
- "ring",
  "rusqlite",
  "rustc-hash",
  "same-file",
@@ -2405,6 +2402,22 @@ version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-sqlcipher"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cbc",
+ "getrandom 0.3.4",
+ "hmac 0.12.1",
+ "indexmap",
+ "ring",
+ "rusqlite",
+ "rustc-hash",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
 ]
 

@@ -28,13 +28,9 @@ pub(crate) fn contract() -> &'static Value {
     })
 }
 
-/// A method of the contract by its name or one of its old names.
+/// A method of the contract by its name.
 fn method(name: &str) -> Option<&'static Value> {
-    contract()["methods"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|m| m["name"] == name || m["aliases"].as_array().is_some_and(|a| a.iter().any(|n| n == name)))
+    contract()["methods"].as_array().unwrap().iter().find(|m| m["name"] == name)
 }
 
 /// The name the contract goes by among the validators' documents.
@@ -228,11 +224,7 @@ fn every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
             }
             _ => {
                 let m = tc.draw(gs::sampled_from(&methods[..]));
-                let aliases: Vec<&str> = m["aliases"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-                let name = match aliases.is_empty() || tc.draw(gs::booleans()) {
-                    true => m["name"].as_str().unwrap(),
-                    false => tc.draw(gs::sampled_from(&aliases[..])),
-                };
+                let name = m["name"].as_str().unwrap();
                 let (params, fits) = params_for(&tc, &fx, m);
                 let line = json!({"jsonrpc": "2.0", "id": id, "method": name, "params": params});
                 // Control methods without parameters don't read them.

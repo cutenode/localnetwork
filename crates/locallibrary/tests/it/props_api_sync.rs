@@ -215,7 +215,7 @@ fn syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
             (Some(_), false) => {
                 let e = done.unwrap_err();
                 assert_eq!(e.reason(), Some(Reason::NotSaved), "{e}");
-                assert_eq!(e.detail().actions[0].method.as_deref(), Some("pull"));
+                assert_eq!(e.detail().actions[0].method.as_deref(), Some("pull.apply"));
                 assert!(!same(source, target), "nothing copied");
             }
             (Some(_), true) => {

@@ -34,7 +34,7 @@ fn restoring_a_folder_leaves_what_was_made_since(tc: TestCase) {
         fx.ok(&["--yes", "playlist", "new", "A", &format!("Gigs/{night}")]);
     }
 
-    let args = ["restore", "A", "--playlist", "Gigs", "--dry-run"];
+    let args = ["drive", "restore", "A", "--playlist", "Gigs", "--dry-run"];
     let v: Value = serde_json::from_str(&fx.ok(&[&["--json"][..], &args].concat())).unwrap();
     let out = fx.ok(&args);
     let said = format!("before {before:?}, deleted {deleted:?}, made {made:?}\n{out}\n{v}");
@@ -52,7 +52,7 @@ fn restoring_a_folder_leaves_what_was_made_since(tc: TestCase) {
         assert!(out.contains("Gigs on A is already as it was"), "{said}");
         return;
     }
-    fx.ok(&["--yes", "restore", "A", "--playlist", "Gigs"]);
+    fx.ok(&["--yes", "drive", "restore", "A", "--playlist", "Gigs"]);
     let listed = fx.ok(&["playlist", "ls", "A"]);
     let holds: BTreeSet<&str> = NIGHTS.iter().copied().filter(|n| listed.contains(n)).collect();
     let want: BTreeSet<&str> = before.iter().chain(&made).copied().collect();
