@@ -38,7 +38,13 @@ export class TestNetwork {
 
 	static async create(
 		names: string[],
-		options: { admins?: string[]; oauth?: string[]; listingSources?: CreateAppOptions['listingSources'] } = {}
+		options: {
+			admins?: string[];
+			oauth?: string[];
+			listingSources?: CreateAppOptions['listingSources'];
+			/** FLAG_OVERRIDES for the app, like `spacePages=on`. */
+			flags?: string;
+		} = {}
 	): Promise<TestNetwork> {
 		const plc = await TestPlc.create({});
 		const pds = await TestPds.create({ didPlcUrl: plc.url, inviteRequired: false });
@@ -91,7 +97,8 @@ export class TestNetwork {
 			GEOCODER: 'none',
 			ACTOR_SEARCH: 'none',
 			AUDIT_MAX_ATTEMPTS: '3',
-			USERINPUT_SPACE: userinputSpace.uri
+			USERINPUT_SPACE: userinputSpace.uri,
+			FLAG_OVERRIDES: options.flags ?? ''
 		});
 
 		const app = await createApp({

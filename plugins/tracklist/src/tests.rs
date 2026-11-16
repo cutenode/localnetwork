@@ -1,59 +1,35 @@
-use std::io::pipe;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_model::model::Track;
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, Incoming, Manifest, PROTOCOL_VERSION, Peer, method};
+use loclib_plugin::test_util::FakeHost;
+use loclib_plugin::{Capability, Manifest, method};
 
 use super::*;
 
 /// The most tracks the host gives a plugin in a page of `drive.library`.
 const PAGE: usize = 500;
 
-/// A read callback: its method and params.
-type Call = (String, Value);
-
-/// The plugin served on a thread, over pipes, past `hello`, with a host whose drive `USB` has a
-/// library and that answers its reads as locallibrary does.
+/// The plugin served by a fake host whose drive `USB` has a library and that answers its reads
+/// as locallibrary does.
 pub(crate) struct Session {
-    pub(crate) host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    calls: Arc<Mutex<Vec<Call>>>,
+    pub(crate) host: FakeHost,
 }
 
 pub(crate) fn start(lib: Library) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
-    let (to, log) = (host.clone(), calls.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            log.lock().unwrap().push((req.method.clone(), req.params.clone()));
-            to.respond(&req.id, read(&lib, &req.method, req.params));
-        }
-    });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, calls }
+    let host = FakeHost::start(MANIFEST, serve);
+    host.on_read("drive.library", move |params| read(&lib, params));
+    Session { host }
 }
 
-/// A read as the host answers a plugin: only the params it may give (no `combined`), a drive
-/// it knows, and `drive.library`'s tracks a page at a time.
-fn read(lib: &Library, method: &str, params: Value) -> Result<Value, RpcError> {
-    if method != "drive.library" {
-        return Err(RpcError::failed("denied", format!("{method} needs a capability the plugin doesn't have")));
-    }
+/// `drive.library` as the host answers a plugin: only the params it may give (no `combined`), a
+/// drive it knows, and the tracks a page at a time.
+fn read(lib: &Library, params: Value) -> Result<Value, RpcError> {
     let Value::Object(params) = params else { return Err(RpcError::invalid_params("expected an object")) };
     if let Some(name) = params.keys().find(|k| !["drive", "offset", "limit"].contains(&k.as_str())) {
-        return Err(RpcError::invalid_params(format!("a plugin doesn't give {method} `{name}`")));
+        return Err(RpcError::invalid_params(format!("a plugin doesn't give drive.library `{name}`")));
     }
     if params["drive"] != "USB" {
         return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
@@ -93,11 +69,9 @@ impl Session {
     }
 
     /// Closes the plugin's input: it stops. Answers the reads it called back for.
-    pub(crate) fn stop(self) -> Vec<Call> {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        Arc::try_unwrap(self.calls).unwrap().into_inner().unwrap()
+    pub(crate) fn stop(self) -> Vec<(String, Value)> {
+        self.host.stop();
+        self.host.calls()
     }
 }
 
@@ -142,9 +116,8 @@ fn the_manifest_is_a_built_in_one_that_reads_and_plans() {
     assert!(manifest.contributes.commands.is_empty());
     let operation = &manifest.contributes.operations[0];
     assert_eq!((operation.name.as_str(), operation.cli.as_deref()), ("import", Some("playlist import")));
+    // Started, it's checked to describe itself as its manifest.
     let s = start(Library::default());
-    let described: Manifest = s.host.request(method::DESCRIBE, &Value::Null).unwrap();
-    assert_eq!(described, manifest);
     s.stop();
 }
 
@@ -407,7 +380,7 @@ fn the_library_is_read_a_page_at_a_time() {
     let plan = s.plan(json!({ "file": list, "into": "Imported" })).unwrap();
     assert_eq!(plan.edits, [set_entries("Imported", &["/Contents/Bicep/Glue.mp3"])]);
     let calls = s.stop();
-    let reads: Vec<Call> =
+    let reads: Vec<(String, Value)> =
         [0, 500, 1000].iter().map(|o| ("drive.library".into(), json!({ "drive": "USB", "offset": o }))).collect();
     assert_eq!(calls, reads);
 }

@@ -40,13 +40,16 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const { app } = locals;
 
-		const result = await act(async () => {
-			const swap = text(form, 'cid', 200) || null;
-			const previous = await app.profiles.get(viewer.did);
-			await app.profiles.save(viewer, { ...(await parseProfileForm(form, previous?.record)), swap });
+		const result = await act(
+			async () => {
+				const swap = text(form, 'cid', 200) || null;
+				const previous = await app.profiles.get(viewer.did);
+				await app.profiles.save(viewer, { ...(await parseProfileForm(form, previous?.record)), swap });
 
-			return { saved: true };
-		}, formValues(form));
+				return { saved: true };
+			},
+			{ ...formValues(form), takesInquiries: form.get('takesInquiries') === 'on' }
+		);
 
 		if ('saved' in result) redirect(303, '/dashboard/profile?saved=1');
 
@@ -72,7 +75,7 @@ export const actions: Actions = {
 			return { rkey: submitted.rkey };
 		});
 
-		if ('rkey' in result) redirect(303, `/dashboard/requests/${result.rkey}?submitted=1`);
+		if ('rkey' in result) redirect(303, `/dashboard/account/requests/${result.rkey}?submitted=1`);
 
 		return result;
 	},

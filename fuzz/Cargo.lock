@@ -88,6 +88,9 @@ name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "arrayvec"
@@ -972,6 +975,17 @@ dependencies = [
  "const-oid 0.9.6",
  "pem-rfc7468",
  "zeroize",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -2204,10 +2218,8 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 name = "locallibrary"
 version = "0.1.0"
 dependencies = [
- "aes",
  "base64 0.22.1",
  "blake3",
- "cbc",
  "chrono",
  "directories",
  "filetime",
@@ -2215,7 +2227,6 @@ dependencies = [
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
- "hmac 0.12.1",
  "image",
  "indexmap",
  "jacquard-common",
@@ -2224,12 +2235,14 @@ dependencies = [
  "libc",
  "loclib-analysis",
  "loclib-audio",
+ "loclib-capacity",
  "loclib-equipment",
  "loclib-mixid",
  "loclib-model",
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-sqlcipher",
  "loclib-tracklist",
  "loclib-transcode",
  "lofty",
@@ -2240,7 +2253,6 @@ dependencies = [
  "rayon",
  "rekordbox-pdb",
  "reqwest",
- "ring",
  "rusqlite",
  "rustc-hash",
  "same-file",
@@ -2263,9 +2275,12 @@ dependencies = [
 name = "localnetwork-fuzz"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "indexmap",
  "libfuzzer-sys",
  "locallibrary",
+ "loclib-audio",
+ "loclib-interop",
  "loclib-mysettings",
  "loclib-tracklist",
  "rekordbox-pdb",
@@ -2308,11 +2323,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-capacity"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "loclib-progress",
+ "schemars",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "loclib-equipment"
 version = "0.1.0"
 dependencies = [
  "loclib-model",
  "schemars",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-interop"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "loclib-model",
+ "loclib-progress",
+ "lofty",
+ "rustc-hash",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -2378,6 +2417,22 @@ version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-sqlcipher"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cbc",
+ "getrandom 0.3.4",
+ "hmac 0.12.1",
+ "indexmap",
+ "ring",
+ "rusqlite",
+ "rustc-hash",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
 ]
 

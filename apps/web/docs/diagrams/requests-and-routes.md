@@ -24,7 +24,9 @@ flowchart TD
   Csrf -- "form post from<br/>another origin" --> Blocked["403"]
   Csrf --> Tool["Tool host check"]
   Tool -- "a tool's own host" --> ToolSite["toolSite answers"]
-  Tool --> Load["Get the app"]
+  Tool --> Moved["Moved page check"]
+  Moved -- "an old account address" --> Redirect["308 to its new address<br/>under /dashboard/account"]
+  Moved --> Load["Get the app"]
   Load -- "it can't start" --> Setup["503 setup page"]
   Load --> Limit["Write limit for this address"]
   Limit -- "over it" --> Slow["429"]
@@ -37,7 +39,7 @@ flowchart TD
   Route --> Out["gzip, security headers,<br/>noindex on unlisted areas,<br/>the one log line for the request"]
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
 
 ## Page loads and form actions
 
@@ -70,13 +72,14 @@ What each response lets a browser or a shared cache keep. Pages that show the sa
 ```mermaid
 flowchart LR
   Responses["Cache-Control"]
-  Responses -- "/charts, /artists pages: 60 s" --> Brief["cacheBriefly: public with no session<br/>cookie, else private, Vary: Cookie"]
+  Responses -- "/charts, /artists pages: 60 s" --> Brief["cacheBriefly: public with no session<br/>cookie, else private, Vary: Cookie;<br/>no-store for anyone who can edit it"]
   Responses -- "an active performer's<br/>mix page: 5 minutes" --> Brief
   Responses -- "/media, recordings, most /og cards" --> Year["public, a year, immutable"]
   Responses -- "/og artist cards, /og/site.png" --> Hour["public, an hour and a day"]
   Responses -- "public press kit photos" --> Day["public, a day, immutable"]
   Responses -- "private and draft photos, request avatars" --> Private["private, an hour"]
   Responses -- "/api/actors, /api/places" --> Api["private, 5 minutes"]
+  Responses -- "/api/venues" --> Venues["private, a minute"]
   Responses -- "player.json, chapters.json" --> Sets["public, 1 and 5 minutes"]
   Responses -- "client metadata, did.json" --> Docs["public, 10 and 5 minutes"]
   Responses -- "getFlags without a token" --> Flags["public, a minute,<br/>Vary: Authorization"]
@@ -113,10 +116,10 @@ Every token bucket the app sets. They're held in memory, so a restart resets the
 flowchart LR
   Limits["Rate limits"]
   Limits -- "write: 30 a minute" --> W1["POST, PUT, PATCH and DELETE,<br/>except /xrpc/, per address"]
-  Limits -- "write: 30 a minute" --> W2["Space joins and held record<br/>deletes, per account"]
+  Limits -- "write: 30 a minute" --> W2["Space joins, held record<br/>deletes and venue adds, per account"]
   Limits -- "login: 10 a minute" --> L1["/login and /login/create,<br/>per address"]
   Limits -- "flags: 60, then 1 a second" --> F1["getFlags with a token,<br/>per address"]
-  Limits -- "search: 60, then 2 a second" --> S1["/api/actors and /api/places,<br/>per address"]
+  Limits -- "search: 60, then 2 a second" --> S1["/api/actors, /api/places and<br/>/api/venues, per address"]
   Limits -- "profileMisses: 30 in 10 minutes" --> M1["/@[handle] and its set pages<br/>naming no account, per address"]
   Limits -- "optIn: 5 in 10 minutes" --> O1["Turning email or DMs on,<br/>per account"]
   Limits -- "testSend: 3 an hour" --> T1["Test messages, per account"]
@@ -153,7 +156,7 @@ The pages anyone can read. A performer that isn't active shows only to its manag
 ```mermaid
 flowchart LR
   Public["Public pages"]
-  Public --> Home["/, /for-djs, /about, /privacy"]
+  Public --> Home["/, /for-djs, /for-promoters,<br/>/about, /privacy"]
   Public --> Find["/projects, /match"]
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]
@@ -175,19 +178,21 @@ Everything under `/dashboard`. The server hook turns away anyone signed out; pag
 ```mermaid
 flowchart LR
   Dash["/dashboard<br/>any signed-in account"]
-  Dash --> Over["/activity, /profile, /data"]
-  Dash --> Inbox["/inbox, /inbox/settings"]
-  Dash --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
+  Dash --> Over["/profile, /inbox"]
+  Dash --> Account["/account"]
+  Account --> Yours["/activity, /notifications,<br/>/data, /data/[kind]"]
+  Account --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
+  Dash -- "308 from /activity, /data,<br/>/requests, /inbox/settings" --> Account
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
-  Dash --> Claim["/claim/[slug], /projects/new"]
+  Dash --> Claim["/claim/[slug], /projects/new,<br/>/venues/[key]/claim and /settings<br/>(peopleSpaces)"]
   Dash --> Access["/access/[slug]/[rkey]"]
   Dash --> Manage["/projects/[slug]<br/>the performer's managers"]
   Manage --> Mine["/profile, /shows/[rkey]"]
   Manage --> Kits["/press-kits, /press-kits/new,<br/>/press-kits/[rkey], .../access"]
 ```
 
-Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
+Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/account/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/account/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
 
 ## Staff console routes
 
@@ -226,7 +231,7 @@ flowchart LR
   Ep --> Kit["Press kit photos, private ones<br/>for managers and people granted"]
   Ep --> Sets["/sets/[did]/[rkey]/<br/>player.json, chapters.json"]
   Ep --> Og["/og/*.png"]
-  Ep --> Api["/api/actors, /api/places,<br/>/api/token-exchange/[service]"]
+  Ep --> Api["/api/actors, /api/places,<br/>/api/venues (spacePages),<br/>/api/token-exchange/[service]"]
   Ep --> Docs["/oauth-client-metadata.json<br/>/.well-known/did.json"]
   Ep --> Session["/oauth/callback,<br/>POST /logout"]
   Ep --> Xrpc["/xrpc: notifyWrite,<br/>notifySpaceDeleted,<br/>directory.requestIndex,<br/>flags.getFlags"]
@@ -242,7 +247,7 @@ What the small routes do, beside the flows above.
 ```mermaid
 flowchart LR
   Small["Small routes"]
-  Small -- "/dashboard/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
+  Small -- "/dashboard/account/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
   Small -- "/projects/[slug]/epk" --> B["308 to its press kits"]
   Small -- "/epk/[did]/[rkey] and its photos" --> C["Finds the press kit, 308 to<br/>its page, or 404"]
   Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
@@ -251,4 +256,4 @@ flowchart LR
   Small -- "/for-djs" --> G["Streams an example listing and<br/>the directory's totals"]
 ```
 
-Source: [`src/routes/dashboard/activity/+page.server.ts`](../../src/routes/dashboard/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)
+Source: [`src/routes/dashboard/account/activity/+page.server.ts`](../../src/routes/dashboard/account/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)

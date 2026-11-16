@@ -26,7 +26,8 @@ flowchart TD
   Spaces --> Members["Reconcile staff, manager<br/>and shared space members"]
   Members --> Sync["syncAll"]
   Sync --> Listings["listings.reconcile"]
-  Listings --> Moves["moveKitSpaces"]
+  Listings --> Blocks["venues.reconcileBlocks"]
+  Blocks --> Moves["moveKitSpaces"]
 ```
 
 Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/db/migrations.ts`](../../src/lib/server/db/migrations.ts)
@@ -46,9 +47,10 @@ flowchart LR
   Hour --> H2["manager-spaces"]
   Hour --> H3["shared-spaces"]
   Hour --> H4["listings"]
-  Hour --> H5["epk-view-expiry"]
-  Hour --> H6["inbox-retention"]
-  Hour --> H7["db-backup, with a bucket:<br/>once a UTC day"]
+  Hour --> H5["venue-blocks"]
+  Hour --> H6["epk-view-expiry"]
+  Hour --> H7["inbox-retention"]
+  Hour --> H8["db-backup, with a bucket:<br/>once a UTC day"]
 ```
 
 Source: [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/backup/backups.ts`](../../src/lib/server/backup/backups.ts), [`src/lib/server/services/epk-views.ts`](../../src/lib/server/services/epk-views.ts), [`src/lib/server/notifications/notifier.ts`](../../src/lib/server/notifications/notifier.ts)
@@ -125,7 +127,7 @@ flowchart LR
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]
   Jet -- "managers, and accounts<br/>the root verified" --> Names["Bluesky display names"]
   Jet -- "press kits of the<br/>root's performers" --> Kits["The root's, and a<br/>manager's older ones"]
-  Jet -- "of the root's performers" --> Follows["computer.localnetwork.follow"]
+  Jet -- "of the root's performers,<br/>and of others' profiles" --> Follows["computer.localnetwork.follow"]
   Jet -- "managers of a performer whose<br/>press kit reads follows" --> Bsky["Bluesky follows"]
   Jet -- "USERINPUT_SPACE alone" --> Input["app.userinput.space"]
 ```
@@ -139,17 +141,17 @@ Which query answers which page. All of them are Lua scripts on HappyView, and `g
 ```mermaid
 flowchart LR
   Pages["Pages and services"]
-  Pages -- "home, /for-djs, staff overview" --> Q1["getStats"]
-  Pages -- "home, /for-djs, dashboard sidebar,<br/>staff's performers" --> Q10["searchProjects"]
+  Pages -- "home, /for-djs, /for-promoters,<br/>staff overview" --> Q1["getStats"]
+  Pages -- "home, /for-djs, /for-promoters,<br/>dashboard sidebar, staff's performers" --> Q10["searchProjects"]
   Pages -- "/projects" --> Q2["searchPerformers"]
-  Pages -- "/match" --> Q3["matchProjects"]
+  Pages -- "/match, /for-promoters" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
   Pages -- "home, /shows, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
   Pages -- "mixes, the set picker" --> Q6["getSets, listSets"]
-  Pages -- "Follow button" --> Q7["getFollowStatus"]
+  Pages -- "Follow on performers<br/>and profiles" --> Q7["getFollowStatus"]
   Pages -- "home, /charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
   Pages -- "stats, press kits, profiles,<br/>verifications, bug report space,<br/>dashboard checklist, set pages" --> Q9["getRecords, listRecords"]
 ```
 
-Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/+page.server.ts`](../../src/routes/+page.server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)
+Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/+page.server.ts`](../../src/routes/+page.server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts), [`src/lib/server/landing.ts`](../../src/lib/server/landing.ts), [`src/routes/for-promoters/+page.server.ts`](../../src/routes/for-promoters/+page.server.ts)

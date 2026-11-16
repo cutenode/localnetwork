@@ -16,6 +16,7 @@
 		repoDid: 'did:plc:pat',
 		projectUri: null,
 		project: { slug: rkey, name },
+		venue: null,
 		record: { kind, onBehalfOf, createdAt: '2026-10-01T00:00:00Z' },
 		createdAt: '2026-10-01T00:00:00Z',
 		updatedAt: '2026-10-01T00:00:00Z',

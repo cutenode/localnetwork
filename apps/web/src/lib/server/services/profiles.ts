@@ -22,6 +22,8 @@ import { actorRole } from './requests';
 
 const REAUTH = 'Sign in again to save your profile';
 
+export const profileUri = (did: string) => `at://${did}/${COLLECTION.profile}/self`;
+
 const blob = z.object({
 	$type: z.literal('blob'),
 	ref: z.object({ $link: z.string() }),
@@ -52,6 +54,8 @@ export type ProfileInput = {
 	basics: Omit<BasicsSection, 'avatar'>;
 	performer?: PerformerSection;
 	promoter?: PromoterSection;
+	/** Take inquiries, which only a profile with the performer section keeps. */
+	takesInquiries?: boolean;
 	avatar: { upload: Upload } | { blob: BlobRefJson } | 'keep' | 'remove';
 	tracklists?: (Upload | undefined)[];
 	swap: string | null;
@@ -79,6 +83,19 @@ export class ProfileService {
 			: await this.repos.getRecord(did, COLLECTION.profile, 'self', { strict: true });
 
 		return found && this.toView(did, found.uri, found.cid, found.value);
+	}
+
+	/** The profiles the directory has of `dids` it can show, by DID, in as few lookups as it takes. */
+	async many(dids: string[]): Promise<Map<string, ProfileView>> {
+		const found = await this.repos.getRecords(dids.map(profileUri), { strict: true });
+
+		const views = dids.flatMap((did) => {
+			const record = found.get(profileUri(did));
+
+			return (record && this.toView(did, record.uri, record.cid, record.value)) ?? [];
+		});
+
+		return new Map(views.map((view) => [view.did, view]));
 	}
 
 	/** A profile the directory served, as `did`'s, or null (logged) when it doesn't match the lexicon. */
@@ -141,7 +158,7 @@ export class ProfileService {
 		const existing = await this.get(actor.did);
 
 		if ((existing?.cid ?? null) !== input.swap)
-			throw new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.');
+			throw new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.', 409);
 
 		const ref = await writeOwn(this.core, actor.did, REAUTH, async (client) => {
 			const avatar =
@@ -173,6 +190,7 @@ export class ProfileService {
 				basics: avatar ? { ...input.basics, avatar } : input.basics,
 				...(performer && { performer }),
 				...(input.promoter && { promoter: input.promoter }),
+				...(performer && input.takesInquiries && { takesInquiries: true }),
 				createdAt: existing?.record.createdAt ?? now,
 				updatedAt: now
 			});
@@ -181,7 +199,10 @@ export class ProfileService {
 				return await client.putRecord({ collection: COLLECTION.profile, rkey: 'self', record, swapRecord: input.swap });
 			} catch (error) {
 				if (error instanceof XRPCError && error.error === 'InvalidSwap')
-					throw new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.');
+					throw new UserError(
+						'Your profile changed since you opened it. Reload to see the latest, then save again.',
+						409
+					);
 				throw error;
 			}
 		});

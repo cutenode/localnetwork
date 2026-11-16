@@ -66,6 +66,9 @@
 							"listing.list",
 							"listing.unlist",
 							"page.update",
+							"page.editAsStaff",
+							"venue.block",
+							"venue.unblock",
 							"record.delete",
 							"flag.update",
 							"flag.preview",
@@ -83,6 +86,7 @@
 						"knownValues": [
 							"account",
 							"project",
+							"profile",
 							"request",
 							"role",
 							"booking",

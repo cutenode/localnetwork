@@ -18,10 +18,15 @@
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
 		"apps/web": {
-			// Vite's `#lexicon-files` alias (vite.config.ts); package.json's imports point Node elsewhere.
+			// Vite's `#lexicon-files` and `#notification-kinds` aliases (vite.config.ts); package.json's imports point Node
+			// elsewhere.
 			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
 			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
-			"entry": ["src/lib/server/atproto/lexicon-files.ts!", "scripts/db-backup.ts!"],
+			"entry": [
+				"src/lib/server/atproto/lexicon-files.ts!",
+				"src/lib/server/notifications/kind-files.ts!",
+				"scripts/db-backup.ts!"
+			],
 			"project": [
 				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,mdx,svelte,css}!",
 				"!{scripts,tests,.storybook}/**!",
@@ -30,7 +35,15 @@
 				"!src/lib/{testing,server/testing}/**!",
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
-				"!src/lib/og/cards/CardPreview.svelte!"
+				"!src/lib/og/cards/CardPreview.svelte!",
+				// The venue picker ships dark: the event editor will be the first form to use it, and until then
+				// only its stories and tests reach it. Drop this line when a page imports it.
+				"!src/lib/components/VenuePicker.svelte!",
+				// Edit mode ships dark: the party page will be the first to use it, and until then only its stories and
+				// tests reach it. When a page imports EditMode, narrow this to EditBarFrame.svelte and EditPageHarness.svelte
+				// (story and test helpers) and drop the server line.
+				"!src/lib/components/edit/**!",
+				"!src/lib/server/edit-mode.ts!"
 			],
 			// src/lib/server/og/render.ts resolves their font files by path at runtime.
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]
@@ -49,11 +62,7 @@
 				"svelte.config.ts",
 				"vitest.stryker.config.ts"
 			],
-			"project": [
-				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,svelte,css}!",
-				"!{test,scripts}/**!",
-				"!stryker-load-time.mjs!"
-			],
+			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,svelte,css}!", "!{test,scripts}/**!", "!stryker-load-time.mjs!"],
 			// shadcn-svelte's generated components keep their whole API.
 			"ignoreIssues": { "src/lib/components/ui/**": ["exports", "types"] }
 		},

@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { ComponentProps } from 'svelte';
 	import { phone } from '#lib/testing/viewports.ts';
+	import { claimTerms } from '#lib/requests.ts';
 	import ClaimFields from './ClaimFields.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Claim fields', component: ClaimFields, tags: ['autodocs'], render: template });
@@ -9,6 +10,9 @@
 	const claimant = { did: 'did:plc:ewvi7nxzyoun6zhxrhs64oiz', handle: 'neontide.bsky.social' };
 
 	const values = { relationship: 'self', evidence: 'I added it to our SoundCloud bio.', links: 'https://soundcloud.com/neontide' };
+
+	/** A venue's claim, which only an owner makes, so it doesn't ask how they're connected. */
+	const venue = claimTerms({ space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor' });
 </script>
 
 <!-- The claim pages lay the fields out in a card. -->
@@ -25,3 +29,9 @@
 <Story name="Phone, empty" args={{ values: {}, claimant }} globals={phone} />
 
 <Story name="Phone, no handle" args={{ values: {}, claimant: { ...claimant, handle: null } }} globals={phone} />
+
+<Story name="Venue, empty" args={{ values: {}, claimant, terms: venue }} />
+
+<Story name="Venue, filled" args={{ values: { evidence: 'The team page on our site lists me as owner.', links: 'https://tresor.example/team' }, claimant, terms: venue }} />
+
+<Story name="Venue, phone" args={{ values: {}, claimant, terms: venue }} globals={phone} />
