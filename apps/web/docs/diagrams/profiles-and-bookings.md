@@ -34,7 +34,7 @@ Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/pr
 
 ## Moderation requests
 
-A request from filing to decision. `create`, `claim` and `update` publish a performer; `list` lists a DJ.
+A request from filing to decision. `create`, `claim` and `update` publish a performer; `list` lists a DJ; a `claim` on a venue makes the claimant an owner.
 
 ```mermaid
 sequenceDiagram
@@ -52,13 +52,13 @@ sequenceDiagram
   T->>A: Decide
   alt Approved
     A->>S: Copy and check<br/>avatar and tracklists
-    A->>P: Publish the performer<br/>or the DJ listing
+    A->>P: Publish the performer<br/>or the DJ listing,<br/>or add a venue's owner
   end
   A->>S: Root writes the decision
   A->>A: Audit the decision
 ```
 
-Source: [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts), [`src/routes/admin/requests/[rkey]/+page.server.ts`](../../src/routes/admin/requests/[rkey]/+page.server.ts), [`src/routes/dashboard/projects/new/+page.server.ts`](../../src/routes/dashboard/projects/new/+page.server.ts), [`src/routes/dashboard/claim/[slug]/+page.server.ts`](../../src/routes/dashboard/claim/[slug]/+page.server.ts)
+Source: [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts), [`src/routes/admin/requests/[rkey]/+page.server.ts`](../../src/routes/admin/requests/[rkey]/+page.server.ts), [`src/routes/dashboard/projects/new/+page.server.ts`](../../src/routes/dashboard/projects/new/+page.server.ts), [`src/routes/dashboard/claim/[slug]/+page.server.ts`](../../src/routes/dashboard/claim/[slug]/+page.server.ts), [`src/routes/dashboard/venues/[key]/claim/+page.server.ts`](../../src/routes/dashboard/venues/[key]/claim/+page.server.ts)
 
 ## Request lifecycle
 

@@ -1,0 +1,24 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.venue.block",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A venue not taking events, relationships or booking inquiries from a profile, act or party, like a Bluesky block. Written only by the Local Network root account, into its public repo, when one of the venue's people with venue.block or staff block them, and deleted when they unblock. Public but unannounced: the blocked side gets no notice, and the site shows their events as still waiting for the venue.",
+			"record": {
+				"type": "object",
+				"required": ["venue", "subject", "createdAt"],
+				"properties": {
+					"venue": { "type": "string", "format": "at-uri", "description": "The venue's space." },
+					"subject": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "Who is blocked: a profile (its computer.localnetwork.profile record), or an act or party (the URI its listing has, keyed by its space's key)."
+					},
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

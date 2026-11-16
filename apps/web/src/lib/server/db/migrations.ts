@@ -536,6 +536,21 @@ export const migrations = {
 			// Adding a venue no other has the Foursquare place of looks for the same name in the same city.
 			await sql.raw('CREATE INDEX venue_name_city ON venue (name_key, locality, country)').execute(db);
 		}
+	},
+	'017_venue_blocks': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE venue_block (
+						uri TEXT PRIMARY KEY,
+						venue TEXT NOT NULL,
+						subject TEXT NOT NULL,
+						created_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX venue_block_venue_subject ON venue_block (venue, subject)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

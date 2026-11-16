@@ -1,9 +1,11 @@
 import { type Selectable, type SqlBool, sql } from 'kysely';
 import { COLLECTION } from '#lib/nsid.ts';
+import { labelFor, VENUE_APPROVALS } from '#lib/taxonomy/options.ts';
 import type { VenueApproval, VenueRecord, Viewer } from '#lib/types.ts';
 import type { VenueOption } from '#lib/venues.ts';
-import { validateRecord } from '../atproto/lexicons';
-import { type Core, UserError } from '../core';
+import { isValidRecord, validateRecord } from '../atproto/lexicons';
+import { rkeyOf } from '../atproto/spaces';
+import { type Core, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { VenueTable } from '../db/schema';
 import type { RateLimiter } from '../rate-limit';
@@ -12,6 +14,12 @@ import { nameKey, VENUE_KEY } from './venue-index';
 
 /** What adding a venue takes: its name and where it is, with its Foursquare place when known. */
 export type VenueInput = Pick<VenueRecord, 'name' | 'address' | 'geo' | 'fsq'>;
+
+/** A venue's block record (`computer.localnetwork.venue.block`): the venue's space, and who it blocks. */
+type VenueBlockRecord = { venue: string; subject: string; createdAt: string };
+
+/** Someone a venue blocks, by the URI of their profile, or of their act's or party's listing. */
+export type VenueBlock = { rkey: string; subject: string; createdAt: string };
 
 export type VenueView = {
 	space: string;
@@ -103,6 +111,127 @@ export class VenueService {
 
 	async bySpace(space: string): Promise<VenueView | null> {
 		return this.first('spaceUri', space);
+	}
+
+	/** Sets how the venue takes events that name it. Needs page.edit. */
+	async setApproval(actor: Viewer, space: string, approval: VenueApproval): Promise<void> {
+		await this.sharedSpaces.change(space, async (live) => {
+			const actingAs = this.sharedSpaces.authorize(actor, live, 'page.edit');
+
+			const stored = await live.root.getSpaceRecord({
+				space,
+				repo: live.root.did,
+				collection: COLLECTION.venue,
+				rkey: VENUE_KEY
+			});
+
+			if (!stored || !isValidRecord<VenueRecord>(COLLECTION.venue, stored.value))
+				throw new NotFoundError('That venue does not exist');
+			const current = stored.value;
+			const record = validateRecord(COLLECTION.venue, { ...current, approval, updatedAt: nowIso() });
+
+			await live.root.putSpaceRecord({ space, collection: COLLECTION.venue, rkey: VENUE_KEY, record });
+			await this.sharedSpaces.index({ space, collection: COLLECTION.venue, rkey: VENUE_KEY, value: record });
+			await this.sharedSpaces.record(
+				actor,
+				actingAs,
+				'page.update',
+				space,
+				`Set ${current.name} to ${labelFor(VENUE_APPROVALS, approval)}`,
+				{ approval }
+			);
+		});
+	}
+
+	/**
+	 * Blocks a profile, act or party, by its URI, from listing events at the venue, claiming a relationship to it, or
+	 * naming it in a booking inquiry. Needs venue.block. Like a Bluesky block, it's a public record in the root's repo,
+	 * and nobody blocked is told (ADR 0014).
+	 */
+	async block(actor: Viewer, space: string, subject: string): Promise<void> {
+		await this.sharedSpaces.change(space, async (live) => {
+			const actingAs = this.sharedSpaces.authorize(actor, live, 'venue.block');
+
+			if ((await this.blocks(space)).some((block) => block.subject === subject))
+				throw new UserError("They're already blocked");
+			const record = validateRecord(COLLECTION.venueBlock, { venue: space, subject, createdAt: nowIso() });
+			const { uri } = await live.root.createRecord({ collection: COLLECTION.venueBlock, record });
+
+			await this.saveBlock(uri, record);
+			await this.sharedSpaces.record(actor, actingAs, 'venue.block', space, 'Blocked someone from the venue', {
+				subject
+			});
+		});
+	}
+
+	/** Takes one of the venue's blocks away, by its record key. Needs venue.block. */
+	async unblock(actor: Viewer, space: string, rkey: string): Promise<void> {
+		await this.sharedSpaces.change(space, async (live) => {
+			const actingAs = this.sharedSpaces.authorize(actor, live, 'venue.block');
+			const uri = `at://${live.root.did}/${COLLECTION.venueBlock}/${rkey}`;
+
+			const block = await this.core.db
+				.selectFrom('venueBlock')
+				.select('subject')
+				.where('uri', '=', uri)
+				.where('venue', '=', space)
+				.executeTakeFirst();
+
+			if (!block) throw new NotFoundError('That block is gone');
+			await live.root.deleteRecord({ collection: COLLECTION.venueBlock, rkey });
+			await this.core.db.deleteFrom('venueBlock').where('uri', '=', uri).execute();
+			await this.sharedSpaces.record(actor, actingAs, 'venue.unblock', space, 'Took a block away', {
+				subject: block.subject
+			});
+		});
+	}
+
+	/** Who the venue blocks, oldest first. */
+	async blocks(space: string): Promise<VenueBlock[]> {
+		const rows = await this.core.db
+			.selectFrom('venueBlock')
+			.select(['uri', 'subject', 'createdAt'])
+			.where('venue', '=', space)
+			.orderBy('createdAt')
+			.execute();
+
+		return rows.map(({ uri, subject, createdAt }) => ({ rkey: rkeyOf(uri), subject, createdAt }));
+	}
+
+	/**
+	 * Brings the block index in line with the root's block records, at startup and every hour: indexes each valid one
+	 * and drops the rows of records that are gone. Only the root's own repo counts. A venue's space being forgotten
+	 * keeps its blocks, since a block outlives a venue merge (ADR 0014).
+	 */
+	async reconcileBlocks(): Promise<void> {
+		const root = await this.core.root();
+		// The root's own repo, which is the only place a block counts from.
+		// ast-grep-ignore: no-direct-pds-read
+		const records = await root.listRecords(COLLECTION.venueBlock);
+		const kept = new Set<string>();
+
+		for (const { uri, value } of records) {
+			if (!isValidRecord<VenueBlockRecord>(COLLECTION.venueBlock, value)) {
+				this.core.logger.warn('ignoring an invalid venue block', { uri });
+				continue;
+			}
+
+			await this.saveBlock(uri, value);
+			kept.add(uri);
+		}
+
+		const all = this.core.db.deleteFrom('venueBlock');
+		const stale = await (kept.size ? all.where('uri', 'not in', [...kept]) : all).executeTakeFirst();
+
+		this.core.logger.info('reconciled venue blocks', { kept: kept.size, dropped: Number(stale.numDeletedRows) });
+	}
+
+	private async saveBlock(uri: string, { venue, subject, createdAt }: VenueBlockRecord): Promise<void> {
+		await this.core.db
+			.insertInto('venueBlock')
+			.values({ uri, venue, subject, createdAt })
+			.onConflict((oc) => oc.column('uri').doUpdateSet({ venue, subject, createdAt }))
+			.execute();
 	}
 
 	/** Venues whose name has `query` in it, shortest name first, so an exact match leads. */
