@@ -139,11 +139,12 @@ rather than pulling them from a package, so they can be read and changed like
 any other file here. Everything that runs **inside the SoundCloud page** is
 still a plain classic script — a content script has no imports, and the marks
 have to be written by the same code on both sides — so it is not bundled at
-all. The build only blanks its types out (ts-blank-space puts spaces where the
-annotations were) and ships each file under a `.js` name, `content.ts` as
-`content.js` and the others likewise, with every line and column
-where it was: an error on soundcloud.com points at the same place in the
-source, and there is no sourcemap to carry. The manifest names the `.js`
+all. The build only blanks its types and comments out (ts-blank-space puts
+spaces where the annotations were, `scripts/page-script.mts` takes the comments
+away) and ships each file under a `.js` name, `content.ts` as `content.js` and
+the others likewise, with every line and column of code where it was: an error
+on soundcloud.com points at the same place in the source, and there is no
+sourcemap to carry. The manifest names the `.js`
 files, which exist only in `dist/`.
 
 ```
@@ -232,7 +233,8 @@ src/
                        the session queue — and the buttons that add from them
 docs/                  the JSON Schema for the exported state file
 scripts/               validate-state.mts, behind `pnpm validate:state` —
-                       run by Node as it is, which strips the types itself
+                       run by Node as it is, which strips the types itself;
+                       page-script.mts, what the build makes of a page script
 test/                  the test suite (see "Tests" below)
 package.json           the scripts below; the workspace and its lockfile are
                        at the repo root
@@ -420,7 +422,8 @@ page than the one it was left on.
    `src/manifest.json`, which names files as they will be in `dist/`. A file
    that must not be compiled goes in `unbundled` in `vite.config.ts`; a classic
    script goes in `pageScripts` there instead, under the `.js` name the
-   manifest gives it, and ships with its types blanked out and nothing else.
+   manifest gives it, and ships with its types and comments blanked out and
+   nothing else.
 
 To add a **site** to the third-party downloader: write
 `src/tools/third-party-downloads/sites/<id>.ts` exporting the shape the others
@@ -470,8 +473,9 @@ The extension is two kinds of code, and the tests treat it as such (Vitest +
 jsdom). What runs in the page is loaded the way Chrome loads it — a plain
 script against a prepared `document`, `chrome` API mock and `TbxDownloaded`
 global, with its types blanked out by the same call the build makes, so what
-is tested is the file that ships — and driven through its messages, clicks and
-storage changes. The popup is compiled by the same plugin that builds it, so a
+is tested is the file that ships plus the comments the build takes out
+(coverage reads its `v8 ignore` hints from them) — and driven through its
+messages, clicks and storage changes. The popup is compiled by the same plugin that builds it, so a
 panel is tested as the component it is: mounted into jsdom with the chrome
 APIs mocked, and asserted on through what a user would see.
 
@@ -521,11 +525,11 @@ in several other ways as well:
   each other while both being wrong.
 - **The artifact** (`build.test.ts`) — runs the real build and inspects `dist/`:
   the manifest against a Manifest V3 schema, every file it names, the page
-  scripts (their sources with the types blanked out, and nothing else
-  changed), the popup's asset paths (relative, or the extension origin breaks
-  them), no `eval` the V3 policy would refuse, no sourcemap, no absolute path
-  from the machine that built it, icons that really are PNGs of the size they
-  claim, and the popup's type set on `body` outside every CSS layer, where
+  scripts (their sources with the types and comments blanked out, every node
+  still on its line and column), the popup's asset paths (relative, or the
+  extension origin breaks them), no `eval` the V3 policy would refuse, no
+  sourcemap, no absolute path from the machine that built it, icons that really
+  are PNGs of the size they claim, and the popup's type set on `body` outside every CSS layer, where
   Chrome's own `body { font-family: system-ui; font-size: 75% }` for extension
   pages cannot beat it.
 - **Accessibility** (`a11y.test.ts`): every panel, in every state a test can
@@ -613,6 +617,8 @@ test/
   stepping-past-a-timeout.test.ts  a timed-out test can't reach the next one
   golden.test.ts         snapshots of every output the extension hands over
   build.test.ts          the real build, inspected as Chrome would load it
+  page-script.test.ts    each page script as it ships: no comments, and every
+                         token where the source had it
   docs.test.ts           this README against the code it describes
   app.test.ts            the tool menu, the routing between tools, where the
                          popup was left, the theme
