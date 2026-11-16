@@ -98,7 +98,7 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/routes/dashboard/bookings/**"
           - "apps/web/src/lib/bookings.*"
-          - "apps/web/src/lib/server/services/bookings.*"
+          - "apps/web/src/lib/server/services/{bookings,booking-performers}.*"
           - "apps/web/src/lib/components/BookingDetails.svelte"
           - "lexicons/computer/localnetwork/booking/**"
 
@@ -120,8 +120,8 @@ atstore:
           - "lexicons/computer/localnetwork/{venue,party,event}.json"
           - "lexicons/computer/localnetwork/venue/**"
           - "lexicons/computer/localnetwork/space/{venue,party}.json"
-          - "apps/web/src/routes/shows/**"
-          - "apps/web/src/lib/shows.*"
+          - "apps/web/src/routes/{shows,api/venues}/**"
+          - "apps/web/src/lib/{shows,home-events,venues}.*"
           - "apps/web/src/lib/server/{shows-place,venue-time}.*"
           - "apps/web/src/lib/server/services/shows.*"
           - "apps/web/src/lib/server/forms/{show,announce}.*"
@@ -165,7 +165,7 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/{hooks.server,app.d}.*"
-          - "apps/web/src/lib/{nsid,types}.*"
+          - "apps/web/src/lib/{nsid,types,space-paths}.*"
           - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing,backup}/**"
           - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,http,logger,rate-limit}.*"
           - "apps/web/src/lib/server/{env-files,crawler-head,images,utf8,moved-pages,meta,meta-records,structured-data}.*"
@@ -183,13 +183,14 @@ atstore:
           - "apps/web/src/lib/components/**"
           - "!apps/web/src/lib/components/{epk,mix}/**"
           - "!apps/web/src/lib/components/{GenreInput,NearInput,PlacePicker,ScoreBar,Project*,ClaimFields,DjSets,DjStats,LinkedSet,MixList,BookingDetails,DiffTable}.svelte"
+          - "!apps/web/src/lib/components/{Venue,Party,Event}*"
           - "!apps/web/src/lib/components/profile.svelte.test.ts"
       - any-glob-to-any-file:
           - "apps/web/src/lib/{ui,assets,og}/**"
           - "apps/web/src/lib/{format,nav,combobox,form-*,hotkeys,headline,hosts,meta,structured-data,home,resolved,web-url}.*"
           - "apps/web/src/lib/server/og/**"
-          - "apps/web/src/lib/server/{home,landing}.*"
-          - "apps/web/src/routes/{+layout,+error,layout,error,heads,link-matrix,listings,stored-images}.*"
+          - "apps/web/src/lib/server/{home,landing,social-home}.*"
+          - "apps/web/src/routes/{+layout,+error,layout,error,heads,link-matrix,listings,stored-images,social-home}.*"
           - "apps/web/src/routes/{about,for-djs,for-promoters,privacy,og}/**"
           - "apps/web/src/{app,error}.html"
           - "apps/web/{.storybook,static}/**"
