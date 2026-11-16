@@ -177,6 +177,12 @@ it('sends someone signed out to sign in before saving or following', async () =>
 	}
 });
 
+it('answers 404 for a page with no project', async () => {
+	await expect(
+		loadRoute<PageServerData>(load, { app: app(), params: { slug: 'nobody' }, url: '/projects/nobody' })
+	).rejects.toMatchObject({ status: 404 });
+});
+
 it("answers 404 for a project that isn't there", async () => {
 	const friend = await f.t.viewer(FRIEND);
 

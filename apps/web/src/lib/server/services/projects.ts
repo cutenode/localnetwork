@@ -5,6 +5,7 @@ import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
 import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
 import { PROJECT_SHOWS } from '#lib/shows.ts';
+import { nameSlug } from '#lib/space-paths.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -98,16 +99,9 @@ function assertProjectRecord(value: JsonRecord): asserts value is JsonRecord & P
 	if (!isProjectStatus(value.status)) throw new RecordValidationError(COLLECTION.project, 'unknown status');
 }
 
+/** `input` as a project's address. One too short to use is `project-` and what's left. */
 export function slugify(input: string): string {
-	const slug = input
-		.normalize('NFKD')
-		.replace(/[̀-ͯ]/g, '')
-		.toLowerCase()
-		.replace(/&/g, ' and ')
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.slice(0, 48)
-		.replace(/-+$/g, '');
+	const slug = nameSlug(input);
 
 	return slug.length >= 2 ? slug : `project-${slug || 'x'}`;
 }

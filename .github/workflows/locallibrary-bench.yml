@@ -163,27 +163,46 @@ jobs:
           mode: simulation
           run: cargo codspeed run -m simulation -p "$PACKAGE"
 
-  # The release build's size and the instructions everyday commands run, against
-  # benchmarks/budgets/ (see benchmarks/README.md). What it measured stays on the run, for
-  # `tools/budgets/cli.ts ratchet`.
+  # The release build's size, the instructions everyday commands and a frame run, and the packages
+  # the CLI links (see benchmarks/README.md), against what the CI run of the newest commit before
+  # this one that changed what ships measured. Pull requests only measure when what ships changed, so
+  # this is where a change to a test alone, the frame test's included, shows.
   budgets:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     # Two release builds: dist's for the CLI and the release profile's for the frame test.
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # The base's measurements, from its run's artifact.
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 30
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
       - uses: ./.github/actions/release-budgets
+        with:
+          out: ${{ github.workspace }}/target/budgets
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node tools/budgets/cli.ts baseline "$(git rev-parse HEAD)" locallibrary_release release-budgets target/budgets-base
+          node tools/budgets/cli.ts check release target/budgets-base target/budgets /dev/null | tee -a "$GITHUB_STEP_SUMMARY"
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

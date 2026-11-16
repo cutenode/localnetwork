@@ -35,7 +35,10 @@
 				"!src/lib/{testing,server/testing}/**!",
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
-				"!src/lib/og/cards/CardPreview.svelte!"
+				"!src/lib/og/cards/CardPreview.svelte!",
+				// The venue picker ships dark: the event editor will be the first form to use it, and until then
+				// only its stories and tests reach it. Drop this line when a page imports it.
+				"!src/lib/components/VenuePicker.svelte!"
 			],
 			// src/lib/server/og/render.ts resolves their font files by path at runtime.
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]

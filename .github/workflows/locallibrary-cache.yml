@@ -70,6 +70,7 @@ jobs:
     # What locallibrary-ci.yml's jobs ask for, which a call has to grant even to the ones it skips
     # (its report job's comment), or GitHub won't start the run.
     permissions:
+      actions: read
       contents: read
       pull-requests: write
     uses: ./.github/workflows/locallibrary-ci.yml
@@ -79,6 +80,7 @@ jobs:
       cache: false
       deny: false
       release: false
+      budgets: false
       dist: false
       other-os: true
       semver: false
