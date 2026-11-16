@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::time::Instant;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_plugin::method;
 use serde_json::json;
 
@@ -39,6 +41,94 @@ fn rotation_removes_only_its_own_oldest() {
     let list: Vec<Kept> = serde_json::from_slice(&std::fs::read(data.join(MADE)).unwrap()).unwrap();
     let listed: Vec<&Path> = list.iter().map(|k| k.path.as_path()).collect();
     assert_eq!(listed, [made[3].as_path(), newest.as_path()]);
+}
+
+/// What `rotate` listed in `data`.
+fn listed(data: &Path) -> Vec<PathBuf> {
+    let list: Vec<Kept> = serde_json::from_slice(&std::fs::read(data.join(MADE)).unwrap()).unwrap();
+    list.into_iter().map(|k| k.path).collect()
+}
+
+/// However many backups it made and whatever it keeps, what's left of them is the newest that
+/// many (or all), and the list names just those.
+#[hegel::test(test_cases = 30)]
+fn prop_rotation_keeps_its_newest(tc: TestCase) {
+    let n = tc.draw(gs::integers::<u64>().min_value(1).max_value(6));
+    let keep = tc.draw(gs::optional(gs::integers::<usize>().min_value(1).max_value(6)));
+    let dir = tempfile::tempdir().unwrap();
+    let (data, dest) = (dir.path().join("data"), dir.path().join("dest"));
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&dest).unwrap();
+    let made: Vec<PathBuf> = (1..=n).map(|d| old(&dest, &format!("rekordbox_bak_202601{d:02}.zip"), n - d)).collect();
+    for zip in &made {
+        assert!(rotate(&data, zip, keep).unwrap().is_empty());
+    }
+    let kept = keep.map_or(made.len(), |k| k.min(made.len()));
+    let newest = &made[made.len() - kept..];
+    let left: Vec<&PathBuf> = made.iter().filter(|z| z.exists()).collect();
+    assert_eq!(left, newest.iter().collect::<Vec<_>>());
+    assert_eq!(listed(&data), newest);
+}
+
+/// One of its own it can't remove (its folder made read-only) stays listed and is said; the next
+/// rotation that can removes it.
+#[cfg(unix)]
+#[test]
+fn a_backup_it_cant_remove_stays_listed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let (data, dest) = (dir.path().join("data"), dir.path().join("dest"));
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&dest).unwrap();
+    let first = old(&dest, "rekordbox_bak_20260101.zip", 3);
+    rotate(&data, &first, None).unwrap();
+    let second = old(&dest, "rekordbox_bak_20260102.zip", 2);
+    std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let said = rotate(&data, &second, Some(1));
+    std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let said = said.unwrap();
+    let [why] = &said[..] else { panic!("{said:?}") };
+    assert!(why.starts_with(&format!("couldn't remove the old backup {}: ", first.display())), "{why}");
+    assert!(first.exists() && second.exists());
+    assert_eq!(listed(&data), [first.clone(), second.clone()]);
+    let third = old(&dest, "rekordbox_bak_20260103.zip", 1);
+    assert!(rotate(&data, &third, Some(1)).unwrap().is_empty());
+    assert_eq!((first.exists(), second.exists(), third.exists()), (false, false, true));
+}
+
+/// With its data folder gone, the list can't be written: the rotation fails naming it, and
+/// removes nothing.
+#[test]
+fn a_list_it_cant_write_fails_the_rotation() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip = old(dir.path(), "rekordbox_bak_20260101.zip", 1);
+    let gone = dir.path().join("gone");
+    let e = rotate(&gone, &zip, Some(1)).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "{e:?}");
+    assert!(e.message.starts_with(&gone.display().to_string()), "{e:?}");
+    assert!(zip.exists());
+}
+
+/// A schedule that can't back up (here, run by a host that gives it no scratch folder) tells the
+/// user why, and makes nothing.
+#[test]
+fn a_schedule_that_cant_back_up_says_why() {
+    stamped();
+    let f = fixture();
+    let host = host(&f);
+    let settings = json!({ "destination": f.dest, "every_days": 1 });
+    let req = json!({ "service": "schedule", "context": { "settings": settings, "scratch": null } });
+    let running = host.send(method::SERVICE_START, &req);
+    let until = Instant::now() + Duration::from_secs(30);
+    while host.notices().is_empty() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    running.cancel();
+    assert_eq!(running.wait::<()>().unwrap_err().kind(), Some("cancelled"));
+    let notices: Vec<String> = host.notices().into_iter().map(|n| n.message).collect();
+    assert_eq!(notices, ["Couldn't back up rekordbox's library: no scratch folder"]);
+    assert!(list::find(&f.dest).is_empty());
+    host.stop();
 }
 
 /// Started with a backup folder whose newest is older than `every_days`, the service makes one

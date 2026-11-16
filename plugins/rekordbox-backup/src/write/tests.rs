@@ -130,6 +130,74 @@ fn a_file_gone_is_left_out_but_master_db_isnt() {
     assert_eq!(zips, 0);
 }
 
+/// The `.zip.part` files left in `dir`.
+fn parts(dir: &Path) -> usize {
+    let listed = std::fs::read_dir(dir).unwrap().flatten();
+    listed.filter(|e| e.file_name().to_string_lossy().ends_with(PART.1)).count()
+}
+
+/// Into a folder that isn't there (a drive unplugged), the write fails naming it and makes nothing.
+#[test]
+fn a_write_into_a_folder_that_isnt_there_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let entries = entries(dir.path());
+    let gone = dir.path().join("unplugged");
+    let e = write(&entries, &gone.join("backup.zip"), &Ctx::silent()).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "{e:?}");
+    assert!(e.message.starts_with(&gone.display().to_string()), "{e:?}");
+    assert!(!gone.exists());
+}
+
+/// More than its drive has free fails before anything is written. The file is sparse, so it takes
+/// no room itself (Windows would reserve it).
+#[cfg(unix)]
+#[test]
+fn a_write_bigger_than_the_space_left_fails_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+    let huge = dir.path().join("master.db");
+    let free = fs4::available_space(&out).unwrap();
+    File::create(&huge).unwrap().set_len(free + (1 << 30)).unwrap();
+    let entries = [Entry { name: "master.db".into(), body: Body::File(huge) }];
+    let e = write(&entries, &out.join("backup.zip"), &Ctx::silent()).unwrap_err();
+    assert_eq!(e.kind(), Some("no_space"), "{e:?}");
+    assert!(e.message.starts_with(&out.display().to_string()), "{e:?}");
+    assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+}
+
+/// A name twice is a zip the zip crate won't write: the write fails, leaving what was there.
+#[test]
+fn a_name_twice_fails_the_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut entries = entries(dir.path());
+    entries.push(Entry { name: "d.xml".into(), body: Body::Made(b"again".to_vec()) });
+    let into = dir.path().join("backup.zip");
+    std::fs::write(&into, b"yesterday's").unwrap();
+    let e = write(&entries, &into, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "{e:?}");
+    assert!(e.message.starts_with(&into.display().to_string()), "{e:?}");
+    assert_eq!(std::fs::read(&into).unwrap(), b"yesterday's");
+    assert_eq!(parts(dir.path()), 0);
+}
+
+/// An entry whose file can't be read (a folder where it was) fails the write, naming it, and
+/// leaves what was there.
+#[test]
+fn an_entry_that_cant_be_read_fails_the_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut entries = entries(dir.path());
+    let folder = dir.path().join("src/b");
+    entries[0].body = Body::File(folder.clone());
+    let into = dir.path().join("backup.zip");
+    std::fs::write(&into, b"yesterday's").unwrap();
+    let e = write(&entries, &into, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "{e:?}");
+    assert!(e.message.starts_with(&folder.display().to_string()), "{e:?}");
+    assert_eq!(std::fs::read(&into).unwrap(), b"yesterday's");
+    assert_eq!(parts(dir.path()), 0);
+}
+
 /// A zip a killed backup left half-written goes with the next write; one under way elsewhere (new)
 /// and other files stay.
 #[test]

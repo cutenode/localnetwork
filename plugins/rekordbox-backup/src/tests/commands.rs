@@ -250,6 +250,28 @@ fn a_library_that_isnt_there_isnt_backed_up() {
     host.stop();
 }
 
+/// A backup that can't start says why and makes nothing: settings that don't read, a host with no
+/// scratch folder, a settings file to strip that isn't XML (its tokens can't be told apart).
+#[test]
+fn a_backup_says_why_it_cant_start() {
+    stamped();
+    let f = fixture();
+    let host = host(&f);
+    let e = run(&host, &f, "backup", json!({}), json!({ "keep": "lots" })).unwrap_err();
+    assert_eq!(e.kind(), Some("invalid"), "{e:?}");
+    assert!(e.message.starts_with("settings: "), "{e:?}");
+    let context = json!({ "settings": { "destination": f.dest }, "scratch": null });
+    let req = json!({ "command": "backup", "context": context });
+    let e = host.request::<Value>(method::RUN_COMMAND, &req).unwrap_err();
+    assert_eq!(e.kind(), Some("incompatible"), "{e:?}");
+    std::fs::write(f.path("settings/rekordbox3.settings"), "no element here").unwrap();
+    let e = run(&host, &f, "backup", json!({}), json!({ "credentials": "strip" })).unwrap_err();
+    assert_eq!(e.kind(), Some("invalid"), "{e:?}");
+    assert_eq!(e.message, "rekordbox3.settings: not XML: it has no element");
+    assert_eq!(std::fs::read_dir(&f.dest).unwrap().count(), 0);
+    host.stop();
+}
+
 /// `backups` lists every backup with what its `contents.xml` says, and says how to restore one.
 #[test]
 fn backups_are_listed_with_what_they_hold() {

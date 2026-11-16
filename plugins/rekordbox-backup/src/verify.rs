@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 
 use loclib_plugin::{Choice, ChoiceItem, Host, Pair, RpcError, RunCommand, Section, View, params};
 use loclib_progress::{Ctx, Event, Phase};
-use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -147,9 +146,10 @@ fn read_entries(
         names.push(name);
     }
     ctx.phase_end(Phase::Verify);
-    let mut seen = FxHashSet::default();
-    if let Some(twice) = names.iter().find(|n| !seen.insert(n.as_str())) {
-        problems.push(format!("it has {twice} twice"));
+    // The zip crate keeps one entry for each name, so a name given twice shows only in how many
+    // its central directory has.
+    if zip.has_duplicate_names() {
+        problems.push("it has two entries of the same name".into());
     }
     if names.first().map(String::as_str) != Some("master.db") {
         problems.push("master.db isn't its first entry".into());

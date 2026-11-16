@@ -4,6 +4,25 @@ use super::*;
 use crate::model::Playlist;
 use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
 
+/// With no temporary folder to unpack a copy into (`TMPDIR` on a drive that's gone), reading,
+/// copying and listing a `master.db` each fail naming that folder, not the database.
+#[cfg(unix)]
+#[test]
+fn without_a_temporary_folder_a_master_db_cant_be_read() {
+    let gone = std::env::temp_dir().join("locallibrary-unplugged");
+    // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
+    unsafe { std::env::set_var("TMPDIR", &gone) };
+    let db = Path::new("/Users/dj/Library/Pioneer/rekordbox/master.db");
+    let failed = [
+        open(db, DEFAULT_KEY).map(drop),
+        files::export(db, DEFAULT_KEY, false, &gone.join("copy.db")).map(drop),
+        files::tracks(db, DEFAULT_KEY, 0, 10).map(drop),
+    ];
+    for e in failed.map(|r| r.unwrap_err()) {
+        assert!(matches!(&e, Error::Io { path, .. } if *path == gone), "{e:?}");
+    }
+}
+
 /// Columns every table but `djmdProperty` ends with.
 const STATS: &str = "UUID VARCHAR(255), rb_data_status INTEGER DEFAULT 0, rb_local_data_status INTEGER DEFAULT 0, \
         rb_local_deleted TINYINT(1) DEFAULT 0, rb_local_synced TINYINT(1) DEFAULT 0, usn BIGINT, rb_local_usn BIGINT, \

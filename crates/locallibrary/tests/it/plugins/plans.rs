@@ -98,6 +98,18 @@ fn a_planned_command_is_planned_then_run_as_it_was_planned() {
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "written");
 }
 
+/// A plan whose plugins are gone (the host closed, or its plugins started again) is refused as
+/// stale when it's applied: no other plugin runs what this one planned.
+#[test]
+fn a_plan_outliving_its_plugin_is_stale() {
+    let f = Fixture::planning(Options::default());
+    let plan = f.plan_keep(json!({})).unwrap().plan().unwrap();
+    drop(f);
+    let e = plan.apply(None, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "stale_plan", "{e}");
+    assert!(e.to_string().contains("the echo plugin stopped since the plan was made"), "{e}");
+}
+
 /// A command about the collection alone runs on no drive, whichever the caller names: planned or
 /// run, its context has none. One offered on a drive too keeps it.
 #[test]
