@@ -1135,7 +1135,7 @@
     size="icon-sm"
     variant="ghost"
     class="text-fg-muted hover:text-fg"
-    aria-label={`also — ${downloadLabel(entry)}`}
+    aria-label={`also ${downloadLabel(entry)}`}
     title={linkHint(entry)}
     onclick={() => open(entry)}
   >

@@ -2,7 +2,7 @@
 //! fixture drive with every view's data in (see `screens.rs`), with what must always hold checked
 //! after every step: the screen draws at any size with its header and footer, what's selected is
 //! there, the list shown is the library's, sorted as it says; and at the end, esc gets back out of
-//! whatever is open and q quits.
+//! whatever is open and Q quits.
 //!
 //! The walks stay off the machine: nothing they press opens a browser, signs in, reads the
 //! machine's drives, goes online, ejects or writes outside the test's folder (see [`allowed`]).
@@ -34,7 +34,7 @@ const KEYS: &[&str] = &[
     "j", "j", "k", "<up>", "<down>", "<down>", "<pgup>", "<pgdn>", "<home>", "<end>", "g", "G", "<left>", "<right>",
     "<tab>", "<tab>", "<backtab>", "<enter>", "<enter>", "<enter>", "<esc>", "<esc>", "<del>", "<bs>", "<space>",
     "/", "b", "B", "*", "#", "i", "m", "M", "a", "t", "e", "e", "T", "K", "J", "<S-up>", "<S-down>", "w", "X", "u",
-    "f", "v", "[", "]", "+", "-", "s", "r", "x", "o", "'", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "Q",
+    "f", "v", "[", "]", "+", "-", "s", "r", "x", "o", "'", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "Q", "Z",
     "l", "(", ")", "S", "A", "d", "z", "E", "O", "D", "h", "H", "n", "p", "y", "y", "q", "1", "2", "3", "4", "5",
     "0", "?", "!", ":", "R", "<f5>", "<ins>", "<C-c>",
 ];
@@ -347,8 +347,8 @@ fn back_out(app: &mut App) {
     }
     assert!(out(app), "esc didn't get out: modal {}, searching {}", app.modal.is_some(), app.searching);
     assert!(!app.quit, "esc quit");
-    app.on_key(key_event("q"));
-    assert!(app.quit, "q didn't quit");
+    app.on_key(key_event("Q"));
+    assert!(app.quit, "Q didn't quit");
 }
 
 /// The fixture's drive and store, and the drive's folder name: made once (pulling the drive into
@@ -412,7 +412,7 @@ const LIBRARY_KEYS: &[&str] = &[
     "j", "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>", "<home>", "<end>", "g", "G", "<left>", "<right>", "<tab>",
     "<tab>", "<backtab>", "<enter>", "<enter>", "<enter>", "<esc>", "<esc>", "<del>", "<bs>", "<space>", "/", "/",
     "b", "B", "*", "#", "i", "m", "M", "a", "t", "e", "e", "e", "T", "K", "J", "<S-up>", "<S-down>", "w", "X", "u",
-    "f", "v", "[", "]", "+", "-", "s", "r", "x", "o", "'", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "Q",
+    "f", "v", "[", "]", "+", "-", "s", "r", "x", "o", "'", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "Q", "Z",
     "l", "(", ")", "S", "A", "d", "n", "p", "y", "y", "y", "0", "3", "5", "?", "!", ":", ":", "R", "<ins>",
 ];
 
@@ -472,7 +472,7 @@ fn mix_walks_keep_the_player_whole(tc: TestCase) {
 
 /// The keys that turn something on or off, or step through settings, as the library takes them.
 const TOGGLES: &[&str] =
-    &["*", "#", "i", "t", "s", "r", "v", "f", "[", "]", "+", "-", "Q", "S", "A", "'", "<tab>", "<backtab>"];
+    &["*", "#", "i", "t", "s", "r", "v", "f", "[", "]", "+", "-", "Z", "S", "A", "'", "<tab>", "<backtab>"];
 
 /// What the toggles set, as a person keeping count would see it.
 #[derive(Debug, Clone, PartialEq)]
@@ -487,6 +487,8 @@ struct Toggles {
     /// Spectrum, mirror, scope, deck.
     vis: u8,
     deck_layout: bool,
+    /// Browse, over player mode.
+    browsing: bool,
     quantize: bool,
     single: bool,
     auto_cue: bool,
@@ -515,6 +517,7 @@ impl Toggles {
                 Vis::Deck => 3,
             },
             deck_layout: app.deck_layout,
+            browsing: app.browsing,
             quantize: app.deck.quantize,
             single: app.deck.single,
             auto_cue: app.deck.auto_cue,
@@ -533,6 +536,10 @@ impl Toggles {
                     self.focus = Focus::Tracks;
                 }
             }
+            // Over player mode, the queue opens with Browse, with focus.
+            "t" if self.deck_layout && !self.browsing => {
+                (self.crate_panel, self.browsing, self.focus) = (true, true, Focus::Crate);
+            }
             "t" => {
                 self.crate_panel = !self.crate_panel;
                 if !self.crate_panel && self.focus == Focus::Crate {
@@ -542,8 +549,8 @@ impl Toggles {
             "s" => self.shuffle = !self.shuffle,
             "r" => self.repeat = (self.repeat + 1) % 3,
             "v" => self.vis = (self.vis + 1) % 4,
-            "f" => self.deck_layout = !self.deck_layout,
-            "Q" => self.quantize = !self.quantize,
+            "f" => (self.deck_layout, self.browsing) = (!self.deck_layout, false),
+            "Z" => self.quantize = !self.quantize,
             "S" => self.single = !self.single,
             "A" => self.auto_cue = !self.auto_cue,
             "'" => self.pads = !self.pads,
@@ -860,7 +867,7 @@ fn the_search_shows_what_holds_the_words(tc: TestCase) {
 /// The player's keys: playback, the deck, the visualisers.
 const DECK_KEYS: &[&str] = &[
     "<space>", "<space>", "<left>", "<right>", "n", "n", "p", "x", "s", "r", "S", "A", "c", "C", "N", "P", ",", ".",
-    "<", ">", "{", "}", "Q", "l", "l", "(", ")", "f", "1", "2", "4", "v", "[", "]", "o", "d", "<enter>", "<esc>", "+",
+    "<", ">", "{", "}", "Z", "l", "l", "(", ")", "f", "1", "2", "4", "v", "[", "]", "o", "d", "<enter>", "<esc>", "+",
     "-", "'",
 ];
 

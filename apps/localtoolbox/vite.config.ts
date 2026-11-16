@@ -4,9 +4,9 @@
 // popup, and the background worker with the offscreen page it opens, all
 // bundled into ES modules. Everything that runs *in the page* (content.ts and
 // the store it shares with the panels) is a classic script: it is written in
-// TypeScript, and the only compiling it gets is its types blanked out, so the
-// content script keeps loading the same two files the manifest has always
-// named.
+// TypeScript, and the only compiling it gets is its types and comments blanked
+// out, so the content script keeps loading the same two files the manifest has
+// always named.
 //
 //   pnpm build           → dist/, the folder to load as an unpacked extension
 //   pnpm dev             → the same, rebuilt on every change
@@ -17,10 +17,10 @@
 import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
-import blankSpace from 'ts-blank-space';
 import { execFileSync } from 'node:child_process';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pageScript } from './scripts/page-script.mts';
 
 const here = import.meta.dirname;
 
@@ -52,8 +52,9 @@ const unbundled = {
 
 // The classic scripts: the two content scripts and the three the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
-// annotation with spaces and leaves every line and column where it was, so an
-// error on soundcloud.com points at the same place in the source, with no
+// annotation with spaces, and the comments go the same way
+// (scripts/page-script.mts): every line and column of code stays where it was,
+// so an error on soundcloud.com points at the same place in the source, with no
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
 	'content.js': 'content.ts',
@@ -75,7 +76,7 @@ const shipUnbundled = (): Plugin => ({
 		}
 
 		for (const [to, from] of Object.entries(pageScripts)) {
-			writeFileSync(resolve(out, to), blankSpace(readFileSync(resolve(here, from), 'utf8')));
+			writeFileSync(resolve(out, to), pageScript(readFileSync(resolve(here, from), 'utf8')));
 		}
 	}
 });

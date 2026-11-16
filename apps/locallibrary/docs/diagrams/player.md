@@ -22,22 +22,22 @@ First run, views, panes, jobs, threads, playback and what it remembers. The rest
 
 ## Player views
 
-The player's five views and what crosses from one to another. `g` and a letter switches views (`g l`, `g p`, `g d`, `g r`, `g u`), and the digits jump to a pane, or play hot cues while the pads are on. `o` goes to the playing track, in the library or, for a recording, in Recordings; in Recordings with a recording open, it goes to the selected track in the library.
+The player's five views and what crosses from one to another. `g` and a letter switches views (`g l`, `g p`, `g d`, `g r`, `g n`), and the digits jump to a pane, or play hot cues while the pads are on. `o` goes to the playing track, in the library or, for a recording, in Recordings; in Recordings with a recording open, it goes to the selected track in the library.
 
 ```mermaid
 flowchart TD
-    library["Library<br/>drives, playlist tree, tracks, crate, details"]
+    library["Library<br/>drives, playlist tree, tracks, details, queue"]
     prepare["Prepare<br/>the jobs that get a drive ready"]
     drives["Drives<br/>libraries, drives, snapshots, what players recorded"]
     recordings["Recordings<br/>recorded sets and their tracks"]
-    publish["Publish<br/>DJ profile, Atmosphere account"]
+    publish["localnetwork<br/>DJ profile, Atmosphere account"]
     drives -->|"enter opens a drive, or a<br/>list players recorded"| library
     drives -.->|"enter on a snapshot: a playlist back<br/>onto the open drive, staying here"| library
     prepare -.->|"enter: a job on the open<br/>drive, staying here"| library
     recordings -->|"o goes to a track"| library
     library -->|"o, playing a recording"| recordings
     library -->|"mark playlists to pack"| drives
-    library -->|"m marks, a adds, t shows it"| crate["Crate"]
+    library -->|"m marks, q n plays next, q a adds, q q shows it"| crate["Queue (the crate)"]
     crate -->|"w saves its tracks on the open drive as a playlist"| crate
     crate -->|"packed onto a drive"| drives
 ```
@@ -57,7 +57,7 @@ flowchart TD
     empty -->|"open a folder"| folder["Prompt: the folder holding an export"]
     folder --> open
     empty -->|"browse snapshots,<br/>while the store has a library"| snapshots["Drives view, its snapshots"]
-    empty -->|"sign in, until someone is"| publish["Publish view, typing the handle"]
+    empty -->|"sign in, until someone is"| publish["localnetwork view, typing the handle"]
     open -->|"the first this version,<br/>unless the hints are off"| intro["The footer names enter, e, : and ?<br/>until a key or a click"]
 ```
 
@@ -89,7 +89,7 @@ Where keys go in the Library view, and what takes them first, in the order it's 
 
 ```mermaid
 flowchart TD
-    first["Taken first, in order: the key after g, help ?,<br/>messages !, the output list d, a dialog,<br/>the search box, picking a playlist"] --> panes["Panes, tab or a digit to move: drive list,<br/>playlist tree, tracks, crate, details"]
+    first["Taken first, in order: the key after g, help ?,<br/>messages !, the output list d, a dialog,<br/>the search box, picking a playlist"] --> panes["Panes, tab or a digit to move: drive list,<br/>playlist tree, tracks, queue, details"]
     panes -->|"g"| chord["A letter for a view, or g for the first row"]
     panes -->|"e, or the right mouse<br/>button but on the drive list"| menu["Menu"]
     panes -->|":"| pick["Pick: the palette"]
@@ -316,7 +316,7 @@ Source: [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/deck.r
 
 ## Signing in from the player
 
-The Atmosphere account's sign-in in the Publish view, kept off the UI thread. `L` starts it there, and "sign in", in the empty library or the palette, goes there to start it.
+The Atmosphere account's sign-in in the localnetwork view, kept off the UI thread. `L` starts it there, and "sign in", in the empty library or the palette, goes there to start it.
 
 ```mermaid
 stateDiagram-v2
@@ -377,7 +377,7 @@ flowchart TD
     has -->|"a store"| tui["tui.json in the store"]
     has -->|"no store yet"| beside["STORE-player/tui.json,<br/>in a folder beside it"]
     has -->|"inside the open drive,<br/>or its file can't be read"| none["Not saved"]
-    tui --> where["Where it was: drive, list, view, volume, open panels,<br/>output, Deck layout, crate, recordings and folders opened,<br/>queue and place, the version that last showed the intro"]
+    tui --> where["Where it was: drive, list, view, volume, open panels,<br/>output, player mode, the queue and its picks, recordings and folders opened,<br/>queue and place, the version that last showed the intro"]
     beside --> where
     tui --> prefs["Preferences: theme, colour tier, icons, sort, search scope,<br/>columns, visualiser, playback modes, key notation and colours,<br/>waveform bands, end warning, cover art, hints, recent commands"]
     beside --> prefs

@@ -41,6 +41,7 @@
 		p: '/privacy',
 		m: '/match',
 		d: '/for-djs',
+		k: '/for-promoters',
 		b: '/dashboard/bookings',
 		n: '/dashboard/projects/new',
 		c: '/projects?unclaimed=on',

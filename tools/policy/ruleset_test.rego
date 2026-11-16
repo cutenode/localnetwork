@@ -12,6 +12,25 @@ test_check_not_required if {
 	".github/rulesets/protect-main.json: require \"Deps passed\", then apply it with tools/ruleset.sh" in ruleset.deny with input as fixtures.with_file(".github/rulesets/protect-main.json", broken)
 }
 
+review_rule(parameters) := fixtures.with_file(
+	".github/rulesets/protect-main.json",
+	{"rules": [{"type": "pull_request", "parameters": parameters}]},
+)
+
+review_denial(setting) := sprintf(
+	".github/rulesets/protect-main.json: set the pull_request rule's %s to true, so an approval doesn't carry over a later push",
+	[setting],
+)
+
+test_stale_approvals_kept if {
+	denied := ruleset.deny with input as review_rule({"dismiss_stale_reviews_on_push": false, "require_last_push_approval": true})
+	review_denial("dismiss_stale_reviews_on_push") in denied
+}
+
+test_last_push_approval_missing if {
+	review_denial("require_last_push_approval") in ruleset.deny with input as review_rule({"dismiss_stale_reviews_on_push": true})
+}
+
 queue := {"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}
 
 with_queue := fixtures.with_file(".github/rulesets/protect-main.json", json.patch(fixtures.file(".github/rulesets/protect-main.json"), [{"op": "add", "path": "/rules/-", "value": queue}]))

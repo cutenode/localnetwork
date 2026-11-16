@@ -175,9 +175,10 @@ pub(super) fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "nothing in a compatible key and tempo"
     };
-    // The queue's next track, marked when it's one of the matches.
-    let q = &app.queue;
-    let next = q.order.get(q.pos + 1).map(|&i| q.track(i).file_path.as_str());
+    // What plays next (a pick, else the list's next), marked when it's one of the matches.
+    let next = app.next_up(true);
+    let next = next.as_ref().and_then(|n| app.track_of(n)).map(|(t, _)| t.file_path.clone());
+    let next = next.as_deref();
     app.areas.matches = draw_matches(f, mixes, now.matches.as_ref(), next, why, &mut app.next_pick, true);
 
     if lists > 0 {

@@ -352,7 +352,7 @@ describe('the other sources', () => {
 		chromeAnswering({ storage: { listed: TRACKS } });
 		await load();
 		const manager = button('Manager (2)')!;
-		expect(manager.getAttribute('aria-label')).toBe('add the Manager’s list — 2 artists');
+		expect(manager.getAttribute('aria-label')).toBe('add 2 artists from the Manager’s list');
 		await click(manager);
 		expect(text()).toMatch(/added 2 artists from the Manager’s list/);
 		expect(stored().map((one) => one.from)).toEqual(['the Manager’s list', 'the Manager’s list']);
@@ -365,7 +365,7 @@ describe('the other sources', () => {
 		chromeAnswering({ session: { queue: [TRACKS[2]] } });
 		await load();
 		const queued = button('queue (1)')!;
-		expect(queued.getAttribute('aria-label')).toBe('add the session queue — 1 artist');
+		expect(queued.getAttribute('aria-label')).toBe('add 1 artist from the session queue');
 		await click(queued);
 		expect(text()).toMatch(/added 1 artist from the session queue/);
 		expect(stored()[0]).toMatchObject({ permalink: '/fourtet', from: 'the session queue' });
@@ -602,7 +602,7 @@ describe('a row opened out', () => {
 		});
 		await load();
 		await click(chevron('Mid'));
-		const again = labelled('look up Mid again', HTMLButtonElement);
+		const again = labelled('look up again: Mid', HTMLButtonElement);
 		expect(again.title).toMatch(/asks SoundCloud about this artist again/);
 		await click(again);
 		expect(lookups()).toEqual([{ type: 'GET_ARTIST_PROFILES', permalinks: ['/mid'] }]);
@@ -614,7 +614,7 @@ describe('a row opened out', () => {
 		await load();
 		const before = stored()[0].profile;
 		await click(chevron('Mid'));
-		await click(labelled('look up Mid again', HTMLButtonElement));
+		await click(labelled('look up again: Mid', HTMLButtonElement));
 
 		expect(stored()[0].profile).toEqual(before);
 		expect(rowText()[0]).toMatch(/lookup failed/);
@@ -625,11 +625,11 @@ describe('a row opened out', () => {
 		const mock = chromeAnswering({ storage: { artists: [MID] }, lookup: answer([], [], '', ['/mid']) });
 		await load();
 		await click(chevron('Mid'));
-		await click(labelled('look up Mid again', HTMLButtonElement));
+		await click(labelled('look up again: Mid', HTMLButtonElement));
 		expect(rowText()[0]).toMatch(/lookup failed/);
 
 		mock.tabs.sendMessage.mockImplementation(async () => answer([profile('/mid', { city: 'Derry' })]));
-		await click(labelled('look up Mid again', HTMLButtonElement));
+		await click(labelled('look up again: Mid', HTMLButtonElement));
 		expect(rowText()[0]).toMatch(/Derry, GB/);
 	});
 
@@ -646,7 +646,7 @@ describe('a row opened out', () => {
 		chromeAnswering({ storage: { artists: [MID] }, tab: { id: 1, url: 'https://example.com/' } });
 		await load();
 		await click(chevron('Mid'));
-		const again = labelled('look up Mid again', HTMLButtonElement);
+		const again = labelled('look up again: Mid', HTMLButtonElement);
 		expect(again.disabled).toBe(true);
 		expect(again.title).toMatch(/open a SoundCloud tab/);
 	});

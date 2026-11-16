@@ -1,0 +1,524 @@
+use super::*;
+
+/// A disk that keeps only as many bytes as `data` holds and wraps every address past them.
+struct FakeDisk {
+    data: Vec<u8>,
+}
+
+impl RawDisk for FakeDisk {
+    fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+        let n = self.data.len() as u64;
+        for (i, b) in buf.iter().enumerate() {
+            self.data[((offset + i as u64) % n) as usize] = *b;
+        }
+        Ok(())
+    }
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        let n = self.data.len() as u64;
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = self.data[((offset + i as u64) % n) as usize];
+        }
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+const MIB: u64 = 1 << 20;
+
+#[test]
+fn a_real_disk_passes() {
+    let mut d = FakeDisk { data: vec![0; (64 * MIB) as usize] };
+    let r = probe(&mut d, 64 * MIB, 512, &Ctx::silent()).unwrap();
+    assert!(!r.is_fake(), "{r:?}");
+    assert_eq!(r.regions, 64);
+}
+
+#[test]
+fn a_wrapping_disk_is_caught_and_its_real_size_shown() {
+    // Claims 256 MiB, holds 64.
+    let mut d = FakeDisk { data: vec![0; (64 * MIB) as usize] };
+    let r = probe(&mut d, 256 * MIB, 512, &Ctx::silent()).unwrap();
+    assert!(r.is_fake());
+    let works = r.works_up_to.unwrap();
+    assert!((60 * MIB..=64 * MIB).contains(&works), "{works}");
+    // Regions above 64 MiB read back the low regions written over them.
+    assert!(
+        r.aliases.iter().all(|a| a.read_at > a.written_at && (a.read_at - a.written_at) % (64 * MIB) == 0),
+        "{:?}",
+        r.aliases
+    );
+}
+
+/// Fails every write after the first `ok` (the wipe counts as one).
+struct FailingDisk {
+    inner: FakeDisk,
+    ok: usize,
+}
+
+impl RawDisk for FailingDisk {
+    fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+        if self.ok == 0 {
+            return Err(io::Error::other("unplugged"));
+        }
+        self.ok -= 1;
+        self.inner.write_at(offset, buf)
+    }
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        self.inner.read_at(offset, buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Regression: the first region (partition table, boot sector) was written last, so a probe
+/// stopped part way left the old volume mounting with damaged files.
+#[test]
+fn a_probe_stopped_part_way_leaves_a_disk_that_no_longer_mounts() {
+    let mut data = vec![0x55; (16 * MIB) as usize];
+    data[510..512].copy_from_slice(&[0x55, 0xAA]);
+    let mut d = FailingDisk { inner: FakeDisk { data }, ok: 3 };
+    assert!(probe(&mut d, 16 * MIB, 512, &Ctx::silent()).is_err());
+    assert!(d.inner.data[..REGION].iter().all(|&b| b == 0), "the boot sector is gone");
+}
+
+/// A disk that keeps only as many bytes as `data` holds, drops writes past them and fails
+/// reads there, as many fake sticks do once their real capacity is used up.
+struct DroppingDisk {
+    data: Vec<u8>,
+}
+
+impl RawDisk for DroppingDisk {
+    fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+        if let Some(dst) = self.data.get_mut(offset as usize..offset as usize + buf.len()) {
+            dst.copy_from_slice(buf);
+        }
+        Ok(())
+    }
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        let src = self.data.get(offset as usize..offset as usize + buf.len()).ok_or(io::ErrorKind::UnexpectedEof)?;
+        buf.copy_from_slice(src);
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_disk_that_fails_reads_past_its_real_size_is_caught() {
+    let mut d = DroppingDisk { data: vec![0; (32 * MIB) as usize] };
+    let r = probe(&mut d, 128 * MIB, 512, &Ctx::silent()).unwrap();
+    assert!(r.is_fake());
+    assert_eq!(r.failed, r.regions - 32, "{r:?}");
+    assert!((31 * MIB..=32 * MIB).contains(&r.works_up_to.unwrap()), "{r:?}");
+    assert!(r.aliases.is_empty(), "nothing came back from the wrong place");
+}
+
+/// A disk smaller than one test region has nothing to test, and nothing is written to it.
+#[test]
+fn a_disk_smaller_than_a_region_is_left_alone() {
+    let mut d = FailingDisk { inner: FakeDisk { data: vec![0; REGION / 2] }, ok: 0 };
+    let r = probe(&mut d, REGION as u64 / 2, 512, &Ctx::silent()).unwrap();
+    assert_eq!((r.regions, r.failed, r.works_up_to), (0, 0, None));
+    assert_eq!(region_count(REGION as u64 / 2, 512), 0);
+}
+
+/// The probe reads back from the device file it wrote, on a file standing in for a disk.
+/// Not on Linux, where flushing drops the kernel's caches, which only root may.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[test]
+fn a_device_file_is_probed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rdisk4");
+    std::fs::File::create(&path).unwrap().set_len(8 * MIB).unwrap();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    let r = probe(&mut dev, 8 * MIB, 512, &Ctx::silent()).unwrap();
+    assert!(!r.is_fake() && r.regions == 8, "{r:?}");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
+}
+
+#[test]
+fn regions_cover_the_disk() {
+    let r = regions(10 * MIB, 512);
+    assert_eq!(r.first(), Some(&0));
+    assert_eq!(r.last(), Some(&(9 * MIB)));
+    assert_eq!(r.len(), 10);
+    assert!(regions(MIB - 1, 512).is_empty());
+    assert!(regions(1 << 40, 4096).len() <= MAX_REGIONS as usize + 1);
+}
+
+// -----------------------------------------------------------------------------------------
+// Properties
+// -----------------------------------------------------------------------------------------
+
+use hegel::TestCase;
+use hegel::generators as gs;
+use std::sync::Mutex;
+
+/// How a simulated disk treats addresses past its real capacity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Past {
+    /// They wrap around onto the start.
+    Wrap,
+    /// Writes vanish and reads come back as zeros.
+    Drop,
+    /// Reads fail.
+    Fail,
+}
+
+/// A disk that really holds `data.len()` bytes, copying a run at a time (byte by byte is
+/// too slow for tests that write many megabytes).
+struct Simulated {
+    data: Vec<u8>,
+    past: Past,
+}
+
+impl Simulated {
+    /// The runs of `len` bytes from `offset`: (position in the buffer, address on the disk or
+    /// `None` past it, length).
+    fn runs(&self, offset: u64, len: usize) -> Vec<(usize, Option<usize>, usize)> {
+        let real = self.data.len();
+        let mut out = Vec::new();
+        let mut pos = 0;
+        while pos < len {
+            let at = offset as usize + pos;
+            let (addr, room) = match self.past {
+                Past::Wrap => (Some(at % real), real - at % real),
+                _ if at < real => (Some(at), real - at),
+                _ => (None, len - pos),
+            };
+            let n = room.min(len - pos);
+            out.push((pos, addr, n));
+            pos += n;
+        }
+        out
+    }
+}
+
+impl RawDisk for Simulated {
+    fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+        for (pos, addr, n) in self.runs(offset, buf.len()) {
+            if let Some(a) = addr {
+                self.data[a..a + n].copy_from_slice(&buf[pos..pos + n]);
+            }
+        }
+        Ok(())
+    }
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        for (pos, addr, n) in self.runs(offset, buf.len()) {
+            match addr {
+                Some(a) => buf[pos..pos + n].copy_from_slice(&self.data[a..a + n]),
+                None if self.past == Past::Fail => return Err(io::ErrorKind::UnexpectedEof.into()),
+                None => buf[pos..pos + n].fill(0),
+            }
+        }
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Test regions start at 0 and end at the last whole region, are sector-aligned, never
+/// overlap (a region written over by the next would read back wrong on a real disk), and
+/// number one per MiB up to 256.
+#[hegel::test(test_cases = 500)]
+fn regions_are_aligned_and_apart(tc: TestCase) {
+    let align = tc.draw(gs::sampled_from(vec![512u64, 4096]));
+    let sectors = tc.draw(hegel::one_of!(
+        gs::integers::<u64>().max_value(80 * MIB / 512),
+        gs::integers::<u64>().max_value((4u64 << 40) / 512),
+    ));
+    let size = sectors * align;
+    let r = regions(size, align);
+    assert_eq!(r.len(), region_count(size, align as u32));
+    if size < MIB {
+        assert!(r.is_empty());
+        return;
+    }
+    let last = if size < 2 * MIB { 0 } else { (size - MIB) / align * align };
+    assert_eq!((r.first(), r.last()), (Some(&0), Some(&last)));
+    assert!(r.iter().all(|o| o % align == 0 && o + MIB <= size));
+    assert!(r.windows(2).all(|w| w[1] >= w[0] + MIB), "regions overlap on a {size}-byte disk: {r:?}");
+    assert_eq!(r.len() as u64, (size / MIB).clamp(1, MAX_REGIONS));
+}
+
+/// A disk is fake exactly when it holds less than it claims: every region wholly within its
+/// real capacity reads back and every other one doesn't, so it works up to the first region
+/// past that. Data read back from the wrong place came from the place it wraps onto, and is
+/// reported as its schema says. Progress counts every region written and verified.
+#[hegel::test(test_cases = 25)]
+fn probes_find_the_real_capacity(tc: TestCase) {
+    let align = tc.draw(gs::sampled_from(vec![512u64, 4096]));
+    let claimed = tc.draw(gs::integers::<u64>().min_value(1).max_value(12 * MIB / align)) * align;
+    let fake = tc.draw(gs::booleans());
+    let real =
+        if fake { tc.draw(gs::integers::<u64>().min_value(1).max_value(claimed / align)) * align } else { claimed };
+    let past = tc.draw(gs::sampled_from(vec![Past::Wrap, Past::Drop, Past::Fail]));
+    let mut disk = Simulated { data: vec![0x5A; real as usize], past };
+
+    let bytes = Mutex::new((0u64, 0u64));
+    let count = |e: &Event| {
+        let mut b = bytes.lock().unwrap();
+        match e {
+            Event::Bytes { phase: Phase::Write, bytes } => b.0 += bytes,
+            Event::Bytes { phase: Phase::Verify, bytes } => b.1 += bytes,
+            _ => {}
+        }
+    };
+    let r = probe(&mut disk, claimed, align as u32, &Ctx::new(&count, Default::default())).unwrap();
+
+    let offsets = regions(claimed, align);
+    let bad: Vec<u64> = offsets.iter().copied().filter(|o| o + MIB > real).collect();
+    assert_eq!((r.claimed, r.regions), (claimed, offsets.len()));
+    assert_eq!(r.failed, bad.len(), "{real} of {claimed} ({past:?}): {r:?}");
+    assert_eq!(r.works_up_to, bad.first().copied());
+    assert_eq!(r.is_fake(), !bad.is_empty());
+    assert!(bad.is_empty() || real < claimed);
+    assert!(r.aliases.len() <= 8);
+    for a in &r.aliases {
+        assert_eq!(past, Past::Wrap, "only a wrapping disk returns another region's data");
+        assert!(offsets.contains(&a.written_at) && a.read_at > a.written_at);
+        assert_eq!((a.read_at - a.written_at) % real, 0, "{a:?}");
+    }
+    let total = offsets.len() as u64 * MIB;
+    assert_eq!(*bytes.lock().unwrap(), (total, total));
+    // Each alias is sent as the `[written_at, read_at]` pair its schema describes.
+    let sent = serde_json::to_value(&r).unwrap();
+    let pairs: Vec<[u64; 2]> = r.aliases.iter().map(|a| [a.written_at, a.read_at]).collect();
+    assert_eq!(
+        sent,
+        serde_json::json!({
+            "claimed": r.claimed,
+            "regions": r.regions,
+            "failed": r.failed,
+            "works_up_to": r.works_up_to,
+            "aliases": pairs,
+        })
+    );
+    #[cfg(feature = "schemars")]
+    {
+        let schema = serde_json::to_value(schemars::schema_for!(Alias)).unwrap();
+        let titles: Vec<&str> =
+            schema["prefixItems"].as_array().unwrap().iter().map(|i| i["title"].as_str().unwrap()).collect();
+        assert_eq!(
+            (schema["type"].as_str(), titles, &schema["minItems"], &schema["maxItems"]),
+            (Some("array"), vec!["written_at", "read_at"], &serde_json::json!(2), &serde_json::json!(2))
+        );
+    }
+    // The first region was wiped and then written last, so it holds its own pattern.
+    if !offsets.is_empty() && real >= MIB {
+        assert_eq!(&disk.data[..8], MAGIC);
+    }
+}
+
+/// A cancelled probe stops before writing a single pattern, with the boot region already
+/// wiped, and reports the cancellation.
+#[hegel::test(test_cases = 20)]
+fn a_cancelled_probe_stops_after_the_wipe(tc: TestCase) {
+    let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(4)) * MIB;
+    let mut disk = Simulated { data: vec![0xFF; size as usize], past: Past::Wrap };
+    let cancel = loclib_progress::CancelToken::new();
+    cancel.cancel();
+    let err = probe(&mut disk, size, 512, &Ctx::new(&loclib_progress::NoProgress, cancel)).unwrap_err();
+    assert!(matches!(err, Error::Cancelled(_)), "{err}");
+    assert!(disk.data[..REGION].iter().all(|&b| b == 0) && disk.data[REGION..].iter().all(|&b| b == 0xFF));
+}
+
+/// A file standing in for a disk of whole sectors probes as real, reading back from the file
+/// it wrote; a missing one can't be opened. Not on Linux, where flushing drops the kernel's
+/// caches, which only root may.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[hegel::test(test_cases = 10)]
+fn device_files_probe_as_real(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rdisk4");
+    let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(6 * MIB / 512)) * 512;
+    std::fs::File::create(&path).unwrap().set_len(size).unwrap();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    let r = probe(&mut dev, size, 512, &Ctx::silent()).unwrap();
+    assert!(!r.is_fake() && r.regions == region_count(size, 512), "{r:?}");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), size, "nothing written past the end");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
+}
+
+/// A disk that wraps writes at a whole number of MiB hands back, for each region past its real
+/// size, the region it wraps onto: every region at or above the real size is an alias of the
+/// one a whole number of real sizes below it, listed in order (at most 8), and all below it
+/// read back.
+#[hegel::test(test_cases = 25)]
+fn wrapping_disks_show_where_each_region_landed(tc: TestCase) {
+    let claimed_mib = tc.draw(gs::integers::<u64>().min_value(2).max_value(12));
+    let real_mib = tc.draw(gs::integers::<u64>().min_value(1).max_value(claimed_mib - 1));
+    let align = tc.draw(gs::sampled_from(vec![512u32, 4096]));
+    let mut disk = Simulated { data: vec![0; (real_mib * MIB) as usize], past: Past::Wrap };
+    let r = probe(&mut disk, claimed_mib * MIB, align, &Ctx::silent()).unwrap();
+    // One region per MiB, so region i is at i MiB, and lands on (i mod real) MiB.
+    let past: Vec<Alias> =
+        (real_mib..claimed_mib).map(|i| Alias { written_at: (i % real_mib) * MIB, read_at: i * MIB }).collect();
+    assert_eq!((r.regions as u64, r.failed as u64), (claimed_mib, claimed_mib - real_mib));
+    assert_eq!(r.works_up_to, Some(real_mib * MIB));
+    assert_eq!(r.aliases, past[..past.len().min(8)]);
+    let pairs: Vec<[u64; 2]> = r.aliases.iter().map(|a| [a.written_at, a.read_at]).collect();
+    assert_eq!(serde_json::to_value(&r.aliases).unwrap(), serde_json::json!(pairs), "each alias is sent as its pair");
+}
+
+/// A file standing in for a disk reads back, from where it was written, what was written there;
+/// a missing one can't be opened. (Probing one is `device_files_probe_as_real`, which Linux skips.)
+#[hegel::test(test_cases = 10)]
+fn device_files_read_back_what_was_written_where(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rdisk4");
+    std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
+    let offset = tc.draw(gs::integers::<u64>().max_value(MIB / 512)) * 512;
+    let data = tc.draw(gs::binary().min_size(1).max_size(8192));
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    dev.write_at(offset, &data).unwrap();
+    let mut back = vec![0; data.len()];
+    dev.read_at(offset, &mut back).unwrap();
+    assert_eq!(back, data);
+    let start = offset as usize;
+    assert_eq!(std::fs::read(&path).unwrap()[start..start + data.len()], data[..], "written to the file");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
+}
+
+/// Linux caches block devices, so a probe drops the caches before reading back, which needs
+/// root. Without the rights it stops with an I/O error at the boot region's flush rather than
+/// read back what the kernel kept.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn a_linux_probe_drops_the_caches_or_stops() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sdz");
+    std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
+    let can_drop = std::fs::OpenOptions::new().write(true).open("/proc/sys/vm/drop_caches").is_ok();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    match probe(&mut dev, 2 * MIB, 512, &Ctx::silent()) {
+        Ok(r) => assert!(can_drop && !r.is_fake(), "{r:?}"),
+        Err(e) => assert!(!can_drop && matches!(e, Error::Io { .. }), "{e}"),
+    }
+}
+
+/// A device this process may not write to is refused for asking administrator rights, naming
+/// it; one it may is opened.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn devices_that_cant_be_written_ask_for_rights(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(format!("rdisk{}", tc.draw(gs::integers::<u8>())));
+    std::fs::File::create(&path).unwrap().set_len(MIB).unwrap();
+    let writable = tc.draw(gs::booleans());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(if writable { 0o600 } else { 0o400 })).unwrap();
+    let name = path.to_string_lossy().into_owned();
+    match DeviceFile::open_to_overwrite(&path) {
+        Ok(_) => assert!(writable || is_root(&path), "a read-only device opened"),
+        Err(e @ Error::Permission { .. }) => {
+            assert!(!writable);
+            assert_eq!(e.to_string(), format!("checking the capacity of {name} needs administrator rights"));
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// Root may open anything: whether this process could, despite the permissions.
+#[cfg(unix)]
+fn is_root(path: &std::path::Path) -> bool {
+    std::fs::OpenOptions::new().write(true).open(path).is_ok()
+}
+
+/// A region the real size cuts through (its start kept, the rest dropped) holds its own header
+/// where it was written: it fails, but it is no alias. Only the regions that don't fit fail.
+#[hegel::test(test_cases = 25)]
+fn a_region_cut_short_by_the_real_size_is_no_alias(tc: TestCase) {
+    let claimed_mib = tc.draw(gs::integers::<u64>().min_value(2).max_value(10));
+    let whole = tc.draw(gs::integers::<u64>().max_value(claimed_mib - 1));
+    // Some sectors past a whole number of MiB: enough for the region's header, not the region.
+    let sectors = tc.draw(gs::integers::<u64>().min_value(1).max_value(MIB / 512 - 1));
+    let real = whole * MIB + sectors * 512;
+    let mut disk = Simulated { data: vec![0; real as usize], past: Past::Drop };
+    let r = probe(&mut disk, claimed_mib * MIB, 512, &Ctx::silent()).unwrap();
+    assert_eq!((r.regions as u64, r.failed as u64), (claimed_mib, claimed_mib - whole));
+    assert_eq!(r.works_up_to, Some(whole * MIB));
+    assert!(r.aliases.is_empty(), "{:?}", r.aliases);
+}
+
+/// A disk that holds nothing and fails the write or flush numbered `fail_at` (counting both).
+struct Failing {
+    ops: usize,
+    fail_at: Option<usize>,
+}
+
+impl Failing {
+    fn op(&mut self) -> io::Result<()> {
+        self.ops += 1;
+        match self.fail_at == Some(self.ops - 1) {
+            true => Err(io::Error::other("the disk went away")),
+            false => Ok(()),
+        }
+    }
+}
+
+impl RawDisk for Failing {
+    fn write_at(&mut self, _: u64, _: &[u8]) -> io::Result<()> {
+        self.op()
+    }
+    fn read_at(&mut self, _: u64, buf: &mut [u8]) -> io::Result<()> {
+        buf.fill(0);
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.op()
+    }
+}
+
+/// A probe stops at the first write or flush the disk fails, with an I/O error about the disk
+/// and nothing written after it; cancelled once every pattern is written, it stops before
+/// reading any back.
+#[hegel::test(test_cases = 50)]
+fn prop_a_probe_stops_at_a_disk_error_or_a_cancel_before_reading(tc: TestCase) {
+    let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(8)) * MIB;
+    let mut clean = Failing { ops: 0, fail_at: None };
+    assert!(probe(&mut clean, size, 512, &Ctx::silent()).unwrap().is_fake(), "it holds nothing");
+    let fail_at = tc.draw(gs::integers::<usize>().max_value(clean.ops - 1));
+    let mut disk = Failing { ops: 0, fail_at: Some(fail_at) };
+    let err = probe(&mut disk, size, 512, &Ctx::silent()).unwrap_err();
+    assert!(matches!(&err, Error::Io { path, .. } if path.to_str() == Some("disk")), "{err}");
+    assert_eq!(disk.ops, fail_at + 1, "nothing after the failure");
+
+    let cancel = loclib_progress::CancelToken::new();
+    let reads = Mutex::new(0usize);
+    let stop = |e: &Event| match e {
+        Event::PhaseEnd { phase: Phase::Write } => cancel.cancel(),
+        Event::Bytes { phase: Phase::Verify, .. } => *reads.lock().unwrap() += 1,
+        _ => {}
+    };
+    let err = probe(&mut Failing { ops: 0, fail_at: None }, size, 512, &Ctx::new(&stop, cancel.clone())).unwrap_err();
+    assert!(matches!(err, Error::Cancelled(_)), "{err}");
+    assert_eq!(*reads.lock().unwrap(), 0);
+}
+
+/// A pattern starts with the magic, its offset and the nonce, comes out the same each time for
+/// the same ones, fills the whole buffer (a last word cut short included) and differs from the
+/// next offset's.
+#[hegel::test(test_cases = 100)]
+fn patterns_are_headed_and_repeatable(tc: TestCase) {
+    let offset = tc.draw(gs::integers::<u64>());
+    let nonce = tc.draw(gs::integers::<u64>());
+    let len = tc.draw(gs::integers::<usize>().min_value(24).max_value(4096));
+    let mut a = vec![0u8; len];
+    pattern(offset, nonce, &mut a);
+    assert_eq!((&a[..8], &a[8..16], &a[16..24]), (&MAGIC[..], &offset.to_le_bytes()[..], &nonce.to_le_bytes()[..]));
+    let mut b = vec![0xFF; len];
+    pattern(offset, nonce, &mut b);
+    assert_eq!(a, b);
+    let mut next = vec![0u8; len];
+    pattern(offset.wrapping_add(1), nonce, &mut next);
+    assert_ne!(a, next);
+}

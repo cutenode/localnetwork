@@ -21,6 +21,7 @@ import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
 import { ProfileService } from '../services/profiles';
 import { ProjectAdmin } from '../services/project-admin';
+import { ProjectMigration } from '../services/project-migration';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
 import { type ListingSource, ListingWriter } from '../services/listings';
@@ -41,7 +42,13 @@ export const ROOT = 'did:plc:root';
 
 /** A fully wired set of services over an in-memory database, a fake PDS network, and a stand-in HappyView. */
 export async function createTestServices(
-	options: { admins?: string[]; capable?: string[]; listingSources?: Partial<Record<SpaceKind, ListingSource>> } = {}
+	options: {
+		admins?: string[];
+		capable?: string[];
+		listingSources?: Partial<Record<SpaceKind, ListingSource>>;
+		/** Flags forced on or off for every caller, as FLAG_OVERRIDES does. */
+		flagOverrides?: Record<string, boolean>;
+	} = {}
 ) {
 	const db: Db = await openDatabase(':memory:');
 	const net = new FakeNetwork();
@@ -107,7 +114,7 @@ export async function createTestServices(
 
 	const projects = new ProjectService(core, directory);
 	const staff = new StaffService(core);
-	const flags = new FlagService(core, staff);
+	const flags = new FlagService(core, staff, options.flagOverrides);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
@@ -137,9 +144,10 @@ export async function createTestServices(
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 
-	const listings = new ListingWriter(core, { performer: performerListingSource(db), ...options.listingSources });
+	const listings = new ListingWriter(core, flags, { performer: performerListingSource(db), ...options.listingSources });
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
+	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
@@ -192,6 +200,7 @@ export async function createTestServices(
 		djListings,
 		performers,
 		performerRegistry,
+		projectMigration,
 		viewer,
 		capable,
 		spaces

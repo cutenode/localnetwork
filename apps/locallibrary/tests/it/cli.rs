@@ -95,7 +95,7 @@ fn json_sync_requires_yes_and_then_applies() {
     assert_eq!(v["applied"], true);
     assert!(b.join("PIONEER/rekordbox/export.pdb").is_file());
 
-    let v = env.json(&["compare", path(&a), path(&b)]);
+    let v = env.json(&["diff", path(&a), path(&b), "--summary"]);
     assert_eq!(v["relation"], "identical");
     let v = env.json(&["--yes", "sync", path(&a), path(&b)]);
     assert_eq!(v["applied"], false); // already in sync
@@ -126,7 +126,7 @@ fn exit_statuses_say_what_happened() {
     let (code, v) = run(&["doctor", path(&a)]);
     assert_eq!((code, &v["outcome"]), (Some(4), &Value::from("problems")), "{v}");
     // An error: 1; usage: 2.
-    let (code, v) = run(&["info", "/definitely/not/here"]);
+    let (code, v) = run(&["drive", "info", "/definitely/not/here"]);
     assert_eq!((code, &v["outcome"]), (Some(1), &Value::from("error")), "{v}");
     let (code, _) = run(&["sync", "--no-such-flag"]);
     assert_eq!(code, Some(2));
@@ -158,7 +158,7 @@ fn commands_come_with_the_features_built_in() {
 #[test]
 fn errors_are_reported_with_codes() {
     let env = Env::new();
-    let out = env.locallibrary().args(["--json", "info", "/definitely/not/here"]).output().unwrap();
+    let out = env.locallibrary().args(["--json", "drive", "info", "/definitely/not/here"]).output().unwrap();
     assert!(!out.status.success());
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["error"]["code"], "not_found");
@@ -177,15 +177,15 @@ fn store_settings_and_names() {
     let env = Env::new();
     let a = demo_drive(&env.root, "A");
     // Every write asks first: JSON mode without --yes only shows the plan.
-    let v = env.json(&["adopt", path(&a), "--name", "Main"]);
+    let v = env.json(&["drive", "adopt", path(&a), "--name", "Main"]);
     assert_eq!((&v["applied"], &v["outcome"]), (&Value::Bool(false), &Value::from("not_confirmed")), "{v}");
     assert!(!a.join(".locallibrary/state.json").exists());
-    let v = env.json(&["--yes", "adopt", path(&a), "--name", "Main"]);
+    let v = env.json(&["--yes", "drive", "adopt", path(&a), "--name", "Main"]);
     assert_eq!(v["report"]["name"], "Main", "{v}");
     // Adopted drives resolve by name.
     let v = env.json(&["pull", "Main", "-m", "first"]);
     assert_eq!(v["report"]["up_to_date"], false);
-    let v = env.json(&["log"]);
+    let v = env.json(&["library", "log"]);
     assert_eq!(v["libraries"]["Main"].as_array().unwrap().len(), 1);
     let v = env.json(&["status"]);
     let main = v["mounted"]
@@ -336,7 +336,7 @@ fn sync_many_updates_every_older_drive() {
     assert_eq!(v["applied"], true, "{v}");
     assert_eq!(v["report"].as_array().unwrap().len(), 2);
     for other in [&b, &c] {
-        assert_eq!(env.json(&["compare", path(&a), path(other)])["relation"], "identical");
+        assert_eq!(env.json(&["diff", path(&a), path(other), "--summary"])["relation"], "identical");
     }
 }
 
@@ -443,7 +443,7 @@ fn undoing_a_clean_says_what_it_cant_restore() {
     let said = "1 track(s) come back without their audio until rekordbox's next export (e.g. rekordbox - House 1)";
     assert!(undoing.contains(said), "{undoing}");
     says(&["--yes", "undo", path(&a)]);
-    assert_eq!(env.json(&["info", path(&a)])["summary"]["tracks"], 3);
+    assert_eq!(env.json(&["drive", "info", path(&a)])["summary"]["tracks"], 3);
     assert!(!audio.exists());
 }
 
@@ -463,7 +463,7 @@ fn clean_shows_a_plan_then_removes_demo_samples() {
     assert_eq!(v["applied"], true, "{v}");
     assert_eq!(v["report"]["files_deleted"], 1);
     assert!(!audio.exists());
-    assert_eq!(env.json(&["info", path(&a)])["summary"]["tracks"], 2);
+    assert_eq!(env.json(&["drive", "info", path(&a)])["summary"]["tracks"], 2);
 
     let v = env.json(&["clean", path(&a)]);
     assert_eq!(v["applied"], false);
@@ -475,7 +475,7 @@ fn format_refuses_a_folder_and_never_applies_without_yes() {
     let env = Env::new();
     let a = demo_drive(&env.root, "A");
     // A folder is not a volume: refused before any tool runs.
-    let v = env.json(&["format", path(&a)]);
+    let v = env.json(&["drive", "format", path(&a)]);
     let code = v["error"]["code"].as_str().unwrap_or_default();
     assert!(matches!(code, "invalid" | "not_found"), "{v}");
     assert!(a.join("PIONEER/rekordbox/export.pdb").is_file());
@@ -485,13 +485,14 @@ fn format_refuses_a_folder_and_never_applies_without_yes() {
 fn disks_lists_external_disks_as_json() {
     // The test switch hides the machine's disks with its drives.
     let env = Env::new();
-    let v = env.json(&["disks"]);
+    let v = env.json(&["drive", "disks"]);
     assert_eq!(v["error"]["kind"], "invalid", "{v}");
     assert!(v["error"]["message"].as_str().unwrap().contains("LOCALLIBRARY_VOLUMES"), "{v}");
     // On CI, which has no one's drives, the platform's listing (diskutil, lsblk or PowerShell)
     // runs for real.
     if std::env::var_os("CI").is_some() {
-        let out = env.locallibrary().env_remove("LOCALLIBRARY_VOLUMES").args(["--json", "disks"]).output().unwrap();
+        let out =
+            env.locallibrary().env_remove("LOCALLIBRARY_VOLUMES").args(["--json", "drive", "disks"]).output().unwrap();
         let v: Value = serde_json::from_slice(&out.stdout).unwrap();
         assert!(v.is_array(), "{v}");
     }
@@ -506,7 +507,7 @@ fn the_volumes_switch_shows_only_its_folders() {
     let vols = env.root.join("vols");
     demo_drive(&vols, "FAKE");
     let elsewhere = demo_drive(&env.root, "Elsewhere");
-    env.json(&["--yes", "adopt", path(&elsewhere), "--name", "Probestick"]);
+    env.json(&["--yes", "drive", "adopt", path(&elsewhere), "--name", "Probestick"]);
     #[cfg(unix)]
     std::os::unix::fs::symlink("/", vols.join("Boot")).unwrap();
     let twice = std::env::join_paths([&vols, &vols]).unwrap();
@@ -514,12 +515,12 @@ fn the_volumes_switch_shows_only_its_folders() {
         let out = env.locallibrary().env("LOCALLIBRARY_VOLUMES", &twice).args(args).output().unwrap();
         (serde_json::from_slice::<Value>(&out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap())
     };
-    let (drives, err) = run(&["--json", "drives", "--all"]);
+    let (drives, err) = run(&["--json", "drive", "ls", "--all"]);
     let names: Vec<&str> = drives.as_array().unwrap().iter().map(|d| d["volume_name"].as_str().unwrap()).collect();
     assert_eq!(names, ["FAKE"], "{drives}");
     assert!(err.contains("LOCALLIBRARY_VOLUMES is set (a test switch)"), "{err}");
-    assert_eq!(run(&["--json", "info", "FAKE"]).0["volume_name"], "FAKE");
-    assert_eq!(run(&["--json", "info", "Probestick"]).0["error"]["kind"], "not_found");
+    assert_eq!(run(&["--json", "drive", "info", "FAKE"]).0["volume_name"], "FAKE");
+    assert_eq!(run(&["--json", "drive", "info", "Probestick"]).0["error"]["kind"], "not_found");
 }
 
 /// Under sudo the default store is root's on most systems: a format asks for `--store` rather
@@ -544,13 +545,12 @@ fn under_sudo_a_format_asks_which_store() {
     assert!(!missing.exists(), "no store made as root");
 }
 
-/// The commands moved into groups answer under their old names too, the same way.
+/// A group run without a subcommand answers as its default one does.
 #[test]
-fn old_command_names_answer_like_the_new_ones() {
+fn groups_answer_like_their_default_subcommand() {
     let env = Env::new();
     let a = demo_drive(&env.root, "A");
-    let b = demo_drive(&env.root, "B");
-    env.json(&["--yes", "adopt", path(&a), "--name", "Main"]);
+    env.json(&["--yes", "drive", "adopt", path(&a), "--name", "Main"]);
     env.json(&["pull", "Main", "-m", "first"]);
     // A plan's id and time differ from one run to the next, and free space as other tests write.
     fn steady(v: &mut Value) {
@@ -565,71 +565,71 @@ fn old_command_names_answer_like_the_new_ones() {
             _ => {}
         }
     }
-    let same = |old: &[&str], new: &[&str]| {
-        let (mut o, mut n) = (env.json(old), env.json(new));
-        steady(&mut o);
-        steady(&mut n);
-        assert_eq!(o, n, "{old:?} and {new:?} differ");
-        n
+    let same = |long: &[&str], short: &[&str]| {
+        let (mut l, mut s) = (env.json(long), env.json(short));
+        steady(&mut l);
+        steady(&mut s);
+        assert_eq!(l, s, "{long:?} and {short:?} differ");
+        s
     };
-    same(&["info", "Main"], &["drive", "info", "Main"]);
-    same(&["info", "Main"], &["drive", "Main"]);
-    same(&["drive", "list"], &["drive", "ls", "--known"]);
-    same(&["backups", "Main"], &["drive", "backups", "Main"]);
-    same(&["log"], &["library", "log"]);
-    let log = same(&["log", "Main", "-n", "1"], &["library", "Main"]);
+    same(&["drive", "info", "Main"], &["drive", "Main"]);
+    let log = same(&["library", "log", "Main", "-n", "1"], &["library", "Main"]);
     assert_eq!(log["libraries"]["Main"].as_array().unwrap().len(), 1, "{log}");
-    same(&["history", "Main"], &["plays", "lists", "Main"]);
-    same(&["history", "Main"], &["plays", "Main"]);
-    same(&["stats", "Main"], &["plays", "stats", "Main"]);
-    same(&["playlists", "Main"], &["playlist", "ls", "Main"]);
-    same(&["playlists", "Main"], &["playlist", "Main"]);
-    same(&["compare", path(&a), path(&b)], &["diff", path(&a), path(&b), "--summary"]);
-    same(&["mirror", path(&a), path(&b), "--dry-run"], &["sync", "--from", path(&a), path(&b), "--dry-run"]);
-    same(&["push", "Main", "--dry-run"], &["library", "push", "Main", "--dry-run"]);
-    same(&["drive", "sets"], &["drive", "groups"]);
-    same(&["settings", "profile"], &["settings"]);
+    same(&["plays", "lists", "Main"], &["plays", "Main"]);
+    same(&["playlist", "ls", "Main"], &["playlist", "Main"]);
+    same(&["settings", "base"], &["settings"]);
     same(&["settings", "show", "Main"], &["settings", "Main"]);
     same(&["art", "missing", "Main"], &["art", "Main"]);
     same(&["edits", "list", "Main"], &["edits", "Main"]);
     same(&["smart", "list"], &["smart"]);
-    // Subcommands renamed so they don't clash: the old spellings plan the same edits.
-    env.json(&["--yes", "playlist", "new", "Main", "Friday", "--track", "1", "--track", "2"]);
-    env.json(&["--yes", "playlist", "new", "Main", "Archive", "--folder"]);
-    fn edit<'a>(args: &[&'a str]) -> Vec<&'a str> {
-        [args, &["--dry-run"]].concat()
-    }
-    same(&edit(&["playlist", "rm", "Main", "Friday"]), &edit(&["playlist", "delete", "Main", "Friday"]));
-    same(
-        &edit(&["playlist", "mv", "Main", "Friday", "--into", "Archive"]),
-        &edit(&["playlist", "move", "Main", "Friday", "--into", "Archive"]),
-    );
-    let moved = same(
-        &edit(&["playlist", "move", "Main", "Friday", "--at", "2", "--to", "1"]),
-        &edit(&["playlist", "reorder", "Main", "Friday", "--at", "2", "--to", "1"]),
-    );
-    assert_eq!(moved["plan"]["playlists_changed"][0]["reordered"], true, "{moved}");
-    same(&edit(&["playlist", "plan", "Main", "Friday"]), &edit(&["playlist", "order", "Main", "Friday"]));
-    same(
-        &edit(&["playlist", "sort", "Main", "Friday", "--by", "-title"]),
-        &edit(&["playlist", "sort", "Main", "Friday", "--sort", "-title"]),
-    );
-    env.json(&["--yes", "tags", "add", "Main", "Genre/Deep", "--track", "1"]);
-    same(
-        &edit(&["tags", "remove", "Main", "Genre/Deep", "--track", "1"]),
-        &edit(&["tags", "untag", "Main", "Genre/Deep", "--track", "1"]),
-    );
-    same(&["settings", "profile"], &["settings", "base"]);
-
-    // `gig` is the old name of the `set` role.
-    assert_eq!(env.json(&["--yes", "drive", "role", "Main", "gig"])["report"]["role"], "set");
-    assert_eq!(env.json(&["drive", "log", "Main"])["role"], "set");
-
-    // Help and usage errors for the old names still work.
-    let out = env.locallibrary().args(["verify", "--help"]).output().unwrap();
-    assert!(out.status.success() && String::from_utf8_lossy(&out.stdout).contains("--repair"));
     let out = env.locallibrary().args(["sync", "--from", path(&a)]).output().unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// The names development builds took before the first release are gone: each is a usage error,
+/// and `gig` is no role.
+#[test]
+fn old_names_are_refused() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    env.json(&["--yes", "drive", "adopt", path(&a), "--name", "Main"]);
+    env.json(&["pull", "Main", "-m", "first"]);
+    env.json(&["--yes", "playlist", "new", "Main", "Friday", "--track", "1", "--track", "2"]);
+    for old in [
+        &["log"][..],
+        &["push", "Main", "--dry-run"],
+        &["history", "Main"],
+        &["stats", "Main"],
+        &["playlists", "Main"],
+        &["mirror", "Main", "Main", "--dry-run"],
+        &["compare", "Main", "Main"],
+        &["info", "Main"],
+        &["drives"],
+        &["backups", "Main"],
+        &["verify", "--help"],
+        &["playlist", "rm", "Main", "Friday", "--dry-run"],
+        &["playlist", "mv", "Main", "Friday", "--top", "--dry-run"],
+        &["playlist", "plan", "Main", "Friday", "--dry-run"],
+        &["playlist", "sort", "Main", "Friday", "--by", "-title", "--dry-run"],
+        &["playlist", "move", "Main", "Friday", "--at", "2", "--to", "1", "--dry-run"],
+        &["tags", "remove", "Main", "Genre/Deep", "--track", "1", "--dry-run"],
+        &["watch", "--sync-set", "--once"],
+    ] {
+        let out = env.locallibrary().args(old).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{old:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    // A group that takes a drive in place of a subcommand looks for one by the old name.
+    for old in [["drive", "list"], ["drive", "sets"], ["settings", "profile"]] {
+        let out = env.locallibrary().args(old).output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{old:?}: {err}");
+        assert!(err.contains(&format!("no mounted drive matches \"{}\"", old[1])), "{old:?}: {err}");
+    }
+    let gig = env.locallibrary().args(["--json", "--yes", "drive", "role", "Main", "gig"]).output().unwrap();
+    let v: Value = serde_json::from_slice(&gig.stdout).unwrap();
+    assert_eq!(v["error"]["kind"], "invalid", "{v}");
+    assert!(v["error"]["message"].as_str().unwrap().contains("unknown role \"gig\""), "{v}");
+    assert!(env.json(&["drive", "log", "Main"])["role"].is_null(), "no role was set");
 }
 
 /// A group's mistyped subcommand is a usage error naming the one meant, whether the group takes
@@ -720,7 +720,7 @@ fn json_shapes() {
     assert!(v["report"].is_array() && v["plan"]["targets"].is_array(), "{v}");
 
     // Made in one step: a plan of one line, asked about like every write.
-    env.json(&["--yes", "adopt", path(&a), "--name", "Main"]);
+    env.json(&["--yes", "drive", "adopt", path(&a), "--name", "Main"]);
     env.json(&["pull", "Main"]);
     let v = env.json(&["drive", "role", "Main", "backup"]);
     assert_eq!(keys(&v), envelope, "{v}");
@@ -859,7 +859,6 @@ fn commands_that_only_read_make_no_store() {
         (&["store", "copies"], Some(&empty)),
         (&["settings", "show", path(&a)], None),
         (&["drive", "ls", "--known"], Some(&empty)),
-        (&["drive", "list"], Some(&empty)),
         (&["drive", "groups"], Some(&empty)),
         (&["drive", "recognise", path(&a)], None),
         (&["drive", "space", path(&a)], None),
@@ -884,7 +883,6 @@ fn commands_that_only_read_make_no_store() {
         &["store"][..],
         &["store", "info"],
         &["store", "verify"],
-        &["log"],
         &["library", "log"],
         &["drive", "log", path(&a)],
         &["sets", "show", "Friday"],
@@ -897,7 +895,7 @@ fn commands_that_only_read_make_no_store() {
     // Not applied without --yes, so nothing to make one for.
     for args in [
         &["drive", "rename", path(&a), "Club"][..],
-        &["adopt", path(&a), "--name", "Main"],
+        &["drive", "adopt", path(&a), "--name", "Main"],
         &["pack", path(&a), path(&b), "--playlist", "Friday"],
         &["library", "Main"],
         &["drive", "reidentify", path(&a), "--dry-run"],
@@ -936,7 +934,7 @@ fn reidentify_is_planned_and_needs_a_copy() {
         let out = env.locallibrary().env("LOCALLIBRARY_VOLUMES", &volumes).arg("--json").args(args).output().unwrap();
         (out.status.code(), serde_json::from_slice::<Value>(&out.stdout).unwrap_or(Value::Null))
     };
-    run(&["--yes", "adopt", path(&a), "--name", "Main"]);
+    run(&["--yes", "drive", "adopt", path(&a), "--name", "Main"]);
     run(&["pull", path(&a), "--library", "Main", "--new-library"]);
     run(&["--yes", "drive", "role", path(&a), "backup"]);
     let (code, v) = run(&["--yes", "drive", "reidentify", path(&a)]);
@@ -1072,7 +1070,7 @@ fn diff_refuses_a_playlist_neither_side_has() {
     };
     let (code, v) = run(&["diff", path(&a), path(&b), "--playlist", "nope/none"]);
     assert_eq!((code, &v["error"]["kind"]), (Some(1), &"not_found".into()), "{v}");
-    let (code, v) = run(&["compare", path(&a), path(&b), "--all"]);
+    let (code, v) = run(&["diff", path(&a), path(&b), "--all", "--summary"]);
     assert_eq!((code, &v["relation"]), (Some(0), &"identical".into()), "{v}");
 }
 

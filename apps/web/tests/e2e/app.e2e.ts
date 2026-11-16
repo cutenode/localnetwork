@@ -354,6 +354,7 @@ test.describe('public pages', () => {
 			'/',
 			'/about',
 			'/for-djs',
+			'/for-promoters',
 			'/privacy',
 			'/match',
 			'/projects',
@@ -472,7 +473,7 @@ test.describe('signed in', () => {
 		await expectAccessible(page);
 		await page.locator('#tagline').fill(tagline);
 		await page.getByRole('button', { name: 'Send for review' }).click();
-		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		await expectAccessible(page);
 
 		// A revision that went through isn't offered back as unsent changes. A request page with a draft opens its
@@ -518,7 +519,7 @@ test.describe('signed in', () => {
 		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
 		await expectAccessible(page);
 		await page.getByRole('button', { name: 'Ask to be listed' }).click();
-		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		await signOut(page);
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests?kind=list');
@@ -758,6 +759,29 @@ test.describe('signed in', () => {
 		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
 	});
 
+	test('a fan follows a person from their profile, apart from the projects they play in', async ({ page }) => {
+		await page.goto('/@neon.test');
+		await expect(page.getByRole('link', { name: /^Follow \d/ })).toHaveAttribute(
+			'href',
+			'/login?next=%2F%40neon.test%23follow'
+		);
+
+		await signIn(page, 'milo.test', 'milo-pass', '/@neon.test');
+		await page.getByRole('button', { name: /^Follow \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Following \d/ })).toHaveAttribute('aria-pressed', 'true');
+		await expectAccessible(page);
+
+		// Following neon.test isn't following Saffron Social, which they manage.
+		await page.goto('/projects/saffron-social');
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+
+		// Each browser runs against the same network, so the fan unfollows again.
+		await page.goto('/@neon.test');
+		await hydrated(page);
+		await page.getByRole('button', { name: /^Following \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+	});
+
 	test('a DJ announces a show, cancels it, and deletes it', async ({ page }, testInfo) => {
 		const name = `Basement rave (${testInfo.project.name})`;
 		const date = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
@@ -904,7 +928,7 @@ test.describe('keeps what people entered', () => {
 		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/projects/neon-tide/profile');
 		await page.locator('#avatar').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
 		await page.getByRole('button', { name: 'Send for review' }).click();
-		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		const request = new URL(page.url()).pathname;
 
 		await page.goto('/dashboard/projects/neon-tide/profile');
@@ -975,7 +999,7 @@ test.describe('keeps what people entered', () => {
 		await page.locator('#evidence').fill('I book them; see the bio link');
 		await page.locator('#links').fill('https://example.test/bio');
 		await page.getByRole('button', { name: 'Submit claim' }).click();
-		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		await page.waitForLoadState('networkidle');
 
 		await page.getByRole('button', { name: 'Edit request' }).click();
