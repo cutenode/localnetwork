@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseSpaceRecordUri, spaceOfRecord } from '../../src/lib/server/atproto/spaces.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
 import type { HeldRecordView, Viewer } from '../../src/lib/types.ts';
-import { actions, load } from '../../src/routes/dashboard/data/+page.server.ts';
+import { load } from '../../src/routes/dashboard/account/data/+page.server.ts';
+import { actions } from '../../src/routes/dashboard/account/data/[kind]/+page.server.ts';
 import { TestNetwork } from './network.ts';
 
 describe('deleting what the root wrote on your behalf, on a real atproto spaces network', () => {
@@ -27,7 +28,7 @@ describe('deleting what the root wrote on your behalf, on a real atproto spaces 
 		await net?.close();
 	});
 
-	const url = new URL('http://localhost/dashboard/data');
+	const url = new URL('http://localhost/dashboard/account/data');
 
 	const event = (viewer: Viewer, form?: Record<string, string>) => ({
 		url,

@@ -63,17 +63,17 @@ fn a_playlist_comes_back_from_a_snapshot_without_the_tracks_that_left() {
     assert!(out.starts_with("Restoring Set from snapshot ") && line(&out, "Restoring").contains(" of Main ("), "{out}");
     assert!(out.contains("1 entr(ies) left out: their tracks aren't on the drive any more"), "{out}");
     assert!(line(&out, "Set #2: ").contains("Demo Track 2"), "{out}");
-    let out = env.ok(&["--yes", "restore", "Main", "--playlist", "Set"]);
+    let out = env.ok(&["--yes", "drive", "restore", "Main", "--playlist", "Set"]);
     assert!(
         out.contains("  - fill Set with 1 entr(ies)\n") && out.contains("2 change(s) written to export.pdb"),
         "{out}"
     );
     assert!(line(&env.ok(&["playlist", "ls", "Main"]), "Set").contains("(1)"));
-    let out = env.ok(&["restore", "Main", "--playlist", "Set"]);
+    let out = env.ok(&["drive", "restore", "Main", "--playlist", "Set"]);
     assert!(out.contains("Set on Main is already as it was"), "{out}");
 
     // A folder: what's in the snapshot comes back, what isn't is left as it is.
-    let out = env.ok(&["restore", "Main", "--playlist", "Gigs", "--dry-run"]);
+    let out = env.ok(&["drive", "restore", "Main", "--playlist", "Gigs", "--dry-run"]);
     assert!(line(&out, "Restoring folder Gigs (1 playlists)").contains("from snapshot"), "{out}");
     assert!(out.contains("Left as they are (not in the snapshot): Gigs/Saturday"), "{out}");
 }
@@ -86,7 +86,7 @@ fn a_playlist_comes_back_from_a_backup() {
     env.ok(&["--yes", "playlist", "delete", path(&main), "Set"]);
     let backup = env.ok(&["drive", "backups", path(&main)]).split_whitespace().next().unwrap().to_string();
     env.ok(&["--yes", "playlist", "new", path(&main), "Gigs/Saturday"]);
-    let out = env.ok(&["restore", path(&main), "--playlist", "Gigs", "--backup", &backup, "--dry-run"]);
+    let out = env.ok(&["drive", "restore", path(&main), "--playlist", "Gigs", "--backup", &backup, "--dry-run"]);
     assert!(out.contains("Left as they are (not in the backup): Gigs/Saturday"), "{out}");
 
     let out = env.ok(&["drive", "restore", path(&main), "--playlist", "Set", "--backup", &backup, "--dry-run"]);

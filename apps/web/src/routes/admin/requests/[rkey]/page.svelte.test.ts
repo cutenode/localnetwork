@@ -26,6 +26,7 @@ const request: RequestView = {
 	repoDid: DJ,
 	projectUri: null,
 	project: null,
+	venue: null,
 	record: {
 		kind: 'list',
 		listing: { subject: `at://${DJ}/computer.localnetwork.profile/self`, cid: 'bafyasked' },

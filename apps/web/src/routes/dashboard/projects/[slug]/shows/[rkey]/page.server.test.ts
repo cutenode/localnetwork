@@ -98,7 +98,13 @@ async function otherProject(managers: string[]) {
 }
 
 it('opens an empty form for a new show', async () => {
-	expect(await loaded('new')).toEqual({ isNew: true, values: showFormDefaults, geocoder: false, saved: null });
+	expect(await loaded('new')).toEqual({
+		isNew: true,
+		values: showFormDefaults,
+		booking: null,
+		geocoder: false,
+		saved: null
+	});
 });
 
 it('passes on what a save did, and nothing else from the address', async () => {
@@ -129,7 +135,7 @@ it("opens an empty form from a booking that isn't confirmed, isn't there, or isn
 	const notTheirs = await booking(await otherProject([FRIEND]));
 
 	for (const skey of [open, elsewhere, notTheirs, 'missing'])
-		expect((await loaded('new', `?booking=${skey}`)).values).toEqual(showFormDefaults);
+		expect(await loaded('new', `?booking=${skey}`)).toMatchObject({ values: showFormDefaults, booking: null });
 });
 
 it('opens an empty form from a confirmed booking whose inquiry is gone', async () => {
@@ -138,6 +144,42 @@ it('opens an empty form from a confirmed booking whose inquiry is gone', async (
 	await f.t.db.deleteFrom('bookingEvent').where('kind', '=', 'inquiry').execute();
 
 	expect((await loaded('new', `?booking=${skey}`)).values).toEqual(showFormDefaults);
+});
+
+/** What the thread for the booking `skey` shows PROMOTER: its status, its timeline, and the shows it links to. */
+async function thread(skey: string) {
+	const space = (await f.t.bookings.bySkey(skey))!;
+	const read = await f.t.bookings.thread(await f.t.viewer(PROMOTER), space);
+
+	return { status: read.thread.status, events: read.events.length, links: read.links };
+}
+
+it('notes a show announced from a booking in its thread, and nowhere public', async () => {
+	const skey = await booking();
+	const before = await thread(skey);
+
+	expect((await loaded('new', `?booking=${skey}`)).booking).toBe(skey);
+	await expect(send('save', DJ, 'new', { ...form, booking: skey })).rejects.toMatchObject({ status: 303 });
+	const [show] = await f.t.shows.forProject(f.project);
+
+	// The thread stays confirmed, and the note isn't a status change anyone sees.
+	expect(await thread(skey)).toEqual({
+		...before,
+		links: { ...before.links, announcedShow: { did: DJ, rkey: show.uri.split('/').at(-1) } }
+	});
+	expect(JSON.stringify(show.record)).not.toMatch(/booking|space/);
+});
+
+it("announces the show without noting it in a booking it can't come from", async () => {
+	const open = await booking(f.project, false);
+	const notTheirs = await booking(await otherProject([FRIEND]));
+
+	for (const skey of [open, notTheirs, 'missing'])
+		await expect(send('save', DJ, 'new', { ...form, booking: skey })).rejects.toMatchObject({ status: 303 });
+
+	expect(await f.t.shows.forProject(f.project)).toHaveLength(3);
+
+	for (const skey of [open, notTheirs]) expect((await thread(skey)).links.announcedShow).toBeNull();
 });
 
 it('opens a show the manager announced, and 404s for one that is not there', async () => {

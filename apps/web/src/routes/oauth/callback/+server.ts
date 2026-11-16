@@ -29,7 +29,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 
 		// Turning email on, they declined sharing the address and are still signed in, so they go back to say so.
 		if (failure === 'access_denied' && started?.intent === 'email') {
-			redirect(303, withQuery('/dashboard/inbox/settings', { email: 'declined' }));
+			redirect(303, withQuery('/dashboard/account/notifications', { email: 'declined' }));
 		}
 
 		redirect(303, `/login?error=${failure === 'access_denied' ? 'denied' : 'login'}`);

@@ -4,13 +4,16 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "Get one published project by URI or slug. The output has no project when none matches. With counts, it also says how many press kits and upcoming shows the project's pages list, so they can hold room for them while those load.",
+			"description": "Get one published project by URI or slug. The output has no project when none matches. With counts, it also says how many press kits and upcoming shows the project's pages list and how many of its managers have DJ stats or sets on file, so they can hold room for them while those load.",
 			"parameters": {
 				"type": "params",
 				"properties": {
 					"uri": { "type": "string", "format": "at-uri" },
 					"slug": { "type": "string", "maxLength": 64 },
-					"counts": { "type": "boolean", "description": "Also count the project's press kits and upcoming shows." }
+					"counts": {
+						"type": "boolean",
+						"description": "Also count the project's press kits, upcoming shows, and managers with DJ records."
+					}
 				}
 			},
 			"output": {
@@ -28,6 +31,11 @@
 							"type": "integer",
 							"minimum": 0,
 							"description": "Upcoming shows of the project, as listShows lists them. Only with counts."
+						},
+						"djs": {
+							"type": "integer",
+							"minimum": 0,
+							"description": "Managers of the project with a DJ stats or set record on file. Only with counts."
 						}
 					}
 				}

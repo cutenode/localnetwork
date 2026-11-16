@@ -63,6 +63,8 @@ export const AUDIT_ACTIONS = [
 	'listing.list',
 	'listing.unlist',
 	'page.update',
+	'venue.block',
+	'venue.unblock',
 	'record.delete',
 	'flag.update',
 	'flag.preview',
@@ -81,6 +83,7 @@ export type ActorRole = 'admin' | 'moderator' | 'member' | 'system';
 export const SUBJECT_KINDS = [
 	'account',
 	'project',
+	'profile',
 	'request',
 	'role',
 	'booking',

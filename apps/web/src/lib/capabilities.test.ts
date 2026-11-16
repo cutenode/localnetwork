@@ -9,6 +9,7 @@ import {
 	isListedRole,
 	isRole,
 	isWriter,
+	roleLabel,
 	ROLES,
 	SPACE_KINDS,
 	type SpaceKind
@@ -67,6 +68,11 @@ describe('roles', () => {
 		expect(isWriter(capabilitiesFor('party', 'door'))).toBe(false);
 		expect(isWriter(capabilitiesFor('venue', 'booker'))).toBe(false);
 		expect(isWriter([])).toBe(false);
+	});
+
+	it('names the venue booker a booking manager, and every other role as stored', () => {
+		expect(roleLabel('booker')).toBe('Booking manager');
+		expect(roleLabel('cohost')).toBe('Cohost');
 	});
 });
 

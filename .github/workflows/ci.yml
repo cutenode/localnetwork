@@ -55,6 +55,7 @@ jobs:
       locallibrary_cache: ${{ steps.scope.outputs.locallibrary_cache }}
       locallibrary_deny: ${{ steps.scope.outputs.locallibrary_deny }}
       locallibrary_release: ${{ steps.scope.outputs.locallibrary_release }}
+      locallibrary_budgets: ${{ steps.scope.outputs.locallibrary_budgets }}
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
       locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
@@ -147,8 +148,10 @@ jobs:
               - '!apps/locallibrary/assets/icon.svg'
             locallibrary_readmes:
               - 'crates/*/README.md'
-            # What moves the release binary's size and a frame's instructions (release-budgets):
-            # the manifests and lockfile, and the Rust that ships. Test files are left out, the
+            # What moves the release binary's size, a frame's instructions and the packages the CLI
+            # links (release-budgets): the manifests and lockfile, and the Rust that ships, and the
+            # tool that measures them. tools/budgets/baseline.ts reads this list too, for the
+            # commits a base's numbers carry over to. Test files are left out, the
             # frame test's own included: the weekly locallibrary-bench.yml run measures those.
             locallibrary_release:
               - 'Cargo.lock'
@@ -160,15 +163,18 @@ jobs:
               - 'vendor/*/src/**'
               - 'benchmarks/budgets/**'
               - '.github/actions/release-budgets/**'
+              - 'tools/budgets/**'
               - '.github/workflows/locallibrary-ci.yml'
               - '!**/{tests,testing,test_util,screens,props}.rs'
               - '!**/tests/**'
               - '!**/*.md'
-            # What cargo-deny reads.
+            # What cargo-deny and `cargo notices` read.
             locallibrary_deny:
               - 'Cargo.lock'
               - '**/Cargo.toml'
               - 'deny.toml'
+              - 'about.{toml,hbs}'
+              - '.cargo/config.toml'
               - '.github/workflows/locallibrary-ci.yml'
             locallibrary_semver:
               - 'crates/loclib-*/**'
@@ -189,6 +195,7 @@ jobs:
               - '**/Cargo.toml'
               - 'dist-workspace.toml'
               - 'rust-toolchain.toml'
+              - '.github/build-setup.yml'
               - '.github/actions/install-dist/**'
               - '.github/workflows/locallibrary-release.yml'
               - '.github/workflows/locallibrary-ci.yml'
@@ -514,8 +521,11 @@ jobs:
           fi
           # A merge queue group: the quick static checks again on the commit that goes on main, so
           # two pull requests that each passed alone can't break it together. The Rust ones are in
-          # other-os below. Integration, e2e, Lighthouse and Docker stay on pull requests.
+          # other-os below, beside the release budgets, which hold the group's pull requests' growth
+          # together and measure what main becomes. Integration, e2e, Lighthouse and Docker stay on
+          # pull requests.
           if [ "$EVENT" = merge_group ]; then
+            set_if locallibrary_release changed locallibrary_release
             set_if web_verify changed web
             set_if localtoolbox changed localtoolbox
             set_if atstore changed atstore
@@ -525,9 +535,11 @@ jobs:
             out[repo_checks_text]=true
           fi
           # A push to main: what main's runs keep for pull requests. The sizes and coverage the
-          # reports compare with change only with the code (web_integration's paths), and the Rust
-          # caches (locallibrary's and the mix report's) only with what they're keyed on.
+          # reports compare with change only with the code (web_integration's paths), the Rust
+          # caches (locallibrary's and the mix report's) only with what they're keyed on, and the
+          # budgets job's numbers with the workspace.
           if [ "$linux" = true ] && [ "$EVENT" = push ]; then
+            set_if locallibrary_budgets changed locallibrary
             set_if locallibrary_cache changed rust_cache
             set_if mix_report changed rust_cache
             set_if web_verify changed web_integration
@@ -542,7 +554,7 @@ jobs:
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_dist locallibrary_other_os locallibrary_semver
+            locallibrary_budgets locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil \
             repo_checks_text repo_checks_commits repo_checks_diagrams
@@ -605,6 +617,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.locallibrary == 'true'
     permissions:
+      # The budgets' bases, from other runs' artifacts.
+      actions: read
       contents: read
       # The coverage comment.
       pull-requests: write
@@ -615,6 +629,7 @@ jobs:
       cache: ${{ needs.changes.outputs.locallibrary_cache == 'true' }}
       deny: ${{ needs.changes.outputs.locallibrary_deny == 'true' }}
       release: ${{ needs.changes.outputs.locallibrary_release == 'true' }}
+      budgets: ${{ needs.changes.outputs.locallibrary_budgets == 'true' }}
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
       other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}

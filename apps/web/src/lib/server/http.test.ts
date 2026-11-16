@@ -95,6 +95,11 @@ describe('safeNext', () => {
 		expect(safeNext(null)).toBe('/dashboard');
 	});
 
+	it('falls back for a value that names a host no URL can have', () => {
+		for (const next of ['//', '///', '//@', '//:', '//['])
+			expect([safeNext(next), withQuery(next, { email: 'declined' }, '/')]).toEqual(['/dashboard', '/']);
+	});
+
 	it('refuses paths a browser would read as another site', () => {
 		// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so each of
 		// these becomes `//evil.test`.
@@ -115,8 +120,8 @@ describe('safeNext', () => {
 
 		expect(safeNext('/x/../inbox?a=1#top')).toBe('/inbox?a=1#top');
 		expect(safeNext('/%2F%2Fevil.test')).toBe('/%2F%2Fevil.test');
-		expect(withQuery('/dashboard/inbox/settings?tab=1', { email: 'declined' })).toBe(
-			'/dashboard/inbox/settings?tab=1&email=declined'
+		expect(withQuery('/dashboard/account/notifications?tab=1', { email: 'declined' })).toBe(
+			'/dashboard/account/notifications?tab=1&email=declined'
 		);
 	});
 });
