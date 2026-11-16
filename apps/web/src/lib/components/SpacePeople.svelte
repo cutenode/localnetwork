@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { roleLabel } from '#lib/capabilities.ts';
 	import Handle from '#lib/components/Handle.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import type { JoinRequestView, PendingInvite, SpacePerson } from '#lib/types.ts';
@@ -30,8 +31,8 @@
 {#snippet roleForm(person: SpacePerson)}
 	<form method="POST" action="?/role" class="flex gap-2" use:enhance>
 		<input type="hidden" name="did" value={person.did} />
-		<select name="role" class="input w-auto min-w-28 capitalize" aria-label="Role for {person.handle ?? person.did}">
-			{#each roles as role (role)}<option value={role} selected={role === person.role}>{role}</option>{/each}
+		<select name="role" class="input w-auto min-w-28" aria-label="Role for {person.handle ?? person.did}">
+			{#each roles as role (role)}<option value={role} selected={role === person.role}>{roleLabel(role)}</option>{/each}
 		</select>
 		<button class="btn-secondary btn-sm">Save</button>
 	</form>
@@ -85,7 +86,7 @@
 				<h2 class="text-emphasis font-semibold">Waiting</h2>
 				<p class="text-small text-fg-muted">{waiting.links === 1 ? '1 invite link works' : `${waiting.links} invite links work`}.</p>
 				{#each waiting.invites as invite (invite.did)}
-					<p class="text-small">Invited <Handle account={invite} /> as {invite.role}{#if invite.expiresAt}, until {formatDate(invite.expiresAt)}{/if}</p>
+					<p class="text-small">Invited <Handle account={invite} /> as {roleLabel(invite.role).toLowerCase()}{#if invite.expiresAt}, until {formatDate(invite.expiresAt)}{/if}</p>
 				{/each}
 				{#each waiting.requests as request (request.did)}
 					<p class="text-small"><Handle account={request} /> asked to join{#if request.message}: “{request.message}”{/if}</p>

@@ -23,6 +23,7 @@ locallibrary = { path = "crates/locallibrary", default-features = false }
 # Without its DSP (`dsp`): core scores analyzers with it, and only the sound plugin analyses.
 loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0", default-features = false }
 loclib-audio = { path = "crates/loclib-audio", version = "0.1.0" }
+loclib-capacity = { path = "crates/loclib-capacity", version = "0.1.0" }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
@@ -30,6 +31,7 @@ loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
 loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
 loclib-plugin = { path = "crates/loclib-plugin", version = "0.1.0" }
 loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
+loclib-sqlcipher = { path = "crates/loclib-sqlcipher", version = "0.1.0" }
 # Test helpers, never published: a dev-dependency only, so no version.
 loclib-testkit = { path = "crates/loclib-testkit" }
 loclib-transcode = { path = "crates/loclib-transcode", version = "0.1.0" }

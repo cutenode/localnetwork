@@ -82,7 +82,6 @@ fn build(registry: &Registry, methods: Vec<&Method>) -> Value {
     for m in methods {
         let mut d = Map::new();
         d.insert("name".into(), m.name.into());
-        d.insert("aliases".into(), json!(m.aliases));
         d.insert("kind".into(), json!(m.kind));
         if let Some(pair) = m.pair {
             d.insert("pair".into(), pair.into());
@@ -114,7 +113,7 @@ fn build(registry: &Registry, methods: Vec<&Method>) -> Value {
         "title": "locallibrary RPC",
         "description": "Methods of `locallibrary rpc` (JSON-RPC 2.0, one message per line): each with its \
             parameters' and result's schema. Names are `noun.verb`; a change is `<op>.plan` (answers a \
-            plan with a `plan_id`) and `<op>.apply` (applies it). `aliases` still work.",
+            plan with a `plan_id`) and `<op>.apply` (applies it).",
         "protocol": PROTOCOL,
         "methods": described,
         "notifications": notifications,

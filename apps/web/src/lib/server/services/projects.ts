@@ -5,6 +5,7 @@ import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
 import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
 import { PROJECT_SHOWS } from '#lib/shows.ts';
+import { nameSlug } from '#lib/space-paths.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -98,16 +99,9 @@ function assertProjectRecord(value: JsonRecord): asserts value is JsonRecord & P
 	if (!isProjectStatus(value.status)) throw new RecordValidationError(COLLECTION.project, 'unknown status');
 }
 
+/** `input` as a project's address. One too short to use is `project-` and what's left. */
 export function slugify(input: string): string {
-	const slug = input
-		.normalize('NFKD')
-		.replace(/[̀-ͯ]/g, '')
-		.toLowerCase()
-		.replace(/&/g, ' and ')
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.slice(0, 48)
-		.replace(/-+$/g, '');
+	const slug = nameSlug(input);
 
 	return slug.length >= 2 ? slug : `project-${slug || 'x'}`;
 }
@@ -200,25 +194,26 @@ export class ProjectService {
 
 	/**
 	 * A project by slug. With `counts`, the same query also counts the press kits and upcoming shows its pages stream in
-	 * afterwards, capped at as many as they list.
+	 * afterwards, capped at as many as they list, and the managers whose DJ records they stream in.
 	 */
 	async bySlug(slug: string, options: { counts?: boolean } = {}): Promise<ProjectView | null> {
 		if (!SLUG.test(slug)) return null;
 
-		const { project, pressKits, upcomingShows } = await this.directory.query('getProject', {
+		const { project, pressKits, upcomingShows, djs } = await this.directory.query('getProject', {
 			slug,
 			counts: options.counts
 		});
 
 		const view = project && this.toView(project);
 
-		if (!view || pressKits === undefined || upcomingShows === undefined) return view ?? null;
+		if (!view || pressKits === undefined || upcomingShows === undefined || djs === undefined) return view ?? null;
 
 		return {
 			...view,
 			counts: {
 				pressKits: Math.min(pressKits, MAX_EPKS_PER_PROJECT),
-				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS)
+				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS),
+				djs
 			}
 		};
 	}

@@ -606,6 +606,50 @@ describe('SpaceSyncer against a repo host', () => {
 		]);
 	});
 
+	describe('a host whose listing never ends', () => {
+		/** Answers `nsid` with one more page and a new cursor each time, then fails the 1,000th time so a test can't hang. */
+		const endless = (nsid: 'listRepos' | 'listRepoOps') => {
+			const page = nsid === 'listRepos' ? { repos: [{ did: DJ, repoRev: '0', spaceRev: '0' }] } : { ops: [] };
+			let answers = 0;
+			host.overrides.set(`com.atproto.space.${nsid}`, () =>
+				++answers < 1000
+					? Response.json({ ...page, cursor: String(answers) })
+					: Response.json({ error: 'TooManyPages' }, { status: 400 })
+			);
+		};
+
+		it('downloads the repo in full once its oplog runs past 100 pages', async () => {
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			await host.put(DJ, NOTE, 'b', note('two'));
+			endless('listRepoOps');
+
+			await s.sync(SPACE);
+			expect(calls('listRepoOps')).toHaveLength(100);
+			expect(calls('getRepo')).toHaveLength(2);
+			expect(await records()).toEqual([
+				['a', 'one'],
+				['b', 'two']
+			]);
+			expect((await repoRow())?.lastError).toBeNull();
+		});
+
+		it('reads 100 pages of its repo list a pass, keeping its place for the next', async () => {
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			endless('listRepos');
+
+			await s.sync(SPACE);
+			expect(calls('listRepos')).toHaveLength(101);
+			expect(await db.selectFrom('spaceWatch').selectAll().executeTakeFirst()).toMatchObject({
+				spaceRev: '100',
+				lastError: null
+			});
+		});
+	});
+
 	it('leaves a repo alone when its host has no ops and no commit for it', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));

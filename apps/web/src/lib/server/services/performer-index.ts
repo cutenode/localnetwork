@@ -2,7 +2,7 @@ import type { JsonObject } from '@atproto/lex-json';
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { PerformerRecord } from '#lib/types.ts';
-import { RecordValidationError, validateRecord } from '../atproto/lexicons';
+import { isValidRecord } from '../atproto/lexicons';
 import { recordCid } from '../atproto/repo-client';
 import { parseSpaceUri } from '../atproto/spaces';
 import { type Db, parseJson } from '../db';
@@ -19,23 +19,13 @@ export const DJ_TYPE = `${COLLECTION.performer}#dj` as const;
 const knownSubject = z.object({ subject: z.object({ $type: z.enum([ACT_TYPE, DJ_TYPE]) }) });
 
 /**
- * Whether `value` is a performer record this app reads: valid by the performer lexicon, which PerformerRecord mirrors,
- * with a subject of a kind it knows rather than one a newer app added.
+ * `value` as a performer record this app reads: valid by the performer lexicon, which PerformerRecord mirrors, with a
+ * subject of a kind it knows rather than one a newer app added. Null for one it can't.
  */
-function isPerformerRecord(value: JsonObject): value is JsonObject & PerformerRecord {
-	try {
-		validateRecord(COLLECTION.performer, value);
-	} catch (error) {
-		if (error instanceof RecordValidationError) return false;
-		throw error;
-	}
-
-	return knownSubject.safeParse(value).success;
-}
-
-/** `value` as a performer record this app reads, or null for one it can't. */
 export function performerRecord(value: JsonObject | undefined): PerformerRecord | null {
-	return value && isPerformerRecord(value) ? value : null;
+	return value && isValidRecord<PerformerRecord>(COLLECTION.performer, value) && knownSubject.safeParse(value).success
+		? value
+		: null;
 }
 
 /**

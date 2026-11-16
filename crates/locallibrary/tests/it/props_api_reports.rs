@@ -646,8 +646,9 @@ fn sidecar_messages_round_trip(tc: TestCase) {
     round_trip(&api::Unsubscribed { unsubscribed: flag() });
     let watch = api::StartWatch { pull: flag(), sync_group: flag(), settle_ms: ms(), interval_ms: ms() };
     round_trip(&watch);
-    let old: api::StartWatch = serde_json::from_value(serde_json::json!({ "sync_set": watch.sync_group })).unwrap();
-    assert_eq!((old.sync_group, old.pull, old.settle_ms), (watch.sync_group, false, None));
+    // `sync_set`, a development build's name for `sync_group`, syncs nothing.
+    let old: api::StartWatch = serde_json::from_value(serde_json::json!({ "sync_set": true })).unwrap();
+    assert_eq!((old.sync_group, old.pull, old.settle_ms), (false, false, None));
     round_trip(&api::WatchStarted { watching: flag() });
     round_trip(&api::StopWatch { cancel: flag() });
     round_trip(&api::WatchStopped { stopped: flag() });

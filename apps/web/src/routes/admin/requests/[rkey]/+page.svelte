@@ -7,7 +7,8 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { formatDateTime, placeLabel, profileHref, requestTitle, timeAgo } from '#lib/format.ts';
-	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
+	import { claimTerms } from '#lib/requests.ts';
+	import { labelFor } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
@@ -33,7 +34,12 @@
 	const choices = $derived([
 		{
 			value: 'approved',
-			label: request.kind === 'claim' ? 'Approve and add as manager' : request.kind === 'list' ? 'Approve and list' : 'Approve and publish'
+			label:
+				request.kind === 'claim'
+					? `Approve and add as ${request.record.space ? 'owner' : 'manager'}`
+					: request.kind === 'list'
+						? 'Approve and list'
+						: 'Approve and publish'
 		},
 		{ value: 'changesRequested', label: 'Ask for changes' },
 		{ value: 'rejected', label: 'Reject' }
@@ -105,10 +111,15 @@
 			{:else if request.kind === 'claim'}
 				<Card as="section" class="flex flex-col gap-3 text-small">
 					<h2 class="section-title">Claim evidence</h2>
-					<p><span class="text-fg-muted">Says they are:</span> <strong class="font-semibold">{labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</strong></p>
+					<p><span class="text-fg-muted">Says they are:</span> <strong class="font-semibold">{labelFor(claimTerms(request.record).relationships, request.record.claim?.relationship)}</strong></p>
 					<p class="whitespace-pre-line text-fg-soft">{request.record.claim?.evidence}</p>
 					{#if request.record.claim?.links?.length}
 						<ul class="list-inside list-disc text-fg-subtle">{#each request.record.claim.links as link, index (index)}<li><a class="link break-all" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
+					{/if}
+					{#if request.venue}
+						<p class="text-fg-muted">
+							Approving adds them to {request.venue.name}'s space as an owner, who can then add booking managers and other owners.
+						</p>
 					{/if}
 					{#if data.project}
 						<p class="text-fg-muted">
@@ -122,7 +133,7 @@
 				<Card as="section">
 					<div class="mb-3 flex items-center justify-between gap-4">
 						<h2 class="section-title">{request.kind === 'create' ? 'Proposed profile' : request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
-						{#if data.avatar?.shown}<img src="/dashboard/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
+						{#if data.avatar?.shown}<img src="/dashboard/account/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
 					</div>
 					<DiffTable changes={data.changes} />
 					{#if data.tracklists.length}

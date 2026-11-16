@@ -487,8 +487,8 @@ where a track has none (a key written as rekordbox names it, a BPM to hundredths
 cue slot (or at a place) a track has none in (one a cue edit can't set, say a colour or a loop it
 doesn't take, is left out, saying why), and the My Tags a track lacks. It's one edit, shown
 and asked about as any is (`--dry-run`), and `undo` takes it back. The plays it logged are kept in
-the store as sessions, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
-as the log names it; the same log imported again replaces its session. In the player, a drive's
+the store as histories, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
+as the log names it; the same log imported again replaces its history. In the player, a drive's
 menu and the palette have "import ...", a form asking for the file. An importer plans nothing
 itself and needs no capability to: it only answers what it read.
 
@@ -650,7 +650,11 @@ bounded size. Those are the drives known here, and the one a hook under way runs
 opened by path too, named as the hook's context names it, until the hook is done. What it gets back, errors too, doesn't say where things are on this computer:
 a drive is said by its name, where the store's copies, a set's or a mix's recording and
 rekordbox's collection are is left out, and any other path is said from its drive, the store
-(`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
+(`<store>`) or your home folder (`~`). A plugin with `collection:files` is told where rekordbox's
+own files and its tracks' audio are, as backing them up needs, and can read them: its database and settings hold your
+rekordbox and Dropbox sign-in tokens. locallibrary still never writes to rekordbox's folders, and
+the copy of rekordbox's database it makes for the plugin leaves the cloud agent's sign-in out
+unless the plugin asks for it. An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
 root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
 answering is stopped, and started again the next time it's needed. What a plugin says (its

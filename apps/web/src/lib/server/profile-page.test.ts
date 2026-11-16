@@ -159,6 +159,30 @@ describe('loadProfilePage', () => {
 		expect(await open('dee.test')).toMatchObject({ profile: null, name: '@dee.test' });
 	});
 
+	it("shows a person's pronouns from their Bluesky profile, else the ones their profile kept before", async () => {
+		for (const did of [ADA, CY])
+			await t.net.client(did).putRecord({
+				collection: COLLECTION.profile,
+				rkey: 'self',
+				record: {
+					$type: COLLECTION.profile,
+					basics: { name: 'Old', pronouns: 'they/them' },
+					createdAt: '2026-10-30T00:00:00.000Z',
+					updatedAt: '2026-10-30T00:00:00.000Z'
+				}
+			});
+		// The directory keeps the Bluesky profiles of accounts with a profile here.
+		await t.net.client(ADA).putRecord({
+			collection: BSKY_PROFILE,
+			rkey: 'self',
+			record: { $type: BSKY_PROFILE, displayName: 'Ada B', pronouns: 'she/her' }
+		});
+
+		expect(await open('ada.test')).toMatchObject({ name: 'Old', pronouns: 'she/her' });
+		expect(await open(CY)).toMatchObject({ pronouns: 'they/them' });
+		expect(await open('dee.test')).toMatchObject({ pronouns: null });
+	});
+
 	it('is a 404 for an address that names no account', async () => {
 		expect(await open('nobody.test')).toEqual({ status: 404 });
 		expect(await open('did:plc:nobody')).toEqual({ status: 404 });

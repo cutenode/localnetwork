@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { DjActivity } from '#lib/dj.ts';
 import { NEON, NEON_CREW, neonPlaying, neonProfile as view } from '#lib/testing/profiles.ts';
-import type { ProfileView, ProjectView, Viewer } from '#lib/types.ts';
+import type { FollowState, ProfileView, ProjectView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 
@@ -11,33 +11,56 @@ const withMixes = view({
 	performer: { mixes: [{ title: 'Warehouse Hours', url: 'https://soundcloud.com/neon/warehouse' }] }
 });
 
-type Streamed = { dj?: DjActivity[]; playsIn?: ProjectView[] };
+type Extras = {
+	dj?: DjActivity[];
+	playsIn?: ProjectView[];
+	follow?: Promise<FollowState | null>;
+	pronouns?: string | null;
+	bookable?: boolean;
+};
 
 /**
- * Renders the page for `profile` (null for an account without one, shown as `name`), as `viewer`, with what streams
- * in: their DJ records and the projects they play in.
+ * The page's data for `profile` (null for an account without one, shown as `name`), as `viewer`, with their pronouns
+ * and what streams in: their DJ records, the projects they play in, and their followers when they can be followed.
+ * `bookable` is a DJ Find DJs lists.
  */
-const open = (
+const pageData = (
 	profile: ProfileView | null,
 	viewer: Viewer | null = null,
 	name = profile?.record.basics.name ?? '',
-	{ dj = [], playsIn = [NEON_CREW] }: Streamed = {}
-) =>
-	render(Page, {
-		params: { handle: 'neon.test' },
-		data: {
-			viewer,
-			pendingRequests: 0,
-			profile,
-			name,
-			account: { did: NEON, handle: 'neon.test' },
-			meta: PAGE_META,
-			dj: Promise.resolve(dj),
-			sets: undefined,
-			playsIn: Promise.resolve(playsIn)
-		},
-		form: null
-	});
+	{ dj = [], playsIn = [NEON_CREW], follow, pronouns = null, bookable = false }: Extras = {}
+) => ({
+	viewer,
+	pendingRequests: 0,
+	profile,
+	name,
+	pronouns,
+	account: { did: NEON, handle: 'neon.test' },
+	bookable,
+	meta: PAGE_META,
+	dj: Promise.resolve(dj),
+	sets: undefined,
+	playsIn: Promise.resolve(playsIn),
+	follow
+});
+
+/** Renders the page with pageData's arguments, and the result of a form posted to it. */
+const open = (
+	profile: ProfileView | null,
+	viewer?: Viewer | null,
+	name?: string,
+	extras?: Extras,
+	form: { error: string; values: undefined; reauth: boolean } | null = null
+) => render(Page, { params: { handle: 'neon.test' }, data: pageData(profile, viewer, name, extras), form });
+
+const fan: Viewer = {
+	did: 'did:plc:fan',
+	handle: 'fan.test',
+	roles: [],
+	isAdmin: false,
+	isStaff: false,
+	spacesCapable: true
+};
 
 it("shows a DJ's details, with the projects they play in a tab away", async () => {
 	await open(
@@ -51,13 +74,19 @@ it("shows a DJ's details, with the projects they play in a tab away", async () =
 			},
 			performer: { tagline: 'Four hours of rolling techno', genres: ['techno'], setTypes: ['closing'] },
 			promoter: { cities: [{ city: 'Leipzig', country: 'DE' }] }
-		})
+		}),
+		null,
+		undefined,
+		{ pronouns: 'she/her' }
 	);
 
 	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeInTheDocument();
 	await expect.element(page.getByText('Four hours of rolling techno')).toBeInTheDocument();
 	await expect.element(page.getByText('@neon.test')).toBeInTheDocument();
 	await expect.element(page.getByText('Berlin, DE')).toBeInTheDocument();
+	// The pronouns the loader picked (see personName), not the ones the profile kept before.
+	await expect.element(page.getByText('she/her')).toBeInTheDocument();
+	await expect.element(page.getByText('they/them')).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'techno' })).toHaveAttribute('href', '/projects?genres=techno');
 	await expect.element(page.getByText('Closing')).toBeInTheDocument();
 	await expect.element(page.getByText('Leipzig, DE')).toBeInTheDocument();
@@ -163,4 +192,107 @@ it('gives each section with something in it a tab, opening the first', async () 
 		.element(page.getByRole('tabpanel', { name: 'Mixes' }).getByText('Warehouse Hours', { exact: true }))
 		.toBeInTheDocument();
 	await expect.element(page.getByRole('tab', { name: 'Sets' })).toHaveAttribute('href', '?tab=sets');
+});
+
+it('offers an inquiry to a listed DJ, or sign-in to send one, but not on their own page or an unlisted one', async () => {
+	const dj = view({ performer: { genres: ['techno'] } });
+
+	const pat: Viewer = {
+		did: 'did:plc:pat',
+		handle: 'pat.test',
+		roles: [],
+		isAdmin: false,
+		isStaff: false,
+		spacesCapable: true
+	};
+
+	const inquiry = page.getByRole('link', { name: 'Send inquiry' });
+
+	const signIn = page.getByRole('link', { name: 'Sign in to book' });
+
+	let shown = await open(dj, pat, undefined, { bookable: true });
+	await expect.element(inquiry).toHaveAttribute('href', `/dashboard/bookings/new?dj=${NEON}`);
+	await shown.unmount();
+
+	shown = await open(dj, null, undefined, { bookable: true });
+	await expect.element(signIn).toHaveAttribute('href', '/login?next=%2F%40neon.test');
+	await shown.unmount();
+
+	shown = await open(dj, { ...pat, did: NEON, handle: 'neon.test' }, undefined, { bookable: true });
+	await expect.element(page.getByRole('link', { name: 'Manage' })).toBeInTheDocument();
+	await expect.element(inquiry).not.toBeInTheDocument();
+	await shown.unmount();
+
+	await open(dj, pat);
+	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeInTheDocument();
+	await expect.element(inquiry).not.toBeInTheDocument();
+	await expect.element(signIn).not.toBeInTheDocument();
+});
+
+it('shows the follower count, and links to sign-in to follow when signed out', async () => {
+	const profile = view({});
+
+	const { rerender } = await open(profile, null, undefined, {
+		follow: Promise.resolve({ followers: 3, following: false })
+	});
+
+	await expect
+		.element(page.getByRole('link', { name: 'Follow 3 followers' }))
+		.toHaveAttribute('href', '/login?next=%2F%40neon.test%23follow');
+
+	await rerender({
+		data: pageData(profile, fan, undefined, { follow: Promise.resolve({ followers: 4, following: true }) })
+	});
+	await expect
+		.element(page.getByRole('button', { name: 'Following 4 followers' }))
+		.toHaveAttribute('aria-pressed', 'true');
+	await rerender({
+		data: pageData(profile, fan, undefined, { follow: Promise.resolve({ followers: 3, following: false }) })
+	});
+	await expect
+		.element(page.getByRole('button', { name: 'Follow 3 followers' }))
+		.toHaveAttribute('aria-pressed', 'false');
+});
+
+it('offers no Follow to an account without a profile', async () => {
+	await open(null, null, '@neon.test');
+
+	await expect.element(page.getByRole('heading', { level: 1, name: '@neon.test' })).toBeInTheDocument();
+	await expect.element(page.getByText(/^Follow/)).not.toBeInTheDocument();
+});
+
+it('offers to sign in again when following needs a permission the session lacks', async () => {
+	await open(
+		view({}),
+		fan,
+		undefined,
+		{ follow: Promise.resolve({ followers: 0, following: false }) },
+		{
+			error: 'Sign in again to follow DJs',
+			values: undefined,
+			reauth: true
+		}
+	);
+
+	await expect.element(page.getByText('Sign in again to follow DJs.', { exact: false })).toBeInTheDocument();
+	const again = page.getByRole('button', { name: 'Sign in again' });
+	expect(new FormData(again.element().closest('form')!).get('handle')).toBe('did:plc:fan');
+});
+
+it("says why following didn't work", async () => {
+	await open(
+		view({}),
+		fan,
+		undefined,
+		{ follow: Promise.resolve({ followers: 0, following: false }) },
+		{
+			error: "Following isn't available right now. Try again in a minute.",
+			values: undefined,
+			reauth: false
+		}
+	);
+
+	await expect
+		.element(page.getByRole('alert'))
+		.toHaveTextContent("Following isn't available right now. Try again in a minute.");
 });
