@@ -6,7 +6,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { type BookingAction, bookingActions, bookingGroup, datePassed } from '#lib/bookings.ts';
+	import { type BookingAction, bookingActions, bookingGroup, datePassed, isBookedSide } from '#lib/bookings.ts';
 	import { accountLabel, formatDateTime, formatShowDate, nightLabel } from '#lib/format.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
 	import { BOOKING_STATUSES, FEE_TIERS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
@@ -51,8 +51,8 @@
 
 	const group = $derived(bookingGroup(thread, me));
 
-	// The promoter can confirm an open inquiry only once a manager has written in the thread, as the server checks.
-	const answered = $derived(data.events.some((event) => roleOf(event.author.did) === 'manager'));
+	// The promoter can confirm an open inquiry only once the side being booked has written in the thread, as the server checks.
+	const answered = $derived(data.events.some((event) => isBookedSide(roleOf(event.author.did))));
 
 	const actions = $derived(role ? bookingActions(role, thread.status, answered) : []);
 
@@ -85,25 +85,26 @@
 
 	const announcedShow = $derived(data.links.announcedShow);
 
-	// A confirmed booking is a show the act's managers can announce, once, filled in from these details.
+	// A confirmed booking is a show the act's managers can announce, once, filled in from these details. Shows belong to
+	// projects, so a listed DJ's own bookings have no announce step.
 	const canAnnounce = $derived(thread.status === 'confirmed' && role === 'manager' && !announcedShow);
 
 	// Whoever announced the show edits it from here; everyone else finds it with the act's other shows.
-	const announcedHref = $derived(announcedShow && thread.project ? (announcedShow.did === me ? `/dashboard/projects/${thread.project.slug}/shows/${announcedShow.rkey}` : `/projects/${thread.project.slug}#shows`) : null);
+	const announcedHref = $derived(announcedShow && thread.project?.slug ? (announcedShow.did === me ? `/dashboard/projects/${thread.project.slug}/shows/${announcedShow.rkey}` : `/projects/${thread.project.slug}#shows`) : null);
 
 	const ghost = 'rounded-md bg-well motion-safe:animate-pulse';
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>
 
-<!-- The name fills in when the directory answers. `fallback` stands in when it doesn't. -->
-{#snippet actName(fallback: string)}
-	{#if thread.project}{thread.project.name}{:else if act.value === undefined}<span class={['inline-block h-3 w-20 align-baseline', ghost]}></span>{:else}{fallback}{/if}
+<!-- The name fills in when the directory answers. `fallback` stands in when it doesn't. `linked` makes it a link to their public page. -->
+{#snippet actName(fallback: string, linked = false)}
+	{#if thread.project}{#if linked}<a class="link" href={thread.project.href}>{thread.project.name}</a>{:else}{thread.project.name}{/if}{:else if act.value === undefined}<span class={['inline-block h-3 w-20 align-baseline', ghost]}></span>{:else}{fallback}{/if}
 {/snippet}
 
 <!-- The act speaks as itself, so a promoter reads its name and not whichever of its people wrote (docs/adr/0004). -->
 {#snippet author(event: BookingEventView)}
-	{#if role === 'promoter' && roleOf(event.author.did) === 'manager'}
+	{#if role === 'promoter' && isBookedSide(roleOf(event.author.did))}
 		<span class="text-fg-muted">{@render actName('The act')}</span>
 	{:else}
 		<Handle account={event.author} class="text-fg-muted" />
@@ -117,11 +118,11 @@
 			<div class="flex min-w-0 flex-col gap-1">
 				<h1 class="m-0 text-heading font-semibold">{thread.title ?? 'Booking inquiry'}</h1>
 				<p class="m-0 min-h-lh text-body text-fg-muted">
-					{#if role === 'manager'}
-						{#if thread.project || act.value === undefined}{@render actName('')} and{/if}
+					{#if isBookedSide(role)}
+						{#if thread.project || act.value === undefined}{@render actName('', true)} and{/if}
 						<Handle account={thread.promoter} class="text-fg-muted" />
 					{:else}
-						You and {@render actName('the act')}
+						You and {@render actName('the act', true)}
 					{/if}
 					{#if thread.showDate}· {nightLabel(thread.showDate)}{/if}
 				</p>
@@ -131,7 +132,7 @@
 			{:else if group === 'active'}
 				<p class="m-0 text-small text-fg-muted">
 					Waiting on
-					{#if role === 'manager'}{accountLabel(thread.promoter)}{:else}{@render actName('the act')}{/if}
+					{#if isBookedSide(role)}{accountLabel(thread.promoter)}{:else}{@render actName('the act')}{/if}
 				</p>
 			{/if}
 		</div>
@@ -242,7 +243,7 @@
 					{#if sent === 'status' && formError}<p role="alert" class="notice notice-error m-0">{formError}</p>{/if}
 				</div>
 			</Card>
-			<p class="m-0 px-1 text-caption text-fg-subtle">Only the promoter and the act's managers can read this.</p>
+			<p class="m-0 px-1 text-caption text-fg-subtle">Only the promoter and the act or DJ they asked can read this.</p>
 		</aside>
 
 		<section aria-labelledby="conversation" class="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">

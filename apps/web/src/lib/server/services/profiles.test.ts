@@ -107,6 +107,22 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		]);
 	});
 
+	it('keeps Take inquiries only while the performer section is on', async () => {
+		const viewer = await t.viewer(DJ);
+		await t.profiles.save(viewer, {
+			basics: { name: 'Neon' },
+			performer: {},
+			takesInquiries: true,
+			avatar: 'keep',
+			swap: null
+		});
+		const taking = (await t.profiles.get(DJ))!;
+		expect(taking.record.takesInquiries).toBe(true);
+
+		await t.profiles.save(viewer, { basics: { name: 'Neon' }, takesInquiries: true, avatar: 'keep', swap: taking.cid });
+		expect((await t.profiles.get(DJ))?.record.takesInquiries).toBeUndefined();
+	});
+
 	it('keeps the picture, drops a section turned off, and never saves over a change made since the form opened', async () => {
 		const viewer = await t.viewer(DJ);
 		await t.profiles.save(viewer, {

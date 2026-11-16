@@ -95,6 +95,11 @@ describe('safeNext', () => {
 		expect(safeNext(null)).toBe('/dashboard');
 	});
 
+	it('falls back for a value that names a host no URL can have', () => {
+		for (const next of ['//', '///', '//@', '//:', '//['])
+			expect([safeNext(next), withQuery(next, { email: 'declined' }, '/')]).toEqual(['/dashboard', '/']);
+	});
+
 	it('refuses paths a browser would read as another site', () => {
 		// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so each of
 		// these becomes `//evil.test`.

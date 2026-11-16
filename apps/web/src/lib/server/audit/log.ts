@@ -63,6 +63,8 @@ export const AUDIT_ACTIONS = [
 	'listing.list',
 	'listing.unlist',
 	'page.update',
+	'venue.block',
+	'venue.unblock',
 	'record.delete',
 	'flag.update',
 	'flag.preview',

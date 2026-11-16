@@ -2279,6 +2279,8 @@ dependencies = [
  "indexmap",
  "libfuzzer-sys",
  "locallibrary",
+ "loclib-audio",
+ "loclib-interop",
  "loclib-mysettings",
  "loclib-tracklist",
  "rekordbox-pdb",
@@ -2337,6 +2339,19 @@ version = "0.1.0"
 dependencies = [
  "loclib-model",
  "schemars",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-interop"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "loclib-model",
+ "loclib-progress",
+ "lofty",
+ "rustc-hash",
  "serde",
  "thiserror 2.0.21",
 ]

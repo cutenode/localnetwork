@@ -76,3 +76,20 @@ it('marks only what the group leaves unsaid', () => {
 	expect(mark('cancelled', 'settled', null, true)).toBe('withdrawn');
 	expect(mark('confirmed', 'settled', '2026-08-01')).toBe('date_passed');
 });
+
+it('puts a listed DJ in the turn order and marks their new inquiries as an act manager would', () => {
+	const withDj = {
+		status: 'open',
+		showDate: null,
+		lastAuthor: 'pat',
+		participants: [
+			{ did: 'pat', role: 'promoter' },
+			{ did: 'mara', role: 'performer' }
+		]
+	};
+
+	expect(bookingGroup(withDj, 'mara')).toBe('reply');
+	expect(bookingGroup(withDj, 'pat')).toBe('active');
+	expect(bookingGroup({ ...withDj, lastAuthor: 'mara' }, 'pat')).toBe('reply');
+	expect(bookingMark({ ...withDj, withdrawn: false }, 'reply', 'performer', NOW)).toBe('new');
+});

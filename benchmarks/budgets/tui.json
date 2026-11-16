@@ -1,75 +1,74 @@
 {
 	"$schema": "../budget.schema.json",
 	"job": "pull-request",
-	"tolerance_percent": 1,
 	"metrics": {
 		"library.allocations": {
-			"limit": 1360,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"library.bytes": {
-			"limit": 82789,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.allocations": {
-			"limit": 657,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.bytes": {
-			"limit": 47799,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.allocations": {
-			"limit": 402,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.bytes": {
-			"limit": 47714,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"prepare.allocations": {
-			"limit": 281,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Prepare view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"prepare.bytes": {
-			"limit": 17031,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Prepare view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"palette.allocations": {
-			"limit": 1562,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the command palette, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"palette.bytes": {
-			"limit": 92993,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the command palette, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.allocations": {
-			"limit": 2309,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.bytes": {
-			"limit": 142340,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"fade.allocations": {
-			"limit": null,
+			"allowance": 0,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Library view at 160x45 in 256 colours with a fade starting over the whole screen, with the 3,886-track fixture open and a track playing."
 		},
 		"fade.bytes": {
-			"limit": null,
+			"allowance": 0,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Library view at 160x45 in 256 colours with a fade starting over the whole screen, with the 3,886-track fixture open and a track playing."
 		}

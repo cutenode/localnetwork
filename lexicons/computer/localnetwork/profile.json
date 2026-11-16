@@ -13,6 +13,10 @@
 					"basics": { "type": "ref", "ref": "computer.localnetwork.section.defs#basics" },
 					"performer": { "type": "ref", "ref": "computer.localnetwork.section.defs#performer" },
 					"promoter": { "type": "ref", "ref": "computer.localnetwork.section.defs#promoter" },
+					"takesInquiries": {
+						"type": "boolean",
+						"description": "Whether promoters can send this DJ booking inquiries on Local Network. Off unless true, and only counts while the performer section is on."
+					},
 					"createdAt": { "type": "string", "format": "datetime" },
 					"updatedAt": { "type": "string", "format": "datetime" }
 				}

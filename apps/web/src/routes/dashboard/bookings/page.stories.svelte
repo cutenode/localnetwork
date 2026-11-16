@@ -54,7 +54,7 @@
 
 	const threads = [...live, ...settled];
 
-	const act = (slug: string, name: string) => ({ uri: `at://did:plc:root/computer.localnetwork.project/${slug}`, slug, name });
+	const act = (slug: string, name: string) => ({ uri: `at://did:plc:root/computer.localnetwork.project/${slug}`, slug, name, href: `/projects/${slug}` });
 
 	/** Every thread with Neon Tide, but for the ones listed, with Saffron Social. */
 	const names = (list: BookingListThread[], saffron: string[] = []): ThreadProjects => new Map(list.map(({ space, skey }) => [space, saffron.includes(skey) ? act('saffron-social', 'Saffron Social') : act('neon-tide', 'Neon Tide')]));
@@ -82,6 +82,20 @@
 
 	const promoter = data(PAT, threads, { acts: 2, names: names(threads, ['3', '6']), projects: Promise.resolve([]) });
 
+	const MARA = 'did:plc:mara';
+
+	const mara = { uri: `at://${MARA}/computer.localnetwork.profile/self`, slug: null, name: 'Mara', href: '/@mara.test' };
+
+	/** The live threads again, with a DJ Find DJs lists, who answers for themself. */
+	const withDj = live.map((item) => ({ ...item, participants: [item.participants[0], { did: MARA, handle: 'mara.test', role: 'performer' as const }], lastAuthor: item.lastAuthor === NEON ? MARA : item.lastAuthor }));
+
+	const listedDj = data(MARA, withDj, { names: new Map(withDj.map(({ space }) => [space, mara])), projects: Promise.resolve([]) });
+
+	// The promoter's bookings with an act, and with the listed DJ.
+	const actAndDj = [...threads.slice(0, 4), ...withDj.slice(4).map((item) => ({ ...item, skey: `dj${item.skey}`, space: `${item.space}-dj` }))];
+
+	const promoterWithDj = data(PAT, actAndDj, { acts: 2, names: new Map(actAndDj.map(({ space, skey }) => [space, skey.startsWith('dj') ? mara : act('neon-tide', 'Neon Tide')])), projects: Promise.resolve([]) });
+
 	const waiting = new Promise<never>(() => {});
 
 	const slow = { names: waiting, acts: 2 };
@@ -106,6 +120,24 @@
 
 <Story name="Promoter on a phone" asChild globals={phone}>
 	<Page params={{}} form={null} data={promoter} />
+</Story>
+
+<!-- A listed DJ's inquiries sort by turn as an act manager's do. -->
+<Story name="Listed DJ" asChild>
+	<Page params={{}} form={null} data={listedDj} />
+</Story>
+
+<Story name="Listed DJ on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={listedDj} />
+</Story>
+
+<!-- A listed DJ's filter goes by their handle. -->
+<Story name="Promoter with an act and a listed DJ" asChild>
+	<Page params={{}} form={null} data={promoterWithDj} />
+</Story>
+
+<Story name="Filtered to a listed DJ" asChild>
+	<Page params={{}} form={null} data={{ ...promoterWithDj, filter: '@mara.test' }} />
 </Story>
 
 <Story name="Settled, opened" asChild play={openSettled}>
@@ -160,6 +192,10 @@
 
 <Story name="Empty for a DJ" asChild>
 	<Page params={{}} form={null} data={data(NEON, [])} />
+</Story>
+
+<Story name="Empty for a listed DJ" asChild>
+	<Page params={{}} form={null} data={data(MARA, [], { projects: Promise.resolve([]), sections: Promise.resolve({ performer: true, promoter: false }) })} />
 </Story>
 
 <Story name="Empty for a promoter" asChild>
