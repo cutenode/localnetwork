@@ -26,7 +26,7 @@
 
 {#if items.length === 0}
 	<EmptyState title="Nothing yet" body="Booking inquiries and messages show up here.">
-		<Button variant="secondary" size="sm" href="/dashboard/inbox/settings">Get them by email or DM</Button>
+		<Button variant="secondary" size="sm" href="/dashboard/account/notifications">Get them by email or DM</Button>
 	</EmptyState>
 {:else}
 	<ol class="card m-0 list-none divide-y divide-line overflow-hidden p-0">
