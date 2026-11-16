@@ -25,6 +25,11 @@
 						"format": "did",
 						"description": "Who opened the thread. Set on the root account's opening record, which the app trusts over the author of whichever inquiry it reads first."
 					},
+					"announcedShow": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The public show a manager announced from the thread. Set on a record the root writes, which keeps the thread's status and is the only one the app trusts for it. The show names no booking, so nothing public points at this space."
+					},
 					"note": {
 						"type": "string",
 						"maxLength": 5000,

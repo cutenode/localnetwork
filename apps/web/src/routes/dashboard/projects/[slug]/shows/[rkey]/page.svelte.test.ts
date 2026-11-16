@@ -45,6 +45,7 @@ const data = {
 	isNew: true,
 	values: showFormDefaults,
 	geocoder: false,
+	booking: null,
 	saved: null
 };
 

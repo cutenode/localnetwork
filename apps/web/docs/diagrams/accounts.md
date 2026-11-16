@@ -52,7 +52,7 @@ What sign-in asks for and what it settles on. Opting in later works differently:
 
 ```mermaid
 flowchart TD
-  Full["Ask for full: blobs, calendar events,<br/>RSVPs, the permission set"]
+  Full["Ask for full: blobs, calendar events,<br/>the permission set"]
   Full -- "scope refused" --> Base["Ask for base: profile, shows,<br/>follows, calendar events, blobs"]
   Base -- "scope refused" --> Minimal["Ask for atproto alone"]
   Full -- "accepted" --> Grant["The grant"]
@@ -98,7 +98,7 @@ sequenceDiagram
   end
 ```
 
-Source: [`src/routes/dashboard/inbox/settings/+page.server.ts`](../../src/routes/dashboard/inbox/settings/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/routes/oauth/callback/+server.ts`](../../src/routes/oauth/callback/+server.ts), [`src/lib/server/atproto/oauth.ts`](../../src/lib/server/atproto/oauth.ts), [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts)
+Source: [`src/routes/dashboard/account/notifications/+page.server.ts`](../../src/routes/dashboard/account/notifications/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/routes/oauth/callback/+server.ts`](../../src/routes/oauth/callback/+server.ts), [`src/lib/server/atproto/oauth.ts`](../../src/lib/server/atproto/oauth.ts), [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts)
 
 ## Who writes a record
 
@@ -215,11 +215,11 @@ flowchart TD
   Account -- "create or claim approved,<br/>or an admin adds them" --> Manager["Manager of a performer:<br/>on its managers list, at most 10"]
   Account -- "sends an inquiry" --> Asker["Promoter side of a thread"]
   Account -- "grant" --> Reader["Reader of a press kit's private part"]
-  Account -- "staff.role from an admin" --> Mod["Moderator: reviews requests,<br/>hides performers, lists DJs,<br/>changes who's in a space,<br/>reads the audit log"]
-  Account -- "staff.role, or ADMIN_DIDS" --> Admin["Admin: all that, plus direct edits,<br/>staff, verifications, System page"]
+  Account -- "staff.role from an admin" --> Mod["Moderator: reviews requests,<br/>hides performers, lists DJs,<br/>changes who's in a space,<br/>reads the audit log, and flags or<br/>flag groups if an admin grants them"]
+  Account -- "staff.role, or ADMIN_DIDS" --> Admin["Admin: all that, plus flags, flag groups,<br/>direct edits, staff, verifications, System page"]
 ```
 
-Source: [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts)
+Source: [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts)
 
 ## Capabilities by role
 
@@ -228,7 +228,7 @@ The starting capabilities of each role in a performer, party or venue space. `pa
 ```mermaid
 flowchart LR
   Performer["performer space"] --> PM["member, listed:<br/>page.edit, people.manage, listing.request,<br/>presskits.manage, bookings.answer, shows.manage"]
-  Performer --> PN["manager:<br/>page.edit, listing.request, presskits.manage,<br/>bookings.answer, shows.manage"]
+  Performer --> PManager["manager, in the listing's managers:<br/>page.edit, listing.request, presskits.manage,<br/>bookings.answer, shows.manage"]
   Party["party space"] --> H["host, listed:<br/>page.edit, people.manage, listing.request, events.manage,<br/>bookings.send, guests.manage, guests.checkin"]
   Party --> C["cohost, listed:<br/>all of host's but people.manage"]
   Party --> D["door:<br/>guests.checkin"]
@@ -236,4 +236,4 @@ flowchart LR
   Venue --> B["booker:<br/>venue.approve"]
 ```
 
-Source: [`src/lib/capabilities.ts`](../../src/lib/capabilities.ts), [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/services/shared-spaces.ts)
+Source: [`src/lib/capabilities.ts`](../../src/lib/capabilities.ts), [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/services/shared-spaces.ts), [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts)

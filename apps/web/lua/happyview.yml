@@ -162,6 +162,8 @@ globals:
     property: read-only
   FOLLOW:
     property: read-only
+  SET:
+    property: read-only
   SET_FIELDS:
     property: read-only
   UPCOMING:

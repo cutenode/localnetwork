@@ -7,7 +7,14 @@
 	import ChartBoard from './ChartBoard.svelte';
 	import { artistSupports, charts, supportedArtists } from './fixtures.ts';
 
-	const { Story } = defineMeta({ title: 'Supports/Charts and artists', component: ChartBoard, tags: ['autodocs'] });
+	const { Story } = defineMeta({
+		title: 'Supports/Charts and artists',
+		component: ChartBoard,
+		tags: ['autodocs'],
+		// axe leaves its 24px target size check off by default. It passes over links in a line of text, like the
+		// MusicBrainz icons after track titles, so supports.svelte.test.ts measures those.
+		parameters: { a11y: { config: { rules: [{ id: 'target-size', enabled: true }] } } }
+	});
 
 	/** A promise that never settles, for the moment before data arrives. */
 	const pending = <T>() => new Promise<T>(() => {});

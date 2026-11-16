@@ -233,3 +233,78 @@ fn prop_chips_are_a_drives_own_covers(tc: hegel::TestCase) {
         assert_eq!(chip, has[id as usize].then_some([colour(id); 2]), "{id}");
     }
 }
+
+/// A `w` x `h` picture whose every pixel is its own colour.
+fn checks(w: u32, h: u32) -> RgbImage {
+    RgbImage::from_fn(w, h, |x, y| image::Rgb([(x * 7) as u8, (y * 7) as u8, ((x + y) % 2 * 200) as u8]))
+}
+
+fn encoded(image: &RgbImage) -> Vec<u8> {
+    let mut png = Vec::new();
+    image.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+    png
+}
+
+/// A small cover fills its space one way or the other in the terminal's own graphics: it's grown
+/// to it, not drawn at its own size in a corner.
+#[test]
+fn a_small_cover_fills_its_space() {
+    #[expect(deprecated)]
+    let mut picker = Picker::from_fontsize((10, 20).into());
+    picker.set_protocol_type(ProtocolType::Kitty);
+    for (w, h, size) in [(8, 8, (18, 9)), (7, 7, (18, 9)), (6, 4, (30, 9)), (3, 7, (40, 6)), (100, 100, (18, 9))] {
+        let art = Art::decode(&encoded(&checks(w, h))).unwrap();
+        let Picture::Graphics(p) = picture(&art, size, Some(&picker)) else { panic!("graphics") };
+        let got = p.size();
+        assert!(got.width <= size.0 && got.height <= size.1, "{w}x{h} in {size:?}: {got:?} is too big");
+        assert!(got.width == size.0 || got.height == size.1, "{w}x{h} in {size:?}: {got:?} doesn't fill it");
+    }
+}
+
+/// Grown a whole number of times, each of the cover's pixels is a square of identical screen
+/// pixels, none blended with its neighbours, and what's left to the edge of a cell is see-through.
+#[test]
+fn a_small_cover_grows_in_whole_pixels() {
+    let image = checks(6, 6);
+    let (grown, resize) = fitted(&image, (10, 20), (18, 9));
+    assert!(matches!(resize, Resize::Fit(None)), "drawn as it is");
+    let grown = grown.to_rgba8();
+    assert_eq!(grown.dimensions(), (180, 180), "30 times, 18 cells by 9");
+    for (x, y, px) in grown.enumerate_pixels() {
+        let [r, g, b] = image.get_pixel(x / 30, y / 30).0;
+        assert_eq!(px.0, [r, g, b, 255], "({x}, {y})");
+    }
+    let (padded, _) = fitted(&checks(7, 7), (10, 20), (18, 9));
+    let padded = padded.to_rgba8();
+    assert_eq!(padded.dimensions(), (180, 180), "175 pixels, out to the cell");
+    assert_eq!(padded.get_pixel(174, 174).0[3], 255);
+    assert_eq!(padded.get_pixel(179, 179).0[3], 0);
+}
+
+/// Where no whole number of times fills it, a cover still grows to fill its space, each screen
+/// pixel the nearest of its own; and a big one shrinks smoothly.
+#[test]
+fn a_cover_is_grown_or_shrunk_to_suit() {
+    let image = checks(100, 100);
+    let (_, resize) = fitted(&image, (10, 20), (18, 9));
+    assert!(matches!(resize, Resize::Scale(Some(FilterType::Nearest))), "1.8 times");
+    let font = ratatui_image::FontSize::new(10, 20);
+    let grown = resize.resize(&DynamicImage::ImageRgb8(image.clone()), font, Size::new(18, 9), None).to_rgb8();
+    let colours: std::collections::HashSet<_> = image.pixels().map(|p| p.0).collect();
+    assert!(grown.pixels().all(|p| colours.contains(&p.0)), "every pixel is one of the cover's");
+    let (_, resize) = fitted(&checks(600, 600), (10, 20), (18, 9));
+    assert!(matches!(resize, Resize::Fit(Some(FilterType::Triangle))));
+}
+
+/// In half blocks a small cover grows the same way, its pixels never blended.
+#[test]
+fn a_small_cover_in_half_blocks_is_crisp() {
+    let image = checks(4, 4);
+    let art = Art::decode(&encoded(&image)).unwrap();
+    let px = art.resized(12, 6);
+    assert_eq!(px.len(), 12 * 12);
+    for (i, p) in px.iter().enumerate() {
+        let (x, y) = (i as u32 % 12, i as u32 / 12);
+        assert_eq!(*p, Some(image.get_pixel(x / 3, y / 3).0), "({x}, {y})");
+    }
+}

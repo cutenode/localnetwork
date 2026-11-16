@@ -67,7 +67,7 @@ locallibrary drive adopt /Volumes/USB --as BACKUP    # after it was erased elsew
     },
     /// Say what a drive is for: primary, backup, set or archive ("none" clears it)
     #[command(after_help = "A library has one primary. Archive drives are never overwritten by sync or push \
-unless --overwrite-archive (or --force for push) is given. `gig`, the old name for `set`, works too.")]
+unless --overwrite-archive (or --force for push) is given.")]
     Role {
         #[arg(help = DRIVE_HELP)]
         drive: String,
@@ -147,7 +147,6 @@ writes the values rekordbox has for the drive.")]
         dry_run: bool,
     },
     /// Mounted drives grouped by library: the drive groups `locallibrary sync` with no drives syncs
-    #[command(alias = "sets")]
     Groups,
     /// External disks: their format, and how players get on with it
     Disks,
@@ -176,17 +175,9 @@ writes the values rekordbox has for the drive.")]
 locallibrary drive restore Home --playlist \"Sets/2026/Friday\"\n  \
 locallibrary drive restore Home --playlist \"Sets/2026\" --snapshot 3f9a2c --dry-run")]
     Restore(RestoreArgs),
-    /// Every drive locallibrary has seen, mounted or not (`drive ls --known`)
-    #[command(hide = true)]
-    List {
-        /// Include retired drives
-        #[arg(long)]
-        retired: bool,
-    },
 }
 
-/// The drive commands at the top level: the `drive` group, `eject` and `provision`, and the old
-/// top-level names of `drive` commands (hidden).
+/// The drive commands at the top level: the `drive` group, `eject` and `provision`.
 #[derive(Subcommand)]
 pub enum TopCommand {
     /// The drives you own: list, info, adopt, rename, roles, logbook, health, space, formatting,
@@ -200,45 +191,6 @@ locallibrary sync --eject    # sync every library's drives, then eject them")]
     /// Turn a blank drive into a working copy of the library, in one step
     #[command(after_help = PROVISION_HELP, after_long_help = PROVISION_LONG_HELP)]
     Provision(ProvisionArgs),
-    /// `drive ls`
-    #[command(hide = true)]
-    Drives(LsArgs),
-    /// `drive info`
-    #[command(hide = true)]
-    Info(DriveArg),
-    /// `drive adopt`
-    #[command(hide = true)]
-    Adopt(AdoptArgs),
-    /// `drive disks`
-    #[command(hide = true)]
-    Disks,
-    /// `drive format`
-    #[command(hide = true, after_help = FORMAT_HELP)]
-    Format(FormatArgs),
-    /// `drive verify`
-    #[command(hide = true, after_help = VERIFY_HELP)]
-    Verify(VerifyArgs),
-    /// `drive fsck`
-    #[command(hide = true, after_help = FSCK_HELP)]
-    Fsck(FsckArgs),
-    /// `drive space`
-    #[command(hide = true)]
-    Space(DriveArg),
-    /// `drive tidy`
-    #[command(hide = true)]
-    Tidy(TidyArgs),
-    /// `drive recordings`
-    #[command(hide = true)]
-    Recordings(RecordingsArgs),
-    /// `drive firmware`
-    #[command(hide = true)]
-    Firmware(FirmwareArgs),
-    /// `drive backups`
-    #[command(hide = true)]
-    Backups(DriveArg),
-    /// `drive restore`
-    #[command(hide = true)]
-    Restore(RestoreArgs),
 }
 
 const FORMAT_HELP: &str = "Everything on the disk is erased, including other partitions. The plan is shown first, \
@@ -280,7 +232,7 @@ pub struct DriveArg {
     pub drive: Option<String>,
 }
 
-/// `drive ls` (and `drives`).
+/// `drive ls`.
 #[derive(Args)]
 pub struct LsArgs {
     /// Also mounted volumes without a rekordbox export (blank drives, possible targets)
@@ -294,7 +246,7 @@ pub struct LsArgs {
     retired: bool,
 }
 
-/// `drive adopt` (and `adopt`).
+/// `drive adopt`.
 #[derive(Args)]
 pub struct AdoptArgs {
     #[arg(help = DRIVE_HELP)]
@@ -310,7 +262,7 @@ pub struct AdoptArgs {
     dry_run: bool,
 }
 
-/// `drive format` (and `format`).
+/// `drive format`.
 #[derive(Args)]
 pub struct FormatArgs {
     /// Mounted drive (path, or an adopted drive's name or id), or a disk: disk4 (macOS), /dev/sdb (Linux), PhysicalDrive2 (Windows)
@@ -336,7 +288,7 @@ pub struct FormatArgs {
     dry_run: bool,
 }
 
-/// `drive verify` (and `verify`).
+/// `drive verify`.
 #[derive(Args)]
 pub struct VerifyArgs {
     #[arg(help = crate::ONE_DRIVE_HELP)]
@@ -358,7 +310,7 @@ pub struct VerifyArgs {
     all: bool,
 }
 
-/// `drive fsck` (and `fsck`).
+/// `drive fsck`.
 #[derive(Args)]
 pub struct FsckArgs {
     #[arg(help = DRIVE_HELP)]
@@ -368,7 +320,7 @@ pub struct FsckArgs {
     repair: bool,
 }
 
-/// `drive tidy` (and `tidy`).
+/// `drive tidy`.
 #[derive(Args)]
 pub struct TidyArgs {
     #[arg(help = DRIVE_HELP)]
@@ -381,7 +333,7 @@ pub struct TidyArgs {
     dry_run: bool,
 }
 
-/// `drive recordings` (and `recordings`).
+/// `drive recordings`.
 #[derive(Args)]
 pub struct RecordingsArgs {
     #[arg(help = crate::ONE_DRIVE_HELP)]
@@ -404,7 +356,7 @@ pub struct RecordingsArgs {
     dry_run: bool,
 }
 
-/// `drive firmware` (and `firmware`).
+/// `drive firmware`.
 #[derive(Args)]
 pub struct FirmwareArgs {
     #[arg(help = DRIVE_HELP)]
@@ -426,7 +378,7 @@ pub struct FirmwareArgs {
     dry_run: bool,
 }
 
-/// `drive restore` (and `restore`).
+/// `drive restore`.
 #[derive(Args)]
 pub struct RestoreArgs {
     #[arg(help = DRIVE_HELP)]
@@ -523,19 +475,6 @@ pub fn run(command: TopCommand, store_path: &Option<PathBuf>, out: Output, ctx: 
         TopCommand::Drive(args) => drive(args, store_path, out, ctx),
         TopCommand::Eject(a) => eject(a, store_path, out, ctx),
         TopCommand::Provision(a) => provision(a, store_path, out, ctx),
-        TopCommand::Drives(a) => ls(a, store_path, out),
-        TopCommand::Info(a) => info(a.drive, out),
-        TopCommand::Adopt(a) => adopt(a, store_path, out, ctx),
-        TopCommand::Disks => disks(store_path, out),
-        TopCommand::Format(a) => format(a, store_path, out, ctx),
-        TopCommand::Verify(a) => verify(a, store_path, out, ctx),
-        TopCommand::Fsck(a) => fsck(a, store_path, out),
-        TopCommand::Space(a) => space(a.drive, store_path, out, ctx),
-        TopCommand::Tidy(a) => tidy(a, out, ctx),
-        TopCommand::Recordings(a) => recordings(a, store_path, out, ctx),
-        TopCommand::Firmware(a) => firmware(a, out, ctx),
-        TopCommand::Backups(a) => backups(a.drive, out),
-        TopCommand::Restore(a) => restore(a, store_path, out, ctx),
     }
 }
 
@@ -552,7 +491,6 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     };
     match command {
         DriveCommand::Ls(a) => return ls(a, store_path, out),
-        DriveCommand::List { retired } => return ls(LsArgs { all: false, known: true, retired }, store_path, out),
         DriveCommand::Info(a) => return info(a.drive, out),
         DriveCommand::Adopt(a) => return adopt(a, store_path, out, ctx),
         DriveCommand::Disks => return disks(store_path, out),
@@ -1564,7 +1502,7 @@ pub fn scrub_report(r: &ScrubReport) {
     }
 }
 
-fn kind_name(k: SpaceKind) -> &'static str {
+pub(crate) fn kind_name(k: SpaceKind) -> &'static str {
     match k {
         SpaceKind::Audio => "audio",
         SpaceKind::Analysis => "analysis (beat grids, cues, waveforms)",

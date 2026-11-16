@@ -159,7 +159,7 @@
           variant="outline"
           class={big ? 'w-full' : ''}
           disabled={!canAddQueue}
-          aria-label={`add the session queue — ${count(queued, 'track')}`}
+          aria-label={`add ${count(queued, 'track')} from the session queue`}
           title={queueTitle}
           onclick={() => onadd('queue')}
         >

@@ -86,8 +86,8 @@ describe('HeldRecords', () => {
 			{ kind: 'booking', title: 'Inquiry in Rooftop', excerpt: 'Free on the 5th?' },
 			{ kind: 'booking', title: 'Message in Rooftop', excerpt: 'Any news?' },
 			{ kind: 'request', title: 'New project: Proxy', excerpt: 'Hi mods' },
-			{ kind: 'epkDraft', title: 'Press kit draft for Neon Tide', excerpt: null },
-			{ kind: 'epkRequest', title: 'Press kit request for Neon Tide', excerpt: 'For a festival' }
+			{ kind: 'epkRequest', title: 'Press kit access for Neon Tide', excerpt: 'For a festival' },
+			{ kind: 'epkDraft', title: 'Press kit draft for Neon Tide', excerpt: null }
 		]);
 		expect(held.every((record) => parseSpaceRecordUri(record.uri)?.author === ROOT)).toBe(true);
 		expect(await f.t.heldRecords.list(await f.t.viewer(STRANGER))).toEqual([]);
@@ -301,7 +301,7 @@ describe('HeldRecords', () => {
 
 		expect(held.map(({ kind, title, excerpt }) => ({ kind, title, excerpt }))).toEqual([
 			{ kind: 'booking', title: 'Inquiry', excerpt: null },
-			{ kind: 'epkRequest', title: 'Press kit request', excerpt: null },
+			{ kind: 'epkRequest', title: 'Press kit access', excerpt: null },
 			{ kind: 'epkDraft', title: 'Press kit draft', excerpt: null }
 		]);
 	});

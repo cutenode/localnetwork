@@ -200,25 +200,26 @@ export class ProjectService {
 
 	/**
 	 * A project by slug. With `counts`, the same query also counts the press kits and upcoming shows its pages stream in
-	 * afterwards, capped at as many as they list.
+	 * afterwards, capped at as many as they list, and the managers whose DJ records they stream in.
 	 */
 	async bySlug(slug: string, options: { counts?: boolean } = {}): Promise<ProjectView | null> {
 		if (!SLUG.test(slug)) return null;
 
-		const { project, pressKits, upcomingShows } = await this.directory.query('getProject', {
+		const { project, pressKits, upcomingShows, djs } = await this.directory.query('getProject', {
 			slug,
 			counts: options.counts
 		});
 
 		const view = project && this.toView(project);
 
-		if (!view || pressKits === undefined || upcomingShows === undefined) return view ?? null;
+		if (!view || pressKits === undefined || upcomingShows === undefined || djs === undefined) return view ?? null;
 
 		return {
 			...view,
 			counts: {
 				pressKits: Math.min(pressKits, MAX_EPKS_PER_PROJECT),
-				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS)
+				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS),
+				djs
 			}
 		};
 	}
