@@ -87,8 +87,7 @@ fn the_sources_go_from_the_collection_to_a_drive_and_back() {
     let (mut app, dir) = blank(View::Library);
     app.collection_db = Some(master_db(dir.path()));
     let (_drive_dir, drive) = demo_drive();
-    let info =
-        locallibrary::api::drive_info(&locallibrary::api::DriveRef { drive: drive.display().to_string() }).unwrap();
+    let info = drive_info(&drive);
     let drive = info.root.clone();
     app.handle_msg(Msg::Drives(vec![info]));
     // A drive with an export is there: it opens first, as before.
@@ -123,4 +122,129 @@ fn without_rekordbox_the_pane_is_the_drives_as_before() {
     app.focus = Focus::Drives;
     app.move_selection(1);
     assert!(!app.collection_row);
+}
+
+/// The drive at `drive`, as a read of the drives answers it.
+fn drive_info(drive: &Path) -> locallibrary::DeviceInfo {
+    locallibrary::api::drive_info(&locallibrary::api::DriveRef { drive: drive.display().to_string() }).unwrap()
+}
+
+/// The collection's row in the Library view's sources pane, as drawn on a 120 by 30 screen.
+fn collection_row(app: &mut App) -> String {
+    let s = crate::tui::ui::screen(app, 120, 30);
+    let r = app.areas.drives;
+    let mut pane = (s.lines().skip(r.y as usize).take(r.height as usize))
+        .map(|l| l.chars().skip(r.x as usize).take(r.width as usize).collect::<String>());
+    pane.find(|l| l.contains(COLLECTION_NAME)).unwrap_or_else(|| panic!("no collection in {r:?}:\n{s}"))
+}
+
+#[test]
+fn the_sources_pane_draws_the_collection_above_the_drives_and_a_double_click_opens_it() {
+    let (mut app, dir) = blank(View::Library);
+    app.collection_db = Some(master_db(dir.path()));
+    let (_drive_dir, drive) = demo_drive();
+    let info = drive_info(&drive);
+    let drive = info.root.clone();
+    app.handle_msg(Msg::Drives(vec![info]));
+    wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
+
+    // Unread, it has no track count yet, and the pane holds sources rather than only drives.
+    app.focus = Focus::Drives;
+    let s = crate::tui::ui::screen(&mut app, 120, 30);
+    assert!(s.contains("Sources") && s.contains("2/2"), "the footer counts the sources, the drive second:\n{s}");
+    let row = collection_row(&mut app);
+    assert!(row.trim_end_matches(['│', ' ']).ends_with(COLLECTION_NAME), "{row:?}");
+
+    point(&mut app, LEFT, COLLECTION_NAME);
+    assert_eq!(app.source_row(), Some(0), "a click selects it");
+    assert!(crate::tui::ui::screen(&mut app, 120, 30).contains("1/2"));
+    quick_again(&mut app);
+    point(&mut app, LEFT, COLLECTION_NAME);
+    wait(&mut app, showing_collection);
+    assert_eq!(app.focus, Focus::Playlists, "opening it goes on to its playlists");
+
+    // Open, it shows its track count.
+    app.focus = Focus::Drives;
+    let row = collection_row(&mut app);
+    assert!(row.trim_end_matches(['│', ' ']).ends_with(" 2"), "{row:?}");
+
+    // My Tags are an edit too: none on the collection.
+    app.focus = Focus::Playlists;
+    press(&mut app, "T");
+    assert_eq!(last_message(&app), COLLECTION_READ_ONLY);
+    assert!(app.modal.is_none() && app.job.is_none());
+}
+
+#[test]
+fn the_collection_open_at_the_last_quit_opens_first_next_time() {
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+    let saved = app.saved_state();
+
+    // The next run: a drive with an export is there, and still the collection opens.
+    let mut next = App::blank(app.store_root.clone(), None);
+    next.view = View::Library;
+    next.apply_saved(&saved, true);
+    next.collection_db = Some(db);
+    let (_drive_dir, drive) = demo_drive();
+    next.handle_msg(Msg::Drives(vec![drive_info(&drive)]));
+    wait(&mut next, showing_collection);
+    assert_eq!(next.source_row(), Some(0));
+}
+
+#[test]
+fn a_collection_that_cant_be_read_says_why_and_opens_nothing() {
+    let (mut app, dir) = blank(View::Library);
+    let db = dir.path().join("master.db");
+    rusqlite::Connection::open(&db).unwrap().execute_batch("CREATE TABLE notes (body TEXT);").unwrap();
+    app.collection_db = Some(db);
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, |a| a.loading.is_none());
+    assert!(app.loaded.is_none());
+    assert!(last_message(&app).contains("not a rekordbox collection database"), "{}", last_message(&app));
+
+    // With no collection on this computer, asking for it says so.
+    app.collection_db = None;
+    app.load_collection();
+    assert!(app.loading.is_none());
+    assert_eq!(last_message(&app), "rekordbox's collection isn't on this computer");
+}
+
+/// Moving through the sources stays on a row there is, one at a time, the collection first, and
+/// selecting a row past the last changes nothing.
+#[hegel::test(test_cases = 100)]
+fn moving_through_the_sources_stays_on_them(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, dir) = blank(View::Library);
+    app.focus = Focus::Drives;
+    let (_drive_dir, drive) = demo_drive();
+    let info = drive_info(&drive);
+    let drives = tc.draw(gs::integers::<usize>().max_value(4));
+    let root = |i: usize| dir.path().join(i.to_string());
+    app.drives = (0..drives).map(|i| locallibrary::DeviceInfo { root: root(i), ..info.clone() }).collect();
+    let collection = tc.draw(gs::booleans());
+    app.collection_db = collection.then(|| dir.path().join("master.db"));
+    let rows = usize::from(collection) + drives;
+    assert_eq!(app.source_rows(), rows);
+    let mut at = None;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        if tc.draw(gs::booleans()) {
+            let delta = tc.draw(gs::sampled_from(&[-3isize, -1, 1, 2][..]));
+            app.move_selection(delta);
+            if rows > 0 {
+                at = Some((at.unwrap_or(0) as isize + delta).clamp(0, rows as isize - 1) as usize);
+            }
+        } else {
+            let row = tc.draw(gs::integers::<usize>().max_value(rows + 1));
+            app.select_source_row(row);
+            if row < rows {
+                at = Some(row);
+            }
+        }
+        assert_eq!(app.source_row(), at);
+        assert_eq!(app.collection_row, collection && at == Some(0));
+    }
 }
