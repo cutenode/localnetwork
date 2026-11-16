@@ -183,7 +183,7 @@ flowchart TD
     dest -->|"drive verify --from --repair"| drive["A damaged drive"]
     order["Order of a copy: files, then snapshots<br/>with all their files, then libraries.json"] -.-> folder
     order -.-> dest
-    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, tui.json, embed-backups/, views.json,<br/>locks, caches, reports"] -.-> folder
+    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, store-prefs.json, tui.json,<br/>embed-backups/, views.json, locks, caches, reports"] -.-> folder
     leftout -.-> dest
 ```
 

@@ -173,7 +173,7 @@ it('asks staff to list the profile in Find DJs, and opens the request', async ()
 
 	await expect(sent).rejects.toMatchObject({ status: 303 });
 	const [request] = await t.requests.list({ kind: 'list', requester: DJ });
-	await expect(sent).rejects.toMatchObject({ location: `/dashboard/requests/${request.rkey}?submitted=1` });
+	await expect(sent).rejects.toMatchObject({ location: `/dashboard/account/requests/${request.rkey}?submitted=1` });
 	expect(request?.record).toMatchObject({
 		listing: { subject: profile.uri, cid: profile.cid },
 		message: 'I play every weekend'

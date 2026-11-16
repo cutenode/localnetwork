@@ -1,12 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "locallibrary RPC",
-  "description": "Methods of `locallibrary rpc` (JSON-RPC 2.0, one message per line): each with its parameters' and result's schema. Names are `noun.verb`; a change is `<op>.plan` (answers a plan with a `plan_id`) and `<op>.apply` (applies it). `aliases` still work.",
+  "description": "Methods of `locallibrary rpc` (JSON-RPC 2.0, one message per line): each with its parameters' and result's schema. Names are `noun.verb`; a change is `<op>.plan` (answers a plan with a `plan_id`) and `<op>.apply` (applies it).",
   "protocol": 1,
   "methods": [
     {
       "name": "initialize",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -19,7 +18,6 @@
     },
     {
       "name": "version",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -32,7 +30,6 @@
     },
     {
       "name": "rpc.describe",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -43,7 +40,6 @@
     },
     {
       "name": "$/cancel",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -56,7 +52,6 @@
     },
     {
       "name": "jobs.list",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -72,7 +67,6 @@
     },
     {
       "name": "events.subscribe",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -85,7 +79,6 @@
     },
     {
       "name": "events.unsubscribe",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -98,7 +91,6 @@
     },
     {
       "name": "watch.start",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -111,7 +103,6 @@
     },
     {
       "name": "watch.stop",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -124,7 +115,6 @@
     },
     {
       "name": "shutdown",
-      "aliases": [],
       "kind": "control",
       "long_running": false,
       "destructive": false,
@@ -137,7 +127,6 @@
     },
     {
       "name": "status",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -153,7 +142,6 @@
     },
     {
       "name": "drives.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -169,7 +157,6 @@
     },
     {
       "name": "drives.mounted",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -185,7 +172,6 @@
     },
     {
       "name": "drive.info",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -198,7 +184,6 @@
     },
     {
       "name": "drive.adopt.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.adopt.apply",
       "operation": "drive.adopt",
@@ -227,9 +212,6 @@
     },
     {
       "name": "drive.adopt.apply",
-      "aliases": [
-        "drive.adopt"
-      ],
       "kind": "apply",
       "pair": "drive.adopt.plan",
       "operation": "drive.adopt",
@@ -258,7 +240,6 @@
     },
     {
       "name": "drive.library",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -271,7 +252,6 @@
     },
     {
       "name": "playlists.tree",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -284,7 +264,6 @@
     },
     {
       "name": "tracks.get",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -297,7 +276,6 @@
     },
     {
       "name": "tracks.query",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -310,7 +288,6 @@
     },
     {
       "name": "track.analysis",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -323,7 +300,6 @@
     },
     {
       "name": "tracks.analysis",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -336,7 +312,6 @@
     },
     {
       "name": "track.fields",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -349,7 +324,6 @@
     },
     {
       "name": "track.show",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -365,7 +339,6 @@
     },
     {
       "name": "track.matches",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -381,7 +354,6 @@
     },
     {
       "name": "drive.backups",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -397,7 +369,6 @@
     },
     {
       "name": "drive.restore.preview",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -411,7 +382,6 @@
     },
     {
       "name": "drive.restore.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.restore.apply",
       "operation": "undo",
@@ -440,9 +410,6 @@
     },
     {
       "name": "drive.restore.apply",
-      "aliases": [
-        "drive.restore"
-      ],
       "kind": "apply",
       "pair": "drive.restore.plan",
       "operation": "undo",
@@ -471,7 +438,6 @@
     },
     {
       "name": "undo.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -484,7 +450,6 @@
     },
     {
       "name": "undo.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "undo.apply",
       "operation": "undo",
@@ -513,7 +478,6 @@
     },
     {
       "name": "undo.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "undo.plan",
       "operation": "undo",
@@ -542,7 +506,6 @@
     },
     {
       "name": "compare",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -555,7 +518,6 @@
     },
     {
       "name": "sync.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "sync.apply",
       "operation": "sync",
@@ -584,7 +546,6 @@
     },
     {
       "name": "sync.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "sync.plan",
       "operation": "sync",
@@ -613,9 +574,6 @@
     },
     {
       "name": "sync.many.plan",
-      "aliases": [
-        "sync_many.plan"
-      ],
       "kind": "plan",
       "pair": "sync.many.apply",
       "operation": "sync.many",
@@ -644,9 +602,6 @@
     },
     {
       "name": "sync.many.apply",
-      "aliases": [
-        "sync_many.apply"
-      ],
       "kind": "apply",
       "pair": "sync.many.plan",
       "operation": "sync.many",
@@ -678,10 +633,6 @@
     },
     {
       "name": "sync.group.plan",
-      "aliases": [
-        "sync_group.plan",
-        "sync_set.plan"
-      ],
       "kind": "plan",
       "pair": "sync.group.apply",
       "operation": "sync.group",
@@ -710,10 +661,6 @@
     },
     {
       "name": "sync.group.apply",
-      "aliases": [
-        "sync_group.apply",
-        "sync_set.apply"
-      ],
       "kind": "apply",
       "pair": "sync.group.plan",
       "operation": "sync.group",
@@ -745,7 +692,6 @@
     },
     {
       "name": "pull.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "pull.apply",
       "operation": "pull",
@@ -774,9 +720,6 @@
     },
     {
       "name": "pull.apply",
-      "aliases": [
-        "pull"
-      ],
       "kind": "apply",
       "pair": "pull.plan",
       "operation": "pull",
@@ -805,7 +748,6 @@
     },
     {
       "name": "push.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "push.apply",
       "operation": "push",
@@ -834,7 +776,6 @@
     },
     {
       "name": "push.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "push.plan",
       "operation": "push",
@@ -863,7 +804,6 @@
     },
     {
       "name": "merge.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "merge.apply",
       "operation": "merge",
@@ -892,7 +832,6 @@
     },
     {
       "name": "merge.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "merge.plan",
       "operation": "merge",
@@ -921,7 +860,6 @@
     },
     {
       "name": "convert.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "convert.apply",
       "operation": "convert",
@@ -950,7 +888,6 @@
     },
     {
       "name": "convert.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "convert.plan",
       "operation": "convert",
@@ -979,7 +916,6 @@
     },
     {
       "name": "store.info",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -992,7 +928,6 @@
     },
     {
       "name": "store.history",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1008,7 +943,6 @@
     },
     {
       "name": "store.gc.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "store.gc.apply",
       "operation": "store.gc",
@@ -1037,9 +971,6 @@
     },
     {
       "name": "store.gc.apply",
-      "aliases": [
-        "store.gc"
-      ],
       "kind": "apply",
       "pair": "store.gc.plan",
       "operation": "store.gc",
@@ -1068,7 +999,6 @@
     },
     {
       "name": "store.verify",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -1081,7 +1011,6 @@
     },
     {
       "name": "store.prune.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "store.prune.apply",
       "operation": "store.prune",
@@ -1110,9 +1039,6 @@
     },
     {
       "name": "store.prune.apply",
-      "aliases": [
-        "store.prune"
-      ],
       "kind": "apply",
       "pair": "store.prune.plan",
       "operation": "store.prune",
@@ -1141,7 +1067,6 @@
     },
     {
       "name": "store.copy",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": true,
@@ -1161,7 +1086,6 @@
     },
     {
       "name": "store.copies",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1177,7 +1101,6 @@
     },
     {
       "name": "snapshot.label",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -1197,7 +1120,6 @@
     },
     {
       "name": "snapshot.library",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1210,7 +1132,6 @@
     },
     {
       "name": "library.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1226,7 +1147,6 @@
     },
     {
       "name": "store.serve",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -1239,7 +1159,6 @@
     },
     {
       "name": "store.fetch",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -1259,7 +1178,6 @@
     },
     {
       "name": "library.rename",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -1279,7 +1197,6 @@
     },
     {
       "name": "edit.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "edit.apply",
       "operation": "edit",
@@ -1308,7 +1225,6 @@
     },
     {
       "name": "edit.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "edit.plan",
       "operation": "edit",
@@ -1337,7 +1253,6 @@
     },
     {
       "name": "edits.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1353,7 +1268,6 @@
     },
     {
       "name": "edits.replay.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "edits.replay.apply",
       "operation": "edits.replay",
@@ -1382,7 +1296,6 @@
     },
     {
       "name": "edits.replay.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "edits.replay.plan",
       "operation": "edits.replay",
@@ -1411,7 +1324,6 @@
     },
     {
       "name": "edits.clear.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "edits.clear.apply",
       "operation": "edits.clear",
@@ -1440,9 +1352,6 @@
     },
     {
       "name": "edits.clear.apply",
-      "aliases": [
-        "edits.clear"
-      ],
       "kind": "apply",
       "pair": "edits.clear.plan",
       "operation": "edits.clear",
@@ -1471,7 +1380,6 @@
     },
     {
       "name": "smart.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1484,7 +1392,6 @@
     },
     {
       "name": "smart.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -1504,7 +1411,6 @@
     },
     {
       "name": "smart.remove",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": true,
@@ -1524,9 +1430,6 @@
     },
     {
       "name": "smart.write.plan",
-      "aliases": [
-        "smart.apply.plan"
-      ],
       "kind": "plan",
       "pair": "smart.write.apply",
       "operation": "smart.write",
@@ -1555,9 +1458,6 @@
     },
     {
       "name": "smart.write.apply",
-      "aliases": [
-        "smart.apply"
-      ],
       "kind": "apply",
       "pair": "smart.write.plan",
       "operation": "smart.write",
@@ -1586,7 +1486,6 @@
     },
     {
       "name": "dedupe.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "dedupe.apply",
       "operation": "dedupe",
@@ -1615,7 +1514,6 @@
     },
     {
       "name": "dedupe.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "dedupe.plan",
       "operation": "dedupe",
@@ -1644,7 +1542,6 @@
     },
     {
       "name": "relocate.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "relocate.apply",
       "operation": "relocate",
@@ -1673,7 +1570,6 @@
     },
     {
       "name": "relocate.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "relocate.plan",
       "operation": "relocate",
@@ -1702,7 +1598,6 @@
     },
     {
       "name": "upgrade.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "upgrade.apply",
       "operation": "upgrade",
@@ -1731,7 +1626,6 @@
     },
     {
       "name": "upgrade.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "upgrade.plan",
       "operation": "upgrade",
@@ -1760,7 +1654,6 @@
     },
     {
       "name": "history.delete.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "history.delete.apply",
       "operation": "history.delete",
@@ -1789,7 +1682,6 @@
     },
     {
       "name": "history.delete.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "history.delete.plan",
       "operation": "history.delete",
@@ -1818,7 +1710,6 @@
     },
     {
       "name": "pack.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "pack.apply",
       "operation": "pack",
@@ -1847,7 +1738,6 @@
     },
     {
       "name": "pack.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "pack.plan",
       "operation": "pack",
@@ -1876,7 +1766,6 @@
     },
     {
       "name": "tags.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1889,7 +1778,6 @@
     },
     {
       "name": "tags.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "tags.apply",
       "operation": "tags",
@@ -1918,7 +1806,6 @@
     },
     {
       "name": "tags.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "tags.plan",
       "operation": "tags",
@@ -1947,7 +1834,6 @@
     },
     {
       "name": "cues.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -1963,7 +1849,6 @@
     },
     {
       "name": "cues.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "cues.apply",
       "operation": "cues",
@@ -1992,7 +1877,6 @@
     },
     {
       "name": "cues.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "cues.plan",
       "operation": "cues",
@@ -2021,7 +1905,6 @@
     },
     {
       "name": "playlist.restore.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "playlist.restore.apply",
       "operation": "playlist.restore",
@@ -2050,9 +1933,6 @@
     },
     {
       "name": "playlist.restore.apply",
-      "aliases": [
-        "playlist.restore"
-      ],
       "kind": "apply",
       "pair": "playlist.restore.plan",
       "operation": "playlist.restore",
@@ -2081,7 +1961,6 @@
     },
     {
       "name": "settings.schema",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2097,7 +1976,6 @@
     },
     {
       "name": "settings.profile",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2110,7 +1988,6 @@
     },
     {
       "name": "settings.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -2130,7 +2007,6 @@
     },
     {
       "name": "settings.unset",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -2150,7 +2026,6 @@
     },
     {
       "name": "settings.show",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2163,9 +2038,6 @@
     },
     {
       "name": "settings.write.plan",
-      "aliases": [
-        "settings.apply.plan"
-      ],
       "kind": "plan",
       "pair": "settings.write.apply",
       "operation": "settings.write",
@@ -2194,9 +2066,6 @@
     },
     {
       "name": "settings.write.apply",
-      "aliases": [
-        "settings.apply"
-      ],
       "kind": "apply",
       "pair": "settings.write.plan",
       "operation": "settings.write",
@@ -2235,7 +2104,6 @@
     },
     {
       "name": "settings.import.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "settings.import.apply",
       "operation": "settings.import",
@@ -2264,9 +2132,6 @@
     },
     {
       "name": "settings.import.apply",
-      "aliases": [
-        "settings.import"
-      ],
       "kind": "apply",
       "pair": "settings.import.plan",
       "operation": "settings.import",
@@ -2295,7 +2160,6 @@
     },
     {
       "name": "settings.export",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2308,7 +2172,6 @@
     },
     {
       "name": "settings.import_file.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "settings.import_file.apply",
       "operation": "settings.import_file",
@@ -2337,7 +2200,6 @@
     },
     {
       "name": "settings.import_file.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "settings.import_file.plan",
       "operation": "settings.import_file",
@@ -2366,7 +2228,6 @@
     },
     {
       "name": "art.missing",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2382,7 +2243,6 @@
     },
     {
       "name": "art.get",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2395,7 +2255,6 @@
     },
     {
       "name": "art.path",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2408,7 +2267,6 @@
     },
     {
       "name": "art.set.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "art.set.apply",
       "operation": "art.set",
@@ -2437,9 +2295,6 @@
     },
     {
       "name": "art.set.apply",
-      "aliases": [
-        "art.set"
-      ],
       "kind": "apply",
       "pair": "art.set.plan",
       "operation": "art.set",
@@ -2468,7 +2323,6 @@
     },
     {
       "name": "art.auto.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "art.auto.apply",
       "operation": "art.auto",
@@ -2497,7 +2351,6 @@
     },
     {
       "name": "art.auto.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "art.auto.plan",
       "operation": "art.auto",
@@ -2526,7 +2379,6 @@
     },
     {
       "name": "art.embed.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "art.embed.apply",
       "operation": "art.embed",
@@ -2555,9 +2407,6 @@
     },
     {
       "name": "art.embed.apply",
-      "aliases": [
-        "art.embed"
-      ],
       "kind": "apply",
       "pair": "art.embed.plan",
       "operation": "art.embed",
@@ -2586,7 +2435,6 @@
     },
     {
       "name": "art.unembed.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "art.unembed.apply",
       "operation": "art.unembed",
@@ -2615,9 +2463,6 @@
     },
     {
       "name": "art.unembed.apply",
-      "aliases": [
-        "art.unembed"
-      ],
       "kind": "apply",
       "pair": "art.unembed.plan",
       "operation": "art.unembed",
@@ -2646,7 +2491,6 @@
     },
     {
       "name": "export",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -2666,7 +2510,6 @@
     },
     {
       "name": "diff",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2679,7 +2522,6 @@
     },
     {
       "name": "doctor",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -2692,7 +2534,6 @@
     },
     {
       "name": "doctor.orphans.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "doctor.orphans.apply",
       "operation": "doctor.orphans",
@@ -2721,7 +2562,6 @@
     },
     {
       "name": "doctor.orphans.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "doctor.orphans.plan",
       "operation": "doctor.orphans",
@@ -2750,7 +2590,6 @@
     },
     {
       "name": "check",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -2763,7 +2602,6 @@
     },
     {
       "name": "analysis.bench",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -2776,7 +2614,6 @@
     },
     {
       "name": "plays.history",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2789,7 +2626,6 @@
     },
     {
       "name": "plays.archive",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -2802,7 +2638,6 @@
     },
     {
       "name": "plays.stats",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2815,7 +2650,6 @@
     },
     {
       "name": "players.models",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2831,7 +2665,6 @@
     },
     {
       "name": "players.show",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2844,7 +2677,6 @@
     },
     {
       "name": "players.set.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "players.set.apply",
       "operation": "players.set",
@@ -2873,9 +2705,6 @@
     },
     {
       "name": "players.set.apply",
-      "aliases": [
-        "players.set"
-      ],
       "kind": "apply",
       "pair": "players.set.plan",
       "operation": "players.set",
@@ -2904,7 +2733,6 @@
     },
     {
       "name": "players.clear.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "players.clear.apply",
       "operation": "players.clear",
@@ -2933,9 +2761,6 @@
     },
     {
       "name": "players.clear.apply",
-      "aliases": [
-        "players.clear"
-      ],
       "kind": "apply",
       "pair": "players.clear.plan",
       "operation": "players.clear",
@@ -2964,7 +2789,6 @@
     },
     {
       "name": "disks.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -2980,7 +2804,6 @@
     },
     {
       "name": "format.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "format.apply",
       "operation": "format",
@@ -3009,7 +2832,6 @@
     },
     {
       "name": "format.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "format.plan",
       "operation": "format",
@@ -3038,7 +2860,6 @@
     },
     {
       "name": "account.status",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3051,7 +2872,6 @@
     },
     {
       "name": "account.check",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -3064,7 +2884,6 @@
     },
     {
       "name": "account.login.begin",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3084,7 +2903,6 @@
     },
     {
       "name": "account.login.finish",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3104,7 +2922,6 @@
     },
     {
       "name": "account.login.paste",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3124,7 +2941,6 @@
     },
     {
       "name": "account.login.cancel",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3144,7 +2960,6 @@
     },
     {
       "name": "account.logout",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3164,7 +2979,6 @@
     },
     {
       "name": "account.client_metadata",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3175,7 +2989,6 @@
     },
     {
       "name": "profile.build",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -3188,7 +3001,6 @@
     },
     {
       "name": "profile.document",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -3201,7 +3013,6 @@
     },
     {
       "name": "profile.prefs",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3214,7 +3025,6 @@
     },
     {
       "name": "profile.prefs.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3234,7 +3044,6 @@
     },
     {
       "name": "profile.publish.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "profile.publish.apply",
       "operation": "profile.publish",
@@ -3263,7 +3072,6 @@
     },
     {
       "name": "profile.publish.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "profile.publish.plan",
       "operation": "profile.publish",
@@ -3292,7 +3100,6 @@
     },
     {
       "name": "sets.lookup",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3312,7 +3119,6 @@
     },
     {
       "name": "sets.publish.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "sets.publish.apply",
       "operation": "sets.publish",
@@ -3341,7 +3147,6 @@
     },
     {
       "name": "sets.publish.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "sets.publish.plan",
       "operation": "sets.publish",
@@ -3370,7 +3175,6 @@
     },
     {
       "name": "settings.publish.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "settings.publish.apply",
       "operation": "settings.publish",
@@ -3399,7 +3203,6 @@
     },
     {
       "name": "settings.publish.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "settings.publish.plan",
       "operation": "settings.publish",
@@ -3428,7 +3231,6 @@
     },
     {
       "name": "settings.import_published.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "settings.import_published.apply",
       "operation": "settings.import_published",
@@ -3457,7 +3259,6 @@
     },
     {
       "name": "settings.import_published.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "settings.import_published.plan",
       "operation": "settings.import_published",
@@ -3486,7 +3287,6 @@
     },
     {
       "name": "sets.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3502,7 +3302,6 @@
     },
     {
       "name": "sets.get",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3515,7 +3314,6 @@
     },
     {
       "name": "sets.new",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3535,7 +3333,6 @@
     },
     {
       "name": "sets.edit",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3555,7 +3352,6 @@
     },
     {
       "name": "sets.delete",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": true,
@@ -3575,7 +3371,6 @@
     },
     {
       "name": "sets.export",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3595,7 +3390,6 @@
     },
     {
       "name": "sets.played",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3611,7 +3405,6 @@
     },
     {
       "name": "sets.playlist.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "sets.playlist.apply",
       "operation": "sets.playlist",
@@ -3640,7 +3433,6 @@
     },
     {
       "name": "sets.playlist.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "sets.playlist.plan",
       "operation": "sets.playlist",
@@ -3669,7 +3461,6 @@
     },
     {
       "name": "sets.suggest",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -3682,7 +3473,6 @@
     },
     {
       "name": "sessions.list",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -3695,7 +3485,6 @@
     },
     {
       "name": "sessions.dismiss",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3718,7 +3507,6 @@
     },
     {
       "name": "sessions.import",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3738,7 +3526,6 @@
     },
     {
       "name": "mix.index",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3758,7 +3545,6 @@
     },
     {
       "name": "mix.identify",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3778,7 +3564,6 @@
     },
     {
       "name": "mix.export",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -3798,7 +3583,6 @@
     },
     {
       "name": "mix.reports.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3814,7 +3598,6 @@
     },
     {
       "name": "mix.reports.get",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3827,7 +3610,6 @@
     },
     {
       "name": "mix.reports.html",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3847,7 +3629,6 @@
     },
     {
       "name": "fleet.status",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -3860,7 +3641,6 @@
     },
     {
       "name": "drives.known",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -3876,7 +3656,6 @@
     },
     {
       "name": "drive.rename.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.rename.apply",
       "operation": "drive.rename",
@@ -3905,9 +3684,6 @@
     },
     {
       "name": "drive.rename.apply",
-      "aliases": [
-        "drive.rename"
-      ],
       "kind": "apply",
       "pair": "drive.rename.plan",
       "operation": "drive.rename",
@@ -3936,7 +3712,6 @@
     },
     {
       "name": "drive.forget",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": true,
@@ -3956,7 +3731,6 @@
     },
     {
       "name": "drive.role",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3976,7 +3750,6 @@
     },
     {
       "name": "drive.retire",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -3996,7 +3769,6 @@
     },
     {
       "name": "drive.log",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -4009,7 +3781,6 @@
     },
     {
       "name": "drive.speed",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -4022,7 +3793,6 @@
     },
     {
       "name": "drive.speed.measure",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -4042,7 +3812,6 @@
     },
     {
       "name": "drive.recognise",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -4055,7 +3824,6 @@
     },
     {
       "name": "drive.adopt_as.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.adopt_as.apply",
       "operation": "drive.adopt_as",
@@ -4084,9 +3852,6 @@
     },
     {
       "name": "drive.adopt_as.apply",
-      "aliases": [
-        "drive.adopt_as"
-      ],
       "kind": "apply",
       "pair": "drive.adopt_as.plan",
       "operation": "drive.adopt_as",
@@ -4115,7 +3880,6 @@
     },
     {
       "name": "drive.reidentify.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.reidentify.apply",
       "operation": "drive.reidentify",
@@ -4144,9 +3908,6 @@
     },
     {
       "name": "drive.reidentify.apply",
-      "aliases": [
-        "drive.reidentify"
-      ],
       "kind": "apply",
       "pair": "drive.reidentify.plan",
       "operation": "drive.reidentify",
@@ -4175,9 +3936,6 @@
     },
     {
       "name": "drive.groups",
-      "aliases": [
-        "drive.sets"
-      ],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -4193,7 +3951,6 @@
     },
     {
       "name": "drive.eject.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.eject.apply",
       "operation": "eject",
@@ -4222,9 +3979,6 @@
     },
     {
       "name": "drive.eject.apply",
-      "aliases": [
-        "drive.eject"
-      ],
       "kind": "apply",
       "pair": "drive.eject.plan",
       "operation": "eject",
@@ -4256,7 +4010,6 @@
     },
     {
       "name": "drive.verify",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -4269,7 +4022,6 @@
     },
     {
       "name": "drive.repair",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": true,
@@ -4289,7 +4041,6 @@
     },
     {
       "name": "drive.fsck",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": true,
@@ -4309,7 +4060,6 @@
     },
     {
       "name": "drive.space",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -4322,7 +4072,6 @@
     },
     {
       "name": "drive.contact.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "drive.contact.apply",
       "operation": "drive.contact",
@@ -4351,9 +4100,6 @@
     },
     {
       "name": "drive.contact.apply",
-      "aliases": [
-        "drive.contact"
-      ],
       "kind": "apply",
       "pair": "drive.contact.plan",
       "operation": "drive.contact",
@@ -4382,7 +4128,6 @@
     },
     {
       "name": "player.show",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -4395,7 +4140,6 @@
     },
     {
       "name": "player.set.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "player.set.apply",
       "operation": "player.set",
@@ -4424,9 +4168,6 @@
     },
     {
       "name": "player.set.apply",
-      "aliases": [
-        "player.set"
-      ],
       "kind": "apply",
       "pair": "player.set.plan",
       "operation": "player.set",
@@ -4455,7 +4196,6 @@
     },
     {
       "name": "tidy.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "tidy.apply",
       "operation": "tidy",
@@ -4484,7 +4224,6 @@
     },
     {
       "name": "tidy.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "tidy.plan",
       "operation": "tidy",
@@ -4513,7 +4252,6 @@
     },
     {
       "name": "recordings.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -4529,7 +4267,6 @@
     },
     {
       "name": "recordings.collect.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "recordings.collect.apply",
       "operation": "recordings.collect",
@@ -4558,9 +4295,6 @@
     },
     {
       "name": "recordings.collect.apply",
-      "aliases": [
-        "recordings.collect"
-      ],
       "kind": "apply",
       "pair": "recordings.collect.plan",
       "operation": "recordings.collect",
@@ -4589,7 +4323,6 @@
     },
     {
       "name": "firmware.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "firmware.apply",
       "operation": "firmware",
@@ -4618,7 +4351,6 @@
     },
     {
       "name": "firmware.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "firmware.plan",
       "operation": "firmware",
@@ -4647,7 +4379,6 @@
     },
     {
       "name": "firmware.remove.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "firmware.remove.apply",
       "operation": "firmware.remove",
@@ -4676,9 +4407,6 @@
     },
     {
       "name": "firmware.remove.apply",
-      "aliases": [
-        "firmware.remove"
-      ],
       "kind": "apply",
       "pair": "firmware.remove.plan",
       "operation": "firmware.remove",
@@ -4710,7 +4438,6 @@
     },
     {
       "name": "provision.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "provision.apply",
       "operation": "provision",
@@ -4739,7 +4466,6 @@
     },
     {
       "name": "provision.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "provision.plan",
       "operation": "provision",
@@ -4768,7 +4494,6 @@
     },
     {
       "name": "refresh.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "refresh.apply",
       "operation": "refresh",
@@ -4797,7 +4522,6 @@
     },
     {
       "name": "refresh.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "refresh.plan",
       "operation": "refresh",
@@ -4826,9 +4550,6 @@
     },
     {
       "name": "prep.plan",
-      "aliases": [
-        "set.plan"
-      ],
       "kind": "plan",
       "pair": "prep.apply",
       "operation": "set",
@@ -4857,9 +4578,6 @@
     },
     {
       "name": "prep.apply",
-      "aliases": [
-        "set.apply"
-      ],
       "kind": "apply",
       "pair": "prep.plan",
       "operation": "set",
@@ -4888,7 +4606,6 @@
     },
     {
       "name": "collection.info",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -4901,7 +4618,6 @@
     },
     {
       "name": "collection.library",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -4914,7 +4630,6 @@
     },
     {
       "name": "collection.diff",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -4927,7 +4642,6 @@
     },
     {
       "name": "collection.export.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "collection.export.apply",
       "operation": "collection.export",
@@ -4956,7 +4670,6 @@
     },
     {
       "name": "collection.export.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "collection.export.plan",
       "operation": "collection.export",
@@ -4985,7 +4698,6 @@
     },
     {
       "name": "accounts.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -4998,7 +4710,6 @@
     },
     {
       "name": "accounts.sign_in.begin",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5018,7 +4729,6 @@
     },
     {
       "name": "accounts.sign_in.finish",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -5038,7 +4748,6 @@
     },
     {
       "name": "accounts.sign_in.paste",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5058,7 +4767,6 @@
     },
     {
       "name": "accounts.sign_in.cancel",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5078,7 +4786,6 @@
     },
     {
       "name": "accounts.sign_out",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5098,7 +4805,6 @@
     },
     {
       "name": "accounts.access.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5114,7 +4820,6 @@
     },
     {
       "name": "accounts.access.give",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5134,7 +4839,6 @@
     },
     {
       "name": "accounts.access.set_default",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5154,7 +4858,6 @@
     },
     {
       "name": "accounts.access.take_away",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5174,7 +4877,6 @@
     },
     {
       "name": "plugins.list",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5190,7 +4892,6 @@
     },
     {
       "name": "plugins.describe",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5203,7 +4904,6 @@
     },
     {
       "name": "plugins.settings",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5216,7 +4916,6 @@
     },
     {
       "name": "plugins.settings.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5236,7 +4935,6 @@
     },
     {
       "name": "plugins.apply_analysis.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.apply_analysis.apply",
       "operation": "plugins.apply_analysis",
@@ -5265,7 +4963,6 @@
     },
     {
       "name": "plugins.apply_analysis.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.apply_analysis.plan",
       "operation": "plugins.apply_analysis",
@@ -5294,7 +4991,6 @@
     },
     {
       "name": "plugins.run",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -5307,7 +5003,6 @@
     },
     {
       "name": "plugins.command.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.command.apply",
       "operation": "plugins.command",
@@ -5329,7 +5024,6 @@
     },
     {
       "name": "plugins.command.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.command.plan",
       "operation": "plugins.command",
@@ -5358,7 +5052,6 @@
     },
     {
       "name": "plugins.store.copy",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": true,
@@ -5378,7 +5071,6 @@
     },
     {
       "name": "plugins.store.restore",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -5398,7 +5090,6 @@
     },
     {
       "name": "plugins.store.verify",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -5411,7 +5102,6 @@
     },
     {
       "name": "plugins.store.repair",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": true,
@@ -5431,7 +5121,6 @@
     },
     {
       "name": "plugins.publish.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.publish.apply",
       "operation": "plugins.publish",
@@ -5460,7 +5149,6 @@
     },
     {
       "name": "plugins.publish.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.publish.plan",
       "operation": "plugins.publish",
@@ -5489,7 +5177,6 @@
     },
     {
       "name": "plugins.op.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.op.apply",
       "operation": "plugins.op",
@@ -5511,7 +5198,6 @@
     },
     {
       "name": "plugins.op.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.op.plan",
       "operation": "plugins.op",
@@ -5540,7 +5226,6 @@
     },
     {
       "name": "plugins.panel",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -5553,7 +5238,6 @@
     },
     {
       "name": "plugins.export.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.export.apply",
       "operation": "plugins.export",
@@ -5582,7 +5266,6 @@
     },
     {
       "name": "plugins.export.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.export.plan",
       "operation": "plugins.export",
@@ -5611,7 +5294,6 @@
     },
     {
       "name": "plugins.import.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.import.apply",
       "operation": "plugins.import",
@@ -5640,7 +5322,6 @@
     },
     {
       "name": "plugins.import.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.import.plan",
       "operation": "plugins.import",
@@ -5669,7 +5350,6 @@
     },
     {
       "name": "plugins.analyze",
-      "aliases": [],
       "kind": "immediate",
       "long_running": true,
       "destructive": false,
@@ -5689,7 +5369,6 @@
     },
     {
       "name": "plugins.apply_fields.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.apply_fields.apply",
       "operation": "plugins.apply_fields",
@@ -5718,7 +5397,6 @@
     },
     {
       "name": "plugins.apply_fields.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.apply_fields.plan",
       "operation": "plugins.apply_fields",
@@ -5747,7 +5425,6 @@
     },
     {
       "name": "plugins.checks",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5760,7 +5437,6 @@
     },
     {
       "name": "plugins.checks.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5780,7 +5456,6 @@
     },
     {
       "name": "plugins.checks.timeout.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5800,7 +5475,6 @@
     },
     {
       "name": "plugins.provide",
-      "aliases": [],
       "kind": "read",
       "long_running": true,
       "destructive": false,
@@ -5813,7 +5487,6 @@
     },
     {
       "name": "plugins.provide.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.provide.apply",
       "operation": "plugins.provide",
@@ -5842,7 +5515,6 @@
     },
     {
       "name": "plugins.provide.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.provide.plan",
       "operation": "plugins.provide",
@@ -5871,7 +5543,6 @@
     },
     {
       "name": "plugins.providers",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5884,7 +5555,6 @@
     },
     {
       "name": "plugins.providers.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5904,7 +5574,6 @@
     },
     {
       "name": "plugins.roles",
-      "aliases": [],
       "kind": "read",
       "long_running": false,
       "destructive": false,
@@ -5920,7 +5589,6 @@
     },
     {
       "name": "plugins.roles.set",
-      "aliases": [],
       "kind": "immediate",
       "long_running": false,
       "destructive": false,
@@ -5943,7 +5611,6 @@
     },
     {
       "name": "plugins.source.plan",
-      "aliases": [],
       "kind": "plan",
       "pair": "plugins.source.apply",
       "operation": "plugins.source",
@@ -5972,7 +5639,6 @@
     },
     {
       "name": "plugins.source.apply",
-      "aliases": [],
       "kind": "apply",
       "pair": "plugins.source.plan",
       "operation": "plugins.source",
@@ -6027,7 +5693,7 @@
             "string",
             "null"
           ],
-          "description": "One method (or an alias of one); default every method.",
+          "description": "One method; default every method.",
           "default": null
         }
       },
@@ -6096,7 +5762,7 @@
         },
         "sync_group": {
           "type": "boolean",
-          "description": "Then sync the rest of the drive's group from it (`sync_set`, the old name, works too).",
+          "description": "Then sync the rest of the drive's group from it.",
           "default": false
         },
         "settle_ms": {
@@ -11187,7 +10853,7 @@
             "string",
             "null"
           ],
-          "description": "`primary`, `backup`, `set` (or `gig`, its old name) or `archive`; `None` clears it.",
+          "description": "`primary`, `backup`, `set` or `archive`; `None` clears it.",
           "default": null
         }
       },
@@ -13370,7 +13036,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Every method's name, aliases included (`rpc.describe` says more about each)."
+          "description": "Every method's name (`rpc.describe` says more about each)."
         }
       },
       "required": [
@@ -15657,7 +15323,7 @@
             "string",
             "null"
           ],
-          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
+          "description": "The RPC method to call (`pull.apply`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
         },
         "params": {
           "type": "object",
@@ -17443,6 +17109,12 @@
           "format": "uint64",
           "minimum": 0
         },
+        "from_collection": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Of the new files, those made from rekordbox's collection's copy of the file, copy-on-write\nwhere the volume can (with [`crate::store::prefs::StorePrefs::copy_on_write`] on); the rest\nwere copied from the drive."
+        },
         "reused_files": {
           "type": "integer",
           "format": "uint",
@@ -17456,6 +17128,7 @@
         "up_to_date",
         "imported_files",
         "imported_bytes",
+        "from_collection",
         "reused_files"
       ]
     },
@@ -17500,7 +17173,14 @@
           "items": {
             "$ref": "#/$defs/TrackChange"
           },
-          "description": "Those whose details, file or analysis differ: the target's stay as they are."
+          "description": "Those whose details, file, analysis or My Tags differ: the target's stay as they are."
+        },
+        "source_onelibrary_only": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackRef"
+          },
+          "description": "Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so\nthey aren't brought across, and with any the source isn't taken in."
         },
         "takes_in_source": {
           "type": "boolean",
@@ -17572,6 +17252,7 @@
         "new_tracks",
         "matched_tracks",
         "differing_tracks",
+        "source_onelibrary_only",
         "takes_in_source",
         "playlists",
         "artwork_files",
@@ -21372,6 +21053,12 @@
           "description": "What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.",
           "default": {}
         },
+        "store": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "What's set for the store ([`StorePrefs`]): whether a pull makes copy-on-write copies of\nrekordbox's collection.",
+          "default": {}
+        },
         "plugin_host": {
           "type": "object",
           "additionalProperties": true,
@@ -21392,6 +21079,7 @@
         "profile",
         "player",
         "mix",
+        "store",
         "plugin_host",
         "plugins"
       ],
@@ -24636,7 +24324,7 @@
         {
           "type": "string",
           "const": "set",
-          "description": "Taken out to play sets (`gig`, its old name, is read too)."
+          "description": "Taken out to play sets."
         },
         {
           "type": "string",
@@ -24992,13 +24680,16 @@
           "description": "`None` without analysis files."
         },
         "genres": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Collection tracks with a genre."
         },
         "labels": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Plays (or tracks) with a label."
         },
         "artists": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Collection tracks with an artist, each credited artist counted."
         },
         "era": {
           "$ref": "#/$defs/EraSection"
@@ -25137,7 +24828,7 @@
           "description": "Nothing played to count (no sets in the range, or no sets declared and no sessions): the\ncollection, each track once."
         }
       ],
-      "description": "What the numbers describe."
+      "description": "What the numbers about plays describe (sets, tempo, keys, labels and the rest). Genres,\nartists, era and energy always count the collection, each track once."
     },
     "SourceInfo": {
       "type": "object",
@@ -25700,7 +25391,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) whose phrase analysis was read."
+          "description": "Collection tracks whose phrase analysis was read."
         },
         "high": {
           "type": "number",
@@ -25741,7 +25432,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) with a value."
+          "description": "Plays, or tracks, with a value."
         },
         "distinct": {
           "type": "integer",
@@ -25768,7 +25459,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) with a release year."
+          "description": "Collection tracks with a release year."
         },
         "median_year": {
           "type": [
@@ -25797,7 +25488,7 @@
             "null"
           ],
           "format": "double",
-          "description": "Released the year it was played, or the year before."
+          "description": "Released this year or last."
         },
         "decades": {
           "type": "array",
@@ -26098,7 +25789,7 @@
           "items": {
             "$ref": "#/$defs/ProfileSection"
           },
-          "description": "Sections the document includes (`None`: the defaults, see\n[`Section::published_by_default`])."
+          "description": "Sections the document includes (`None`: the defaults, see\n[`Section::published_by_default`]). One that isn't [publishable](Section::publishable)\n(saved before it stopped being) is ignored."
         },
         "precision": {
           "$ref": "#/$defs/Precision",

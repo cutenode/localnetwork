@@ -147,7 +147,7 @@ impl App {
                     if i < self.list_len() {
                         self.next_pick.select(Some(i));
                         if again(self, (self.view, None, i)) {
-                            self.play_next();
+                            self.queue_picked(true);
                         }
                     }
                 } else if let Some(&(field, _)) = self.areas.columns.iter().find(|(_, r)| r.contains(p)) {

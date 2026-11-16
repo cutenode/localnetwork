@@ -44,6 +44,6 @@ it('says what will show up here when nothing has yet', async () => {
 	await expect.element(page.getByText('Booking inquiries and messages show up here.')).toBeVisible();
 	await expect
 		.element(page.getByRole('link', { name: 'Get them by email or DM' }))
-		.toHaveAttribute('href', '/dashboard/inbox/settings');
+		.toHaveAttribute('href', '/dashboard/account/notifications');
 	expect(page.getByRole('button').elements()).toHaveLength(0);
 });

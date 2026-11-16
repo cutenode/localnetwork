@@ -61,7 +61,7 @@ impl App {
     pub(super) fn open_played(&mut self) {
         let lists = self.played_lists();
         let Some(id) = self.played.selected().and_then(|i| lists.get(i)).map(|h| h.id) else { return };
+        self.set_view(View::Library);
         self.show_list(NodeId::Group(Category::History, id.to_string()));
-        self.view = View::Library;
     }
 }

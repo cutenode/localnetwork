@@ -56,6 +56,18 @@ The `*:tools` scripts format, lint and type-check what no app's own scripts reac
 
 ast-grep's rules (`sgconfig.yml`, in `tools/ast-grep/rules/` with their cases in `tools/ast-grep/tests/`) include `no-direct-pds-read`, which fails a record read that skips HappyView, in TypeScript, Svelte or Rust. Its exceptions are in the rule. clippy (`clippy.toml`) bans jacquard's typed requests for the same reads.
 
+Each Mermaid diagram in an app's README and `docs/diagrams/` names the files it describes on the `Source:` line under it. When a pull request changes one of those files (or anything under a directory it names) and not the Markdown file the diagram is in, the `diagrams` job in Repo checks fails and lists the diagram. Update the diagram, or if it still holds, add a line of its own to the pull request's body for each one it lists, with the file and heading anchor it printed:
+
+```text
+diagrams-checked: apps/web/docs/diagrams/accounts.md#scope-fallback: only the log message changed
+```
+
+A line covers only the diagram it names, or the diagrams under that heading when it has more than one. A line with the file and no heading, as in `diagrams-checked: apps/web/docs/diagrams/accounts.md: <why>`, covers every diagram in that file. Rerun the job after editing the body. To check a branch first, with the body in a file:
+
+```bash
+node tools/readmes/cli.ts drift origin/main body.md
+```
+
 `cargo remove` also deletes the root `Cargo.toml`'s `[profile.dev.package.*]` entries, with their comments, for every crate no member depends on directly: its clean-up after a removal ([rust-lang/cargo#11194](https://github.com/rust-lang/cargo/pull/11194), since Cargo 1.67) only keeps the entries for direct dependencies. `tools/policy.sh` fails while one is missing and its crate is still in `Cargo.lock`, so put it back with `git checkout -p Cargo.toml`. A new entry goes in `dev_optimised` in `tools/policy/cargo.rego` too.
 
 CI (`ci.yml`) runs a tool's checks only when its files (or the shared ones) change, and ends with a "CI passed" check, the one `main` requires before a merge. It's skipped, which counts as passing, unless a check failed. On a draft pull request, nothing runs until you mark it ready for review, so open a pull request as a draft while it isn't next to merge (a stacked one, say). "CI passed" fails on a draft, since none of its checks ran. Marking it ready starts a new run, and if one doesn't show up, use "Re-run all jobs" (re-running only the failed jobs keeps the draft's result). To re-run CI after `main` moves, merge `main` into the branch rather than closing and reopening the pull request.

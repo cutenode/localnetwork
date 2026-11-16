@@ -77,7 +77,7 @@ fn packs_that_cant_be_made_as_asked_are_refused_or_said(tc: TestCase) {
     let err = pack::apply(&again, &src, &mut Device::open(club.root()).unwrap(), None, &silent).unwrap_err();
     assert_eq!(err.reason(), Some(Reason::NotSaved), "{err}");
     let methods: Vec<_> = err.detail().actions.iter().map(|a| a.method.clone()).collect();
-    assert_eq!(methods, [Some("pull".to_string())]);
+    assert_eq!(methods, [Some("pull.apply".to_string())]);
 
     // A OneLibrary that can't be read: packing export.pdb alone would leave the players that read
     // only OneLibrary nothing.

@@ -23,7 +23,20 @@ use crate::{
 };
 
 /// Answers a call the plugin makes, given its params.
-type Answer = Box<dyn Fn(Value) -> Result<Value, RpcError> + Send>;
+type Answer = Box<dyn Fn(Value) -> Response + Send>;
+
+/// What the host does with a call of the plugin's, given to [`FakeHost::on_call`].
+#[derive(Debug)]
+pub enum Response {
+    /// Answers it.
+    Answer(Result<Value, RpcError>),
+    /// Answers it, then cancels the hook request last sent: the user cancelling just as the call
+    /// came back, before the plugin's next.
+    AnswerThenCancel(Result<Value, RpcError>),
+    /// Never answers it: a server that keeps the fetch under way until the plugin stops waiting,
+    /// its hook cancelled.
+    Hold,
+}
 
 /// A plugin served on a thread, past `hello` and `describe`, with a host that answers its calls
 /// from what it's given and keeps what the plugin sent it. Stopped when dropped, or by
@@ -99,7 +112,13 @@ impl FakeHost {
     /// read that pages, an error, or `net/fetch` for any URL [`FakeHost::fetch`] has no answer
     /// for.
     pub fn on_read(&self, method: &str, answer: impl Fn(Value) -> Result<Value, RpcError> + Send + 'static) -> &Self {
-        lock(&self.shared.state).answers.insert(method.into(), Box::new(answer));
+        self.on_call(method, move |params| Response::Answer(answer(params)))
+    }
+
+    /// [`FakeHost::on_read`], where `respond` may also cancel the hook request once it has
+    /// answered, or hold the call unanswered.
+    pub fn on_call(&self, method: &str, respond: impl Fn(Value) -> Response + Send + 'static) -> &Self {
+        lock(&self.shared.state).answers.insert(method.into(), Box::new(respond));
         self
     }
 
@@ -117,11 +136,13 @@ impl FakeHost {
     }
 
     /// Sends a hook request (`command/run`), as the host does: `context.scratch` a new, empty
-    /// folder when the plugin has the `blobs` feature, removed once the [`Sent`] is dropped.
+    /// folder when the plugin has the `blobs` feature, removed once the [`Sent`] is dropped. One
+    /// `params` already give is kept: a folder that's gone, or `null` for a host without `blobs`.
     pub fn send(&self, method: &str, params: &impl Serialize) -> Sent {
         let mut params = serde_json::to_value(params).expect("the params are JSON");
+        let given = params["context"].get("scratch").is_some();
         let blobs = self.hello.features.iter().any(|f| f == "blobs");
-        let scratch = blobs.then(|| tempfile::tempdir().expect("a scratch folder"));
+        let scratch = (blobs && !given).then(|| tempfile::tempdir().expect("a scratch folder"));
         if let Some(dir) = &scratch {
             params["context"]["scratch"] = json!(dir.path());
         }
@@ -138,7 +159,9 @@ impl FakeHost {
 
     /// Tells the plugin of an event (`event/notify`). It handles them in order on a thread of its
     /// own: what it tells the user is in [`FakeHost::notices`] once it has, at the latest once
-    /// [`FakeHost::stop`] returns.
+    /// [`FakeHost::stop`] returns. Stopping fails a call a handler is still waiting on, so a test
+    /// whose events make calls waits for them first: one last event whose call it holds
+    /// ([`Response::Hold`]) comes once every event before it has been handled.
     pub fn event(&self, event: &EventNotify) {
         self.peer.notify(method::EVENT_NOTIFY, event);
     }
@@ -184,41 +207,55 @@ fn answer(peer: &Peer, shared: &Shared, incoming: Receiver<Incoming>) {
             }
             Incoming::Notification { .. } => continue,
         };
-        let (answer, cancels) = {
+        let (response, cancels) = {
             let mut state = lock(&shared.state);
             state.calls.push((req.method.clone(), req.params.clone()));
             let cancels = state.cancel_on.take_if(|m| *m == req.method).is_some();
             (state.answer(&req.method, req.params), cancels)
         };
-        if cancels {
+        let cancel = || {
             let sent = lock(&shared.sent).expect("a hook request sent to cancel");
             peer.notify(method::CANCEL, &Cancel { id: sent.into() });
+        };
+        if cancels {
+            cancel();
         }
-        peer.respond(&req.id, answer);
+        match response {
+            Response::Answer(answer) => peer.respond(&req.id, answer),
+            Response::AnswerThenCancel(answer) => {
+                peer.respond(&req.id, answer);
+                cancel();
+            }
+            Response::Hold => {}
+        }
     }
 }
 
 impl State {
     /// A call's answer: a fetch's for its URL, else the method's. One with none fails, as the host
     /// fails a call it can't make: `external` for a fetch, `method_not_found` else.
-    fn answer(&self, method: &str, args: Value) -> Result<Value, RpcError> {
+    fn answer(&self, method: &str, args: Value) -> Response {
         let url = match method {
-            method::NET_FETCH => Some(params::<Fetch>(args.clone())?.url),
+            method::NET_FETCH => match params::<Fetch>(args.clone()) {
+                Ok(fetch) => Some(fetch.url),
+                Err(e) => return Response::Answer(Err(e)),
+            },
             _ => None,
         };
         if let Some(fetched) = url.as_ref().and_then(|url| self.fetches.get(url)) {
-            return fetched.clone().and_then(ok);
+            return Response::Answer(fetched.clone().and_then(ok));
         }
         let Some(answer) = self.answers.get(method) else {
-            return Err(match url {
+            return Response::Answer(Err(match url {
                 Some(url) => RpcError::failed("external", format!("the fake host has no answer for {url}")),
                 None => RpcError::method_not_found(method),
-            });
+            }));
         };
         // An answer that panics (a test's assertion) fails the call rather than leaving the
         // plugin waiting for it.
-        catch_unwind(AssertUnwindSafe(|| answer(args)))
-            .unwrap_or_else(|_| Err(RpcError::internal(format!("the fake host's answer to {method} panicked"))))
+        catch_unwind(AssertUnwindSafe(|| answer(args))).unwrap_or_else(|_| {
+            Response::Answer(Err(RpcError::internal(format!("the fake host's answer to {method} panicked"))))
+        })
     }
 }
 
@@ -244,6 +281,11 @@ impl Sent {
     /// Blocks until the answer comes. Once it has, waiting again fails with `closed`.
     pub fn wait<R: DeserializeOwned>(&self) -> Result<R, RpcError> {
         self.pending.wait_timeout(Duration::MAX).expect("waiting without a limit ends with the answer")
+    }
+
+    /// [`Sent::wait`], for at most `limit`: none when the answer hasn't come by then.
+    pub fn wait_timeout<R: DeserializeOwned>(&self, limit: Duration) -> Option<Result<R, RpcError>> {
+        self.pending.wait_timeout(limit)
     }
 
     /// The progress the plugin has sent about it since last asked, in order: all of it once the

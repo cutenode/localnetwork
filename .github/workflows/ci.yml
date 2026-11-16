@@ -74,6 +74,7 @@ jobs:
       repo_checks_policy: ${{ steps.scope.outputs.repo_checks_policy }}
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
+      repo_checks_diagrams: ${{ steps.scope.outputs.repo_checks_diagrams }}
       repo_checks_bombadil: ${{ steps.scope.outputs.repo_checks_bombadil }}
       repo_checks_text: ${{ steps.scope.outputs.repo_checks_text }}
       repo_checks_commits: ${{ steps.scope.outputs.repo_checks_commits }}
@@ -163,11 +164,13 @@ jobs:
               - '!**/{tests,testing,test_util,screens,props}.rs'
               - '!**/tests/**'
               - '!**/*.md'
-            # What cargo-deny reads.
+            # What cargo-deny and `cargo notices` read.
             locallibrary_deny:
               - 'Cargo.lock'
               - '**/Cargo.toml'
               - 'deny.toml'
+              - 'about.{toml,hbs}'
+              - '.cargo/config.toml'
               - '.github/workflows/locallibrary-ci.yml'
             locallibrary_semver:
               - 'crates/loclib-*/**'
@@ -188,6 +191,7 @@ jobs:
               - '**/Cargo.toml'
               - 'dist-workspace.toml'
               - 'rust-toolchain.toml'
+              - '.github/build-setup.yml'
               - '.github/actions/install-dist/**'
               - '.github/workflows/locallibrary-release.yml'
               - '.github/workflows/locallibrary-ci.yml'
@@ -479,7 +483,7 @@ jobs:
             locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
             web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
-            repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
+            repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
@@ -508,6 +512,8 @@ jobs:
             # commit messages.
             out[repo_checks_text]=true
             out[repo_checks_commits]=true
+            # Any file can be a diagram's source.
+            out[repo_checks_diagrams]=true
           fi
           # A merge queue group: the quick static checks again on the commit that goes on main, so
           # two pull requests that each passed alone can't break it together. The Rust ones are in
@@ -542,7 +548,7 @@ jobs:
             locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil \
-            repo_checks_text repo_checks_commits
+            repo_checks_text repo_checks_commits repo_checks_diagrams
 
           # CodeQL, every language, on every event but a draft's and a pull request's into another
           # branch than main. The code scanning rule holds a pull request or a merge queue group until
@@ -666,6 +672,10 @@ jobs:
   repo-checks:
     needs: changes
     if: needs.changes.outputs.repo_checks == 'true'
+    permissions:
+      contents: read
+      # The pull request's body, for the diagrams job.
+      pull-requests: read
     uses: ./.github/workflows/repo-checks.yml
     with:
       policy: ${{ needs.changes.outputs.repo_checks_policy == 'true' }}
@@ -674,6 +684,7 @@ jobs:
       bombadil: ${{ needs.changes.outputs.repo_checks_bombadil == 'true' }}
       text: ${{ needs.changes.outputs.repo_checks_text == 'true' }}
       commits: ${{ needs.changes.outputs.repo_checks_commits == 'true' }}
+      diagrams: ${{ needs.changes.outputs.repo_checks_diagrams == 'true' }}
 
   dependency-review:
     needs: changes

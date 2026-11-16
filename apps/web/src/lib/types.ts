@@ -327,10 +327,10 @@ export type ProjectView = {
 };
 
 /**
- * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
- * lists stream in so their placeholders hold that much room.
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, and how many of its
+ * managers have DJ stats or sets, known before those stream in so their placeholders hold that much room (or none).
  */
-export type ProjectCounts = { pressKits: number; upcomingShows: number };
+export type ProjectCounts = { pressKits: number; upcomingShows: number; djs: number };
 
 export type AccountView = { did: string; handle: string | null };
 
@@ -531,6 +531,14 @@ export type BookingThreadView = {
 	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
+};
+
+/** The shows a booking thread links to, which its page shows beside the details. */
+export type BookingShowLinks = {
+	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */
+	plannerShow: string | null;
+	/** The public show a manager announced from the thread, as the account that wrote it and its key. */
+	announcedShow: { did: string; rkey: string } | null;
 };
 
 export type BookingEventView = {

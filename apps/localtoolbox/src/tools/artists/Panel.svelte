@@ -492,7 +492,7 @@
         variant="ghost"
         class="text-fg-muted"
         disabled={lookingUp || !onSc}
-        aria-label={`look up ${name} again`}
+        aria-label={`look up again: ${name}`}
         title={onSc ? AGAIN_HINT : OPEN_A_TAB}
         onclick={() => lookUp([entry.permalink])}
       >
@@ -625,6 +625,7 @@
                 type="button"
                 class="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-md text-fg-muted transition-colors hover:bg-well hover:text-fg"
                 aria-label="clear the search"
+                title="clear the search"
                 onclick={() => (query.value = '')}
               >
                 <X class="size-3" />

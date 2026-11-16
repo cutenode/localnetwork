@@ -94,13 +94,14 @@ flowchart LR
   Console -- "/admin/projects" --> T2["Performer records in the root's repo,<br/>booking details in the industry space"]
   Console -- "/admin/listings/[did]" --> T3["Deletes listing.profile"]
   Console -- "/admin/spaces" --> T4["People records,<br/>list and unlist"]
-  Console -- "/admin/staff" --> T5["staff.role, and membership<br/>of the four root spaces"]
+  Console -- "/admin/staff" --> T5["staff.role with a moderator's grants,<br/>and membership of the four root spaces"]
+  Console -- "/admin/flags" --> T9["staff.flag and staff.group<br/>in the staff space, a preview cookie"]
   Console -- "/admin/verifications" --> T6["app.bsky.graph.verification<br/>in the root's repo"]
   Console -- "/admin/system" --> T7["Bootstrap, resync,<br/>retry audit delivery"]
   Console -- "/admin/audit" --> T8["Read only: filter, verify<br/>the chain, export JSONL"]
 ```
 
-Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/verifications.ts`](../../src/lib/server/services/verifications.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts)
+Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/services/verifications.ts`](../../src/lib/server/services/verifications.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts)
 
 ## Bluesky verifications
 
@@ -124,7 +125,7 @@ Source: [`src/lib/server/services/verifications.ts`](../../src/lib/server/servic
 
 ## Records the root holds
 
-How someone deletes what the root wrote for them at `/dashboard/data`. Audit entries and booking status changes aren't offered.
+How someone deletes what the root wrote for them at `/dashboard/account/data/<kind>`. Audit entries and booking status changes aren't offered.
 
 ```mermaid
 flowchart TD
@@ -138,7 +139,7 @@ flowchart TD
   Gone --> Audit
 ```
 
-Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/services/held-records.ts), [`src/routes/dashboard/data/+page.server.ts`](../../src/routes/dashboard/data/+page.server.ts)
+Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/services/held-records.ts), [`src/routes/dashboard/account/data/[kind]/+page.server.ts`](../../src/routes/dashboard/account/data/[kind]/+page.server.ts)
 
 ## People in shared spaces
 
@@ -159,7 +160,7 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue would reach the directory. No kind has a public page yet, so nothing is listed.
+How a listed act, party or venue reaches the directory. Only acts have something to list so far, from the root's performer record in their space; a DJ's own space, parties and venues have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for everyone. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD
@@ -168,13 +169,15 @@ flowchart TD
   Hourly["Startup and hourly reconcile"] --> Refresh
   Refresh --> Source{"Listed, with a<br/>page to show?"}
   Source -- "no" --> Delete["Delete any listing"]
-  Source -- "yes" --> Build["Public fields, plus people in a<br/>listed role and a performer's<br/>managers, if they haven't hidden"]
+  Source -- "yes" --> Flag{"spacePages on<br/>for everyone?"}
+  Flag -- "no" --> Delete
+  Flag -- "yes" --> Build["Public fields, plus people in a<br/>listed role and a performer's<br/>managers, if they haven't hidden"]
   Build --> Same{"Differs from<br/>the published one?"}
   Same -- "no" --> Skip["No write"]
   Same -- "yes" --> Put["Root writes computer.localnetwork.listing"]
 ```
 
-Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
+Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
 
 ## Backup and restore
 
