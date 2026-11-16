@@ -188,12 +188,13 @@ flowchart LR
     plugin -->|"its answers"| scratch["Its request's scratch folder"]
     plugin -->|"its files"| work["STORE/plugins/ID/work/"]
     plugin -->|"fs:read"| folders["Folders you grant for a source read"]
+    plugin -->|"collection:files"| rekordbox["rekordbox's library here: where its files are,<br/>whether it runs, a copy of master.db in scratch,<br/>its tracks, with real paths"]
     plugin -->|"host/notify"| notify["A message or a suggestion"]
     plugin -.->|"no way through the host"| drive[("Writing a drive or the store")]
     plugin -.->|"no way through the host"| tokens["Tokens, keys, secret settings"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
+Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
 
 ## A plugin's net/fetch
 

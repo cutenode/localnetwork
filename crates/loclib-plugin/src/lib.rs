@@ -72,8 +72,9 @@ pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;
 pub use publishing::{clock, fit_lines, mixcloud, youtube};
 pub use reads::{
-    AnalysedTrack, ArtworkImage, DriveInfo, DriveReads, MAX_ANALYSES, MAX_IDS, MAX_IMAGES, PlaylistNode, PlaylistTree,
-    TrackArtwork, TracksAnalysis, TracksById, TracksQuery,
+    AnalysedTrack, ArtworkImage, CollectionCopy, CollectionLocations, CollectionReads, CollectionStatus,
+    CollectionTrack, CollectionTracks, DriveInfo, DriveReads, MAX_ANALYSES, MAX_IDS, MAX_IMAGES, PlaylistNode,
+    PlaylistTree, TrackArtwork, TracksAnalysis, TracksById, TracksQuery,
 };
 pub use sdk::{Hook, Hooks, Host, serve};
 pub use view::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn, View};
