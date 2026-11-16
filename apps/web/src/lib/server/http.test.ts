@@ -95,6 +95,11 @@ describe('safeNext', () => {
 		expect(safeNext(null)).toBe('/dashboard');
 	});
 
+	it('falls back for a value that names a host no URL can have', () => {
+		for (const next of ['//', '///', '//@', '//:', '//['])
+			expect([safeNext(next), withQuery(next, { email: 'declined' }, '/')]).toEqual(['/dashboard', '/']);
+	});
+
 	it('refuses paths a browser would read as another site', () => {
 		// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so each of
 		// these becomes `//evil.test`.
@@ -220,9 +225,9 @@ describe('guards', () => {
 
 describe('cacheBriefly', () => {
 	it('lets anyone cache a page for a minute, but only the browser when the request has a session', () => {
-		const headers = (viewer: Viewer | null, sessionToken?: string) => {
+		const headers = (viewer: Viewer | null, sessionToken?: string, can?: string[]) => {
 			let set: Record<string, string> = {};
-			cacheBriefly({ locals: { viewer, sessionToken }, setHeaders: (value) => (set = value) });
+			cacheBriefly({ locals: { viewer, sessionToken }, setHeaders: (value) => (set = value) }, 60, can);
 
 			return set;
 		};
@@ -240,5 +245,8 @@ describe('cacheBriefly', () => {
 		expect(headers(signedIn, 'token')).toEqual({ 'cache-control': 'private, max-age=60', vary: 'Cookie' });
 		// A session that ended: no viewer, but the cookie is there (to be cleared, or to ask to sign in again).
 		expect(headers(null, 'ended')).toEqual({ 'cache-control': 'private, max-age=60', vary: 'Cookie' });
+		// Someone who can change the page sees it fresh after every save.
+		expect(headers(signedIn, 'token', ['page.edit'])).toEqual({ 'cache-control': 'no-store', vary: 'Cookie' });
+		expect(headers(signedIn, 'token', [])).toEqual({ 'cache-control': 'private, max-age=60', vary: 'Cookie' });
 	});
 });

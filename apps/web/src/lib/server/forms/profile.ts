@@ -45,6 +45,7 @@ export async function parseProfileForm(
 		const { profile: performer, tracklists } = await withTracklists(form, parsePerformer(form), [previous?.performer]);
 		input.performer = performer;
 		input.tracklists = tracklists;
+		input.takesInquiries = form.get('takesInquiries') === 'on';
 	}
 
 	if (on.has('promoter')) input.promoter = parsePromoter(form);
@@ -57,6 +58,7 @@ export function profileFormValues(record: ProfileRecord): ProjectFormValues {
 	return {
 		...basicsToValues(record.basics),
 		...performerToValues(record.performer ?? {}),
-		...promoterToValues(record.promoter ?? {})
+		...promoterToValues(record.promoter ?? {}),
+		takesInquiries: record.takesInquiries === true
 	};
 }

@@ -85,6 +85,10 @@ export function capabilitiesFor<K extends SpaceKind>(kind: K, role: Role<K>): Ca
 	return capabilitiesIn(kind, roles[role].capabilities);
 }
 
+/** A role as people read it, in sentence case. A venue's stored `booker` reads Booking manager. */
+export const roleLabel = (role: string) =>
+	role === 'booker' ? 'Booking manager' : role.charAt(0).toUpperCase() + role.slice(1);
+
 /** Whether someone in `role` (a role of `kind`, or any other value) appears in the public listing. */
 export function isListedRole(kind: SpaceKind, role: string): boolean {
 	const roles: Record<string, RolePreset> = ROLES[kind];

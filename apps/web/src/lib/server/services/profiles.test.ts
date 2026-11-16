@@ -107,6 +107,22 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		]);
 	});
 
+	it('keeps Take inquiries only while the performer section is on', async () => {
+		const viewer = await t.viewer(DJ);
+		await t.profiles.save(viewer, {
+			basics: { name: 'Neon' },
+			performer: {},
+			takesInquiries: true,
+			avatar: 'keep',
+			swap: null
+		});
+		const taking = (await t.profiles.get(DJ))!;
+		expect(taking.record.takesInquiries).toBe(true);
+
+		await t.profiles.save(viewer, { basics: { name: 'Neon' }, takesInquiries: true, avatar: 'keep', swap: taking.cid });
+		expect((await t.profiles.get(DJ))?.record.takesInquiries).toBeUndefined();
+	});
+
 	it('keeps the picture, drops a section turned off, and never saves over a change made since the form opened', async () => {
 		const viewer = await t.viewer(DJ);
 		await t.profiles.save(viewer, {
@@ -128,7 +144,10 @@ describe('ProfileService.save and blueskyPrefill', () => {
 
 		await expect(
 			t.profiles.save(viewer, { basics: { name: 'Stale' }, avatar: 'keep', swap: first.cid })
-		).rejects.toThrow('Your profile changed since you opened it');
+		).rejects.toMatchObject({
+			message: expect.stringMatching(/^Your profile changed since you opened it/),
+			status: 409
+		});
 		await t.profiles.save(viewer, { basics: { name: 'Neon Tide' }, avatar: 'remove', swap: second.cid });
 		expect((await t.profiles.get(DJ))?.record.basics.avatar).toBeUndefined();
 	});
@@ -173,7 +192,7 @@ describe('ProfileService.save and blueskyPrefill', () => {
 
 		t.net.failWrites(DJ, 1, new XRPCError(400, 'InvalidSwap'));
 		await expect(save()).rejects.toThrow(
-			new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.')
+			new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.', 409)
 		);
 		t.net.failWrites(DJ);
 		await expect(save()).rejects.toThrow('UpstreamFailure');

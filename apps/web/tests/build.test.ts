@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { compile } from 'svelte/compiler';
 import type { Manifest } from 'vite';
 import { beforeAll, expect, it } from 'vitest';
 
@@ -21,6 +22,14 @@ let files: string[];
 let initialLoad: Set<string>;
 
 let routes: [id: string, files: Set<string>][];
+
+let initialStyles: Set<string>;
+
+let routeStyles: Set<string>[];
+
+// The stylesheets only edit mode's editor brings (src/lib/components/edit/editor.ts), which loads with import() once
+// someone opens it. None until a page has edit mode.
+let editorStyles: Set<string>;
 
 // No deadline (the 0 below). The build blocks this worker (execFileSync), so Vitest can't stop a hung
 // one, only fail a slow one after it finishes. How long it takes follows the machine's load (about 10s
@@ -50,22 +59,35 @@ beforeAll(async () => {
 
 	const nodes = new Map(Object.entries(chunks).map(([key, chunk]) => [chunk.name, key]));
 
-	const nodeScripts = (index: number) => {
-		const key = nodes.get(`nodes/${index}`);
-
-		if (!key) throw new Error(`Vite's manifest has no chunk for node ${index}`);
-
-		// A Set's loop also visits what is added to it during the loop.
+	// A Set's loop also visits what is added to it during the loop.
+	const withImports = (key: string) => {
 		const keys = new Set([key]);
 
 		for (const each of keys) for (const dep of chunks[each].imports ?? []) keys.add(dep);
 
-		return [...keys].map((each) => chunks[each].file);
+		return [...keys];
 	};
+
+	const nodeChunks = (index: number) => {
+		const key = nodes.get(`nodes/${index}`);
+
+		if (!key) throw new Error(`Vite's manifest has no chunk for node ${index}`);
+
+		return withImports(key);
+	};
+
+	const nodeScripts = (index: number) => nodeChunks(index).map((each) => chunks[each].file);
+
+	// Vite links a chunk's CSS with it, statically imported or not.
+	const styles = (keys: string[]) => keys.flatMap((each) => chunks[each].css ?? []);
+
+	const nodeStyles = (index: number) => styles(nodeChunks(index));
 
 	// Node 0 is the root layout, which every page renders, and node 1 the root error page, which the
 	// client loads on every page before it hydrates.
 	initialLoad = new Set([...manifest.client.imports, ...nodeScripts(0), ...nodeScripts(1)]);
+
+	initialStyles = new Set([...nodeStyles(0), ...nodeStyles(1)]);
 
 	routes = manifest.routes.flatMap(({ id, page }) => {
 		if (!page) return [];
@@ -74,6 +96,18 @@ beforeAll(async () => {
 
 		return [[id, new Set(scripts.filter((file) => !initialLoad.has(file)))]];
 	});
+
+	routeStyles = manifest.routes.flatMap(({ page }) =>
+		page
+			? [new Set([...page.layouts, page.leaf].flatMap((index) => (index === undefined ? [] : nodeStyles(index))))]
+			: []
+	);
+
+	const pageStyles = new Set([...initialStyles, ...routeStyles.flatMap((each) => [...each])]);
+
+	const editor = Object.keys(chunks).find((key) => key.endsWith('src/lib/components/edit/editor.ts'));
+
+	editorStyles = new Set(editor ? styles(withImports(editor)).filter((file) => !pageStyles.has(file)) : []);
 }, 0);
 
 const bytes = (extension: string) =>
@@ -109,9 +143,85 @@ it("keeps each page's own JavaScript within its budget", () => {
 	for (const [id, scripts] of routes) expect(size(scripts), id).toBeLessThan(144 * 1024);
 });
 
+it('keeps edit mode out of what visitors load', () => {
+	const has = (file: string, text: string) => readFileSync(join(CLIENT, file), 'utf8').includes(text);
+
+	// The edit bar is drawn only for people who can edit a page, so it's never in what every page loads.
+	for (const file of initialLoad) expect(has(file, 'data-edit-bar'), file).toBe(false);
+
+	// Its editor (the leave question is in it) loads with import() once they open it, so no page loads it up front.
+	for (const [id, scripts] of [['every page', initialLoad] as const, ...routes])
+		for (const file of scripts) expect(has(file, 'Leave without saving?'), `${id}: ${file}`).toBe(false);
+});
+
+it("keeps edit mode's styles out of what visitors load", () => {
+	const EDIT = join(ROOT, 'src/lib/components/edit');
+	const read = (file: string) => readFileSync(file, 'utf8');
+
+	const imports = (file: string) =>
+		[...read(join(EDIT, file)).matchAll(/'\.\/([\w-]+\.(?:svelte|css))'/g)].map(([, name]) => name);
+
+	// What only editing draws: the editor's chunk with everything of edit mode's it imports, and the fields and slots a
+	// page draws in edit mode. The bar isn't here: the server draws it for the view too.
+	const editOnly = new Set([...imports('editor.ts'), 'InlineText.svelte', 'AddSlot.svelte']);
+
+	for (const file of editOnly) for (const name of imports(file)) editOnly.add(name);
+
+	const editFiles = new Set([...editOnly].map((name) => join(EDIT, name)));
+
+	const everyPage = [...initialStyles].map((file) => read(join(CLIENT, file))).join('\n');
+
+	const pages = [...new Set([...initialStyles, ...routeStyles.flatMap((each) => [...each])])]
+		.map((file) => read(join(CLIENT, file)))
+		.join('\n');
+
+	// Their own styles, marked by Svelte's scoping class for a component's and the attributes a stylesheet selects, so
+	// they go with the editor's chunk (or aren't needed), never with a page.
+	const markers = new Set<string>();
+
+	for (const file of editFiles) {
+		const css = file.endsWith('.css')
+			? read(file)
+			: (compile(read(file), { filename: file, css: 'external' }).css?.code ?? '');
+
+		for (const [marker] of css.matchAll(/svelte-[a-z0-9]+|data-[a-z-]+/g)) markers.add(marker);
+	}
+
+	expect(markers.size).toBeGreaterThan(0);
+	expect([...markers].filter((marker) => pages.includes(marker))).toEqual([]);
+
+	// Tailwind writes a rule into the stylesheet every page loads for each class it finds in any of the site's files, so
+	// a class only these use would be there for nobody else. Those go in the component's own styles instead.
+	const words = (text: string) => text.split(/[\s'"`{}]+/);
+
+	const elsewhere = new Set(
+		readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })
+			.map((entry) => join(entry.parentPath, entry.name))
+			.filter(
+				(file) =>
+					/\.(svelte|ts|js|css|html)$/.test(file) &&
+					!/\.(test|spec|stories)\.|[\\/]lib[\\/]testing[\\/]/.test(file) &&
+					!editFiles.has(file)
+			)
+			.flatMap((file) => words(read(file)))
+	);
+
+	const hasRule = (word: string) =>
+		['{', ':', ',', '>', '[', '.', ')', ' '].some((end) =>
+			everyPage.includes(`.${word.replace(/[^\w-]/g, '\\$&')}${end}`)
+		);
+
+	const theirsAlone = [...editFiles].flatMap((file) =>
+		words(read(file)).filter((word) => !elsewhere.has(word) && hasRule(word))
+	);
+
+	expect(theirsAlone).toEqual([]);
+});
+
 it('keeps the CSS within its budget', () => {
-	// Every page's together, about 90 KB.
-	expect(bytes('.css')).toBeLessThan(100 * 1024);
+	// What visitors download, every page's together: about 98 KB. Edit mode's editor brings its own, which only people who
+	// open it load.
+	expect(bytes('.css') - size(editorStyles)).toBeLessThan(100 * 1024);
 });
 
 it('keeps fonts as files, which the CSP allows', () => {

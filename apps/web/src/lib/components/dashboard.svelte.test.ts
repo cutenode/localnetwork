@@ -98,6 +98,7 @@ describe('RequestList', () => {
 		repoDid: 'did:plc:pat',
 		projectUri: null,
 		project: null,
+		venue: null,
 		record: { kind: 'claim', createdAt: '2026-10-01T00:00:00Z' },
 		createdAt: '2026-10-01T00:00:00Z',
 		updatedAt: '2026-10-01T00:00:00Z',

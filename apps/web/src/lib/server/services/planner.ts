@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { TID } from '@atproto/common-web';
 import { COLLECTION, SELF_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { PlannerSaveView, PlannerShowView, ShowDetails, Viewer } from '#lib/types.ts';
-import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { createSpaceIfMissing, type JsonRecord, memberSpacePolicy, type RepoClient } from '../atproto/repo-client';
+import { isValidRecord, validateRecord } from '../atproto/lexicons';
+import { createSpaceIfMissing, memberSpacePolicy, type RepoClient } from '../atproto/repo-client';
 import { plannerSpace } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso } from '../db';
@@ -24,22 +24,6 @@ type PlannerRecords = {
 
 /** One save per project: overlapping saves write the same record instead of each minting a key. */
 const saveRkey = (projectUri: string) => createHash('sha256').update(projectUri).digest('hex');
-
-/** Checks a planner record against its lexicon, since any client with the user's session can write there. */
-function isPlannerRecord<C extends keyof PlannerRecords>(
-	collection: C,
-	value: JsonRecord
-): value is JsonRecord & PlannerRecords[C] {
-	try {
-		validateRecord(collection, value);
-
-		return true;
-	} catch (error) {
-		if (error instanceof RecordValidationError) return false;
-
-		throw error;
-	}
-}
 
 /**
  * A promoter's private planner, stored in a personal space under their own
@@ -91,7 +75,8 @@ export class PlannerService {
 			const page = await client.listSpaceRecords({ space, repo: client.did, collection, cursor, limit: 100 });
 
 			for (const { rkey, value } of page.records) {
-				if (!isPlannerRecord(collection, value)) {
+				// Checked against its lexicon, since any client with the user's session can write there.
+				if (!isValidRecord<PlannerRecords[C]>(collection, value)) {
 					this.core.logger.warn('skipping invalid planner record', { space, collection, rkey });
 					continue;
 				}

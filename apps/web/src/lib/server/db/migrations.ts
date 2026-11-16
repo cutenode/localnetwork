@@ -513,6 +513,44 @@ export const migrations = {
 			await sql.raw('CREATE INDEX performer_skey ON performer (skey)').execute(db);
 			await sql.raw('CREATE INDEX performer_did ON performer (did)').execute(db);
 		}
+	},
+	'016_venues': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE venue (
+						space_uri TEXT PRIMARY KEY,
+						skey TEXT NOT NULL,
+						fsq_place_id TEXT UNIQUE,
+						name TEXT NOT NULL,
+						name_key TEXT NOT NULL,
+						locality TEXT,
+						country TEXT NOT NULL,
+						record TEXT NOT NULL,
+						cid TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX venue_skey ON venue (skey)').execute(db);
+			// Adding a venue no other has the Foursquare place of looks for the same name in the same city.
+			await sql.raw('CREATE INDEX venue_name_city ON venue (name_key, locality, country)').execute(db);
+		}
+	},
+	'017_venue_blocks': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE venue_block (
+						uri TEXT PRIMARY KEY,
+						venue TEXT NOT NULL,
+						subject TEXT NOT NULL,
+						created_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX venue_block_venue_subject ON venue_block (venue, subject)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 
