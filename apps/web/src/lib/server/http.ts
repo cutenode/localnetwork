@@ -69,11 +69,12 @@ const SAME_SITE = 'http://same.site';
  */
 export function safeNext(value: string | null | undefined, fallback = '/dashboard'): string {
 	if (!value || !value.startsWith('/') || /[\s\\\p{Cc}]/u.test(value)) return fallback;
-	const url = new URL(value, SAME_SITE);
+	// Null for `//` before a host no URL can have, like `//` alone or `//@`.
+	const url = URL.parse(value, SAME_SITE);
 
 	// The path as resolved, since a caller that builds a URL on it gets that: `/.//evil.test` resolves to the path
 	// `//evil.test`, which on its own is another site.
-	if (url.origin !== SAME_SITE || url.pathname.startsWith('//') || url.pathname.includes('\\')) return fallback;
+	if (!url || url.origin !== SAME_SITE || url.pathname.startsWith('//') || url.pathname.includes('\\')) return fallback;
 
 	return url.pathname + url.search + url.hash;
 }
