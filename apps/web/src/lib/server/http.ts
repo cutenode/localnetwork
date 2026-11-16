@@ -1,5 +1,6 @@
 import { error, fail, isHttpError, isRedirect, redirect } from '@sveltejs/kit';
-import type { Viewer } from '#lib/types.ts';
+import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import type { Flags, Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
 import { FieldError, ReauthError, UserError } from './core';
 
@@ -28,6 +29,14 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 	if (!viewer.isAdmin) error(403, 'Only admins can see this page');
 
 	return viewer;
+}
+
+/**
+ * Answers 404 while `flag` is off for the viewer, so a page behind a release flag doesn't exist for them yet. Staff
+ * previews count, since the server hook puts them in `locals.flags`.
+ */
+export function requireFlag(locals: { flags: Flags }, flag: FlagKey): void {
+	if (!locals.flags[flag]) error(404, 'Not found');
 }
 
 const isUnder = (routeId: string | null, area: string) => routeId === area || !!routeId?.startsWith(`${area}/`);

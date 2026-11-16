@@ -270,6 +270,7 @@
                 variant="ghost"
                 class="-my-0.5"
                 aria-label={`edit ${site.name}`}
+                title={`edit ${site.name}`}
                 aria-expanded={siteDraft.value[0] === site.id}
                 onclick={() => openSite(site)}
               >
@@ -280,6 +281,7 @@
                 variant="ghost"
                 class="-my-0.5"
                 aria-label={`remove ${site.name}`}
+                title={`remove ${site.name}`}
                 onclick={() => removeSite(site.id)}
               >
                 <X />

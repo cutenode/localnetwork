@@ -260,14 +260,18 @@ describe('what our button says', () => {
 	});
 
 	// A gate.sc wrapper carries its destination in a query parameter, and there
-	// is nothing to stop that being something which is no URL at all. Then the
-	// destination itself is the most that can be said about where the click goes.
+	// is nothing to stop that being something which starts like a web address
+	// and is no URL at all. Then the destination itself is the most that can be
+	// said about where the click goes. (One that isn't even a web address gets
+	// no button.)
 	it('falls back to the destination itself where it names no domain', async () => {
 		globalThis.chrome = createChrome();
 		render(likesWithPurchase(), '/dj/likes');
-		document.querySelector('.soundActions__purchaseLink')!.setAttribute('href', 'https://gate.sc?url=not%20a%20url');
+		document
+			.querySelector('.soundActions__purchaseLink')!
+			.setAttribute('href', `https://gate.sc?url=${encodeURIComponent('https://[not a url')}`);
 		await loadContentScript();
-		expect(ours().title).toBe('not a url');
+		expect(ours().title).toBe('https://[not a url');
 	});
 
 	it('says when SoundCloud’s download limit is used up, as the panel does', async () => {

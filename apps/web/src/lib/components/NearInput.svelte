@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { LocateFixed, MapPin } from '@lucide/svelte';
 	import { Combobox } from '#lib/combobox.svelte.ts';
-	import { searchPlaces, type Place } from '#lib/places.ts';
-	import PlaceOptions from './PlaceOptions.svelte';
+	import { placeKey, placeText, searchPlaces, type Place } from '#lib/places.ts';
+	import ComboboxOptions from './ComboboxOptions.svelte';
 
 	/**
 	 * The "near" field of a search: a place picked from suggestions, or the device's location, posted as `place` with
@@ -96,7 +96,7 @@
 		<button type="button" class="absolute top-1/2 right-1.5 grid size-8 -translate-y-1/2 place-items-center rounded-md text-fg-muted hover:bg-raised hover:text-fg disabled:opacity-50" aria-label="Use my location" title="Use my location" onclick={locate} disabled={locating}>
 			<LocateFixed class="size-4 {locating ? 'animate-pulse' : ''}" />
 		</button>
-		<PlaceOptions combobox={places} id={listId} class="z-30" />
+		<ComboboxOptions combobox={places} label="Places" noun="place" text={placeText} key={placeKey} id={listId} class="z-30" />
 	</div>
 	<input type="hidden" name="lat" value={latValue} />
 	<input type="hidden" name="lng" value={lngValue} />

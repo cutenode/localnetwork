@@ -445,7 +445,7 @@ pub fn apply(
             )
             .with("drive", &drive)
             .action(Action::call(
-                "pull",
+                "pull.apply",
                 serde_json::json!({ "drive": drive }),
                 format!("Pull {} into the store", plan.target),
             ))
