@@ -25,19 +25,22 @@ export function sectionsOf(record: Pick<ProfileRecord, Section> | undefined): Re
 /**
  * The profile form as what saving writes: the basics, and only the sections whose `section` box is ticked (the fields
  * of the others are ignored, since turning a section off drops what's in it). `previous` is the profile the form
- * was opened on, whose tracklists a mix may keep.
+ * was opened on, whose tracklists a mix may keep and whose pronouns stay.
  */
 export async function parseProfileForm(
 	form: FormData,
 	previous: ProfileRecord | undefined
 ): Promise<Omit<ProfileInput, 'swap'>> {
 	const on = new Set(form.getAll('section'));
-	const basics = parseBasics(form, 'Add your name');
+	const { pronouns: _, ...basics } = parseBasics(form, 'Add your name');
+	// A person's pronouns come from their Bluesky profile, which the form shows but doesn't change, so the ones the
+	// profile kept before stay as they were, for pages to fall back on.
+	const { pronouns } = previous?.basics ?? {};
 	const location = parseLocation(form, false, "Add the city you're based in, or clear the place");
 	const avatar = await parseAvatar(form);
 
 	const input: Omit<ProfileInput, 'swap'> = {
-		basics: location ? { ...basics, location } : basics,
+		basics: { ...basics, ...(pronouns && { pronouns }), ...(location && { location }) },
 		avatar: avatar ? { upload: avatar } : form.get('removeAvatar') === 'on' ? 'remove' : 'keep'
 	};
 

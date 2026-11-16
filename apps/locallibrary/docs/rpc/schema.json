@@ -31948,6 +31948,7 @@
             "sets:read",
             "account:status",
             "collection:read",
+            "collection:files",
             "library:plan",
             "library:delete",
             "library:delete-unbacked",

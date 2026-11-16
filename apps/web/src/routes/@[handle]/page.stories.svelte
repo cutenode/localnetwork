@@ -32,6 +32,7 @@
 		pendingRequests: 0,
 		profile,
 		name: 'Neon Tide',
+		pronouns: 'they/them',
 		account: { did: NEON, handle: 'neon.test' },
 		bookable,
 		meta: PAGE_META,

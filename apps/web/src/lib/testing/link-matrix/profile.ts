@@ -35,6 +35,7 @@ export default {
 					avatarUrl: null
 				},
 				name: DEMO_PROFILE.basics.name,
+				pronouns: null,
 				account: NEON,
 				bookable: row === INQUIRY,
 				meta: PAGE_META,

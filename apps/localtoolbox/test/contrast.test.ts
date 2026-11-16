@@ -114,12 +114,13 @@ describe('the content script on SoundCloud', () => {
 
 describe('the badges', () => {
 	it('reads every network’s letters at 4.5:1 or better', () => {
+		// A stored link is a web address, so the email badge comes from an address in the bio.
 		const links = linksOf({
 			at: 1,
-			links: Object.keys(NETWORKS).map((id) => ({
-				network: id,
-				url: id === 'email' ? 'mailto:someone@example.org' : `https://links.example/${id}`
-			}))
+			links: Object.keys(NETWORKS)
+				.filter((id) => id !== 'email')
+				.map((id) => ({ network: id, url: `https://links.example/${id}` })),
+			bio: 'someone@example.org'
 		});
 
 		expect(links.map((link) => link.network).sort()).toEqual(Object.keys(NETWORKS).sort());
