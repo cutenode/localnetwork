@@ -19,11 +19,11 @@
   import { view } from '$lib/view.svelte.ts';
   import { count } from '$lib/soundcloud.ts';
 
-  // `aria-expanded` says whether the sheet is up, so the label does not have
-  // to flip between "open" and "close": what it names is the queue, and how
-  // full it is.
+  // What a click does, and how full the queue is. Never "close": while the
+  // sheet is up this button is out of reach behind it, the sheet's own close
+  // button is the way out, and `aria-expanded` says it is up.
   const label = $derived(
-    queue.count === 0 ? 'session queue: empty' : `session queue: ${count(queue.count, 'track')}`
+    `open the session queue: ${queue.count === 0 ? 'empty' : count(queue.count, 'track')}`
   );
 </script>
 

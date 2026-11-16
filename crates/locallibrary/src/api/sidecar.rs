@@ -52,7 +52,7 @@ pub struct Initialized {
     /// sidecar was built with the Atmosphere account (the `account.*` and `*.publish.*` methods,
     /// and `settings.import_published.*`).
     pub capabilities: Vec<String>,
-    /// Every method's name, aliases included (`rpc.describe` says more about each).
+    /// Every method's name (`rpc.describe` says more about each).
     pub methods: Vec<String>,
 }
 
@@ -123,8 +123,8 @@ pub struct StartWatch {
     /// Pull drives that hold changes the store lacks.
     #[serde(default)]
     pub pull: bool,
-    /// Then sync the rest of the drive's group from it (`sync_set`, the old name, works too).
-    #[serde(default, alias = "sync_set")]
+    /// Then sync the rest of the drive's group from it.
+    #[serde(default)]
     pub sync_group: bool,
     /// How long a drive must go unchanged before it's looked at, in milliseconds.
     #[serde(default)]
@@ -172,7 +172,7 @@ pub struct GcRequest {
 /// `rpc.describe`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct DescribeRequest {
-    /// One method (or an alias of one); default every method.
+    /// One method; default every method.
     #[serde(default)]
     pub method: Option<String>,
 }

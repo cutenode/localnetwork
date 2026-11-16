@@ -62,13 +62,16 @@ export const actions: Actions = {
 
 		if (!project) error(404, 'Project not found');
 		const form = await request.formData();
+		// The form posts back to the URL it came from, so the planner show is read again here rather than taken from it.
+		const fromPlanner = await plannerShow(locals, viewer, url.searchParams.get('show') ?? '');
 
 		const result = await act(async () => {
 			const space = await locals.app.bookings.start({
 				actor: viewer,
 				projectUri: project.uri,
 				show: parseShow(form),
-				message: text(form, 'message', 20_000)
+				message: text(form, 'message', 20_000),
+				plannerShow: fromPlanner?.rkey
 			});
 
 			return { skey: rkeyOf(space) };

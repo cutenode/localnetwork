@@ -31,6 +31,12 @@ macos-sign = true
 # check), so dist must neither rewrite it nor fail the plan because it differs from the generated
 # one.
 allow-dirty = ["ci"]
+# The licences of what the binary is built from (about.toml), next to LICENSE in each archive. The
+# Homebrew formula installs it in share/locallibrary. `cargo notices` writes it: the steps in
+# .github/build-setup.yml run it before dist builds.
+include = ["THIRD-PARTY-NOTICES.md"]
+# Steps dist adds to the release workflow's build jobs, after installing Rust.
+github-build-setup = "../build-setup.yml"
 
 # The player's audio output links against ALSA on Linux.
 [dist.dependencies.apt]

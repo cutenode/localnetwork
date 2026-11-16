@@ -20,6 +20,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "pdb_edit"
+path = "fuzz_targets/pdb_edit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "anlz"
 path = "fuzz_targets/anlz.rs"
 test = false
@@ -41,6 +48,7 @@ doc = false
 bench = false
 
 [dependencies]
+arbitrary = { version = "1.5", features = ["derive"] }
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }

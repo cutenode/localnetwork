@@ -1,3 +1,5 @@
+import { isWebUrl } from '#lib/web-url.ts';
+
 /** Where a mix link plays. */
 const platforms: [host: string, name: string][] = [
 	['soundcloud.com', 'SoundCloud'],
@@ -7,12 +9,9 @@ const platforms: [host: string, name: string][] = [
 	['bandcamp.com', 'Bandcamp']
 ];
 
+/** A web address as a URL, or null for any other: links come from people's records, and only http(s) ones play or show. */
 function parse(url: string): URL | null {
-	try {
-		return new URL(url);
-	} catch {
-		return null;
-	}
+	return isWebUrl(url) ? new URL(url) : null;
 }
 
 /** The platform a mix is on, by name, or its host for any other site. */

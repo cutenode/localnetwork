@@ -669,7 +669,7 @@ fn an_export_takes_what_the_target_holds_as_it_should_with(tc: &hegel::TestCase,
             assert!(planned.unsaved.is_some() && store.is_none(), "{e}");
             assert_eq!(e.reason(), Some(Reason::NotSaved), "{e}");
             let methods: Vec<_> = e.detail().actions.iter().map(|a| a.method.clone()).collect();
-            assert_eq!(methods, [Some("pull".to_string())]);
+            assert_eq!(methods, [Some("pull.apply".to_string())]);
             assert!(files(target.root()) == files_before, "refused, it leaves the target alone");
         }
         Ok(report) => {
@@ -876,14 +876,18 @@ fn an_export_stopped_part_way_finishes_when_run_again() {
     }
 }
 
-/// A pull of a drive holding what the collection does stores no second copy: the audio's object is
-/// a clone of the collection's file, on a volume with clones, and the object keeps its bytes when
-/// that file is edited. A drive's file of the same size with other bytes is stored as it is.
-#[hegel::test(test_cases = 4)]
-#[hegel::explicit_test_case(same = true)]
-#[hegel::explicit_test_case(same = false)]
-fn a_pull_clones_the_collections_audio_into_the_store(tc: hegel::TestCase) {
+/// With the store set to make copy-on-write copies, a pull of a drive holding what the collection
+/// does stores no second copy: the audio's object is a clone of the collection's file, on a volume
+/// with clones, and the object keeps its bytes when that file is edited. A drive's file of the
+/// same size with other bytes is stored as it is, and so is every file with the setting off (the
+/// default). The pull says how many it made from the collection.
+#[hegel::test(test_cases = 6)]
+#[hegel::explicit_test_case(same = true, on = true)]
+#[hegel::explicit_test_case(same = true, on = false)]
+#[hegel::explicit_test_case(same = false, on = true)]
+fn a_pull_clones_the_collections_audio_into_the_store_when_set_to(tc: hegel::TestCase) {
     let same = tc.draw(hegel::generators::booleans());
+    let on = tc.draw(hegel::generators::booleans());
     let pc = Computer::new();
     let mut target = pc.folder("Export");
     pc.export(&mut target, &CollectionExportOptions::default());
@@ -897,11 +901,13 @@ fn a_pull_clones_the_collections_audio_into_the_store(tc: hegel::TestCase) {
     std::fs::write(&on_drive, &bytes).unwrap();
     fsutil::set_mtime(&on_drive, fsutil::mtime_secs(&meta)).unwrap();
     let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
+    crate::store::prefs::StorePrefs { copy_on_write: on }.save(&store).unwrap();
     // SAFETY: nextest runs each test in a process of its own, and Hegel runs its cases in turn.
     unsafe { std::env::set_var(masterdb::PATH_ENV, pc.dir.path().join("rekordbox/master.db")) };
     let pulled = crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
     unsafe { std::env::remove_var(masterdb::PATH_ENV) };
     assert!(pulled.imported_files > 0);
+    assert_eq!(pulled.from_collection > 0, same && on, "{pulled:?}");
 
     let hash = Hash::of(&bytes);
     assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
@@ -909,8 +915,8 @@ fn a_pull_clones_the_collections_audio_into_the_store(tc: hegel::TestCase) {
     #[cfg(target_os = "macos")]
     assert_eq!(
         volume_blocks(&store.object_path(&hash)) == volume_blocks(&music),
-        same,
-        "a clone of the collection's file only when it holds the drive's bytes"
+        same && on,
+        "a clone of the collection's file only when it holds the drive's bytes and the store's set to"
     );
     std::fs::write(&music, b"ONE MORE TIME").unwrap();
     assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
@@ -947,6 +953,7 @@ fn a_pull_under_test_leaves_this_computers_collection_alone() {
     );
 
     let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
+    crate::store::prefs::StorePrefs { copy_on_write: true }.save(&store).unwrap();
     crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
     let object = store.object_path(&Hash::of(b"one more time"));
     let music = pc.dir.path().join("Music/One More Time.mp3");
