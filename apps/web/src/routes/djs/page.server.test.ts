@@ -33,7 +33,7 @@ const found = (result: { items: { kind: string; project?: { profile: { name: str
 	result?.items.flatMap((item) => (item.project ? [item.project.profile.name] : []));
 
 it('lists every DJ without filters, with the filter form empty', async () => {
-	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/projects' });
+	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/djs' });
 
 	expect(found(data.result)?.toSorted()).toEqual(['Kiln', 'Neon Tide']);
 	expect(data.result).toMatchObject({ page: 1, pageSize: 24 });
@@ -53,13 +53,13 @@ it('lists every DJ without filters, with the filter form empty', async () => {
 		unclaimed: false
 	});
 	expect(data.geocoder).toBe(false);
-	expect(data.meta.url).toBe('https://localnetwork.test/projects');
+	expect(data.meta.url).toBe('https://localnetwork.test/djs');
 });
 
 it('finds DJs by name, by kind and by country', async () => {
-	const byName = await loadRoute<PageServerData>(load, { app: app(), url: '/projects?q=neon' });
-	const byKind = await loadRoute<PageServerData>(load, { app: app(), url: '/projects?kind=collective' });
-	const byCountry = await loadRoute<PageServerData>(load, { app: app(), url: '/projects?country=pt' });
+	const byName = await loadRoute<PageServerData>(load, { app: app(), url: '/djs?q=neon' });
+	const byKind = await loadRoute<PageServerData>(load, { app: app(), url: '/djs?kind=collective' });
+	const byCountry = await loadRoute<PageServerData>(load, { app: app(), url: '/djs?country=pt' });
 
 	expect(found(byName.result)).toEqual(['Neon Tide']);
 	expect(found(byKind.result)).toEqual(['Kiln']);
@@ -85,7 +85,7 @@ it('reads every filter from the address, leaving out values it does not know and
 		'page=2'
 	].join('&');
 
-	const data = await loadRoute<PageServerData>(load, { app: app(), url: `/projects?${query}` });
+	const data = await loadRoute<PageServerData>(load, { app: app(), url: `/djs?${query}` });
 
 	expect(data.filters).toEqual({
 		q: 'techno',
@@ -108,10 +108,10 @@ it('reads every filter from the address, leaving out values it does not know and
 it('ignores a place without valid coordinates, a country that is no ISO code, and an unknown sort', async () => {
 	const outOfRange = await loadRoute<PageServerData>(load, {
 		app: app(),
-		url: '/projects?lat=91&lng=0&radius=1&country=DEU&sort=price'
+		url: '/djs?lat=91&lng=0&radius=1&country=DEU&sort=price'
 	});
 
-	const blank = await loadRoute<PageServerData>(load, { app: app(), url: '/projects?lat=&lng=13.4&sort=name' });
+	const blank = await loadRoute<PageServerData>(load, { app: app(), url: '/djs?lat=&lng=13.4&sort=name' });
 
 	expect(outOfRange.filters).toMatchObject({ lat: '', lng: '', radiusKm: 5, country: '', sort: '' });
 	expect(blank.filters).toMatchObject({ lat: '', lng: '', sort: 'name' });
@@ -130,7 +130,7 @@ const berlin: Place = { label: 'Berlin, Germany', city: 'Berlin', country: 'DE',
 it('looks a typed place up once, so the distance filter applies', async () => {
 	const { asked, app: geocoded } = geocoding({ Berlin: [berlin] });
 
-	const data = await loadRoute<PageServerData>(load, { app: geocoded, url: '/projects?place=Berlin&radius=25' });
+	const data = await loadRoute<PageServerData>(load, { app: geocoded, url: '/djs?place=Berlin&radius=25' });
 
 	expect(asked).toEqual(['Berlin']);
 	expect(data.filters).toMatchObject({ place: 'Berlin', lat: '52.52', lng: '13.405', radiusKm: 25 });
@@ -142,7 +142,7 @@ it('looks a typed place up once, so the distance filter applies', async () => {
 it("says when a typed place can't be found, and filters by nothing but the rest", async () => {
 	const { app: geocoded } = geocoding({});
 
-	const data = await loadRoute<PageServerData>(load, { app: geocoded, url: '/projects?place=Atlantis' });
+	const data = await loadRoute<PageServerData>(load, { app: geocoded, url: '/djs?place=Atlantis' });
 
 	expect(data.placeMissed).toBe(true);
 	expect(data.filters.lat).toBe('');
@@ -154,10 +154,10 @@ it('looks nothing up when the place came with coordinates, or past the limit', a
 
 	const picked = await loadRoute<PageServerData>(load, {
 		app: geocoded,
-		url: '/projects?place=Berlin&lat=52.52&lng=13.4'
+		url: '/djs?place=Berlin&lat=52.52&lng=13.4'
 	});
 
-	const limited = await loadRoute<PageServerData>(load, { app: geocoded, url: '/projects?place=Berlin' });
+	const limited = await loadRoute<PageServerData>(load, { app: geocoded, url: '/djs?place=Berlin' });
 
 	expect(asked).toEqual([]);
 	expect(picked.placeMissed).toBe(false);
@@ -171,7 +171,7 @@ it('renders the filters with no results while the directory is offline', async (
 	});
 
 	const performers = new PerformerSearch(f.t.core, directory, f.t.projects, f.t.profiles);
-	const data = await loadRoute<PageServerData>(load, { app: { ...app(), performers }, url: '/projects?q=neon' });
+	const data = await loadRoute<PageServerData>(load, { app: { ...app(), performers }, url: '/djs?q=neon' });
 
 	expect(data.result).toBeNull();
 	expect(data.filters.q).toBe('neon');

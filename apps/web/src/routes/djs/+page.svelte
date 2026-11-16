@@ -52,7 +52,7 @@
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<div class="flex flex-col gap-6">
-		<FindDjsSwitch current="/projects" />
+		<FindDjsSwitch current="/djs" />
 		<SectionHeader level={1} eyebrow="Directory" title="Find DJs" align="split" lede="Search by sound, place, fee and slot. A search for house finds deep house and afro house too." />
 		<p class="m-0 text-small text-fg-muted">DJ? <a class="link" href="/tools/locallibrary">Get locallibrary</a> to show your sets and how you play.</p>
 	</div>
@@ -135,7 +135,7 @@
 					<h2 id="results-title" class="m-0 text-body font-semibold">
 						{pluralize(data.result.total, 'DJ')}{#if f.place && f.lat}{' '}<span class="font-normal text-fg-muted">within {f.radiusKm} km of {f.place}</span>{/if}
 					</h2>
-					{#if active && data.result.items.length}<a href="/projects" class="text-small text-fg-muted no-underline hover:text-fg">Clear filters</a>{/if}
+					{#if active && data.result.items.length}<a href="/djs" class="text-small text-fg-muted no-underline hover:text-fg">Clear filters</a>{/if}
 				</div>
 				{#if data.placeMissed}
 					<p class="notice m-0">
@@ -151,7 +151,7 @@
 				{/if}
 				{#if data.result.items.length === 0}
 					<EmptyState title={active ? 'No DJs match those filters' : 'No DJs found'} body={emptyHint(f)}>
-						<Button variant="secondary" href="/projects">Clear filters</Button>
+						<Button variant="secondary" href="/djs">Clear filters</Button>
 					</EmptyState>
 				{:else}
 					<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4 p-0">
