@@ -1,10 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { Combobox } from '#lib/combobox.svelte.ts';
-	import type { Place } from '#lib/places.ts';
-	import PlaceOptions from './PlaceOptions.svelte';
+	import { placeKey, placeText, type Place } from '#lib/places.ts';
+	import ComboboxOptions from './ComboboxOptions.svelte';
 
-	const { Story } = defineMeta({ title: 'Patterns/Place options', component: PlaceOptions, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Patterns/Combobox options', component: ComboboxOptions, tags: ['autodocs'] });
 
 	const places: Place[] = [
 		{ label: 'Berlin, Germany', city: 'Berlin', country: 'DE', latE6: 52_520_000, lngE6: 13_405_000 },
@@ -38,7 +38,7 @@
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
-<!-- The list under an input that points at it, as PlacePicker and NearInput draw it. -->
+<!-- The list under an input that points at it, as PlacePicker and NearInput draw it. VenuePicker's stories show the second line it gives venues. -->
 {#snippet search(combobox: Combobox<Place>)}
 	<div class="relative max-w-md pb-56">
 		<label class="label" for="place">Find a city</label>
@@ -54,7 +54,7 @@
 				value="Berl"
 				autocomplete="off"
 			/>
-			<PlaceOptions {combobox} id="place-options" />
+			<ComboboxOptions {combobox} id="place-options" label="Places" noun="place" text={placeText} key={placeKey} />
 		</div>
 	</div>
 {/snippet}
