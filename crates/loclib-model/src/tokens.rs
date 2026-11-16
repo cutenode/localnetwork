@@ -37,7 +37,7 @@ pub mod phrases_light {
     pub const INTRO: Rgb = [70, 112, 232];
     pub const UP: Rgb = [175, 117, 21];
     pub const VERSE: Rgb = [175, 117, 21];
-    pub const CHORUS: Rgb = [234, 61, 128];
+    pub const CHORUS: Rgb = [204, 42, 108];
     pub const DOWN: Rgb = [30, 140, 174];
     pub const BRIDGE: Rgb = [30, 140, 174];
     pub const OUTRO: Rgb = [132, 92, 222];

@@ -24,6 +24,12 @@ describe('the light palette', () => {
 		}
 	});
 
+	test('the chorus phrase reads as text at 4.5:1 or better on the light canvas and well', () => {
+		// DateBlock's weekday and the chorus Eyebrow are written in it (theme.css: canvas #ffffff, well #f4f4f5).
+		for (const background of ['#ffffff', '#f4f4f5'])
+			expect(contrast(colors.phrasesLight.chorus, background), `chorus on ${background}`).toBeGreaterThanOrEqual(4.5);
+	});
+
 	test('good, warning and critical read as text at 4.5:1 or better', () => {
 		for (const [level, hex] of Object.entries(colors.status.light)) {
 			for (const background of backgrounds)

@@ -292,5 +292,8 @@ describe('chain helpers', () => {
 		expect(sanitizeDetails({ a: { b: { c: { d: { e: { f: { g: 1 } } } } } } })).toEqual({
 			a: { b: { c: { d: { e: { f: '[truncated]' } } } } }
 		});
+		expect(sanitizeDetails({ a: { b: { c: { d: { e: { f: [1] } } } } } })).toEqual({
+			a: { b: { c: { d: { e: { f: '[truncated]' } } } } }
+		});
 	});
 });

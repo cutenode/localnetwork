@@ -892,6 +892,46 @@ fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
     }
 }
 
+#[test]
+fn the_library_from_root_names_files_where_they_are_on_this_computer() {
+    let dir = tempfile::tempdir().unwrap();
+    let rb = dir.path().join("rekordbox");
+    std::fs::create_dir(&rb).unwrap();
+    let f = cloud_sample();
+    // rekordbox on Windows names a file on this computer from its drive.
+    if cfg!(windows) {
+        f.exec("UPDATE djmdContent SET FolderPath = 'C:' || FolderPath WHERE FolderPath NOT LIKE '/contents_%'");
+    }
+    let c = open(&write(&rb, &f.encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+    let dropbox = dir.path().join("Dropbox");
+    let audio = dropbox.join("rekordbox/contents_2354715273/Floorplan/ngo.mp3");
+    std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+    std::fs::write(&audio, b"mp3").unwrap();
+    let cloud = CloudFolders { dropbox: Some(dropbox), google_drive: None };
+
+    let lib = c.library_from_root(&cloud);
+    let (local, synced) = (lib.track(84935471).unwrap(), lib.track(205356547).unwrap());
+    let was = c.library.track(84935471).unwrap();
+    assert_eq!(local.file_path, was.file_path, "a full path stays as it is");
+    assert_eq!(PathBuf::from(&synced.file_path), audio);
+    assert_eq!(PathBuf::from(&local.analyze_path), c.share_file(&was.analyze_path));
+    if let Some(art) = &was.artwork_path {
+        assert_eq!(local.artwork_path.as_deref().map(PathBuf::from), Some(c.share_file(art)));
+    }
+    for t in &lib.tracks {
+        for p in [&t.file_path, &t.analyze_path].into_iter().chain(&t.artwork_path).filter(|p| !p.is_empty()) {
+            assert!(Path::new(p).is_absolute(), "{p} is a full path");
+        }
+    }
+    let gone = c.library_from_root(&CloudFolders::default());
+    assert_eq!(
+        gone.track(205356547).unwrap().file_path,
+        "/contents_2354715273/Floorplan/ngo.mp3",
+        "not here: as it was"
+    );
+    assert_eq!(gone.tracks.len(), c.library.tracks.len());
+}
+
 /// The cloud sample with Cloud Library Sync on `service`, read once per service: building and
 /// reading it is most of a case's time, and the draws only pick among three.
 fn cloud_collection(service: &'static str) -> Collection {
@@ -1306,7 +1346,8 @@ fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
 
 /// A key given is the one used, whatever it says; none (or an empty one) falls back to
 /// `LOCALLIBRARY_MASTERDB_KEY`, then the key every rekordbox uses. Without
-/// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders.
+/// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders or
+/// where rekordbox's settings moved it.
 #[hegel::test(test_cases = 20)]
 fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -1318,7 +1359,7 @@ fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     #[cfg(target_os = "macos")]
     if std::env::var_os(PATH_ENV).is_none_or(|p| p.is_empty()) {
         let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer/rekordbox/master.db"));
-        assert_eq!(default_path(), home);
+        assert_eq!(default_path(), moved(settings_path().as_deref(), agent_options_path().as_deref()).or(home));
     }
 }
 
@@ -1361,4 +1402,48 @@ fn prop_tags_by_track_name_each_tracks_tags(tc: hegel::TestCase) {
         assert_eq!(by_track.of(t), want, "{t:?}");
     }
     assert!(by_track.by_id.len() <= library.tracks.len(), "only the library's tracks: {by_track:?}");
+}
+
+/// Every table the collection is read from has to read: one that can't (a view of a table that's
+/// gone) refuses the whole collection, saying why, rather than reading it without that table.
+#[test]
+fn a_collection_any_of_whose_tables_cant_be_read_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    for table in [
+        "djmdContent",
+        "djmdArtist",
+        "djmdGenre",
+        "djmdLabel",
+        "djmdKey",
+        "djmdAlbum",
+        "djmdPlaylist",
+        "djmdSongPlaylist",
+        "djmdHistory",
+        "djmdSongHistory",
+        "djmdMyTag",
+        "djmdSongMyTag",
+        "djmdCue",
+        "djmdProperty",
+        "djmdCloudProperty",
+        "contentFile",
+    ] {
+        let f = sample();
+        f.exec(&format!("DROP TABLE IF EXISTS {table}; CREATE VIEW {table} AS SELECT * FROM gone;"));
+        let path = write(dir.path(), &f.plain());
+        let message = open(&path, DEFAULT_KEY).unwrap_err().to_string();
+        assert!(message.starts_with(&format!("could not parse {}: ", path.display())), "{table}: {message}");
+        assert!(message.contains("no such table: main.gone"), "{table}: {message}");
+    }
+}
+
+/// The key comes from [`KEY_ENV`] when none is given, unless it's empty there.
+#[test]
+fn a_key_from_the_environment_is_used_unless_its_empty() {
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var(KEY_ENV, "from the environment") };
+    assert_eq!(resolve_key(None), "from the environment");
+    assert_eq!(resolve_key(Some("given")), "given");
+    // SAFETY: as above.
+    unsafe { std::env::set_var(KEY_ENV, "") };
+    assert_eq!(resolve_key(None), DEFAULT_KEY);
 }

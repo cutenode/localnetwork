@@ -1,13 +1,14 @@
-import { CLAIM_RELATIONSHIPS, isOneOf } from '#lib/taxonomy/options.ts';
+import { claimTerms } from '#lib/requests.ts';
+import { isOneOf } from '#lib/taxonomy/options.ts';
 import type { ClaimEvidence } from '#lib/types.ts';
 import { UserError } from '../core';
 import { text } from '../http';
 
-/** Parses the claim form, both when filing a claim and when revising one. */
-export function parseClaim(form: FormData): ClaimEvidence {
+/** Parses the claim form, both when filing a claim and when revising one, on a project unless `terms` say a venue. */
+export function parseClaim(form: FormData, { relationships, noun } = claimTerms({})): ClaimEvidence {
 	const relationship = text(form, 'relationship', 32);
 
-	if (!isOneOf(CLAIM_RELATIONSHIPS, relationship)) throw new UserError('Choose how you are connected to the project');
+	if (!isOneOf(relationships, relationship)) throw new UserError(`Choose how you are connected to the ${noun}`);
 
 	const links = text(form, 'links', 5000)
 		.split(/\s+/)

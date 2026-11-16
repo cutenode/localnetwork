@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
+	import { light } from '#lib/testing/light.ts';
 	import type { Charts, SupportedArtist } from '#lib/types.ts';
 	import ArtistResults from './ArtistResults.svelte';
 	import ArtistSupport from './ArtistSupport.svelte';
@@ -53,6 +54,10 @@
 <Story name="Charts on a phone" args={{ charts, retryHref }} globals={phone} />
 
 <Story name="Artist" asChild play={playLinks}>
+	<ArtistSupport supports={artistSupports} retryHref="/artists/ferrule" />
+</Story>
+
+<Story name="Artist, light" asChild beforeEach={light}>
 	<ArtistSupport supports={artistSupports} retryHref="/artists/ferrule" />
 </Story>
 
