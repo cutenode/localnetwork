@@ -199,7 +199,7 @@ fn a_file_saved_between_pages_is_refused_and_the_rest_read_once() {
     let s = start(Library::default());
     let read = |cursor: Option<&str>| {
         let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "cursor": cursor });
-        s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &req)
+        s.host.request::<LibraryPage>(method::READ_LIBRARY, &req)
     };
     let first = read(None).unwrap();
     let next = first.next.clone().unwrap();
@@ -401,7 +401,7 @@ fn prop_a_collection_is_read_once_for_all_its_pages(tc: TestCase) {
     let s = start(Library::default());
     let read = |cursor: Option<&str>| {
         let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "cursor": cursor });
-        s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &req).unwrap()
+        s.host.request::<LibraryPage>(method::READ_LIBRARY, &req).unwrap()
     };
     let mut page = read(None);
     let mut count = page.tracks.len();
@@ -457,12 +457,12 @@ fn first_page_stops(stop: Stop, name: &str) {
     let s = start(Library::default());
     let scratch = dir.path().join("gone");
     let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "context": { "scratch": scratch } });
-    let pending = s.host.send_request(method::READ_LIBRARY, &req).unwrap();
+    let sent = s.host.send(method::READ_LIBRARY, &req);
     #[cfg(unix)]
     if let Stop::Cancelled = stop {
-        crate::xml_import::tests::cancel_while_reading(&s.host, &pending, &file, &text);
+        crate::xml_import::tests::cancel_while_reading(&s.host, &sent, &file, &text);
     }
-    let e = pending.wait_timeout::<LibraryPage>(std::time::Duration::from_secs(60)).expect("an answer").unwrap_err();
+    let e = sent.wait_timeout::<LibraryPage>(std::time::Duration::from_secs(60)).expect("an answer").unwrap_err();
     assert!(s.stop().is_empty(), "it reads nothing through the host");
     match stop {
         Stop::NotXml => {

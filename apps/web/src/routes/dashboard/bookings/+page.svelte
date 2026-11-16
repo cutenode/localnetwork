@@ -18,18 +18,23 @@
 
 	const threads = $derived(data.threads.map((thread) => ({ ...thread, project: names.value?.get(thread.space) ?? null })));
 
-	// The acts the threads are with, for the filter; it shows once there's more than one.
-	const acts = $derived([...new Map(threads.flatMap((thread) => (thread.project ? [[thread.project.slug, thread.project.name] as const] : []))).entries()]);
+	// Who the threads are with, for the filter, keyed by an act's slug or a listed DJ's `@handle`; it shows once there's
+	// more than one.
+	const filterKey = (project: NonNullable<(typeof threads)[number]['project']>) => project.slug ?? project.href.slice(1);
+
+	const acts = $derived([...new Map(threads.flatMap((thread) => (thread.project ? [[filterKey(thread.project), thread.project.name] as const] : []))).entries()]);
 
 	// The filter goes by what only the directory knows, so without it every booking shows.
 	const groups = $derived(
 		bookingsByTurn(
-			threads.filter((thread) => !data.filter || !names.value || thread.project?.slug === data.filter),
+			threads.filter((thread) => !data.filter || !names.value || (thread.project && filterKey(thread.project) === data.filter)),
 			viewer
 		)
 	);
 
 	const managed = resolved(() => data.projects, undefined);
+
+	const sections = resolved(() => data.sections, undefined);
 
 	const chip = 'chip min-h-9 px-3 transition-colors hover:border-fg-subtle aria-[current=page]:border-fg aria-[current=page]:bg-fg aria-[current=page]:font-semibold aria-[current=page]:text-fg-inverse';
 
@@ -49,13 +54,17 @@
 	</header>
 
 	{#if data.threads.length === 0}
-		{#if managed.value === undefined}
+		{#if managed.value === undefined || sections.value === undefined}
 			<EmptyState title="No bookings yet">
 				<div role="status" aria-label="Loading" class="flex flex-col items-center gap-3"><span class={['h-4 w-64 max-w-full', ghost]}></span><span class={['h-11 w-28', ghost]}></span></div>
 			</EmptyState>
 		{:else if managed.value?.[0]}
 			<EmptyState title="No bookings yet" body="When a promoter sends an inquiry, it starts here. A full page helps them find you.">
 				<Button variant="secondary" href="/dashboard/projects/{managed.value[0].slug}">Edit your page</Button>
+			</EmptyState>
+		{:else if sections.value?.performer}
+			<EmptyState title="No bookings yet" body="When a promoter sends an inquiry to you, it starts here. A full profile helps them find you.">
+				<Button variant="secondary" href="/dashboard/profile">Edit your profile</Button>
 			</EmptyState>
 		{:else}
 			<EmptyState title="No bookings yet" body="Find a DJ and send an inquiry with your show details.">
@@ -85,11 +94,11 @@
 			{:else}
 				{#each groups as { value, label, threads } (value)}
 					<section aria-labelledby="group-{value}" class="flex flex-col gap-3">
-						{#if value === 'closed'}
-							<details class="group/closed">
+						{#if value === 'settled'}
+							<details class="group/settled">
 								<summary class="flex min-h-11 cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
 									{@render heading(value, label, threads.length)}
-									<ChevronDown class="size-4 text-fg-subtle group-open/closed:rotate-180 motion-safe:transition-transform" aria-hidden="true" />
+									<ChevronDown class="size-4 text-fg-subtle group-open/settled:rotate-180 motion-safe:transition-transform" aria-hidden="true" />
 								</summary>
 								<div class="mt-1"><BookingRows {threads} group={value} {viewer} {actsPending} /></div>
 							</details>

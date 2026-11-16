@@ -53,7 +53,8 @@ const named = (threads: BookingListThread[], harbour: string[] = []): ThreadProj
 				{
 					uri: `at://did:plc:root/computer.localnetwork.project/${slug}`,
 					slug,
-					name: harbour.includes(skey) ? 'Harbour Lights' : 'Neon Tide'
+					name: harbour.includes(skey) ? 'Harbour Lights' : 'Neon Tide',
+					href: `/projects/${slug}`
 				}
 			];
 		})
@@ -99,7 +100,7 @@ it('groups threads by whose turn it is, with a filter once there are several act
 		['Your turn', 'Show a'],
 		['Waiting on them', 'Show b'],
 		['Confirmed', 'Show c'],
-		['Closed', 'Show d']
+		['Settled', 'Show d']
 	]) {
 		await expect.element(region(group).getByText(show)).toBeInTheDocument();
 	}
@@ -162,7 +163,7 @@ it('shows a pill only where it adds to the group', async () => {
 	await expect.element(row('Show e').getByText('Date passed')).toBeVisible();
 });
 
-it('puts Closed away, each row saying how it ended', async () => {
+it('puts Settled away, each row saying how it ended', async () => {
 	await list(
 		data(PAT, [
 			thread('a', 'declined', NEON),
@@ -173,7 +174,7 @@ it('puts Closed away, each row saying how it ended', async () => {
 	);
 
 	await expect.element(page.getByText('Show a')).not.toBeVisible();
-	await page.getByText('Closed', { exact: false }).click();
+	await page.getByText('Settled', { exact: false }).click();
 
 	const row = (show: string) => page.getByRole('listitem').filter({ hasText: show });
 
@@ -256,6 +257,59 @@ it('gives a DJ and a promoter each a next step when there are no bookings', asyn
 		.element(page.getByRole('link', { name: 'Edit your page' }))
 		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
 	await expect.element(page.getByRole('link', { name: 'Find DJs' })).not.toBeInTheDocument();
+	// A DJ by their own name, with the DJ section on and no project, gets inquiries too.
+	await rerender({ data: data(NEON, [], { sections: Promise.resolve({ performer: true, promoter: false }) }) });
+	await expect.element(page.getByText(/When a promoter sends an inquiry to you/)).toBeInTheDocument();
+	await expect
+		.element(page.getByRole('link', { name: 'Edit your profile' }))
+		.toHaveAttribute('href', '/dashboard/profile');
 	await rerender({ data: data(PAT, []) });
 	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+});
+
+const MARA = 'did:plc:mara';
+
+const mara = { uri: `at://${MARA}/computer.localnetwork.profile/self`, slug: null, name: 'Mara', href: '/@mara.test' };
+
+/** A thread with a DJ Find DJs lists, who answers for themself. */
+const withDj = (skey: string, status: string, lastAuthor: string) =>
+	thread(skey, status, lastAuthor, {
+		participants: [
+			{ did: PAT, handle: 'pat.test', role: 'promoter' },
+			{ did: MARA, handle: 'mara.test', role: 'performer' }
+		]
+	});
+
+it('filters threads with a listed DJ by their handle, beside an act', async () => {
+	const threads = [thread('a', 'open', PAT), withDj('b', 'open', PAT)];
+	const names: ThreadProjects = new Map([...named(threads.slice(0, 1)), [threads[1].space, mara]]);
+
+	const { rerender } = await list(data(PAT, threads, { names }));
+
+	const filter = page.getByRole('navigation', { name: 'Filter by act' });
+	await expect
+		.element(filter.getByRole('link', { name: 'Mara' }))
+		.toHaveAttribute('href', '/dashboard/bookings?project=@mara.test');
+
+	await rerender({ data: data(PAT, threads, { names, filter: '@mara.test' }) });
+	await expect.element(page.getByText('Show b')).toBeVisible();
+	await expect.element(page.getByText('Show a')).not.toBeInTheDocument();
+});
+
+it("sorts a listed DJ's bookings by whose turn it is, as an act manager's", async () => {
+	const threads = [withDj('a', 'open', PAT), withDj('b', 'negotiating', MARA)];
+	const names: ThreadProjects = new Map(threads.map(({ space }) => [space, mara]));
+
+	const { rerender } = await list(data(MARA, threads, { names }));
+
+	await expect.element(region('Your turn').getByText('Show a')).toBeVisible();
+	await expect
+		.element(page.getByRole('listitem').filter({ hasText: 'Show a' }).getByText('New', { exact: true }))
+		.toBeVisible();
+	expect(text('Your turn')).toContain('Mara · from @pat.test');
+	expect(text('Waiting on them')).toContain('Waiting on @pat.test · Mara · you wrote');
+
+	await rerender({ data: data(PAT, threads, { names }) });
+	await expect.poll(() => text('Your turn')).toContain('Show b');
+	expect(text('Waiting on them')).toContain('Waiting on Mara · you wrote');
 });

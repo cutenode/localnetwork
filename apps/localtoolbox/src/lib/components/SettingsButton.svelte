@@ -15,7 +15,7 @@
   import Settings from '@lucide/svelte/icons/settings';
   import { view } from '$lib/view.svelte.ts';
 
-  const LABEL = 'settings';
+  const LABEL = 'open settings';
 </script>
 
 <button

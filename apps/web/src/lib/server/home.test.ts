@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { BookingRole } from '#lib/bookings.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { ADMIN, DJ, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
@@ -62,6 +63,7 @@ describe('needsYou', () => {
 			repoDid: DJ,
 			projectUri: null,
 			project: null,
+			venue: null,
 			record: {
 				kind: 'create',
 				profile: { ...f.project.profile, name: 'Third Act' },
@@ -287,7 +289,7 @@ describe('accessWaiting', () => {
 });
 
 describe('withOthers', () => {
-	const thread = (role: 'promoter' | 'manager'): BookingThreadView => ({
+	const thread = (role: BookingRole): BookingThreadView => ({
 		space: role,
 		skey: role,
 		status: 'open',
@@ -316,6 +318,9 @@ describe('withOthers', () => {
 			withOthers([thread('manager'), thread('manager'), thread('promoter')], [request, request], 'did:plc:me')
 		).toBe(
 			'2 bookings are waiting on promoters and 1 booking is waiting on a DJ and 2 requests are with staff. Nothing needed from you.'
+		);
+		expect(withOthers([thread('performer')], [], 'did:plc:me')).toBe(
+			'1 booking is waiting on a promoter. Nothing needed from you.'
 		);
 	});
 });

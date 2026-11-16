@@ -1,5 +1,6 @@
 import { error, fail, isHttpError, isRedirect, redirect } from '@sveltejs/kit';
-import type { Viewer } from '#lib/types.ts';
+import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import type { Flags, Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
 import { FieldError, ReauthError, UserError } from './core';
 
@@ -28,6 +29,14 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 	if (!viewer.isAdmin) error(403, 'Only admins can see this page');
 
 	return viewer;
+}
+
+/**
+ * Answers 404 while `flag` is off for the viewer, so a page behind a release flag doesn't exist for them yet. Staff
+ * previews count, since the server hook puts them in `locals.flags`.
+ */
+export function requireFlag(locals: { flags: Flags }, flag: FlagKey): void {
+	if (!locals.flags[flag]) error(404, 'Not found');
 }
 
 const isUnder = (routeId: string | null, area: string) => routeId === area || !!routeId?.startsWith(`${area}/`);
@@ -60,11 +69,12 @@ const SAME_SITE = 'http://same.site';
  */
 export function safeNext(value: string | null | undefined, fallback = '/dashboard'): string {
 	if (!value || !value.startsWith('/') || /[\s\\\p{Cc}]/u.test(value)) return fallback;
-	const url = new URL(value, SAME_SITE);
+	// Null for `//` before a host no URL can have, like `//` alone or `//@`.
+	const url = URL.parse(value, SAME_SITE);
 
 	// The path as resolved, since a caller that builds a URL on it gets that: `/.//evil.test` resolves to the path
 	// `//evil.test`, which on its own is another site.
-	if (url.origin !== SAME_SITE || url.pathname.startsWith('//') || url.pathname.includes('\\')) return fallback;
+	if (!url || url.origin !== SAME_SITE || url.pathname.startsWith('//') || url.pathname.includes('\\')) return fallback;
 
 	return url.pathname + url.search + url.hash;
 }

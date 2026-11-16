@@ -3,8 +3,14 @@ import type { BookingListThread, BookingThreadView } from './types';
 
 export type BookingStatus = (typeof BOOKING_STATUSES)[number]['value'];
 
-/** Which side of a booking thread someone is on: the promoter who asked, or one of the project's managers. */
-export type BookingRole = 'promoter' | 'manager';
+/**
+ * Which side of a booking thread someone is on: the promoter who asked, or the side being booked, which is one of an
+ * act's managers or the DJ themself.
+ */
+export type BookingRole = 'promoter' | 'manager' | 'performer';
+
+/** Whether `role` is the side being booked: an act's manager or the DJ, who answer the same way. */
+export const isBookedSide = (role: string | undefined) => role === 'manager' || role === 'performer';
 
 /**
  * A status change one side can make, with its button label. `settles` changes ask first: they end the booking or fix
@@ -38,18 +44,25 @@ const cancel: BookingAction = {
 	settles: { ask: "Cancel this booking? The thread closes and can't be reopened." }
 };
 
+const answering: Partial<Record<BookingStatus, BookingAction[]>> = {
+	open: [negotiate, confirm, decline],
+	negotiating: [confirm, decline],
+	confirmed: [cancel]
+};
+
 /**
  * What each side can move a thread to from each status. Declined and cancelled threads are settled, so nothing
- * leaves them. Managers answer an inquiry; the promoter can confirm once a manager has answered, or walk away.
+ * leaves them. The side being booked answers an inquiry; the promoter can confirm once it has answered, or walk away.
  */
 const ACTIONS: Record<BookingRole, Partial<Record<BookingStatus, BookingAction[]>>> = {
-	manager: { open: [negotiate, confirm, decline], negotiating: [confirm, decline], confirmed: [cancel] },
+	manager: answering,
+	performer: answering,
 	promoter: { open: [confirm, withdraw], negotiating: [confirm, withdraw], confirmed: [cancel] }
 };
 
 /**
- * The status changes `role` can make to a thread at `status`. A promoter can't confirm an open inquiry until a
- * manager has written in the thread (`answered`), so nobody confirms a booking the other side hasn't seen.
+ * The status changes `role` can make to a thread at `status`. A promoter can't confirm an open inquiry until the side
+ * being booked has written in the thread (`answered`), so nobody confirms a booking the other side hasn't seen.
  */
 export function bookingActions(role: BookingRole, status: string, answered: boolean): BookingAction[] {
 	const actions = (isOneOf(BOOKING_STATUSES, status) && ACTIONS[role][status]) || [];
@@ -64,19 +77,22 @@ export const BOOKING_GROUPS = [
 	{ value: 'reply', label: 'Your turn' },
 	{ value: 'active', label: 'Waiting on them' },
 	{ value: 'confirmed', label: 'Confirmed' },
-	{ value: 'closed', label: 'Closed' }
+	{ value: 'settled', label: 'Settled' }
 ] as const;
 
 export type BookingGroup = (typeof BOOKING_GROUPS)[number]['value'];
 
-/** Where a thread sits for `viewer`: a live one waits on them when someone on the other side wrote in it last. */
+/**
+ * Where a thread sits for `viewer`: a live one is their turn when someone on the other side wrote in it last. Declined
+ * and cancelled threads are settled.
+ */
 export function bookingGroup(
 	thread: Pick<BookingThreadView, 'status' | 'lastAuthor'> & { participants: { did: string; role: string }[] },
 	viewer: string
 ): BookingGroup {
 	if (thread.status === 'confirmed') return 'confirmed';
 
-	if (thread.status === 'declined' || thread.status === 'cancelled') return 'closed';
+	if (thread.status === 'declined' || thread.status === 'cancelled') return 'settled';
 	const roleOf = (did: string) => thread.participants.find((participant) => participant.did === did)?.role;
 
 	return thread.lastAuthor && roleOf(thread.lastAuthor) !== roleOf(viewer) ? 'reply' : 'active';
@@ -88,7 +104,7 @@ export const datePassed = ({ showDate }: Pick<BookingThreadView, 'showDate'>, no
 
 /**
  * The threads by turn, in the order the list shows them. Within a group the nights still to come lead, soonest first,
- * then threads with no date, then ones whose date went by. Closed keeps the newest on top, and takes confirmed
+ * then threads with no date, then ones whose date went by. Settled keeps the newest on top, and takes confirmed
  * bookings once their night has passed, so Confirmed only ever holds what's ahead.
  */
 export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0] & Pick<BookingThreadView, 'showDate'>>(
@@ -99,7 +115,7 @@ export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0]
 	const groupOf = (thread: Thread): BookingGroup => {
 		const group = bookingGroup(thread, viewer);
 
-		return group === 'confirmed' && datePassed(thread, now) ? 'closed' : group;
+		return group === 'confirmed' && datePassed(thread, now) ? 'settled' : group;
 	};
 
 	const rank = (thread: Thread) => {
@@ -115,14 +131,14 @@ export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0]
 
 		if (inGroup.length === 0) return [];
 
-		return [{ ...group, threads: group.value === 'closed' ? inGroup : inGroup.toSorted(byNight) }];
+		return [{ ...group, threads: group.value === 'settled' ? inGroup : inGroup.toSorted(byNight) }];
 	});
 }
 
 /**
- * The status a row in `group` adds to what the group already says, if any: how a closed thread ended, a live one's
- * date going by, and otherwise how far along it is, where an inquiry the manager has to answer is new. A confirmed row
- * in Closed got there by its date passing.
+ * The status a row in `group` adds to what the group already says, if any: how a settled thread ended, a live one's
+ * date going by, and otherwise how far along it is, where an inquiry the side being booked has to answer is new. A
+ * confirmed row in Settled got there by its date passing.
  */
 export function bookingMark(
 	thread: Pick<BookingListThread, 'status' | 'showDate' | 'withdrawn'>,
@@ -132,7 +148,7 @@ export function bookingMark(
 ): string | null {
 	if (group === 'confirmed') return null;
 
-	if (group === 'closed') {
+	if (group === 'settled') {
 		if (thread.withdrawn) return 'withdrawn';
 
 		return thread.status === 'confirmed' ? 'date_passed' : thread.status;
@@ -142,5 +158,5 @@ export function bookingMark(
 
 	if (thread.status === 'negotiating') return 'negotiating';
 
-	return group === 'reply' && role === 'manager' ? 'new' : null;
+	return group === 'reply' && isBookedSide(role) ? 'new' : null;
 }

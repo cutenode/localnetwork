@@ -70,6 +70,19 @@ it("shows a section's fields while its box is ticked, and links to the profile",
 	await expect.element(page.getByLabelText('Tagline')).not.toBeInTheDocument();
 });
 
+it('offers Take inquiries in the DJ section, off until the DJ turns it on', async () => {
+	await open(profile);
+
+	const box = page.getByRole('checkbox', { name: 'Take inquiries' });
+	await expect.element(box).not.toBeChecked();
+	await box.click();
+	await expect.element(box).toBeChecked();
+	expect(new FormData(box.element().closest('form')!).get('takesInquiries')).toBe('on');
+
+	await page.getByLabelText('I play out as a DJ').click();
+	await expect.element(box).not.toBeInTheDocument();
+});
+
 it('asks before saving a profile with a section turned off, since that deletes what was in it', async () => {
 	const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
 	await open(profile);

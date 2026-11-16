@@ -354,6 +354,7 @@ test.describe('public pages', () => {
 			'/',
 			'/about',
 			'/for-djs',
+			'/for-promoters',
 			'/privacy',
 			'/match',
 			'/projects',
@@ -517,6 +518,10 @@ test.describe('signed in', () => {
 		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/profile');
 		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
 		await expectAccessible(page);
+		// Inquiries stay off until the DJ turns them on.
+		await page.getByRole('checkbox', { name: 'Take inquiries' }).check();
+		await page.getByRole('button', { name: 'Save profile' }).click();
+		await expect(page.getByText('Saved. Your profile shows the changes now.')).toBeVisible();
 		await page.getByRole('button', { name: 'Ask to be listed' }).click();
 		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		await signOut(page);
@@ -535,9 +540,24 @@ test.describe('signed in', () => {
 		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
 		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toHaveCount(0);
 		await expectAccessible(page);
+		await signOut(page);
+
+		// A promoter finds them in Find DJs and sends them an inquiry from their profile.
+		await signIn(page, 'pat.test', 'pat-pass', '/projects?q=neon');
+		await page.getByRole('link', { name: 'Neon', exact: true }).click();
+		await expect(page).toHaveURL('/@neon.test');
+		await page.getByRole('link', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Inquire with Neon', exact: true })).toBeVisible();
+		await expectAccessible(page);
+		await page.locator('#title').fill('Listed Night');
+		await page.locator('#message').fill('Would you play our listed night?');
+		await page.getByRole('button', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { name: 'Listed Night' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
+		await signOut(page);
 
 		// Staff's Manage link on the profile goes to the listing, which takes them out again for the next browser's run.
-		await page.goto('/@neon.test');
+		await signIn(page, 'ada.test', 'ada-pass', '/@neon.test');
 		await hydrated(page);
 		await page.getByRole('link', { name: 'Manage' }).click();
 		await expect(page.getByText(/Listed in Find DJs since/)).toBeVisible();
@@ -753,6 +773,29 @@ test.describe('signed in', () => {
 
 		// Each browser runs against the same network, so the fan unfollows again.
 		await page.goto('/projects/saffron-social');
+		await hydrated(page);
+		await page.getByRole('button', { name: /^Following \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	test('a fan follows a person from their profile, apart from the projects they play in', async ({ page }) => {
+		await page.goto('/@neon.test');
+		await expect(page.getByRole('link', { name: /^Follow \d/ })).toHaveAttribute(
+			'href',
+			'/login?next=%2F%40neon.test%23follow'
+		);
+
+		await signIn(page, 'milo.test', 'milo-pass', '/@neon.test');
+		await page.getByRole('button', { name: /^Follow \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Following \d/ })).toHaveAttribute('aria-pressed', 'true');
+		await expectAccessible(page);
+
+		// Following neon.test isn't following Saffron Social, which they manage.
+		await page.goto('/projects/saffron-social');
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+
+		// Each browser runs against the same network, so the fan unfollows again.
+		await page.goto('/@neon.test');
 		await hydrated(page);
 		await page.getByRole('button', { name: /^Following \d/ }).click();
 		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');

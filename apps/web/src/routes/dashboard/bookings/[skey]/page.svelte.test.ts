@@ -1,7 +1,7 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import type { BookingEventView, BookingThreadView, Viewer } from '#lib/types.ts';
+import type { BookingEventView, BookingShowLinks, BookingThreadView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
 import type { PageProps } from './$types';
 
@@ -22,7 +22,12 @@ const thread = (status: string): BookingThreadView => ({
 	status,
 	title: 'Closing Night',
 	showDate: null,
-	project: { uri: 'at://did:plc:root/computer.localnetwork.project/2', slug: 'neon-tide', name: 'Neon Tide' },
+	project: {
+		uri: 'at://did:plc:root/computer.localnetwork.project/2',
+		slug: 'neon-tide',
+		name: 'Neon Tide',
+		href: '/projects/neon-tide'
+	},
 	promoter: { did: 'did:plc:pat', handle: 'pat.test' },
 	participants: [
 		{ did: 'did:plc:pat', handle: 'pat.test', role: 'promoter' },
@@ -44,6 +49,8 @@ const event = (did: string, kind: BookingEventView['kind'], text: string): Booki
 
 const inquiry = event('did:plc:pat', 'inquiry', 'Free in December?');
 
+const unlinked: BookingShowLinks = { plannerShow: null, announcedShow: null };
+
 const data = (
 	did: string,
 	status = 'open',
@@ -61,6 +68,7 @@ const data = (
 	thread: { ...thread(status), project: null },
 	project: thread(status).project,
 	events,
+	links: unlinked,
 	...overrides
 });
 
@@ -184,5 +192,77 @@ describe('whose turn and who wrote', () => {
 		await open('did:plc:neon', 'confirmed', [inquiry], { project: null });
 
 		await expect.element(page.getByRole('link', { name: 'Announce this show' })).not.toBeInTheDocument();
+	});
+});
+
+describe('booking thread shows', () => {
+	const linked: BookingShowLinks = { plannerShow: '3kplanned', announcedShow: { did: 'did:plc:neon', rkey: '3kshow' } };
+
+	it('links the promoter to the planner show it came from and the show announced from it', async () => {
+		await open('did:plc:pat', 'confirmed', [inquiry], { links: linked });
+
+		await expect
+			.element(page.getByRole('link', { name: 'In your planner' }))
+			.toHaveAttribute('href', '/dashboard/planner/shows/3kplanned');
+		await expect
+			.element(page.getByRole('link', { name: 'Announced show' }))
+			.toHaveAttribute('href', '/projects/neon-tide#shows');
+	});
+
+	it('sends whoever announced the show to edit it, and offers no second announcement', async () => {
+		await open('did:plc:neon', 'confirmed', [inquiry], { links: { ...linked, plannerShow: null } });
+
+		await expect
+			.element(page.getByRole('link', { name: 'Announced show' }))
+			.toHaveAttribute('href', '/dashboard/projects/neon-tide/shows/3kshow');
+		await expect.element(page.getByRole('link', { name: 'In your planner' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('link', { name: 'Announce this show' })).not.toBeInTheDocument();
+	});
+});
+
+describe('a thread with a listed DJ', () => {
+	const MARA = 'did:plc:mara';
+
+	const mara = {
+		uri: `at://${MARA}/computer.localnetwork.profile/self`,
+		slug: null,
+		name: 'Mara',
+		href: '/@mara.test'
+	};
+
+	const withDj = (status: string, lastAuthor = 'did:plc:pat') => ({
+		thread: {
+			...thread(status),
+			project: null,
+			lastAuthor,
+			participants: [
+				{ did: 'did:plc:pat', handle: 'pat.test', role: 'promoter' as const },
+				{ did: MARA, handle: 'mara.test', role: 'performer' as const }
+			]
+		},
+		project: mara
+	});
+
+	it('gives the DJ the moves and turn an act manager gets, with no show to announce', async () => {
+		const { rerender } = await open(MARA, 'open', [inquiry], withDj('open'));
+
+		await expect.element(page.getByText('Your turn')).toBeInTheDocument();
+
+		for (const name of ['Negotiate', 'Confirm booking', 'Decline'])
+			await expect.element(page.getByRole('button', { name, exact: true })).toBeInTheDocument();
+
+		await rerender({ data: data(MARA, 'confirmed', [inquiry], withDj('confirmed', MARA)) });
+		await expect.element(page.getByRole('button', { name: 'Cancel booking' })).toBeInTheDocument();
+		await expect.element(page.getByRole('link', { name: 'Announce this show' })).not.toBeInTheDocument();
+	});
+
+	it("links the promoter to the DJ's page, and lets them confirm once the DJ has answered", async () => {
+		const answer = { ...event(MARA, 'message', 'Yes'), author: { did: MARA, handle: 'mara.test' } };
+
+		await open('did:plc:pat', 'open', [inquiry, answer], withDj('open', MARA));
+
+		await expect.element(page.getByRole('link', { name: 'Mara', exact: true })).toHaveAttribute('href', '/@mara.test');
+		await expect.element(page.getByRole('button', { name: 'Confirm booking' })).toBeInTheDocument();
+		await expect.element(page.getByText(/mara\.test/)).not.toBeInTheDocument();
 	});
 });

@@ -154,9 +154,14 @@ export default defineConfig({
 			}
 		}
 	},
-	// Under Vite, `#lexicon-files` bundles the lexicons in. Node (the tsx scripts) resolves it through package.json to
-	// a loader that reads them from disk, since tsx has no `import.meta.glob`.
-	resolve: { alias: { '#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts` } },
+	// Under Vite, `#lexicon-files` and `#notification-kinds` bundle their folders in. Node (the tsx scripts) resolves
+	// them through package.json to loaders that read the same files from disk, since tsx has no `import.meta.glob`.
+	resolve: {
+		alias: {
+			'#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts`,
+			'#notification-kinds': `${import.meta.dirname}/src/lib/server/notifications/kind-files.ts`
+		}
+	},
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {

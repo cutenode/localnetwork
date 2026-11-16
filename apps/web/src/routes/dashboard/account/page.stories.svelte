@@ -10,7 +10,7 @@
 	import Landing from './+page.svelte';
 	import Requests from './requests/+page.svelte';
 
-	/** The Account area: a landing list, then a page each for activity, what's held, and requests to staff. */
+	/** Account: a landing list, then a page each for activity, what's held, and requests to staff. */
 	const { Story } = defineMeta({
 		title: 'Patterns/Account',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard/account') } } } }

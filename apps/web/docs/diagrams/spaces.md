@@ -89,11 +89,11 @@ One pass over one space. A second request while it runs queues one more pass.
 
 ```mermaid
 flowchart TD
-  Trigger["Poll, notifyWrite, or watchSpace"] --> List["registerNotify if it's due, then<br/>listRepos from spaceRev, 500 a page"]
+  Trigger["Poll, notifyWrite, or watchSpace"] --> List["registerNotify if it's due, then listRepos<br/>from spaceRev, 500 a page, 100 pages a pass"]
   List -- "authority says<br/>it's gone" --> Drop["Drop the local copy<br/>and what came from it"]
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
   List -- "never synced" --> Star["getRepo: verified STAR archive"]
-  Ops -- "fails, not on a MAC<br/>or credential" --> Star
+  Ops -- "fails, not on a MAC or credential,<br/>or runs past 100 pages" --> Star
   Ops -- "writer taken down,<br/>suspended or deactivated" --> Skip["Skip, retry on backoff"]
   Star -- "same errors" --> Skip
   Ops --> Apply["Transaction: space_record, pending_projection,<br/>synced_repo"]
@@ -169,7 +169,7 @@ flowchart LR
   Sync -- "booking.inquiry, message, status,<br/>participants and the root" --> A6["booking_thread, booking_event,<br/>inbox items"]
   Sync -- "epk.request, and epk.grant<br/>from the authority only" --> A7["epk_request, epk_grant"]
   Sync -- "epk.draft in a backstage" --> A8["epk_draft"]
-  Sync -- "people.*, listing.status,<br/>performer, root only" --> A9["shared space tables and<br/>performer, then its listing"]
+  Sync -- "people.*, listing.status,<br/>performer, venue, root only" --> A9["shared space tables,<br/>performer and venue,<br/>then its listing"]
   Sync -- "staff.flag, staff.group,<br/>root only" --> A10["feature_flag, flag_group"]
 ```
 

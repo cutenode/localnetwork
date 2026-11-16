@@ -1,6 +1,7 @@
 import type { InboxSubjectView } from '#lib/types.ts';
 import type { NotificationRow } from '../db/schema';
-import { capitalized, isNotificationKind, KINDS, type Line } from './kinds';
+import { capitalized, type Line } from './kind';
+import { isNotificationKind, KINDS } from './kinds.ts';
 
 /** Generic words for an item whose kind or data this version doesn't know. */
 const UNKNOWN: Line = {

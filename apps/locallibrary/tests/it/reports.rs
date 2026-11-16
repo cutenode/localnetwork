@@ -69,7 +69,7 @@ fn doctor_reports_and_removes_orphans_only_with_yes() {
     assert!(!orphan.exists());
 
     // Undo: restore --dry-run shows what comes back, without restoring.
-    let v = env.json(&["restore", path(&a), "--dry-run"]);
+    let v = env.json(&["drive", "restore", path(&a), "--dry-run"]);
     assert_eq!(v["plan"]["backup"]["reason"], "before removing orphaned files", "{v}");
     assert!(v["plan"]["diff"]["added_tracks"].as_array().unwrap().is_empty());
     let files = v["plan"]["files"].as_array().unwrap();
@@ -94,18 +94,18 @@ fn history_stats_export_and_diff() {
     let env = Env::new();
     let a = dj_drive(&env.root, "A");
 
-    let v = env.json(&["history", path(&a)]);
+    let v = env.json(&["plays", "lists", path(&a)]);
     assert_eq!(v["drive"]["lists"][0]["name"], "HISTORY 001");
     assert!(v["archive"].is_null());
-    let v = env.json(&["history", path(&a), "history 001"]);
+    let v = env.json(&["plays", "lists", path(&a), "history 001"]);
     assert_eq!(v["tracks"].as_array().unwrap().len(), 2);
     let out = env.root.join("set.txt");
-    env.json(&["history", path(&a), "HISTORY 001", "-o", path(&out)]);
+    env.json(&["plays", "lists", path(&a), "HISTORY 001", "-o", path(&out)]);
     assert_eq!(
         std::fs::read_to_string(&out).unwrap(),
         "01. Loopmasters - Demo Track 1\n02. Loopmasters - Demo Track 2\n"
     );
-    let (v, ok) = env.run(&["history", path(&a), "-o", path(&out)]);
+    let (v, ok) = env.run(&["plays", "lists", path(&a), "-o", path(&out)]);
     assert!(!ok && v["error"]["message"].as_str().unwrap().contains("name the history list"));
 
     // The store keeps the list once rekordbox has deleted it from the drive.
@@ -114,15 +114,15 @@ fn history_stats_export_and_diff() {
     let mut ed = PdbEditor::from_file(a.join(PDB)).unwrap();
     ed.remove_history_playlists(&history).unwrap();
     ed.save(a.join(PDB)).unwrap();
-    let v = env.json(&["history", path(&a), "--all"]);
+    let v = env.json(&["plays", "lists", path(&a), "--all"]);
     assert!(v["drive"]["lists"].as_array().unwrap().is_empty());
     assert_eq!(v["archive"]["lists"][0]["name"], "HISTORY 001");
     assert_eq!(v["archive"]["lists"][0]["first_seen"]["drive"], "A");
     let m3u = env.root.join("old.m3u8");
-    env.json(&["history", path(&a), "--all", "HISTORY 001", "-o", path(&m3u), "--paths", "drive"]);
+    env.json(&["plays", "lists", path(&a), "--all", "HISTORY 001", "-o", path(&m3u), "--paths", "drive"]);
     assert!(std::fs::read_to_string(&m3u).unwrap().contains("\n/Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3\n"));
 
-    let v = env.json(&["stats", path(&a)]);
+    let v = env.json(&["plays", "stats", path(&a)]);
     assert_eq!(v["tracks"], 2);
     assert_eq!(v["history_lists"], 0);
 
@@ -143,7 +143,7 @@ fn history_stats_export_and_diff() {
     let v = env.json(&["diff", path(&a), path(&b)]);
     assert_eq!(v["changed_playlists"][0]["path"], "Set");
     assert_eq!(v["changed_playlists"][0]["removed"][0]["position"], 1);
-    let snapshot = env.json(&["log"])["libraries"]["A"][0]["short_id"].as_str().unwrap().to_string();
+    let snapshot = env.json(&["library", "log"])["libraries"]["A"][0]["short_id"].as_str().unwrap().to_string();
     let v = env.json(&["diff", &format!("snapshot:{snapshot}"), path(&b), "--playlist", "Set"]);
     assert_eq!(v["changed_playlists"][0]["removed"].as_array().unwrap().len(), 1);
 }

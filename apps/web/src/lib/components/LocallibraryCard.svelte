@@ -3,7 +3,7 @@
 	import { formatDateTime, timeAgo } from '#lib/format.ts';
 
 	/**
-	 * The dashboard home's locallibrary card: whether the viewer's stats and sets are published and when they last were,
+	 * Overview's locallibrary card: whether the viewer's stats and sets are published and when they last were,
 	 * with a link to their newest set, or a way to get locallibrary while they have neither. Null while it loads.
 	 */
 	let { status }: { status: LocallibraryStatus | null } = $props();

@@ -4,7 +4,7 @@ import { type Db, nowIso } from '../db';
 import type { NotificationRow } from '../db/schema';
 import { safeNext } from '../http';
 import type { Logger } from '../logger';
-import { isNotificationKind, KINDS, type NotificationData, type NotificationKind } from './kinds';
+import { isNotificationKind, KINDS, type NotificationData, type NotificationKind } from './kinds.ts';
 import type { Outbox } from './outbox';
 import { summarize } from './subjects';
 

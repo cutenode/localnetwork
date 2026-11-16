@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { ScrollText } from '@lucide/svelte';
+	import { roleLabel } from '#lib/capabilities.ts';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import SpacePeople from '#lib/components/SpacePeople.svelte';
@@ -37,7 +38,7 @@
 			<div><label class="label" for="subject">Handle or DID</label><input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" /></div>
 			<div>
 				<label class="label" for="role">Role</label>
-				<select id="role" name="role" class="input capitalize">{#each data.roles as role (role)}<option value={role}>{role}</option>{/each}</select>
+				<select id="role" name="role" class="input">{#each data.roles as role (role)}<option value={role}>{roleLabel(role)}</option>{/each}</select>
 			</div>
 			<label class="flex items-center gap-2 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="hidden" />Hidden from everyone outside it</label>
 			<button class="btn-primary w-full">Add</button>

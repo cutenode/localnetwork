@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
-	import { ArrowLeft, Megaphone, Send } from '@lucide/svelte';
+	import { ArrowLeft, CalendarCheck, Megaphone, NotebookPen, Send } from '@lucide/svelte';
 	import { tick } from 'svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { type BookingAction, bookingActions, bookingGroup, datePassed } from '#lib/bookings.ts';
+	import { type BookingAction, bookingActions, bookingGroup, datePassed, isBookedSide } from '#lib/bookings.ts';
 	import { accountLabel, formatDateTime, formatShowDate, nightLabel } from '#lib/format.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
 	import { BOOKING_STATUSES, FEE_TIERS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
@@ -51,15 +51,16 @@
 
 	const group = $derived(bookingGroup(thread, me));
 
-	// The promoter can confirm an open inquiry only once a manager has written in the thread, as the server checks.
-	const answered = $derived(data.events.some((event) => roleOf(event.author.did) === 'manager'));
+	// The promoter can confirm an open inquiry only once the side being booked has written in the thread, as the server checks.
+	const answered = $derived(data.events.some((event) => isBookedSide(roleOf(event.author.did))));
 
 	const actions = $derived(role ? bookingActions(role, thread.status, answered) : []);
 
 	// Only a confirmed booking can be cancelled, so a cancelled one that never was is an inquiry someone took back.
 	const withdrawn = $derived(thread.status === 'cancelled' && !data.events.some((event) => event.status === 'confirmed'));
 
-	const isSettled = $derived(thread.status === 'declined' || thread.status === 'cancelled');
+	// Declined and cancelled already say how it ended, so a date going by adds nothing. A confirmed one shows both.
+	const ended = $derived(thread.status === 'declined' || thread.status === 'cancelled');
 
 	/** The settling change waiting for its confirm. */
 	let pending = $state<BookingAction>();
@@ -82,22 +83,28 @@
 		statusHeading?.focus();
 	};
 
-	// A confirmed booking is a show the act's managers can announce, filled in from these details.
-	const canAnnounce = $derived(thread.status === 'confirmed' && role === 'manager');
+	const announcedShow = $derived(data.links.announcedShow);
+
+	// A confirmed booking is a show the act's managers can announce, once, filled in from these details. Shows belong to
+	// projects, so a listed DJ's own bookings have no announce step.
+	const canAnnounce = $derived(thread.status === 'confirmed' && role === 'manager' && !announcedShow);
+
+	// Whoever announced the show edits it from here; everyone else finds it with the act's other shows.
+	const announcedHref = $derived(announcedShow && thread.project?.slug ? (announcedShow.did === me ? `/dashboard/projects/${thread.project.slug}/shows/${announcedShow.rkey}` : `/projects/${thread.project.slug}#shows`) : null);
 
 	const ghost = 'rounded-md bg-well motion-safe:animate-pulse';
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>
 
-<!-- The name fills in when the directory answers. `fallback` stands in when it doesn't. -->
-{#snippet actName(fallback: string)}
-	{#if thread.project}{thread.project.name}{:else if act.value === undefined}<span class={['inline-block h-3 w-20 align-baseline', ghost]}></span>{:else}{fallback}{/if}
+<!-- The name fills in when the directory answers. `fallback` stands in when it doesn't. `linked` makes it a link to their public page. -->
+{#snippet actName(fallback: string, linked = false)}
+	{#if thread.project}{#if linked}<a class="link" href={thread.project.href}>{thread.project.name}</a>{:else}{thread.project.name}{/if}{:else if act.value === undefined}<span class={['inline-block h-3 w-20 align-baseline', ghost]}></span>{:else}{fallback}{/if}
 {/snippet}
 
 <!-- The act speaks as itself, so a promoter reads its name and not whichever of its people wrote (docs/adr/0004). -->
 {#snippet author(event: BookingEventView)}
-	{#if role === 'promoter' && roleOf(event.author.did) === 'manager'}
+	{#if role === 'promoter' && isBookedSide(roleOf(event.author.did))}
 		<span class="text-fg-muted">{@render actName('The act')}</span>
 	{:else}
 		<Handle account={event.author} class="text-fg-muted" />
@@ -111,11 +118,11 @@
 			<div class="flex min-w-0 flex-col gap-1">
 				<h1 class="m-0 text-heading font-semibold">{thread.title ?? 'Booking inquiry'}</h1>
 				<p class="m-0 min-h-lh text-body text-fg-muted">
-					{#if role === 'manager'}
-						{#if thread.project || act.value === undefined}{@render actName('')} and{/if}
+					{#if isBookedSide(role)}
+						{#if thread.project || act.value === undefined}{@render actName('', true)} and{/if}
 						<Handle account={thread.promoter} class="text-fg-muted" />
 					{:else}
-						You and {@render actName('the act')}
+						You and {@render actName('the act', true)}
 					{/if}
 					{#if thread.showDate}· {nightLabel(thread.showDate)}{/if}
 				</p>
@@ -125,7 +132,7 @@
 			{:else if group === 'active'}
 				<p class="m-0 text-small text-fg-muted">
 					Waiting on
-					{#if role === 'manager'}{accountLabel(thread.promoter)}{:else}{@render actName('the act')}{/if}
+					{#if isBookedSide(role)}{accountLabel(thread.promoter)}{:else}{@render actName('the act')}{/if}
 				</p>
 			{/if}
 		</div>
@@ -154,12 +161,18 @@
 					{#if show?.genres?.length}
 						<div class="flex flex-wrap gap-1.5">{#each show.genres as genre (genre)}<Tag>{genre}</Tag>{/each}</div>
 					{/if}
+					{#if data.links.plannerShow || announcedHref}
+						<p class="m-0 flex flex-wrap gap-x-4 gap-y-1 text-small">
+							{#if data.links.plannerShow}<a class="link inline-flex items-center gap-1.5" href="/dashboard/planner/shows/{data.links.plannerShow}"><NotebookPen class="size-4" aria-hidden="true" />In your planner</a>{/if}
+							{#if announcedHref}<a class="link inline-flex items-center gap-1.5" href={announcedHref}><CalendarCheck class="size-4" aria-hidden="true" />Announced show</a>{/if}
+						</p>
+					{/if}
 				</div>
 				<div class="flex flex-col gap-3 border-t border-line bg-sunken p-5">
 					<div class="flex flex-wrap items-center gap-2">
 						<h2 bind:this={statusHeading} tabindex="-1" class="m-0 text-small font-medium text-fg-soft outline-none">Status</h2>
 						<StatusPill status={withdrawn ? 'withdrawn' : thread.status} />
-						{#if !isSettled && datePassed(thread)}<StatusPill status="date_passed" />{/if}
+						{#if !ended && datePassed(thread)}<StatusPill status="date_passed" />{/if}
 						<p role="status" class="sr-only">{announced}</p>
 					</div>
 					{#if canAnnounce}
@@ -230,7 +243,7 @@
 					{#if sent === 'status' && formError}<p role="alert" class="notice notice-error m-0">{formError}</p>{/if}
 				</div>
 			</Card>
-			<p class="m-0 px-1 text-caption text-fg-subtle">Only the promoter and the act's managers can read this.</p>
+			<p class="m-0 px-1 text-caption text-fg-subtle">Only the promoter and the act or DJ they asked can read this.</p>
 		</aside>
 
 		<section aria-labelledby="conversation" class="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">

@@ -30,6 +30,8 @@ import { diff } from './diff';
 import type { DjListings } from './dj-listings';
 import type { ProfileService } from './profiles';
 import type { ProjectService } from './projects';
+import type { SharedSpaces } from './shared-spaces';
+import type { VenueService, VenueView } from './venues';
 
 export const DECISION_OUTCOMES = ['approved', 'rejected', 'changesRequested'] as const;
 
@@ -58,6 +60,8 @@ export type SubmitInput = {
 	profile?: ProjectProfile;
 	details?: ProjectDetails;
 	claim?: ClaimEvidence;
+	/** For a claim on a venue: its space. */
+	space?: string;
 	/** For a list request: the requester's own profile, at the version they asked with. */
 	listing?: { subject: string; cid: string };
 	message?: string;
@@ -90,7 +94,9 @@ export class RequestService {
 		private readonly core: Core,
 		private readonly projects: ProjectService,
 		private readonly profiles: ProfileService,
-		private readonly listings: DjListings
+		private readonly listings: DjListings,
+		private readonly venues: Pick<VenueService, 'bySpace'>,
+		private readonly sharedSpaces: Pick<SharedSpaces, 'addPerson' | 'updatePerson'>
 	) {}
 
 	/** The client to write as the actor, or null when the root must write on their behalf. */
@@ -103,8 +109,12 @@ export class RequestService {
 	async submit(input: SubmitInput): Promise<RequestView> {
 		const { actor, kind } = input;
 		const project = input.projectUri ? await this.projects.byUri(input.projectUri) : null;
+		const venue = input.space ? await this.venues.bySpace(input.space) : null;
 
-		if ((kind === 'claim' || kind === 'update') && !project) throw new NotFoundError('That project does not exist');
+		if (input.space && !venue) throw new NotFoundError('That venue does not exist');
+
+		if (((kind === 'claim' && !venue) || kind === 'update') && !project)
+			throw new NotFoundError('That project does not exist');
 
 		if (kind === 'list') await this.checkListing(actor, input.listing);
 
@@ -126,7 +136,10 @@ export class RequestService {
 
 		if (kind === 'claim') {
 			if (!input.claim?.evidence?.trim()) throw new UserError('Tell the moderators how to verify your claim');
+		}
 
+		if (kind === 'claim' && venue) await this.checkVenueClaim(actor, venue);
+		else if (kind === 'claim') {
 			if (project!.managers.includes(actor.did)) throw new UserError('You already manage this project');
 
 			if (project!.status === 'archived') throw new UserError('Archived projects cannot be claimed');
@@ -162,6 +175,8 @@ export class RequestService {
 			record.project = project.uri;
 			record.baseRevision = project.revision;
 		}
+
+		if (venue) record.space = venue.space;
 
 		if (profile) record.profile = profile;
 
@@ -201,11 +216,12 @@ export class RequestService {
 				action: 'request.submit',
 				subject: ref.uri,
 				subjectKind: 'request',
-				summary: `Submitted a ${KIND_LABEL[kind]}${project ? ` for ${project.profile.name}` : profile ? ` for ${profile.name}` : ''}`,
+				summary: `Submitted a ${KIND_LABEL[kind]}${project ? ` for ${project.profile.name}` : venue ? ` for ${venue.name}` : profile ? ` for ${profile.name}` : ''}`,
 				changes,
 				details: {
 					kind,
 					project: project?.uri,
+					space: venue?.space,
 					listing: input.listing?.subject,
 					onBehalf: !client,
 					relationship: input.claim?.relationship
@@ -218,6 +234,34 @@ export class RequestService {
 		if (!view) throw new Error('Request vanished after submitting');
 
 		return view;
+	}
+
+	/** Whether `actor` can claim to own `venue`: not an owner already, and with no claim on it open. */
+	private async checkVenueClaim(actor: Viewer, venue: VenueView): Promise<void> {
+		if ((await this.venueRole(venue.space, actor.did)) === 'owner') throw new UserError('You already own this venue');
+
+		const open = await this.core.db
+			.selectFrom('request')
+			.select('uri')
+			.where('requesterDid', '=', actor.did)
+			.where('subjectUri', '=', venue.space)
+			.where('kind', '=', 'claim')
+			.where('status', 'in', ['pending', 'changes_requested'])
+			.executeTakeFirst();
+
+		if (open) throw new UserError('You already have a claim waiting for review on this venue');
+	}
+
+	/** `did`'s role in the venue's space, or null when they're not in it. */
+	private async venueRole(space: string, did: string): Promise<string | null> {
+		const row = await this.core.db
+			.selectFrom('spacePerson')
+			.select('role')
+			.where('spaceUri', '=', space)
+			.where('did', '=', did)
+			.executeTakeFirst();
+
+		return row?.role ?? null;
 	}
 
 	/**
@@ -453,8 +497,20 @@ export class RequestService {
 		const existing = row.projectUri ? await this.projects.byUri(row.projectUri) : null;
 		let result: { uri: string; revision: number; name: string; changes: ReturnType<typeof diff> } | null = null;
 		let listing: { uri: string; name: string } | null = null;
+		let venue: VenueView | null = null;
 
-		if (outcome === 'approved' && record.kind === 'list') {
+		if (outcome === 'approved' && record.kind === 'claim' && record.space) {
+			venue = await this.venues.bySpace(record.space);
+
+			if (!venue) throw new UserError('The venue no longer exists');
+			const role = await this.venueRole(venue.space, row.requesterDid);
+
+			// Someone already in it, like a booking manager, becomes an owner; anyone else joins as one.
+			if (role === 'owner') throw new UserError('They already own this venue');
+			else if (role) await this.sharedSpaces.updatePerson(actor, venue.space, row.requesterDid, { role: 'owner' });
+			else
+				await this.sharedSpaces.addPerson(actor, venue.space, { did: row.requesterDid, role: 'owner', claim: row.uri });
+		} else if (outcome === 'approved' && record.kind === 'list') {
 			const profile = await this.profiles.get(row.requesterDid, { reread: true });
 
 			if (!profile || profile.uri !== record.listing?.subject) throw new UserError('Their profile is gone');
@@ -537,6 +593,7 @@ export class RequestService {
 		const subjectName =
 			result?.name ??
 			listing?.name ??
+			venue?.name ??
 			existing?.profile.name ??
 			record.profile?.name ??
 			(record.kind === 'list' ? 'their profile' : 'a project');
@@ -563,7 +620,8 @@ export class RequestService {
 				decision: ref.uri,
 				project: result?.uri,
 				revision: result?.revision,
-				listing: listing?.uri
+				listing: listing?.uri,
+				space: venue?.space
 			}
 		});
 
@@ -734,7 +792,7 @@ export class RequestService {
 			rkey: parts.rkey,
 			kind: input.value.kind,
 			projectUri: input.value.project ?? null,
-			subjectUri: input.value.listing?.subject ?? null,
+			subjectUri: input.value.listing?.subject ?? input.value.space ?? null,
 			status,
 			record: JSON.stringify(input.value),
 			createdAt: input.value.createdAt,
@@ -985,8 +1043,13 @@ export class RequestService {
 			])
 		);
 
+		const claimed = new Set(rows.flatMap((row) => (row.kind === 'claim' && row.subjectUri ? [row.subjectUri] : [])));
+		const found = await Promise.all([...claimed].map((space) => this.venues.bySpace(space)));
+		const venues = new Map(found.flatMap((venue) => (venue ? [[venue.space, venue] as const] : [])));
+
 		return rows.map((row) => {
 			const project = row.projectUri ? projects?.get(row.projectUri) : undefined;
+			const venue = row.kind === 'claim' && row.subjectUri ? venues.get(row.subjectUri) : undefined;
 			const result = row.resultProjectUri ? projects?.get(row.resultProjectUri) : undefined;
 			const record = storedRecord(row);
 
@@ -1000,6 +1063,7 @@ export class RequestService {
 				repoDid: row.repoDid,
 				projectUri: row.projectUri,
 				project: project ? { slug: project.slug, name: project.profile.name } : null,
+				venue: venue ? { key: venue.skey, name: venue.name } : null,
 				record,
 				createdAt: row.createdAt,
 				updatedAt: row.updatedAt,

@@ -104,7 +104,7 @@ fn a_settings_file_imports_as_its_plan_shows(tc: TestCase) {
             let imported = format!("✓ imported {n} setting{} from ", if n == 1 { "" } else { "s" });
             assert!(applied.contains(&imported), "{applied}");
             // The store keeps them, but they're no snapshot.
-            let log = there.ok(&["log"]);
+            let log = there.ok(&["library", "log"]);
             assert!(log.starts_with("The store is empty."), "{log}");
         }
     }

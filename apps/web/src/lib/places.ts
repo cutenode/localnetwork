@@ -7,6 +7,11 @@ export type Place = {
 	lngE6: number;
 };
 
+/** What a place suggestion shows, and what tells two apart, as the city search's options list them. */
+export const placeText = (place: Place) => place.label;
+
+export const placeKey = (place: Place) => place.label + place.latE6;
+
 /** The body `/api/places` answers with. */
 export type PlacesResponse = { places: Place[] };
 
