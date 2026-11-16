@@ -7,7 +7,8 @@
 	"type": "module",
 	"imports": {
 		"#lib/*": "./src/lib/*",
-		"#lexicon-files": "./scripts/lib/lexicon-files.ts"
+		"#lexicon-files": "./scripts/lib/lexicon-files.ts",
+		"#notification-kinds": "./scripts/lib/kind-files.ts"
 	},
 	"scripts": {
 		"dev": "tsx scripts/dev-network.ts --app",
@@ -16,9 +17,9 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"start": "node build",
-		"prepare": "(svelte-kit sync && node scripts/flag-keys.ts && pnpm lexicons:types) || echo ''",
-		"check": "svelte-kit sync && node scripts/flag-keys.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && node scripts/flag-keys.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json --watch",
+		"prepare": "(svelte-kit sync && node scripts/flag-keys.ts && node scripts/notification-kinds.ts && pnpm lexicons:types) || echo ''",
+		"check": "svelte-kit sync && node scripts/flag-keys.ts && node scripts/notification-kinds.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && node scripts/flag-keys.ts && node scripts/notification-kinds.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "oxlint --type-aware",
 		"lint:fix": "oxlint --type-aware --fix",
 		"format": "oxfmt",
@@ -39,7 +40,7 @@
 		"db:backup": "node scripts/db-backup.ts backup",
 		"db:backups": "node scripts/db-backup.ts list",
 		"db:restore": "node scripts/db-backup.ts restore",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm test:storybook && pnpm test:build",
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test && pnpm test:storybook && pnpm test:build",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
 		"test:storybook": "vitest run --project storybook"

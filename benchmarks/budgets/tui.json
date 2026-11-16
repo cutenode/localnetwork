@@ -14,27 +14,27 @@
 			"measures": "Bytes allocated by one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.allocations": {
-			"limit": 755,
+			"limit": 657,
 			"unit": "allocations",
-			"measures": "Allocations of one frame of the Deck layout at 160x45, with the 3,886-track fixture open and a track playing."
+			"measures": "Allocations of one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.bytes": {
-			"limit": 61493,
+			"limit": 47799,
 			"unit": "bytes",
-			"measures": "Bytes allocated by one frame of the Deck layout at 160x45, with the 3,886-track fixture open and a track playing."
+			"measures": "Bytes allocated by one frame of player mode at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.allocations": {
-			"limit": 394,
+			"limit": 402,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.bytes": {
-			"limit": 47159,
+			"limit": 47714,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"prepare.allocations": {
-			"limit": 274,
+			"limit": 281,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Prepare view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
@@ -54,14 +54,24 @@
 			"measures": "Bytes allocated by one frame of the command palette, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.allocations": {
-			"limit": 2445,
+			"limit": 2309,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.bytes": {
-			"limit": 160254,
+			"limit": 142340,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"fade.allocations": {
+			"limit": null,
+			"unit": "allocations",
+			"measures": "Allocations of one frame of the Library view at 160x45 in 256 colours with a fade starting over the whole screen, with the 3,886-track fixture open and a track playing."
+		},
+		"fade.bytes": {
+			"limit": null,
+			"unit": "bytes",
+			"measures": "Bytes allocated by one frame of the Library view at 160x45 in 256 colours with a fade starting over the whole screen, with the 3,886-track fixture open and a track playing."
 		}
 	}
 }

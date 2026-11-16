@@ -42,8 +42,7 @@ pub enum Role {
     /// Where rekordbox exports go: the source for the rest of its group.
     Primary,
     Backup,
-    /// Taken out to play sets (`gig`, its old name, is read too).
-    #[serde(alias = "gig")]
+    /// Taken out to play sets.
     Set,
     /// Kept as it is: never overwritten by a sync unless forced.
     Archive,
@@ -61,11 +60,8 @@ impl Role {
         }
     }
 
-    /// A role by name, ignoring case; `gig` is the old name of `set`.
+    /// A role by name, ignoring case.
     pub fn parse(s: &str) -> Result<Role> {
-        if s.trim().eq_ignore_ascii_case("gig") {
-            return Ok(Role::Set);
-        }
         Role::ALL
             .into_iter()
             .find(|r| r.name().eq_ignore_ascii_case(s.trim()))
@@ -689,7 +685,7 @@ pub fn adopt_as(
         )
         .with("drive", &drive)
         .action(Action::call(
-            "drive.reidentify",
+            "drive.reidentify.apply",
             serde_json::json!({ "drive": drive }),
             "Give it a new identity",
         )));

@@ -418,6 +418,35 @@ describe('the answer, row by row', () => {
 			expect(one.artworkUrl).toBe('');
 		});
 	});
+
+	it('keeps no address that is not a web address, from an answer or from the page', async () => {
+		render(
+			publicLikesPage({
+				user: 'dj',
+				items: [likedRow(1, undefined, ''), likedRow(2, { url: 'javascript:alert(1)', label: 'Buy' }, '')]
+			}),
+			'/dj/likes'
+		);
+		hydrationScript([
+			{
+				hydratable: 'sound',
+				data: apiTrack({
+					id: 101,
+					permalink: liked(1),
+					purchaseUrl: 'javascript:alert(1)',
+					artworkUrl: 'data:image/png,x',
+					avatarUrl: '/a.jpg'
+				})
+			}
+		]);
+		await loadContentScript();
+
+		const [first, second] = (await askDetails()).tracks;
+		expect(first.details).toMatchObject({ purchaseUrl: '', artworkUrl: '' });
+		expect(first.artworkUrl).toBe('');
+		// The page's own link to it, unwrapped from gate.sc, is no link either.
+		expect(second.details).toBeNull();
+	});
 });
 
 describe('the nodl pill', () => {

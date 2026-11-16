@@ -287,7 +287,7 @@ describe('the other sources', () => {
 		chromeAnswering({ storage: { listed: TRACKS } });
 		await load();
 		const manager = button('Manager (2)')!;
-		expect(manager.getAttribute('aria-label')).toBe('add the Manager’s list — 2 artists');
+		expect(manager.getAttribute('aria-label')).toBe('add 2 artists from the Manager’s list');
 		await click(manager);
 		expect(text()).toMatch(/added 2 artists from the Manager’s list/);
 		expect(stored().map((one) => one.from)).toEqual(['the Manager’s list', 'the Manager’s list']);
@@ -300,7 +300,7 @@ describe('the other sources', () => {
 		chromeAnswering({ session: { queue: [TRACKS[2]] } });
 		await load();
 		const queued = button('queue (1)')!;
-		expect(queued.getAttribute('aria-label')).toBe('add the session queue — 1 artist');
+		expect(queued.getAttribute('aria-label')).toBe('add 1 artist from the session queue');
 		await click(queued);
 		expect(text()).toMatch(/added 1 artist from the session queue/);
 		expect(stored()[0]).toMatchObject({ permalink: '/fourtet', from: 'the session queue' });

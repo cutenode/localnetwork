@@ -11,11 +11,11 @@ use crate::support::{Env, Rpc, path};
 /// The library `library` on two drives: `lead` (the primary) and `clone`, synced from it.
 fn library(env: &Env, library: &str, lead: &str, clone: &str) -> (PathBuf, PathBuf) {
     let a = env.demo(&format!("{lead} drive"));
-    env.ok(&["--yes", "adopt", path(&a), "--name", lead]);
+    env.ok(&["--yes", "drive", "adopt", path(&a), "--name", lead]);
     env.ok(&["pull", lead, "--library", library, "--new-library"]);
     let b = env.blank(&format!("{clone} drive"));
     env.ok(&["--yes", "sync", "--from", lead, path(&b)]);
-    env.ok(&["--yes", "adopt", path(&b), "--name", clone]);
+    env.ok(&["--yes", "drive", "adopt", path(&b), "--name", clone]);
     env.ok(&["--yes", "drive", "role", lead, "primary"]);
     (a, b)
 }
@@ -42,7 +42,7 @@ fn a_write_to_a_library_is_one_plan_for_every_clone() {
 
     env.ok(&["--yes", "playlist", "new", "Home", "Friday"]);
     assert!(env.ok(&["playlist", "ls", "Backup"]).contains("Friday"));
-    assert!(env.ok(&["compare", "Main", "Backup"]).starts_with("Main and Backup are identical"));
+    assert!(env.ok(&["diff", "Main", "Backup", "--summary"]).starts_with("Main and Backup are identical"));
 
     // Given no drive, a write goes to each library once, on its lead.
     env.ok(&["--yes", "smart", "add", "Smart/All", "--filter", "bpm:>=0"]);
@@ -73,7 +73,8 @@ fn sync_with_no_drives_syncs_every_mounted_library() {
         without(&env, &backup, &["--yes", "track", "set", "Main", "--track", "1", "--rating", rating]);
         without(&env, &spare, &["--yes", "track", "set", "Other", "--track", "1", "--rating", rating]);
     };
-    let identical = |a: &str, b: &str| env.ok(&["compare", a, b]).starts_with(&format!("{a} and {b} are identical"));
+    let identical =
+        |a: &str, b: &str| env.ok(&["diff", a, b, "--summary"]).starts_with(&format!("{a} and {b} are identical"));
 
     behind("3");
     let plan = env.ok(&["sync", "--dry-run"]);
@@ -117,7 +118,7 @@ fn clones_named_together_are_written_once() {
     assert_eq!(v["plan"].as_array().map(Vec::len), Some(1), "{v}");
     env.ok(&["--yes", "smart", "apply", "Backup", "Main"]);
     assert!(env.ok(&["playlist", "ls", "Backup"]).contains("All"));
-    assert!(env.ok(&["compare", "Main", "Backup"]).starts_with("Main and Backup are identical"));
+    assert!(env.ok(&["diff", "Main", "Backup", "--summary"]).starts_with("Main and Backup are identical"));
 }
 
 #[test]

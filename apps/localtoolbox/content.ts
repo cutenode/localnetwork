@@ -258,18 +258,25 @@
 		return tag ? collapse(tag.textContent) : null;
 	};
 
+	// Whether an address is one a panel or the page can use, in a link, an
+	// image or a new tab: a web address. Anything else there would run
+	// (javascript:), show something SoundCloud never served (data:) or resolve
+	// against the extension's own pages.
+	const isWebUrl = (url: string) => /^https?:\/\//i.test(url);
+
 	// SoundCloud wraps outbound links in its gate.sc redirector
 	// (https://gate.sc?url=<encoded>&token=…); the real destination is the
-	// `url` parameter. Returns '' for no link.
+	// `url` parameter. Returns '' for no link, and for one that is not a web
+	// address.
 	const unwrapGate = (href: string | null | undefined) => {
 		if (!href) return '';
 
 		try {
 			const url = new URL(href, location.origin);
+			// Stryker disable next-line StringLiteral: equivalent. Any text that stands in for no destination is no web address, so it comes back '' below all the same.
+			const target = url.hostname === 'gate.sc' ? url.searchParams.get('url') || '' : url.href;
 
-			if (url.hostname === 'gate.sc') return url.searchParams.get('url') || '';
-
-			return url.href;
+			return isWebUrl(target) ? target : '';
 		} catch (_e) {
 			return '';
 		}
@@ -441,7 +448,7 @@
 		return {
 			title: collapse(heading?.getAttribute('title')) || collapse(heading?.textContent),
 			artist: collapse(v2UploaderLink(header)?.textContent),
-			artworkUrl: art?.getAttribute('src') || '',
+			artworkUrl: webUrlOf(art?.getAttribute('src')),
 			genre: tag ? collapse(tag.textContent) : null,
 			// Whether this account has liked or reposted the track is drawn here as
 			// the word on the button ("Like" against "Unlike") and nowhere else,
@@ -858,6 +865,21 @@
 	const integerOf = (value: Json | undefined) => (Number.isInteger(value) ? Number(value) : undefined);
 	const integerOrNull = (value: Json | undefined) => integerOf(value) ?? null;
 
+	// A count SoundCloud keeps (followers, tracks), or null for one that is not.
+	const countOf = (value: Json | undefined) => {
+		const count = integerOf(value) ?? -1;
+
+		return count >= 0 ? count : null;
+	};
+
+	// An address SoundCloud gave, in an answer or an attribute, kept only where
+	// it is a web address (see isWebUrl), else ''.
+	const webUrlOf = (value: Json | undefined) => {
+		const url = stringOf(value);
+
+		return isWebUrl(url) ? url : '';
+	};
+
 	// A track object, as ApiTrack reads it. Anything else reads as a track of
 	// nothing, which every caller passes over.
 	const apiTrackOf = (value: Json | undefined): ApiTrack => {
@@ -869,11 +891,11 @@
 			permalink_url: stringOf(track.permalink_url),
 			downloadable: track.downloadable === true,
 			has_downloads_left: track.has_downloads_left !== false,
-			purchase_url: stringOf(track.purchase_url),
+			purchase_url: webUrlOf(track.purchase_url),
 			purchase_title: stringOf(track.purchase_title),
 			genre: stringOf(track.genre),
-			artwork_url: stringOf(track.artwork_url),
-			avatar_url: stringOf(objectOf(track.user).avatar_url)
+			artwork_url: webUrlOf(track.artwork_url),
+			avatar_url: webUrlOf(objectOf(track.user).avatar_url)
 		};
 	};
 
@@ -966,7 +988,7 @@
 	const profileLinksOf = (list: Json): ProfileLink[] =>
 		listOf(list)
 			.map(objectOf)
-			.filter((one) => /^https?:\/\//i.test(stringOf(one.url).trim()))
+			.filter((one) => isWebUrl(stringOf(one.url).trim()))
 			.slice(0, LINKS_MAX)
 			.map((one) => ({
 				network: stringOf(one.network || one.service).toLowerCase(),
@@ -1882,9 +1904,10 @@
 		try {
 			return new URL(href).hostname.replace(/^www\./, '');
 		} catch (_e) {
-			// A gate.sc wrapper can carry anything at all in its `url`, including
-			// something that is no URL: then the destination itself is the most
-			// that can be said about where this goes.
+			// A gate.sc wrapper can carry anything at all in its `url`, and one
+			// that starts like a web address can still be no URL: then the
+			// destination itself is the most that can be said about where this
+			// goes.
 			return '';
 		}
 	};
@@ -2272,10 +2295,10 @@
 		fullName: wordsOf(user.full_name),
 		city: wordsOf(user.city),
 		country: wordsOf(user.country_code),
-		followers: integerOrNull(user.followers_count),
-		trackCount: integerOrNull(user.track_count),
+		followers: countOf(user.followers_count),
+		trackCount: countOf(user.track_count),
 		verified: user.verified === true,
-		avatarUrl: stringOf(user.avatar_url),
+		avatarUrl: webUrlOf(user.avatar_url),
 		bio: stringOf(user.description).trim().slice(0, BIO_MAX),
 		links: links ?? [],
 		partial: isWholeUser(user) && links ? undefined : true

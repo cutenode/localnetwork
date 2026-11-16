@@ -7,6 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 use crate::output::bytes;
 use crate::tui::app::{App, Level, UNDO_HINT, View, typed_tail};
@@ -136,32 +137,59 @@ pub(super) fn draw_context(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+/// The view whose tab stands apart at the right end: localnetwork, what goes out to Local Network
+/// rather than work on the music.
+const ASIDE: View = View::Profile;
+
 /// The logo, a tab for each view and, when it has no row of its own (`carries_context`), the
-/// context on the right. The player's name goes first as the width runs out.
+/// context, then [`ASIDE`]'s tab at the right end. The player's name goes first as the width runs
+/// out, then the room around the logo and between the tabs.
 pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect, carries_context: bool) {
     // The logo dot pulses with the music.
     let pulse = theme::mix(theme::current().accent, theme::current().warning, app.analyzer.level);
     let pulsing = app.is_playing() && !theme::reduced_motion();
     let logo_style = bold(if pulsing { pulse } else { theme::current().accent });
+    let width = area.width as usize;
+    let label = |v: View, pad: &str| format!("{pad}{} {}{pad}", keymap::view_letter(v), v.title());
+    let style = |v: View| if app.view == v { theme::chip(theme::current().info) } else { dim() };
+    let views = View::ALL.into_iter().filter(|v| *v != ASIDE);
+    let aside = Span::styled(label(ASIDE, " "), style(ASIDE));
+    let aside_w = aside.width();
+    // Roomy: the logo and each tab padded; else the tabs touch but for a space between them.
+    let roomy_w = icons::LOGO.padded().width() + views.clone().map(|v| label(v, " ").width()).sum::<usize>();
+    let roomy = width > roomy_w + aside_w;
+    let (logo, pad, between) = if roomy { (icons::LOGO.padded(), " ", "") } else { (icons::LOGO.spaced(), "", " ") };
     let about = if carries_context { context(app) } else { Vec::new() };
-    let about_w: usize = about.iter().map(Span::width).sum();
-    let tabs: Vec<(View, String)> =
-        View::ALL.into_iter().map(|v| (v, format!(" {} {} ", keymap::view_letter(v), v.title()))).collect();
-    let tabs_w: usize = tabs.iter().map(|(_, l)| l.len()).sum();
-    let mut spans = vec![Span::styled(icons::LOGO.padded(), logo_style)];
-    if area.width as usize >= tabs_w + NAME.len() + 6 + about_w {
-        spans.extend([Span::styled(NAME, bold(theme::current().text)), Span::raw("   ")]);
+    let about_w: usize = about.iter().map(Span::width).sum::<usize>() + if about.is_empty() { 0 } else { 2 };
+    let mut left = vec![Span::styled(logo, logo_style)];
+    if roomy && width > roomy_w + NAME.len() + 3 + about_w + aside_w {
+        left.extend([Span::styled(NAME, bold(theme::current().text)), Span::raw("   ")]);
     }
-    let mut x = area.x + spans.iter().map(|s| s.width() as u16).sum::<u16>();
-    for (v, label) in tabs {
-        let w = label.chars().count() as u16;
-        let style = if app.view == v { theme::chip(theme::current().info) } else { dim() };
+    let mut x = area.x + left.iter().map(|s| s.width() as u16).sum::<u16>();
+    for (i, v) in views.enumerate() {
+        if i > 0 && !between.is_empty() {
+            left.push(Span::raw(between));
+            x += between.width() as u16;
+        }
+        let tab = Span::styled(label(v, pad), style(v));
+        let w = tab.width() as u16;
         app.areas.tabs.push((v, Rect::new(x, area.y, w, 1)));
-        spans.push(Span::styled(label, style));
+        left.push(tab);
         x += w;
     }
-    let room = (area.width as usize).saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 1);
-    f.render_widget(spread(spans, fit(about, room), area.width), area);
+    let left_w: usize = left.iter().map(Span::width).sum();
+    // The context sits two spaces before the aside's tab, with room to spare after the tabs.
+    let mut right = fit(about, width.saturating_sub(left_w + aside_w + 4));
+    if !right.is_empty() {
+        right.push(Span::raw("  "));
+    }
+    right.push(aside);
+    let right_w: usize = right.iter().map(Span::width).sum();
+    // `spread` leaves the right side out when it doesn't fit.
+    if left_w + right_w < width {
+        app.areas.tabs.push((ASIDE, Rect::new(area.right() - aside_w as u16, area.y, aside_w as u16, 1)));
+    }
+    f.render_widget(spread(left, right, area.width), area);
 }
 
 /// What the player's doing: the job's progress first, cut short if need be, else the first of what
@@ -198,7 +226,7 @@ fn busy(app: &App) -> Vec<Span<'static>> {
 fn mode(app: &App) -> &'static str {
     let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
     if app.chord.is_some() {
-        "GO TO"
+        if app.chord_queue { "QUEUE" } else { "GO TO" }
     } else if app.searching {
         "SEARCH"
     } else if typing {
@@ -206,7 +234,7 @@ fn mode(app: &App) -> &'static str {
     } else if app.picking.is_some() {
         "PICK"
     } else if app.deck_showing() {
-        "DECK"
+        "PLAYER"
     } else if app.deck.pads {
         "PADS"
     } else {
@@ -276,7 +304,7 @@ pub(super) fn input_line(
     Line::from(spans)
 }
 
-pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
+pub(super) fn draw_footer(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(Modal::Prompt(p)) = &app.modal {
         let label = vec![Span::styled(format!(" {}: ", p.label), theme::key())];
         let after = vec![Span::styled("   enter ok · esc cancel", faint())];
@@ -313,19 +341,38 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     if app.intro {
         return f.render_widget(Line::from(fit(intro_line(), area.width as usize)), area);
     }
-    // The keymap's hints for where focus is, as many as fit.
+    // The keymap's hints for where focus is, as many as fit. Each key that's one key is a button,
+    // and the label is its first key's.
     let mut spans = vec![Span::raw(" ")];
+    let mut x = area.x + 1;
     for (k, label) in crate::tui::keymap::hints(app, area.width as usize) {
+        let mut first = None;
+        for (i, token) in k.split(' ').enumerate() {
+            let w = token.width() as u16;
+            let at = Rect { x: x + u16::from(i > 0), width: w, ..area };
+            x = at.right();
+            if let Some(key) = crate::tui::keymap::hint_key(token) {
+                first.get_or_insert(key);
+                app.areas.hints.push((at, key));
+            }
+        }
+        let label = format!(" {label}  ");
+        if let Some(key) = first {
+            // The label, not the space before it or the gap after.
+            let w = label.trim().width() as u16;
+            app.areas.hints.push((Rect { x: x + 1, width: w, ..area }, key));
+        }
+        x += label.width() as u16;
         spans.push(Span::styled(k, theme::key()));
-        spans.push(Span::styled(format!(" {label}  "), dim()));
+        spans.push(Span::styled(label, dim()));
     }
+    app.areas.hints.retain(|(r, _)| r.right() <= area.right());
     f.render_widget(Line::from(spans), area);
 }
 
 /// `s` in lines of at most `width` columns, broken between words, and inside words too long
 /// for a line (paths, say).
 pub(super) fn wrap_text(s: &str, width: usize) -> Vec<String> {
-    use unicode_width::UnicodeWidthStr;
     let width = width.max(1);
     let mut out = vec![String::new()];
     for word in s.split(' ') {

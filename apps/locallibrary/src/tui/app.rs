@@ -84,17 +84,17 @@ impl View {
             View::Prepare => "Prepare",
             View::Drives => "Drives",
             View::Mixes => "Recordings",
-            View::Profile => "Publish",
+            View::Profile => "localnetwork",
         }
     }
 
     /// The view a saved title names, as it was called in the run that saved it: the store's
-    /// snapshots had a view of their own, first as `History`, and these two other names.
+    /// snapshots had a view of their own, first as `History`, and these other names.
     fn from_title(s: &str) -> Option<View> {
         let s = match s {
             "History" | "Snapshots" => "Drives",
             "Mixes" => "Recordings",
-            "Profile" => "Publish",
+            "Profile" | "Publish" => "localnetwork",
             s => s,
         };
         View::ALL.into_iter().find(|v| v.title() == s)
@@ -277,6 +277,8 @@ pub struct App {
     /// through: it waits for the output (see `output_ready`).
     waiting_file: Option<(u64, audio::OpenedFile)>,
     pub queue: Queue,
+    /// Fill: when the queue runs out, the best match that hasn't played goes on the end of it.
+    pub fill: bool,
     pub shuffle: bool,
     pub repeat: Repeat,
     pub analyzer: Analyzer,
@@ -288,8 +290,10 @@ pub struct App {
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
-    /// `g` was pressed at this time and waits for what follows (see `keymap`).
+    /// `g` (or `q`) was pressed at this time and waits for what follows (see `keymap`).
     pub chord: Option<Instant>,
+    /// The chord waiting is `q`'s, the queue's, rather than `g`'s.
+    pub chord_queue: bool,
     /// The terminal says it draws sixels.
     pub sixel: bool,
     /// What's been read of cover art.
@@ -304,11 +308,13 @@ pub struct App {
     /// Keeps the terminal's late answers out of the keys.
     late_answers: LateAnswers,
     last_pos_ms: f64,
-    /// The Library view shows the deck in place of its panes.
+    /// Player mode: the Library view shows the deck in place of its panes. Saved as it was.
     pub deck_layout: bool,
-    /// Browse is open over the Deck layout: the panes are back until a track's loaded.
+    /// The tab player mode was opened from, to go back to when it closes.
+    pub player_from: Option<View>,
+    /// Browse is open over player mode: the panes are back until a track's loaded.
     pub browsing: bool,
-    /// The Deck layout: the pick among the tracks that mix into the playing one, to play next.
+    /// Player mode: the pick among the tracks that mix into the playing one, to play next.
     pub next_pick: ListState,
     pub help: bool,
     /// The help's row selected, among those `help_query` leaves.
@@ -316,7 +322,7 @@ pub struct App {
     /// What's been typed in the help.
     pub help_query: String,
     /// The latest message, in the footer: an info for a few seconds (see `reading_time`), an
-    /// error until esc dismisses it.
+    /// error until esc dismisses it or another view is shown.
     pub toast: Option<(String, Level, Instant)>,
     /// An error a newer message came after before it was dismissed: still shown, above it.
     pub held: Option<String>,
@@ -503,6 +509,7 @@ impl App {
             upcoming: None,
             waiting_file: None,
             queue: Queue::default(),
+            fill: false,
             shuffle: false,
             repeat: Repeat::Off,
             analyzer: Analyzer::default(),
@@ -512,6 +519,7 @@ impl App {
             deck_secs: 8.0,
             flash: None,
             chord: None,
+            chord_queue: false,
             sixel: false,
             covers: Default::default(),
             played_tracks: FxHashSet::default(),
@@ -521,6 +529,7 @@ impl App {
             late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
             deck_layout: false,
+            player_from: None,
             browsing: false,
             next_pick: ListState::default(),
             help: false,

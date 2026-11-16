@@ -75,7 +75,10 @@ it('goes back to the change request that is already open instead of starting ove
 	await expect(send(DJ, { ...form, name: 'Neon Tide Live' })).rejects.toMatchObject({ status: 303 });
 	const request = (await open())!;
 
-	await expect(loaded()).rejects.toMatchObject({ status: 303, location: `/dashboard/requests/${request.rkey}` });
+	await expect(loaded()).rejects.toMatchObject({
+		status: 303,
+		location: `/dashboard/account/requests/${request.rkey}`
+	});
 });
 
 it('proposes changes for review, keeping the published photo', async () => {
@@ -85,7 +88,7 @@ it('proposes changes for review, keeping the published photo', async () => {
 
 	await expect(sent).rejects.toMatchObject({ status: 303 });
 	const request = (await open())!;
-	await expect(sent).rejects.toMatchObject({ location: `/dashboard/requests/${request.rkey}?submitted=1` });
+	await expect(sent).rejects.toMatchObject({ location: `/dashboard/account/requests/${request.rkey}?submitted=1` });
 	expect(request.record).toMatchObject({
 		kind: 'update',
 		profile: { name: 'Neon Tide Live', avatar: { ref: { $link: avatar.ref.$link } } },

@@ -47,7 +47,8 @@
           type="button"
           class="grid size-5 shrink-0 place-items-center rounded-full text-fg-muted transition-colors
                  hover:bg-well hover:text-fg"
-          aria-label="dismiss"
+          aria-label="dismiss the message"
+          title="dismiss"
           onclick={() => toasts.dismiss(toast.id)}
         >
           <X class="size-3" />

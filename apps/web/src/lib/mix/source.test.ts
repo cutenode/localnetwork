@@ -17,6 +17,15 @@ describe('linkSources', () => {
 		});
 	});
 
+	it('plays an archive.org download from archive.org itself, without a username or port in the address', () => {
+		expect(
+			linkSources([
+				{ uri: 'https://user:pass@archive.org/download/item/set.mp3#t=60' },
+				{ uri: 'https://archive.org:8443/download/item/set.mp3' }
+			]).map((source) => source.kind === 'audio' && source.src)
+		).toEqual(['https://archive.org/download/item/set.mp3#t=60', 'https://archive.org/download/item/set.mp3']);
+	});
+
 	it("doesn't play archive.org pages, other files, plain http or look-alike hosts", () => {
 		expect(
 			linkSources([
@@ -27,6 +36,15 @@ describe('linkSources', () => {
 				{ uri: 'https://notarchive.org/download/neon-tidal-hours/tidal-hours.mp3' },
 				{ uri: 'https://archive.org.example/download/neon-tidal-hours/tidal-hours.mp3' },
 				{ uri: 'not a url' }
+			])
+		).toEqual([]);
+	});
+
+	it('plays and links only web addresses, whatever host another scheme names', () => {
+		expect(
+			linkSources([
+				{ uri: 'javascript://soundcloud.com/%0Aalert(document.domain)' },
+				{ uri: 'data://www.youtube.com/watch?v=abc123' }
 			])
 		).toEqual([]);
 	});

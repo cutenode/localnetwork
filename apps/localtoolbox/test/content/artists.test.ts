@@ -127,6 +127,28 @@ describe('a whole profile', () => {
 		expect(profile.links.slice(0, 2).map((link) => link.url)).toEqual(['HTTP://LOUD.example', 'https://site0.example']);
 	});
 
+	it('keeps no picture that is not a web address, and no count below zero', async () => {
+		await page([
+			{
+				hydratable: 'user',
+				data: bicep({ avatar_url: 'javascript:alert(1)', followers_count: -5, track_count: -1 })
+			}
+		]);
+		const [profile] = await profilesFor(['/bicep']);
+		expect(profile).toMatchObject({ avatarUrl: '', followers: null, trackCount: null });
+	});
+
+	it('keeps a picture on plain http, and a count of zero', async () => {
+		await page([
+			{
+				hydratable: 'user',
+				data: bicep({ avatar_url: 'http://i1.sndcdn.com/avatars-x.jpg', followers_count: 0, track_count: 0 })
+			}
+		]);
+		const [profile] = await profilesFor(['/bicep']);
+		expect(profile).toMatchObject({ avatarUrl: 'http://i1.sndcdn.com/avatars-x.jpg', followers: 0, trackCount: 0 });
+	});
+
 	it('files a link under `service` when there is no `network`, and under nothing when there is neither', async () => {
 		await page([{ hydratable: 'user', data: bicep() }]);
 		pageLoaded('/users/42/web-profiles', [

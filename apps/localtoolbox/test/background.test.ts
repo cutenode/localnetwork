@@ -168,6 +168,35 @@ describe('a gate that does not end in a file here', () => {
 	});
 });
 
+describe('an address that is not a web address', () => {
+	// What the content script hands over is only checked for its host, and a
+	// link with any scheme at all still names one.
+	const SCRIPT = 'javascript://hypeddit.com/%0Aalert(1)';
+
+	it('is neither walked nor opened', async () => {
+		await start(async () => ({ ok: false, openUrl: SCRIPT }));
+
+		expect(await press(SCRIPT)).toEqual({ saved: false, mark: false });
+		expect(walks()).toEqual([]);
+		expect(chrome.tabs.create).not.toHaveBeenCalled();
+	});
+
+	it('is not saved when a walk ends at one, and the gate opens instead', async () => {
+		await start(async () => walked({ url: 'data:audio/wav;base64,AAAA' }));
+
+		expect(await press()).toEqual({ saved: false, mark: false });
+		expect(chrome.downloads.download).not.toHaveBeenCalled();
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: GATE, index: 3, openerTabId: 7 });
+	});
+
+	it('is not opened when a walk points at one, and the gate opens instead', async () => {
+		await start(async () => ({ ok: false, openUrl: SCRIPT }));
+
+		expect(await press()).toEqual({ saved: false, mark: false });
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: GATE, index: 3, openerTabId: 7 });
+	});
+});
+
 describe('several presses', () => {
 	it('walks one gate at a time, and closes the page after the last', async () => {
 		let finish: (answer: WalkGateAnswer) => void = () => {};

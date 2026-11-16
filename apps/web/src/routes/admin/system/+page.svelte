@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { CircleCheck, RefreshCw, TriangleAlert } from '@lucide/svelte';
+	import { CircleCheck, FileText, LoaderCircle, RefreshCw, TriangleAlert } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
+	import MigrationPlan from '#lib/components/MigrationPlan.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { pluralize, shortDid, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
@@ -11,6 +12,8 @@
 	let { data, form }: PageProps = $props();
 
 	let busy = $state(false);
+
+	let planning = $state(false);
 
 	const access = (open: boolean) => (open ? 'public' : 'members');
 
@@ -43,6 +46,9 @@
 <div class="flex flex-col gap-6">
 	<SectionHeader level={1} title="System" lede="Bootstrap and sync creates any missing root spaces, then re-reads every space and the directory. Run it after a deploy or when sync falls behind.">
 		{#snippet actions()}
+			<form method="POST" action="?/planMigration" use:enhance={() => { planning = true; return async ({ update }) => { await update(); planning = false; }; }}>
+				<button class="btn-secondary w-full" disabled={planning}>{#if planning}<LoaderCircle class="size-4 animate-spin" />{:else}<FileText class="size-4" />{/if}Plan the project migration</button>
+			</form>
 			<form method="POST" action="?/retryAudit" use:enhance><button class="btn-secondary w-full">Retry audit copies</button></form>
 			<form method="POST" action="?/resync" use:enhance={({ cancel }) => { if (!confirm('Bootstrap and sync every space now? It can take a minute.')) return cancel(); busy = true; return async ({ update }) => { await update(); busy = false; }; }}>
 				<button class="btn-secondary w-full" disabled={busy}><RefreshCw class="size-4 {busy ? 'animate-spin' : ''}" />Bootstrap and sync</button>
@@ -53,6 +59,7 @@
 		{#if problems.length}<TriangleAlert aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-warning" />{problems.join(' · ')}{:else}<CircleCheck aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-good" />Everything is running and in sync.{/if}
 	</p>
 	<FormMessage {form} />
+	{#if form && 'plan' in form && form.plan}<MigrationPlan plan={form.plan} />{/if}
 
 	<div class="grid items-start gap-6 xl:grid-cols-2">
 		<Card as="section">

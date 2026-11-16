@@ -50,7 +50,7 @@ const addButton = () => buttons().find((b) => (b.getAttribute('aria-label') ?? '
 
 /** The add bar's button for the session queue. */
 const addQueueButton = () =>
-	buttons().find((b) => (b.getAttribute('aria-label') ?? '').startsWith('add the session queue'));
+	buttons().find((b) => (b.getAttribute('aria-label') ?? '').endsWith('from the session queue'));
 
 const ISO = '2026-09-08T12:00:00.000Z';
 
@@ -1582,7 +1582,7 @@ describe('list order', () => {
 			[
 				'/bcartist/four',
 				'bandcamp.com · soundcloud.com (no downloads left)',
-				['download from bandcamp.com', 'also — open the track page to download (no downloads left)']
+				['download from bandcamp.com', 'also open the track page to download (no downloads left)']
 			],
 			['/nolinkartist/ten', 'no download links', ['BP', 'bc', 'Z', 'M']],
 			// On the list and never checked, which the row says rather than
@@ -1622,7 +1622,7 @@ describe('list order', () => {
 		await load();
 		expect(sections()[0].rows[0]).toMatchObject({
 			detail: 'soundcloud.com · hypeddit.com',
-			buttons: ['open the track page to download', 'also — download from hypeddit.com']
+			buttons: ['open the track page to download', 'also download from hypeddit.com']
 		});
 		// The trailing link is a link all the same.
 		const [, other] = openButtons('/bothartist/five');

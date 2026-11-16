@@ -12,12 +12,12 @@ Gate links, row life, walks, gates done on their own page, and gate sites. The r
 
 ## Gathering gate links
 
-Where the third-party downloader's rows come from. Reopening the popup keeps the list, and only the source picker empties it. A send from the queue sheet adds the queue's links to what is listed.
+Where the third-party downloader's rows come from. Reopening the popup keeps the list. A change of source empties it, from the source picker or from a queue sheet send while the Downloader is open on this page. A send that opens the Downloader adds the queue's links to what is listed.
 
 ```mermaid
 flowchart TD
   Open["Panel mounts, on opening or a send<br/>from the queue sheet: the kept list stays"]
-  Switch["Source picker switched<br/>the list is emptied, outcomes kept"]
+  Switch["Source changed, by the picker or a send<br/>to the open Downloader: the list is emptied,<br/>outcomes kept"]
   Collect["collect"]
   Source{"source"}
   Queued["queue.items<br/>each track's purchase link"]
@@ -43,7 +43,7 @@ flowchart TD
   Paste --> Claim
 ```
 
-Source: [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/third-party-downloads/sites/index.ts`](../../src/tools/third-party-downloads/sites/index.ts), [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte)
+Source: [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/third-party-downloads/sites/index.ts`](../../src/tools/third-party-downloads/sites/index.ts), [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/source.ts`](../../src/lib/source.ts)
 
 ## Narrowing the Downloader list
 

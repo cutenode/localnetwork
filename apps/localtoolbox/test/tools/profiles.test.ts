@@ -293,7 +293,7 @@ describe('every link an artist offers', () => {
 		expect(links[0]).toMatchObject({
 			key: 'instagram.com/bicepmusic',
 			badge: 'IG',
-			style: 'background:#e1306c;color:#ffffff'
+			style: 'background:#da2f69;color:#ffffff'
 		});
 	});
 

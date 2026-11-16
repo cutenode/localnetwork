@@ -116,8 +116,9 @@ describe('manifest.json', () => {
 		expect(contentScript.js).toEqual(['downloaded-store.js', 'content.js']);
 		expect(gatePage.js).toEqual(['downloaded-store.js', 'gate-page.js']);
 
-		// The scripts are written in TypeScript and shipped with their types
-		// blanked out (see "the build" below), so it is the .ts that has to exist.
+		// The scripts are written in TypeScript and shipped with their types and
+		// comments blanked out (see "the build" below), so it is the .ts that has
+		// to exist.
 		const sources = [...pageData.js, ...contentScript.js, ...gatePage.js].map((file: string) =>
 			file.replace(/\.js$/, '.ts')
 		);
@@ -135,7 +136,7 @@ describe('manifest.json', () => {
 
 describe('the build', () => {
 	// A map in vite.config.ts, as {where it lands: where it comes from}:
-	// `unbundled` is copied as it is, `pageScripts` has its types blanked out.
+	// `unbundled` is copied as it is, `pageScripts` has its types and comments blanked out.
 	const mapIn = (name: string) => {
 		const source = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`).exec(viteConfig)![1];
 		const pairs = [...source.matchAll(/^\s+'?([\w.-]+)'?: '([^']+)',?$/gm)];

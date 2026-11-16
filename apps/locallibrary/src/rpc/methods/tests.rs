@@ -18,9 +18,8 @@ fn every_plan_has_its_apply_and_every_name_one_method() {
         if let Some(instead) = m.deprecated {
             assert!(r.get(instead).is_some(), "{} points to {instead}", m.name);
         }
-        for name in std::iter::once(m.name).chain(m.aliases.iter().copied()) {
-            assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || "._$/".contains(c)));
-        }
+        let name = m.name;
+        assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || "._$/".contains(c)));
     }
     // Applies and plans of the same kind of plan agree on it.
     for m in r.methods().filter(|m| m.kind == Kind::Apply) {

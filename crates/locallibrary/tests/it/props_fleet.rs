@@ -262,7 +262,7 @@ fn copies_are_told_apart_and_lost_identities_found(tc: TestCase) {
     assert!(taken.is_err());
 }
 
-/// Roles read back from their names in any case (`gig` is `set`); two sightings are of one disk
+/// Roles read back from their names in any case; two sightings are of one disk
 /// only by a serial number, and of one volume by its id; and of drives claiming one identity, the
 /// one on the disk or volume the identity was given on is the original, when only one is.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
@@ -276,8 +276,7 @@ fn roles_and_hardware_tell_drives_apart(tc: TestCase) {
         };
         assert_eq!(Role::parse(&spelled).unwrap(), role);
     }
-    assert_eq!(Role::parse("GiG").unwrap(), Role::Set);
-    assert!(Role::parse(tc.draw(gs::sampled_from(vec!["spare", "", "primaryx"]))).is_err());
+    assert!(Role::parse(tc.draw(gs::sampled_from(vec!["spare", "", "primaryx", "GiG"]))).is_err());
 
     let serials = vec![None, Some("4C530001123456"), Some("0000000000"), Some("4C530001999999")];
     let hw = |tc: &TestCase| Hardware {

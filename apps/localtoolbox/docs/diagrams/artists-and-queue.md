@@ -160,7 +160,7 @@ Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`content.ts
 
 ## What the queue sheet does
 
-Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. A tool already open under the sheet keeps its source until it next mounts.
+Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. Every tool shares one source, so a tool already open under the sheet switches to the queue at once.
 
 ```mermaid
 flowchart TD
@@ -173,7 +173,7 @@ flowchart TD
   Clear["clear, asks once more"]
   Marks[("marks")]
   Queue[("queue")]
-  Tool["that tool, reading the queue<br/>when it next mounts"]
+  Tool["that tool, open already or not,<br/>reading the queue at once"]
 
   Sheet --> MarkAll
   Sheet --> TakeOut
@@ -189,7 +189,7 @@ flowchart TD
   Send -->|"pref:source set to queue"| Tool
 ```
 
-Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/source.ts`](../../src/lib/source.ts), [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts)
+Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/source.ts`](../../src/lib/source.ts), [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/tools/soundcloud-playlist-to-text/Panel.svelte`](../../src/tools/soundcloud-playlist-to-text/Panel.svelte)
 
 ## What the settings sheet changes
 
@@ -199,7 +199,7 @@ Each section, where it keeps what it sets, and who obeys it. An import writes ba
 flowchart LR
   Page["SoundCloud pages<br/>replace buttons, likes as a list"]
   Down["downloads<br/>email, name, mark"]
-  Badges["search badges"]
+  Badges["search badges<br/>switches, sites you add"]
   Look["appearance<br/>theme, title case"]
   Data["your data"]
   About["about<br/>version, report a bug"]
@@ -220,4 +220,4 @@ flowchart LR
   About --> Bug
 ```
 
-Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)
+Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/lib/components/SearchSiteForm.svelte`](../../src/lib/components/SearchSiteForm.svelte), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)

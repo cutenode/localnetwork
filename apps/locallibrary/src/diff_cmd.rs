@@ -58,9 +58,6 @@ pub fn store_to_read(path: &Option<PathBuf>) -> Result<Store> {
 pub fn run(args: DiffArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     crate::output::show_all(args.all);
     if args.summary {
-        if args.playlist.is_some() {
-            return Err(crate::jobs_cmd::usage("--playlist doesn't go with --summary"));
-        }
         return compare(args.left, args.right, out, ctx);
     }
     let store = existing_store(store)?;
@@ -68,11 +65,6 @@ pub fn run(args: DiffArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
     let d = api::diff(store.as_ref(), &req)?;
     out.emit_paged(&d, render);
     Ok(ExitCode::SUCCESS)
-}
-
-/// `compare`, the old name of `diff --summary`.
-pub fn compare_alias(args: DiffArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    run(DiffArgs { summary: true, ..args }, store, out, ctx)
 }
 
 /// `diff --summary`: which of two drives is newer, and why.
