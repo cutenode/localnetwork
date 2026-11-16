@@ -1,0 +1,4 @@
+# What a run makes: the bundled targets, the grown corpus (CI caches it) and crashes.
+/build
+/corpus
+/artifacts

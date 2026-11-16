@@ -24,7 +24,7 @@
 			"required": ["allowance", "unit", "measures"],
 			"properties": {
 				"allowance": {
-					"description": "How much a pull request may grow the number over the commit it merges into, in its unit, without a budget-raise line: the run-to-run noise of the measurement, and no more.",
+					"description": "How much a pull request may grow the number over the commit it merges into, in its unit, without declaring a raise: the run-to-run noise of the measurement, and no more.",
 					"type": "number",
 					"minimum": 0
 				},
