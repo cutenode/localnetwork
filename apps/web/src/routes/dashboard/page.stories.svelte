@@ -3,6 +3,7 @@
 	import type { LocallibraryStatus } from '#lib/dj.ts';
 	import type { NeedsRow, NightRow } from '#lib/home.ts';
 	import type { OnboardingData } from '#lib/onboarding/checklist.ts';
+	import { light } from '#lib/testing/light.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
@@ -78,6 +79,10 @@
 </script>
 
 <Story name="Busy" asChild>
+	<Page params={{}} form={null} data={base} />
+</Story>
+
+<Story name="Busy, light" asChild beforeEach={light}>
 	<Page params={{}} form={null} data={base} />
 </Story>
 

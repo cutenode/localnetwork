@@ -1,8 +1,12 @@
 //! What plugins read: requests named after the sidecar's read methods, answered by the app's
-//! (see [`Reads`]) once the host has checked them. A plugin may call only the reads its
-//! capabilities grant, with only the params listed for each, naming drives the host finds itself
-//! or gave its hooks under way (never by path), in pages of a bounded size, a few calls at a time; what it gets back, errors
-//! too, says nothing of where things are on this computer (see [`answer_for_plugin`]). A plugin
+//! (see [`Reads`]) once the host has checked them, but for the reads of rekordbox's files a backup
+//! needs, which the host answers itself (see [`super::collection`]). A plugin may call only the
+//! reads its capabilities grant, with only the params listed for each, naming drives the host finds
+//! itself or gave its hooks under way (never by path) and files only in the request's scratch
+//! folder, in pages of a bounded size, a few calls at a time; what it gets back, errors
+//! too, says nothing of where things are on this computer (see [`answer_for_plugin`]), but where
+//! rekordbox's files and its tracks' audio are, which `collection.locations` and
+//! `collection.tracks` are for. A plugin
 //! with the `net` feature calls `net/fetch` here too (see [`super::net`]), one with the
 //! `accounts` feature `accounts/ensure` (see [`super::accounts::ensure`]), and one with the
 //! `atmosphere` feature `atmosphere/put_record` (see [`super::atmosphere`]).
@@ -17,6 +21,7 @@ use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manife
 use memchr::memmem::Finder;
 use serde_json::Value;
 
+use super::collection;
 use super::process::{Live, Plugin, Slot};
 use crate::Result;
 use crate::api::{self, RpcFailure};
@@ -59,6 +64,8 @@ enum Param {
     Limit(u64),
     /// This when not given.
     Or(&'static str),
+    /// A file in the request's scratch folder, absolute: [`super::collection`] holds it there.
+    Scratch,
 }
 
 /// Params a plugin may give a read, by name.
@@ -69,8 +76,8 @@ const LIBRARY: Params = &[("drive", Param::Drive), ("combined", Param::Plain)];
 
 /// The capability a read needs, whether it reads a library (and takes [`LIBRARY`]'s params), and
 /// the other params a plugin may give it. `None` for anything else, which no plugin may call:
-/// writes, reads naming files on this computer, and reads whose answers can't be bounded. A
-/// param added to a read is refused until it's listed here.
+/// writes, reads naming files on this computer outside the request's scratch folder, and reads
+/// whose answers can't be bounded. A param added to a read is refused until it's listed here.
 fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
     use Capability::*;
     use Param::*;
@@ -128,11 +135,17 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
         "account.status" => (AccountStatus, false, &[]),
         "collection.info" => (CollectionRead, false, &[]),
         "collection.diff" => (CollectionRead, false, &[("drive", Drive), ("playlist", Plain)]),
+        // rekordbox's files, for a backup: the host answers these itself (see `answers`).
+        "collection.locations" | "collection.status" => (CollectionFiles, false, &[]),
+        "collection.copy" => (CollectionFiles, false, &[("into", Scratch), ("with_credentials", Plain)]),
+        "collection.tracks" => {
+            (CollectionFiles, false, &[("db", Scratch), ("offset", Plain), ("limit", Limit(MAX_PAGE))])
+        }
         _ => return None,
     })
 }
 
-fn invalid_params(message: impl std::fmt::Display) -> RpcFailure {
+pub(super) fn invalid_params(message: impl std::fmt::Display) -> RpcFailure {
     RpcFailure::new(code::INVALID_PARAMS, "invalid_params", format!("invalid params: {message}"))
 }
 
@@ -200,8 +213,10 @@ pub(crate) fn answer(
                 }
                 _ => {
                     let params = check(&plugin.manifest, &|spec| plugin.drive(spec), &req.method, req.params);
-                    let read =
-                        params.and_then(|p| reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())));
+                    let read = params.and_then(|p| match collection::answers(&req.method) {
+                        true => collection::answer(&live, plugin.host.options.max_blobs, &req.method, p),
+                        false => reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())),
+                    });
                     let roots = known_roots(live.store.as_ref(), &plugin.given());
                     read.map(|answer| answer_for_plugin(&req.method, answer, &roots)).map_err(|e| for_plugin(e, &roots))
                 }
@@ -251,6 +266,9 @@ pub(crate) fn check(manifest: &Manifest, drive: Drive<'_>, method: &str, params:
             (Param::Or(default), None) => {
                 params.insert(name.into(), default.into());
             }
+            (Param::Scratch, Some(v)) if !(v.is_string() || v.is_null()) => {
+                return Err(invalid_params(format!("`{name}` names a file in the scratch folder, which {v} doesn't")));
+            }
             _ => {}
         }
     }
@@ -263,8 +281,16 @@ const MOUNTS: [&str; 2] = ["root", "last_mount"];
 /// A read's answer as a plugin gets it, saying nothing of where things are on this computer:
 /// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
 /// copy's, a set's or a mix's recording and its cover, rekordbox's collection), and with any other
-/// path under one of `roots` said from there (see [`known_roots`]), as errors' are.
+/// path under one of `roots` said from there (see [`known_roots`]), as errors' are. But for
+/// `collection.locations` and `collection.tracks`, whose answers are where rekordbox's files and
+/// its tracks' audio are.
 pub(crate) fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
+    // Where rekordbox's files are (and its tracks' audio files), as they are: telling a plugin with
+    // `collection:files` that is the read's whole point, and a path said from `~` or `<store>`
+    // names no file it can open.
+    if method == "collection.locations" || method == "collection.tracks" {
+        return answer;
+    }
     // Each key, at any depth, in an object that's the value of the first key when one is given.
     let places: &[(Option<&str>, &str)] = match method {
         "store.copies" => &[(None, "path"), (None, "from")],

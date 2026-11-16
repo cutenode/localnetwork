@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { light } from '#lib/testing/light.ts';
 	import MixList from './MixList.svelte';
 
 	/** The example tracks from SoundCloud's and Mixcloud's widget docs, so the open players show a real mix in Storybook. */
@@ -11,13 +12,6 @@
 	];
 
 	const { Story } = defineMeta({ title: 'Mixes/Mix list', component: MixList, tags: ['autodocs'], args: { mixes, tracklistHref: () => '#tracklist' } });
-
-	/** The light palette (packages/tokens/theme.css), which applies under a `light` class on the root. */
-	const light = () => {
-		document.documentElement.classList.add('light');
-
-		return () => document.documentElement.classList.remove('light');
-	};
 
 	/**
 	 * Opens a mix's player, as pressing its Play button does, and checks the player was asked for the theme's options
