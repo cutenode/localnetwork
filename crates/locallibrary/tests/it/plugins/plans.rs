@@ -166,6 +166,69 @@ fn a_plan_that_fails_or_isnt_one_is_refused() {
     assert!(!out.exists());
 }
 
+/// Planning a command that isn't there, on a drive that isn't, or with params that don't fit is
+/// refused before the plugin is asked; so is a question from a plugin without the `choose`
+/// feature, and files whose sizes add up to more than a size can be.
+#[test]
+fn planning_what_cant_be_planned_is_refused() {
+    let on_a_drive = planning_manifest(ECHO).replace("where = [\"collection\"]\nplan", "where = [\"drive\"]\nplan");
+    assert_ne!(on_a_drive, planning_manifest(ECHO));
+    let f = Fixture::new(|dir| vec![spec(dir, &on_a_drive, &["--without", "choose"])], Options::default());
+    let plan = |command: &str, params: Value, drive: &str| {
+        let context = Context { drive: Some(drive.into()), ..Context::default() };
+        f.plugins.plan_command("echo", command, params, context, Some(&f.store), &Ctx::silent())
+    };
+    let missing = plan("backup", json!({}), "USB").unwrap_err().to_string();
+    assert!(missing.contains("backup"), "{missing}");
+    let nowhere = plan("keep", json!({}), "NOWHERE").unwrap_err().to_string();
+    assert!(nowhere.contains("NOWHERE"), "{nowhere}");
+    assert_eq!(plan("keep", json!(3), "USB").unwrap_err().code(), "invalid");
+    let item = json!({ "label": "Monday", "value": "monday" });
+    let asks = json!({ "plan": { "choose": { "title": "Which?", "param": "backup", "items": [item] } } });
+    let unasked = failure(plan("keep", asks, "USB").unwrap_err());
+    assert!(unasked.contains("it asks a question without the choose feature"), "{unasked}");
+    let huge = json!({ "plan": { "files": [
+        { "path": f.file("a.txt"), "bytes": u64::MAX },
+        { "path": f.file("b.txt"), "bytes": 1 },
+    ] } });
+    let huge = failure(plan("keep", huge, "USB").unwrap_err());
+    assert!(huge.contains("its files' sizes add up to more than"), "{huge}");
+}
+
+/// A planned command offered on a drive is planned on the drive the caller is on, and runs on it
+/// once confirmed.
+#[test]
+fn a_planned_command_on_a_drive_runs_on_it() {
+    let on_a_drive = planning_manifest(ECHO).replace("where = [\"collection\"]\nplan", "where = [\"drive\"]\nplan");
+    let f = Fixture::new(|dir| vec![spec(dir, &on_a_drive, &[])], Options::default());
+    let out = f.file("copy.txt");
+    let planned = f.plugins.plan_command("echo", "keep", writing(&[&out]), f.context(), Some(&f.store), &Ctx::silent());
+    let plan = planned.unwrap().plan().unwrap();
+    let dry = dry_run_of(&plan);
+    assert!(dry.context.drive.is_some(), "{dry:?}");
+    let run = ran(plan.apply(Some(&f.store), &Ctx::silent()).unwrap());
+    assert_eq!(run.context.drive, dry.context.drive);
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "written");
+}
+
+/// A plan says what it is (the plugin, the command and the request it runs) and doesn't keep its
+/// plugin: once the host that planned it is gone, applying it is refused as stale.
+#[test]
+fn a_plan_whose_plugin_is_gone_is_stale() {
+    let f = Fixture::planning(Options::default());
+    let out = f.file("copy.txt");
+    let plan = f.plan_keep(writing(&[&out])).unwrap().plan().unwrap();
+    let said = format!("{:?}", plan.plan);
+    for needle in ["PluginCommand", "plugin: \"echo\"", "command: \"keep\"", "dry_run: false"] {
+        assert!(said.contains(needle), "{needle:?} isn't in {said}");
+    }
+    drop(f.plugins);
+    let e = plan.apply(Some(&f.store), &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "stale_plan", "{e}");
+    assert!(e.to_string().contains("the echo plugin"), "{e}");
+    assert!(!out.exists(), "nothing ran");
+}
+
 /// A planned command may ask a question first, in its dry run: answered, it's planned with the
 /// answer, and runs with it.
 #[test]
