@@ -110,6 +110,7 @@ repo := [
 	{"path": ".github/ISSUE_TEMPLATE/feature_request.yml", "contents": {"body": [{"id": "tool", "attributes": {"options": ["site", "tool", "Something new"]}}]}},
 	{"path": ".github/rulesets/protect-main.json", "contents": {"rules": [
 		{"type": "deletion"},
+		{"type": "pull_request", "parameters": {"dismiss_stale_reviews_on_push": true, "require_last_push_approval": true}},
 		{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Site CI passed"}, {"context": "Rust passed"}, {"context": "Deps passed"}, {"context": "Lint passed"}]}},
 	]}},
 	{"path": "lexicons/computer/localnetwork/tool/record.json", "contents": {"id": "computer.localnetwork.tool.record"}},
