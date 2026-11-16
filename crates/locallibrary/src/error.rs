@@ -220,7 +220,7 @@ pub enum Reason {
 pub struct Action {
     /// What a button offering it says.
     pub label: String,
-    /// The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
+    /// The RPC method to call (`pull.apply`, `sync.plan`). Absent: the request that failed, again,
     /// with `params` added to its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
@@ -525,6 +525,19 @@ impl From<loclib_transcode::Error> for Error {
             E::Invalid(message) => Error::Invalid(message),
             E::Cancelled(_) => Error::Cancelled,
             // A variant a newer loclib-transcode adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<loclib_capacity::Error> for Error {
+    fn from(e: loclib_capacity::Error) -> Self {
+        use loclib_capacity::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            E::Permission { .. } => Error::Permission(e.to_string()),
+            E::Cancelled(_) => Error::Cancelled,
+            // No random numbers, or a variant a newer loclib-capacity adds: its message.
             other => Error::Invalid(other.to_string()),
         }
     }

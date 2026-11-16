@@ -1,6 +1,6 @@
 use hegel::generators as gs;
 
-use super::super::Codec;
+use super::super::{Codec, keys};
 use super::*;
 
 const KEYS: Keys = Keys { cipher: [1; 32], hmac: [2; 32] };
@@ -75,14 +75,14 @@ fn the_codec_uses_kept_keys_and_keeps_those_it_derives() {
     // environment while the test runs.
     unsafe { std::env::set_var(TEST_FOLDER, dir.path()) };
     save(dir.path(), &[1; SALT_LEN], &KEYS);
-    assert_eq!(Codec::with_salt([1; SALT_LEN]).keys.cipher, KEYS.cipher);
+    assert_eq!(keys(&[1; SALT_LEN]).cipher, KEYS.cipher);
 
-    let derived = Codec::with_salt([2; SALT_LEN]).keys;
+    let derived = keys(&[2; SALT_LEN]);
     let kept = load(dir.path(), &[2; SALT_LEN]).unwrap();
     assert_eq!((kept.cipher, kept.hmac), (derived.cipher, derived.hmac));
 
     std::fs::write(file(dir.path(), &[3; SALT_LEN]), b"damaged").unwrap();
-    assert_ne!(Codec::with_salt([3; SALT_LEN]).keys.cipher, [0; 32]);
+    assert_ne!(keys(&[3; SALT_LEN]).cipher, [0; 32]);
     assert!(load(dir.path(), &[3; SALT_LEN]).is_some());
 
     let _ = Codec::with_key(b"another key", [4; SALT_LEN]);

@@ -32,6 +32,6 @@
 		<p>Every action is recorded twice, with the same record key: once by the acting account in its own repo inside the audit space, and once by the root account. The root's copy carries a SHA-256 hash chain linking each entry to the one before it, so edits, deletions, and reordering are detectable. Staff can verify the chain and export the whole log at any time.</p>
 
 		<h2>If your PDS doesn't support spaces yet</h2>
-		<p>Spaces are new. If your PDS hasn't adopted them, you can still sign in; the root account files your requests and booking messages on your behalf, marking each record with <code>onBehalfOf</code>, and your audit trail notes that your own copy couldn't be written. You can delete those records from <a href="/dashboard/data">Your data</a>.</p>
+		<p>Spaces are new. If your PDS hasn't adopted them, you can still sign in; the root account files your requests and booking messages on your behalf, marking each record with <code>onBehalfOf</code>, and your audit trail notes that your own copy couldn't be written. You can delete those records from <a href="/dashboard/account/data">Your data</a>.</p>
 	</div>
 </div>

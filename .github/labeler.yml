@@ -174,7 +174,7 @@ atstore:
 "locallibrary: core":
   - changed-files:
       - any-glob-to-any-file:
-          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-anlz}/**"
+          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-capacity,loclib-sqlcipher,loclib-anlz}/**"
           - "vendor/**"
           - "fuzz/**"
 
@@ -306,7 +306,8 @@ tooling:
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,.railway,.regal,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,.npmrc,lefthook.yml,sgconfig.yml,knip.jsonc,.node-version}"
-          - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace,osv-scanner}.toml"
+          - "{rust-toolchain,rustfmt,clippy,deny,about,dist-workspace,osv-scanner}.toml"
+          - "about.hbs"
           - "{.oxlintrc.json,.oxfmtrc.json,tsconfig.json,commitlint.config.js,_typos.toml,taplo.toml,.lycheeignore,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
           - "apps/*/{package.json,tsconfig*.json,*.config.{ts,cjs},components.json,lighthouserc.cjs}"
           - "apps/*/.oxlintrc.json"

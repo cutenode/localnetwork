@@ -77,7 +77,6 @@ locallibrary playlist new Home Archive --folder"
     },
     /// Move a playlist or folder into another folder, or among its siblings (`reorder` moves
     /// the tracks in a playlist)
-    #[command(alias = "mv")]
     Move {
         #[arg(help = LIBRARY_HELP)]
         drive: String,
@@ -92,18 +91,10 @@ locallibrary playlist new Home Archive --folder"
         /// Position among the folder's contents, from 1 [default: last]
         #[arg(long)]
         position: Option<usize>,
-        /// `playlist reorder`'s --at (this command's old meaning: moving tracks in the playlist)
-        #[arg(long = "at", value_delimiter = ',', value_name = "POSITIONS", hide = true, requires = "to")]
-        #[arg(conflicts_with_all = ["into", "top", "position"])]
-        at: Vec<usize>,
-        /// `playlist reorder`'s --to
-        #[arg(long, hide = true, requires = "at")]
-        to: Option<usize>,
         #[command(flatten)]
         dry: DryRun,
     },
     /// Delete a playlist, or a folder and everything in it (the tracks stay in the library)
-    #[command(alias = "rm")]
     Delete {
         #[arg(help = LIBRARY_HELP)]
         drive: String,
@@ -180,7 +171,7 @@ locallibrary playlist add Home Peak --filter \"bpm:126-130 rating:>=4\" --sort -
         /// The playlist (path like Folder/Name, or a unique name)
         playlist: String,
         /// e.g. key,bpm or -rating (a leading - sorts highest first)
-        #[arg(long = "sort", alias = "by", value_name = "KEYS", allow_hyphen_values = true)]
+        #[arg(long = "sort", value_name = "KEYS", allow_hyphen_values = true)]
         by: String,
         #[command(flatten)]
         dry: DryRun,
@@ -199,7 +190,6 @@ locallibrary playlist add Home Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Order a playlist for mixing: compatible keys, close tempos, energy that builds (keys the
     /// analysis `doctor --analyze` cached questions count less)
-    #[command(alias = "plan")]
     Order {
         #[arg(help = LIBRARY_HELP)]
         drive: String,
@@ -659,7 +649,7 @@ pub(crate) fn render_report(r: &EditReport, drive: &str) {
     ));
 }
 
-/// A drive's playlist tree (`playlist ls`, and `playlists`).
+/// A drive's playlist tree (`playlist ls`).
 pub fn tree(drive: Option<String>, out: Output) -> Result<ExitCode> {
     let reads = crate::each_drive::read(drive, |drive| Ok(api::drive_library(&DriveRef { drive })?.library.playlists))?;
     out.page();
@@ -699,10 +689,7 @@ pub fn playlist(args: PlaylistArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCo
         PlaylistCommand::Rename { drive, playlist, name, dry } => {
             (drive, vec![Edit::RenamePlaylist { playlist, name }], dry)
         }
-        PlaylistCommand::Move { drive, playlist, at, to: Some(to), dry, .. } if !at.is_empty() => {
-            (drive, vec![Edit::MoveTracks { playlist, positions: at, to }], dry)
-        }
-        PlaylistCommand::Move { drive, playlist, into, top, position, dry, .. } => {
+        PlaylistCommand::Move { drive, playlist, into, top, position, dry } => {
             let into = if top {
                 Some(String::new())
             } else {

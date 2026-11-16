@@ -1,11 +1,13 @@
 //! Short fades, for a track that's just loaded and a panel that's just opened. They're only ever
-//! decoration: with less motion asked for there are none, and they need colours to fade, 24-bit
-//! ones as what's between two colours is drawn as it is.
+//! decoration: with less motion asked for there are none, and they need colours to fade. What's
+//! between two colours comes out 24-bit, so in 256 colours it's drawn as every other colour there
+//! is ([`theme::rgb`]); 16 have too few between the page and the text to fade through.
 
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 use tachyonfx::fx::{self};
 use tachyonfx::{Effect, Interpolation};
 
@@ -46,14 +48,18 @@ impl Transitions {
     pub fn follow(&mut self, shown: Shown, area: Rect) {
         let was = self.shown.replace(shown);
         let changed = was.is_some_and(|w| w != shown);
-        if !changed || !self.enabled || theme::reduced_motion() || theme::tier() != Tier::Truecolor || theme::plain() {
+        if !changed || !self.enabled || theme::reduced_motion() || theme::tier() == Tier::Colors16 || theme::plain() {
             return;
         }
+        self.start(area);
+    }
+
+    /// Fade `area` in from the page.
+    pub(super) fn start(&mut self, area: Rect) {
         let [r, g, b] = theme::page();
-        let page = ratatui::style::Color::Rgb(r, g, b);
         // Text and blocks only: what's behind them is the terminal's own, which has no colour to
         // fade from.
-        let fade = fx::fade_from_fg(page, (FADE_MS, Interpolation::QuadOut));
+        let fade = fx::fade_from_fg(Color::Rgb(r, g, b), (FADE_MS, Interpolation::QuadOut));
         self.running = Some((fade, area, Instant::now()));
     }
 
@@ -68,8 +74,24 @@ impl Transitions {
         let Some((fade, area, _)) = &mut self.running else { return };
         let (by, area) = (tachyonfx::Duration::from_millis(by.as_millis() as u32), *area);
         fade.process(by, buf, area);
+        if theme::tier() != Tier::Truecolor {
+            in_tier(buf, area);
+        }
         if fade.done() {
             self.running = None;
+        }
+    }
+}
+
+/// The 24-bit colours a fade left in `area`, drawn as the tier draws them.
+fn in_tier(buf: &mut Buffer, area: Rect) {
+    for pos in area.intersection(buf.area).positions() {
+        let cell = &mut buf[pos];
+        if let Color::Rgb(r, g, b) = cell.fg {
+            cell.fg = theme::rgb(r, g, b);
+        }
+        if let Color::Rgb(r, g, b) = cell.bg {
+            cell.bg = theme::rgb(r, g, b);
         }
     }
 }

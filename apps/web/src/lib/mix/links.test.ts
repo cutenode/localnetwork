@@ -9,6 +9,7 @@ describe('mixPlatform', () => {
 		expect(mixPlatform('https://neon.bandcamp.com/album/x')).toBe('Bandcamp');
 		expect(mixPlatform('https://www.example.com/mix.mp3')).toBe('example.com');
 		expect(mixPlatform('not a url')).toBeNull();
+		expect(mixPlatform('javascript://soundcloud.com/%0Aalert(1)')).toBeNull();
 	});
 
 	it("doesn't take a look-alike host for a platform", () => {

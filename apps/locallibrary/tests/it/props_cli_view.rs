@@ -13,7 +13,7 @@ use crate::support::{Env, Running, line, path};
 
 /// The newest snapshot of drive A, by the id `log` shows.
 fn snapshot(env: &Env) -> String {
-    env.ok(&["log", "A"]).lines().last().unwrap().split_whitespace().next().unwrap().to_string()
+    env.ok(&["library", "log", "A"]).lines().last().unwrap().split_whitespace().next().unwrap().to_string()
 }
 
 /// The file tree under `dir`, each file with its size through its link.
@@ -251,7 +251,7 @@ fn nothing_writes_into_a_view(tc: TestCase) {
     let before = stored();
 
     let args: &[&str] = match tc.draw(gs::booleans()) {
-        true => &["--yes", "adopt", path(&view)],
+        true => &["--yes", "drive", "adopt", path(&view)],
         false => &["--yes", "playlist", "new", path(&view), "Later"],
     };
     let run = env.run(args);

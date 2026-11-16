@@ -1,9 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { bookingValues, showFormDefaults } from '#lib/shows.ts';
-import type { ShowFormValues } from '#lib/shows.ts';
 import { rkeyOf } from '#lib/server/atproto/spaces.ts';
 import { parseAnnouncement, parseEdit } from '#lib/server/forms/announce.ts';
-import { act, requireViewer, stringValues } from '#lib/server/http.ts';
+import { act, requireViewer, stringValues, text } from '#lib/server/http.ts';
 import { requireManager } from '#lib/server/manage.ts';
 import type { Viewer } from '#lib/types.ts';
 import type { Actions, PageServerLoad } from './$types';
@@ -24,10 +23,8 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
 	const viewer = requireViewer(locals, url);
 	const isNew = params.rkey === 'new';
 	const skey = url.searchParams.get('booking');
-	let values: ShowFormValues | null = showFormDefaults;
-
-	if (!isNew) values = await locals.app.shows.values(viewer, project, params.rkey);
-	else if (skey) values = (await fromBooking(locals, viewer, project.uri, skey)) ?? showFormDefaults;
+	const booked = isNew && skey ? await fromBooking(locals, viewer, project.uri, skey) : null;
+	const values = isNew ? (booked ?? showFormDefaults) : await locals.app.shows.values(viewer, project, params.rkey);
 
 	if (!values) error(404, 'Show not found');
 
@@ -36,6 +33,8 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
 	return {
 		isNew,
 		values,
+		// The booking it's announced from, which the form sends back so the save can note the show there.
+		booking: booked ? skey : null,
 		geocoder: locals.app.geocoder.enabled,
 		saved: saved === 'announced' || saved === 'updated' ? saved : null
 	};
@@ -56,6 +55,17 @@ export const actions: Actions = {
 					parseAnnouncement(form),
 					isNew ? undefined : parseEdit(form, params.rkey)
 				);
+
+				const booking = isNew ? text(form, 'booking', 100) : '';
+
+				// The show is public by now, so a note that fails is only logged: an error here would have the manager
+				// announce it twice.
+				if (booking)
+					await locals.app.bookings
+						.announced({ actor: viewer, skey: booking, projectUri: project.uri, show: uri })
+						.catch((cause: unknown) => {
+							locals.log.warn('could not note an announced show in its booking', { err: cause, booking });
+						});
 
 				return { saved: isNew ? 'announced' : 'updated', rkey: rkeyOf(uri) };
 			},

@@ -14,6 +14,7 @@ workspace = true
 [dev-dependencies]
 hegeltest.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
+loclib-plugin = { workspace = true, features = ["test-util"] }
 
 [dependencies]
 loclib-model.workspace = true

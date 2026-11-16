@@ -202,6 +202,24 @@ describe('one artist', () => {
 		expect(profile.links[0].url).toBe('https://site0.example');
 	});
 
+	it('keeps no picture that is not a web address, and no count below zero', async () => {
+		page();
+		api({ '/bicep': user('/bicep', { avatar_url: 'javascript:alert(1)', followers_count: -5, track_count: -1 }) });
+		await loadContentScript();
+		const [profile] = (await profilesFor(['/bicep'])).profiles;
+		expect(profile).toMatchObject({ avatarUrl: '', followers: null, trackCount: null });
+	});
+
+	it('keeps a picture on plain http, and a count of zero', async () => {
+		page();
+		api({
+			'/bicep': user('/bicep', { avatar_url: 'http://i1.sndcdn.com/avatars-x.jpg', followers_count: 0, track_count: 0 })
+		});
+		await loadContentScript();
+		const [profile] = (await profilesFor(['/bicep'])).profiles;
+		expect(profile).toMatchObject({ avatarUrl: 'http://i1.sndcdn.com/avatars-x.jpg', followers: 0, trackCount: 0 });
+	});
+
 	it('keeps no id that is not a whole number, and a title that is not words', async () => {
 		page();
 		api({ '/bicep': user('/bicep', { id: 'x' }) }, { x: [{ url: 'https://a.example', title: 7 }] });

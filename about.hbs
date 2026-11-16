@@ -1,0 +1,26 @@
+# Third-party notices
+
+locallibrary is MIT licensed (see LICENSE). The binary is built from the crates below, each under
+the licence listed with it. It also holds `template.pdb`, the empty rekordbox export it starts new
+`export.pdb` files from, which is rekordbox-pdb's `tests/data/one-song-export.pdb` and under
+rekordbox-pdb's MIT licence below.
+
+## Licences
+
+{{#each overview}}
+- {{{name}}}: {{count}}
+{{/each}}
+{{#each licenses}}
+
+## {{{name}}}
+
+Used by:
+
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} ({{{crate.repository}}}){{/if}}
+{{/each}}
+
+```text
+{{{text}}}
+```
+{{/each}}

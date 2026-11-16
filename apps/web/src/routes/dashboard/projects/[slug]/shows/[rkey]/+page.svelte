@@ -48,6 +48,7 @@
 			};
 		}}
 	>
+		{#if data.booking}<input type="hidden" name="booking" value={data.booking} />{/if}
 		<ShowForm {values} geocoder={data.geocoder} editing={!data.isNew} />
 		<FormActions {form} submitting={saving}>
 			<a href="/dashboard/projects/{project.slug}#shows" class="btn-ghost">Cancel</a>

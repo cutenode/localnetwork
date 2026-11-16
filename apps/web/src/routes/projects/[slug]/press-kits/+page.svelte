@@ -134,10 +134,13 @@
 	</div>
 
 	{#await data.dj}
-		<div role="status" aria-busy="true" aria-label="Loading playing stats" class="flex flex-col gap-4 print:hidden">
-			<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
-			<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
-		</div>
+		<!-- None when no manager has DJ records, so nothing comes and goes above the mixes. -->
+		{#if project.counts?.djs !== 0}
+			<div role="status" aria-busy="true" aria-label="Loading playing stats" class="flex flex-col gap-4 print:hidden">
+				<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
+				<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
+			</div>
+		{/if}
 	{:then accounts}
 		{#each accounts as account (account.did)}
 			{#if account.profile}
