@@ -43,6 +43,7 @@ const open = (saved: ProfileView | null, needsSignIn = false, { listing = null, 
 			sections: Promise.resolve(null),
 			profile: saved,
 			values: saved ? { name: 'Neon', tagline: 'Hypnotic techno' } : { name: 'Neon' },
+			pronouns: '',
 			sectionsOn: { performer: !!saved?.record.performer, promoter: !!saved?.record.promoter },
 			needsSignIn,
 			listing,
@@ -68,6 +69,19 @@ it("shows a section's fields while its box is ticked, and links to the profile",
 	await expect.element(page.getByText('Where you book')).toBeInTheDocument();
 	await page.getByLabelText('I play out as a DJ').click();
 	await expect.element(page.getByLabelText('Tagline')).not.toBeInTheDocument();
+});
+
+it('offers Take inquiries in the DJ section, off until the DJ turns it on', async () => {
+	await open(profile);
+
+	const box = page.getByRole('checkbox', { name: 'Take inquiries' });
+	await expect.element(box).not.toBeChecked();
+	await box.click();
+	await expect.element(box).toBeChecked();
+	expect(new FormData(box.element().closest('form')!).get('takesInquiries')).toBe('on');
+
+	await page.getByLabelText('I play out as a DJ').click();
+	await expect.element(box).not.toBeInTheDocument();
 });
 
 it('asks before saving a profile with a section turned off, since that deletes what was in it', async () => {
@@ -97,7 +111,7 @@ it('lets a DJ ask to be listed in Find DJs, and then says where that stands', as
 	await open(profile, false, { listRequest: { rkey: '3req', status: 'pending' } });
 	await expect
 		.element(page.getByRole('link', { name: 'See your request' }))
-		.toHaveAttribute('href', '/dashboard/requests/3req');
+		.toHaveAttribute('href', '/dashboard/account/requests/3req');
 	await expect.element(page.getByRole('button', { name: 'Ask to be listed' })).not.toBeInTheDocument();
 
 	cleanup();

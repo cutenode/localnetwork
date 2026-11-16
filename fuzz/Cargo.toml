@@ -20,6 +20,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "pdb_edit"
+path = "fuzz_targets/pdb_edit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "anlz"
 path = "fuzz_targets/anlz.rs"
 test = false
@@ -40,10 +47,44 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "mp4"
+path = "fuzz_targets/mp4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wav"
+path = "fuzz_targets/wav.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "aup"
+path = "fuzz_targets/aup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "traktor"
+path = "fuzz_targets/traktor.rs"
+test = false
+doc = false
+bench = false
+
 [dependencies]
+arbitrary = { version = "1.5", features = ["derive"] }
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
+locallibrary-plugin-interop = { version = "0.1.0", path = "../plugins/interop" }
+loclib-audio = { version = "0.1.0", path = "../crates/loclib-audio" }
+loclib-interop = { version = "0.1.0", path = "../crates/loclib-interop", default-features = false, features = ["serato", "traktor"] }
 loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }
+rusqlite = "0.41"
+tempfile = "3"

@@ -6,9 +6,10 @@
 // worker does around it: the offscreen page opened and closed, the file saved,
 // the gate opened when there is no file, and one walk at a time. The run of
 // page gates is on-page.ts's (test/tools/on-page.test.ts); here it is how the
-// worker's messages and events reach it.
+// worker's messages and events reach it. Last, what it clears when it is
+// installed over an older version.
 import { describe, it, expect, vi } from 'vitest';
-import { createChrome, type ChromeMock, type PageReply } from './helpers/chrome.ts';
+import { createChrome, type ChromeMock, type PageReply, type Seed } from './helpers/chrome.ts';
 import { flush } from './helpers/flush.ts';
 import { addPageApis, type PageApis } from './helpers/page-apis.ts';
 import type { GatePagePrefs, WalkGateAnswer } from '$lib/types';
@@ -167,6 +168,35 @@ describe('a gate that does not end in a file here', () => {
 	});
 });
 
+describe('an address that is not a web address', () => {
+	// What the content script hands over is only checked for its host, and a
+	// link with any scheme at all still names one.
+	const SCRIPT = 'javascript://hypeddit.com/%0Aalert(1)';
+
+	it('is neither walked nor opened', async () => {
+		await start(async () => ({ ok: false, openUrl: SCRIPT }));
+
+		expect(await press(SCRIPT)).toEqual({ saved: false, mark: false });
+		expect(walks()).toEqual([]);
+		expect(chrome.tabs.create).not.toHaveBeenCalled();
+	});
+
+	it('is not saved when a walk ends at one, and the gate opens instead', async () => {
+		await start(async () => walked({ url: 'data:audio/wav;base64,AAAA' }));
+
+		expect(await press()).toEqual({ saved: false, mark: false });
+		expect(chrome.downloads.download).not.toHaveBeenCalled();
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: GATE, index: 3, openerTabId: 7 });
+	});
+
+	it('is not opened when a walk points at one, and the gate opens instead', async () => {
+		await start(async () => ({ ok: false, openUrl: SCRIPT }));
+
+		expect(await press()).toEqual({ saved: false, mark: false });
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: GATE, index: 3, openerTabId: 7 });
+	});
+});
+
 describe('several presses', () => {
 	it('walks one gate at a time, and closes the page after the last', async () => {
 		let finish: (answer: WalkGateAnswer) => void = () => {};
@@ -320,5 +350,40 @@ describe('gates done on their own page', () => {
 			conflictAction: 'uniquify'
 		});
 		expect(await apis.name({ filename: 'other.zip', referrer: 'https://example.org/' })).toBeUndefined();
+	});
+});
+
+// Versions before this one kept every track's download details for a month,
+// under `details` in the local area. They last as long as the tab that loaded
+// them now (content.ts), so installing this version over an older one clears
+// that key once, and nothing else the extension keeps beside it.
+describe('installed over an older version', () => {
+	const install = async (storage: Seed) => {
+		globalThis.chrome = createChrome({ storage });
+		addPageApis(chrome);
+		vi.resetModules();
+		await import('../src/background.ts');
+		const [[installed]] = chrome.runtime.onInstalled.addListener.mock.calls;
+		installed();
+		await flush();
+	};
+
+	it('clears the details cache it left, and keeps the marks and the lists', async () => {
+		const kept = {
+			downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' },
+			listed: [],
+			artists: []
+		};
+
+		await install({ ...kept, details: { '/a/b': { unavailable: true, at: 1 } } });
+
+		expect(chrome.testStore()).toEqual(kept);
+	});
+
+	it('changes nothing where there was no cache to clear', async () => {
+		await install({ downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' } });
+
+		expect(chrome.testStore()).toEqual({ downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' } });
+		expect(chrome.storage.local.set).not.toHaveBeenCalled();
 	});
 });

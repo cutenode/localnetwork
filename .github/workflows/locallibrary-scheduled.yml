@@ -324,8 +324,9 @@ jobs:
           if-no-files-found: ignore
 
   # libFuzzer feeds the parsers for what a drive or an import holds (export.pdb and exportExt.pdb,
-  # analysis files, the players' settings files, tracklists) inputs grown from the test fixtures,
-  # five minutes a target (the fuzz-<target> aliases in .cargo/config.toml, see CONTRIBUTING.md).
+  # analysis files, the players' settings files, tracklists), and PdbEditor's edits, inputs grown
+  # from the test fixtures, five minutes a target (the fuzz-<target> aliases in .cargo/config.toml,
+  # see CONTRIBUTING.md).
   # One job runs them in turn, so the targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
   # crash fails the job and uploads its input.
   fuzz:
@@ -360,7 +361,7 @@ jobs:
       - name: Fuzz each target for five minutes
         run: |
           status=0
-          for target in pdb anlz mysettings tracklist; do
+          for target in pdb pdb_edit anlz mysettings tracklist; do
             cargo +nightly "fuzz-$target" -max_total_time=300 -timeout=10 -rss_limit_mb=2048 || status=1
             # Down to the inputs that each add coverage, so the cache doesn't grow every week.
             cargo +nightly fuzz cmin "$target" "fuzz/corpus/$target"
@@ -522,7 +523,8 @@ jobs:
           archive=$(size "target/distrib/locallibrary-cli-$TARGET.tar.xz" "target/distrib/locallibrary-cli-$TARGET.zip")
           jq -n --argjson binary "$binary" --argjson archive "$archive" \
             '{"locallibrary": $binary, "archive": $archive}' > "target/budgets/size-$TARGET.json"
-          node tools/budgets/cli.ts check target/budgets "$TARGET"
+          # No run measures these targets between weekly ones, so there's no base: the table is a record.
+          node tools/budgets/cli.ts check "$TARGET" target/no-base target/budgets /dev/null | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: artifacts-build-local-${{ join(matrix.targets, '_') }}

@@ -98,7 +98,15 @@ fn prop_every_size_has_the_deck(tc: hegel::TestCase) {
     }
     assert!(w >= 60 && h >= 20, "more than the deck at {w}x{h}");
     assert_eq!(app.areas.overview.y, shell.strip.y + 1, "{w}x{h}");
-    assert!(lines[0].contains("l Library") && lines[0].contains("u Publish"), "the tabs at {w}x{h}:\n{s}");
+    assert!(lines[0].contains("l Library") && lines[0].contains("n localnetwork"), "the tabs at {w}x{h}:\n{s}");
+    // Each tab is clicked where it's drawn, and localnetwork's ends the row.
+    let header: Vec<char> = lines[0].chars().collect();
+    for (v, r) in &app.areas.tabs {
+        let drawn: String = header[r.x as usize..r.right() as usize].iter().collect();
+        assert!(drawn.trim().ends_with(v.title()), "{v:?} is clicked on {drawn:?} at {w}x{h}:\n{s}");
+    }
+    assert_eq!(app.areas.tabs.len(), View::ALL.len(), "{w}x{h}");
+    assert!(app.areas.tabs.iter().any(|(v, r)| *v == View::Profile && r.right() == w), "{w}x{h}:\n{s}");
     assert!(lines[shell.status.y as usize].contains("BROWSE"), "the status line at {w}x{h}:\n{s}");
     assert!(!lines[h as usize - 1].trim().is_empty(), "the keys at {w}x{h}:\n{s}");
 }
@@ -214,7 +222,7 @@ fn prop_esc_closes_one_layer(tc: hegel::TestCase) {
 #[test]
 fn g_and_a_letter_goes_to_a_view() {
     for (letter, view) in
-        [("l", View::Library), ("p", View::Prepare), ("d", View::Drives), ("r", View::Mixes), ("u", View::Profile)]
+        [("l", View::Library), ("p", View::Prepare), ("d", View::Drives), ("r", View::Mixes), ("n", View::Profile)]
     {
         let (mut app, _dir) = blank(View::Library);
         press(&mut app, &format!("g{letter}"));
@@ -275,9 +283,20 @@ fn the_chords_hint_shows_after_a_pause() {
     app.chord = Some(Instant::now() - CHORD_HINT);
     assert!(!app.animating());
     let s = screen(&mut app, 120, 40);
-    for said in
-        ["Go to", "g l", "Library", "g p", "Prepare", "g d", "Drives", "g r", "Recordings", "g u", "Publish", "g g"]
-    {
+    for said in [
+        "Go to",
+        "g l",
+        "Library",
+        "g p",
+        "Prepare",
+        "g d",
+        "Drives",
+        "g r",
+        "Recordings",
+        "g n",
+        "localnetwork",
+        "g g",
+    ] {
         assert!(s.contains(said), "{said}: {s}");
     }
     press(&mut app, "d");
@@ -303,7 +322,7 @@ fn digits_jump_to_the_panes_numbered() {
     assert!(s.contains("▸ 3 "), "{s}");
     press(&mut app, "ti");
     let s = screen(&mut app, 160, 45);
-    assert!(s.contains("4 Crate") && s.contains("5 Track"), "{s}");
+    assert!(s.contains("4 Queue") && s.contains("5 Track"), "{s}");
     press(&mut app, "4");
     assert_eq!(app.focus, Focus::Crate);
     press(&mut app, "5");
@@ -521,7 +540,7 @@ fn panes_give_way_in_order() {
     assert_eq!(app.areas.drives.height, 1, "{s}");
     assert_eq!(app.areas.crate_panel.height, 1, "{s}");
     assert!(app.areas.playlists.height > 1 && app.areas.details.height > 1, "{s}");
-    assert!(s.contains("1 Drives") && s.contains("4 Crate"), "{s}");
+    assert!(s.contains("1 Drives") && s.contains("4 Queue"), "{s}");
     press(&mut app, "1");
     screen(&mut app, 100, 28);
     assert!(app.areas.drives.height > 1 && app.areas.playlists.height == 1);

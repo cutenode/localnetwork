@@ -49,7 +49,7 @@ enum TagsCommand {
         dry_run: bool,
     },
     /// Take a tag off tracks (`delete` deletes the tag itself)
-    #[command(alias = "remove", after_help = crate::FILTER_HELP)]
+    #[command(after_help = crate::FILTER_HELP)]
     Untag {
         #[arg(help = crate::LIBRARY_HELP)]
         drive: String,

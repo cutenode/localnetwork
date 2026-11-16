@@ -67,7 +67,7 @@ fn params(tc: &TestCase) -> Map<String, Value> {
 fn action(tc: &TestCase) -> Action {
     Action {
         label: tc.draw(gs::sampled_from(vec!["Pull it", "Try again", "Choose a name"])).to_string(),
-        method: tc.draw(gs::optional(gs::sampled_from(vec!["pull", "sync.plan"]))).map(String::from),
+        method: tc.draw(gs::optional(gs::sampled_from(vec!["pull.apply", "sync.plan"]))).map(String::from),
         params: params(tc),
         elevate: tc.draw(gs::booleans()),
     }

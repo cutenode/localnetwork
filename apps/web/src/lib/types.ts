@@ -2,6 +2,7 @@ import type { FlagKey } from '#lib/flags/keys.generated.ts';
 /** View models shared between server and browser code. */
 
 import type { BlobRef } from '@atproto/lex-data';
+import type { BookingRole } from './bookings.ts';
 import type { Capability, SpaceKind } from './capabilities.ts';
 import type { localnetwork } from './lexicons/computer.ts';
 
@@ -180,6 +181,8 @@ export type ProfileRecord = LexiconRead<
 		basics: BasicsSection;
 		performer?: PerformerSection;
 		promoter?: PromoterSection;
+		/** Whether the DJ takes booking inquiries here, which they turn on themself. */
+		takesInquiries?: boolean;
 		createdAt: string;
 		updatedAt: string;
 	},
@@ -211,6 +214,24 @@ export type PerformerRecord = {
 		| ({ $type: 'computer.localnetwork.performer#act' } & ActSubject)
 		| { $type: 'computer.localnetwork.performer#dj'; did: string };
 	formerly?: string[];
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** How a venue takes events that name it (`computer.localnetwork.venue#approval`'s knownValues). */
+export type VenueApproval = 'open' | 'approval';
+
+/** A real place events happen (`computer.localnetwork.venue`), as the root wrote it into the venue's space. */
+export type VenueRecord = {
+	name: string;
+	/** `community.lexicon.location.address`: only the country is required. */
+	address: { country: string; locality?: string; region?: string; street?: string; postalCode?: string; name?: string };
+	/** `community.lexicon.location.geo`, its coordinates as decimal strings. */
+	geo?: { latitude: string; longitude: string; name?: string };
+	/** `community.lexicon.location.fsq`. */
+	fsq?: { fsq_place_id: string; latitude?: string; longitude?: string; name?: string };
+	/** Missing reads as open; a value a newer app added reads as open too. */
+	approval?: string;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -260,6 +281,8 @@ export type ProjectFormValues = ProjectDetails & {
 	travelRadiusKm?: number | string;
 	international?: boolean;
 	travelNotes?: string;
+	/** The profile form's "Take inquiries" box. */
+	takesInquiries?: boolean;
 	formats?: string[];
 	setTypes?: string[];
 	setMin?: number | string;
@@ -327,10 +350,10 @@ export type ProjectView = {
 };
 
 /**
- * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
- * lists stream in so their placeholders hold that much room.
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, and how many of its
+ * managers have DJ stats or sets, known before those stream in so their placeholders hold that much room (or none).
  */
-export type ProjectCounts = { pressKits: number; upcomingShows: number };
+export type ProjectCounts = { pressKits: number; upcomingShows: number; djs: number };
 
 export type AccountView = { did: string; handle: string | null };
 
@@ -378,6 +401,8 @@ export type RequestRecord = LexiconRead<
 	{
 		kind: RequestKind;
 		project?: string;
+		/** For a claim on a venue: its space. */
+		space?: string;
 		baseRevision?: number;
 		profile?: ProjectProfile;
 		details?: ProjectDetails;
@@ -403,6 +428,8 @@ export type RequestView = {
 	repoDid: string;
 	projectUri: string | null;
 	project: { slug: string; name: string } | null;
+	/** The venue a claim is for, when it's a venue's. */
+	venue: { key: string; name: string } | null;
 	record: RequestRecord;
 	createdAt: string;
 	updatedAt: string;
@@ -524,13 +551,22 @@ export type BookingThreadView = {
 	status: string;
 	title: string | null;
 	showDate: string | null;
-	project: { uri: string; slug: string; name: string } | null;
+	/** Who the inquiry went to: an act (with its project's `slug`) or a listed DJ (no slug), with their public page. */
+	project: { uri: string; slug: string | null; name: string; href: string } | null;
 	promoter: AccountView;
-	participants: (AccountView & { role: 'promoter' | 'manager' })[];
+	participants: (AccountView & { role: BookingRole })[];
 	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */
 	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
+};
+
+/** The shows a booking thread links to, which its page shows beside the details. */
+export type BookingShowLinks = {
+	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */
+	plannerShow: string | null;
+	/** The public show a manager announced from the thread, as the account that wrote it and its key. */
+	announcedShow: { did: string; rkey: string } | null;
 };
 
 export type BookingEventView = {
