@@ -17,6 +17,8 @@ import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
 import { HeldRecords } from '../services/held-records';
 import { performerListingSource } from '../services/performer-index';
+import { partyListingSource } from '../services/party-index';
+import { PartyService } from '../services/parties';
 import { venueListingSource } from '../services/venue-index';
 import { VenueService } from '../services/venues';
 import { VenueRules } from '../services/venue-rules';
@@ -150,6 +152,7 @@ export async function createTestServices(
 	const listings = new ListingWriter(core, flags, {
 		performer: performerListingSource(db),
 		venue: venueListingSource(db),
+		party: partyListingSource(db),
 		...options.listingSources
 	});
 
@@ -157,6 +160,7 @@ export async function createTestServices(
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
+	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const venueRules = new VenueRules(core);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
@@ -214,6 +218,7 @@ export async function createTestServices(
 		projectMigration,
 		venues,
 		venueRules,
+		parties,
 		viewer,
 		capable,
 		spaces

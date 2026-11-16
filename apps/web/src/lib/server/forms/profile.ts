@@ -1,9 +1,7 @@
 import type { ProfileRecord, ProjectFormValues } from '#lib/types.ts';
 import {
 	basicsToValues,
-	parseAvatar,
-	parseBasics,
-	parseLocation,
+	parseBasicsPage,
 	parsePerformer,
 	parsePromoter,
 	performerToValues,
@@ -32,14 +30,12 @@ export async function parseProfileForm(
 	previous: ProfileRecord | undefined
 ): Promise<Omit<ProfileInput, 'swap'>> {
 	const on = new Set(form.getAll('section'));
-	const basics = parseBasics(form, 'Add your name');
-	const location = parseLocation(form, false, "Add the city you're based in, or clear the place");
-	const avatar = await parseAvatar(form);
 
-	const input: Omit<ProfileInput, 'swap'> = {
-		basics: location ? { ...basics, location } : basics,
-		avatar: avatar ? { upload: avatar } : form.get('removeAvatar') === 'on' ? 'remove' : 'keep'
-	};
+	const input: Omit<ProfileInput, 'swap'> = await parseBasicsPage(
+		form,
+		'Add your name',
+		"Add the city you're based in, or clear the place"
+	);
 
 	if (on.has('performer')) {
 		const { profile: performer, tracklists } = await withTracklists(form, parsePerformer(form), [previous?.performer]);

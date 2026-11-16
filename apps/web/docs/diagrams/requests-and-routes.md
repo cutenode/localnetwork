@@ -161,6 +161,7 @@ flowchart LR
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]
   Public --> Shows["/shows"]
+  Public --> Party["/party/[key]/[...rest] (spacePages),<br/>drafts for its people and staff;<br/>/party/new signed in"]
   Public --> Music["/charts, /artists,<br/>/artists/[id], /artists/name/[[name]]"]
   Public --> Tools["/tools, /tools/[tool],<br/>/tools/[tool]/docs/[page]"]
   Public --> Preview["/mixes/preview"]

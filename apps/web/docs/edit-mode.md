@@ -26,7 +26,7 @@ A page that shows one thing has three ways of being drawn for someone who may ch
 | Edit    | The same layout, each section's text swapped for a field in the same box                                 | What's unsaved, Discard, Save (a draft: Save draft and Publish) |
 | Visitor | The page with the viewer's rights set aside: no private sections, no notices                             | One pill, Back to editing                                       |
 
-Edit is a mode, never a separate page. Its URL is the page's own with `?edit`, so a reload, a link from onboarding (`/@me?edit#bio`) or a no-script visit lands in it. Everything in edit mode is one form that posts to the page's own `?/save` action, which calls the service the dashboard calls today (`profiles.save`, `sharedSpaces.updatePage`, and later `parties.updatePage` and `events.update`). Without scripts the form still saves; scripts add the bar's states, the toast and keeping a draft.
+Edit is a mode, never a separate page. Its URL is the page's own with `?edit`, so a reload, a link from onboarding (`/@me?edit#bio`) or a no-script visit lands in it. Everything in edit mode is one form that posts to the page's own `?/save` action, which calls the service the dashboard calls today (`profiles.save`, `sharedSpaces.updatePage`, `parties.updatePage`, and later `events.update`). Without scripts the form still saves; scripts add the bar's states, the toast and keeping a draft.
 
 There's one Save. Nothing writes as you type: an autosave would trip the stale-write check every time two people edit, and it would mean a toast or spinner on every field.
 
@@ -79,7 +79,7 @@ Failures never toast. A toast goes away by itself; an error has to stay until it
 
 ## Creating as an empty page
 
-`/act/new`, and later `/party/new` and `/party/<key>/new` for an event, draw the real page layout with nothing in it, straight into edit mode. Every section is in its place: text fields show placeholder copy, cards with nothing in them become `AddSlot`s, the picture is a dashed square with a camera button. A notice at the top says it's a draft only you can see.
+`/party/new`, and later `/act/new` and `/party/<key>/new` for an event, draw the real page layout with nothing in it, straight into edit mode. Every section is in its place: text fields show placeholder copy, cards with nothing in them become `AddSlot`s, the picture is a dashed square with a camera button. A notice at the top says it's a draft only you can see.
 
 Saving a draft creates the thing (`createAct`, `parties.start`, `events.create`) with a draft status, and from then on the URL is the real one. Publish needs the required fields (a name; for an event a date and a place) and moves it on: an act to unlisted, waiting for staff, and a party or event to public. The draft status is new data on act and party records. It lands as its own small change before acts move to edit mode, so the page work only reads it.
 
