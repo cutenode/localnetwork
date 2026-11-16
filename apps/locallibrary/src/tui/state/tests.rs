@@ -140,6 +140,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         mixes: _,
         mix_folders: _,
         crate_list: _,
+        crate_playing: _,
+        crate_at_ms: _,
         queue: _,
         intro_seen: _,
         // The user's preferences.
@@ -157,6 +159,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         quantize,
         single,
         auto_cue,
+        fill,
         notation,
         key_palette,
         bands,
@@ -181,6 +184,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         quantize,
         single,
         auto_cue,
+        fill,
         notation,
         key_palette,
         bands,
@@ -243,7 +247,18 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
             root: "/Volumes/USB".into(),
             drive: "USB".into(),
             track: Default::default(),
+            played: true,
+            filled: false,
         }],
+        crate_playing: Some(SavedCrateTrack {
+            root: "/Volumes/USB".into(),
+            drive: "USB".into(),
+            track: Default::default(),
+            played: true,
+            filled: false,
+        }),
+        crate_at_ms: 15_000,
+        fill: on(),
         queue: Some(SavedQueue { root: "/Volumes/USB".into(), tracks: vec!["/a.mp3".into()], ..Default::default() }),
     };
     save(&here, &saved);
@@ -252,7 +267,7 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
     let (all, kept) = (serde_json::to_value(&saved).unwrap(), serde_json::to_value(preferences_of(&saved)).unwrap());
     let session: Vec<&String> =
         all.as_object().unwrap().keys().filter(|k| all[k.as_str()] != kept[k.as_str()]).collect();
-    assert_eq!(session.len(), 13, "{session:?}");
+    assert_eq!(session.len(), 15, "{session:?}");
     assert!(session.iter().all(|k| !doc.player.contains_key(k.as_str())), "{:?}", doc.player);
     let file = dir.path().join("settings.json");
     std::fs::write(&file, serde_json::to_vec(&doc).unwrap()).unwrap();
@@ -285,4 +300,17 @@ fn a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
     save(&store, &Saved::default());
     mode(0o644);
     assert_eq!(load(&store).as_ref(), Some(&kept));
+}
+
+/// The crate's fields answer only to their own names: what development builds wrote before the
+/// crate was called that (`tags`, `tag_list`) is left out, not read as the crate.
+#[test]
+fn the_crates_old_names_are_not_read() {
+    let old: Saved =
+        serde_json::from_str(r#"{"tags": true, "tag_list": [{"root": "/Volumes/A", "path": "/Contents/a.mp3"}]}"#)
+            .unwrap();
+    assert!(!old.crate_panel);
+    assert!(old.crate_list.is_empty());
+    let new: Saved = serde_json::from_str(r#"{"crate_panel": true}"#).unwrap();
+    assert!(new.crate_panel);
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, Mail, Plus, Trash2 } from '@lucide/svelte';
+	import { ArrowLeft, Mail, MessagesSquare, Plus, Trash2 } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import { formFields } from '#lib/form-fields.svelte.ts';
@@ -84,6 +84,7 @@
 						{@const name = project?.profile.name ?? 'Removed project'}
 						<!-- A saved show's details go into an inquiry to anyone on it who can be contacted. -->
 						{@const inquire = data.show && project?.managers.length ? `/dashboard/bookings/new?project=${project.slug}&show=${data.show.rkey}` : null}
+						{@const booking = data.bookings[slot.project]}
 						<li class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2.5 sm:grid sm:grid-cols-[minmax(0,1fr)_9rem_10rem_auto]">
 							<input type="hidden" name="slotProject" value={slot.project} />
 							<div class="flex min-w-0 basis-[calc(100%-7rem)] items-center gap-2.5">
@@ -91,7 +92,8 @@
 								<a class="truncate text-fg no-underline hover:text-link" href="/projects/{project?.slug}">{name}</a>
 							</div>
 							<div class="ml-auto flex sm:order-last">
-								{#if inquire}<a class="btn-ghost px-2.5" href={inquire} aria-label="Inquire with {name}" title="Inquire"><Mail class="size-4" /></a>{/if}
+								{#if booking}<a class="btn-ghost px-2.5" href="/dashboard/bookings/{booking}" aria-label="Booking with {name}" title="Booking"><MessagesSquare class="size-4" /></a>
+								{:else if inquire}<a class="btn-ghost px-2.5" href={inquire} aria-label="Inquire with {name}" title="Inquire"><Mail class="size-4" /></a>{/if}
 								<button type="button" class="btn-ghost px-2.5" aria-label="Remove {name}" onclick={() => lineup.splice(index, 1)}><Trash2 class="size-4" /></button>
 							</div>
 							<input name="slotLabel" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" placeholder="e.g. 23:00–01:00" bind:value={slot.slot} aria-label="Slot" />

@@ -28,12 +28,13 @@ pub(in crate::tui) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) 
     Rect { x, y, width: w, height: h }
 }
 
-/// After `g` and a pause, what can follow, in the corner over the deck.
+/// After `g` (or `q`) and a pause, what can follow, in the corner over the deck.
 pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     if app.chord.is_none_or(|at| at.elapsed() < CHORD_HINT) {
         return;
     }
-    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == Scope::Goto))
+    let (scope, heading) = if app.chord_queue { (Scope::Queue, "Queue") } else { (Scope::Goto, "Go to") };
+    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == scope))
         .map(|b| {
             let about = if b.name.is_empty() { b.help } else { b.name.trim_start_matches("go to ") };
             Line::from(vec![
@@ -46,7 +47,7 @@ pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     let (w, h) = (w.min(area.width), (lines.len() as u16 + 2).min(area.height));
     let r = Rect { x: area.right() - w, y: area.bottom() - h, width: w, height: h };
     f.render_widget(Clear, r);
-    f.render_widget(Paragraph::new(lines).block(block(title("Go to", true), true)), r);
+    f.render_widget(Paragraph::new(lines).block(block(title(heading, true), true)), r);
 }
 
 /// How many rows `lines` take wrapped to `width` (near enough: words may wrap a little earlier).

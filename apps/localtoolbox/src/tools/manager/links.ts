@@ -11,6 +11,7 @@
 // to be either.
 
 import { titleCase } from '$lib/title-case.ts';
+import { hostOf } from '../third-party-downloads/sites/index.ts';
 import type { ListedEntry, DetailsAnswer } from '$lib/types';
 
 /** One link a track offers, as a row draws it. */
@@ -49,14 +50,6 @@ export function unwrapGate(url: string) {
 	}
 
 	return url;
-}
-
-export function hostOf(url: string) {
-	try {
-		return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
-	} catch (_e) {
-		return '';
-	}
 }
 
 // Country-code second-level suffixes under which the site name is the third
@@ -133,6 +126,8 @@ export function entriesFor(track: ListedEntry) {
 		const url = unwrapGate(details.purchaseUrl);
 		const host = hostOf(url);
 
+		// hostOf answers '' for anything but http(s): an imported state file can
+		// carry any purchase address, and a row opens its link in a tab.
 		if (host) {
 			entries.push({
 				track,

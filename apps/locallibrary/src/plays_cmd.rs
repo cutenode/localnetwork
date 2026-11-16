@@ -1,6 +1,6 @@
 //! `locallibrary plays ...`: the sessions players recorded (history lists, on the drive and
 //! archived in the store), play counts, writing a session out and importing one from Beat Link
-//! Trigger. `history` and `stats` are the old names of `plays lists` and `plays stats`.
+//! Trigger.
 
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -61,13 +61,6 @@ Examples:
   locallibrary plays lists SD --all                 and every one the store kept
   locallibrary plays lists SD \"HISTORY 012\"         one session's tracks (or give its id)
   locallibrary plays lists SD --delete --dry-run    what clearing the drive's lists would remove";
-
-/// `history`: `plays lists`.
-#[derive(Args)]
-pub struct HistoryArgs {
-    #[command(flatten)]
-    lists: ListsArgs,
-}
 
 /// `plays lists`.
 #[derive(Args)]
@@ -213,11 +206,6 @@ pub fn run(args: PlaysArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
             }))
         }
     }
-}
-
-/// `history` (`plays lists`).
-pub fn history(args: HistoryArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    lists(args.lists, store, out, ctx)
 }
 
 /// `plays lists`.

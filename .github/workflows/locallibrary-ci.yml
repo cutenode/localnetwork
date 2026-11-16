@@ -22,7 +22,7 @@ on:
         type: boolean
         required: true
       deny:
-        description: Whether what cargo-deny reads changed (locallibrary_deny).
+        description: Whether what cargo-deny or `cargo notices` reads changed (locallibrary_deny).
         type: boolean
         required: true
       release:
@@ -602,7 +602,8 @@ jobs:
 
   # RustSec advisories, banned crates and where crates come from (see deny.toml), when what it reads
   # changed. locallibrary-scheduled.yml also checks advisories weekly, for ones published between
-  # pushes.
+  # pushes. Then the third-party notices locallibrary-release.yml writes, so a crate whose licence
+  # cargo-about can't work out fails here rather than in a release.
   deny:
     if: inputs.deny
     runs-on: ubuntu-latest
@@ -614,8 +615,9 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny@0.20.2
+          tool: cargo-deny@0.20.2,cargo-about@0.9.3
       - run: cargo deny --locked check advisories bans licenses sources
+      - run: cargo notices
 
   # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
   # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the

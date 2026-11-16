@@ -17,6 +17,7 @@ list() { git ls-files --cached --others --exclude-standard "$@"; }
 
 files=()
 while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm-workspace.yaml Cargo.toml lefthook.yml \
+  deny.toml about.toml dist-workspace.toml .cargo/config.toml \
   ':(glob)apps/*/package.json' ':(glob)apps/*/Cargo.toml' ':(glob)apps/*/Dockerfile' ':(glob)packages/*/package.json' \
   ':(glob)crates/*/Cargo.toml' ':(glob)plugins/*/Cargo.toml' ':(glob)vendor/*/Cargo.toml' \
   ':(glob).github/workflows/*.yml' .github/dependabot.yml .github/labels.yml .github/labeler.yml ':(glob).github/ISSUE_TEMPLATE/*.yml' \
