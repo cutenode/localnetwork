@@ -12,7 +12,6 @@ publish = false
 chrono.workspace = true
 directories.workspace = true
 fs4.workspace = true
-loclib-model.workspace = true
 loclib-plugin.workspace = true
 loclib-progress.workspace = true
 quick-xml = "0.42"

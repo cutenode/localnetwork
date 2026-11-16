@@ -49,6 +49,7 @@ ignored = [
     "locallibrary-plugin-mixcloud",
     "locallibrary-plugin-musicbrainz",
     "locallibrary-plugin-plyr",
+    "locallibrary-plugin-rekordbox-backup",
     "locallibrary-plugin-sound",
     "locallibrary-plugin-soundcloud",
     "locallibrary-plugin-tracklist",
