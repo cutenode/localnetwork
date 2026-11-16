@@ -11,7 +11,8 @@
 //!
 //! Players ignore unknown directories, so this is invisible to CDJs/XDJs.
 
-use std::path::{Path, PathBuf};
+use std::borrow::Cow;
+use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
@@ -392,7 +393,10 @@ impl Device {
         if !root.is_dir() {
             return Err(Error::NotFound(format!("{} is not a directory", root.display())));
         }
-        let root = dunce_canonicalize(root);
+        // The computer's own root, where the player opens rekordbox's collection, stays `/`: on
+        // Windows it would canonicalize to the current drive's, and the collection names files on
+        // any drive.
+        let root = if root == Path::new("/") { root.to_path_buf() } else { dunce_canonicalize(root) };
         let state = read_state(&root.join(paths::STATE_DIR).join("state.json"))?;
         Ok(Device { root, state, swaps: 0 })
     }
@@ -421,16 +425,34 @@ impl Device {
     }
 
     pub fn path(&self, key: &str) -> PathBuf {
-        paths::to_fs(&self.root, key)
+        let (root, key) = self.under(key);
+        paths::to_fs(&root, key)
+    }
+
+    /// The folder `key` is in and the rest of it: the root, or from the computer's own root `/`
+    /// on Windows, the drive a key's first component names (`C:/Users/...`, a full path keyed).
+    /// A drive's own keys never name another drive: a component with `:` is refused.
+    fn under<'k>(&self, key: &'k str) -> (Cow<'_, Path>, &'k str) {
+        let drive = |first: &str| {
+            let mut parts = Path::new(first).components();
+            matches!(parts.next(), Some(Component::Prefix(_))) && parts.next().is_none()
+        };
+        match key.split_once('/') {
+            Some((first, rest)) if self.root == Path::new("/") && drive(first) => {
+                (Cow::Owned(PathBuf::from(format!("{first}\\"))), rest)
+            }
+            _ => (Cow::Borrowed(&self.root), key),
+        }
     }
 
     /// Like [`Device::path`], for keys that come from a database (untrusted): rejects keys that
     /// would escape the drive, and paths that resolve outside it through a symlink.
     pub fn checked_path(&self, key: &str) -> Result<PathBuf> {
-        if !paths::is_safe_key(key) {
+        let (root, rest) = self.under(key);
+        if !paths::is_safe_key(rest) {
             return Err(Error::invalid(format!("refusing unsafe path {key:?} from the database on {}", self.name())));
         }
-        let p = self.path(key);
+        let p = paths::to_fs(&root, rest);
         let mut existing = p.as_path();
         while !existing.exists() {
             match existing.parent() {
@@ -439,8 +461,8 @@ impl Device {
             }
         }
         let resolved = dunce_canonicalize(existing);
-        if !resolved.starts_with(&self.root) {
-            return Err(Error::invalid(format!("refusing {key:?}: it resolves outside {}", self.root.display())));
+        if !resolved.starts_with(&root) {
+            return Err(Error::invalid(format!("refusing {key:?}: it resolves outside {}", root.display())));
         }
         Ok(p)
     }
