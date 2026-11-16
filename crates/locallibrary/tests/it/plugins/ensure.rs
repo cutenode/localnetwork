@@ -11,7 +11,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use indexmap::IndexMap;
 use locallibrary::error::Reason;
-use locallibrary::plugin::{AccessQuestion, AccountSignIn, AskAccess, EnteredKeys};
+use locallibrary::plugin::{AccessQuestion, AskAccess};
 
 use super::accesses::{SCOPES, account, asks, some};
 use super::accounts::{come_back_to, opened_at};
@@ -21,8 +21,7 @@ use super::*;
 use crate::mock_oauth::{Service, account_plugin, keys_account_plugin};
 
 /// A front end asking as the test says: answering `answer` to every question (`None`: it can't
-/// ask), signing in again in the browser with the mock service granting `grants`, and with keys
-/// entering `keys` (`None`: it can't), keeping the sign-ins it was asked keys for.
+/// ask), and signing in again in the browser with the mock service granting `grants`.
 #[derive(Default)]
 struct Script {
     answer: Mutex<Option<bool>>,
@@ -30,8 +29,6 @@ struct Script {
     asked: Mutex<Vec<AccessQuestion>>,
     service: OnceLock<Arc<Mutex<Service>>>,
     browser: Mutex<Vec<JoinHandle<String>>>,
-    keys: Mutex<Option<EnteredKeys>>,
-    keyed: Mutex<Vec<AccountSignIn>>,
 }
 
 impl AskAccess for Script {
@@ -49,11 +46,6 @@ impl AskAccess for Script {
         }
         let back = come_back_to(&query["redirect_uri"], format!("code=c0de&state={}", query["state"]));
         self.browser.lock().unwrap().push(back);
-    }
-
-    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
-        self.keyed.lock().unwrap().push(start.clone());
-        self.keys.lock().unwrap().clone()
     }
 }
 
@@ -234,10 +226,10 @@ fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
 }
 
 /// For an account signed in to with either of two pairs of keys and signed out since, a plugin
-/// wanting more of it has no access to it any more: it fails as `no_access`, and the front end is
-/// asked for no keys. Signed in to again with other keys for the plugin, its access is back, and
-/// the user allowing more gives it the scope without asking for keys again; a request through it
-/// gets the new keys.
+/// wanting more of it has no access to it any more: it fails as `no_access`, nobody asked. Signed
+/// in to again with other keys for the plugin, its access is back, and the user allowing more gives
+/// it the scope without signing in again (its scopes ask the service for nothing); a request
+/// through it gets the new keys.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_ensure_signs_in_again_with_the_keys_entered(tc: TestCase) {
     let script = Arc::new(Script { answer: Mutex::new(Some(true)), ..Script::default() });
@@ -252,24 +244,22 @@ fn prop_ensure_signs_in_again_with_the_keys_entered(tc: TestCase) {
     };
     let had = sign_in(&old, None).access.unwrap();
     m.f.plugins.sign_out_account(WITH, "me", &m.f.store).unwrap();
-    *script.keys.lock().unwrap() = Some((new.clone(), Some("me".into())));
     let ensure = || m.f.command("ensure", json!({ "type": "mock", "scopes": ["write"] }), &Ctx::silent());
 
     let e = ensure().unwrap_err();
     assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NoAccess)), "{e}");
-    assert!(script.keyed.lock().unwrap().is_empty() && script.asked.lock().unwrap().is_empty(), "asked");
+    assert!(script.asked.lock().unwrap().is_empty(), "asked");
     assert!(m.listed().is_empty(), "signed in without keys");
 
     assert_eq!(sign_in(&new, Some("me")).restored, [had], "not given back");
     let CommandOutput::Headless(answered) = ensure().unwrap() else { panic!("not an answer") };
     assert_eq!((&answered["granted"], &answered["declined"]), (&json!(["write"]), &json!([])));
-    assert!(script.keyed.lock().unwrap().is_empty(), "asked for keys again");
     let sent = m.fetch_as("POST", "/w/x", "{account:mock}", None);
     assert_eq!(sent["result"]["body"], "/w/x LOW ak-1111111111:sk-2222222222", "{sent}");
 }
 
 /// A front end that allows whatever it's asked, after forgetting every access the store at
-/// `forgets` keeps when it's given, and takes no keys. It never signs in in the browser.
+/// `forgets` keeps when it's given. It never signs in in the browser.
 #[derive(Default)]
 struct Allowing {
     forgets: OnceLock<PathBuf>,

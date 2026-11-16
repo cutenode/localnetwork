@@ -78,8 +78,9 @@ impl Book {
             true => super::access::new_id(&self.accesses),
             false => a.id.clone(),
         };
-        self.accesses.push(Access { id, default, ..a });
-        self.accesses.last().cloned().unwrap_or_else(|| unreachable!("just pushed"))
+        let back = Access { id, default, ..a };
+        self.accesses.push(back.clone());
+        back
     }
 
     /// Restores every plugin's access to `account` that's remembered: what each is now.

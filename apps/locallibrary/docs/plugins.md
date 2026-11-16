@@ -267,7 +267,7 @@ where to get them, each typed unseen, then the account's name when the service d
 
 A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
 player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
-allowing it signs in again in the browser, or asks for the account's keys. A no is remembered: it isn't asked again until
+allowing it signs in again in the browser. A no is remembered: it isn't asked again until
 `locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
 `--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
 how to give it the scope.

@@ -9,12 +9,11 @@ use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
 use locallibrary::Store;
-use locallibrary::plugin::{AccessQuestion, AccountId, AccountSignIn, AskAccess, EnteredKeys, Plugins};
+use locallibrary::plugin::{AccessQuestion, AccountId, AskAccess, Plugins};
 use loclib_plugin::Manifest;
 use serde_json::{Map, Value, json};
 
 use super::accounts::{finish_sign_in, unopened};
-use super::keys::entered_keys;
 use crate::account_cmd::asking::wants;
 use crate::tui::app::{App, Level, Msg};
 use crate::tui::edits::Modal;
@@ -159,8 +158,7 @@ impl App {
 
     /// Where plugins ask whether they may use more of an account while the player runs: the
     /// form ([`App::ask_access`]), each waiting for its answer; a sign-in it takes opens the
-    /// browser, saying where to go when it can't, or takes the account's keys in a form
-    /// ([`App::enter_keys`]).
+    /// browser, saying where to go when it can't.
     pub(in crate::tui) fn plugin_asker(&self) -> Arc<dyn AskAccess> {
         Arc::new(Asking(self.sender()))
     }
@@ -193,9 +191,5 @@ impl AskAccess for Asking {
         if let Some(link) = unopened(url) {
             let _ = self.0.send(Msg::Note(link, Level::Info));
         }
-    }
-
-    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
-        entered_keys(&self.0, start)
     }
 }

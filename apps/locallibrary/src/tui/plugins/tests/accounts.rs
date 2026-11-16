@@ -321,11 +321,11 @@ fn a_keys_sign_in_is_typed_unseen_and_kept() {
     assert_eq!(subjects(&app), ["me"]);
 }
 
-/// For a plugin's sign-in again with keys, the player's asker takes them in the form, the
+/// For a sign-in with keys waiting off the UI thread, the player takes them in the form, the
 /// account's name only when the sign-in asks for it: entered, they go back by key; closed,
 /// nothing does.
 #[hegel::test(test_cases = 6)]
-fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
+fn the_player_takes_keys_in_the_form(tc: TestCase) {
     keys_accounts();
     let (mut app, _store) = blank(Screen::Library);
     let named = tc.draw(gs::booleans());
@@ -341,8 +341,8 @@ fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
         keys,
         named,
     };
-    let ask = app.plugin_asker();
-    let asking = std::thread::spawn(move || ask.enter_keys(&start));
+    let tx = app.sender();
+    let asking = std::thread::spawn(move || super::super::keys::entered_keys(&tx, &start));
     wait(&mut app, |app| app.modal.is_some());
     assert_eq!(unseen(&mut app).contains("Account name"), named);
     if !entered {

@@ -79,8 +79,6 @@ impl Plugin {
         let kind = &need.name;
         self.with_access(live, need, access, |a, k, with, t| {
             let (on, at) = (&a.account.plugin, &a.name);
-            let gone = || signed_out(format!("the {kind} account {at} is signed out: sign in again"), need, a);
-            let k = k.ok_or_else(gone)?;
             // Each naming the scopes signing in again needs to allow: none, when it can't help.
             let scope_failed = |why: String, scopes: &[String], needs: &[String]| {
                 about(failed("scope", why, need, scopes, vec![on.clone()]), a, needs)
@@ -110,15 +108,15 @@ impl Plugin {
     }
 
     /// What `f` makes of its access of the type `need` asks for that `access` names, else its
-    /// default for the type: the access, its account unless it's signed out, and the account plugin
-    /// that signed it in with the type as it provides it. `access` when it has no such access, or
-    /// that account plugin isn't installed.
+    /// default for the type: the access, its account (signing out removes the access, so it's one
+    /// the store keeps), and the account plugin that signed it in with the type as it provides it.
+    /// `access` when it has no such access, or that account plugin isn't installed.
     pub(super) fn with_access<T>(
         &self,
         live: &Live,
         need: &AccountNeed,
         access: Option<&str>,
-        f: impl FnOnce(&Access, Option<&Kept>, &Arc<Plugin>, &AccountType) -> Result<T, RpcError>,
+        f: impl FnOnce(&Access, &Kept, &Arc<Plugin>, &AccountType) -> Result<T, RpcError>,
     ) -> Result<T, RpcError> {
         let kind = &need.name;
         let no_access = |why: String| failed("access", why, need, &need.scopes, self.host.providing(kind));
@@ -126,12 +124,15 @@ impl Plugin {
             return Err(no_access(format!("it has no access to {} account without a store", a_or_an(kind))));
         };
         let book = kept::read(store).map_err(|e| RpcError::failed("external", e.to_string()))?;
-        let mut its = book.accesses.iter().filter(|a| a.plugin == self.manifest.id && a.kind == *kind);
-        let a = match access {
-            Some(id) => its.find(|a| a.id == id).ok_or_else(|| no_access(format!("it has no {kind} access {id}")))?,
+        let its = book.accesses.iter().filter(|a| a.plugin == self.manifest.id && a.kind == *kind);
+        let mut its = its.flat_map(|a| book.account(&a.account.plugin, &a.account.subject).map(|k| (a, k)));
+        let (a, k) = match access {
+            Some(id) => {
+                its.find(|(a, _)| a.id == id).ok_or_else(|| no_access(format!("it has no {kind} access {id}")))?
+            }
             None => {
                 let why = || format!("it has no access to {} account", a_or_an(kind));
-                its.find(|a| a.default).ok_or_else(|| no_access(why()))?
+                its.find(|(a, _)| a.default).ok_or_else(|| no_access(why()))?
             }
         };
         let (on, at) = (&a.account.plugin, &a.name);
@@ -141,7 +142,7 @@ impl Plugin {
             let why = format!("the {kind} account {at} was signed in through {on}, which isn't installed");
             return Err(about(no_access(why), a, &[]));
         };
-        f(a, book.account(on, &a.account.subject), with, t)
+        f(a, k, with, t)
     }
 
     /// What `usable`'s account is signed in with (its token, or keys), told to

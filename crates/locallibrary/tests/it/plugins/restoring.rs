@@ -517,3 +517,84 @@ fn prop_only_an_account_signed_in_is_restored_but_one_signed_out_is_reset(tc: Te
         assert_eq!(e.code(), "not_found", "{e}");
     }
 }
+
+/// What's remembered of echo's access in [`prop_restoring_joins_drops_and_gives_what_is_chosen`],
+/// and how it's restored.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Waiting {
+    /// Echo was given access to the account again since: restoring joins the two.
+    GivenSince,
+    /// Beside a remembered access of a plugin that isn't installed any more: restoring forgets it.
+    Uninstalled,
+    /// Chosen with a scope echo doesn't ask for: refused, still remembered.
+    Unasked,
+    /// Declining `write`, chosen with it: given it, declining nothing.
+    Declined,
+    /// Not echo's default, with echo having no access of the type: restored as its default.
+    NotDefault,
+}
+
+/// For echo's access to an account signed out or whose session ended, the account signed in to
+/// again for the other plugin (so echo's stays remembered), restoring it: joins it to the access
+/// echo was given since (one access, with the scopes of both); forgets a remembered access of a
+/// plugin that isn't installed; refuses a scope echo doesn't ask for, remembering it still; gives
+/// a scope declined before when it's chosen, declining it no more; and makes it echo's default
+/// when echo has no other access of the type.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_restoring_joins_drops_and_gives_what_is_chosen(tc: TestCase) {
+    use Waiting::*;
+    let losing = tc.draw(gs::sampled_from(Losing::BOTH.to_vec()));
+    let waiting = tc.draw(gs::sampled_from(vec![GivenSince, Uninstalled, Unasked, Declined, NotDefault]));
+    let m = two_plugins();
+    let (plugins, store) = (&m.f.plugins, &m.f.store);
+    m.sign_in(who(json!("a"), None), None, &["write"]).0.unwrap();
+    m.lose("a", losing);
+    m.sign_in_for(Some("other"), who(json!("a"), None), None, &[]).0.unwrap();
+    let remembered = || plugins.accounts_and_accesses(store).unwrap().remembered;
+    let [was] = remembered().try_into().unwrap();
+    assert_eq!((was.scopes.as_slice(), was.default), (&["read".to_string(), "write".into()][..], true), "{waiting:?}");
+    let restore = |chosen: Option<&[Chosen]>| plugins.restore_access(&account("a"), chosen, store);
+    let echo = || plugins.accesses(store, Some("echo"), None).unwrap();
+    let chose = |scopes: &[&str]| {
+        vec![Chosen { plugin: "echo".into(), scopes: scopes.iter().map(|s| s.to_string()).collect() }]
+    };
+
+    match waiting {
+        GivenSince => {
+            let given = plugins.give_access("echo", &account("a"), &[], store).unwrap();
+            assert_eq!(given.scopes, ["read"]);
+            let [back] = restore(None).unwrap().try_into().unwrap();
+            assert_eq!((back.id.as_str(), back.scopes.as_slice()), (given.id.as_str(), was.scopes.as_slice()));
+            assert_eq!(echo(), [back]);
+        }
+        Uninstalled => {
+            m.edit("accounts.json", |book| {
+                let mut gone = book["remembered"][0].clone();
+                (gone["plugin"], gone["id"]) = (json!("gone"), json!("0a1b2c3d"));
+                book["remembered"].as_array_mut().unwrap().push(gone);
+            });
+            assert_eq!(remembered().len(), 2);
+            assert_eq!(restore(None).unwrap(), std::slice::from_ref(&was));
+            assert!(remembered().is_empty(), "the uninstalled plugin's is still remembered");
+        }
+        Unasked => {
+            let e = restore(Some(&chose(&["peek"]))).unwrap_err();
+            assert_eq!(e.code(), "invalid", "{e}");
+            assert_eq!(remembered(), std::slice::from_ref(&was));
+            assert!(echo().is_empty());
+        }
+        Declined => {
+            m.edit("accounts.json", |book| {
+                (book["remembered"][0]["scopes"], book["remembered"][0]["declined"]) =
+                    (json!(["read"]), json!(["write"]));
+            });
+            let [back] = restore(Some(&chose(&["write"]))).unwrap().try_into().unwrap();
+            assert_eq!((back.scopes.as_slice(), back.declined.as_slice()), (was.scopes.as_slice(), &[][..]));
+        }
+        NotDefault => {
+            m.edit("accounts.json", |book| book["remembered"][0]["default"] = json!(false));
+            let [back] = restore(None).unwrap().try_into().unwrap();
+            assert!(back.default, "echo has no default of the type");
+        }
+    }
+}
