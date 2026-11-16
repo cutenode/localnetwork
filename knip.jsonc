@@ -38,7 +38,12 @@
 				"!src/lib/og/cards/CardPreview.svelte!",
 				// The venue picker ships dark: the event editor will be the first form to use it, and until then
 				// only its stories and tests reach it. Drop this line when a page imports it.
-				"!src/lib/components/VenuePicker.svelte!"
+				"!src/lib/components/VenuePicker.svelte!",
+				// Edit mode ships dark: the party page will be the first to use it, and until then only its stories and
+				// tests reach it. When a page imports EditMode, narrow this to EditBarFrame.svelte and EditPageHarness.svelte
+				// (story and test helpers) and drop the server line.
+				"!src/lib/components/edit/**!",
+				"!src/lib/server/edit-mode.ts!"
 			],
 			// src/lib/server/og/render.ts resolves their font files by path at runtime.
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]

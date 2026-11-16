@@ -66,6 +66,7 @@ const PHRASES: Record<
 	'listing.list': said,
 	'listing.unlist': said,
 	'page.update': said,
+	'page.editAsStaff': said,
 	'venue.block': said,
 	'venue.unblock': said,
 	'flag.update': said,

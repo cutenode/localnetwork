@@ -158,7 +158,7 @@ export class ProfileService {
 		const existing = await this.get(actor.did);
 
 		if ((existing?.cid ?? null) !== input.swap)
-			throw new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.');
+			throw new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.', 409);
 
 		const ref = await writeOwn(this.core, actor.did, REAUTH, async (client) => {
 			const avatar =
@@ -199,7 +199,10 @@ export class ProfileService {
 				return await client.putRecord({ collection: COLLECTION.profile, rkey: 'self', record, swapRecord: input.swap });
 			} catch (error) {
 				if (error instanceof XRPCError && error.error === 'InvalidSwap')
-					throw new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.');
+					throw new UserError(
+						'Your profile changed since you opened it. Reload to see the latest, then save again.',
+						409
+					);
 				throw error;
 			}
 		});
