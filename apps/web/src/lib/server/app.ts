@@ -40,6 +40,7 @@ import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
 import { PerformerService } from './services/performer-registry';
+import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
@@ -262,9 +263,10 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const listings = new ListingWriter(core, { performer: performerListingSource(db), ...options.listingSources });
+	const listings = new ListingWriter(core, flags, { performer: performerListingSource(db), ...options.listingSources });
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
+	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 
 	const limits = {
 		login: new RateLimiter(10, 10 / 60),
@@ -393,6 +395,7 @@ export async function createApp(options: CreateAppOptions) {
 		djListings,
 		performers,
 		performerRegistry,
+		projectMigration,
 		recordings,
 		supports,
 		epks,

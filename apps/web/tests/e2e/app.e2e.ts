@@ -354,6 +354,7 @@ test.describe('public pages', () => {
 			'/',
 			'/about',
 			'/for-djs',
+			'/for-promoters',
 			'/privacy',
 			'/match',
 			'/projects',
@@ -772,6 +773,29 @@ test.describe('signed in', () => {
 
 		// Each browser runs against the same network, so the fan unfollows again.
 		await page.goto('/projects/saffron-social');
+		await hydrated(page);
+		await page.getByRole('button', { name: /^Following \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	test('a fan follows a person from their profile, apart from the projects they play in', async ({ page }) => {
+		await page.goto('/@neon.test');
+		await expect(page.getByRole('link', { name: /^Follow \d/ })).toHaveAttribute(
+			'href',
+			'/login?next=%2F%40neon.test%23follow'
+		);
+
+		await signIn(page, 'milo.test', 'milo-pass', '/@neon.test');
+		await page.getByRole('button', { name: /^Follow \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Following \d/ })).toHaveAttribute('aria-pressed', 'true');
+		await expectAccessible(page);
+
+		// Following neon.test isn't following Saffron Social, which they manage.
+		await page.goto('/projects/saffron-social');
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+
+		// Each browser runs against the same network, so the fan unfollows again.
+		await page.goto('/@neon.test');
 		await hydrated(page);
 		await page.getByRole('button', { name: /^Following \d/ }).click();
 		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');

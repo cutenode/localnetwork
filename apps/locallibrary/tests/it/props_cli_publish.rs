@@ -400,7 +400,7 @@ fn importing_published_settings_comes_to_what_was_published(tc: TestCase) {
     let r = fx.run(&words);
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     base = imported(&base, &published, replace);
-    let profile = fx.json(&["settings", "profile"]);
+    let profile = fx.json(&["settings", "base"]);
     let want: serde_json::Map<String, Value> = base.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
     assert_eq!(profile["base"], Value::Object(want), "{profile}");
     // Imported, the same import again has nothing to do.

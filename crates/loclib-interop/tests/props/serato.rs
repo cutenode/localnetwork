@@ -571,11 +571,12 @@ fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
     }
 }
 
-/// Regression (`--write-tags`): an AIFF or WAV whose odd-sized last chunk has no pad byte after it
-/// reads back, but lofty can't write a tag into it, so the plan counted it as tagged and the write
-/// refused it only after the plan was confirmed. Now the plan refuses it as the write does, with a
-/// typed error naming the file (so `build` copies it without cues, warning why), and the same file
-/// with its pad byte is tagged within its planned size.
+/// Regression (`--write-tags`): an AIFF or WAV whose odd-sized last chunk has no pad byte after it,
+/// or one that isn't 0 at the file's end, reads back, but lofty can't write a tag into it, so the
+/// plan counted it as tagged and the write refused it only after the plan was confirmed. Now the
+/// plan refuses it as the write does, with a typed error naming the file (so `build` copies it
+/// without cues, warning why), and the same file with a 0 pad byte is tagged within its planned
+/// size.
 #[hegel::test(test_cases = 40)]
 fn an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
     let kind = tc.draw(gs::sampled_from(vec![Kind::Wav, Kind::Aiff]));
@@ -583,15 +584,15 @@ fn an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
     let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(600));
     let odd = 2 * tc.draw(gs::integers::<usize>().max_value(49)) + 1;
     let data = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(odd).max_size(odd));
-    let padded = tc.draw(gs::booleans());
-    let bytes = with_last_chunk(kind, audio_file(kind, &audio[..audio.len() / 2 * 2]), &data, padded);
+    let pad = tc.draw(gs::optional(hegel::one_of!(gs::just(0u8), gs::integers::<u8>())));
+    let bytes = with_last_chunk(kind, audio_file(kind, &audio[..audio.len() / 2 * 2]), &data, pad);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("copy");
     std::fs::write(&path, &bytes).unwrap();
 
     let planned = serato::tag_growth(&path, named, b"markers");
     let written = serato::write_markers(&path, named, b"markers");
-    if padded {
+    if pad == Some(0) {
         let growth = planned.unwrap();
         written.unwrap();
         assert!(std::fs::metadata(&path).unwrap().len() <= bytes.len() as u64 + growth);
@@ -602,7 +603,12 @@ fn an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
         );
         return;
     }
-    let want = format!("{}: its last chunk is missing the pad byte after it", named.display());
+    let why = if pad.is_some() {
+        "its last chunk's pad byte isn't 0"
+    } else {
+        "its last chunk is missing the pad byte after it"
+    };
+    let want = format!("{}: {why}", named.display());
     assert!(matches!(&planned, Err(Error::Tags(e)) if *e == want), "planned: {planned:?}");
     assert!(matches!(&written, Err(Error::Tags(e)) if *e == want), "written: {written:?}");
     assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
@@ -663,15 +669,14 @@ fn audio_file(kind: Kind, audio: &[u8]) -> Vec<u8> {
 }
 
 /// `file` (a WAV or AIFF from [`audio_file`]) with a chunk of `data` (an odd number of bytes) at
-/// its end, followed by the pad byte that keeps chunks even or not, and its header's size to match.
-fn with_last_chunk(kind: Kind, mut file: Vec<u8>, data: &[u8], padded: bool) -> Vec<u8> {
+/// its end, followed by `pad`, the byte that keeps chunks even (0, though encoders write others),
+/// or not, and its header's size to match.
+fn with_last_chunk(kind: Kind, mut file: Vec<u8>, data: &[u8], pad: Option<u8>) -> Vec<u8> {
     let sized = |n: usize| if kind == Kind::Wav { (n as u32).to_le_bytes() } else { (n as u32).to_be_bytes() };
     file.extend_from_slice(b"XTRA");
     file.extend_from_slice(&sized(data.len()));
     file.extend_from_slice(data);
-    if padded {
-        file.push(0);
-    }
+    file.extend(pad);
     let size = sized(file.len() - 8);
     file[4..8].copy_from_slice(&size);
     file

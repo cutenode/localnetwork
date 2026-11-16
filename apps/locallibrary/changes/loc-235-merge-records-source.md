@@ -9,4 +9,4 @@
 
 ### Changed
 
-- The merge plan's list of new tracks shows every one with `--all`, as `compare`'s lists do.
+- The merge plan's list of new tracks shows every one with `--all`, as `diff --summary`'s lists do.

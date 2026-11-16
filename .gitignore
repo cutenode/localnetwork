@@ -1,5 +1,7 @@
 # Cargo's build output for the Rust workspace.
 /target
+# `cargo notices`' output, which the release archives include (dist-workspace.toml).
+/THIRD-PARTY-NOTICES.md
 **/*.rs.bk
 # Hegel keeps failing examples here to replay them first next time.
 .hegel/

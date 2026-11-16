@@ -1,36 +1,22 @@
-//! Catching fake-capacity drives before a library is written to them.
-//!
-//! A fake stick reports a large size (often 1–2 TB) and quietly wraps writes past its real
-//! capacity onto what it already holds, or drops them. A library on it works until it grows past
-//! the real size, then breaks. In 2023 GRC bought 12 cheap 1–2 TB sticks on Amazon; all 12 were
-//! fake, typically with about 64 GB that worked.
-//!
-//! The probe follows f3probe's idea. It writes a distinct 1 MiB pattern to regions spread over
-//! the whole disk, highest first, so on a drive that wraps, the low regions written last
-//! overwrite the high ones that alias them. It then reads every region back (from the device,
-//! not the operating system's cache) and checks each pattern. A real drive returns them all; a
-//! fake one returns other regions' patterns or nothing past its real size.
-//!
-//! It overwrites data at every region, so it only runs as part of a format, which erases the
-//! disk anyway. The first region (the partition table and the boot sector) is wiped before
-//! anything else is written: a probe that stops part way (cancelled, an I/O error) leaves a disk
-//! that no longer mounts and has to be formatted. A check over the free space of a drive that
-//! already holds a library is unsafe on exactly the drives it is meant to catch (the test writes
-//! land on the library).
+#![doc = include_str!("../README.md")]
 
 use std::io;
+use std::path::Path;
 
-use schemars::JsonSchema;
-use serde::Serialize;
+use loclib_progress::{Ctx, Event, Phase};
+use serde::{Serialize, Serializer};
 
-use crate::progress::{Ctx, Event, Phase};
-use crate::{Error, Result};
+mod error;
+
+pub use error::{Error, Result};
 
 const MAGIC: &[u8; 8] = b"LLCAPCHK";
+/// The size of each test region, and of the wipe at the start of the disk.
 pub const REGION: usize = 1 << 20;
 const MAX_REGIONS: u64 = 256;
 
-/// Raw access to a whole disk.
+/// Raw access to a whole disk, which [`probe`] overwrites. [`DeviceFile`] is a real device; an
+/// implementation of your own stands in for one (in memory, in a test).
 pub trait RawDisk {
     fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()>;
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()>;
@@ -38,11 +24,15 @@ pub trait RawDisk {
     fn flush(&mut self) -> io::Result<()>;
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// What [`probe`] found.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ProbeReport {
     /// The size the disk reports.
     pub claimed: u64,
+    /// How many regions were tested.
     pub regions: usize,
+    /// How many of them didn't read back what was written there.
     pub failed: usize,
     /// Every region below this offset held its data (`None`: all did).
     pub works_up_to: Option<u64>,
@@ -51,24 +41,56 @@ pub struct ProbeReport {
     pub aliases: Vec<Alias>,
 }
 
-crate::schema::labelled_tuple! {
-    /// Where a region was written and where its data was read back: `[written_at, read_at]`,
-    /// byte offsets.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct Alias {
-        pub written_at: u64,
-        pub read_at: u64,
+/// Where a region was written and where its data was read back: `[written_at, read_at]`,
+/// byte offsets. It serialises as that array, and its schema names each element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Alias {
+    pub written_at: u64,
+    pub read_at: u64,
+}
+
+impl Serialize for Alias {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        (self.written_at, self.read_at).serialize(serializer)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Alias {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Alias".into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        concat!(module_path!(), "::Alias").into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let mut offset = |title: &str| {
+            let mut item = generator.subschema_for::<u64>();
+            item.insert("title".into(), title.into());
+            item
+        };
+        let items = [offset("written_at"), offset("read_at")];
+        schemars::json_schema!({ "type": "array", "prefixItems": items, "minItems": 2, "maxItems": 2 })
     }
 }
 
 impl ProbeReport {
+    /// Whether any region failed to keep its data.
     pub fn is_fake(&self) -> bool {
         self.failed > 0
     }
 }
 
-/// The pattern for the region at `offset`: the magic, the offset, then pseudo-random bytes.
-pub(crate) fn pattern(offset: u64, nonce: u64, buf: &mut [u8]) {
+/// The pattern for the region at `offset`: the magic, the offset, the nonce, then pseudo-random
+/// bytes, so no two regions or runs look alike. Also fresh data for timing writes that a
+/// controller can't compress or skip.
+///
+/// # Panics
+///
+/// If `buf` is shorter than 24 bytes.
+pub fn pattern(offset: u64, nonce: u64, buf: &mut [u8]) {
     buf[..8].copy_from_slice(MAGIC);
     buf[8..16].copy_from_slice(&offset.to_le_bytes());
     buf[16..24].copy_from_slice(&nonce.to_le_bytes());
@@ -107,10 +129,14 @@ fn regions(size: u64, align: u64) -> Vec<u64> {
 
 /// Write a pattern to regions across `size` bytes of `disk`, highest first, then read them all
 /// back. `align` is the disk's sector size. The first region is wiped before anything else.
+///
+/// This destroys what `disk` holds: the first region and every test region are overwritten, and
+/// a disk with a file system on it no longer mounts afterwards. Nothing at or past `size` is
+/// touched, and a disk smaller than one region isn't written at all.
 pub fn probe(disk: &mut dyn RawDisk, size: u64, align: u32, ctx: &Ctx<'_>) -> Result<ProbeReport> {
     let offsets = regions(size, u64::from(align.max(512)));
     let mut nonce_bytes = [0u8; 8];
-    getrandom::fill(&mut nonce_bytes).map_err(|e| Error::invalid(format!("no random numbers: {e}")))?;
+    getrandom::fill(&mut nonce_bytes).map_err(Error::Random)?;
     let nonce = u64::from_le_bytes(nonce_bytes);
     let io = |e: io::Error| Error::Io { path: "disk".into(), source: e };
     let mut buf = vec![0u8; REGION];
@@ -161,13 +187,16 @@ pub struct DeviceFile {
 }
 
 impl DeviceFile {
-    /// Open `path` (macOS: the unbuffered `/dev/rdiskN`; Linux: `/dev/sdX`) for reading and
-    /// writing. All its volumes must be unmounted.
-    pub fn open(path: &str) -> Result<DeviceFile> {
+    /// Open the whole-disk device at `path` (macOS: the unbuffered `/dev/rdiskN`; Linux:
+    /// `/dev/sdX`) for reading and writing, so that [`probe`] can overwrite it.
+    ///
+    /// Probing what this returns destroys everything on the disk. Unmount all its volumes first,
+    /// and make sure `path` is the disk you mean to erase: nothing here checks. A path that
+    /// doesn't exist is an error rather than a new file.
+    pub fn open_to_overwrite(path: impl AsRef<Path>) -> Result<DeviceFile> {
+        let path = path.as_ref();
         let file = std::fs::OpenOptions::new().read(true).write(true).open(path).map_err(|e| match e.kind() {
-            io::ErrorKind::PermissionDenied => {
-                Error::Permission(format!("checking the capacity of {path} needs administrator rights"))
-            }
+            io::ErrorKind::PermissionDenied => Error::Permission { path: path.into() },
             _ => Error::Io { path: path.into(), source: e },
         })?;
         Ok(DeviceFile { file })

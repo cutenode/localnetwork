@@ -1088,6 +1088,34 @@ describe('likes pages', () => {
 		]);
 		expect(response.lookupFailed).toBe(3);
 	});
+
+	it('keeps no address that is not a web address, from an answer or from the page', async () => {
+		render(
+			publicLikesPage({
+				user: 'dj',
+				items: [
+					likedRow(1, { artwork: '' }),
+					likedRow(2, { artwork: '', purchase: { url: 'javascript:alert(1)', label: 'Buy' } })
+				]
+			}),
+			'/dj/likes'
+		);
+		hydrationScript([
+			apiClientEntry(),
+			{
+				hydratable: 'sound',
+				data: likedTrack(1, { purchaseUrl: 'javascript:alert(1)', artworkUrl: 'data:image/png,x', avatarUrl: '/a.jpg' })
+			}
+		]);
+		mockFetch(() => jsonResponse({}, 404));
+		await loadContentScript();
+
+		const [first, second] = (await getDetails()).tracks;
+		expect(first.details).toMatchObject({ purchaseUrl: '', artworkUrl: '' });
+		expect(first.artworkUrl).toBe('');
+		// The page's own link to it, unwrapped from gate.sc, is no link either.
+		expect(second.details).toBeNull();
+	});
 });
 
 describe('resolving tracks one at a time', () => {

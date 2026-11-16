@@ -1,4 +1,6 @@
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { hostileInboxItem } from '#lib/testing/hostile-text.ts';
 import type { NotificationView } from '#lib/types.ts';
 import { silentLogger } from '../logger';
 import { confirmationSender, type Email, emailChannel, LogEmailSender, renderEmail, ResendEmailSender } from './email';
@@ -54,6 +56,59 @@ describe('renderEmail', () => {
 		expect(email.headers).toEqual({ 'List-Unsubscribe': `<${unsubscribe}>` });
 		expect(email.text).toContain(`Turn these emails off: ${unsubscribe}`);
 		expect(email.to).toBe('neon@example.test');
+	});
+
+	describe('for anything people write', () => {
+		const site = 'https://localnetwork.computer';
+		const batches = fc.array(hostileInboxItem(), { minLength: 1, maxLength: 5 });
+		// Made by randomBytes(32).toString('base64url') (channels.ts).
+		const token = fc.option(fc.stringMatching(/^[\w-]{43}$/), { nil: null });
+
+		const render = (batch: NotificationView[], unsubscribeToken: string | null) =>
+			renderEmail(batch, { ...to, unsubscribeToken }, site);
+
+		const line = (notice: NotificationView) => [notice.title, notice.body].filter(Boolean).join(': ');
+		const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" } as const;
+
+		const unescape = (html: string) =>
+			html.replace(/&(amp|lt|gt|quot|#39);/g, (_, name: keyof typeof ENTITIES) => ENTITIES[name]);
+
+		/** The template's own markup: its links, and the paragraphs and box around them. */
+		const TEMPLATE_TAGS = /<a href="[^"]*">|<\/a>|<p(?: style="[^"]*")?>|<\/p>|<div style="[^"]*">|<\/div>/g;
+
+		it("keeps what people wrote as text, in links that only go to the site's own pages", () => {
+			fc.assert(
+				fc.property(batches, token, (batch, unsubscribeToken) => {
+					const { html } = render(batch, unsubscribeToken);
+
+					expect(html.replace(TEMPLATE_TAGS, '')).not.toMatch(/[<>"']/);
+
+					const links = [...html.matchAll(/<a href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, label]) => ({
+						href: unescape(href),
+						label: unescape(label)
+					}));
+
+					expect(links).toHaveLength(batch.length + 3);
+					expect(links.slice(0, batch.length)).toEqual(
+						batch.map((notice) => ({ href: `${site}${notice.href}`, label: line(notice) }))
+					);
+
+					for (const { href } of links) expect(new URL(href).origin).toBe(site);
+				})
+			);
+		});
+
+		it('writes the plain text part as people wrote it, with no markup of its own', () => {
+			fc.assert(
+				fc.property(batches, token, (batch, unsubscribeToken) => {
+					const { text } = render(batch, unsubscribeToken);
+					const written = batch.map((notice) => `${line(notice)}\n${site}${notice.href}`);
+
+					for (const part of written) expect(text).toContain(part);
+					expect(written.reduce((rest, part) => rest.replace(part, ''), text)).not.toMatch(/[<>&"']/);
+				})
+			);
+		});
 	});
 });
 

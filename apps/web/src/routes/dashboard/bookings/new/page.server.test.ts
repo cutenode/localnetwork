@@ -1,6 +1,7 @@
 import { isRedirect } from '@sveltejs/kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, DJ, NO_SPACES, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
+import { parseJson } from '#lib/server/db/index.ts';
 import { inquiryDefaults } from '#lib/shows.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import type { Viewer } from '#lib/types.ts';
@@ -118,12 +119,12 @@ it("won't open an inquiry to a project that's missing or not active, or to the v
 	await expect(loaded(DJ, '')).rejects.toMatchObject({ status: 303, location: `/projects/${f.project.slug}` });
 });
 
-/** Sends the inquiry form to `slug` as `did`, the way the browser posts it. */
-const inquire = async (did: string, form: Record<string, string>, slug = f.project.slug) =>
+/** Sends the inquiry form to `slug` as `did`, the way the browser posts it, back to the URL it opened at. */
+const inquire = async (did: string, form: Record<string, string>, slug = f.project.slug, query = '') =>
 	callRoute(actions.default, {
 		app: f.t,
 		viewer: await f.t.viewer(did),
-		url: `/dashboard/bookings/new?project=${slug}`,
+		url: `/dashboard/bookings/new?project=${slug}${query}`,
 		form
 	});
 
@@ -148,6 +149,44 @@ it('starts a booking thread from the inquiry and opens it', async () => {
 
 	expect(thread).toMatchObject({ title: 'Rooftop Rave', project: { name: 'Neon Tide' } });
 	expect(redirect).toMatchObject({ status: 303, location: `/dashboard/bookings/${thread.skey}` });
+});
+
+/** The planner show each inquiry sent names, as the booking space holds it. */
+const plannerShows = async () =>
+	(await f.t.db.selectFrom('bookingEvent').select('record').where('kind', '=', 'inquiry').execute()).map(
+		(row) => parseJson<{ plannerShow?: string }>(row.record, {}).plannerShow
+	);
+
+it('names the planner show an inquiry started from, which the thread links back to for the promoter', async () => {
+	const promoter = await f.t.viewer(PROMOTER);
+
+	const rkey = await f.t.planner.saveShow(promoter, {
+		details: { title: 'Rooftop Rave' },
+		lineup: [{ project: f.project.uri, status: 'considering' }]
+	});
+
+	await redirectOf(
+		inquire(PROMOTER, { title: 'Rooftop Rave', message: 'Are you free?' }, f.project.slug, `&show=${rkey}`)
+	);
+
+	const [thread] = await f.t.bookings.threadsFor(PROMOTER);
+
+	expect(await plannerShows()).toEqual([
+		`at://${PROMOTER}/space/computer.localnetwork.space.planner/self/${PROMOTER}/computer.localnetwork.planner.show/${rkey}`
+	]);
+	expect((await f.t.bookings.thread(promoter, thread.space)).links.plannerShow).toBe(rkey);
+});
+
+it("names no planner show for one that isn't the sender's, whatever the form says", async () => {
+	const theirs = await f.t.planner.saveShow(await f.t.viewer(ADMIN), { details: { title: 'Not yours' }, lineup: [] });
+	const forged = `at://${ADMIN}/space/computer.localnetwork.space.planner/self/${ADMIN}/computer.localnetwork.planner.show/${theirs}`;
+
+	for (const query of [`&show=${theirs}`, '&show=junk', ''])
+		await redirectOf(
+			inquire(PROMOTER, { title: 'Rooftop Rave', message: 'Are you free?', plannerShow: forged }, f.project.slug, query)
+		);
+
+	expect(await plannerShows()).toEqual([undefined, undefined, undefined]);
 });
 
 it('keeps what was typed when the inquiry is refused', async () => {

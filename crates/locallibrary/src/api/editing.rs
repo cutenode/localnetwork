@@ -500,7 +500,11 @@ fn delete_history_edits(store: Option<&Store>, req: &DeleteHistoryRequest, ctx: 
             )
             .with("drive", &req.drive)
             .with("lists", &unsaved)
-            .action(Action::call("pull", serde_json::json!({ "drive": req.drive }), "Pull the drive into the store"))
+            .action(Action::call(
+                "pull.apply",
+                serde_json::json!({ "drive": req.drive }),
+                "Pull the drive into the store",
+            ))
             .action(Action::retry(serde_json::json!({ "force": true }), "Delete them anyway")));
         }
     }

@@ -1538,7 +1538,7 @@ fn a_plugin_that_clashes_is_left_out_saying_why(tc: TestCase) {
             )
         }
         1 => {
-            let c = tc.draw(gs::sampled_from(&["eject", "info"][..]));
+            let c = tc.draw(gs::sampled_from(&["eject", "set"][..]));
             (plain(c), format!("the {c} plugin's id is a locallibrary command already"))
         }
         2 => {

@@ -631,6 +631,11 @@ impl App {
         if v != View::Profile {
             self.profile.account.stop_typing();
         }
+        // An error is about what was on screen when it came: leaving the view puts it away, as
+        // esc does (it's still in the log, `!`).
+        if v != self.view {
+            self.dismiss_errors();
+        }
         self.view = v;
         match v {
             View::Drives => {
@@ -667,8 +672,9 @@ impl App {
                         return;
                     }
                     let root = d.root.clone();
+                    // Before loading, which says why when it can't.
+                    self.set_view(View::Library);
                     self.load_library(root);
-                    self.view = View::Library;
                     self.focus = Focus::Playlists;
                 }
             }

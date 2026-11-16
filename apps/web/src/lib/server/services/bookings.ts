@@ -4,10 +4,17 @@ import { sql } from 'kysely';
 import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
-import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+import type { BookingEventView, BookingShowLinks, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import { type JsonRecord, memberSpacePolicy, type RecordRef } from '../atproto/repo-client';
-import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spaces';
+import {
+	bookingSpace,
+	parsePublicRecordUri,
+	parseSpaceRecordUri,
+	parseSpaceUri,
+	plannerSpace,
+	spaceRecordUri
+} from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { BookingThreadRow } from '../db/schema';
@@ -37,6 +44,8 @@ export type BookingRecord = {
 	status?: string;
 	note?: string;
 	promoter?: string;
+	plannerShow?: string;
+	announcedShow?: string;
 	onBehalfOf?: string;
 	createdAt: string;
 };
@@ -104,6 +113,20 @@ export const auditedProjects = (core: Pick<Core, 'db'>, project?: string) =>
 		.where(AUDITED_PROJECT, project ? '=' : 'is not', project ?? null)
 		.$narrowType<{ spaceUri: string }>();
 
+/** The key of `promoter`'s planner show `uri` names, or null for anything else, since the promoter writes the inquiry. */
+function plannerShowKey(promoter: string, uri: string | undefined): string | null {
+	const rkey = uri && parseSpaceRecordUri(uri)?.rkey;
+
+	return rkey && uri === spaceRecordUri(plannerSpace(promoter), promoter, COLLECTION.plannerShow, rkey) ? rkey : null;
+}
+
+/** Who wrote the public show `uri` names, and its key, or null when it names no show. */
+function announcedShow(uri: string | undefined): BookingShowLinks['announcedShow'] {
+	const parts = uri ? parsePublicRecordUri(uri) : null;
+
+	return parts?.collection === COLLECTION.show ? { did: parts.did, rkey: parts.rkey } : null;
+}
+
 /**
  * Booking threads. Each thread is its own space under the root authority
  * whose member list is the promoter plus whoever answers for the performer
@@ -116,8 +139,18 @@ export class BookingService {
 		private readonly performers: BookingPerformers
 	) {}
 
-	/** Opens a thread with the act or listed DJ `projectUri` names (BookingPerformers.forInquiry). */
-	async start(input: { actor: Viewer; projectUri: string; show: ShowDetails; message: string }): Promise<string> {
+	/**
+	 * Opens a thread with the act or listed DJ `projectUri` names (BookingPerformers.forInquiry). `plannerShow` is the
+	 * key of the actor's planner show it starts from, which the caller has read back from their planner: the inquiry
+	 * names it only under the actor's own planner space.
+	 */
+	async start(input: {
+		actor: Viewer;
+		projectUri: string;
+		show: ShowDetails;
+		message: string;
+		plannerShow?: string;
+	}): Promise<string> {
 		const { actor } = input;
 		const performer = await this.performers.forInquiry(input.projectUri, actor.did);
 		const message = input.message.trim();
@@ -134,6 +167,9 @@ export class BookingService {
 			message,
 			createdAt: nowIso()
 		};
+
+		if (input.plannerShow)
+			draft.plannerShow = spaceRecordUri(plannerSpace(actor.did), actor.did, COLLECTION.plannerShow, input.plannerShow);
 
 		if (onBehalf) draft.onBehalfOf = actor.did;
 		const inquiry = validateRecord(COLLECTION.bookingInquiry, draft);
@@ -376,6 +412,44 @@ export class BookingService {
 		);
 	}
 
+	/**
+	 * Notes in the booking `skey` that `actor`, one of its managers, announced it as the public show `show`. The root
+	 * writes it into the booking space, so the link stays private, and as a status record that keeps the thread
+	 * confirmed: the thread only trusts the root's records for it, and they never move its status or show in it.
+	 */
+	async announced(input: { actor: Viewer; skey: string; projectUri: string; show: string }): Promise<void> {
+		const space = await this.bySkey(input.skey);
+
+		if (!space) throw new NotFoundError('Booking thread not found');
+		const thread = await this.requireParticipant(input.actor, space);
+		const shown = parsePublicRecordUri(input.show);
+
+		if (
+			thread.role !== 'manager' ||
+			thread.status !== 'confirmed' ||
+			thread.projectUri !== input.projectUri ||
+			shown?.did !== input.actor.did ||
+			shown.collection !== COLLECTION.show
+		)
+			throw new ForbiddenError("That show wasn't announced from this booking");
+
+		const record = validateRecord(COLLECTION.bookingStatus, {
+			status: 'confirmed',
+			announcedShow: input.show,
+			createdAt: nowIso()
+		});
+
+		const root = await this.core.root();
+		const ref = await root.createSpaceRecord({ space, collection: COLLECTION.bookingStatus, record });
+		await this.indexEvent({
+			space,
+			uri: ref.uri,
+			repoDid: root.did,
+			collection: COLLECTION.bookingStatus,
+			value: record
+		});
+	}
+
 	/** Logs a status change `thread` doesn't allow, and returns the error that tells whoever tried. */
 	private async refusal(
 		input: { actor: Viewer; space: string; status: string },
@@ -579,14 +653,15 @@ export class BookingService {
 				updatedAt: nowIso()
 			};
 
-			// The root's own record opening the thread, which the inquiry right after it tells people about.
-			const opening = kind === 'status' && author === this.core.rootDid ? value.project : undefined;
+			// The root's own records: the one opening the thread, which the inquiry right after it tells people about, and
+			// those noting the show announced from it, which the thread page shows by its details.
+			const own = kind === 'status' && author === this.core.rootDid;
 
 			// Whatever project the inquiry named, the root's opening record decides it.
-			if (opening) update.projectUri = opening;
+			if (own && value.project) update.projectUri = value.project;
 			await db.updateTable('bookingThread').set(update).where('spaceUri', '=', input.space).execute();
 
-			if (!opening) await this.notifyParticipants({ kind, uri: input.uri, author, thread, value });
+			if (!own) await this.notifyParticipants({ kind, uri: input.uri, author, thread, value });
 		}
 
 		await this.applyStatuses(input.space);
@@ -773,11 +848,14 @@ export class BookingService {
 		).length;
 	}
 
-	async thread(viewer: Viewer, space: string): Promise<{ thread: BookingThreadView; events: BookingEventView[] }> {
+	async thread(
+		viewer: Viewer,
+		space: string
+	): Promise<{ thread: BookingThreadView; events: BookingEventView[]; links: BookingShowLinks }> {
 		const row = await this.requireParticipant(viewer, space);
 		const [thread] = await this.toViews([row]);
 
-		const events = await this.core.db
+		const rows = await this.core.db
 			.selectFrom('bookingEvent')
 			.selectAll()
 			.where('spaceUri', '=', space)
@@ -786,25 +864,36 @@ export class BookingService {
 			.orderBy('createdAt')
 			.execute();
 
+		const events = rows.map((event) => ({ ...event, value: parseJson<Partial<BookingRecord>>(event.record, {}) }));
 		const accounts = await this.core.accounts.views(events.map((event) => event.authorDid));
 
 		return {
 			thread,
 			events: events
 				.filter((event) => event.authorDid !== this.core.rootDid)
-				.map((event) => {
-					const record = parseJson<Partial<BookingRecord>>(event.record, {});
-
-					return {
-						uri: event.uri,
-						kind: event.kind,
-						author: accounts.get(event.authorDid),
-						createdAt: event.createdAt,
-						text: record.text ?? record.message ?? record.note,
-						status: record.status,
-						show: record.show
-					};
-				})
+				.map(({ uri, kind, authorDid, createdAt, value }) => ({
+					uri,
+					kind,
+					author: accounts.get(authorDid),
+					createdAt,
+					text: value.text ?? value.message ?? value.note,
+					status: value.status,
+					show: value.show
+				})),
+			links: {
+				plannerShow:
+					viewer.did === row.promoterDid
+						? plannerShowKey(
+								row.promoterDid,
+								events.find((event) => event.kind === 'inquiry' && event.authorDid === row.promoterDid)?.value
+									.plannerShow
+							)
+						: null,
+				announcedShow: announcedShow(
+					events.findLast((event) => event.authorDid === this.core.rootDid && event.value.announcedShow)?.value
+						.announcedShow
+				)
+			}
 		};
 	}
 
@@ -867,6 +956,25 @@ export class BookingService {
 				createdAt: row.createdAt
 			};
 		});
+	}
+
+	/** The threads `actor` started from their planner show `rkey`, as each one's key by the project it's with. */
+	async fromPlannerShow(actor: Viewer, rkey: string): Promise<Record<string, string>> {
+		const uri = spaceRecordUri(plannerSpace(actor.did), actor.did, COLLECTION.plannerShow, rkey);
+
+		const rows = await this.core.db
+			.selectFrom('bookingThread')
+			.innerJoin('bookingEvent', 'bookingEvent.spaceUri', 'bookingThread.spaceUri')
+			.select(['bookingThread.projectUri', 'bookingThread.skey'])
+			.where('bookingThread.promoterDid', '=', actor.did)
+			.where('bookingEvent.authorDid', '=', actor.did)
+			.where('bookingEvent.kind', '=', 'inquiry')
+			.where(sql<string>`json_extract(record, '$.plannerShow')`, '=', uri)
+			.orderBy('bookingThread.createdAt')
+			.execute();
+
+		// Oldest first, so a project asked twice links to the newest thread.
+		return Object.fromEntries(rows.map((row) => [row.projectUri, row.skey]));
 	}
 
 	async bySkey(skey: string): Promise<string | null> {
