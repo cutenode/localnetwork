@@ -512,9 +512,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # With the base the merge commit sits on, for the patch coverage.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - run: rustup toolchain install
       # nextest lists the tests by running each binary, which links ALSA.
       - uses: ./.github/actions/apt-packages
@@ -538,11 +540,21 @@ jobs:
           cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
           --json --summary-only --output-path target/coverage.json
       # Each crate against its own floor (tools/coverage/floors.json), which the workspace-wide
-      # thresholds above can hide a small crate's drop behind.
+      # thresholds above can hide a small crate's drop behind: a warning, as main's merges move them.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - run: node tools/coverage/cli.ts check target/coverage.json
+      - run: node tools/coverage/cli.ts report target/coverage.json
+      # The lines the pull request changed (tools/coverage/patch.json), from the same profiles.
+      - if: github.event_name == 'pull_request'
+        run: >-
+          cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
+          --lcov --output-path target/lcov.info
+      - if: github.event_name == 'pull_request'
+        uses: ./.github/actions/patch-coverage
+        with:
+          name: Rust
+          report: target/lcov.info
       # Into target/hegel/, from the hegel job; missing when it stopped early, and the summary leaves its row out.
       - if: ${{ !cancelled() }}
         continue-on-error: true

@@ -143,6 +143,7 @@ jobs:
               - '.github/actions/pr-comment/**'
               - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
+              - '.github/actions/patch-coverage/**'
               - '!**/*.md'
               - '!apps/locallibrary/bombadil/**'
               - '!apps/locallibrary/assets/icon.svg'
@@ -232,6 +233,8 @@ jobs:
               - '.github/actions/main-artifact/**'
               - '.github/actions/size-report/**'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
             # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
             # of the above but the Markdown and labels that the tool pages and
             # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs,
@@ -353,8 +356,12 @@ jobs:
               - '.github/actions/main-artifact/**'
               - '.github/actions/size-report/**'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
             atstore:
               - 'packages/atstore/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
               - 'apps/locallibrary/assets/icon.svg'
               - 'apps/locallibrary/bombadil/lib.mjs'
               # The playlist page's markup, which the marks capture draws from.

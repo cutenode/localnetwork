@@ -12,6 +12,8 @@ export default defineConfig({
 		],
 		coverage: {
 			provider: 'v8',
+			// Vitest's defaults, and lcov for CI's patch coverage.
+			reporter: ['text', 'html', 'clover', 'json', 'lcov'],
 			include: ['src/**/*.ts'],
 			// The CLI and the tools' recipes build and run the tools themselves, so `pnpm atstore` is
 			// their test; the sticks' tests need macOS, which CI isn't; the types are only types.
