@@ -47,12 +47,28 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "mp4"
+path = "fuzz_targets/mp4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wav"
+path = "fuzz_targets/wav.rs"
+test = false
+doc = false
+bench = false
+
 [dependencies]
 arbitrary = { version = "1.5", features = ["derive"] }
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
 loclib-anlz = { version = "0.1.0", path = "../crates/loclib-anlz" }
+loclib-audio = { version = "0.1.0", path = "../crates/loclib-audio" }
+loclib-interop = { version = "0.1.0", path = "../crates/loclib-interop", default-features = false, features = ["serato"] }
 loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }

@@ -320,9 +320,9 @@ impl Model {
     }
 
     /// Echo given access to `subject`, its default when it's its first: whether it could be (it's
-    /// kept, or echo has access to it already).
+    /// kept: an access to one signed out gets more by signing in again, not by being given it).
     pub(super) fn given(&mut self, subject: &'static str) -> bool {
-        if !self.has_access(subject) && !self.kept(subject) {
+        if !self.kept(subject) {
             return false;
         }
         if !self.has_access(subject) {

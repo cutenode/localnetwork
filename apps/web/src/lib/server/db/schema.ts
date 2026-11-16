@@ -36,6 +36,8 @@ export interface Database {
 	sharedSpace: SharedSpaceTable;
 	spacePerson: SpacePersonTable;
 	performer: PerformerTable;
+	venue: VenueTable;
+	venueBlock: VenueBlockTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -98,7 +100,7 @@ export interface RequestTable {
 	rkey: string;
 	kind: RequestKind;
 	projectUri: string | null;
-	/** What a list request asks staff to list (a profile's URI); null for other kinds. */
+	/** What a list request asks staff to list (a profile's URI), or the venue's space a claim is for; null otherwise. */
 	subjectUri: string | null;
 	status: RequestStatus;
 	record: string;
@@ -358,6 +360,36 @@ export interface PerformerTable {
 	formerly: string;
 	cid: string;
 	updatedAt: string;
+}
+
+/** A venue, from the root's venue record in its space. */
+export interface VenueTable {
+	spaceUri: string;
+	skey: string;
+	/** Its Foursquare place ID, unique among venues; null until someone adds it. */
+	fsqPlaceId: string | null;
+	/** Not unique: two venues can share a name. */
+	name: string;
+	/** The name lowercased with its spaces collapsed, to find the same name typed another way. */
+	nameKey: string;
+	/** Its city, from its address. */
+	locality: string | null;
+	/** Its country code, from its address. */
+	country: string;
+	/** The whole record, as JSON. */
+	record: string;
+	cid: string;
+	updatedAt: string;
+}
+
+/** Someone a venue blocked, from the root's block record in its public repo. */
+export interface VenueBlockTable {
+	uri: string;
+	/** The venue's space. */
+	venue: string;
+	/** The blocked profile's record, or the act's or party's listing URI. */
+	subject: string;
+	createdAt: string;
 }
 
 export interface SpaceInviteTable {

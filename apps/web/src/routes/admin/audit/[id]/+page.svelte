@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ArrowLeft, ShieldCheck, ShieldX } from '@lucide/svelte';
+	import { roleLabel } from '#lib/capabilities.ts';
 	import DiffTable from '#lib/components/DiffTable.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -23,7 +24,7 @@
 	<div>
 		<a href="/admin/audit" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Audit log</a>
 		<h1 class="mt-3 text-heading font-semibold sm:text-title">{e.summary}</h1>
-		<p class="mt-2 text-small text-fg-muted"><span class="font-mono">#{e.seq}</span> · {formatDateTime(e.createdAt)} · <Handle account={data.actor} />{e.actorRole ? ` (${e.actorRole})` : ''} · via {e.via}</p>
+		<p class="mt-2 text-small text-fg-muted"><span class="font-mono">#{e.seq}</span> · {formatDateTime(e.createdAt)} · <Handle account={data.actor} />{e.actorRole ? ` (${roleLabel(e.actorRole).toLowerCase()})` : ''} · via {e.via}</p>
 	</div>
 
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">

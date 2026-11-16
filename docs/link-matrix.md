@@ -10,7 +10,7 @@ The status column says where main stands, read at [`fe5cadef`](https://github.co
 - **missing**: both pages exist and the link doesn't.
 - **new page**: one end has no page yet, so the link comes with that page.
 
-On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<slug>`.
+On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<key>/<name>` ([ADR 0016](adr/0016-names-repeat-keys-and-handles-identify.md)).
 
 - [Page types](#page-types)
 - [Profile](#profile)
@@ -34,9 +34,9 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | Page type               | Path                                                                 | On main                                                                                                                                                                                                    |
 | ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Profile                 | `/@<handle>`, tabs as `?tab=`                                        | yes, without tabs                                                                                                                                                                                          |
-| Act                     | `/act/<slug>`                                                        | as `/projects/<slug>`                                                                                                                                                                                      |
-| Party                   | `/party/<slug>`                                                      | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
-| Venue                   | `/venue/<slug>`                                                      | no                                                                                                                                                                                                         |
+| Act                     | `/act/<key>/<name>`                                                  | as `/projects/<slug>`                                                                                                                                                                                      |
+| Party                   | `/party/<key>/<name>`                                                | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
+| Venue                   | `/venue/<key>/<name>`                                                | no                                                                                                                                                                                                         |
 | Event                   | `/party/<slug>/<event>`, or `/@<handle>/events/<rkey>` with no party | no: shows are rows in `/shows` and on act pages                                                                                                                                                            |
 | Set (and mix)           | `/@<handle>/sets/<rkey>`; `/mixes` lists                             | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>`                                                                                                                    |
 | Press kit               | under its performer                                                  | `/projects/<slug>/press-kits/<rkey>`                                                                                                                                                                       |
@@ -208,13 +208,13 @@ The landing page for people who book DJs. It links what a promoter uses, with re
 
 ## Home
 
-| Links to                               | When       | On main  | Source                                                                                                                                                                                       |
-| -------------------------------------- | ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Upcoming events in your area           | signed out | new page | upcoming shows, each linking its act [routes/+page.svelte:53](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%2Bpage.svelte#L53) |
-| DJs and mixes from your area           | signed out | new page |                                                                                                                                                                                              |
-| For promoters                          | signed out | missing  | the home page's Find DJs search moved to `/for-promoters`                                                                                                                                    |
-| What your network did, under Following | signed in  | new page |                                                                                                                                                                                              |
-| Suggestions, under For you             | signed in  | new page |                                                                                                                                                                                              |
+| Links to                               | When                               | On main  | Source                                                                                                                                                                                       |
+| -------------------------------------- | ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upcoming events in your area           | signed out                         | new page | upcoming shows, each linking its act [routes/+page.svelte:53](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%2Bpage.svelte#L53) |
+| DJs and mixes from your area           | signed out, the socialHome flag on | on main  | "Who's playing near" and "Mixes from around" [lib/components/home/SocialHome.svelte](../apps/web/src/lib/components/home/SocialHome.svelte)                                                  |
+| For promoters                          | signed out, the socialHome flag on | on main  | "Local Network for promoters" under the search [lib/components/home/SocialHome.svelte](../apps/web/src/lib/components/home/SocialHome.svelte)                                                |
+| What your network did, under Following | signed in                          | new page |                                                                                                                                                                                              |
+| Suggestions, under For you             | signed in                          | new page |                                                                                                                                                                                              |
 
 ## Diagrams
 

@@ -236,6 +236,9 @@ importers:
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
+      '@types/picomatch':
+        specifier: ^4.0.3
+        version: 4.0.3
       '@vitest/coverage-v8':
         specifier: ^5.0.5
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
@@ -266,6 +269,9 @@ importers:
       oxlint-tsgolint:
         specifier: ^7.0.2004
         version: 7.0.2004
+      picomatch:
+        specifier: ^4.0.7
+        version: 4.0.7
       railway:
         specifier: ^3.16.0
         version: 3.16.0
@@ -4441,6 +4447,9 @@ packages:
 
   '@types/pg@8.15.6':
     resolution: {integrity: sha512-NoaMtzhxOrubeL/7UZuNTrejB4MPAJ0RpxZqXQf2qXuVlTPuG6Y8p4u9dKRaue4yjmC7ZhzVO2/Yyyn25znrPQ==}
+
+  '@types/picomatch@4.0.3':
+    resolution: {integrity: sha512-iG0T6+nYJ9FAPmx9SsUlnwcq1ZVRuCXcVEvWnntoPlrOpwtSTKNDC9uVAxTsC3PUvJ+99n4RpAcNgBbHX3JSnQ==}
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
@@ -12574,6 +12583,8 @@ snapshots:
       '@types/node': 24.19.2
       pg-protocol: 1.16.1
       pg-types: 2.2.0
+
+  '@types/picomatch@4.0.3': {}
 
   '@types/react@19.3.0':
     dependencies:

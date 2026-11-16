@@ -36,9 +36,9 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 - List a new project, or claim one an admin added. Several managers per project (crews, agents).
 - When a project's managers change, a new manager joins its booking threads that are still being worked out or confirmed for an upcoming show, and a manager who leaves is taken out of all of them. The promoter always stays. The same step keeps the project's backstage, its press kit request space and its press kit spaces to the current managers, leaving the people granted a press kit. The app repeats this at startup, every hour, and on the System page's bootstrap, so a change that failed part way still finishes. A thread follows the project named in the root's opening record, which the promoter can't rewrite, or for a thread opened before that record named one, in its `booking.create` audit entry (written by the app, and rebuilt only from the root's copy). A thread with neither, or where the two disagree, is left as it is.
-- Acts, parties and venues each get a space under the root. Their pages ship dark behind two release flags: `spacePages` for the public act, party, venue and event pages, and `peopleSpaces` for the member pages (inviting people, invite links, asking to join, people lists). A route behind one calls `requireFlag` (`src/lib/server/http.ts`), which answers 404 while the flag is off for the viewer. There are no such pages yet. A performer's space also holds the root's `computer.localnetwork.performer` record, which says whether it's an act (with what its page shows) or a DJ's own space for their backstage and managers. Its booking details go in a separate booking details space with the same key, which only the root is in, so members can't read them from another client ([ADR 0011](../../docs/adr/0011-booking-details-stay-out-of-the-performer-space.md)). Its people records say who's in it, in what role, with which capabilities, and whether they're hidden from everyone outside it. The root writes every record there, for someone who holds the capability the change needs or for staff, whose changes the audit log marks with their role. Someone always has to be left who can manage its people, unless staff decide otherwise. The space's members follow its people: everyone reads, and those with a capability that writes also write. The app repeats that at startup and every hour, so a member update that failed part way still finishes.
+- Acts, parties and venues each get a space under the root. Their pages ship dark behind two release flags: `spacePages` for the public act, party, venue and event pages, and `peopleSpaces` for the member pages (inviting people, invite links, asking to join, people lists). A route behind one calls `requireFlag` (`src/lib/server/http.ts`), which answers 404 while the flag is off for the viewer. There are no such pages yet. A performer's space also holds the root's `computer.localnetwork.performer` record, which says whether it's an act (with what its page shows) or a DJ's own space for their backstage and managers. A venue's space holds the root's `computer.localnetwork.venue` record: its name, address and coordinates, its Foursquare place once known, and whether events naming it show at once (Anyone can list) or only once confirmed (Venue approves). Names repeat ([ADR 0016](../../docs/adr/0016-names-repeat-keys-and-handles-identify.md)): an act, party or venue goes by its space key, and its page will be `/<kind>/<key>/<name>` (`spacePagePath` in `src/lib/space-paths.ts`), where the name part is only there to read. Anyone signed in can add a venue, which puts nobody in its space (owning one takes a confirmed claim). Adding a place that's already a venue gives back that venue, and so does adding the same name in the same city and country unless the two are different Foursquare places. Forms pick one with the venue picker (`src/lib/components/VenuePicker.svelte`): an existing venue by name, with its city on a second line to tell same-named ones apart, or a new one by its name and its city from the city search, both through `/api/venues`, which answers 404 while `spacePages` is off. A new venue's Foursquare place stays empty until staff add it. A performer's booking details go in a separate booking details space with the same key, which only the root is in, so members can't read them from another client ([ADR 0011](../../docs/adr/0011-booking-details-stay-out-of-the-performer-space.md)). Each space's people records say who's in it, in what role, with which capabilities, and whether they're hidden from everyone outside it. The root writes every record there, for someone who holds the capability the change needs or for staff, whose changes the audit log marks with their role. Someone always has to be left who can manage its people, unless staff decide otherwise. The space's members follow its people: everyone reads, and those with a capability that writes also write. The app repeats that at startup and every hour, so a member update that failed part way still finishes.
 - People come into one by an invite to their account, an invite link, or a request to join that someone with people.manage approves, and choose then whether to be hidden. A link's token is shown once and only its hash is kept, and a link never lets anyone manage people. Invites last 30 days and links 7 unless their maker picks up to 90, someone can have 50 open in a space at once, and both go when their maker can no longer add people, unless staff made them.
-- When staff list one, the root writes a `computer.localnetwork.listing` record to its public repo with what its public page shows, the people in a listed role (an act's members, a party's hosts and cohosts) who haven't hidden, and an act's managers who haven't. It's rewritten only when that changes, and checked every hour. A listing points at a public page, so none is written until `spacePages` is on for everyone, and turning it off takes them down at the next hourly check. Only acts have something to list so far (their form, basics and performer sections; the avatar is a blob the root uploaded), and a DJ's own space is never listed. HappyView keeps only the root's listings (`lua/computer/localnetwork/listing.lua`). Staff see every space and its people, hidden ones marked, at `/admin/spaces`, where they add and remove people, change roles, and list or unlist it.
+- When staff list one, the root writes a `computer.localnetwork.listing` record to its public repo with what its public page shows, the people in a listed role (an act's members, a party's hosts and cohosts) who haven't hidden, and an act's managers who haven't. It's rewritten only when that changes, and checked every hour. A listing points at a public page, so none is written until `spacePages` is on for everyone, and turning it off takes them down at the next hourly check. Acts and venues have something to list so far: an act's form, basics and performer sections (the avatar is a blob the root uploaded), and a venue's name, address and coordinates. A venue is listed as soon as it's added, since it's a public place, and a DJ's own space is never listed. HappyView keeps only the root's listings (`lua/computer/localnetwork/listing.lua`). Staff see every space and its people, hidden ones marked, at `/admin/spaces`, where they add and remove people, change roles, and list or unlist it.
 - Profiles cover genres, city and travel radius, set types and lengths, formats, room sizes, any number of fee levels (each a tier, with an optional label and range), links, playable SoundCloud/Mixcloud/YouTube mixes, highlights, photo.
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the new-project and edit forms. The profile shows when and where it was played, and says so if the set changed after it was linked.
@@ -56,7 +56,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 ### Fans
 
 - Follow a project, or a person from their profile, with any Atmosphere account. The follow is a `computer.localnetwork.follow` record in the follower's own repo whose subject is the project's or the profile's URI, so following a person and following a project they play in stay separate; unfollowing deletes it. The button shows the follower count, and signed out it goes to sign-in. Only a profile record can be followed, and not by its own account.
-- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications for shows yet.
+- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie the home page reads too), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications for shows yet.
+- Behind the `socialHome` flag, the home page is for going out. Signed out, it shows what's on near the city picked last, who's playing there, their mixes and the charts, and asks people to sign in. Signed in, it leads with the shows of the projects you follow, with what's near your profile's home city beside them, leaving out what you already follow.
 
 ### Artists and charts
 
@@ -88,7 +89,7 @@ What's set is kept as `staff.flag` and `staff.group` records in the staff space,
 - Admins add and edit projects directly, change visibility, manage managers, and grant moderator/admin roles.
 - Staff are members of the audit, moderation, staff and industry spaces. Every 5 minutes, at startup, and on the System page's bootstrap, the app compares those member lists with the roles in the root's repo and takes out anyone without one, which finishes a removal that failed and drops an account taken out of `ADMIN_DIDS`. The audit log marks a removal that left someone in a space as failed, then records when they're out, and `/admin/staff` lists who's left until then. A space credential already issued stays valid for up to 10 minutes after someone leaves.
 - Admins verify project managers' accounts on Bluesky from the root account (`/admin/verifications`), which reads the verifications and the display names they compare from HappyView. Apps that trust the root show a badge while the account's handle and display name match the ones verified, so a rename shows as out of date until it's re-issued. An approved claim from the act's own account or a member, and each manager on a project's admin page, link straight to it. Bluesky's own app only shows verifications from accounts it has made trusted verifiers.
-- Moderators review creates, claims, and changes with field-level diffs and stale-revision warnings. Nobody can review their own request.
+- Moderators review creates, claims, and changes with field-level diffs and stale-revision warnings. Someone who runs a venue claims it at `/dashboard/venues/<key>/claim` (behind `peopleSpaces`) with the same evidence a project claim takes, and approving it adds them to the venue's space as an owner. At `/dashboard/venues/<key>/settings` owners choose Anyone can list (events naming the venue show at once, waiting for the venue until confirmed) or Venue approves (they show only once confirmed), and block people, acts and parties. A block is a public `computer.localnetwork.venue.block` record in the root's repo, like a Bluesky block, indexed from there at startup and hourly. `VenueRules` (`src/lib/server/services/venue-rules.ts`) is what event, relationship and inquiry code asks, and a blocked side's result looks like any event still waiting for the venue (ADR 0014). Nobody can review their own request.
 - A complete audit log of every account's actions, with filters, per-entry detail, hash-chain verification, and JSONL export.
 - System page: root spaces and policies, per-space and per-repo sync status, records stuck in projection, audit delivery backlog, HappyView status and script sync, one-click bootstrap/resync.
 
@@ -119,6 +120,7 @@ What's set is kept as `staff.flag` and `staff.group` records in the staff space,
 | Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Members (staff via app) |
 | Who a performer is (`computer.localnetwork.performer`)                    | The performer's space, at the key `self`                          | Root, for page.edit holders or staff | Members (staff via app) |
 | A performer's booking details (`computer.localnetwork.performer.details`) | One booking details space per performer under the root            | Root                                 | Via the app only        |
+| Venues (`computer.localnetwork.venue`)                                    | The venue's space, at the key `self`                              | Root, for anyone signed in or staff  | Members (staff via app) |
 | Bluesky display names (`app.bsky.actor.profile`)                          | The account's own public repo                                     | The account, in any Bluesky app      | Admins, via HappyView   |
 | Managers' Bluesky follows (`app.bsky.graph.follow`)                       | The manager's public repo                                         | The manager, in any Bluesky app      | The app, via HappyView  |
 | The bug report space (`app.userinput.space`)                              | Its owner's public repo on userinput.app                          | userinput.app                        | The app, via HappyView  |
@@ -581,7 +583,7 @@ flowchart TD
     Bucket[("Bucket: database backups")]
   end
   subgraph Client["In the browser"]
-    Cookies["Cookies: ln_session, ln_signed_out,<br/>ln_flag_preview, the shows page's city"]
+    Cookies["Cookies: ln_session, ln_signed_out,<br/>ln_flag_preview, the city picked last for shows"]
     Local["localStorage: unsent form drafts,<br/>the hotkeys preference"]
   end
   Repos -- "Jetstream, re-reads" --> HV
@@ -636,7 +638,7 @@ Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/
 
 ### Local tables: shared spaces
 
-The tables that index performer, party and venue spaces, and who each performer space is for. Each line is a column the rows share.
+The tables that index performer, party and venue spaces, who each performer space is for, and each venue's place. Each line is a column the rows share.
 
 ```mermaid
 erDiagram
@@ -645,6 +647,7 @@ erDiagram
   shared_space ||--o{ space_invite_link : "space_uri"
   shared_space ||--o{ space_join_request : "space_uri"
   shared_space ||--o| performer : "space_uri"
+  shared_space ||--o| venue : "space_uri"
   shared_space {
     text space_uri PK
     text kind
@@ -672,6 +675,14 @@ erDiagram
     text kind
     text slug
     text did
+  }
+  venue {
+    text space_uri PK
+    text skey
+    text fsq_place_id UK
+    text name_key
+    text locality
+    text country
   }
 ```
 

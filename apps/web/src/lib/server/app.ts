@@ -38,6 +38,9 @@ import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
+import { venueListingSource } from './services/venue-index';
+import { VenueService } from './services/venues';
+import { VenueRules } from './services/venue-rules';
 import { PerformerService } from './services/performer-registry';
 import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
@@ -245,7 +248,6 @@ export async function createApp(options: CreateAppOptions) {
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
 	const performers = new PerformerSearch(core, happyView, projects, profiles);
-	const requests = new RequestService(core, projects, profiles, djListings);
 
 	const recordings = new RecordingService(
 		indexedRepo,
@@ -262,7 +264,13 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const listings = new ListingWriter(core, flags, { performer: performerListingSource(db), ...options.listingSources });
+
+	const listings = new ListingWriter(core, flags, {
+		performer: performerListingSource(db),
+		venue: venueListingSource(db),
+		...options.listingSources
+	});
+
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
@@ -280,6 +288,9 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const venues = new VenueService(core, sharedSpaces, limits.write);
+	const venueRules = new VenueRules(core);
+	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
 	const bugReports = new BugReportService({
@@ -395,6 +406,8 @@ export async function createApp(options: CreateAppOptions) {
 		performers,
 		performerRegistry,
 		projectMigration,
+		venues,
+		venueRules,
 		recordings,
 		supports,
 		epks,
@@ -514,6 +527,7 @@ export async function createApp(options: CreateAppOptions) {
 			await syncer.syncAll();
 			// After the sync, so the index has every space's people, and the requests and grants left in press kit spaces.
 			await listings.reconcile();
+			await venues.reconcileBlocks();
 			await moveKitSpaces(core, epks);
 		},
 
@@ -550,6 +564,8 @@ export async function createApp(options: CreateAppOptions) {
 			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
 			// where one differs.
 			every(60 * 60_000, () => listings.reconcile(), 'listings');
+			// Indexes the root's venue blocks and drops ones that are gone: one listRecords of the root's own repo.
+			every(60 * 60_000, () => venues.reconcileBlocks(), 'venue-blocks');
 			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');
