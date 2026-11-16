@@ -36,7 +36,8 @@ impl CollectionReads<'_> {
     /// `collection.copy`: a copy of `master.db` as of one moment, still encrypted, written to
     /// `into` (a new file in the request's scratch folder, absolute). The copy leaves out the rows
     /// rekordbox's cloud agent signs in with, unless `with_credentials` (as rekordbox's own
-    /// backup keeps them).
+    /// backup keeps them). Without them, a `master.db` with a trigger is refused, as the trigger
+    /// could keep them.
     pub fn copy(&self, into: &Path, with_credentials: bool) -> Result<CollectionCopy, RpcError> {
         let params = json!({ "into": into, "with_credentials": with_credentials });
         self.host.call("collection.copy", &params)

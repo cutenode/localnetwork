@@ -1,6 +1,9 @@
 //! A plugin's command planned first, about rekordbox's collection, in the player.
 
-use super::super::super::app::testing::{blank, confirming, echo_plugin_with, press, settle, wait};
+use locallibrary::plugin::PluginNotice;
+use loclib_plugin::{CommandAction, HostAction, Suggestion};
+
+use super::super::super::app::testing::{blank, confirming, echo_plugin_with, key, press, settle, wait};
 use super::*;
 
 /// `keep`: the test plugin's command planned first, about the collection alone.
@@ -40,4 +43,43 @@ fn a_planned_command_about_the_collection_is_confirmed_then_runs() {
     wait(&mut app, |a| a.job.is_none());
     let answer = panel(&app);
     assert!(answer.contains("\"request\"") && !answer.contains("\"dry_run\": true"), "{answer}");
+}
+
+/// Echo suggesting its command `command` with `params`, saying `message`.
+fn suggests_command(message: &str, command: &str, params: serde_json::Value) -> PluginNotice {
+    let serde_json::Value::Object(params) = params else { panic!("params are an object") };
+    let action = HostAction::Command(CommandAction { command: command.into(), params });
+    PluginNotice { plugin: "echo".into(), message: message.into(), suggests: Some(Suggestion::Action(action)) }
+}
+
+/// A command a plugin suggests is reviewed from the palette as the user would run it, with the
+/// params suggested: planned first, the question its dry run asks is a list to choose from, and
+/// once chosen it's planned again with the answer, confirmed, then run. One the plugin doesn't
+/// have starts nothing.
+#[test]
+fn a_suggested_planned_command_asks_then_is_confirmed_and_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    echo_plugin_with(dir.path(), KEEP);
+    let (mut app, _store) = blank(Screen::Library);
+    let item = json!({ "label": "Monday", "value": "monday" });
+    let question = json!({ "title": "Which backup?", "param": "backup", "items": [item] });
+    let told = app.plugin_notices();
+    told(suggests_command("keep a copy", "keep", json!({ "plan": { "choose": question } })));
+    told(suggests_command("back up", "backup", json!({})));
+    wait(&mut app, |a| a.suggested.len() == 2);
+    press(&mut app, ":review: keep a copy\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(picker(&app).title, "Which backup?");
+    key(&mut app, KeyCode::Enter);
+    let (operation, _) = confirming(&mut app);
+    assert_eq!(operation, "echo.command.keep");
+    settle(&mut app);
+    press(&mut app, "y");
+    wait(&mut app, |a| a.job.is_none());
+    let answer = panel(&app);
+    assert!(answer.contains("\"backup\": \"monday\""), "{answer}");
+    app.modal = None;
+    press(&mut app, ":review: back up\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert!(app.modal.is_none(), "nothing to run");
 }

@@ -306,8 +306,9 @@ fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(
     let conn = Connection::open_with_flags(&copy, flags | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Error::parse(path, e))?;
     // Anything that can write rekordbox's folder could have written this, and any path can be
-    // given. Only SELECTs run here, so no trigger fires; views aren't refused, as rekordbox may
-    // make some.
+    // given. Reads run only SELECTs, which fire no trigger. The one write, taking the cloud
+    // agent's sign-in out of a copy (`files::export`), refuses a file with a trigger first. Views
+    // aren't refused, as rekordbox may make some.
     let why = onelibrary::distrust(&conn, &[], "rekordbox")
         .and_then(|why| Ok(why.or(onelibrary::damaged(&conn)?)))
         .map_err(|e| Error::parse(path, e))?;
