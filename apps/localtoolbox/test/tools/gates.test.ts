@@ -238,6 +238,29 @@ describe('Hypeddit', () => {
 		expect(await message(hypeddit.unlock(GATE, details({ email: 'me@example.com' })))).toMatch(/CAPTCHA/);
 	});
 
+	it('reads a gate that writes its attributes in another order, quoting and escaping', async () => {
+		const reordered = page({ csrf: 'C&amp;T' })
+			.replace('<meta name="csrf-token" content="C&amp;T">', `<meta content='C&amp;T' name="csrf-token">`)
+			.replace(
+				'<input id="gvt" value="TOKEN">',
+				'<input data-value="decoy" value="TOK&quot;EN" data-id="wrndk" id="gvt">'
+			);
+
+		const calls = net(routes({ 'hypeddit.com/886rp1': () => res(reordered) }));
+
+		await hypeddit.unlock(GATE, details());
+		expect(form(calls, '/gate/ge')).toEqual({ vt: 'TOK"EN', uid: '886rp1' });
+		expect(form(calls, '/gate/download/ul')!.wrndk).toBe('1381436x5194282');
+		expect(calls[1].options.headers!['X-CSRF-TOKEN']).toBe('C&T');
+	});
+
+	it('hands on nothing but a web address as the file', async () => {
+		for (const URL of [' ', '/gate/file', 'chrome://settings', 'javascript:alert(1)']) {
+			net(routes({ '/gate/download/ul': () => res({ download_status: true, URL }) }));
+			expect(await message(hypeddit.unlock(GATE, details()))).toMatch(/wouldn’t unlock/);
+		}
+	});
+
 	it('reports a page that is not a gate, one that will not load, and one that will not open', async () => {
 		net(routes({ 'hypeddit.com/886rp1': () => res('<html></html>') }));
 		expect(await message(hypeddit.unlock(GATE, details()))).toMatch(/not a Hypeddit gate/);

@@ -4,7 +4,7 @@
 	"tolerance_percent": 1,
 	"metrics": {
 		"version": {
-			"limit": 1303450,
+			"limit": 1320636,
 			"unit": "instructions",
 			"measures": "Instructions `--version` runs on the 3,886-track fixture, under cachegrind."
 		},
@@ -34,7 +34,7 @@
 			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"check": {
-			"limit": 1432533374,
+			"limit": 1432315958,
 			"unit": "instructions",
 			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
 		},

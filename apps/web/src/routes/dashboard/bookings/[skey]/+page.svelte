@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
-	import { ArrowLeft, Megaphone, Send } from '@lucide/svelte';
+	import { ArrowLeft, CalendarCheck, Megaphone, NotebookPen, Send } from '@lucide/svelte';
 	import { tick } from 'svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
@@ -82,8 +82,13 @@
 		statusHeading?.focus();
 	};
 
-	// A confirmed booking is a show the act's managers can announce, filled in from these details.
-	const canAnnounce = $derived(thread.status === 'confirmed' && role === 'manager');
+	const announcedShow = $derived(data.links.announcedShow);
+
+	// A confirmed booking is a show the act's managers can announce, once, filled in from these details.
+	const canAnnounce = $derived(thread.status === 'confirmed' && role === 'manager' && !announcedShow);
+
+	// Whoever announced the show edits it from here; everyone else finds it with the act's other shows.
+	const announcedHref = $derived(announcedShow && thread.project ? (announcedShow.did === me ? `/dashboard/projects/${thread.project.slug}/shows/${announcedShow.rkey}` : `/projects/${thread.project.slug}#shows`) : null);
 
 	const ghost = 'rounded-md bg-well motion-safe:animate-pulse';
 </script>
@@ -153,6 +158,12 @@
 					{/if}
 					{#if show?.genres?.length}
 						<div class="flex flex-wrap gap-1.5">{#each show.genres as genre (genre)}<Tag>{genre}</Tag>{/each}</div>
+					{/if}
+					{#if data.links.plannerShow || announcedHref}
+						<p class="m-0 flex flex-wrap gap-x-4 gap-y-1 text-small">
+							{#if data.links.plannerShow}<a class="link inline-flex items-center gap-1.5" href="/dashboard/planner/shows/{data.links.plannerShow}"><NotebookPen class="size-4" aria-hidden="true" />In your planner</a>{/if}
+							{#if announcedHref}<a class="link inline-flex items-center gap-1.5" href={announcedHref}><CalendarCheck class="size-4" aria-hidden="true" />Announced show</a>{/if}
+						</p>
 					{/if}
 				</div>
 				<div class="flex flex-col gap-3 border-t border-line bg-sunken p-5">

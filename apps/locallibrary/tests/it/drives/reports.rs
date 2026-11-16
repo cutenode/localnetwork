@@ -190,10 +190,10 @@ fn diff_lists_what_changed_in_each_playlist() {
 
     let out = env.ok(&["diff", path(&main), path(&backup), "--summary"]);
     assert!(out.contains("Backup"), "{out}");
-    assert_eq!(env.ok(&["compare", path(&main), path(&backup)]), out);
-    let r = env.run(&["compare", path(&main), path(&backup), "--playlist", "Set"]);
+    assert_eq!(env.ok(&["diff", path(&main), path(&backup), "--summary"]), out);
+    let r = env.run(&["diff", path(&main), path(&backup), "--playlist", "Set", "--summary"]);
     assert_eq!(r.code, 2, "{}", r.out);
-    assert!(r.err.contains("--playlist doesn't go with --summary"), "{}", r.err);
+    assert!(r.err.contains("'--playlist <PLAYLIST>' cannot be used with '--summary'"), "{}", r.err);
 }
 
 #[test]

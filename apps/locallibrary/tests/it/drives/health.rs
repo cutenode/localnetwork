@@ -125,7 +125,7 @@ fn space_says_what_uses_a_drive_and_whether_the_library_fits_its_group() {
     let main = env.pulled("Main");
     let backup = env.blank("Backup");
     env.ok(&["--yes", "sync", "Main", path(&backup)]);
-    env.ok(&["--yes", "adopt", path(&backup), "--name", "Backup"]);
+    env.ok(&["--yes", "drive", "adopt", path(&backup), "--name", "Backup"]);
     // Audio nothing in the library plays: the first five by name, then how many more.
     for i in 1..=6 {
         let p = main.join(format!("Music/{i}.mp3"));

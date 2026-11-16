@@ -1,7 +1,7 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import type { BookingEventView, BookingThreadView, Viewer } from '#lib/types.ts';
+import type { BookingEventView, BookingShowLinks, BookingThreadView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
 import type { PageProps } from './$types';
 
@@ -44,6 +44,8 @@ const event = (did: string, kind: BookingEventView['kind'], text: string): Booki
 
 const inquiry = event('did:plc:pat', 'inquiry', 'Free in December?');
 
+const unlinked: BookingShowLinks = { plannerShow: null, announcedShow: null };
+
 const data = (
 	did: string,
 	status = 'open',
@@ -61,6 +63,7 @@ const data = (
 	thread: { ...thread(status), project: null },
 	project: thread(status).project,
 	events,
+	links: unlinked,
 	...overrides
 });
 
@@ -183,6 +186,31 @@ describe('whose turn and who wrote', () => {
 	it('holds the announce button until the act is known', async () => {
 		await open('did:plc:neon', 'confirmed', [inquiry], { project: null });
 
+		await expect.element(page.getByRole('link', { name: 'Announce this show' })).not.toBeInTheDocument();
+	});
+});
+
+describe('booking thread shows', () => {
+	const linked: BookingShowLinks = { plannerShow: '3kplanned', announcedShow: { did: 'did:plc:neon', rkey: '3kshow' } };
+
+	it('links the promoter to the planner show it came from and the show announced from it', async () => {
+		await open('did:plc:pat', 'confirmed', [inquiry], { links: linked });
+
+		await expect
+			.element(page.getByRole('link', { name: 'In your planner' }))
+			.toHaveAttribute('href', '/dashboard/planner/shows/3kplanned');
+		await expect
+			.element(page.getByRole('link', { name: 'Announced show' }))
+			.toHaveAttribute('href', '/projects/neon-tide#shows');
+	});
+
+	it('sends whoever announced the show to edit it, and offers no second announcement', async () => {
+		await open('did:plc:neon', 'confirmed', [inquiry], { links: { ...linked, plannerShow: null } });
+
+		await expect
+			.element(page.getByRole('link', { name: 'Announced show' }))
+			.toHaveAttribute('href', '/dashboard/projects/neon-tide/shows/3kshow');
+		await expect.element(page.getByRole('link', { name: 'In your planner' })).not.toBeInTheDocument();
 		await expect.element(page.getByRole('link', { name: 'Announce this show' })).not.toBeInTheDocument();
 	});
 });

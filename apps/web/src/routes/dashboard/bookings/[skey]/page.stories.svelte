@@ -1,6 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+	import type { BookingEventView, BookingShowLinks, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
 	/** A booking: the conversation, with the terms and the status moves beside it, or above it on smaller screens. */
@@ -55,6 +55,8 @@
 
 	const confirmed = [...talk, moved(NEON, 'confirmed')];
 
+	const unlinked: BookingShowLinks = { plannerShow: null, announcedShow: null };
+
 	const data = (did: string, status: string, list = talk, overrides = {}) => ({
 		viewer: viewer(did),
 		pendingRequests: 0,
@@ -67,6 +69,7 @@
 		thread: thread(status),
 		project: neonTide,
 		events: list,
+		links: unlinked,
 		...overrides
 	});
 
@@ -82,6 +85,9 @@
 			[...canvasElement.querySelectorAll('button')].find((button) => button.textContent.trim() === name)?.click();
 
 	const answer = pressButton('Decline');
+
+	/** Started from the promoter's planner show and announced by the act's manager. */
+	const linked: BookingShowLinks = { plannerShow: '3kplanned', announcedShow: { did: NEON, rkey: '3kshow' } };
 </script>
 
 <Story name="Your turn" asChild>
@@ -123,6 +129,24 @@
 
 <Story name="Confirmed on a phone" asChild globals={phone}>
 	<Page {params} form={null} data={data(NEON, 'confirmed', confirmed)} />
+</Story>
+
+<!-- The thread links to the planner show it started from, for the promoter only, and to the show announced from it. -->
+<Story name="From a planner show and announced" asChild>
+	<Page {params} form={null} data={data(PAT, 'confirmed', confirmed, { links: linked })} />
+</Story>
+
+<Story name="From a planner show and announced on a phone" asChild globals={phone}>
+	<Page {params} form={null} data={data(PAT, 'confirmed', confirmed, { links: linked })} />
+</Story>
+
+<!-- Once it's announced, the manager edits that show and can't announce another. -->
+<Story name="Announced, for the manager" asChild>
+	<Page {params} form={null} data={data(NEON, 'confirmed', confirmed, { links: { ...linked, plannerShow: null } })} />
+</Story>
+
+<Story name="Announced, for the manager on a phone" asChild globals={phone}>
+	<Page {params} form={null} data={data(NEON, 'confirmed', confirmed, { links: { ...linked, plannerShow: null } })} />
 </Story>
 
 <Story name="Date passed" asChild>

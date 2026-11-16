@@ -16,7 +16,7 @@ fn a_drive_left_behind_says_by_how_much(tc: TestCase) {
     let main = env.pulled("Main");
     let backup = env.blank("Backup");
     env.ok(&["--yes", "sync", "Main", path(&backup)]);
-    env.ok(&["--yes", "adopt", path(&backup), "--name", "Backup"]);
+    env.ok(&["--yes", "drive", "adopt", path(&backup), "--name", "Backup"]);
     let behind = tc.draw(gs::integers::<usize>().max_value(2));
     std::fs::rename(&backup, env.outside("Backup")).unwrap();
     for i in 0..behind {
@@ -53,10 +53,13 @@ fn a_drive_is_named_given_a_role_retired_and_forgotten() {
     assert!(env.ok(&["drive", "ls", "--known"]).contains("No drives registered yet"));
 
     // Adopting asks first, and a second adopt has nothing to do.
-    let out = env.exits(3, &["adopt", path(&a), "--name", "Main"]);
+    let out = env.exits(3, &["drive", "adopt", path(&a), "--name", "Main"]);
     assert!(out.contains(&format!("give {} an identity, named \"Main\"", a.display())), "{out}");
     assert!(!a.join(".locallibrary").exists());
-    assert!(env.ok(&["--yes", "adopt", path(&a), "--name", "Main"]).contains(&format!("{} is Main (", a.display())));
+    assert!(
+        env.ok(&["--yes", "drive", "adopt", path(&a), "--name", "Main"])
+            .contains(&format!("{} is Main (", a.display()))
+    );
     assert!(env.ok(&["--yes", "drive", "adopt", "Main", "--name", "Main"]).contains("Main has its identity already"));
     // A drive named after `drive` shows it, as `drive info` does (free space aside: other
     // programs write to the disk meanwhile).
@@ -88,7 +91,7 @@ fn a_drive_is_named_given_a_role_retired_and_forgotten() {
     let out = env.ok(&["--yes", "drive", "retire", "Club"]);
     assert!(out.contains("syncs leave it out") && out.contains("Club is retired"), "{out}");
     assert!(env.ok(&["drive", "ls", "--known"]).contains("No drives registered yet"));
-    assert!(line(&env.ok(&["drive", "list", "--retired"]), "Club").contains(" retired  "));
+    assert!(line(&env.ok(&["drive", "ls", "--known", "--retired"]), "Club").contains(" retired  "));
     let out = env.ok(&["drive", "log", "Club"]);
     assert!(out.starts_with("Club\n") && line(&out, "last seen").ends_with(path(&a)), "{out}");
     assert!(line(&out, "written").contains("0 B in 0 operation(s), 0 clean eject(s)"), "{out}");
@@ -132,10 +135,10 @@ fn a_drive_that_lost_its_identity_is_recognised_and_given_it_back() {
     assert!(out.contains("holds \"Main\" as of snapshot"), "{out}");
     assert!(out.contains("holds what Main held when last seen"), "{out}");
     assert!(out.contains(&format!("`locallibrary drive adopt {} --as \"Main\"`", erased.display())), "{out}");
-    let out = env.ok(&["adopt", path(&erased), "--as", "Main", "--dry-run"]);
+    let out = env.ok(&["drive", "adopt", path(&erased), "--as", "Main", "--dry-run"]);
     assert!(out.contains(&format!("give {} the identity of Main (", erased.display())), "{out}");
     assert!(!erased.join(".locallibrary").exists());
-    let out = env.ok(&["--yes", "adopt", path(&erased), "--as", "Main"]);
+    let out = env.ok(&["--yes", "drive", "adopt", path(&erased), "--as", "Main"]);
     assert!(out.contains(&format!("{} is Main again (", erased.display())), "{out}");
 
     // A drive the store has never seen anything like.
@@ -153,7 +156,7 @@ fn the_registry_says_how_far_behind_each_drive_is() {
     env.ok(&["--yes", "playlist", "new", "Main", "New"]);
     let backup = env.blank("Backup");
     env.ok(&["--yes", "sync", "Main", path(&backup)]);
-    env.ok(&["--yes", "adopt", path(&backup), "--name", "Backup"]);
+    env.ok(&["--yes", "drive", "adopt", path(&backup), "--name", "Backup"]);
     let out = env.ok(&["drive", "ls", "--known"]);
     assert!(line(&out, "Backup  Main").ends_with("had changes not in the store"), "{out}");
     env.ok(&["pull", "Main"]);
@@ -208,32 +211,12 @@ fn times_print_in_the_local_time_zone() {
     assert_eq!(at.offset().local_minus_utc(), 0, "{info}");
 }
 
-/// The drive commands kept their old top-level names, hidden, and answer the same way.
-#[test]
-fn old_drive_command_names_answer_like_the_drive_ones() {
-    let env = Env::new();
-    let main = env.drive("Main");
-    for args in [
-        &["verify", path(&main)][..],
-        &["tidy", path(&main), "--dry-run"],
-        &["recordings", path(&main)],
-        &["firmware", path(&main), "--remove"],
-        &["fsck", path(&main), "--repair"],
-        &["disks"],
-        &["format", path(&main), "--dry-run"],
-    ] {
-        let (old, new) = (env.run(args), env.run(&[&["drive"], args].concat()));
-        let error = |err: &str| err.lines().filter(|l| l.starts_with("error:")).collect::<Vec<_>>().join("\n");
-        assert_eq!((old.code, &old.out, error(&old.err)), (new.code, &new.out, error(&new.err)), "{args:?}");
-    }
-}
-
 #[test]
 fn drives_of_one_library_make_a_group_that_syncs_together() {
     let env = Env::new();
     let main = env.drive("Main");
     assert!(env.ok(&["drive", "groups"]).contains("No mounted drives are linked to a library."));
-    env.ok(&["--yes", "adopt", path(&main), "--name", "Main"]);
+    env.ok(&["--yes", "drive", "adopt", path(&main), "--name", "Main"]);
     env.ok(&["pull", "Main"]);
     // One drive of the library mounted: nothing to sync it with.
     assert!(env.fails(1, &["sync"]).contains("two or more mounted drives of one library"));
@@ -241,7 +224,7 @@ fn drives_of_one_library_make_a_group_that_syncs_together() {
     let backup = env.blank("Backup");
     let out = env.ok(&["--yes", "sync", "Main", path(&backup)]);
     assert!(out.contains("Main → Backup"), "{out}");
-    env.ok(&["--yes", "adopt", path(&backup), "--name", "Backup"]);
+    env.ok(&["--yes", "drive", "adopt", path(&backup), "--name", "Backup"]);
     env.ok(&["--yes", "drive", "role", "Main", "primary"]);
     let archive = env.volumes.join("Archive");
     copy_dir(&backup, &archive);
