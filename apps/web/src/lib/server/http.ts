@@ -33,9 +33,7 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 
 /**
  * Answers 404 while `flag` is off for the viewer, so a page behind a release flag doesn't exist for them yet. Staff
- * previews count, since the server hook puts them in `locals.flags`. Only tests call it until the first route behind a
- * flag lands.
- * @internal
+ * previews count, since the server hook puts them in `locals.flags`.
  */
 export function requireFlag(locals: { flags: Flags }, flag: FlagKey): void {
 	if (!locals.flags[flag]) error(404, 'Not found');

@@ -215,6 +215,24 @@ export type PerformerRecord = {
 	updatedAt: string;
 };
 
+/** How a venue takes events that name it (`computer.localnetwork.venue#approval`'s knownValues). */
+export type VenueApproval = 'open' | 'approval';
+
+/** A real place events happen (`computer.localnetwork.venue`), as the root wrote it into the venue's space. */
+export type VenueRecord = {
+	name: string;
+	/** `community.lexicon.location.address`: only the country is required. */
+	address: { country: string; locality?: string; region?: string; street?: string; postalCode?: string; name?: string };
+	/** `community.lexicon.location.geo`, its coordinates as decimal strings. */
+	geo?: { latitude: string; longitude: string; name?: string };
+	/** `community.lexicon.location.fsq`. */
+	fsq?: { fsq_place_id: string; latitude?: string; longitude?: string; name?: string };
+	/** Missing reads as open; a value a newer app added reads as open too. */
+	approval?: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
 /**
  * A performer by what names it: a DJ by their profile, an act by its listing (whose key is its space's key), or a
  * project that hasn't become an act yet.

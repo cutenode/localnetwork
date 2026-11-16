@@ -490,8 +490,9 @@ fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
     assert!(!m.leaked(&said), "a token was printed or answered");
 }
 
-/// Echo's access to an account signed out isn't given more, by subject or by name: it's said not
-/// to be found, as [`Model::given`] has it, and signing in again is what gives it more.
+/// Echo's access to an account signed out isn't given back, by subject or by name: it's said to
+/// be signed out, to sign in to it first, as [`Model::given`] has it; signing in again is what
+/// gives it back.
 #[test]
 fn an_access_to_an_account_signed_out_isnt_given_more() {
     let m = Mock::new();
@@ -503,7 +504,7 @@ fn an_access_to_an_account_signed_out_isnt_given_more() {
     for named in ["a", "a@mock.example"] {
         let (code, _, err) = m.run(&["plugin", "access", "echo", "--give", named, "--scope", "write"]);
         assert_eq!(code == 0, model.given("a"), "{named}: {err}");
-        assert!(err.contains("not found: the account \"a\" signed in through the mock-accounts plugin"), "{err}");
+        assert!(err.contains("the mock account a@mock.example is signed out: sign in to it first"), "{err}");
     }
     let (_, listed, _) = m.run(&["--json", "account"]);
     assert_eq!(shape(&serde_json::from_str(&listed).unwrap()), model.listed());

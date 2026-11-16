@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { LocateFixed, Search } from '@lucide/svelte';
 	import { Combobox } from '#lib/combobox.svelte.ts';
-	import { searchPlaces, type Place } from '#lib/places.ts';
+	import { placeKey, placeText, searchPlaces, type Place } from '#lib/places.ts';
 	import type { ProjectFormValues } from '#lib/types.ts';
-	import PlaceOptions from './PlaceOptions.svelte';
+	import ComboboxOptions from './ComboboxOptions.svelte';
 
 	let {
 		values = {},
@@ -69,7 +69,7 @@
 					placeholder="Start typing a city…"
 					autocomplete="off"
 				/>
-				<PlaceOptions combobox={places} id="place-search-places" />
+				<ComboboxOptions combobox={places} label="Places" noun="place" text={placeText} key={placeKey} id="place-search-places" />
 			</div>
 			{#if places.searching && !places.open}<p class="hint">Searching…</p>{/if}
 		</div>

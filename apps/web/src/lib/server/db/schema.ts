@@ -36,6 +36,7 @@ export interface Database {
 	sharedSpace: SharedSpaceTable;
 	spacePerson: SpacePersonTable;
 	performer: PerformerTable;
+	venue: VenueTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -356,6 +357,26 @@ export interface PerformerTable {
 	record: string;
 	/** The project URIs it was before, as a JSON array. */
 	formerly: string;
+	cid: string;
+	updatedAt: string;
+}
+
+/** A venue, from the root's venue record in its space. */
+export interface VenueTable {
+	spaceUri: string;
+	skey: string;
+	/** Its Foursquare place ID, unique among venues; null until someone adds it. */
+	fsqPlaceId: string | null;
+	/** Not unique: two venues can share a name. */
+	name: string;
+	/** The name lowercased with its spaces collapsed, to find the same name typed another way. */
+	nameKey: string;
+	/** Its city, from its address. */
+	locality: string | null;
+	/** Its country code, from its address. */
+	country: string;
+	/** The whole record, as JSON. */
+	record: string;
 	cid: string;
 	updatedAt: string;
 }
