@@ -1,11 +1,10 @@
-//! Every method the sidecar answers, in one registry: its name and old names, what kind of
-//! method it is, the types it takes and returns, and the code that runs it. Dispatch,
+//! Every method the sidecar answers, in one registry: its name, what kind of method it is, the
+//! types it takes and returns, and the code that runs it. Dispatch,
 //! `initialize`, `version` and `rpc.describe` all read this list, so they can't disagree.
 //!
 //! Names are `noun.verb` (`drive.info`, `tracks.query`). A change is two methods: `<op>.plan`
 //! answers a plan with a `plan_id`, and `<op>.apply` applies it (`{"plan_id": ...}`), or plans
-//! and applies a request in one go. Older names stay as aliases (`drive.adopt` for
-//! `drive.adopt.apply`, `sync_many.plan` for `sync.many.plan`).
+//! and applies a request in one go.
 
 use rustc_hash::FxHashMap;
 use std::path::Path;
@@ -121,8 +120,6 @@ impl Call<'_> {
 pub struct Method {
     pub name: &'static str,
     pub kind: Kind,
-    /// Older names that still work.
-    pub aliases: Vec<&'static str>,
     /// The `.plan` of an `.apply` and the other way round.
     pub pair: Option<&'static str>,
     /// For a plan, the plans it makes; for an apply, the plans it applies (a plan's `operation`).
@@ -159,7 +156,6 @@ impl Method {
         Method {
             name,
             kind,
-            aliases: Vec::new(),
             pair: None,
             operation: None,
             long_running: false,
@@ -174,11 +170,6 @@ impl Method {
             applies: None,
             run,
         }
-    }
-
-    fn alias(&mut self, name: &'static str) -> &mut Self {
-        self.aliases.push(name);
-        self
     }
 
     fn long(&mut self) -> &mut Self {
@@ -304,7 +295,7 @@ impl PlanAnswer for OpPlanned {
     }
 }
 
-/// Every method, by name and alias.
+/// Every method, by name.
 pub struct Registry {
     methods: Vec<Method>,
     by_name: FxHashMap<&'static str, usize>,
@@ -398,7 +389,7 @@ impl Registry {
         self.add(Method::new(name, Kind::Control, schema::<P>, schema::<R>, None))
     }
 
-    /// The method `name` names (or an alias of it).
+    /// The method `name` names.
     pub fn get(&self, name: &str) -> Option<&Method> {
         self.by_name.get(name).map(|&i| &self.methods[i])
     }
@@ -408,18 +399,16 @@ impl Registry {
         self.methods.iter().filter(|m| !m.hidden)
     }
 
-    /// Every name a client may call: methods and their aliases.
+    /// Every name a client may call.
     pub fn names(&self) -> Vec<&'static str> {
-        self.methods().flat_map(|m| std::iter::once(m.name).chain(m.aliases.iter().copied())).collect()
+        self.methods().map(|m| m.name).collect()
     }
 
     /// Indexes the names and pairs each `.plan` with its `.apply`.
     fn finish(mut self) -> Registry {
         for (i, m) in self.methods.iter().enumerate() {
-            for name in std::iter::once(&m.name).chain(&m.aliases) {
-                let before = self.by_name.insert(name, i);
-                assert!(before.is_none(), "{name} is registered twice");
-            }
+            let before = self.by_name.insert(m.name, i);
+            assert!(before.is_none(), "{} is registered twice", m.name);
         }
         let pairs: Vec<(usize, &'static str)> = self
             .methods
@@ -521,8 +510,7 @@ fn build() -> Registry {
     r.read("drives.mounted", |_, _: NoParams| Ok(api::drives_mounted())).quick();
     r.read("drive.info", |_, req| Ok(api::drive_info(&req)?)).quick();
     r.plan("drive.adopt.plan", |_, req| Ok(api::adopt_plan(&req)?));
-    r.apply("drive.adopt.apply", Optional, |c, req| Ok(api::adopt_drive(c.store_opt().as_ref(), &req)?))
-        .alias("drive.adopt");
+    r.apply("drive.adopt.apply", Optional, |c, req| Ok(api::adopt_drive(c.store_opt().as_ref(), &req)?));
     r.read("drive.library", |_, req| Ok(api::drive_library_cached(&LIBRARIES, &req)?)).quick();
     r.read("playlists.tree", |_, req| Ok(api::playlists_tree(&LIBRARIES, &req)?)).quick();
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
@@ -551,7 +539,6 @@ fn build() -> Registry {
     .destructive();
     r.apply("drive.restore.apply", PlanStore::None, |_, req| Ok(api::restore_backup(&req)?))
         .operation("undo")
-        .alias("drive.restore")
         .destructive();
     r.read("undo.list", |c, req| Ok(api::undo_list(c.existing()?.as_ref(), &req)?)).quick();
     r.plan("undo.plan", |_, req| Ok(api::undo_plan(&req)?)).destructive();
@@ -563,28 +550,18 @@ fn build() -> Registry {
     r.apply("sync.apply", Optional, |c, req| Ok(api::sync_apply(c.store_opt().as_ref(), &req, c.ctx)?))
         .long()
         .destructive();
-    r.plan("sync.many.plan", |c, req| Ok(api::sync_many_plan(&req, c.ctx)?))
-        .alias("sync_many.plan")
-        .long()
-        .destructive();
+    r.plan("sync.many.plan", |c, req| Ok(api::sync_many_plan(&req, c.ctx)?)).long().destructive();
     r.apply("sync.many.apply", Optional, |c, req| {
         Ok(api::sync_many_plan(&req, c.ctx)?.apply(c.store_opt().as_ref(), c.ctx)?)
     })
-    .alias("sync_many.apply")
     .long()
     .destructive();
-    r.plan("sync.group.plan", |c, req| Ok(api::sync_set_plan(&c.store()?, &req, c.ctx)?))
-        .alias("sync_group.plan")
-        .alias("sync_set.plan")
-        .long()
-        .destructive();
+    r.plan("sync.group.plan", |c, req| Ok(api::sync_set_plan(&c.store()?, &req, c.ctx)?)).long().destructive();
     r.apply("sync.group.apply", Required, |c, req| Ok(api::sync_set_apply(&c.store()?, &req, c.ctx)?))
-        .alias("sync_group.apply")
-        .alias("sync_set.apply")
         .long()
         .destructive();
     r.plan("pull.plan", |c, req| Ok(api::pull_plan(c.root, &req, c.ctx)?)).long();
-    r.apply("pull.apply", Optional, |c, req| Ok(api::pull(&c.store()?, &req, c.ctx)?)).alias("pull").long();
+    r.apply("pull.apply", Optional, |c, req| Ok(api::pull(&c.store()?, &req, c.ctx)?)).long();
     r.plan("push.plan", |c, req| Ok(api::push_plan(&c.to_read()?, &req, c.ctx)?)).long().destructive();
     r.apply("push.apply", Required, |c, req| Ok(api::push_apply(&c.to_read()?, &req, c.ctx)?)).long().destructive();
     r.plan("merge.plan", |c, req| Ok(api::merge_plan(&req, c.ctx)?)).long();
@@ -601,13 +578,11 @@ fn build() -> Registry {
         let _lock = s.lock()?;
         Ok(s.gc(req.dry_run)?)
     })
-    .alias("store.gc")
     .long()
     .destructive();
     r.read("store.verify", |c, _: NoParams| Ok(c.to_read()?.verify(c.ctx)?)).long();
     r.plan("store.prune.plan", |c, req| Ok(api::store_prune_plan(&c.to_read()?, &req, c.ctx)?)).long().destructive();
     r.apply("store.prune.apply", Required, |c, req| Ok(api::store_prune(&c.to_read()?, &req, c.ctx)?))
-        .alias("store.prune")
         .long()
         .destructive();
     r.immediate("store.copy", |c, req| Ok(api::store_copy(&c.to_read()?, &req, c.ctx)?))
@@ -643,18 +618,12 @@ fn build() -> Registry {
     r.plan("edits.replay.plan", |c, req| Ok(api::edits_replay_plan(&req, c.ctx)?));
     r.apply("edits.replay.apply", PlanStore::None, |c, req| Ok(api::edits_replay_apply(&req, c.ctx)?));
     r.plan("edits.clear.plan", |_, req| Ok(api::edits_clear_plan(&req)?)).destructive();
-    r.apply("edits.clear.apply", PlanStore::None, |_, req| Ok(api::edits_clear(&req)?))
-        .alias("edits.clear")
-        .destructive();
+    r.apply("edits.clear.apply", PlanStore::None, |_, req| Ok(api::edits_clear(&req)?)).destructive();
     r.read("smart.list", |c, _: NoParams| c.or_empty(api::smart_list)).quick();
     r.immediate("smart.set", |c, req| Ok(api::smart_set(&c.store()?, &req)?));
     r.immediate("smart.remove", |c, req| Ok(api::smart_remove(&c.to_read()?, &req)?)).destructive();
-    r.plan("smart.write.plan", |c, req| Ok(api::smart_apply_plan(&c.to_read()?, &req, c.ctx)?))
-        .alias("smart.apply.plan")
-        .destructive();
-    r.apply("smart.write.apply", Required, |c, req| Ok(api::smart_apply(&c.to_read()?, &req, c.ctx)?))
-        .alias("smart.apply")
-        .destructive();
+    r.plan("smart.write.plan", |c, req| Ok(api::smart_apply_plan(&c.to_read()?, &req, c.ctx)?)).destructive();
+    r.apply("smart.write.apply", Required, |c, req| Ok(api::smart_apply(&c.to_read()?, &req, c.ctx)?)).destructive();
     r.plan("dedupe.plan", |c, req| Ok(api::dedupe_plan(&req, c.ctx)?)).destructive();
     r.apply("dedupe.apply", PlanStore::None, |c, req| Ok(api::dedupe_apply(&req, c.ctx)?)).destructive();
     r.plan("relocate.plan", |c, req| Ok(api::relocate_plan(&req, c.ctx)?)).long().destructive();
@@ -682,7 +651,6 @@ fn build() -> Registry {
     r.apply("playlist.restore.apply", Existing, |c, req| {
         Ok(api::playlist_restore_apply(c.existing()?.as_ref(), &req, c.ctx)?)
     })
-    .alias("playlist.restore")
     .destructive();
 
     // My Settings.
@@ -691,16 +659,10 @@ fn build() -> Registry {
     r.immediate("settings.set", |c, req| Ok(api::settings_set(&c.store()?, &req)?));
     r.immediate("settings.unset", |c, req| Ok(api::settings_unset(&c.store()?, &req)?));
     r.read("settings.show", |c, req| Ok(api::settings_show(c.existing()?.as_ref(), &req)?)).quick();
-    r.plan("settings.write.plan", |c, req| Ok(api::settings_apply_plan(&c.store()?, &req)?))
-        .alias("settings.apply.plan")
-        .destructive();
-    r.apply("settings.write.apply", Required, |c, req| Ok(api::settings_apply(&c.store()?, &req)?))
-        .alias("settings.apply")
-        .destructive();
+    r.plan("settings.write.plan", |c, req| Ok(api::settings_apply_plan(&c.store()?, &req)?)).destructive();
+    r.apply("settings.write.apply", Required, |c, req| Ok(api::settings_apply(&c.store()?, &req)?)).destructive();
     r.plan("settings.import.plan", |c, req| Ok(api::settings_import_plan(&c.store()?, &req)?)).destructive();
-    r.apply("settings.import.apply", Required, |c, req| Ok(api::settings_import(&c.store()?, &req)?))
-        .alias("settings.import")
-        .destructive();
+    r.apply("settings.import.apply", Required, |c, req| Ok(api::settings_import(&c.store()?, &req)?)).destructive();
     r.read("settings.export", |c, _: NoParams| c.or_empty(api::settings_export)).quick();
     r.plan("settings.import_file.plan", |c, req| Ok(api::settings_import_file_plan(&c.store()?, &req)?)).destructive();
     r.apply("settings.import_file.apply", Required, |c, req| Ok(api::settings_import_file(&c.store()?, &req)?))
@@ -711,14 +673,11 @@ fn build() -> Registry {
     r.read("art.get", |_, req| Ok(api::artwork_get_cached(&LIBRARIES, &req)?)).quick();
     r.read("art.path", |_, req| Ok(api::artwork_path(&LIBRARIES, &req)?)).quick();
     r.plan("art.set.plan", |c, req| Ok(api::artwork_set_plan(&req, c.ctx)?)).destructive();
-    r.apply("art.set.apply", PlanStore::None, |c, req| Ok(api::artwork_set(&req, c.ctx)?))
-        .alias("art.set")
-        .destructive();
+    r.apply("art.set.apply", PlanStore::None, |c, req| Ok(api::artwork_set(&req, c.ctx)?)).destructive();
     r.plan("art.auto.plan", |_, req| Ok(api::artwork_auto_plan(&req)?));
     r.apply("art.auto.apply", PlanStore::None, |c, req| Ok(api::artwork_auto_apply(&req, c.ctx)?)).long();
     r.plan("art.embed.plan", |_, req| Ok(api::artwork_embed_plan(&req)?)).destructive().writes_to("files");
     r.apply("art.embed.apply", Required, |c, req| Ok(api::artwork_embed(&c.store()?, &req)?))
-        .alias("art.embed")
         .destructive()
         .writes_to("files");
     r.plan("art.unembed.plan", |c, req| Ok(api::artwork_unembed_plan(&c.to_read()?, &req)?)).destructive();
@@ -726,7 +685,6 @@ fn build() -> Registry {
         let s = c.to_read()?;
         Ok(api::artwork_unembed_plan(&s, &req)?.apply(Some(&s), c.ctx)?)
     })
-    .alias("art.unembed")
     .destructive();
 
     // Exports, health and history.
@@ -752,10 +710,9 @@ fn build() -> Registry {
     r.read("players.models", |_, _: NoParams| Ok(api::player_models()));
     r.read("players.show", |c, _: NoParams| c.or_empty(api::players_show));
     r.plan("players.set.plan", |c, req| Ok(api::players_set_plan(c.existing()?.as_ref(), &req)?));
-    r.apply("players.set.apply", Required, |c, req| Ok(api::players_set(&c.store()?, &req)?)).alias("players.set");
+    r.apply("players.set.apply", Required, |c, req| Ok(api::players_set(&c.store()?, &req)?));
     r.plan("players.clear.plan", |c, req| Ok(api::players_clear_plan(c.existing()?.as_ref(), &req)?));
-    r.apply("players.clear.apply", Required, |c, req| Ok(api::players_clear(&c.store()?, &req)?))
-        .alias("players.clear");
+    r.apply("players.clear.apply", Required, |c, req| Ok(api::players_clear(&c.store()?, &req)?));
 
     // Formatting.
     r.read("disks.list", |c, _: NoParams| Ok(api::list_disks(c.root)?));
@@ -847,8 +804,7 @@ fn build() -> Registry {
     r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.read("drives.known", |c, req| c.or_empty(|s| api::drives_known(s, &req))).quick();
     r.plan("drive.rename.plan", |_, req| Ok(api::drive_rename_plan(&req)?));
-    r.apply("drive.rename.apply", Optional, |c, req| Ok(api::drive_rename(c.store_opt().as_ref(), &req)?))
-        .alias("drive.rename");
+    r.apply("drive.rename.apply", Optional, |c, req| Ok(api::drive_rename(c.store_opt().as_ref(), &req)?));
     r.immediate("drive.forget", |c, req| Ok(api::drive_forget(&c.to_read()?, &req)?)).destructive();
     r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.to_read()?, &req)?));
     r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.to_read()?, &req)?));
@@ -858,18 +814,15 @@ fn build() -> Registry {
     r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.to_read()?, &req)?)).destructive();
     r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.to_read()?, &req, c.ctx)?))
-        .alias("drive.adopt_as")
         .destructive();
     r.plan("drive.reidentify.plan", |c, req| Ok(api::drive_reidentify_plan(c.store_opt().as_ref(), &req)?))
         .destructive();
     r.apply("drive.reidentify.apply", Optional, |c, req| Ok(api::drive_reidentify(c.store_opt().as_ref(), &req)?))
-        .alias("drive.reidentify")
         .destructive();
-    r.read("drive.groups", |c, _: NoParams| Ok(api::drive_sets(c.existing()?.as_ref())?)).alias("drive.sets").quick();
+    r.read("drive.groups", |c, _: NoParams| Ok(api::drive_sets(c.existing()?.as_ref())?)).quick();
     r.plan("drive.eject.plan", |c, req| Ok(api::drive_eject_plan(Some(c.root), &req)?)).operation("eject");
     r.apply("drive.eject.apply", Optional, |c, req| Ok(api::drive_eject(c.store_opt().as_ref(), &req)?))
-        .operation("eject")
-        .alias("drive.eject");
+        .operation("eject");
     r.read("drive.verify", |c, req| Ok(api::drive_verify(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.immediate("drive.repair", |c, req| Ok(api::drive_repair(c.store_opt().as_ref(), &req, c.ctx)?))
         .long()
@@ -878,25 +831,21 @@ fn build() -> Registry {
     r.immediate("drive.fsck", |c, req| Ok(api::drive_fs_check(c.existing()?.as_ref(), &req)?)).long().destructive();
     r.read("drive.space", |c, req| Ok(api::drive_space(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.contact.plan", |c, req| Ok(api::drive_contact_plan(&req, c.ctx)?));
-    r.apply("drive.contact.apply", PlanStore::None, |c, req| Ok(api::drive_contact(&req, c.ctx)?))
-        .alias("drive.contact");
+    r.apply("drive.contact.apply", PlanStore::None, |c, req| Ok(api::drive_contact(&req, c.ctx)?));
     r.read("player.show", |_, req| Ok(api::player_show(&req)?)).quick();
     r.plan("player.set.plan", |_, req| Ok(api::player_set_plan(&req)?));
-    r.apply("player.set.apply", PlanStore::None, |_, req| Ok(api::player_set(&req)?)).alias("player.set");
+    r.apply("player.set.apply", PlanStore::None, |_, req| Ok(api::player_set(&req)?));
     r.plan("tidy.plan", |c, req| Ok(api::tidy_plan(&req, c.ctx)?)).long().destructive();
     r.apply("tidy.apply", PlanStore::None, |c, req| Ok(api::tidy_apply(&req, c.ctx)?)).long().destructive();
     r.read("recordings.list", |_, req| Ok(api::recordings_list(&req)?)).quick();
     r.plan("recordings.collect.plan", |_, req| Ok(api::recordings_collect_plan(&req)?)).writes_to("to");
     r.apply("recordings.collect.apply", PlanStore::None, |c, req| Ok(api::recordings_collect(&req, c.ctx)?))
         .writes_to("to")
-        .alias("recordings.collect")
         .long();
     r.plan("firmware.plan", |_, req| Ok(api::firmware_plan(&req)?));
     r.apply("firmware.apply", PlanStore::None, |c, req| Ok(api::firmware_apply(&req, c.ctx)?)).long();
     r.plan("firmware.remove.plan", |_, req| Ok(api::firmware_remove_plan(&req)?)).destructive();
-    r.apply("firmware.remove.apply", PlanStore::None, |c, req| Ok(api::firmware_remove(&req, c.ctx)?))
-        .alias("firmware.remove")
-        .destructive();
+    r.apply("firmware.remove.apply", PlanStore::None, |c, req| Ok(api::firmware_remove(&req, c.ctx)?)).destructive();
     r.plan("provision.plan", |c, req| Ok(api::provision_plan(&c.store()?, &req, c.ctx)?)).long().destructive();
     r.apply("provision.apply", Required, |c, req: api::ProvisionApply| {
         Ok(api::provision_apply(&c.store()?, &req.request, req.format_identity.as_deref(), c.ctx)?)
@@ -910,12 +859,10 @@ fn build() -> Registry {
     // `prep` was `set`: its plans keep that name.
     r.plan("prep.plan", |c, req| Ok(api::set_job_plan(&c.store()?, &req, c.ctx)?))
         .operation("set")
-        .alias("set.plan")
         .long()
         .destructive();
     r.apply("prep.apply", Required, |c, req| Ok(api::set_job_apply(&c.store()?, &req, c.ctx)?))
         .operation("set")
-        .alias("set.apply")
         .long()
         .destructive();
 

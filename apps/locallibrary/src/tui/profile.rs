@@ -325,6 +325,10 @@ pub fn perform(app: &mut App, act: Act) {
             let t = &app.profile;
             let Some(Ok(v)) = &t.view else { return };
             let s = t.section();
+            if !s.publishable() {
+                app.toast(format!("{} stays on this computer: it's never published", s.title()), Level::Info);
+                return;
+            }
             let on = v.published.contains(&s);
             let u = if on {
                 PrefsUpdate { exclude: vec![s], ..Default::default() }
@@ -611,7 +615,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
             "{} · {basis} · document: {} of {} sections, {rounding}",
             sources.join(", "),
             v.published.iter().filter(|s| r.basis.publishes(**s)).count(),
-            Section::ALL.len()
+            Section::ALL.iter().filter(|s| s.publishable()).count()
         ),
         dim(),
     )];
@@ -676,21 +680,19 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let inner = b.inner(detail);
     f.render_widget(b, detail);
     let [reveal, body] = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).areas(inner);
-    let reveal_text = match (r.basis.publishes(section), on) {
-        (false, _) => "Sessions aren't published. With sets declared, this shows ",
-        (true, true) => "Published, this shows ",
-        (true, false) => "Published, this would show ",
+    let reveal_text = match (section.publishable(), r.basis.publishes(section), on) {
+        (false, ..) => "Never published, so only you see this: ",
+        (true, false, _) => "Sessions aren't published. With sets declared, this shows ",
+        (true, true, true) => "Published, this shows ",
+        (true, true, false) => "Published, this would show ",
     };
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(format!(" {reveal_text}"), faint()),
-            Span::styled(section.reveals().to_string(), dim()),
-            Span::styled("   i ", theme::key()),
-            Span::styled(if on { "leave out" } else { "include" }, faint()),
-        ]))
-        .wrap(Wrap { trim: true }),
-        reveal,
-    );
+    let mut spans =
+        vec![Span::styled(format!(" {reveal_text}"), faint()), Span::styled(section.reveals().to_string(), dim())];
+    if section.publishable() {
+        spans.push(Span::styled("   i ", theme::key()));
+        spans.push(Span::styled(if on { "leave out" } else { "include" }, faint()));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)).wrap(Wrap { trim: true }), reveal);
     let body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
     let w = body.width as usize;
     let lines: Vec<Line<'static>> = match section {
@@ -992,7 +994,7 @@ fn energy_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     };
     let bw = w.saturating_sub(16).clamp(10, 40);
     let mut lines = vec![
-        note(format!("rekordbox's phrase-analysis mood, {} tracks", e.tracks)),
+        note(format!("rekordbox's phrase-analysis mood, {} tracks in your collection", e.tracks)),
         Line::raw(""),
         bar_line("high", 6, e.high, bw, theme::current().accent, pct(e.high)),
         bar_line("mid", 6, e.mid, bw, theme::current().secondary, pct(e.mid)),
@@ -1017,9 +1019,10 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
         Section::Labels => &r.labels,
         _ => &r.artists,
     };
-    let noun = match r.basis {
-        Basis::Plays | Basis::Sessions => "plays",
-        Basis::Collection => "tracks",
+    let noun = match (s, r.basis) {
+        (Section::Genres | Section::Artists, _) => "tracks in your collection",
+        (_, Basis::Plays | Basis::Sessions) => "plays",
+        (_, Basis::Collection) => "tracks",
     };
     let hint = match s {
         Section::Artists => " · h hides an artist everywhere",
@@ -1085,10 +1088,11 @@ fn era_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
             Span::styled(format!("median {}", e.median_year.unwrap_or(0)), bold(theme::current().info)),
             Span::styled(
                 format!(
-                    " ({}–{}) · {} released the year played or the year before",
+                    " ({}–{}) · {} released this year or last, of {} tracks in your collection",
                     e.oldest.unwrap_or(0),
                     e.newest.unwrap_or(0),
-                    opt_pct(e.recent_share)
+                    opt_pct(e.recent_share),
+                    e.tracks
                 ),
                 text(),
             ),

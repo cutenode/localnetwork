@@ -310,11 +310,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
         .with("env", KEY_ENV)
         .action(Action::retry(serde_json::json!({ "key": null }), "Give the key"))
     };
-    // The codec's errors name exportLibrary.db, whose pages it usually reads.
-    let damaged = |e: Error| match e {
-        Error::OneLibrary(m) => Error::parse(path, m),
-        e => e,
-    };
+    let damaged = |e: loclib_sqlcipher::Error| Error::parse(path, e);
     let page1 = codec.decrypt_page(1, &first).map_err(|_| wrong_key())?;
     cipher::check_plain_header(&page1).map_err(|_| wrong_key())?;
     let committed = wal.as_deref().map(|w| wal::committed(w, cipher::PAGE_SIZE)).transpose()?.flatten();

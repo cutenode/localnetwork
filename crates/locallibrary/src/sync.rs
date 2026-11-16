@@ -1561,7 +1561,7 @@ fn guard_unsaved_changes(store: &Store, device: &Device, fps: &[Hash], snapshot:
         ),
     )
     .with("drive", &drive)
-    .action(Action::call("pull", serde_json::json!({ "drive": drive }), format!("Pull {} into the store", device.name())))
+    .action(Action::call("pull.apply", serde_json::json!({ "drive": drive }), format!("Pull {} into the store", device.name())))
     .action(Action::retry(serde_json::json!({ "force": true }), "Overwrite it")))
 }
 

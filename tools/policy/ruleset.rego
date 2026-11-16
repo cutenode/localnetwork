@@ -18,6 +18,18 @@ required contains c.context if {
 
 passed contains wf.jobs.passed.name if some wf in workflows.gated
 
+# The pull request rule's review settings that keep an approval from outliving what it approved: a
+# push dismisses the approvals before it, and the last push needs one of its own.
+review_settings := {"dismiss_stale_reviews_on_push", "require_last_push_approval"}
+
+deny contains msg if {
+	some rule in rules
+	rule.type == "pull_request"
+	some setting in review_settings
+	object.get(rule.parameters, setting, false) != true
+	msg := sprintf(".github/rulesets/protect-main.json: set the pull_request rule's %s to true, so an approval doesn't carry over a later push", [setting])
+}
+
 deny contains msg if {
 	some name in (passed - required)
 	msg := sprintf(".github/rulesets/protect-main.json: require %q, then apply it with tools/ruleset.sh", [name])

@@ -53,5 +53,13 @@ Before the locallibrary release: navigation and linking for the pages that exist
 - Most of the work is new pages: acts, parties, venues, events, sets, tracks, areas, search and the follow lists. Each lands with its row of the link matrix and its test.
 - `/projects/<slug>` is still the act page on main, so the matrix lists today's links under it until acts get their own pages.
 - Charts moves under Mixes and Tools leaves the header for the footer, where it already is.
-- RSVP buttons on a public event page fall under [0001](0001-changes-happen-in-the-dashboard.md)'s exception for controls that only change the viewer's own data, like Follow and Save.
+- RSVP buttons on a public event page change only the viewer's own data, like Follow and Save, so they show to everyone; editing the event itself is [0017](0017-pages-are-edited-in-place.md)'s edit mode.
 - The inbox grows from booking events to every decision someone has to make, so notification kinds stop being bookings-only.
+
+## Amended
+
+"Went to" is off on a profile until its owner turns it on, not on by default as the events section above says. Going to a night out is something people should choose to show.
+
+## Amended (names)
+
+Act, party and venue pages are addressed by their space key with a decorative name, or by a linked account's handle, not by a unique slug: see [0016](0016-names-repeat-keys-and-handles-identify.md).

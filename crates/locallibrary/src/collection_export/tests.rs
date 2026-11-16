@@ -669,7 +669,7 @@ fn an_export_takes_what_the_target_holds_as_it_should_with(tc: &hegel::TestCase,
             assert!(planned.unsaved.is_some() && store.is_none(), "{e}");
             assert_eq!(e.reason(), Some(Reason::NotSaved), "{e}");
             let methods: Vec<_> = e.detail().actions.iter().map(|a| a.method.clone()).collect();
-            assert_eq!(methods, [Some("pull".to_string())]);
+            assert_eq!(methods, [Some("pull.apply".to_string())]);
             assert!(files(target.root()) == files_before, "refused, it leaves the target alone");
         }
         Ok(report) => {

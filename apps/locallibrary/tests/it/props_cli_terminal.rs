@@ -487,6 +487,6 @@ fn the_locale_decides_the_symbols(tc: TestCase) {
     let out = String::from_utf8(out.stdout).unwrap();
     let utf8 = first.is_none_or(|v| v.to_lowercase().contains("utf-8") || v.to_lowercase().contains("utf8"));
     assert_eq!(out.contains('●'), utf8, "{first:?}: {out}");
-    assert_eq!(out.contains("  * summary"), !utf8, "{first:?}: {out}");
+    assert_eq!(out.contains("  * sets"), !utf8, "{first:?}: {out}");
     assert_eq!(out, fx.ok(&[if utf8 { "--quiet" } else { "--ascii" }, "profile", "sections"]), "{first:?}");
 }

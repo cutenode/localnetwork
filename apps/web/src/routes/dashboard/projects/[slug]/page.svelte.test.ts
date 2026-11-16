@@ -134,7 +134,7 @@ it('holds a row of room for each upcoming show the project has while they load',
 		params: { slug: 'neon-tide' },
 		data: {
 			...base,
-			project: { ...neon, counts: { pressKits: 0, upcomingShows: 3 } },
+			project: { ...neon, counts: { pressKits: 0, upcomingShows: 3, djs: 0 } },
 			shows: loading,
 			edited: loading
 		},

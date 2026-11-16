@@ -20,8 +20,8 @@ const HOME_RADIUS_KM = 50;
 type Locals = { app: App; viewer: Viewer | null; log: Pick<Logger, 'warn'> };
 
 /**
- * Upcoming shows from `did`'s network, soonest first. Today a network is the acts someone follows, which listShows
- * joins on. Following people (LOC-391) adds their shows here: the acts a followed person plays in or manages.
+ * Upcoming shows from `did`'s network, soonest first: the shows of the acts they follow, which listShows joins on.
+ * Following a person doesn't add the shows of the acts that person plays in.
  */
 export const networkShows = ({ app, log }: Locals, did: string) =>
 	unlessOffline(log, async () => (await app.shows.upcoming({ follower: did, limit: SHOWS })).items);

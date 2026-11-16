@@ -528,13 +528,18 @@ in several other ways as well:
   claim, and the popup's type set on `body` outside every CSS layer, where
   Chrome's own `body { font-family: system-ui; font-size: 75% }` for extension
   pages cannot beat it.
-- **Accessibility** (`a11y.test.ts`) — every panel, in every state a test can
-  put it in, through an audit: a name for every control, a state attribute for
-  every toggle, no duplicate ids, nothing focusable hidden from a screen
-  reader, no tab stop that is not a control. Rows here are icons and colour;
-  without this none of that is checked. It also follows focus: into a sheet as
-  it comes up and back to its button, and to the heading of the view a click
-  opened.
+- **Accessibility** (`a11y.test.ts`): every panel, in every state a test can
+  put it in, in the light theme and the dark one, through an audit and axe's
+  naming rules: a name for every control, a title or tooltip on every button
+  that is only an icon, a state attribute for every toggle, no duplicate ids,
+  nothing focusable hidden from a screen reader, no tab stop that is not a
+  control. Rows here are icons and colour; without this none of that is
+  checked. It also follows focus: into a sheet as it comes up and back to its
+  button, and to the heading of the view a click opened.
+- **Contrast** (`contrast.test.ts`): jsdom paints nothing, so the colours are
+  read where they are written instead. Every text colour on every surface in
+  both themes, the content script's buttons and pills on SoundCloud, and every
+  badge's letters, at 4.5:1 or better.
 - **Failure** (`resilience.test.ts`) — storage that will not read or write,
   a tab that has gone, site data blocked, a clipboard that refuses, a content
   script left over from before an update. Each panel has to draw something a
@@ -583,7 +588,8 @@ test/
                          listeners/observers
   helpers/panel.ts       mounts a panel (or the whole popup) against a mocked
                          chrome, and reads it back
-  helpers/a11y.ts        the accessibility audit, and what a keyboard reaches
+  helpers/a11y.ts        the accessibility audit, axe's naming rules, and what a
+                         keyboard reaches
   content/               page detection, extraction, download details, artist
                          profiles, markers, the queue button, the replaced
                          download buttons, and the Likes page's view
@@ -601,6 +607,7 @@ test/
   property/dom-fuzz.test.ts     the content script over generated and truncated pages
   integration/page-to-panel.test.ts  page → content script → panel, and back
   a11y.test.ts           every panel through the accessibility audit
+  contrast.test.ts       text against what it is written on, in both themes
   resilience.test.ts     every panel against a browser that says no
   scale.test.ts          five hundred rows: requests, writes, markers, rows
   stepping-past-a-timeout.test.ts  a timed-out test can't reach the next one

@@ -32,7 +32,7 @@ it('gives a manager the project, with its press kit and show counts', async () =
 	expect(project).toMatchObject({
 		uri: f.project.uri,
 		managers: [DJ, CODJ],
-		counts: { pressKits: 1, upcomingShows: 0 }
+		counts: { pressKits: 1, upcomingShows: 0, djs: 0 }
 	});
 });
 

@@ -81,6 +81,7 @@ export type ActorRole = 'admin' | 'moderator' | 'member' | 'system';
 export const SUBJECT_KINDS = [
 	'account',
 	'project',
+	'profile',
 	'request',
 	'role',
 	'booking',
