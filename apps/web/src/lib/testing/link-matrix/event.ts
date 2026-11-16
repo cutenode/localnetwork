@@ -37,7 +37,8 @@ export default {
 					lineup: [{ name: `@${NEON.handle}`, href: `/@${NEON.handle}`, value: NEON.handle }]
 				},
 				party: { name: 'Night Shift', href: '/party/3lzparty/night-shift' },
-				link: null
+				link: null,
+				rsvp: { going: 12, interested: 30, answer: 'going' }
 			},
 			form: null
 		}),

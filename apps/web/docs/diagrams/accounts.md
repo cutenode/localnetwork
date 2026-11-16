@@ -52,8 +52,8 @@ What sign-in asks for and what it settles on. Opting in later works differently:
 
 ```mermaid
 flowchart TD
-  Full["Ask for full: blobs, calendar events,<br/>the permission set"]
-  Full -- "scope refused" --> Base["Ask for base: profile, shows,<br/>follows, calendar events, blobs"]
+  Full["Ask for full: blobs, calendar events,<br/>RSVPs, the permission set"]
+  Full -- "scope refused" --> Base["Ask for base: profile, shows,<br/>follows, calendar events, RSVPs, blobs"]
   Base -- "scope refused" --> Minimal["Ask for atproto alone"]
   Full -- "accepted" --> Grant["The grant"]
   Base -- "accepted" --> Grant

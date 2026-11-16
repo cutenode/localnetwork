@@ -163,6 +163,7 @@ flowchart LR
   Public --> Shows["/shows"]
   Public --> Party["/party/[key]/[...rest] (spacePages),<br/>drafts for its people and staff;<br/>/party/new signed in"]
   Party --> Event["/party/[key]/[event]/[name],<br/>drafts for the party's people and staff,<br/>private ones from their link's ?t=;<br/>/party/[key]/new for events.manage"]
+  Event --> Rsvp["?/rsvp: Going or Interested,<br/>signed in, on a published public<br/>event until its night is over"]
   Public --> Venue["/venue/[key]/[[name]] (spacePages)"]
   Public --> Music["/charts, /artists,<br/>/artists/[id], /artists/name/[[name]]"]
   Public --> Tools["/tools, /tools/[tool],<br/>/tools/[tool]/docs/[page]"]
