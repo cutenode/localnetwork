@@ -38,7 +38,7 @@
 			status: 'confirmed',
 			title: 'Closing Night',
 			showDate: '2026-12-12T23:30:00+01:00',
-			project: { uri: 'at://did:plc:root/computer.localnetwork.project/neon', slug: 'neon-tide', name: 'Neon Tide' },
+			project: { uri: 'at://did:plc:root/computer.localnetwork.project/neon', slug: 'neon-tide', name: 'Neon Tide', href: '/projects/neon-tide' },
 			promoter: pat,
 			participants: [
 				{ ...pat, role: 'promoter' },

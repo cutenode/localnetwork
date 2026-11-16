@@ -102,7 +102,10 @@ export const actions: Actions = {
 				(item) => item.requester.did !== viewer.did
 			);
 
-			const decided = outcome === 'approved' && request.kind === 'list' ? 'listed' : outcome;
+			const approved = outcome === 'approved';
+
+			const decided =
+				approved && request.kind === 'list' ? 'listed' : approved && request.record.space ? 'owner' : outcome;
 
 			redirect(303, `${next ? `/admin/requests/${next.rkey}` : '/admin/requests'}?decided=${decided}`);
 		});

@@ -109,11 +109,29 @@ atstore:
           - "apps/web/src/lib/server/{services/planner,planner-page}.*"
           - "lexicons/computer/localnetwork/planner/**"
 
+"web: events":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/{venue,party,events}/**"
+          - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
+          - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index}.*"
+          - "apps/web/src/lib/server/venue-blocks.*"
+          - "apps/web/src/lib/components/{Venue,Party,Event}*"
+          - "lexicons/computer/localnetwork/{venue,party,event}.json"
+          - "lexicons/computer/localnetwork/venue/**"
+          - "lexicons/computer/localnetwork/space/{venue,party}.json"
+          - "apps/web/src/routes/shows/**"
+          - "apps/web/src/lib/shows.*"
+          - "apps/web/src/lib/server/{shows-place,venue-time}.*"
+          - "apps/web/src/lib/server/services/shows.*"
+          - "apps/web/src/lib/server/forms/{show,announce}.*"
+          - "lexicons/computer/localnetwork/show.json"
+
 "web: staff":
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/admin/**"
-          - "apps/web/src/routes/{dashboard/requests,report}/**"
+          - "apps/web/src/routes/{dashboard/account/requests,report}/**"
           - "apps/web/src/lib/{audit-sentences,requests,request-standing,capabilities,bug-report,verification}.*"
           - "apps/web/src/lib/server/services/{staff,flags,project-admin,requests,diff,bug-reports,verifications}.*"
           - "apps/web/src/lib/server/forms/flags.*"
@@ -176,16 +194,6 @@ atstore:
           - "apps/web/src/{app,error}.html"
           - "apps/web/{.storybook,static}/**"
           - "packages/tokens/**"
-
-"web: events":
-  - changed-files:
-      - any-glob-to-any-file:
-          - "apps/web/src/routes/shows/**"
-          - "apps/web/src/lib/shows.*"
-          - "apps/web/src/lib/server/{shows-place,venue-time}.*"
-          - "apps/web/src/lib/server/services/shows.*"
-          - "apps/web/src/lib/server/forms/{show,announce}.*"
-          - "lexicons/computer/localnetwork/show.json"
 
 "web: notifications":
   - changed-files:

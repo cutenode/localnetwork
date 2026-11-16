@@ -6,7 +6,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { type BookingAction, bookingActions } from '#lib/bookings.ts';
+	import { type BookingAction, bookingActions, isBookedSide } from '#lib/bookings.ts';
 	import { formatDateTime, formatShowDate } from '#lib/format.ts';
 	import { BOOKING_STATUSES, FEE_TIERS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
@@ -41,8 +41,8 @@
 
 	const role = $derived(thread.participants.find((p) => p.did === data.viewer?.did)?.role);
 
-	// The promoter can confirm an open inquiry only once a manager has written in the thread, as the server checks.
-	const answered = $derived(data.events.some((event) => thread.participants.some((p) => p.did === event.author.did && p.role === 'manager')));
+	// The promoter can confirm an open inquiry only once the side being booked has written in the thread, as the server checks.
+	const answered = $derived(data.events.some((event) => thread.participants.some((p) => p.did === event.author.did && isBookedSide(p.role))));
 
 	const actions = $derived(role ? bookingActions(role, thread.status, answered) : []);
 
@@ -65,11 +65,12 @@
 
 	const announcedShow = $derived(data.links.announcedShow);
 
-	// A confirmed booking is a show the project's managers can announce, once, filled in from these details.
-	const announce = $derived(thread.status === 'confirmed' && thread.project && role === 'manager' && !announcedShow ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
+	// A confirmed booking is a show the project's managers can announce, once, filled in from these details. Shows belong
+	// to projects, so a listed DJ's own bookings have no announce step.
+	const announce = $derived(thread.status === 'confirmed' && thread.project?.slug && isBookedSide(role) && !announcedShow ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
 
 	// Whoever announced the show edits it from here; everyone else finds it with the project's other shows.
-	const announcedHref = $derived(announcedShow && thread.project ? (announcedShow.did === data.viewer?.did ? `/dashboard/projects/${thread.project.slug}/shows/${announcedShow.rkey}` : `/projects/${thread.project.slug}#shows`) : null);
+	const announcedHref = $derived(announcedShow && thread.project?.slug ? (announcedShow.did === data.viewer?.did ? `/dashboard/projects/${thread.project.slug}/shows/${announcedShow.rkey}` : `/projects/${thread.project.slug}#shows`) : null);
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>
@@ -81,7 +82,7 @@
 		<Eyebrow>Booking thread</Eyebrow>
 		<h1 class="m-0 text-title font-semibold">{thread.title ?? 'Booking inquiry'}</h1>
 		<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
-			{#if thread.project}<span>With <a class="link" href="/projects/{thread.project.slug}">{thread.project.name}</a></span><span aria-hidden="true">·</span>{/if}
+			{#if thread.project}<span>With <a class="link" href={thread.project.href}>{thread.project.name}</a></span><span aria-hidden="true">·</span>{/if}
 			{#each thread.participants as participant, index (participant.did)}<span><Handle account={participant} /> ({participant.role}){index < thread.participants.length - 1 ? ',' : ''}</span>{/each}
 		</p>
 	</header>

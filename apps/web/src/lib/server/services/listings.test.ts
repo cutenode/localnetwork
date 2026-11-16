@@ -25,7 +25,8 @@ describe('ListingWriter', () => {
 		fields = { name: 'Night Shift', slug: 'night-shift', fields: { city: 'Berlin' } };
 		t = await createTestServices({
 			admins: [ADMIN],
-			listingSources: { party: { publicFields: async () => fields }, performer: { publicFields: async () => fields } }
+			listingSources: { party: { publicFields: async () => fields }, performer: { publicFields: async () => fields } },
+			flagOverrides: { spacePages: true }
 		});
 		space = await t.sharedSpaces.create(await t.viewer(ADA), 'party');
 	});
@@ -40,6 +41,38 @@ describe('ListingWriter', () => {
 		t.net.records.get(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(inSpace)!.skey}`)?.value;
 
 	const list = async () => t.sharedSpaces.setListed(await t.viewer(ADMIN), space, true);
+
+	it('writes listings only while spacePages is on for everyone, and takes them down when it goes off', async () => {
+		const pages = await createTestServices({
+			admins: [ADMIN],
+			listingSources: { party: { publicFields: async () => fields } }
+		});
+
+		const admin = await pages.viewer(ADMIN);
+		const party = await pages.sharedSpaces.create(await pages.viewer(ADA), 'party');
+		const written = () => pages.net.records.get(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(party)!.skey}`)?.value;
+		const gates = { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
+
+		await pages.sharedSpaces.setListed(admin, party, true);
+		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		// On for one account isn't on for the signed-out visitors a listing sends to the page.
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, dids: [ADMIN] });
+		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true });
+		await pages.listings.reconcile();
+		expect(written()).toMatchObject({ kind: 'party', name: 'Night Shift' });
+
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true, enabled: false });
+		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		await pages.audit.idle();
+		await pages.db.destroy();
+	});
 
 	it("writes nothing for a space staff haven't listed", async () => {
 		await t.sharedSpaces.addPerson(await t.viewer(ADMIN), space, { did: BO, role: 'cohost' });
@@ -309,7 +342,7 @@ describe("an act's listing", () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
 
 	beforeEach(async () => {
-		t = await createTestServices({ admins: [ADMIN] });
+		t = await createTestServices({ admins: [ADMIN], flagOverrides: { spacePages: true } });
 	});
 	afterEach(async () => {
 		await t.audit.idle();
