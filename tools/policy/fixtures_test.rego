@@ -96,10 +96,12 @@ repo := [
 	{"path": ".github/labels.yml", "contents": {"name": "site"}},
 	{"path": ".github/labels.yml", "contents": {"name": "tool"}},
 	{"path": ".github/labels.yml", "contents": {"name": "docs"}},
+	{"path": ".github/labels.yml", "contents": {"name": "tool: core"}},
 	{"path": ".github/labeler.yml", "contents": {
 		"site": [{"changed-files": [{"any-glob-to-any-file": ["apps/site/**"]}]}],
 		"tool": [{"changed-files": [{"any-glob-to-any-file": "apps/tool/**"}]}],
-		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-any-file": "docs/**/*.txt"}]}],
+		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-all-files": "docs/**/*.txt"}]}],
+		"tool: core": [{"changed-files": [{"any-glob-to-any-file": ["crates/**"]}]}],
 	}},
 	{"path": ".github/dependabot.yml", "contents": {"updates": [
 		{"package-ecosystem": "cargo", "directory": "/"},

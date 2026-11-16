@@ -89,7 +89,7 @@ CodeQL (`codeql.yml`, which `ci.yml` calls) scans the workflows, the TypeScript 
 - Pull requests merge with a merge commit. Squash and rebase merges are off.
 - Write each commit's subject as a [Conventional Commit](https://www.conventionalcommits.org), `type(scope): summary`. CI checks every commit a pull request adds with commitlint (`commitlint.config.js`), and the `commit-msg` hook checks yours as you commit.
 
-Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `tests`, `documentation`, `dependencies`, `github_actions` and `tooling`. [CODEOWNERS](CODEOWNERS) requests a review from whoever owns the tools it changes.
+Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`, `atstore`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `ci`, `tooling`, `security`, `performance`, `accessibility` and `dependencies`. `tests` and `documentation` go on a pull request that changes only tests or only docs. [CODEOWNERS](CODEOWNERS) requests a review from whoever owns the tools it changes.
 
 ## Issues and planning
 
@@ -97,5 +97,5 @@ Open issues here on GitHub, with the issue forms. Each one is synced both ways w
 
 - Status: a new issue starts in Triage, then Backlog or Todo once someone has looked at it, In Progress, In Review and Done (or Canceled). Closing it on GitHub makes it Done, and reopening it brings it back.
 - Pull requests: `Fixes #123` or `Fixes LOC-123` in the description closes the issue when the pull request merges, and `Part of LOC-123` links it without closing it. A branch named from Linear's "Copy git branch name" (`bnb/loc-123-…`) links it as soon as it's pushed. A linked pull request moves its issue to In Progress when it's opened, In Review when a review is requested, and Done when it merges.
-- Labels: the ones in [labels.yml](labels.yml), a tool's (`locallibrary`) and an area's (`locallibrary: player`), and `bug`, `enhancement` and `scheduled-failure` for what kind of issue it is. To move an issue to another tool or area, change its label.
+- Labels: the ones in [labels.yml](labels.yml), a tool's (`locallibrary`) and an area's (`locallibrary: player`), and one for what kind of issue it is: `bug`, `enhancement`, `scheduled-failure`, or work across the tools (`tests`, `documentation`, `ci`, `tooling`, `security`, `performance`, `accessibility`, `design`). `needs decision` and `blocked` say why an issue is waiting. To move an issue to another tool or area, change its label.
 - Priority and estimate are set while triaging. A release is a Linear project, like `locallibrary v0.1.0`, with a target date. Big work gets sub-issues, and work that has to wait gets a "blocked by" relation.

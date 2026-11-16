@@ -46,8 +46,8 @@ jobs:
       actions: write
       # Submitting main's npm packages to the dependency graph.
       contents: write
-      # Labelling the pull request.
-      pull-requests: write
+      # Reading the pull request and the files it changes.
+      pull-requests: read
     outputs:
       locallibrary: ${{ steps.scope.outputs.locallibrary }}
       locallibrary_linux: ${{ steps.scope.outputs.locallibrary_linux }}
@@ -578,11 +578,6 @@ jobs:
       # dependency-review.yml's review, which looks for a snapshot of the exact base commit.
       - if: github.event_name == 'push'
         uses: ./.github/actions/npm-snapshot
-      # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
-      # A fork's pull request gets a read-only token here, so pr-labels.yml labels those instead.
-      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
       # A merge queue group the queue rebuilt or took out gets a new branch name, so concurrency
       # never cancels the run for the old one, and its macOS and Windows jobs would hold those
       # runners to the end. Each group's run cancels this workflow's runs whose group branch GitHub
