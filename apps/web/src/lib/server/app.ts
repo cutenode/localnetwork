@@ -38,6 +38,8 @@ import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
+import { venueListingSource } from './services/venue-index';
+import { VenueService } from './services/venues';
 import { PerformerService } from './services/performer-registry';
 import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
@@ -262,7 +264,13 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const listings = new ListingWriter(core, flags, { performer: performerListingSource(db), ...options.listingSources });
+
+	const listings = new ListingWriter(core, flags, {
+		performer: performerListingSource(db),
+		venue: venueListingSource(db),
+		...options.listingSources
+	});
+
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
@@ -280,6 +288,7 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const venues = new VenueService(core, sharedSpaces, limits.write);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
 	const bugReports = new BugReportService({
@@ -395,6 +404,7 @@ export async function createApp(options: CreateAppOptions) {
 		performers,
 		performerRegistry,
 		projectMigration,
+		venues,
 		recordings,
 		supports,
 		epks,

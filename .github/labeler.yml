@@ -101,6 +101,16 @@ atstore:
           - "apps/web/src/lib/server/services/planner.*"
           - "lexicons/computer/localnetwork/planner/**"
 
+"web: events":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/{venue,party,events}/**"
+          - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
+          - "apps/web/src/lib/server/services/{venue,venues,venue-index,party,parties,party-index,event,events,event-index}.*"
+          - "apps/web/src/lib/components/{Venue,Party,Event}*"
+          - "lexicons/computer/localnetwork/{venue,party,event}.json"
+          - "lexicons/computer/localnetwork/space/{venue,party}.json"
+
 "web: staff":
   - changed-files:
       - any-glob-to-any-file:

@@ -1,45 +1,44 @@
 {
 	"$schema": "../budget.schema.json",
 	"job": "release",
-	"tolerance_percent": 1,
 	"metrics": {
 		"version": {
-			"limit": 1336690,
+			"allowance": 1321,
 			"unit": "instructions",
 			"measures": "Instructions `--version` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"drive_ls": {
-			"limit": 111030132,
+			"allowance": 111031,
 			"unit": "instructions",
 			"measures": "Instructions `drive ls` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"tracks_filter": {
-			"limit": 82276100,
+			"allowance": 82277,
 			"unit": "instructions",
 			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"tracks_search": {
-			"limit": 103580675,
+			"allowance": 103581,
 			"unit": "instructions",
 			"measures": "Instructions `tracks --search` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"tracks_sort": {
-			"limit": 204902030,
+			"allowance": 204903,
 			"unit": "instructions",
 			"measures": "Instructions `tracks --sort` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"diff": {
-			"limit": 145249848,
+			"allowance": 145250,
 			"unit": "instructions",
 			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"check": {
-			"limit": 1432315958,
+			"allowance": 1432316,
 			"unit": "instructions",
 			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"doctor": {
-			"limit": 708540945,
+			"allowance": 708541,
 			"unit": "instructions",
 			"measures": "Instructions `doctor` runs on the 3,886-track fixture, under cachegrind."
 		}
