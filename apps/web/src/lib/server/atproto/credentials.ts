@@ -167,21 +167,20 @@ export class SpaceCredentialManager {
 		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
 
-		const response = await this.deps.identity.serviceApiFetch(
-			new URL('/xrpc/com.atproto.space.getSpaceCredential', host),
-			{
-				method: 'POST',
-				redirect: 'error',
-				headers: { 'content-type': 'application/json', accept: 'application/json' },
-				body: JSON.stringify({ space, credentialKid: key.did(), delegationToken }),
-				signal: AbortSignal.timeout(15_000)
-			}
-		);
+		const nsid = 'com.atproto.space.getSpaceCredential';
+
+		const response = await this.deps.identity.serviceApiFetch(new URL(`/xrpc/${nsid}`, host), {
+			method: 'POST',
+			redirect: 'error',
+			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			body: JSON.stringify({ space, credentialKid: key.did(), delegationToken }),
+			signal: AbortSignal.timeout(15_000)
+		});
 
 		const body = await readBody(response);
 
 		if (!response.ok) {
-			const error = toXrpcError(response.status, body, 'com.atproto.space.getSpaceCredential');
+			const error = toXrpcError(response.status, body, nsid);
 
 			// The authority refused the token the root's PDS minted (its audience, subject, or lifetime). Unlike
 			// SpaceDeleted, which the syncer drops the space for, this says nothing about the space itself.
@@ -194,10 +193,11 @@ export class SpaceCredentialManager {
 
 		const output = spaceCredentialOutput.safeParse(body);
 
-		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned');
+		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned', nsid);
+		const credential = readAnswer(nsid, () => new SpaceCredential(space, output.data.credential, key));
 		this.deps.logger.debug('minted space credential', { space });
 
-		return new SpaceCredential(space, output.data.credential, key);
+		return credential;
 	}
 
 	/**
@@ -211,7 +211,7 @@ export class SpaceCredentialManager {
 		const response = await this.request(input);
 		const text = await response.text();
 
-		return input.schema.parse(lexParse(text));
+		return readAnswer(input.nsid, () => input.schema.parse(lexParse(text)));
 	}
 
 	/** Calls a credential-authenticated space procedure (e.g. registerNotify) with a JSON body and parses the response with `schema`. */
@@ -238,7 +238,7 @@ export class SpaceCredentialManager {
 
 			if (!response.ok) throw toXrpcError(response.status, body, input.nsid);
 
-			return input.schema.parse(body ?? {});
+			return readAnswer(input.nsid, () => input.schema.parse(body ?? {}));
 		});
 	}
 
@@ -293,6 +293,7 @@ export class SpaceCredentialManager {
 		rkey: string;
 	}): Promise<StoredRecord | null> {
 		const uri = spaceRecordUri(input.space, input.repo, input.collection, input.rkey);
+		const nsid = 'com.atproto.space.getRecord';
 
 		try {
 			return await this.readVerified(input.repo, async ({ pds }, kemKey) => {
@@ -300,16 +301,17 @@ export class SpaceCredentialManager {
 					space: input.space,
 					service: pds,
 					audience: input.repo,
-					nsid: 'com.atproto.space.getRecord',
+					nsid,
 					params: input,
 					mac: { type: RECORD_MAC_TYPE, kemKey }
 				});
 
-				const body: JsonValue = await response.json();
+				const text = await response.text();
+				const body: JsonValue = readAnswer(nsid, () => JSON.parse(text));
 
 				// z.json() and jsonToLex recurse, so the record, one level into the body, is checked with a stack first.
 				if (isTooDeep(body, 0)) throw new RecordValidationError(input.collection, TOO_DEEP);
-				const record = spaceRecordOutput.parse(body);
+				const record = readAnswer(nsid, () => spaceRecordOutput.parse(body));
 				// verifyRecord re-encodes the value to check its CID, so it needs the CIDs and bytes decoded.
 				const value = jsonToLex(record.value);
 
@@ -371,6 +373,19 @@ const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.
 const xrpcErrorBody = z
 	.object({ error: z.string().optional().catch(undefined), message: z.string().optional().catch(undefined) })
 	.catch({});
+
+/**
+ * What `read` makes of a host's answer to `nsid`. An answer it throws on (not JSON, nested deeper than lex JSON's
+ * recursion goes, a key lex JSON refuses, the wrong shape, a credential that isn't a space token) is the host's
+ * failure, so it rejects as one, naming the method.
+ */
+function readAnswer<T>(nsid: string, read: () => T): T {
+	try {
+		return read();
+	} catch (error) {
+		throw new XrpcResponseError(502, 'InvalidResponse', error instanceof Error ? error.message : String(error), nsid);
+	}
+}
 
 async function readBody(response: Response): Promise<JsonValue | undefined> {
 	try {

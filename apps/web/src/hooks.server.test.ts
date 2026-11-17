@@ -3,13 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import type { RequestEvent } from '@sveltejs/kit';
+import { isHttpError, type RequestEvent } from '@sveltejs/kit';
 import type { CaughtError, HandleServerError, ResolveOptions } from '@sveltejs/kit/hooks';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
+import { requireFlag } from '#lib/server/http.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
@@ -19,7 +20,7 @@ import { flagsOff } from '#lib/testing/flags.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
 import type { App as ServerApp } from '#lib/server/app.ts';
 import { init, serverHooks } from './hooks.server';
-import type { FlagService } from '#lib/server/services/flags.ts';
+import { FlagService } from '#lib/server/services/flags.ts';
 
 let dir: string;
 
@@ -193,6 +194,49 @@ it("applies a staff member's flag preview to their own requests only", async () 
 	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
 });
 
+it('lets a page behind a flag 404 until the flag is on for the viewer, a staff preview included', async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	const adminToken = await s.sessions.create(ADMIN, null);
+	const djToken = await s.sessions.create(DJ, null);
+
+	const page = async (cookies: Record<string, string>) => {
+		const { locals } = await handledWithLocals(handle, { url: '/party/night-shift', cookies });
+
+		try {
+			// SAFETY: the hook set flags on every request that isn't XRPC.
+			requireFlag(locals as App.Locals, 'spacePages');
+
+			return 200;
+		} catch (cause) {
+			if (!isHttpError(cause)) throw cause;
+
+			return cause.status;
+		}
+	};
+
+	const preview = sealPreview(
+		{ did: ADMIN, flags: { spacePages: true }, expiresAt: Date.now() + PREVIEW_MS },
+		adminToken
+	);
+
+	expect(await page({ [SESSION_COOKIE]: adminToken })).toBe(404);
+	expect(await page({ [SESSION_COOKIE]: adminToken, [PREVIEW_COOKIE]: preview })).toBe(200);
+	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(404);
+	expect(await page({})).toBe(404);
+
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', {
+		enabled: true,
+		everyone: true,
+		percentage: 0,
+		groups: [],
+		dids: []
+	});
+
+	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(200);
+	expect(await page({})).toBe(200);
+});
+
 it('drops a session cookie that names no session', async () => {
 	const s = await services();
 	const { handle } = hooksWith(async () => s.app);
@@ -219,6 +263,28 @@ it("doesn't read the session cookie on an xrpc call, or rate limit it", async ()
 
 	expect(response.status).toBe(200);
 	expect(locals.viewer).toBeNull();
+});
+
+it("gives an xrpc call a signed-out visitor's flags, and ignores a staff preview there", async () => {
+	const s = await services({ admins: [ADMIN], flagOverrides: { parityCanary: true } });
+	const token = await s.sessions.create(ADMIN, null);
+	const resolve = vi.spyOn(s.sessions, 'resolve');
+	const { handle } = hooksWith(async () => s.app);
+
+	const preview = sealPreview(
+		{ did: ADMIN, flags: { parityCanary: false }, expiresAt: Date.now() + PREVIEW_MS },
+		token
+	);
+
+	const { locals, cookies } = await handledWithLocals(handle, {
+		url: '/xrpc/computer.localnetwork.flags.getFlags',
+		cookies: { [SESSION_COOKIE]: token, [PREVIEW_COOKIE]: preview }
+	});
+
+	expect(locals.flags?.parityCanary).toBe(true);
+	expect(locals.flagPreview).toBeUndefined();
+	expect(cookies.deleted).not.toContain(PREVIEW_COOKIE);
+	expect(resolve).not.toHaveBeenCalled();
 });
 
 it('limits writes by address, and counts an unknown address as one', async () => {
@@ -280,6 +346,45 @@ it('logs failures by how bad they are, and leaves assets and health checks out',
 		['error', '/broken']
 	]);
 });
+
+it.each([
+	['/dashboard/activity?before=4', '/dashboard/account/activity?before=4'],
+	['/dashboard/data', '/dashboard/account/data'],
+	['/dashboard/requests', '/dashboard/account/requests'],
+	['/dashboard/requests/3k?submitted=1', '/dashboard/account/requests/3k?submitted=1'],
+	['/dashboard/requests/3k/avatar?size=64', '/dashboard/account/requests/3k/avatar?size=64'],
+	['/dashboard/inbox/settings?email=declined', '/dashboard/account/notifications?email=declined'],
+	['/projects', '/djs'],
+	['/projects?genres=house&sort=recent', '/djs?genres=house&sort=recent']
+])('sends %s on to where it moved, whatever the method', async (from, to) => {
+	const { handle } = hooksWith(async () => {
+		throw new Error('a moved page needs nothing from the app');
+	});
+
+	for (const request of [{ url: from }, { url: from, form: {} }]) {
+		const { event } = routeEvent(request);
+
+		// SAFETY: as above.
+		await expect(handle({ event: event as never, resolve: async () => new Response() })).rejects.toMatchObject({
+			status: 308,
+			location: to
+		});
+	}
+});
+
+it.each(['/dashboard/inbox', '/dashboard/requests-archive', '/dashboard/account/data', '/projects/neon-tide'])(
+	'leaves %s where it is',
+	async (url) => {
+		const s = await services();
+		const { handle } = hooksWith(async () => s.app);
+		const { event } = routeEvent({ url });
+
+		// SAFETY: as above.
+		const response = await handle({ event: event as never, resolve: async () => new Response('here') });
+
+		expect(await response.text()).toBe('here');
+	}
+);
 
 it('puts what services note during a request on its one line', async () => {
 	const s = await services();
@@ -448,8 +553,10 @@ function capturingLogger(logs: WrittenLine[]) {
 	return writtenLog('info', logs).logger;
 }
 
-/** The app parts the hook reads: real sessions and viewers over test services, and a write limit of `writes`. */
-async function services(options: { writes?: number; publicUrl?: string; admins?: string[] } = {}) {
+/** The app parts the hook reads: real sessions and viewers over test services, a write limit of `writes`, and flags with `flagOverrides` forced. */
+async function services(
+	options: { writes?: number; publicUrl?: string; admins?: string[]; flagOverrides?: Record<string, boolean> } = {}
+) {
 	const t = await createTestServices({ admins: options.admins });
 	const sessions = new WebSessions(t.db, 30);
 	const logs: WrittenLine[] = [];
@@ -458,12 +565,12 @@ async function services(options: { writes?: number; publicUrl?: string; admins?:
 		logger: capturingLogger(logs),
 		sessions,
 		limits: { write: new RateLimiter(options.writes ?? 30, 0) },
-		flags: t.flags,
+		flags: options.flagOverrides ? new FlagService(t.core, t.staff, options.flagOverrides) : t.flags,
 		viewer: async (did: string) => (did === STALE ? null : t.viewer(did)),
 		config: { publicUrl: options.publicUrl ?? 'http://127.0.0.1:5173' }
 	};
 
-	return { app: parts, sessions, logs };
+	return { app: parts, sessions, logs, flags: t.flags, viewer: t.viewer };
 }
 
 /** Runs the handle hook on a request built from `init`, with a page that answers `status`. */

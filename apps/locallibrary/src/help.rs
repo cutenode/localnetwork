@@ -19,56 +19,13 @@ const GROUPS: &[(&str, &[&str])] = &[
     ("Other", &["account", "plugin", "bug", "completions", "help"]),
 ];
 
-/// The old top-level names of commands that moved into a group, and where they went: a "did you
-/// mean" names the new spelling, and the hidden names aren't suggested.
-const MOVED: &[(&str, &str)] = &[
-    ("drives", "drive ls"),
-    ("info", "drive info"),
-    ("adopt", "drive adopt"),
-    ("disks", "drive disks"),
-    ("format", "drive format"),
-    ("verify", "drive verify"),
-    ("fsck", "drive fsck"),
-    ("space", "drive space"),
-    ("tidy", "drive tidy"),
-    ("recordings", "drive recordings"),
-    ("firmware", "drive firmware"),
-    ("backups", "drive backups"),
-    ("restore", "drive restore"),
-    ("log", "library log"),
-    ("push", "library push"),
-    ("history", "plays lists"),
-    ("stats", "plays stats"),
-    ("playlists", "playlist ls"),
-    ("mirror", "sync --from"),
-    ("compare", "diff --summary"),
-];
-
-/// A usage error's "did you mean": hidden names give way to the commands that replaced them.
+/// A usage error's "did you mean", with hidden names left out.
 pub fn tidy_suggestions(e: clap::Error, cmd: &Command) -> clap::Error {
-    tidy(e, cmd, &command_words())
-}
-
-/// [`tidy_suggestions`] for the command words typed. The moved names are top-level ones, so a
-/// slip further in keeps its suggestion: `collection playlists` is a command of its own.
-fn tidy(e: clap::Error, cmd: &Command, words: &[String]) -> clap::Error {
     use clap::error::{ContextKind, ContextValue};
     let Some(ContextValue::Strings(names)) = e.get(ContextKind::SuggestedSubcommand) else { return e };
-    let top_level =
-        matches!(e.get(ContextKind::InvalidSubcommand), Some(ContextValue::String(w)) if words.first() == Some(w));
     let mut visible = Vec::new();
     visible_names(cmd, &mut visible);
-    let mut kept: Vec<String> = Vec::new();
-    for name in names {
-        let name = match MOVED.iter().find(|(old, _)| top_level && old == name) {
-            Some((_, new)) => new.to_string(),
-            None if visible.contains(name) => name.clone(),
-            None => continue,
-        };
-        if !kept.contains(&name) {
-            kept.push(name);
-        }
-    }
+    let kept: Vec<String> = names.iter().filter(|n| visible.contains(n)).cloned().collect();
     let mut fresh = clap::Error::new(e.kind()).with_cmd(cmd);
     for (kind, value) in e.context() {
         if kind != ContextKind::SuggestedSubcommand {

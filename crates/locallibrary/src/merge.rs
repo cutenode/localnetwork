@@ -24,10 +24,12 @@
 //! Paths that are taken by a *different* file get a ` (2)` suffix, and the analysis file's
 //! embedded path is rewritten to match.
 //!
-//! A track already present keeps the target's details, analysis and file; the plan lists those
-//! that differ. When the merge leaves nothing of the source out, the source's state goes into the
-//! target's lineage, so the target counts as newer and `sync` copies it over the source, those
-//! differences included. Undoing the merge takes that back out.
+//! A track already present keeps the target's details, analysis, file and My Tags; the plan lists
+//! those that differ. The source's library is its `export.pdb`'s when it has one, so the plan also
+//! lists tracks only its OneLibrary has, which aren't merged. When the merge leaves nothing of the
+//! source out (no such track among it), the source's state goes into the target's lineage, so the
+//! target counts as newer and `sync` copies it over the source, those differences included.
+//! Undoing the merge takes that back out.
 //!
 //! The target's database is backed up first (see [`crate::backup`]), so `locallibrary undo` takes back a
 //! merge.
@@ -49,7 +51,7 @@ use crate::device::{Device, LineageEntry, LineageOp, Scanned};
 use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
-use crate::model::{self, FieldChange, Library, Playlist, Track, TrackChange};
+use crate::model::{self, FieldChange, Library, Playlist, Track, TrackChange, TrackRef};
 use crate::paths::{self, fold};
 use crate::pdb;
 use crate::progress::{Ctx, Phase, WarningLimiter};
@@ -130,8 +132,11 @@ pub struct MergePlan {
     pub new_tracks: Vec<PlannedTrack>,
     /// Source tracks already in the target.
     pub matched_tracks: usize,
-    /// Those whose details, file or analysis differ: the target's stay as they are.
+    /// Those whose details, file, analysis or My Tags differ: the target's stay as they are.
     pub differing_tracks: Vec<TrackChange>,
+    /// Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so
+    /// they aren't brought across, and with any the source isn't taken in.
+    pub source_onelibrary_only: Vec<TrackRef>,
     /// Whether the target holds everything the source has once merged (every track, its
     /// playlists and history), `differing_tracks` aside. Then the source's state goes into the
     /// target's lineage, so a `sync` afterwards copies the merged drive over the source.
@@ -249,6 +254,32 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     // `dst_lib` is export.pdb's when the target has one; OneLibrary's tracks count too.
     let dst_plus =
         if target.has_device_library() { crate::onelibrary::open_plus(target, true, &mut warnings)? } else { None };
+    // So is `src_lib`: a track only the source's OneLibrary lists isn't merged, and while there's
+    // one (or OneLibrary can't be read) the source isn't taken in, as a `sync` would remove it.
+    let (mut src_plus, mut src_plus_unread) = (None, false);
+    if source.has_device_library() && source.has_library_plus() {
+        match source.library_plus().and_then(|one| Ok((one.library()?, one))) {
+            Ok(plus) => src_plus = Some(plus),
+            Err(e) => {
+                warnings.push(format!("{e}; tracks only it lists aren't merged, so sync will still ask which way"));
+                src_plus_unread = true;
+            }
+        }
+    }
+    let source_onelibrary_only: Vec<TrackRef> = match &src_plus {
+        Some((plus, _)) => {
+            let listed: FxHashSet<String> = src_lib.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
+            plus.tracks
+                .iter()
+                .filter(|t| !listed.contains(&paths::file_key(&t.file_path)))
+                .map(TrackRef::from)
+                .collect()
+        }
+        None => Vec::new(),
+    };
+    let src_tags = DriveTags::read(source, &src_lib, src_plus.as_ref().map(|(_, one)| one), &mut warnings);
+    let dst_tags = DriveTags::read(target, &dst_lib, dst_plus.as_ref().map(|(_, one)| one), &mut warnings);
+    let any_tags = src_tags.any() || dst_tags.any();
 
     // Index the target.
     let dst_by_path: FxHashMap<String, &Track> =
@@ -298,7 +329,10 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         });
         if let Some(d) = matched {
             matches.insert(t.id, d.id);
-            let fields = differences(t, d, &src_tree, &dst_tree, &mut key);
+            let mut fields = differences(t, d, &src_tree, &dst_tree, &mut key);
+            if any_tags {
+                fields.extend(tag_difference(&src_tags, t, &dst_tags, d));
+            }
             if !fields.is_empty() {
                 differing_tracks.push(TrackChange { track: t.into(), fields });
             }
@@ -387,6 +421,8 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let history_ids = if opts.history { plan_history(&src_lib, &dst_lib, &matches, &new_ids) } else { Vec::new() };
     // Nothing of the source's left out: no track skipped, no playlist or history list left behind.
     let takes_in_source = wanted_tracks.is_none()
+        && source_onelibrary_only.is_empty()
+        && !src_plus_unread
         && opts.playlists != PlaylistMode::None
         && new_tracks.len() + matches.len() == src_lib.tracks.len()
         && (opts.history || plan_history(&src_lib, &dst_lib, &matches, &new_ids).is_empty());
@@ -399,8 +435,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     if let Some(db) = &dst_pdb {
         check_names(db, &src_lib, &dst_lib, &selected, mode, prefix, &history)?;
     }
-    let (tagged_tracks, new_tags) =
-        plan_my_tags(source, &src_lib, target, &dst_lib, &dst_plus, &new_tracks, &mut warnings);
+    let (tagged_tracks, new_tags) = plan_my_tags(&src_tags, &src_lib, target, &dst_tags, &new_tracks, &mut warnings);
     if !new_tracks.is_empty() || !playlists.is_empty() {
         warnings.extend(target.rekordbox_sync_warning(
             "it doesn't know about merged tracks and playlists, so check them after rekordbox next syncs this drive",
@@ -424,6 +459,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         target: target.root().to_path_buf(),
         matched_tracks: matches.len(),
         differing_tracks,
+        source_onelibrary_only,
         takes_in_source,
         new_tracks,
         playlists,
@@ -529,6 +565,28 @@ impl DriveTags {
         let (ext, plus) = (self.ext.as_ref(), self.plus.as_ref());
         (tags::tags_of(ext, plus, key), tags::tags_of(plus, ext, key))
     }
+
+    /// Whether the drive has a database of My Tags that could be read.
+    fn any(&self) -> bool {
+        self.ext.is_some() || self.plus.is_some()
+    }
+}
+
+/// How the My Tags of a matched track differ, the source's `t` against the target's `d`, in
+/// either kind of database, in any order: a `sync` after the merge gives the source the target's.
+fn tag_difference(src: &DriveTags, t: &Track, dst: &DriveTags, d: &Track) -> Option<FieldChange> {
+    let sorted = |(mut ext, mut plus): (TagNames, TagNames)| {
+        ext.sort();
+        plus.sort();
+        (ext, plus)
+    };
+    let theirs = sorted(src.of(&paths::file_key(&t.file_path)));
+    let ours = sorted(dst.of(&paths::file_key(&d.file_path)));
+    if theirs == ours {
+        return None;
+    }
+    let names = |tags: &TagNames| tags.iter().map(|(c, t)| format!("{c}/{t}")).collect::<Vec<_>>().join(", ");
+    Some(FieldChange { field: "my_tags".into(), old: names(&theirs.0), new: names(&ours.0) })
 }
 
 /// Refuse a name the merge gives a new playlist, folder or history list that is too long for a
@@ -598,19 +656,16 @@ fn check_names(
 
 /// How many new tracks bring My Tags, and the categories and tags that creates in the target.
 fn plan_my_tags(
-    source: &Device,
+    src: &DriveTags,
     src_lib: &Library,
     target: &Device,
-    dst_lib: &Library,
-    dst_plus: &Option<(Library, OneLibrary)>,
+    dst: &DriveTags,
     new_tracks: &[PlannedTrack],
     warnings: &mut Vec<String>,
 ) -> (usize, Vec<Created>) {
     if new_tracks.is_empty() {
         return (0, Vec::new());
     }
-    let src = DriveTags::read(source, src_lib, None, warnings);
-    let dst = DriveTags::read(target, dst_lib, dst_plus.as_ref().map(|(_, one)| one), warnings);
     let (mut for_ext, mut for_plus): (Wanted, Wanted) = (Vec::new(), Vec::new());
     let mut tagged = 0;
     let source_track = src_lib.track_lookup();

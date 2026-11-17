@@ -57,6 +57,7 @@ fn each_read_needs_its_capability() {
         ("sets.list", "sets:read"),
         ("account.status", "account:status"),
         ("collection.info", "collection:read"),
+        ("collection.status", "collection:files"),
     ];
     let none = granted(&[]);
     for (method, capability) in reads {
@@ -120,6 +121,35 @@ fn drives_are_found_by_the_host() {
     assert_eq!(e.kind, "not_found");
     let e = check(&m, "tracks.query", json!({ "drive": 4 })).unwrap_err();
     assert_eq!(e.message, "invalid params: `drive` names a drive, which 4 doesn't");
+}
+
+/// A file in the request's scratch folder is named by its path, which the host finds there
+/// itself (see `plugin::collection`); anything else is refused, and so is a file given to a read
+/// that takes none.
+#[test]
+fn scratch_files_are_named_by_their_paths() {
+    let m = granted(&["collection:files"]);
+    let given = check(&m, "collection.tracks", json!({ "db": "/s/master.db" })).unwrap();
+    assert_eq!((given["db"].clone(), given["limit"].clone()), (json!("/s/master.db"), json!(500)));
+    assert!(check(&m, "collection.tracks", json!({ "db": null })).is_ok());
+    let e = check(&m, "collection.copy", json!({ "into": 4 })).unwrap_err();
+    assert_eq!(e.message, "invalid params: `into` names a file in the scratch folder, which 4 doesn't");
+    let e = check(&m, "collection.locations", json!({ "db": "/s/master.db" })).unwrap_err();
+    assert_eq!(e.message, "invalid params: a plugin doesn't give collection.locations `db`");
+}
+
+/// Where rekordbox's files and its tracks' audio files are comes as it is, though it's in the
+/// home folder: telling a plugin with `collection:files` that is what those reads are for. Any
+/// other read's path is said from there.
+#[test]
+fn rekordbox_locations_come_as_they_are() {
+    let roots = [("/Users/dj".to_string(), "~".to_string())];
+    let at = json!({ "data": "/Users/dj/Library/Pioneer/rekordbox", "master_db_exists": true });
+    assert_eq!(answer_for_plugin("collection.locations", at.clone(), &roots), at);
+    let track = json!({ "tracks": [{ "path": "/Users/dj/Music/a.mp3", "analysis_path": "/PIONEER/USBANLZ/a" }] });
+    assert_eq!(answer_for_plugin("collection.tracks", track.clone(), &roots), track);
+    let info = answer_for_plugin("drive.info", json!({ "log": "/Users/dj/Music/a.mp3" }), &roots);
+    assert_eq!(info, json!({ "log": "~/Music/a.mp3" }));
 }
 
 #[test]
@@ -266,6 +296,10 @@ const SPEC: &[Read] = {
         ("account.status", "account:status", false, &[]),
         ("collection.info", "collection:read", false, &[]),
         ("collection.diff", "collection:read", false, &[("drive", Drive), ("playlist", Plain)]),
+        ("collection.locations", "collection:files", false, &[]),
+        ("collection.status", "collection:files", false, &[]),
+        ("collection.copy", "collection:files", false, &[("into", Scratch), ("with_credentials", Plain)]),
+        ("collection.tracks", "collection:files", false, &[("db", Scratch), ("offset", Plain), ("limit", Limit(500))]),
     ]
 };
 
@@ -286,7 +320,8 @@ const NEVER: &[&str] = &[
     "",
 ];
 
-/// Params that name files, servers or secrets: never given by a plugin, to any read.
+/// Params that name files, servers or secrets: never given by a plugin, to any read, but a file
+/// in the request's scratch folder ([`Param::Scratch`]).
 const REFUSED: &[&str] = &[
     "db",
     "file",
@@ -347,6 +382,13 @@ fn given(tc: &TestCase, param: Option<Param>) -> Value {
             let n = tc.draw(gs::integers::<u64>().max_value(most * 2));
             tc.draw(gs::sampled_from(vec![json!(n), json!(most), json!(u64::MAX), json!("all"), json!(-1), json!(2.5)]))
         }
+        Some(Param::Scratch) => tc.draw(gs::sampled_from(vec![
+            json!("/store/plugins/p/scratch/1/master.db"),
+            json!("master.db"),
+            Value::Null,
+            json!(4),
+            json!(["/a"]),
+        ])),
         _ => tc.draw(gs::sampled_from(vec![json!("x"), json!(1), json!(true), Value::Null, json!(["/Volumes/USB"])])),
     }
 }
@@ -372,6 +414,11 @@ fn made(name: &str, param: Param, value: Option<&Value>) -> Made {
         (Param::AtMost(most), Some(Value::Array(list))) if list.len() > most => Err((
             "invalid_params",
             format!("invalid params: `{name}` has {} items: at most {most} at a time", list.len()),
+        )),
+        // Whether it's in the scratch folder is the host's to find (see `plugin::collection`).
+        (Param::Scratch, Some(v)) if !(v.is_string() || v.is_null()) => Err((
+            "invalid_params",
+            format!("invalid params: `{name}` names a file in the scratch folder, which {v} doesn't"),
         )),
         (_, Some(v)) => Ok(Some(v.clone())),
     }
@@ -422,7 +469,8 @@ fn as_the_spec_says(
             let expected: serde_json::Map<String, Value> =
                 outcomes.into_iter().filter_map(|(name, o)| Some((name.to_string(), o.unwrap()?))).collect();
             assert_eq!(passed, Value::Object(expected), "{method} {params:?}");
-            assert!(REFUSED.iter().all(|k| passed.get(k).is_none()));
+            let in_scratch = |k: &&str| listed.iter().any(|&(name, p)| name == *k && matches!(p, Param::Scratch));
+            assert!(REFUSED.iter().filter(|k| !in_scratch(k)).all(|k| passed.get(k).is_none()), "{method}");
         }
         Err(e) => {
             let refused = (e.kind, e.message.clone());

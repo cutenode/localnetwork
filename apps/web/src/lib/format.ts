@@ -13,7 +13,7 @@ export function accountLabel(account: AccountView | null | undefined): string {
 	return account.handle ? `@${account.handle}` : shortDid(account.did);
 }
 
-/** What each kind of request to staff is called in lists. */
+/** What each kind of review request is called in lists. */
 export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
 	create: 'New project',
 	claim: 'Claim',
@@ -22,14 +22,18 @@ export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
 };
 
 /** Who or what a request is about: its project, the profile it proposes, or for a listing request, the requester. */
-export function requestSubject(request: Pick<RequestView, 'kind' | 'project' | 'record' | 'requester'>): string {
+export function requestSubject(
+	request: Pick<RequestView, 'kind' | 'project' | 'venue' | 'record' | 'requester'>
+): string {
 	if (request.kind === 'list') return accountLabel(request.requester);
 
-	return request.project?.name ?? request.record.profile?.name ?? 'Project';
+	return request.project?.name ?? request.venue?.name ?? request.record.profile?.name ?? 'Project';
 }
 
 /** A request's name on every list and page that shows one: its kind and what it's about. */
-export function requestTitle(request: Pick<RequestView, 'kind' | 'project' | 'record' | 'requester'>): string {
+export function requestTitle(
+	request: Pick<RequestView, 'kind' | 'project' | 'venue' | 'record' | 'requester'>
+): string {
 	return `${REQUEST_KIND_LABEL[request.kind]}: ${requestSubject(request)}`;
 }
 

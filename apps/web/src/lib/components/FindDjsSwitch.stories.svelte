@@ -5,6 +5,6 @@
 	const { Story } = defineMeta({ title: 'Directory/Find DJs switch', component: FindDjsSwitch, tags: ['autodocs'] });
 </script>
 
-<Story name="Search" args={{ current: '/projects' }} />
+<Story name="Search" args={{ current: '/djs' }} />
 
 <Story name="Match a show" args={{ current: '/match' }} />

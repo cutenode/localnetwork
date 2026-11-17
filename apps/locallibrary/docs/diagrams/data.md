@@ -75,18 +75,20 @@ How `collection` reads `master.db` without touching it, and `collection export` 
 
 ```mermaid
 flowchart TD
+    find["LOCALLIBRARY_MASTERDB, else where rekordbox's<br/>settings say its library moved, else its own folder"] --> master
     master[("master.db and its WAL")] --> copy["Copied to a temporary folder,<br/>decrypted, WAL replayed"]
     copy --> read["Opened read only"]
     read --> reads["collection info, tracks, playlists"]
     read --> diff["collection diff:<br/>what a drive lacks"]
     read --> export["collection export"]
+    read --> player["The player: every file as a full path on this<br/>computer, cloud tracks in Dropbox or Google Drive"]
     export --> write["Copy what differs, build both databases,<br/>swap them in"]
     write --> target["A drive, or a folder laid out like one"]
     target -->|"pull"| store[("Store")]
     store -->|"library push"| drive["Any drive"]
 ```
 
-Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
+Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
 
 ## Exporting a collection
 
@@ -94,7 +96,7 @@ Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/
 
 ```mermaid
 flowchart TD
-    source["master.db, or a plugin's source<br/>with the folders you --grant"] --> plan["Plan the files that differ. A library it holds<br/>from elsewhere is replaced only when asked"]
+    source["master.db, or a plugin's source<br/>with the folders you --grant"] --> plan["Plan the files that differ, with how long it'll take.<br/>A library it holds from elsewhere is replaced only when asked"]
     plan --> saved["Save what only the target has in the store"]
     saved --> backup["Back up what it replaces, not audio,<br/>if it holds a library. Mark it as being written"]
     backup --> copy["Copy what differs: library_write, as pack does"]
@@ -102,7 +104,7 @@ flowchart TD
     build --> delete["Delete what's no longer used, record the<br/>new state, write collection.json, forget the journal"]
 ```
 
-Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
+Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
 
 ## Sets from histories and recordings
 
@@ -156,21 +158,24 @@ flowchart TD
     report --> set["sets new, from the recording"]
 ```
 
-Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/src/mix/mod.rs), [`crates/locallibrary/src/mix/index.rs`](../../../../crates/locallibrary/src/mix/index.rs), [`crates/locallibrary/src/mix/report.rs`](../../../../crates/locallibrary/src/mix/report.rs), [`crates/locallibrary/src/mix/export.rs`](../../../../crates/locallibrary/src/mix/export.rs), [`src/mix_cmd.rs`](../../src/mix_cmd.rs)
+Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/src/mix/mod.rs), [`crates/locallibrary/src/mix/index.rs`](../../../../crates/locallibrary/src/mix/index.rs), [`crates/loclib-audio/src/lib.rs`](../../../../crates/loclib-audio/src/lib.rs), [`crates/loclib-mixid/src/lib.rs`](../../../../crates/loclib-mixid/src/lib.rs), [`crates/locallibrary/src/mix/report.rs`](../../../../crates/locallibrary/src/mix/report.rs), [`crates/locallibrary/src/mix/export.rs`](../../../../crates/locallibrary/src/mix/export.rs), [`src/mix_cmd.rs`](../../src/mix_cmd.rs)
 
 ## The DJ profile
 
-What the report is built from, and what's allowed out of it.
+What the report is built from, and what's allowed out of it. Genres, artists, era and energy count the collection, each track once; the rest count plays.
 
 ```mermaid
 flowchart TD
-    sets["Declared sets"] --> report["Profile report: stays on this computer"]
-    sessions["Histories, until sets are declared"] --> report
-    collection["The collection, with neither"] --> report
-    analysis["Analysis and tags, from mounted drives<br/>and the store's snapshots"] --> report
-    settings["The drives' My Settings"] --> report
-    report --> document["Profile document: rounded unless<br/>precision is exact, no paths, list<br/>names or exact dates"]
-    prefs[("profile.json<br/>include, pin, hide, alias, headline, precision")] --> document
+    sets["Declared sets"] --> plays["Plays: sets, tempo, keys, mixing,<br/>signature tracks..."]
+    sessions["Histories, until sets are declared"] --> plays
+    collection["The collection: drives' libraries and<br/>the store's latest snapshots, each track once"] --> owned["Genres, artists, era, energy"]
+    analysis["Analysis and tags, from mounted drives<br/>and the store's snapshots"] --> plays
+    analysis --> owned
+    settings["The drives' My Settings"] --> report["Profile report: stays on this computer"]
+    plays --> report
+    owned --> report
+    report -->|"only the publishable sections:<br/>sets, energy, genres, artists, era, collection"| document["Profile document: rounded unless<br/>precision is exact, no paths, list<br/>names or exact dates"]
+    prefs[("profile.json<br/>include, hide artist, alias, precision")] --> document
     document -->|"profile document -o"| file["A file"]
     document -->|"profile publish"| account["computer.localnetwork.dj.profile"]
 ```

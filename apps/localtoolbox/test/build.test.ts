@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import Ajv from 'ajv';
-import blankSpace from 'ts-blank-space';
+import { pageScript } from '../scripts/page-script.mts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -58,11 +58,13 @@ describe('what the build produces', () => {
 		expect(there('manifest.json')).toBe(true);
 		expect(JSON.parse(read('manifest.json'))).toEqual(manifest);
 
-		const [contentScript] = manifest.content_scripts;
+		const scripts = manifest.content_scripts.flatMap((script: { js: string[]; css?: string[] }) => [
+			...script.js,
+			...(script.css ?? [])
+		]);
 
 		for (const file of [
-			...contentScript.js,
-			...contentScript.css,
+			...scripts,
 			...Object.values(manifest.icons),
 			manifest.action.default_popup,
 			manifest.background.service_worker
@@ -71,13 +73,14 @@ describe('what the build produces', () => {
 		}
 	});
 
-	it('ships the page scripts as they are written, less their types', () => {
+	it('ships the page scripts as they are written, less their types and comments', () => {
 		// The page scripts are TypeScript with nothing to compile but the types:
 		// what runs on soundcloud.com is the file in the repository with each
-		// annotation blanked out, so every line and column is where it was.
-		for (const name of ['content', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
+		// annotation and comment blanked out, so every line and column of code is
+		// where it was (test/page-script.test.ts).
+		for (const name of ['content', 'gate-page', 'page-data', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
 			const shipped = read(`${name}.js`);
-			expect(shipped, name).toBe(blankSpace(source(`${name}.ts`)));
+			expect(shipped, name).toBe(pageScript(source(`${name}.ts`)));
 			// Still a classic script: a content script cannot be a module, the shared
 			// two define page globals, which a module cannot do, and the theme has to
 			// be on the page before the deferred module bundle runs.
@@ -96,9 +99,11 @@ describe('what the build produces', () => {
 				'content.css',
 				'content.js',
 				'downloaded-store.js',
+				'gate-page.js',
 				'icons',
 				'manifest.json',
 				'offscreen.html',
+				'page-data.js',
 				'popup.html',
 				'state-transfer.js',
 				'theme-prepaint.js'
@@ -264,7 +269,12 @@ describe('the bundle', () => {
 		// passing on nothing.
 		const chunks = js();
 
-		for (const marker of ['api.droploud.com', 'checking download details', 'close the queue', 'close settings']) {
+		for (const marker of [
+			'/verifyEmailAddress',
+			'scroll to them or open the track',
+			'close the queue',
+			'close settings'
+		]) {
 			expect(
 				chunks.some(([file, code]) => !boot.has(file) && code.includes(marker)),
 				`${marker} is in no chunk at all`
@@ -481,7 +491,8 @@ const MV3_SCHEMA = {
 					js: { type: 'array', items: { type: 'string' } },
 					css: { type: 'array', items: { type: 'string' } },
 					run_at: { enum: ['document_start', 'document_end', 'document_idle'] },
-					all_frames: { type: 'boolean' }
+					all_frames: { type: 'boolean' },
+					world: { enum: ['ISOLATED', 'MAIN'] }
 				}
 			}
 		},

@@ -1,5 +1,5 @@
 //! TypeScript declarations from the [contract](super::contract): a type for every definition, and
-//! `Methods`, mapping each method's name (aliases included) to its `params` and `result`.
+//! `Methods`, mapping each method's name to its `params` and `result`.
 //!
 //! It covers the JSON Schema that schemars writes for the API's types, not JSON Schema in
 //! general: `$ref`, `const`, `enum`, `type` (one or several), objects with `properties`,
@@ -27,9 +27,7 @@ pub fn declarations(contract: &Value) -> String {
         out.push_str(&format!("export type {} = {};\n\n", ident(name), ty(schema, 0)));
     }
 
-    out.push_str(
-        "/** Every method, by name (aliases included): its parameters and result. */\nexport interface Methods {\n",
-    );
+    out.push_str("/** Every method, by name: its parameters and result. */\nexport interface Methods {\n");
     for m in contract["methods"].as_array().into_iter().flatten() {
         let params = ty(&m["params"], 2);
         let result = ty(&m["result"], 2);
@@ -44,18 +42,14 @@ pub fn declarations(contract: &Value) -> String {
         if m["destructive"] == true {
             lines.push("can delete or overwrite something".into());
         }
-        let names = std::iter::once(&m["name"]).chain(m["aliases"].as_array().into_iter().flatten());
-        for (i, name) in names.filter_map(Value::as_str).enumerate() {
-            let mut lines = lines.clone();
-            if i > 0 {
-                lines.push(format!("an older name for `{}`", m["name"].as_str().unwrap_or("")));
-            }
-            if let Some(instead) = m["deprecated"].as_str() {
-                lines.push(format!("@deprecated use `{instead}`"));
-            }
-            out.push_str(&format!("  /** {} */\n", lines.join("; ")));
-            out.push_str(&format!("  {}: {{ params: {params}; result: {result} }};\n", key(name)));
+        if let Some(instead) = m["deprecated"].as_str() {
+            lines.push(format!("@deprecated use `{instead}`"));
         }
+        out.push_str(&format!("  /** {} */\n", lines.join("; ")));
+        out.push_str(&format!(
+            "  {}: {{ params: {params}; result: {result} }};\n",
+            key(m["name"].as_str().unwrap_or(""))
+        ));
     }
     out.push_str("}\n\n");
     out.push_str(

@@ -24,6 +24,11 @@
 // screen any more, but walking it again from the other source would be walking
 // it twice, so what became of it is remembered whether it is listed or not.
 //
+// A gate done on its own page is finished while the popup is closed, so what
+// became of it is the background worker's to say (./on-page.ts). It keeps that
+// under a key of its own rather than writing this list, which an open panel
+// would then write over; the list reads it on start and follows it after.
+//
 // What is deliberately not kept:
 //
 //   the site      a module with functions on it, which no storage takes; a row
@@ -35,18 +40,19 @@
 //                 happened to the one file that may have been handed to the
 //                 browser in that moment is the downloads list's to say.
 
-import type { Track } from '$lib/types';
+import type { GateOutcome, Track } from '$lib/types';
 import { storedTrack } from '$lib/stored';
 import { fallback, z } from '$lib/zod';
 import { siteFor, type Site } from './sites/index.ts';
-import { EMAIL, NAME, type NextStep } from './next-step.ts';
+import { EMAIL, type NextStep } from './next-step.ts';
+import { OUTCOMES, Outcomes } from './on-page.ts';
 
 /**
  * Where a row's walk has got to. Not run, under way (`working`, then `saving` once the file is
- * known), or come to something: saved (`done`), signed up for (`sent`), a page to open
- * (`link`), or `failed`.
+ * known), opened on its own page to be done there (`opened`), or come to something: saved
+ * (`done`), signed up for (`sent`), or `failed`.
  */
-const RowState = z.enum(['queued', 'working', 'saving', 'done', 'sent', 'link', 'failed']);
+const RowState = z.enum(['queued', 'working', 'saving', 'opened', 'done', 'sent', 'failed']);
 
 export type RowState = z.infer<typeof RowState>;
 
@@ -84,7 +90,7 @@ const RowRecord = z.object({
 	state: fallback(RowState, 'queued'),
 	detail: fallback(z.string(), ''),
 	openUrl: fallback(z.string(), ''),
-	next: fallback(z.enum(['', 'open', EMAIL, NAME]), ''),
+	next: fallback(z.enum(['', 'open', EMAIL]), ''),
 	byHand: fallback(z.boolean(), false)
 }) satisfies z.ZodMiniType<RowRecord>;
 
@@ -168,11 +174,48 @@ class Walked {
 
 		const stored = Kept.safeParse(kept);
 
-		if (!stored.success) return;
-		this.#origin = stored.data.origin;
+		if (stored.success) {
+			this.#origin = stored.data.origin;
 
-		for (const [url, record] of Object.entries(stored.data.known)) this.#known.set(url, record);
-		this.#rows = stored.data.listed.flatMap((url) => this.#restore(url) ?? []);
+			for (const [url, record] of Object.entries(stored.data.known)) this.#known.set(url, record);
+			this.#rows = stored.data.listed.flatMap((url) => this.#restore(url) ?? []);
+		}
+
+		// Followed on a session with no list yet too: the first Get of one hands
+		// the worker gates whose outcomes this popup is still open to see.
+		await this.#follow();
+	}
+
+	/** Takes in what the worker has said about gates done on their own page, now and from here on. */
+	async #follow() {
+		try {
+			this.#apply(Outcomes.parse((await chrome.storage.session.get(OUTCOMES))[OUTCOMES]));
+			chrome.storage.onChanged.addListener((changes, area) => {
+				if (area === 'session' && changes[OUTCOMES]) this.#apply(Outcomes.parse(changes[OUTCOMES].newValue));
+			});
+		} catch (_e) {
+			// Nothing to follow: rows say what this popup saw.
+		}
+	}
+
+	#apply(outcomes: Record<string, GateOutcome>) {
+		let changed = false;
+
+		for (const [url, outcome] of Object.entries(outcomes)) {
+			const row = this.listed(url);
+			const record = row ?? this.#known.get(url);
+
+			if (!record || (record.state === outcome.state && record.detail === outcome.detail)) continue;
+			record.state = outcome.state;
+			record.detail = outcome.detail;
+			record.next = '';
+			record.openUrl = '';
+
+			if (outcome.label) record.label = outcome.label;
+			changed = true;
+		}
+
+		if (changed) this.#write();
 	}
 
 	/** The row on screen for this link, if it is on screen. */

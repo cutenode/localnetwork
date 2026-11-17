@@ -26,21 +26,25 @@ const here = import.meta.dirname;
 // reach, and chasing them teaches nothing about the tool.
 const LOGIC = [
 	'content.ts',
+	'gate-page.ts',
+	'page-data.ts',
 	'downloaded-store.ts',
 	'state-transfer.ts',
 	'theme-prepaint.ts',
 	'src/*.ts',
 	'src/lib/*.ts',
-	'src/tools/**/*.ts'
+	'src/tools/**/*.ts',
+	'scripts/page-script.mts'
 ];
 
 // The page scripts: classic scripts written in TypeScript, which the build
-// ships with their types blanked out (vite.config.ts, `pageScripts`). The tests
-// load them the same way rather than through Vite's own TypeScript transform,
-// so what runs here is byte for byte what runs on soundcloud.com, and the
-// `v8 ignore` hints inside expressions, which that transform drops, are still
-// there for coverage to read.
-const PAGE_SCRIPTS = /\/(content|downloaded-store|state-transfer|theme-prepaint)\.ts$/;
+// ships with their types and comments blanked out (vite.config.ts,
+// `pageScripts`). The tests blank the types the same way rather than through
+// Vite's own TypeScript transform, so what runs here is what runs on
+// soundcloud.com, every token on the same line and column. The comments stay:
+// the `v8 ignore` hints inside expressions, which that transform drops, are
+// comments coverage has to read.
+const PAGE_SCRIPTS = /\/(content|gate-page|page-data|downloaded-store|state-transfer|theme-prepaint)\.ts$/;
 
 // The shared classic scripts and the global each defines.
 const CLASSIC_GLOBALS = {
@@ -161,13 +165,14 @@ export default defineConfig({
 				branches: 50,
 				functions: 100,
 				lines: 100,
-				'{content.ts,downloaded-store.ts,state-transfer.ts,theme-prepaint.ts,src/**/*.ts}': {
-					perFile: true,
-					statements: 100,
-					branches: 100,
-					functions: 100,
-					lines: 100
-				}
+				'{content.ts,gate-page.ts,page-data.ts,downloaded-store.ts,state-transfer.ts,theme-prepaint.ts,src/**/*.ts,scripts/page-script.mts}':
+					{
+						perFile: true,
+						statements: 100,
+						branches: 100,
+						functions: 100,
+						lines: 100
+					}
 			}
 		}
 	}

@@ -60,7 +60,7 @@
 		</div>
 		{#if profile.genres.length}
 			<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Sound">
-				{#each profile.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
+				{#each profile.genres as genre, index (index)}<li><Tag href="/djs?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
 		<div id="follow" class="flex flex-wrap gap-2">
@@ -89,8 +89,8 @@
 {#if form || data.pendingClaim || data.pendingUpdate}
 	<div class="container-page mt-6 flex flex-col gap-3">
 		{#if form?.reauth && form.error && viewer}<SignInAgain did={viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
-		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/dashboard/requests/{data.pendingClaim.rkey}">View review request</a></p>{/if}
-		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/dashboard/requests/{data.pendingUpdate.rkey}">View review request</a></p>{/if}
+		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/dashboard/account/requests/{data.pendingClaim.rkey}">View review request</a></p>{/if}
+		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/dashboard/account/requests/{data.pendingUpdate.rkey}">View review request</a></p>{/if}
 	</div>
 {/if}
 
@@ -126,17 +126,20 @@
 		{/if}
 
 		{#await data.dj}
-			<div role="status" aria-busy="true" aria-label="Loading how they play" class="flex flex-col gap-4">
-				<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
-				<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
-			</div>
+			<!-- None when no manager has DJ records, so nothing comes and goes above the booking details. -->
+			{#if project.counts?.djs !== 0}
+				<div role="status" aria-busy="true" aria-label="Loading how they play" class="flex flex-col gap-4">
+					<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
+					<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
+				</div>
+			{/if}
 		{:then accounts}
 			{#each accounts as account (account.did)}
 				{#if account.profile}
 					<section aria-labelledby="stats-{account.did}" class="flex flex-col gap-4">
 						<div class="flex flex-wrap items-baseline justify-between gap-2">
 							<h2 id="stats-{account.did}" class="m-0 text-heading font-semibold">How they play</h2>
-							{#if accounts.length > 1 && account.handle}<span class="text-small text-fg-muted">@{account.handle}</span>{/if}
+							{#if accounts.length > 1 && account.handle}<Handle {account} class="text-small text-fg-muted" />{/if}
 						</div>
 						<DjStats profile={account.profile} />
 					</section>
@@ -144,7 +147,7 @@
 				{#if account.sets.length}
 					<section aria-labelledby="sets-{account.did}" class="flex flex-col gap-4">
 						<h2 id="sets-{account.did}" class="m-0 text-heading font-semibold">Recent sets</h2>
-						<DjSets sets={account.sets} />
+						<DjSets sets={account.sets} handle={account.handle} />
 					</section>
 				{/if}
 			{/each}

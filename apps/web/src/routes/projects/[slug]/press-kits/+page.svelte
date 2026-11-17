@@ -6,6 +6,7 @@
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
+	import Handle from '#lib/components/Handle.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
 	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
@@ -133,22 +134,25 @@
 	</div>
 
 	{#await data.dj}
-		<div role="status" aria-busy="true" aria-label="Loading playing stats" class="flex flex-col gap-4 print:hidden">
-			<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
-			<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
-		</div>
+		<!-- None when no manager has DJ records, so nothing comes and goes above the mixes. -->
+		{#if project.counts?.djs !== 0}
+			<div role="status" aria-busy="true" aria-label="Loading playing stats" class="flex flex-col gap-4 print:hidden">
+				<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
+				<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
+			</div>
+		{/if}
 	{:then accounts}
 		{#each accounts as account (account.did)}
 			{#if account.profile}
 				<section aria-labelledby="epk-sound-{account.did}" class="flex flex-col gap-4 print:break-inside-avoid">
-					<h2 id="epk-sound-{account.did}" class="m-0 text-heading font-semibold">Sound{#if accounts.length > 1 && account.handle}<span class="text-small font-normal text-fg-muted">{' '}@{account.handle}</span>{/if}</h2>
+					<h2 id="epk-sound-{account.did}" class="m-0 text-heading font-semibold">Sound{#if accounts.length > 1 && account.handle}{' '}<Handle {account} class="text-small font-normal text-fg-muted" />{/if}</h2>
 					<DjStats profile={account.profile} />
 				</section>
 			{/if}
 			{#if account.sets.length}
 				<section aria-labelledby="epk-sets-{account.did}" class="flex flex-col gap-4">
 					<h2 id="epk-sets-{account.did}" class="m-0 text-heading font-semibold">Recent sets</h2>
-					<DjSets sets={account.sets} limit={6} />
+					<DjSets sets={account.sets} handle={account.handle} limit={6} />
 				</section>
 			{/if}
 		{/each}

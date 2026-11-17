@@ -4,9 +4,9 @@
 // popup, and the background worker with the offscreen page it opens, all
 // bundled into ES modules. Everything that runs *in the page* (content.ts and
 // the store it shares with the panels) is a classic script: it is written in
-// TypeScript, and the only compiling it gets is its types blanked out, so the
-// content script keeps loading the same two files the manifest has always
-// named.
+// TypeScript, and the only compiling it gets is its types and comments blanked
+// out, so the content script keeps loading the same two files the manifest has
+// always named.
 //
 //   pnpm build           → dist/, the folder to load as an unpacked extension
 //   pnpm dev             → the same, rebuilt on every change
@@ -17,10 +17,10 @@
 import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
-import blankSpace from 'ts-blank-space';
 import { execFileSync } from 'node:child_process';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pageScript } from './scripts/page-script.mts';
 
 const here = import.meta.dirname;
 
@@ -31,7 +31,7 @@ const root = resolve(here, 'src');
 // `pageScripts` below puts each file beside the page. theme-prepaint.js puts
 // the saved theme on <html> before the first paint, which the bundle, a module
 // script, runs too late to do. downloaded-store.js is the script the popup
-// shares with the content script; it defines a page global (TbxDownloaded),
+// shares with the content scripts; it defines a page global (TbxDownloaded),
 // which only a classic script can do. state-transfer.js is a classic script too (TbxState), but only the
 // settings sheet uses it, so src/lib/globals.ts adds it when the sheet opens
 // instead of every popup reading it before anything is drawn.
@@ -50,13 +50,17 @@ const unbundled = {
 	icons: 'icons'
 };
 
-// The classic scripts: the content script and the three the popup reads. A classic
+// The classic scripts: the three content scripts (content, gate-page and
+// page-data) and the three the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
-// annotation with spaces and leaves every line and column where it was, so an
-// error on soundcloud.com points at the same place in the source, with no
+// annotation with spaces, and the comments go the same way
+// (scripts/page-script.mts): every line and column of code stays where it was,
+// so an error on soundcloud.com points at the same place in the source, with no
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
 	'content.js': 'content.ts',
+	'gate-page.js': 'gate-page.ts',
+	'page-data.js': 'page-data.ts',
 	'downloaded-store.js': 'downloaded-store.ts',
 	'state-transfer.js': 'state-transfer.ts',
 	'theme-prepaint.js': 'theme-prepaint.ts'
@@ -74,7 +78,7 @@ const shipUnbundled = (): Plugin => ({
 		}
 
 		for (const [to, from] of Object.entries(pageScripts)) {
-			writeFileSync(resolve(out, to), blankSpace(readFileSync(resolve(here, from), 'utf8')));
+			writeFileSync(resolve(out, to), pageScript(readFileSync(resolve(here, from), 'utf8')));
 		}
 	}
 });
@@ -185,8 +189,9 @@ export default defineConfig(({ mode }) => ({
 		// a release does not.
 		sourcemap: mode === 'development',
 		rollupOptions: {
-			// The popup, and the two that walk a gate for the page's Download button:
-			// the background worker and the offscreen page it opens (background.ts).
+			// The popup, and the background worker with the offscreen page it opens,
+			// which walk a gate for the page's Download button and run the gates
+			// done on their own page (background.ts).
 			input: {
 				popup: resolve(root, 'popup.html'),
 				offscreen: resolve(root, 'offscreen.html'),

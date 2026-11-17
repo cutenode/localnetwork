@@ -14,33 +14,33 @@ Every store, marks, export and import. The rest are listed in the [README](../..
 
 ## State kept for good
 
-The `chrome.storage.local` keys, what each holds, and its limit. All of it goes with the extension. Everything but `settings` can be exported first.
+The `chrome.storage.local` keys, what each holds, and its limit. All of it goes with the extension. Everything but `settings` can be exported first. The artists are kept with `profile: null`, and the `details` key an older version kept is removed when this one is installed over it.
 
 ```mermaid
 flowchart LR
   Content["Content script"]
   Popup["Popup"]
+  Worker["Background worker"]
   Downloaded["downloaded<br/>path to time marked"]
-  Details["details<br/>path to answer, 20,000 newest,<br/>10,000 if storage refuses that"]
   Listed["listed<br/>5,000 tracks, then refuses"]
-  Artists["artists<br/>2,000 artists, then refuses"]
+  Artists["artists<br/>2,000 artists, then refuses,<br/>each with profile null"]
   Settings["settings<br/>replaceDownloadButtons on,<br/>likesListView off"]
+  Old["details<br/>an older version's cache"]
 
   Content <--> Downloaded
-  Content <--> Details
   Settings --> Content
   Popup <--> Downloaded
-  Popup <--> Details
   Popup <--> Listed
   Popup <--> Artists
   Popup <--> Settings
+  Worker -->|"onInstalled, removes"| Old
 ```
 
-Source: [`downloaded-store.ts`](../../downloaded-store.ts), [`content.ts`](../../content.ts), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`state-transfer.ts`](../../state-transfer.ts)
+Source: [`downloaded-store.ts`](../../downloaded-store.ts), [`content.ts`](../../content.ts), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/background.ts`](../../src/background.ts), [`state-transfer.ts`](../../state-transfer.ts)
 
 ## State kept for the session
 
-The `chrome.storage.session` keys. They end when the browser closes, and a run in progress is never resumed.
+The `chrome.storage.session` keys. They end when the browser closes, and a run in progress is never resumed. The artists' profiles are here, so another person's place, bio and links last the browser session; the profiles an older version kept on the list in the local area are taken off it when this one is installed over it.
 
 ```mermaid
 flowchart LR
@@ -49,14 +49,22 @@ flowchart LR
   Queue["queue<br/>entries, in the order added"]
   View["view<br/>open tool, which sheet is up, and per scope:<br/>scroll, query, selecting, picked, opened,<br/>drawer, paste, import"]
   Downloader["downloader<br/>origin, listed URLs,<br/>known rows and their outcomes"]
+  Profiles["artistProfiles<br/>artist path to profile"]
+  Worker["Background worker"]
+  Run["gate-run<br/>the page gate open and the ones after it,<br/>its tab, how many in all"]
+  Outcomes["gate-outcomes<br/>per page gate: opened, done or sent"]
 
   Content <--> Queue
   Popup <--> Queue
   Popup <--> View
   Popup <--> Downloader
+  Popup <--> Profiles
+  Worker <--> Run
+  Worker --> Outcomes
+  Outcomes --> Popup
 ```
 
-Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts)
+Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts)
 
 ## Options and mirrors in localStorage
 
@@ -69,47 +77,51 @@ flowchart LR
   File["In the state file<br/>pref:background, pref:sort, pref:hide-downloaded,<br/>pref:search-sites"]
   Stay["On this install only<br/>pref:format, pref:source, pref:split-title, pref:dedupe,<br/>pref:artists-sort, pref:hide-queued, pref:theme,<br/>pref:title-case, pref:search:id"]
   Gate["For gates, on this install only<br/>pref:email, pref:name, pref:mark"]
+  Notice["Seen once, on this install only<br/>pref:notice-seen"]
   Mirror["Mirrors, corrected by the session<br/>view:open, queue:items"]
 
   Popup <--> File
   Popup <--> Stay
   Popup <--> Gate
   Popup <--> Mirror
+  Popup <--> Notice
   Gate --> Offscreen
 ```
 
-Source: [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`state-transfer.ts`](../../state-transfer.ts)
+Source: [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/components/FirstRun.svelte`](../../src/lib/components/FirstRun.svelte), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`state-transfer.ts`](../../state-transfer.ts)
 
 ## State held in memory
 
-What dies with the document, the popup or the worker.
+What dies with the document, the popup or the worker. Everything the page has loaded about tracks and users is here, so a reload starts again from what the reloaded page loads.
 
 ```mermaid
 flowchart LR
   Doc["Each SoundCloud document"]
   Popup["Each opening of the popup"]
   Worker["Background worker"]
-  Page["hydration, parsed once<br/>/resolve answers, by playlist or user<br/>likes cursor, per user<br/>measured button heights<br/>the last row whose More was pressed"]
-  Jobs["lookup jobs and waiters<br/>mirrors of marks, queue and details"]
+  Learned["what the page loaded:<br/>details by track path,<br/>users by profile path, links by user id"]
+  Held["page-data.ts, in the main world:<br/>answers held until content.ts says hello"]
+  Page["measured button heights<br/>the last row whose More was pressed<br/>mirrors of marks and queue"]
   Chunks["loaded Panel and sheet chunks<br/>warmed reads<br/>a Downloader run"]
-  Turn["the walk queue<br/>how many are waiting"]
+  Turn["the offscreen errand queue<br/>how many are waiting"]
 
+  Doc --> Learned
+  Doc --> Held
   Doc --> Page
-  Doc --> Jobs
   Popup --> Chunks
   Worker --> Turn
 ```
 
-Source: [`content.ts`](../../content.ts), [`src/lib/tools.ts`](../../src/lib/tools.ts), [`src/lib/soundcloud.ts`](../../src/lib/soundcloud.ts), [`src/background.ts`](../../src/background.ts)
+Source: [`content.ts`](../../content.ts), [`page-data.ts`](../../page-data.ts), [`src/lib/tools.ts`](../../src/lib/tools.ts), [`src/lib/soundcloud.ts`](../../src/lib/soundcloud.ts), [`src/background.ts`](../../src/background.ts)
 
 ## Everything hangs off a path
 
-A track's permalink path is its identity in every store, and an artist's is the first segment of it. A details entry is either an answer or a remembered failure, which holds `unavailable` and `at` alone.
+A track's permalink path is its identity in every store, and an artist's is the first segment of it. The details a tab holds are filed under the path too, and a listed or queued track keeps its own copy. A state file from an older version may also carry a `details` map, whose entries can be remembered failures holding `unavailable` and `at` alone.
 
 ```mermaid
 erDiagram
   TRACK_PATH ||--o| MARK : "downloaded"
-  TRACK_PATH ||--o| DETAILS : "details"
+  TRACK_PATH ||--o| DETAILS : "in the tab"
   TRACK_PATH ||--o| LISTED_ENTRY : "listed"
   TRACK_PATH ||--o| QUEUE_ENTRY : "queue"
   ARTIST_ENTRY ||--o{ TRACK_PATH : "up to 50 kept"
@@ -128,7 +140,6 @@ erDiagram
     str purchaseTitle
     str genre
     str artworkUrl
-    bool unavailable
     num at
   }
   LISTED_ENTRY {
@@ -176,6 +187,7 @@ flowchart TD
   Native["SoundCloud's Download file<br/>or purchase link clicked"]
   Walked["Page walk saved a file"]
   Saved["Downloader saved a file"]
+  OnPage["A gate's own page handed its file over,<br/>gate-page.js marks"]
   Row["A row's check button"]
   Batch["Manager batch, queue sheet"]
   Import["Importing a state file"]
@@ -187,6 +199,7 @@ flowchart TD
 
   Walked --> Setting
   Saved --> Setting
+  OnPage --> Setting
   Setting -->|yes| Store
   Native --> Store
   Row --> Store
@@ -197,11 +210,11 @@ flowchart TD
   Key --> Rows
 ```
 
-Source: [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/downloaded.svelte.ts`](../../src/lib/downloaded.svelte.ts), [`content.ts`](../../content.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/offscreen.ts`](../../src/offscreen.ts)
+Source: [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/downloaded.svelte.ts`](../../src/lib/downloaded.svelte.ts), [`content.ts`](../../content.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/offscreen.ts`](../../src/offscreen.ts), [`gate-page.ts`](../../gate-page.ts)
 
 ## Exporting the state file
 
-What the popup holds goes in the file, so a queue kept only in memory is exported too.
+What the popup holds goes in the file, so a queue kept only in memory is exported too. The artists go in with `profile: null`, and the file has no `details` map: the only download details in it are the ones listed and queued tracks carry.
 
 ```mermaid
 sequenceDiagram
@@ -213,9 +226,10 @@ sequenceDiagram
   T->>O: queue, listed, artists, search sites
   O-->>T: plain lists
   T->>S: snapshot
-  S->>B: marks, details
+  S->>B: marks
   S->>L: three options
   S-->>T: the document
+  Note over S: artists with profile null
   Note over T: downloads manager-date.json
 ```
 
@@ -223,7 +237,7 @@ Source: [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/Sta
 
 ## Importing the state file
 
-Adding is the default. Replacing is a switch that comes back off every time the popup does.
+Adding is the default. Replacing is a switch that comes back off every time the popup does. Either way, an older file's `details` are checked as it is read and then left out.
 
 ```mermaid
 flowchart TD
@@ -231,8 +245,8 @@ flowchart TD
   Refused["says what is wrong,<br/>writes nothing"]
   Holds["says what the file holds,<br/>Import is pressed"]
   Switch{"replace switch"}
-  Add["Adds<br/>marks: merged, the earlier time kept<br/>details: only newer ones<br/>listed, artists: appended, the better answer kept,<br/>past the cap refused and counted<br/>queue: appended, a held track left alone<br/>the three options: only where unset<br/>search sites: added unless already a badge"]
-  Replace["Replaces<br/>marks and details: the file's<br/>listed, artists: the file's, past the cap<br/>refused and counted<br/>queue: the file's<br/>the three options: the file's, or back to default<br/>search sites: the file's"]
+  Add["Adds<br/>marks: merged, the earlier time kept<br/>listed, artists: appended, the better answer kept,<br/>past the cap refused and counted<br/>queue: appended, a held track left alone<br/>the three options: only where unset<br/>search sites: added unless already a badge"]
+  Replace["Replaces<br/>marks: the file's<br/>listed, artists: the file's, past the cap<br/>refused and counted<br/>queue: the file's<br/>the three options: the file's, or back to default<br/>search sites: the file's"]
   Reload["panels re-read their options"]
 
   Parse -->|refused| Refused
@@ -244,7 +258,7 @@ flowchart TD
   Replace --> Reload
 ```
 
-Source: [`state-transfer.ts`](../../state-transfer.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`docs/manager-state.schema.json`](../manager-state.schema.json)
+Source: [`state-transfer.ts`](../../state-transfer.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`docs/manager-state.schema.json`](../manager-state.schema.json)
 
 ## Checking a state file by hand
 
@@ -256,7 +270,7 @@ flowchart TD
   Any{"any files named?"}
   Usage["usage line, exit 2"]
   Parse{"JSON?"}
-  Ajv{"valid against<br/>docs/manager-state.schema.json?"}
+  Ajv{"valid against<br/>docs/manager-state.schema.json,<br/>its sites against search-sites.schema.json?"}
   Good["a tick for that file"]
   Bad["a cross, and the read error<br/>or each Ajv error"]
   Exit["exit 0 if all passed, else 1"]
@@ -272,4 +286,4 @@ flowchart TD
   Bad --> Exit
 ```
 
-Source: [`scripts/validate-state.mts`](../../scripts/validate-state.mts), [`docs/manager-state.schema.json`](../manager-state.schema.json), [`state-transfer.ts`](../../state-transfer.ts)
+Source: [`scripts/validate-state.mts`](../../scripts/validate-state.mts), [`docs/manager-state.schema.json`](../manager-state.schema.json), [`src/lib/search-sites.schema.json`](../../src/lib/search-sites.schema.json), [`state-transfer.ts`](../../state-transfer.ts)

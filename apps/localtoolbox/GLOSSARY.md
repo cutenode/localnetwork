@@ -13,8 +13,8 @@ A record that a track was downloaded, which is what puts the marker on the page.
 _Avoid_: flag, tick, downloaded state
 
 **Details**:
-What SoundCloud said about a track, kept for a while so it doesn't have to be asked again.
-_Avoid_: metadata, track cache
+What SoundCloud's own page loaded about a track: whether it can be downloaded, and where its purchase link goes. Kept for as long as the tab holds the page.
+_Avoid_: metadata, track cache, lookup
 
 ## Downloads
 
@@ -26,6 +26,10 @@ _Avoid_: wall, funnel, download page
 Taking one gate as far as it goes without a person.
 _Avoid_: crawl, scrape, bypass
 
+**Page gate**:
+A gate the person does on its own page, with the extension outlining the steps, filling in the email and saving the file the page hands over. Droploud, Pump Your Sound and Laylo are done this way.
+_Avoid_: assisted gate, manual gate
+
 **Drop**:
-A Laylo notify-me page: people leave an address and the artist sends the link out later. It isn't a gate, though a walk can sign up to one.
+A Laylo notify-me page: people leave an address and the artist sends the link out later. It isn't a gate; the person signs up on its page.
 _Avoid_: release, campaign

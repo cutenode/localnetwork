@@ -1,17 +1,21 @@
 <script lang="ts">
-	import { Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { Bookmark, BookmarkCheck, CalendarPlus, Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
+	import FollowButton from '#lib/components/FollowButton.svelte';
+	import FormMessage from '#lib/components/FormMessage.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import PerformerFacts, { performerFacts } from '#lib/components/PerformerFacts.svelte';
 	import ProfileTabs from '#lib/components/ProfileTabs.svelte';
-	import { accountLabel, placeLabel } from '#lib/format.ts';
+	import SignInAgain from '#lib/components/SignInAgain.svelte';
+	import { accountLabel, placeLabel, profileHref } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
 	import { webHref } from '#lib/web-url.ts';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 
 	// An account without a profile record still has this page, with only its name and what it plays in.
 	const basics = $derived(data.profile?.record.basics);
@@ -21,6 +25,12 @@
 	const promoter = $derived(data.profile?.record.promoter);
 
 	const place = $derived(basics?.location && placeLabel({ location: basics.location }));
+
+	// A listed DJ takes inquiries from anyone but themself, as an act does from anyone but its managers.
+	const inquire = $derived(data.bookable && data.viewer?.did !== data.account.did);
+
+	// `#follow` lets sign-in say it's to follow them, and brings them back to the button.
+	const followLogin = $derived(data.viewer ? undefined : `/login?next=${encodeURIComponent(`${profileHref(data.account)}#follow`)}`);
 </script>
 
 <div class="border-b border-line">
@@ -33,7 +43,7 @@
 				<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
 					<span class="break-all">{accountLabel(data.account)}</span>
 					{#if place}<span class="inline-flex items-center gap-1.5"><MapPin class="size-4" />{place}</span>{/if}
-					{#if basics?.pronouns}<span>{basics.pronouns}</span>{/if}
+					{#if data.pronouns}<span>{data.pronouns}</span>{/if}
 					{#if performer?.activeSince}<span class="inline-flex items-center gap-1.5"><Clock class="size-4" />Playing since {performer.activeSince}</span>{/if}
 				</p>
 				{#if !data.profile}<p class="m-0 text-small text-fg-muted">Hasn't set up a profile yet.</p>{/if}
@@ -41,12 +51,18 @@
 		</div>
 		{#if performer?.genres?.length}
 			<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Sound">
-				{#each performer.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
+				{#each performer.genres as genre, index (index)}<li><Tag href="/djs?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
-		<div class="flex flex-wrap gap-2 empty:hidden"><ManageLink viewer={data.viewer} profile={data.account} /></div>
+		<div id="follow" class="flex flex-wrap gap-2 empty:hidden">{#if inquire && !data.viewer}<a href="/login?next={encodeURIComponent(profileHref(data.account))}" class="btn-primary"><CalendarPlus class="size-4" />Sign in to book</a>{:else if inquire}<a href="/dashboard/bookings/new?dj={data.account.did}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>{/if}{#if data.follow}{#await data.follow}<FollowButton follow={undefined} loginHref={followLogin} />{:then follow}<FollowButton {follow} loginHref={followLogin} />{/await}{/if}{#if data.viewer && data.saved !== null}<form method="POST" action={data.saved ? '?/unsave' : '?/save'} use:enhance><button class="btn-secondary">{#if data.saved}<BookmarkCheck class="size-4" />Saved{:else}<Bookmark class="size-4" />Save{/if}</button></form>{/if}<ManageLink viewer={data.viewer} profile={data.account} /></div>
 	</div>
 </div>
+
+{#if form?.error}
+	<div class="container-page mt-6">
+		{#if form.reauth && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
+	</div>
+{/if}
 
 <div class="container-page flex flex-wrap gap-x-10 gap-y-8 py-10">
 	<div class="flex min-w-0 flex-[999_1_34rem] flex-col">

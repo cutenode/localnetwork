@@ -74,6 +74,8 @@ pub struct Deck {
     /// Seconds before a track's end the deck warns of it, 0 for not at all.
     pub end_warning: u16,
     pub art: bool,
+    /// Cover art in half blocks, whatever graphics the terminal seems to have.
+    pub art_halfblocks: bool,
 }
 
 impl Default for Deck {
@@ -92,6 +94,7 @@ impl Default for Deck {
             bands: None,
             end_warning: END_WARNING,
             art: true,
+            art_halfblocks: false,
         }
     }
 }
@@ -134,12 +137,12 @@ impl BandMode {
 }
 
 impl App {
-    /// Whether the digit row plays hot cues: with the pads on, or in the Deck layout.
+    /// Whether the digit row plays hot cues: with the pads on, or in player mode.
     pub fn pads_on(&self) -> bool {
         self.deck.pads || self.deck_showing()
     }
 
-    /// Whether the deck has the screen: the Library view's Deck layout, with Browse closed.
+    /// Whether the deck has the screen: player mode, with Browse closed.
     pub fn deck_showing(&self) -> bool {
         self.view == View::Library && self.deck_layout && !self.browsing
     }

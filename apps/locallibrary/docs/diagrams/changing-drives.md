@@ -38,7 +38,10 @@ sequenceDiagram
     opt A plan that edits a library
         A->>G: These edits?
     end
-    A-->>F: Plan: id, summary,<br/>warnings, clones
+    opt A big write to an external drive
+        A->>D: Time it, if it hasn't been or that's stale,<br/>and a front end will ask: speed.json
+    end
+    A-->>F: Plan: id, summary with how long<br/>it'll take, warnings, clones
     F->>F: Show it and ask
     F->>A: Apply this plan
     A->>D: Measure it all again
@@ -46,12 +49,15 @@ sequenceDiagram
         A-->>F: Refused, nothing written
     else All as planned
         A->>D: The one write routine
+        opt 1 GiB or more, read from this computer
+            A->>D: Correct the drive's rate
+        end
         A->>C: Copy onto each clone
         A-->>F: Report
     end
 ```
 
-Source: [`crates/locallibrary/src/op.rs`](../../../../crates/locallibrary/src/op.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/plugin/checks.rs`](../../../../crates/locallibrary/src/plugin/checks.rs), [`src/output.rs`](../../src/output.rs)
+Source: [`crates/locallibrary/src/op.rs`](../../../../crates/locallibrary/src/op.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/plugin/checks.rs`](../../../../crates/locallibrary/src/plugin/checks.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`src/output.rs`](../../src/output.rs)
 
 ## A plan's life
 
@@ -113,10 +119,13 @@ How `sync` and `library push` write a drive, so it stays playable if the copy st
 flowchart LR
     subgraph before["Up to the swap"]
         direction TB
-        fits["Check it fits"] --> marker["Mark it as being written,<br/>keep its player name"]
+        stored["push: refused at the plan<br/>if the store lacks a file"] --> fits["Check it fits"]
+        fits --> marker["Mark it as being written, keep its player name,<br/>remove what a cut-off write left"]
         marker --> early["--delete-first: take the databases off,<br/>delete stale files. No library until the swap"]
-        early --> copy["Copy audio, analysis, artwork:<br/>temp file, then rename"]
-        copy --> flush["Flush together,<br/>then set their times"]
+        early --> note["Note the new files<br/>in writing.json"]
+        note --> copy["Copy files up to 1 MiB 8 at a time,<br/>then the rest one by one"]
+        copy --> newfile["A new file goes under its own name. One the drive has,<br/>a clone, or any on Windows: a temp file, then a rename"]
+        newfile --> flush["Flush together, then set their times,<br/>forget writing.json"]
     end
     subgraph after["The swap and after"]
         direction TB
@@ -128,7 +137,7 @@ flowchart LR
     before --> after
 ```
 
-Source: [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/player.rs`](../../../../crates/locallibrary/src/player.rs)
+Source: [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/fsutil.rs`](../../../../crates/locallibrary/src/fsutil.rs), [`crates/locallibrary/src/writing.rs`](../../../../crates/locallibrary/src/writing.rs), [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/player.rs`](../../../../crates/locallibrary/src/player.rs)
 
 ## Which way a sync goes
 
@@ -207,7 +216,7 @@ Source: [`crates/locallibrary/src/api/jobs.rs`](../../../../crates/locallibrary/
 
 ## A write cut off part way
 
-The marker in a drive's `state.json`, and what a drive holding one lets through. `tracks`, the player, `check` and `doctor` still read it, and all but `tracks` say so.
+The marker in a drive's `state.json`, and what a drive holding one lets through. `tracks`, the player, `check` and `doctor` still read it, and all but `tracks` say so. A write that takes over first removes the temp files and the new files in `writing.json` that the cut-off one never finished.
 
 ```mermaid
 stateDiagram-v2
@@ -222,9 +231,10 @@ stateDiagram-v2
     CutOff --> Writing: undo puts its backup back
     CutOff --> Writing: any write, if the cut-off write had no backup and wasn't a copy
     CutOff --> CutOff: other writes refused, and so is using it as a source, or pull without --force
+    CutOff --> CutOff: drive tidy removes the files it never finished
 ```
 
-Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs)
+Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`crates/locallibrary/src/writing.rs`](../../../../crates/locallibrary/src/writing.rs), [`crates/locallibrary/src/tidy.rs`](../../../../crates/locallibrary/src/tidy.rs)
 
 ## Undo and redo
 
@@ -401,17 +411,19 @@ The three commands that write a library from another one, and how they differ fr
 ```mermaid
 flowchart TD
     merge["merge: another library's tracks into this one"] --> present{"Target has the track?<br/>Same path and size, or artist, title, duration"}
-    present -->|yes| keep["Keep the target's"]
+    present -->|yes| keep["Keep the target's. The plan<br/>lists those that differ"]
     present -->|no| add["Copy audio, analysis, artwork,<br/>add a row to each database"]
     add --> playlists["Playlists: one new folder,<br/>by name, or none"]
     keep --> playlists
+    playlists --> whole{"Nothing of the<br/>source left out?"}
+    whole -->|"yes: the source's state goes in<br/>the target's lineage, MergedIn"| backup
+    whole -->|no| backup
     pack["pack: some playlists onto another drive"] --> cut["Cut the databases down in memory"]
     cut --> saved["Save what players left on it in the store"]
     saved --> packed["If it holds a library, back up databases, analysis, artwork,<br/>not audio: undo needs --force if tracks were removed"]
     packed --> transcode["Copy what differs. With --transcode:<br/>lossless copies the players can play"]
     convert["convert: one database from the other"] --> rows["Add what it lacks,<br/>or rebuild with --replace"]
-    playlists --> backup["The one write routine, backed up first"]
-    rows --> backup
+    rows --> backup["The one write routine, backed up first"]
 ```
 
-Source: [`crates/locallibrary/src/merge.rs`](../../../../crates/locallibrary/src/merge.rs), [`crates/locallibrary/src/pack.rs`](../../../../crates/locallibrary/src/pack.rs), [`crates/locallibrary/src/pack/transcode.rs`](../../../../crates/locallibrary/src/pack/transcode.rs), [`crates/locallibrary/src/convert.rs`](../../../../crates/locallibrary/src/convert.rs)
+Source: [`crates/locallibrary/src/merge.rs`](../../../../crates/locallibrary/src/merge.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/pack.rs`](../../../../crates/locallibrary/src/pack.rs), [`crates/locallibrary/src/pack/transcode.rs`](../../../../crates/locallibrary/src/pack/transcode.rs), [`crates/locallibrary/src/convert.rs`](../../../../crates/locallibrary/src/convert.rs)

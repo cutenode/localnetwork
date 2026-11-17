@@ -35,5 +35,8 @@ Ctrl-C stops a run and cleans up after it: the commands it started end, the play
 
 ```bash
 pnpm test:coverage   # from this folder
-pnpm verify          # format, lint, types, tests with coverage
+pnpm verify          # format, lint, types, knip, tests with coverage
+pnpm test:sticks     # the sticks (macOS only): mounts and ejects disk images
 ```
+
+`pnpm test` and `pnpm verify` leave out `test/sticks.test.ts`, since hdiutil and diskutil can stop answering for hours and the pre-push hook runs `pnpm test`. Run `pnpm test:sticks` after changing `src/sticks.ts` and before relying on new fixture drives.

@@ -109,7 +109,7 @@ it("links to the project's sections, its public page, and how to publish stats",
 	await expect.element(page.getByText('No upcoming shows')).toBeInTheDocument();
 });
 
-it('sends a manager with changes waiting to their submission, and holds shows for a hidden project', async () => {
+it('sends a manager with changes waiting to their request, and holds shows for a hidden project', async () => {
 	// SAFETY: the page reads only the open request's key.
 	const pendingUpdate = { rkey: '3kreq' } as RequestView;
 
@@ -121,7 +121,7 @@ it('sends a manager with changes waiting to their submission, and holds shows fo
 
 	await expect
 		.element(page.getByRole('link', { name: 'View review request' }))
-		.toHaveAttribute('href', '/dashboard/requests/3kreq');
+		.toHaveAttribute('href', '/dashboard/account/requests/3kreq');
 	await expect.element(page.getByRole('link', { name: 'Propose changes' })).not.toBeInTheDocument();
 	await expect.element(page.getByText('Not public yet. Only its managers and staff can see it.')).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Announce a show' })).not.toBeInTheDocument();
@@ -134,7 +134,7 @@ it('holds a row of room for each upcoming show the project has while they load',
 		params: { slug: 'neon-tide' },
 		data: {
 			...base,
-			project: { ...neon, counts: { pressKits: 0, upcomingShows: 3 } },
+			project: { ...neon, counts: { pressKits: 0, upcomingShows: 3, djs: 0 } },
 			shows: loading,
 			edited: loading
 		},

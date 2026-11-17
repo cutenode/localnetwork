@@ -135,7 +135,7 @@ fn packing_asks_what_goes_on_and_where() {
     let (mut app, _dir, root) = demo_app();
     app.list_marks = vec!["Sets/Friday".into()];
     let track = app.loaded.as_ref().unwrap().library.tracks[0].clone();
-    let crate_track = super::super::crate_list::CrateTrack { root: root.clone(), drive: "DEMO".into(), track };
+    let crate_track = super::super::crate_list::CrateTrack::new(&root, "DEMO", track);
     app.crate_list.items.push(crate_track);
     app.pack(None);
     let Some(Modal::Pick(p)) = &app.modal else { panic!("no picker") };
@@ -144,7 +144,7 @@ fn packing_asks_what_goes_on_and_where() {
         labels,
         [
             "the marked playlists: Sets/Friday",
-            "the crate's 1 track (saved as a playlist first)",
+            "the queue's 1 track (saved as a playlist first)",
             "what the drive was packed with last time",
         ]
     );
@@ -164,7 +164,7 @@ fn packing_asks_what_goes_on_and_where() {
     let Some(Modal::Pick(_)) = app.modal.take() else { panic!("no picker") };
     app.pack_what(root.clone(), Some(other.clone()), PackWhat::Crate(vec!["/Contents/1.mp3".into()]));
     let Some(Modal::Prompt(p)) = &app.modal else { panic!("no prompt") };
-    assert_eq!(p.label, "Save the crate as (then pack it onto DEMO)");
+    assert_eq!(p.label, "Save the queue as (then pack it onto DEMO)");
     assert_eq!(p.text, format!("Sets/{}", chrono::Local::now().format("%Y-%m-%d")));
     app.modal = None;
 
@@ -651,7 +651,7 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     }
     let n = crated.min(lib.tracks.len());
     if n > 0 {
-        want.push(format!("the crate's {n} track{} (saved as a playlist first)", if n == 1 { "" } else { "s" }));
+        want.push(format!("the queue's {n} track{} (saved as a playlist first)", if n == 1 { "" } else { "s" }));
     }
     want.push("what the drive was packed with last time".into());
     assert_eq!(labels, want);
@@ -663,10 +663,10 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     assert_eq!(last_message(&app), "plug in the drive to pack onto");
     // Onto a drive picked: the crate saved first, named; the rest planned.
     let other = root.with_file_name("OTHER");
-    if labels[i].starts_with("the crate's") {
+    if labels[i].starts_with("the queue's") {
         app.pack_onto(root.clone(), other.clone(), PackWhat::Crate(vec!["/Contents/1.mp3".into()]));
         let Some(Modal::Prompt(p)) = &app.modal else { panic!("no prompt") };
-        assert!(p.label.starts_with("Save the crate as (then pack it onto "), "{}", p.label);
+        assert!(p.label.starts_with("Save the queue as (then pack it onto "), "{}", p.label);
     } else {
         app.modal = None;
         app.pack_what(root.clone(), Some(other), PackWhat::Again);

@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import * as fc from 'fast-check';
 import { describe, expect, it, vi } from 'vitest';
 import { IdentityResolver } from '../atproto/identity';
 import { silentLogger } from '../logger';
@@ -115,6 +116,61 @@ describe('parseRange', () => {
 	it("can't satisfy a range past the end, or an empty suffix", () => {
 		expect(parseRange('bytes=100-', 100)).toBe('unsatisfiable');
 		expect(parseRange('bytes=-0', 100)).toBe('unsatisfiable');
+	});
+});
+
+describe('parseRange on any header', () => {
+	// A recording record declares at least a byte (recordingSchema in services/recordings.ts).
+	const size = fc.integer({ min: 1, max: 2 ** 32 });
+
+	// Positions near a size, past it, and too long to be a safe integer; mostly small, so a start past the end is common.
+	const position = fc.oneof(
+		fc.constant(''),
+		{ arbitrary: fc.nat({ max: 300 }).map(String), weight: 4 },
+		fc.nat().map(String),
+		fc.stringMatching(/^\d{16,40}$/)
+	);
+
+	const header = fc.oneof(fc.constant(null), fc.string(), {
+		arbitrary: fc
+			.tuple(
+				fc.constantFrom('bytes=', 'bytes=', 'bytes= ', 'Bytes=', 'items='),
+				position,
+				position,
+				fc.constantFrom('', '', ' ', ',0-1')
+			)
+			.map(([unit, start, end, after]) => `${unit}${start}-${end}${after}`),
+		weight: 4
+	});
+
+	it('only gives ranges inside the file, start first', () => {
+		fc.assert(
+			fc.property(header, size, (value, bytes) => {
+				const parsed = parseRange(value, bytes);
+
+				if (parsed === null || parsed === 'unsatisfiable') return;
+				expect(Number.isInteger(parsed.start) && Number.isInteger(parsed.end)).toBe(true);
+				expect(0 <= parsed.start && parsed.start <= parsed.end && parsed.end < bytes, JSON.stringify(parsed)).toBe(
+					true
+				);
+			})
+		);
+	});
+
+	it('gives back any range inside the file as asked, any suffix as the file’s last bytes, and a longer one as all of it', () => {
+		fc.assert(
+			fc.property(
+				size.chain((bytes) => fc.tuple(fc.constant(bytes), fc.nat({ max: bytes - 1 }), fc.nat({ max: bytes - 1 }))),
+				fc.nat(),
+				([bytes, a, b], extra) => {
+					const [start, end] = a <= b ? [a, b] : [b, a];
+
+					expect(parseRange(`bytes=${start}-${end}`, bytes)).toEqual({ start, end });
+					expect(parseRange(`bytes=-${end + 1}`, bytes)).toEqual({ start: bytes - end - 1, end: bytes - 1 });
+					expect(parseRange(`bytes=-${bytes + extra + 1}`, bytes)).toEqual({ start: 0, end: bytes - 1 });
+				}
+			)
+		);
 	});
 });
 

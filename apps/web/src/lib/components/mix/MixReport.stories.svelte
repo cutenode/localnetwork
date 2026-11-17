@@ -3,18 +3,12 @@
 	import { expect, userEvent, within } from 'storybook/test';
 	import type { MixReport as Report } from '#lib/mix/report.ts';
 	import { riddenReport, sampleReport } from '#lib/mix/sample.ts';
+	import { light } from '#lib/testing/light.ts';
 	import MixReport from './MixReport.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Mix report', component: MixReport, tags: ['autodocs'], args: { report: sampleReport } });
 
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
-
-	/** The light palette (packages/tokens/theme.css), which applies under a `light` class on the root. */
-	const light = () => {
-		document.documentElement.classList.add('light');
-
-		return () => document.documentElement.classList.remove('light');
-	};
 
 	/** The sample's five tracks three times over, so the track colours come round again under two-digit numbers. */
 	const longReport: Report = {
@@ -29,7 +23,7 @@
 	/** Picks a track by clicking its row away from the title, then lets it go from the keyboard on the title. */
 	const pickRow = async ({ canvasElement }: Context) => {
 		const canvas = within(canvasElement);
-		const title = canvas.getByRole('button', { name: '2 Signal Path Mira Okonkwo' });
+		const title = canvas.getByRole('button', { name: '2 Signal Path' });
 
 		await userEvent.click(canvas.getAllByText('Floor Two')[0]);
 		await expect(title).toHaveAttribute('aria-pressed', 'true');
@@ -54,7 +48,7 @@
 
 		await expect(wheel.queryByText('1A', { ignore: '[aria-hidden="true"] *' })).toBeNull();
 
-		const track = canvas.getByRole('button', { name: '3 Halogen Two Rooms' });
+		const track = canvas.getByRole('button', { name: '3 Halogen' });
 
 		wheel.getByRole('button', { name: '9A: track 3' }).focus();
 		await userEvent.keyboard('a');

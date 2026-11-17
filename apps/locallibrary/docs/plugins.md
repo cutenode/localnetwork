@@ -9,8 +9,9 @@ library through locallibrary, within what its capabilities allow, and an operati
 locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
 and journaled.
 
-For now only plugins built into locallibrary run. There's no way to install another yet. Those
-are:
+There's no way to install a plugin yet: those built into locallibrary run, and one you're writing
+runs for as long as one command, the player or the sidecar does (see [Writing one](#writing-one)).
+The built-in ones are:
 
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
@@ -37,6 +38,11 @@ are:
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).
+- **discogs**: finds front covers on Discogs for `locallibrary art fetch`, and an album's title,
+  year, record label and style for `locallibrary track fetch` (see [Providers](#providers)).
+  Discogs answers searches only for a signed-in account: make a personal access token at
+  discogs.com/settings/developers and sign in with `locallibrary account discogs sign-in --for
+  discogs`. Until then it finds nothing and says so.
 - **musicbrainz**: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
   (`musicbrainz.recording`, `musicbrainz.release`, `musicbrainz.artists`, with the ISRC as
   `musicbrainz.isrc` and the names the artists' go with as `musicbrainz.credits`). The recording
@@ -87,7 +93,8 @@ are:
   (else its venue and date), in YouTube's category for music, and the tracklist is the
   description, a `05:30 Artist - Title` line a track, the first at `00:00`: YouTube makes those
   chapters when there are three or more, in order, each at least ten seconds long, so a time that
-  would break that is left off its line (the dry run says how many). Who can watch it is the
+  would break that is left off its line (the dry run says how many). `sets export SET --format
+  youtube` writes the same description, to paste. Who can watch it is the
   `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
   `locallibrary account google sign-in --for youtube`: it asks Google only to upload videos.
   The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
@@ -118,8 +125,11 @@ are:
   publish again.
 
   Mixcloud licenses the music in DJ mixes, so the artists you play get paid royalties, under
-  rules for what a show may play that `sets export SET --format mixcloud` checks. A free account
-  keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
+  rules for what a show may play: no copyrighted music under 15 minutes, and over that at most 3
+  tracks from one release (2 in a row) and 4 by one artist (3 in a row), or only subscribers can
+  listen. Publishing (its dry run too) warns about each rule a set breaks, as `sets export SET
+  --format mixcloud` does, counting only the tracks it names where the export counts them all. A
+  free account keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
   Pro ([Mixcloud](https://www.mixcloud.com/blog/2026/10/21/what-are-unlimited-uploads-and-why-do-they-matter/)).
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
@@ -154,6 +164,9 @@ are:
   `archive` account type, signed in to with the pair of S3 keys from
   archive.org/account/s3.php. The Archive doesn't say whose keys they are, so you name the
   account. Its scope `upload` uploads items to the Internet Archive.
+- **discogs-account**: an account plugin, the `discogs` account type, signed in to with a
+  personal access token from discogs.com/settings/developers. Its scope `database` searches the
+  Discogs database.
 - **google-account**: an account plugin, the `google` account type, signed in to through Local
   Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
@@ -164,10 +177,11 @@ are:
   the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
   reading from SoundCloud as you.
 
-coverart, musicbrainz, plyr, archive, youtube, mixcloud and soundcloud are the only ones that go
-online, and
+coverart, musicbrainz, discogs, plyr, archive, youtube, mixcloud and soundcloud are the only ones
+that go online, and
 only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
-between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to
+between the first two and to Discogs' API from the third, as each asks: `art fetch` and `track
+fetch`; `sets publish` when it's about to
 publish (signed in, with `--yes` or a terminal to ask in), for the tracks it names without IDs,
 unless `--no-lookup` (or `plugin roles recording --none`, for good); `analyze --plugin
 musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video`,
@@ -203,13 +217,14 @@ signed in, and the scopes a plugin may be given, each with the requests it cover
 code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
 locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
-google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
-take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
+google-account, mixcloud-account and soundcloud-account do, and archive-account, discogs-account
+and plyr-account take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
 info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
 youtube asks for a google account to upload videos with; archive, mixcloud, plyr and soundcloud
-each for an account of their own type to upload with.
+each for an account of their own type to upload with; discogs for a discogs account to search
+with.
 
 ## Accounts
 
@@ -296,7 +311,10 @@ says so.
 An analyzer may also work out a track's beat grid, phrases and waveform (fields of type `beats`,
 `phrases` and `waveform`). They're not columns: locallibrary keeps them in the store beside the
 analyzer's other values, and the player draws them for a track whose drive has none, marked as not
-on the drive. `locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
+on the drive. When several analyzers work one out, it's drawn from the one chosen for it in
+`locallibrary plugin roles` (see [Roles](#roles)) where that one has worked it out for the track,
+else from the first with one.
+`locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
 tracks' analysis files, planned and confirmed as any edit is (`undo` takes it back, and `edits
 replay` makes it again after rekordbox exports): only where a track has none, unless
 `--overwrite`. A grid sets the track's BPM too, and its cues stay where they are (the plan says
@@ -325,6 +343,30 @@ places, as a key, a duration (`3:07`), decibels, a percentage or a meter, and ho
 is in the player; `track` and the player show them so, and the rest as they are, and a mix's
 HTML report shows those fields of each track it played. What
 locallibrary itself reads from them is their [roles](#roles).
+
+## Atmosphere records
+
+A plugin may write records in your [Atmosphere account](account.md), of the record types its
+capabilities name (`atmosphere:write:fm.plyr.track`, one type each, never a pattern; `plugin
+info` lists them). Only plugins built into locallibrary write Local Network's own
+(`computer.localnetwork.*`), and none writes the AT Protocol's (`com.atproto.*`). locallibrary
+writes each one itself, with your session, which the plugin never sees, and only after you
+confirm it: the command line shows you the record, which account it goes to and whether it's new
+or replaces one, and asks (`--yes` answers yes, and the record is still shown). Records are
+public, and anyone can read them. Where you can't be asked (`--json` without `--yes`, the player,
+the sidecar), nothing is written.
+
+Before you're asked, the record is checked against its Lexicon, strictly: a field the Lexicon
+doesn't define is an error, as with the records locallibrary publishes. The Lexicon is
+locallibrary's own for the record types it knows, else the one the plugin ships in its manifest,
+which can't stand in for one of locallibrary's. A plugin replaces a record only by naming the
+version it read, and can't delete one or upload files.
+
+Your session needs permission for the record type, which signing in doesn't ask for: the plugin
+fails saying how to sign in again allowing it (`locallibrary account login --scope
+'repo:fm.plyr.track?action=create&action=update'`). Signing in asks only for what locallibrary's
+client document allows, so a record type it doesn't list can't be allowed yet (the development
+client, `account login --dev-client`, asks for anything).
 
 ## Checks
 
@@ -456,8 +498,8 @@ where a track has none (a key written as rekordbox names it, a BPM to hundredths
 cue slot (or at a place) a track has none in (one a cue edit can't set, say a colour or a loop it
 doesn't take, is left out, saying why), and the My Tags a track lacks. It's one edit, shown
 and asked about as any is (`--dry-run`), and `undo` takes it back. The plays it logged are kept in
-the store as sessions, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
-as the log names it; the same log imported again replaces its session. In the player, a drive's
+the store as histories, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
+as the log names it; the same log imported again replaces its history. In the player, a drive's
 menu and the palette have "import ...", a form asking for the file. An importer plans nothing
 itself and needs no capability to: it only answers what it read.
 
@@ -518,12 +560,26 @@ album's details alone. A track without an album is looked up by its title, and g
 from a single of that name, never from an album it's the title track of. One release group found
 by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
+The discogs plugin has one of each too, and searches Discogs once for each album: by its name,
+artist and record label when one of its tracks has a label (read from the library), then by its
+name and artist when that finds nothing, as tags spell labels many ways. A track without an album
+is looked up by its title and artist, as the releases it's on. Only releases titled as the album
+is count, and an album's editions (a master's releases) are one. `discogs.covers` offers the
+front cover of each, and `discogs.tags` its title, the earliest year of its editions, its first
+label and its first style (else its genre); each candidate shows its label and catalogue number.
+One release found by its label scores 0.95, by name 0.9, by a track's title 0.6, and one of
+several 0.5. Searches go a second apart. When Discogs says the account is over its limit (60
+requests a minute), a search waits as long as Discogs asks (else a minute) and goes again, a few
+times at most, and an album it would wait over two minutes for is left out, saying so. Without a
+signed-in Discogs account, or with a token Discogs refuses, it finds nothing and says how to sign
+in.
+
 ## Roles
 
 An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
 tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, what tells one
-recording from another, or its MusicBrainz IDs: the recording's (`recording`) and the release's
-(`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
+recording from another (`identity`), or its MusicBrainz IDs: the recording's (`recording`) and the
+release's (`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
 artist its credit names, in order, split as a published set splits them (at commas, semicolons and
 "feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
 (`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
@@ -532,7 +588,9 @@ each, the sound plugin's and the musicbrainz plugin's unless another does too: `
 plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another that has it,
 `plugin roles recording --none` reads one from none (`sets publish` then looks nothing up), and
 `plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as
-`analysis.roles.key`). `doctor --analyze` runs those analyzers first on the tracks they haven't
+`analysis.roles.key`). Nothing reads `identity` yet: it's reserved for telling when two tracks are
+the same recording (their values are equal), and the musicbrainz plugin answers it with the
+recording's ID. `doctor --analyze` runs those analyzers first on the tracks they haven't
 worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
 [Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
 recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
@@ -540,6 +598,13 @@ is a UUID and there's one for each name. What an analyzer keeps goes with the au
 library can retag without changing, so a track takes the IDs only when they were looked up by its
 ISRC, and the artists' only for its credit, as far as the analyzer says (`isrc`, `credits`);
 `sets publish` looks those tracks up again.
+
+A beat grid, phrases and a waveform are chosen the same way, as `grid`, `phrases` and `waveform`,
+from any analyzer that works one out: `plugin roles waveform PLUGIN.ANALYZER` has the player draw
+that analyzer's waveform (another's for a track it hasn't analysed), and `analyze --apply waveform`
+write it and no other's. With `--none` neither draws or writes any.
+Unchosen, the player draws each from the first analyzer with one for the track, and `--apply`
+asks which analyzer when several have it (`--plugin`, `--analyzer`).
 
 `locallibrary analyze LIBRARY --apply key,bpm` writes what the analyzer heard to the tracks, as an
 edit you're shown and asked about (only where a track has none unless `--overwrite`;
@@ -591,14 +656,34 @@ each becomes the nearest of them, and with `NO_COLOR` there are none.
 A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a function for each
 kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
-it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
-ready. A command or an operation may answer a question for you (`Choice`) instead, or several
+it), `host.fetch(..)` to go online, `host.put_record(..)` to write an [Atmosphere
+record](#atmosphere-records) and `host.partial_rows(..)` to send a view's rows as they're ready. A command or an operation may answer a question for you (`Choice`) instead, or several
 at once (`Choice::together`), and is run again with your answers as its params. A view (a
 command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
 that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
 handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
 you something. Each family of hooks is an optional feature of the protocol, so a newer
 locallibrary adds kinds of hooks without breaking older plugins.
+
+To run one you're writing, give locallibrary its manifest and the program that serves it, for that
+run only: `locallibrary --dev-plugin locallibrary-plugin.toml:target/debug/my-plugin plugin list`
+(`;` between the two on Windows). `LOCALLIBRARY_DEV_PLUGINS` does the same when there's no
+`--dev-plugin`, several plugins one after another as `PATH` lists folders. It works for every
+command, the player (`locallibrary --dev-plugin ... tui`) and the sidecar (`locallibrary
+--dev-plugin ... rpc`). Nothing is installed, though what you set for it (its settings, its access
+to your accounts) is kept under its id like any plugin's. It's held to the rules for a plugin
+locallibrary doesn't ship: no place of its own on the command line (`cli`), no
+`library:delete-unbacked`, no token exchange for its account types, and an id none of
+locallibrary's plugins has, so it can't take their settings or access. Every run warns that it's
+loaded, naming its capabilities, and one that breaks a rule or clashes with locallibrary's
+commands or plugins fails the run, saying why.
+
+`locallibrary plugin check MANIFEST -- PROGRAM [ARGS...]` tries one first. It checks the manifest
+by those rules, then starts the program, refusing anything it calls back for (a read, `net/fetch`,
+an account): it must answer `hello` and `describe` exactly as its manifest says, and have the
+features its contributions need. It lists
+the features it and locallibrary both have, or what's wrong, with exit status 4 (`--json`: `{id,
+version, features, problems, outcome}`).
 
 ## Safety
 
@@ -608,7 +693,11 @@ bounded size. Those are the drives known here, and the one a hook under way runs
 opened by path too, named as the hook's context names it, until the hook is done. What it gets back, errors too, doesn't say where things are on this computer:
 a drive is said by its name, where the store's copies, a set's or a mix's recording and
 rekordbox's collection are is left out, and any other path is said from its drive, the store
-(`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
+(`<store>`) or your home folder (`~`). A plugin with `collection:files` is told where rekordbox's
+own files and its tracks' audio are, as backing them up needs, and can read them: its database and settings hold your
+rekordbox and Dropbox sign-in tokens. locallibrary still never writes to rekordbox's folders, and
+the copy of rekordbox's database it makes for the plugin leaves the cloud agent's sign-in out
+unless the plugin asks for it. An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
 root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
 answering is stopped, and started again the next time it's needed. What a plugin says (its
@@ -623,7 +712,9 @@ its manifest says each server allows. A secret setting, or an account's token, g
 such a request names it (an account's token, only where its account type says it goes and a scope
 of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
-and of the errors it's told. What a server answers is passed on as it is, but for a secret or an
+and of the errors it's told. A plugin never sees your Atmosphere session either, and writes a
+record there only of a type its capabilities name, once it fits its Lexicon and you've confirmed
+it (see [Atmosphere records](#atmosphere-records)). What a server answers is passed on as it is, but for a secret or an
 account's token sent in the address, which comes back as the placeholder that named it, and a server
 refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
 files a plugin sends are those in its request's folder (see below) and a set's recording while it
@@ -637,4 +728,5 @@ only when it's in a folder you granted for that build, its links resolved (see
 [Library sources](#library-sources)).
 
 A plugin runs as you and isn't sandboxed. The limits above are locallibrary's own, and your
-system doesn't enforce them: a plugin could still read any file you can.
+system doesn't enforce them: a plugin could still read any file you can. That holds for one given
+with `--dev-plugin` too, so only give it programs you trust.

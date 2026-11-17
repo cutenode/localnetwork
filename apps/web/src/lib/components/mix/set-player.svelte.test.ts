@@ -505,10 +505,8 @@ describe('MixReport with a recording', () => {
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await expect.element(position()).toBeEnabled();
 
-		await page.getByRole('button', { name: '3 Halogen Two Rooms', exact: true }).click();
-		await expect
-			.element(page.getByRole('button', { name: 'Playing now: 3 Halogen Two Rooms', exact: true }))
-			.toBeInTheDocument();
+		await page.getByRole('button', { name: '3 Halogen', exact: true }).click();
+		await expect.element(page.getByRole('button', { name: 'Playing now: 3 Halogen', exact: true })).toBeInTheDocument();
 		await expect.element(position()).toHaveAttribute('aria-valuetext', '10:10 of 11:40');
 	});
 
@@ -516,7 +514,7 @@ describe('MixReport with a recording', () => {
 		await render(MixReport, { report: sampleReport, source: Promise.resolve(sources(silence(700)).pds) });
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await expect
-			.element(page.getByRole('button', { name: 'Playing now: 1 Night Bus Ferrule', exact: true }))
+			.element(page.getByRole('button', { name: 'Playing now: 1 Night Bus', exact: true }))
 			.toBeInTheDocument();
 
 		await page.getByRole('button', { name: 'Close player' }).click();

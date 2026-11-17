@@ -49,7 +49,7 @@ it('asks staff for the new project, and opens the request', async () => {
 
 	await expect(sent).rejects.toMatchObject({ status: 303 });
 	const [request] = await t.requests.list({ requester: DJ });
-	await expect(sent).rejects.toMatchObject({ location: `/dashboard/requests/${request.rkey}?submitted=1` });
+	await expect(sent).rejects.toMatchObject({ location: `/dashboard/account/requests/${request.rkey}?submitted=1` });
 	expect(request?.record).toMatchObject({
 		kind: 'create',
 		profile: { name: 'Neon Tide', kind: 'duo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } },

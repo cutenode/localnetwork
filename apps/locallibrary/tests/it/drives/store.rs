@@ -54,7 +54,7 @@ fn pull_asks_in_a_terminal_before_starting_a_library() {
 fn snapshots_are_labelled_and_pruned_keeping_what_matters() {
     let env = Env::new();
     three_snapshots(&env);
-    let log = env.ok(&["log", "Main"]);
+    let log = env.ok(&["library", "log", "Main"]);
     let first = log.lines().last().unwrap().split_whitespace().next().unwrap().to_string();
     let out = env.ok(&["--yes", "store", "label", &first, "keep me"]);
     assert!(out.contains(&format!("label snapshot {first} \"keep me\"")) && out.contains("is \"keep me\""), "{out}");
@@ -137,14 +137,14 @@ fn the_store_says_what_it_holds() {
     env.ok(&["--yes", "settings", "set", "quantize=off"]);
     let store = env.ok(&["store"]);
     assert!(store.contains("  data       0 B in 0 files\n  snapshots  0\n  drives     0 known"), "{store}");
-    assert!(env.ok(&["log"]).starts_with("The store is empty."));
+    assert!(env.ok(&["library", "log"]).starts_with("The store is empty."));
 
     env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
     let pulled = env.ok(&["pull", "Main", "-m", "first", "--label", "before NYE"]);
     let id = pulled.split_whitespace().nth(2).unwrap().to_string();
     assert!(pulled.starts_with(&format!("✓ snapshot {id} [before NYE] of Main: 2 tracks; stored ")), "{pulled}");
     assert_eq!(env.ok(&["pull", "Main"]).trim(), format!("✓ Main is up to date (snapshot {id} [before NYE])"));
-    let log = env.ok(&["log"]);
+    let log = env.ok(&["library", "log"]);
     assert!(log.starts_with("Main\n") && line(&log, &id).contains("[before NYE]"), "{log}");
     assert!(line(&log, &id).contains("2 tracks") && line(&log, &id).ends_with("from Main  first"), "{log}");
     let store = env.ok(&["store", "info"]);
@@ -152,9 +152,9 @@ fn the_store_says_what_it_holds() {
 
     // Labels, verifying, collecting.
     assert!(env.ok(&["--yes", "store", "label", &id, "Friday"]).contains("Friday"));
-    assert!(line(&env.ok(&["log"]), &id).contains("[before NYE] [Friday]"));
+    assert!(line(&env.ok(&["library", "log"]), &id).contains("[before NYE] [Friday]"));
     env.ok(&["--yes", "store", "unlabel", "Friday"]);
-    assert!(!env.ok(&["log"]).contains("Friday"));
+    assert!(!env.ok(&["library", "log"]).contains("Friday"));
     assert!(env.ok(&["store", "verify"]).trim().ends_with("objects verified"));
     assert_eq!(env.ok(&["store", "gc"]).trim(), "✓ nothing to collect");
 
@@ -249,7 +249,7 @@ fn lookups_with_no_store_leave_none_behind() {
         &["store", "copy", path(&copy), "--dry-run"],
         &["library", "prune", "--keep-last", "1", "--dry-run"],
         &["--yes", "library", "rename", "Nope", "New"],
-        &["push", path(&a)],
+        &["library", "push", path(&a)],
         &["art", "unembed", "--dry-run"],
         &["players", "set", "CDJ-3000", "--dry-run"],
         &["--yes", "players", "clear"],
@@ -286,7 +286,7 @@ fn a_store_that_wont_open_is_named() {
 fn windows_says_views_arent_available() {
     let env = Env::new();
     env.pulled("Main");
-    let id = env.ok(&["log", "Main"]).lines().last().unwrap().split_whitespace().next().unwrap().to_string();
+    let id = env.ok(&["library", "log", "Main"]).lines().last().unwrap().split_whitespace().next().unwrap().to_string();
     let err = env.fails(1, &["store", "browse", &id]);
     assert!(err.contains("isn't available on Windows"), "{err}");
 }

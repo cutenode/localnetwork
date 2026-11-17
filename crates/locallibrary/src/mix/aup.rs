@@ -327,10 +327,17 @@ impl Project {
                 .map_err(|e| Error::parse(path, e))?
                 .ok_or_else(|| Error::parse(path, "the project is empty"))?,
         };
+        Self::from_document(path, &dict, &doc)
+    }
+
+    /// The project at `path` from its document: the `dict` and `doc` of Audacity's binary XML,
+    /// as its `project` (or `autosave`) table holds them. Its audio stays in the file, for
+    /// [`render`](Self::render).
+    pub fn from_document(path: &Path, dict: &[u8], doc: &[u8]) -> Result<Project> {
         let mut reader = Reader { names: FxHashMap::default(), char_size: 1 };
         let mut stack = vec![Element::default()];
-        reader.read(&dict, &mut stack).map_err(|e| Error::parse(path, format!("project dictionary: {e}")))?;
-        reader.read(&doc, &mut stack).map_err(|e| Error::parse(path, format!("project document: {e}")))?;
+        reader.read(dict, &mut stack).map_err(|e| Error::parse(path, format!("project dictionary: {e}")))?;
+        reader.read(doc, &mut stack).map_err(|e| Error::parse(path, format!("project document: {e}")))?;
         // Close anything left open (a truncated document) and take the root.
         while stack.len() > 1 {
             let done = stack.pop().expect("len > 1");

@@ -224,7 +224,7 @@ fn setup_does_what_it_was_told(tc: TestCase) {
     let libraries = fx.json(&["library", "ls"]);
     let names: Vec<&str> = libraries.as_array().unwrap().iter().filter_map(|l| l["name"].as_str()).collect();
     assert!(names.contains(&library.as_str()), "no library {library:?}: {names:?}\n{said}");
-    let drives = fx.json(&["drive", "list", "--retired"]);
+    let drives = fx.json(&["drive", "ls", "--known", "--retired"]);
     let record = |name: &str| drives.as_array().unwrap().iter().find(|d| d["name"] == name);
     let role_of = |name: &str| record(name).map(|d| d["role"].clone());
     if let Some(p) = taken.get(primary).filter(|_| roles.iter().all(|(d, _)| d != &taken[primary])) {
