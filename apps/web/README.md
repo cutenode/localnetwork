@@ -4,7 +4,7 @@ Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ,
 
 All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index for space data, which it can rebuild from the network, alongside what exists only there (sessions, notifications, press kit view receipts and the geocode cache). Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
 
-> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261105160032` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
+> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261113224550` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
 ## Features
 
@@ -183,9 +183,9 @@ flowchart TD
   SETS[("DJs' repos: stats, sets,<br/>recordings, settings,<br/>older press kits")]
   FANS[("Managers' and fans' repos:<br/>profiles, shows, calendar<br/>events, follows")]
   HV[("HappyView")]
-  UR -- "notifyWrite" --> SH
-  SH -- "notifyWrite" --> App
-  App -- "space credential:<br/>listRepos" --> SH
+  UR -- "notifyRepoUpdate" --> SH
+  SH -- "notifySpaceUpdate" --> App
+  App -- "space credential:<br/>listWriters" --> SH
   App -- "space credential: listRepoOps,<br/>getRepo, getRecord. OAuth: planners" --> UR
   PUB -- "Jetstream,<br/>or a backfill" --> HV
   SETS -- "Jetstream,<br/>or a backfill" --> HV
@@ -193,7 +193,7 @@ flowchart TD
   App -- "directory queries<br/>and record reads" --> HV
 ```
 
-Source: [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](src/lib/server/atproto/credentials.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
+Source: [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](src/lib/server/atproto/credentials.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts)
 
 ### The audit log
 
@@ -217,7 +217,7 @@ A mix whose link is a plyr.fm track (`https://plyr.fm/track/<id>`) also gets a `
 
 ### Sync
 
-The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. A writer whose account is taken down, suspended, or deactivated is skipped the same way without failing the pass, and the system page shows why. A space whose authority is taken down or deactivated is only suspended, so its local copy stays. A record whose projection into the app's tables fails, such as an inquiry read while the directory is down, waits on the same schedule and shows on the system page until it goes through ([ADR 0009](../../docs/adr/0009-synced-records-queue-for-projection.md)). It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, the show announced from it only from the root's status records, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
+The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential with `authorizeSpaceSync`, sending a fresh delegation token from the root's PDS and the `did:key` of a new P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listWriters`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. A repo the listing says left the writer set (a member removed, or no longer allowed to write) keeps the records already synced from it. Commits and records aren't signed: the repo host MACs the commit or record header of each response (an HTTP message signature) with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. A writer whose account is taken down, suspended, or deactivated is skipped the same way without failing the pass, and the system page shows why. A space whose authority is taken down or deactivated is only suspended, so its local copy stays. A record whose projection into the app's tables fails, such as an inquiry read while the directory is down, waits on the same schedule and shows on the system page until it goes through ([ADR 0009](../../docs/adr/0009-synced-records-queue-for-projection.md)). It also registers for each watched space's updates, and polls. Each credential request names the app's `PUBLIC_URL` and a random token the app keeps for that space; the host checks both with `confirmRegistration` before registering, and the registration lasts as long as the credential, so polling keeps it up. The host posts each update to `notifySpaceUpdate` with that token, and the app syncs the space. A notice that the space was deleted or the registration lapsed makes the app ask for a fresh credential first, and only the authority refusing it with `SpaceDeleted` drops the space. A host that can't confirm the endpoint leaves the space on polling. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, the show announced from it only from the root's status records, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
 
 ### Directory
 
@@ -343,7 +343,7 @@ Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files 
 
 See [`.env.example`](.env.example) for every option. The essentials:
 
-- `PUBLIC_URL`: the app's origin. OAuth client metadata (`/oauth-client-metadata.json`) and the syncer's `did:web` (`/.well-known/did.json`) are derived from it. Loopback URLs use an atproto loopback OAuth client.
+- `PUBLIC_URL`: the app's origin. OAuth client metadata (`/oauth-client-metadata.json`) and the app's `did:web` (`/.well-known/did.json`) are derived from it, and space hosts send update notifications to it. Loopback URLs use an atproto loopback OAuth client.
 - `ROOT_IDENTIFIER` / `ROOT_PASSWORD`: the Local Network root account. **Use a dedicated account and its account password.** In the alpha, `com.atproto.space.getDelegationToken` requires a full-access session, so app passwords cannot mint space credentials (the app explains this in its logs if you try).
 - `ADMIN_DIDS`: accounts that are always admins. Everyone else is managed in-app.
 - `HAPPYVIEW_URL`: the HappyView instance that serves the directory. Use its public URL: HappyView only answers the host its own `PUBLIC_URL` names. If HappyView is down, the app still starts, and pages that need projects say the directory is offline.
@@ -512,13 +512,13 @@ flowchart TD
   App -- "queries, scripts,<br/>re-reads" --> HV
   App -- "root session" --> Root
   App -- "OAuth sessions,<br/>space sync" --> Pds
-  Root -- "notifyWrite" --> App
+  Root -- "notifySpaceUpdate" --> App
   Root --> Jet
   Pds --> Jet
   Jet --> HV
 ```
 
-Source: [`src/lib/server/app.ts`](src/lib/server/app.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
+Source: [`src/lib/server/app.ts`](src/lib/server/app.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts)
 
 ### Deployment
 

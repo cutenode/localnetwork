@@ -256,8 +256,8 @@ it("doesn't read the session cookie on an xrpc call, or rate limit it", async ()
 	const { handle } = hooksWith(async () => s.app);
 
 	const { response, locals } = await handledWithLocals(handle, {
-		url: '/xrpc/com.atproto.space.notifyWrite',
-		request: new Request('https://localnetwork.test/xrpc/com.atproto.space.notifyWrite', { method: 'POST' }),
+		url: '/xrpc/com.atproto.space.notifySpaceUpdate',
+		request: new Request('https://localnetwork.test/xrpc/com.atproto.space.notifySpaceUpdate', { method: 'POST' }),
 		cookies: { [SESSION_COOKIE]: token }
 	});
 
