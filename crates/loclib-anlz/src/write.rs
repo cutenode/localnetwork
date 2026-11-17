@@ -23,7 +23,6 @@
 //! loop numerator u16, denominator u16, comment length u32 (0 when empty), UTF-16BE comment with
 //! a NUL, hot cue colour code u8 (rekordbox's palette, 1-62) and RGB, 40 bytes.
 
-use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::*;
@@ -39,12 +38,13 @@ const PCPT_LEN: usize = 0x38;
 /// `PCP2` up to the comment length field.
 const PCP2_HEAD: usize = 0x2c;
 /// The longest cue name (in UTF-8 bytes) written.
-pub(crate) const MAX_COMMENT: usize = 0x10000;
+pub const MAX_COMMENT: usize = 0x10000;
 /// Bytes rekordbox 7 writes after a `PCP2` entry's colour.
 const PCP2_PADDING: usize = 40;
 
 /// A cue point with everything the analysis files store about it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CuePoint {
     /// `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ...
     pub hot_cue: Option<u8>,
@@ -52,7 +52,7 @@ pub struct CuePoint {
     /// End of the loop, for loops.
     pub end_ms: Option<u32>,
     /// A quantised loop's length in beats, as numerator and denominator (4/1, 1/2...).
-    #[schemars(with = "Option<super::LoopBeats>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<super::LoopBeats>"))]
     pub loop_beats: Option<(u16, u16)>,
     pub comment: String,
     /// Memory cue colour: a row of rekordbox's colour table (1 pink ... 8 purple), 0 for none.

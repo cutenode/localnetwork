@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use binrw::BinRead;
 use hegel::TestCase;
 use hegel::generators as gs;
-use locallibrary::anlz::{self, Bands, Beat, Mood, Phrase, PhraseKind, SongStructure, WaveformStyle};
+use loclib_anlz::{self as anlz, Bands, Beat, Mood, Phrase, PhraseKind, SongStructure, WaveformStyle};
 
 const ANALYSED: [&str; 2] = ["P016/0000875E", "P053/0001D21F"];
 

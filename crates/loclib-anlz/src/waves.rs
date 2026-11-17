@@ -13,7 +13,7 @@
 //! and highs against the loudest) in 3 bits each, then the height in 5 and 2 unused; 3-band
 //! columns are the mids', highs' and lows' heights ([beat-link] draws `PWV6` from 0-63 and
 //! `PWV7` from 0-127, so they're a quarter and half of a band's 0-255 here). `PWV4`'s first two
-//! bytes a column aren't understood, so it's never worked out. These mappings are locallibrary's
+//! bytes a column aren't understood, so it's never worked out. These mappings are this crate's
 //! own: players draw what they're given, but only real players show whether it looks right.
 //!
 //! [beat-link]: https://github.com/Deep-Symmetry/beat-link/blob/main/src/main/java/org/deepsymmetry/beatlink/data/WaveformDetail.java

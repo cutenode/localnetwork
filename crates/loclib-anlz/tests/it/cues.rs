@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 use binrw::BinRead;
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
-use locallibrary::anlz::{self, CueFile, CuePoint};
+use loclib_anlz::{self as anlz, CueFile, CuePoint};
 
 const ANALYSED: [&str; 2] = ["P016/0000875E", "P053/0001D21F"];
 
@@ -500,23 +500,6 @@ fn readers_agree_on_any_hot_cue_number(tc: TestCase) {
     assert_eq!(legacy, full, "hot cue number {number}");
 }
 
-/// Listing any hot cue the files can hold (numbers 1-256) gives it a label. `HotCue::letter`
-/// (also used for the mix export's labels) computed `b'A' + slot`, which overflowed from slot
-/// 191: a panic in debug builds, a NUL in release.
-#[hegel::test]
-#[hegel::explicit_test_case(number = 200u32)]
-fn every_hot_cue_read_can_be_listed(tc: TestCase) {
-    let number = tc.draw(gs::integers::<u32>().min_value(1).max_value(256));
-    let base = common::synthetic_anlz("/Contents/a.mp3");
-    let mut f = write(&base, CueFile::DatAlone, &[CuePoint { hot_cue: Some(0), start_ms: 500, ..Default::default() }]);
-    let at = f.windows(4).position(|w| w == b"PCPT").unwrap();
-    f[at + 12..at + 16].copy_from_slice(&number.to_be_bytes());
-    for c in anlz::read_cue_points(&f, None).unwrap() {
-        let letter = locallibrary::cue_edit::HotCue(c.hot_cue.unwrap()).letter();
-        assert_ne!(letter, '\0', "hot cue {number}");
-    }
-}
-
 /// The `PPTH` path reads back as written, and nothing else in the file changes.
 #[hegel::test]
 fn rewritten_path_reads_back(tc: TestCase) {
@@ -931,4 +914,176 @@ fn old_short_cue_entries_grow_only_for_a_colour(tc: TestCase) {
     let back = anlz::read_cue_points(&coloured, None).unwrap();
     let c = back.iter().find(|c| c.hot_cue == Some(hot as u8 - 1)).unwrap();
     assert_eq!((c.color_code, c.color_rgb, c.comment.as_str()), (cues[0].color_code, cues[0].color_rgb, name.as_str()));
+}
+
+/// One of each kind of cue.
+fn sample() -> Vec<CuePoint> {
+    vec![
+        CuePoint { start_ms: 25, comment: "Intro".into(), color_id: 6, ..Default::default() },
+        CuePoint {
+            start_ms: 30_025,
+            end_ms: Some(33_775),
+            loop_beats: Some((8, 1)),
+            active_loop: true,
+            ..Default::default()
+        },
+        CuePoint {
+            hot_cue: Some(0),
+            start_ms: 15_025,
+            comment: "Vocal ♪".into(),
+            color_code: 0x2a,
+            color_rgb: [0xe6, 0x28, 0x28],
+            ..Default::default()
+        },
+        CuePoint {
+            hot_cue: Some(4),
+            start_ms: 60_025,
+            end_ms: Some(60_259),
+            loop_beats: Some((1, 2)),
+            color_rgb: anlz::DEFAULT_HOT_CUE_RGB,
+            ..Default::default()
+        },
+    ]
+}
+
+#[test]
+fn rewrites_real_analysis_files_byte_for_byte() {
+    for (dat, ext, _) in real_files() {
+        // rekordbox exported these without cues: empty lists in both files.
+        let cues = anlz::read_cue_points(dat, Some(ext)).unwrap();
+        assert!(cues.is_empty());
+        assert_eq!(anlz::write_cue_points(dat, CueFile::Dat, &cues).unwrap(), *dat);
+        assert_eq!(anlz::write_cue_points(ext, CueFile::Ext, &cues).unwrap(), *ext);
+
+        let dat2 = anlz::write_cue_points(dat, CueFile::Dat, &sample()).unwrap();
+        let ext2 = anlz::write_cue_points(ext, CueFile::Ext, &sample()).unwrap();
+        assert_eq!(non_cue_content(&dat2), non_cue_content(dat));
+        assert_eq!(non_cue_content(&ext2), non_cue_content(ext));
+        let back = anlz::read_cue_points(&dat2, Some(&ext2)).unwrap();
+        assert_eq!(back.len(), 4);
+        for (a, b) in back.iter().zip(sample().iter()) {
+            assert!(a.same_as(b), "{a:?} vs {b:?}");
+        }
+        // What we wrote is written back unchanged, and clearing it restores rekordbox's files.
+        assert_eq!(anlz::write_cue_points(&dat2, CueFile::Dat, &back).unwrap(), dat2);
+        assert_eq!(anlz::write_cue_points(&ext2, CueFile::Ext, &back).unwrap(), ext2);
+        assert_eq!(anlz::write_cue_points(&dat2, CueFile::Dat, &[]).unwrap(), *dat);
+        assert_eq!(anlz::write_cue_points(&ext2, CueFile::Ext, &[]).unwrap(), *ext);
+
+        // The existing reader (player, XML export) sees them too.
+        let shown = anlz::cues(&ext2).unwrap();
+        assert_eq!(shown.len(), 4);
+        assert_eq!(
+            (shown[2].hot_cue, shown[2].comment.as_str(), shown[2].color),
+            (Some(0), "Vocal ♪", Some([0xe6, 0x28, 0x28]))
+        );
+        assert_eq!(anlz::cues(&dat2).unwrap().len(), 3, "the .DAT has hot cues A-C and the memory cues");
+    }
+}
+
+/// rekordcrate, an independent parser, on what we write. It models a point cue's type as 0 where
+/// rekordbox writes 1 (crate-digger's docs and real exports agree), and expects 20 bytes after a
+/// `PCP2` entry's colour where rekordbox 7 writes 40, so loops are checked, and the `.EXT`'s
+/// entries one at a time inside sections framed by rekordcrate's own header parser.
+#[test]
+fn rekordcrate_reads_cues_written_into_rekordboxs_files() {
+    use rekordcrate::anlz::{ANLZ, Content, ContentKind, CueList, CueListType, CueType, ExtendedCue, Header};
+    use rekordcrate::util::ColorIndex;
+
+    let (dat, ext, _) = real_files()[0].clone();
+    let cues = vec![
+        CuePoint {
+            hot_cue: Some(0),
+            start_ms: 1_000,
+            end_ms: Some(2_875),
+            loop_beats: Some((4, 1)),
+            comment: "Build".into(),
+            color_code: 0x2a,
+            color_rgb: [0xe6, 0x28, 0x28],
+            ..Default::default()
+        },
+        CuePoint {
+            hot_cue: Some(5),
+            start_ms: 60_025,
+            end_ms: Some(63_775),
+            comment: "Drop".into(),
+            ..Default::default()
+        },
+        CuePoint {
+            start_ms: 90_000,
+            end_ms: Some(91_000),
+            comment: "Outro".into(),
+            color_id: 3,
+            active_loop: true,
+            ..Default::default()
+        },
+    ];
+    let dat2 = anlz::write_cue_points(&dat, CueFile::Dat, &cues).unwrap();
+    let ext2 = anlz::write_cue_points(&ext, CueFile::Ext, &cues).unwrap();
+
+    // The whole .DAT.
+    let file = ANLZ::read(&mut Cursor::new(&dat2)).unwrap();
+    assert_eq!(file.header.total_size as usize, dat2.len());
+    let mut lists = Vec::new();
+    for s in &file.sections {
+        if let Content::CueList(l) = &s.content {
+            let entries: Vec<(u32, u32, u32, u32, u16, u16)> = l
+                .cues
+                .iter()
+                .map(|c| (c.hot_cue, c.status, c.time, c.loop_time, c.order_first, c.order_last))
+                .collect();
+            assert!(l.cues.iter().all(|c| c.cue_type == CueType::Loop));
+            lists.push((l.list_type == CueListType::HotCues, entries));
+        }
+    }
+    assert_eq!(
+        lists,
+        [(true, vec![(1, 0, 1_000, 2_875, 0xffff, 0xffff)]), (false, vec![(0, 4, 90_000, 91_000, 0xffff, 0xffff)])]
+    );
+
+    // The .EXT, section by section.
+    let mut pos = u32::from_be_bytes(ext2[4..8].try_into().unwrap()) as usize;
+    let (mut basic, mut extended) = (Vec::new(), Vec::new());
+    while pos < ext2.len() {
+        let h = Header::read_be(&mut Cursor::new(&ext2[pos..])).unwrap();
+        match h.kind {
+            ContentKind::CueList => {
+                let l = CueList::read_be(&mut Cursor::new(&ext2[pos + 12..])).unwrap();
+                basic.extend(l.cues.iter().map(|c| (c.hot_cue, c.time, c.loop_time)));
+            }
+            ContentKind::ExtendedCueList => {
+                let mut e = pos + h.size as usize;
+                while e < pos + h.total_size as usize {
+                    let eh = Header::read_be(&mut Cursor::new(&ext2[e..])).unwrap();
+                    assert_eq!(eh.kind, ContentKind::ExtendedCue);
+                    let c = ExtendedCue::read_be(&mut Cursor::new(&ext2[e..])).unwrap();
+                    assert_eq!(c.cue_type, CueType::Loop);
+                    extended.push((
+                        c.hot_cue,
+                        c.time,
+                        c.loop_time,
+                        String::from_utf16_lossy(&c.comment.0),
+                        c.color.clone(),
+                        c.hot_cue_color_index,
+                        c.hot_cue_color_rgb,
+                        (c.loop_numerator, c.loop_denominator),
+                    ));
+                    e += eh.total_size as usize;
+                }
+            }
+            _ => {}
+        }
+        pos += h.total_size as usize;
+    }
+    assert_eq!(pos, u32::from_be_bytes(ext2[8..12].try_into().unwrap()) as usize);
+    assert_eq!(pos, ext2.len());
+    assert_eq!(basic, [(6, 60_025, 63_775)], "only hot cues D-H in the .EXT's PCOB");
+    assert_eq!(
+        extended,
+        [
+            (1, 1_000, 2_875, "Build".into(), ColorIndex::None, 0x2a, (0xe6, 0x28, 0x28), (4, 1)),
+            (6, 60_025, 63_775, "Drop".into(), ColorIndex::None, 0, (0, 0, 0), (0, 0)),
+            (0, 90_000, 91_000, "Outro".into(), ColorIndex::Orange, 0, (0, 0, 0), (0, 0)),
+        ]
+    );
 }

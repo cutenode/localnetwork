@@ -7,7 +7,7 @@ fn hex(s: &str) -> Vec<u8> {
 
 /// PMAI + PPTH + the given sections.
 fn file(sections: &[Vec<u8>]) -> Vec<u8> {
-    let mut f = crate::anlz::tests::synthetic("/Contents/a.mp3");
+    let mut f = crate::tests::synthetic("/Contents/a.mp3");
     for s in sections {
         f.extend_from_slice(s);
     }
@@ -261,19 +261,21 @@ fn cues_that_cant_be_stored_are_refused() {
     let many = vec![memory(1); usize::from(u16::MAX) + 1];
     let err = write_cue_points(&f, CueFile::Ext, &many).unwrap_err();
     assert_eq!(err.to_string(), "too many cues");
-    let named = CuePoint { comment: "x".repeat(0x10001), ..hot(0, 1) };
+    let longest = CuePoint { comment: "x".repeat(MAX_COMMENT), ..hot(0, 1) };
+    assert!(write_cue_points(&f, CueFile::Ext, &[longest]).is_ok(), "a name of MAX_COMMENT bytes is written");
+    let named = CuePoint { comment: "x".repeat(MAX_COMMENT + 1), ..hot(0, 1) };
     let err = write_cue_points(&f, CueFile::Ext, &[named]).unwrap_err();
     assert_eq!(err.to_string(), format!("cue name is too long: {:?}...", "x".repeat(20)));
 }
 
 #[test]
 fn adds_lists_to_files_without_them() {
-    let base = crate::anlz::tests::synthetic("/Contents/a.mp3");
+    let base = crate::tests::synthetic("/Contents/a.mp3");
     let out = write_cue_points(&base, CueFile::Ext, &[hot(3, 1_000)]).unwrap();
     let tags: Vec<[u8; 4]> = sections(&out).unwrap().iter().map(|s| s.tag).collect();
     assert_eq!(tags, [*b"PPTH", *b"PQTZ", *b"PCOB", *b"PCOB", *b"PCO2", *b"PCO2"]);
-    assert_eq!(crate::anlz::beat_grid(&out).unwrap(), crate::anlz::beat_grid(&base).unwrap());
-    assert_eq!(crate::anlz::cues(&out).unwrap()[0].hot_cue, Some(3));
+    assert_eq!(crate::beat_grid(&out).unwrap(), crate::beat_grid(&base).unwrap());
+    assert_eq!(crate::cues(&out).unwrap()[0].hot_cue, Some(3));
     // Clearing them leaves empty lists behind, as rekordbox writes for a track without cues.
     let cleared = write_cue_points(&out, CueFile::Ext, &[]).unwrap();
     assert!(read_cue_points(&cleared, None).unwrap().is_empty());
