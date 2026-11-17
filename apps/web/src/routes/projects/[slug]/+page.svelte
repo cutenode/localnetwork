@@ -60,7 +60,7 @@
 		</div>
 		{#if profile.genres.length}
 			<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Sound">
-				{#each profile.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
+				{#each profile.genres as genre, index (index)}<li><Tag href="/djs?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
 		<div id="follow" class="flex flex-wrap gap-2">
@@ -89,8 +89,8 @@
 {#if form || data.pendingClaim || data.pendingUpdate}
 	<div class="container-page mt-6 flex flex-col gap-3">
 		{#if form?.reauth && form.error && viewer}<SignInAgain did={viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
-		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/dashboard/account/requests/{data.pendingClaim.rkey}">View request</a></p>{/if}
-		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/dashboard/account/requests/{data.pendingUpdate.rkey}">View request</a></p>{/if}
+		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/dashboard/account/requests/{data.pendingClaim.rkey}">View review request</a></p>{/if}
+		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/dashboard/account/requests/{data.pendingUpdate.rkey}">View review request</a></p>{/if}
 	</div>
 {/if}
 

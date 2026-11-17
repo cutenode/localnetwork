@@ -2,6 +2,8 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import { capabilitiesFor } from '#lib/capabilities.ts';
+	import { light } from '#lib/testing/light.ts';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import PartyPage from './PartyPage.svelte';
 
 	/**
@@ -11,26 +13,8 @@
 	const { Story } = defineMeta({
 		title: 'Pages/Party',
 		component: PartyPage,
-		parameters: {
-			layout: 'fullscreen',
-			viewport: {
-				options: {
-					phone: { name: 'Phone', styles: { width: '390px', height: '844px' }, type: 'mobile' },
-					desktop: { name: 'Desktop', styles: { width: '1280px', height: '800px' }, type: 'desktop' }
-				}
-			}
-		}
+		parameters: { layout: 'fullscreen' }
 	});
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'phone', isRotated: false } };
-
-	const light = () => {
-		document.documentElement.classList.add('light');
-
-		return () => document.documentElement.classList.remove('light');
-	};
 
 	/** Stands in for the app's navigation, its form sending and its leave guard, which a story doesn't have. */
 	const harness = {

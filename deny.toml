@@ -18,7 +18,7 @@ exclude-dev = true
 # workspace depends on them directly; deeper ones are for the crates that pull them in.
 unmaintained = "workspace"
 yanked = "warn"
-# osv-scanner.toml ignores the same two for Scorecard, with the same reasons.
+# osv-scanner.toml ignores the same three for Scorecard, with the same reasons.
 ignore = [
     # rsa's Marvin attack (timing side channel in RSA decryption; no fixed release). It comes
     # in through jacquard-oauth's jose-jwk, for JWK types. Sign-in signs with an ES256 DPoP key
@@ -30,6 +30,10 @@ ignore = [
     # and reading it needs timing measurements on this machine. Remove this once jacquard moves
     # to the RustCrypto 0.14 crates.
     { id = "RUSTSEC-2026-0387", reason = "no fixed crypto-bigint reachable through jacquard 0.12" },
+    # chrono is unmaintained (every version, no fixed release). That's no known vulnerability,
+    # but the workspace depends on it directly, so `unmaintained = "workspace"` fails on it.
+    # LOC-714 moves our crates to jiff; jacquard-common's chrono passes after that.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained, no vulnerability; LOC-714 moves off it" },
 ]
 
 [licenses]

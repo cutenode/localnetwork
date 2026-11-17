@@ -33,7 +33,7 @@ flowchart TD
     library --> cache["Sidecar: parsed libraries of the last 4 drives,<br/>read again when a database changes"]
 ```
 
-Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
+Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/loclib-anlz/src/lib.rs`](../../../../crates/loclib-anlz/src/lib.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
 
 ## My Settings
 
@@ -75,6 +75,7 @@ How `collection` reads `master.db` without touching it, and `collection export` 
 
 ```mermaid
 flowchart TD
+    find["LOCALLIBRARY_MASTERDB, else where rekordbox's<br/>settings say its library moved, else its own folder"] --> master
     master[("master.db and its WAL")] --> copy["Copied to a temporary folder,<br/>decrypted, WAL replayed"]
     copy --> read["Opened read only"]
     read --> reads["collection info, tracks, playlists"]

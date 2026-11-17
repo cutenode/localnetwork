@@ -12,8 +12,10 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
+use locallibrary::atmosphere::FLAGS_SCOPE;
+
 use crate::mock_pds::{MockPds, Writes, granted};
-use crate::support::account::{DID, PUBLISHING, sign_in};
+use crate::support::account::{DID, PUBLISHING, flag_catalog, flag_states, flags_shown, sign_in};
 use crate::support::{Env, path};
 
 /// Filing bug reports.
@@ -25,7 +27,7 @@ fn allows(scopes: &[&str]) -> String {
     let publishing = granted(&PUBLISHING);
     let publishes = scopes.iter().any(|s| s != "atproto" && publishing.contains(s));
     let reports = scopes.iter().any(|s| s == REPORTING);
-    if !scopes.iter().all(|s| publishing.contains(s) || s == REPORTING) {
+    if !scopes.iter().all(|s| publishing.contains(s) || s == REPORTING || s == FLAGS_SCOPE) {
         return format!("allowed: {}", scopes.join(" "));
     }
     match (publishes, reports) {
@@ -51,11 +53,12 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::from_template();
-    let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(4)) {
+    let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(5)) {
         0 => vec!["atproto"],
         1 => PUBLISHING.to_vec(),
         2 => vec!["atproto", REPORTING],
         3 => [&PUBLISHING[..], &[REPORTING]].concat(),
+        4 => vec!["atproto", FLAGS_SCOPE],
         _ => vec!["atproto", "transition:generic"],
     };
     let hours = tc.draw(gs::sampled_from(&[-48i64, 2, 24 * 30][..]));
@@ -957,4 +960,58 @@ fn a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
         }
         false => assert!(r.out.contains("posted your bug report") && r.out.contains(&link), "{said}"),
     }
+}
+
+/// Whoever's asking and whatever the website lists, `account flags` shows each flag in the
+/// repository's catalog once, in order, and nothing else; a flag is on when it's on for everyone,
+/// for a signed-in account's share of the rollout, or (with a session that may ask) targeted at
+/// it; the text says what the JSON does, without asking again; and only a session from before the
+/// scope is told to sign in again.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn the_flags_shown_are_the_catalogs_as_the_website_answers(tc: TestCase) {
+    let pds = MockPds::start();
+    pds.set_account(DID, "dj.example.com");
+    let fx = Env::ascii().with_directory(&pds.url);
+    locallibrary::Store::open_or_init(&fx.store).unwrap();
+    let mut known = flag_catalog();
+    known.push("notInTheCatalog".into());
+    let listed: Vec<(String, bool, u32)> = known
+        .into_iter()
+        .filter(|_| tc.draw(gs::booleans()))
+        .map(|key| (key, tc.draw(gs::weighted_booleans(0.3)), tc.draw(gs::integers::<u32>().max_value(100))))
+        .collect();
+    let targeted: Vec<&str> = listed.iter().map(|(key, ..)| key.as_str()).filter(|_| tc.draw(gs::booleans())).collect();
+    let flags: Vec<(&str, bool, u32)> = listed.iter().map(|(key, e, p)| (key.as_str(), *e, *p)).collect();
+    pds.set_flags(&flags, &targeted);
+
+    // 0: signed out, 1: signed in before the scope, 2: allowed to ask about targeting.
+    let who = tc.draw(gs::integers::<u8>().max_value(2));
+    match who {
+        0 => {}
+        1 => sign_in(&fx.store, &pds.url, &["atproto"], json!({})),
+        _ => sign_in(&fx.store, &pds.url, &["atproto", FLAGS_SCOPE], json!({})),
+    }
+    let on_for = |(key, everyone, percentage): &(String, bool, u32)| {
+        let in_rollout = who > 0 && locallibrary::flags::bucket(key, DID) < *percentage;
+        *everyone || in_rollout || (who == 2 && targeted.contains(&key.as_str()))
+    };
+    let on: Vec<&str> = listed.iter().filter(|flag| on_for(flag)).map(|(key, ..)| key.as_str()).collect();
+
+    let v = fx.json(&["account", "flags"]);
+    let said = format!("{listed:?} targeted {targeted:?}, who {who}: {v}");
+    assert_eq!(v["flags"], flag_states(&on), "{said}");
+    assert_eq!((&v["freshness"], &v["needs_sign_in"]), (&json!("fresh"), &json!(who == 1)), "{said}");
+    let asked = pds.calls("computer.localnetwork.flags.getFlags").len();
+    assert_eq!(asked, if who == 2 { 2 } else { 1 }, "{said}");
+
+    let at = locallibrary::local_time(
+        chrono::DateTime::parse_from_rfc3339(v["fetched_at"].as_str().unwrap()).unwrap(),
+        "%Y-%m-%d %H:%M",
+    );
+    let mut text = flags_shown(&on, &format!("fetched {at}"));
+    if who == 1 {
+        text.push_str("  flags for your account need a new sign-in: `locallibrary account login`\n");
+    }
+    assert_eq!(fx.ok(&["account", "flags"]), text, "{said}");
+    assert_eq!(pds.calls("computer.localnetwork.flags.getFlags").len(), asked, "a fresh answer isn't asked again");
 }

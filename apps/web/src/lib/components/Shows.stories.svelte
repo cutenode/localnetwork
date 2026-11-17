@@ -1,6 +1,8 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { EVENT_STATUS, showFormDefaults } from '#lib/shows.ts';
+	import { light } from '#lib/testing/light.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectView, ShowView } from '#lib/types.ts';
 	import FollowButton from './FollowButton.svelte';
 	import ShowForm from './ShowForm.svelte';
@@ -75,7 +77,9 @@
 
 <Story name="Near a city" args={{ shows, empty }} />
 
-<Story name="Near a city on a phone" args={{ shows, empty }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Near a city, light" args={{ shows, empty }} beforeEach={light} />
+
+<Story name="Near a city on a phone" args={{ shows, empty }} globals={phone} />
 
 <Story name="On a project's page, for its manager" asChild>
 	<ShowList shows={shows.slice(0, 2)} project={tide.uri} editable={(entry) => (entry.did === 'did:plc:neon' ? `/projects/neon-tide/shows/${entry.rkey}` : null)} edited={[shows[0].uri]} {empty} />
@@ -87,7 +91,7 @@
 
 <Story name="Nothing on, with a next step" asChild>
 	<ShowList shows={[]} empty={{ title: 'Nothing coming up from DJs you follow', body: 'Follow DJs on their pages and their shows land here.' }}>
-		<a class="btn-secondary btn-sm" href="/projects">Find DJs</a>
+		<a class="btn-secondary btn-sm" href="/djs">Find DJs</a>
 	</ShowList>
 </Story>
 
@@ -97,7 +101,7 @@
 
 <Story name="Offline, nowhere to retry" args={{ shows: null, empty }} />
 
-<Story name="Offline on a phone" args={{ shows: null, empty, retryHref: '/shows' }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Offline on a phone" args={{ shows: null, empty, retryHref: '/shows' }} globals={phone} />
 
 <Story name="Follow" asChild><FollowButton follow={{ followers: 12, following: false }} /></Story>
 
@@ -117,4 +121,4 @@
 
 <Story name="Announce form, editing" asChild><ShowForm values={{ ...values, cancelled: true }} geocoder={false} editing /></Story>
 
-<Story name="Announce form on a phone" asChild globals={{ viewport: { value: 'mobile2', isRotated: false } }}><ShowForm {values} geocoder={false} editing /></Story>
+<Story name="Announce form on a phone" asChild globals={phone}><ShowForm {values} geocoder={false} editing /></Story>

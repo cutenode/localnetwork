@@ -22,8 +22,8 @@
 				},
 				"type": {
 					"type": "string",
-					"enum": ["release", "experiment"],
-					"description": "release rolls a feature out, experiment tries one out. Both go once it is decided."
+					"const": "release",
+					"description": "release rolls a feature out, and goes once it has."
 				},
 				"removeBy": {
 					"type": "string",
@@ -55,8 +55,8 @@
 				},
 				"type": {
 					"type": "string",
-					"enum": ["ops", "permission"],
-					"description": "ops changes how the site runs, permission says who can use something. Both stay. A kill switch is ops and named for its paused state, like pauseRecordingStream."
+					"const": "ops",
+					"description": "ops changes how the site runs, and stays. A kill switch is ops and named for its paused state, like pauseRecordingStream."
 				}
 			},
 			"required": ["key", "description", "type"],

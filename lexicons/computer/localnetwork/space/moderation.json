@@ -6,7 +6,7 @@
 			"type": "space",
 			"description": "Project creation, claim, and change requests, plus staff decisions. Readable only by staff.",
 			"key": "literal:main",
-			"name": "Local Network requests",
+			"title": "Local Network requests",
 			"collections": ["computer.localnetwork.moderation.request", "computer.localnetwork.moderation.decision"]
 		}
 	}

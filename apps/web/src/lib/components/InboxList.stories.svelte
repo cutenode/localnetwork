@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { NotificationView } from '#lib/types.ts';
 	import InboxList from './InboxList.svelte';
 
@@ -22,8 +23,6 @@
 		item('c', { title: 'The promoter marked the booking confirmed', occurredAt: '2026-10-20T12:00:00Z', read: true }),
 		item('d', { topic: null, title: 'Something changed', body: undefined, occurredAt: '2026-10-02T09:30:00Z', read: true })
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Unread and read" args={{ items }} />

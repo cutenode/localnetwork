@@ -1,9 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { RequestView } from '#lib/types.ts';
 	import RequestTable from './RequestTable.svelte';
 
-	const { Story } = defineMeta({ title: 'Staff/Requests', component: RequestTable, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Staff/Review requests', component: RequestTable, tags: ['autodocs'] });
 
 	const request = (rkey: string, kind: RequestView['kind'], status: RequestView['status'], name: string, onBehalfOf?: string): RequestView => ({
 		uri: `at://did:plc:pat/computer.localnetwork.moderation.request/${rkey}`,
@@ -33,8 +34,8 @@
 	];
 </script>
 
-<Story name="Requests" args={{ requests }} />
+<Story name="Review requests" args={{ requests }} />
 
-<Story name="Requests on a phone" args={{ requests }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Review requests on a phone" args={{ requests }} globals={phone} />
 
 <Story name="Nothing here" args={{ requests: [] }} />

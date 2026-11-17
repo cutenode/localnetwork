@@ -102,6 +102,12 @@ pub fn lock(root: &Path) -> Result<AccountLock> {
     Ok(AccountLock { _lock: crate::fsutil::FileLock::wait(&root.join(LOCK_FILE))? })
 }
 
+/// [`lock`] without waiting: `None` while something else holds it.
+pub fn try_lock(root: &Path) -> Result<Option<AccountLock>> {
+    std::fs::create_dir_all(root).at(root)?;
+    Ok(crate::fsutil::FileLock::try_take(&root.join(LOCK_FILE))?.map(|_lock| AccountLock { _lock }))
+}
+
 /// The keychain item for `did`'s secrets: one per store folder, so two stores signed in to the
 /// same account don't share (and spend) one refresh token.
 fn keychain_account(root: &Path, did: &str) -> Result<String> {
