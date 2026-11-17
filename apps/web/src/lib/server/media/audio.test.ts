@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as fc from 'fast-check';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { IdentityResolver } from '../atproto/identity';
 import { silentLogger } from '../logger';
+import { rebindToLoopback } from '../testing/rebind';
 import { type AudioRequest, parseRange, recordingAudio } from './audio';
 
 const DJ = 'did:plc:dj';
@@ -281,20 +282,42 @@ describe('recordingAudio', () => {
 		expect(unreachable.status).toBe(502);
 	});
 
-	it('refuses a recording whose DID points at a private address or plain HTTP, without asking it', async () => {
-		for (const endpoint of [
-			'https://127.0.0.1',
-			'https://10.0.0.1',
-			'https://169.254.169.254',
-			'https://[::1]',
-			'http://pds.example'
-		]) {
-			const upstream = pds();
-			const response = await ask(null, { endpoint, fetch: upstream.fetch, allowPrivateNetwork: false });
+	it('refuses a recording whose DID points at plain HTTP, without asking it', async () => {
+		const upstream = pds();
+
+		const response = await ask(null, {
+			endpoint: 'http://pds.example',
+			fetch: upstream.fetch,
+			allowPrivateNetwork: false
+		});
+
+		expect(response.status).toBe(502);
+		expect(upstream.requests).toHaveLength(0);
+	});
+
+	// The guard vets addresses in the dispatcher it hands fetch, which a stand-in fetch never uses, so these go through
+	// the real one. It refuses before connecting.
+	it('refuses a recording whose DID points at a private address', async () => {
+		for (const endpoint of ['https://127.0.0.1', 'https://10.0.0.1', 'https://169.254.169.254', 'https://[::1]']) {
+			const response = await ask(null, { endpoint, fetch: globalThis.fetch, allowPrivateNetwork: false });
 
 			expect(response.status).toBe(502);
-			expect(upstream.requests).toHaveLength(0);
 		}
+	});
+
+	it('never connects to a PDS whose host name resolves to a private address', async () => {
+		const host = 'pds.rebind.localnetwork.computer';
+		const loopback = await rebindToLoopback([host]);
+		onTestFinished(() => loopback.close());
+
+		const response = await ask(null, {
+			endpoint: `https://${host}:${loopback.port}`,
+			fetch: globalThis.fetch,
+			allowPrivateNetwork: false
+		});
+
+		expect(response.status).toBe(502);
+		expect(loopback.connections()).toBe(0);
 	});
 
 	it('still serves ranges from a public PDS', async () => {

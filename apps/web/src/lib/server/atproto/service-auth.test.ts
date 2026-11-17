@@ -7,8 +7,8 @@ import { serviceJwt } from '../testing/service-jwt';
 import { ServiceAuthError, verifyServiceJwt } from './service-auth';
 
 describe('verifyServiceJwt', () => {
-	const audience = 'did:web:localnetwork.computer#localnetwork_syncer';
-	const lxm = 'com.atproto.space.notifyWrite';
+	const audience = 'did:web:localnetwork.computer';
+	const lxm = 'computer.localnetwork.flags.getFlags';
 	const now = Math.floor(Date.now() / 1000);
 
 	it('accepts a valid token and strips the issuer fragment', async () => {
@@ -152,7 +152,7 @@ describe('verifyServiceJwt', () => {
 			typ: fc.constantFrom('at+jwt', 'refresh+jwt', 'dpop+jwt', 'jwt', MISSING),
 			iss: fc.oneof(fc.constantFrom('did:plc:a#atproto_pds', 'not-a-did', ''), fc.string()),
 			aud: fc.oneof(fc.constantFrom('did:web:other', MISSING), fc.jsonValue()),
-			lxm: fc.oneof(fc.constantFrom('com.atproto.space.notifySpaceDeleted', MISSING), fc.jsonValue()),
+			lxm: fc.oneof(fc.constantFrom('com.atproto.space.notifyRepoUpdate', MISSING), fc.jsonValue()),
 			exp: fc.oneof(
 				fc.integer({ min: NOW - 3600, max: NOW + 3600 }),
 				fc.constantFrom(MISSING, null, 'tomorrow', `${NOW + 60}`),

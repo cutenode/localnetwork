@@ -203,6 +203,8 @@ export interface SpaceWatchTable {
 	skey: string;
 	spaceRev: string | null;
 	registrationExpiresAt: string | null;
+	/** Names this app's registration for the space's updates, and proves a host's notice comes from the host. */
+	notifyToken: string;
 	lastSyncedAt: string | null;
 	lastError: string | null;
 	createdAt: string;
