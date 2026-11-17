@@ -40,7 +40,7 @@ const PNG = Uint8Array.from(
 	(char) => char.charCodeAt(0)
 );
 
-const listReposOutput = z.object({ repos: z.array(z.object({ did: z.string() })) });
+const listWritersOutput = z.object({ repos: z.array(z.object({ repo: z.string() })) });
 
 const listRecordsOutput = z.object({ records: z.array(z.object({ value: z.record(z.string(), z.unknown()) })) });
 
@@ -136,11 +136,11 @@ describe('shared press kits on a real atproto spaces network', () => {
 		const read = <T>(audience: string, nsid: string, params: Record<string, string>, schema: z.ZodType<T>) =>
 			credentials.query({ space, service: net.pds.url, audience, nsid, params: { space, ...params }, schema });
 
-		const { repos } = await read(net.rootDid, 'com.atproto.space.listRepos', {}, listReposOutput);
+		const { repos } = await read(net.rootDid, 'com.atproto.space.listWriters', {}, listWritersOutput);
 
 		const pages = await Promise.all(
-			repos.map(({ did }) =>
-				read(did, 'com.atproto.space.listRecords', { repo: did, ...(collection && { collection }) }, listRecordsOutput)
+			repos.map(({ repo }) =>
+				read(repo, 'com.atproto.space.listRecords', { repo, ...(collection && { collection }) }, listRecordsOutput)
 			)
 		);
 

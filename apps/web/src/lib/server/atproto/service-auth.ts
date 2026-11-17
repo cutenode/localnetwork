@@ -13,7 +13,7 @@ export type ServiceJwtPayload = Omit<VerifiedJwt, 'iss'> & { iss: string };
 
 /**
  * Verifies an inbound atproto inter-service JWT (the `Authorization: Bearer`
- * a space host sends with `notifyWrite`) with the reference implementation
+ * a caller's PDS signs for `getFlags` or `requestIndex`) with the reference implementation
  * from @atproto/xrpc-server: audience, method binding (`lxm`, which has to be
  * there), expiry, and the signature against the issuer's atproto key,
  * refreshing the key once in case it rotated. The issuer comes back without
