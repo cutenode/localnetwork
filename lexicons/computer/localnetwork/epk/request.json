@@ -11,11 +11,6 @@
 				"required": ["epk", "createdAt"],
 				"properties": {
 					"epk": { "type": "string", "format": "at-uri", "description": "The computer.localnetwork.epk record." },
-					"role": {
-						"type": "string",
-						"maxLength": 32,
-						"knownValues": ["promoter", "venue", "agent", "press", "artist", "other"]
-					},
 					"message": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
 					"onBehalfOf": {
 						"type": "string",

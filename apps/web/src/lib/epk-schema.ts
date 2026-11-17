@@ -70,7 +70,6 @@ export const epkDraftSchema = z.object({
 
 export const epkRequestSchema = z.object({
 	epk: z.string(),
-	role: z.string().optional(),
 	message: z.string().optional(),
 	onBehalfOf: z.string().optional(),
 	createdAt: z.string()

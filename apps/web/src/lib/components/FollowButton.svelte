@@ -6,9 +6,9 @@
 	/**
 	 * Follow or unfollow a project, with its follower count. `follow` is undefined while it loads and null when it
 	 * can't; signed out (`loginHref`), the button links to sign-in. It keeps one width through every state, so the
-	 * buttons beside it stay put.
+	 * buttons beside it stay put. On a page other than the project's, `page` is the project's, whose actions it posts to.
 	 */
-	let { follow, loginHref }: { follow: FollowState | null | undefined; loginHref?: string } = $props();
+	let { follow, loginHref, page = '' }: { follow: FollowState | null | undefined; loginHref?: string; page?: string } = $props();
 
 	let sending = $state(false);
 
@@ -27,7 +27,7 @@
 {:else}
 	<form
 		method="POST"
-		action={following ? '?/unfollow' : '?/follow'}
+		action={`${page}?/${following ? 'unfollow' : 'follow'}`}
 		use:enhance={() => {
 			sending = true;
 

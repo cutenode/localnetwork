@@ -20,14 +20,14 @@
 					"via": {
 						"type": "string",
 						"maxLength": 32,
-						"knownValues": ["created", "invite", "link", "request", "staff"],
-						"description": "created: they started it. invite: they accepted an invite. link: they joined with an invite link. request: their request to join was approved. staff: staff added them."
+						"knownValues": ["created", "invite", "link", "request", "staff", "claim"],
+						"description": "created: they started it. invite: they accepted an invite. link: they joined with an invite link. request: their request to join was approved. staff: staff added them. claim: staff confirmed their claim to it."
 					},
 					"addedBy": { "type": "string", "format": "did" },
 					"source": {
 						"type": "string",
 						"format": "at-uri",
-						"description": "The invite, invite link or request they came in through."
+						"description": "The invite, invite link, request or claim they came in through."
 					},
 					"createdAt": { "type": "string", "format": "datetime" },
 					"updatedAt": { "type": "string", "format": "datetime" }

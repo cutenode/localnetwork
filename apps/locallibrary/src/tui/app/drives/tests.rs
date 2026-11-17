@@ -1,0 +1,250 @@
+use std::path::{Path, PathBuf};
+
+use crate::tui::app::background::Msg;
+use crate::tui::app::testing::*;
+use crate::tui::edits::COLLECTION_READ_ONLY;
+
+use super::*;
+
+/// A plain (decrypted) `master.db` in `dir`: two tracks, one whose audio file is there and one
+/// whose isn't, and a folder "Shows" with a playlist "Friday" holding both.
+fn master_db(dir: &Path) -> PathBuf {
+    let here = dir.join("Music/Here.mp3");
+    std::fs::create_dir_all(here.parent().unwrap()).unwrap();
+    std::fs::write(&here, b"mp3").unwrap();
+    let db = dir.join("rekordbox/master.db");
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TABLE djmdProperty (DBID TEXT, DBVersion TEXT);
+             INSERT INTO djmdProperty VALUES ('1234567890', '7000');
+             CREATE TABLE djmdArtist (ID TEXT PRIMARY KEY, Name TEXT);
+             INSERT INTO djmdArtist VALUES ('1', 'Floorplan');
+             CREATE TABLE djmdContent (ID TEXT PRIMARY KEY, FolderPath TEXT, FileNameL TEXT, Title TEXT,
+                 ArtistID TEXT, BPM INTEGER, Length INTEGER, FileSize INTEGER, AnalysisDataPath TEXT,
+                 rb_local_deleted INTEGER DEFAULT 0);
+             INSERT INTO djmdContent (ID, FolderPath, FileNameL, Title, ArtistID, BPM, Length, FileSize, AnalysisDataPath)
+             VALUES
+                 ('1', '{}', 'Here.mp3', 'Here', '1', 12400, 300, 3, '/PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT'),
+                 ('2', '{}', 'Gone.mp3', 'Gone', '1', 12800, 200, 3, '');
+             CREATE TABLE djmdPlaylist (ID TEXT PRIMARY KEY, Seq INTEGER, Name TEXT, Attribute INTEGER, ParentID TEXT);
+             INSERT INTO djmdPlaylist VALUES ('10', 1, 'Shows', 1, 'root'), ('11', 1, 'Friday', 0, '10');
+             CREATE TABLE djmdSongPlaylist (ID TEXT PRIMARY KEY, PlaylistID TEXT, ContentID TEXT, TrackNo INTEGER);
+             INSERT INTO djmdSongPlaylist VALUES ('a', '11', '1', 1), ('b', '11', '2', 2);",
+            here.display(),
+            dir.join("Music/Gone.mp3").display(),
+        ))
+        .unwrap();
+    db
+}
+
+fn showing_collection(app: &App) -> bool {
+    app.loading.is_none() && app.loaded.as_ref().is_some_and(|l| l.is_collection())
+}
+
+#[test]
+fn with_no_drive_the_collection_opens_read_only_with_its_files_where_they_are() {
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    // The first read of the drives answers with none: the collection opens.
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+
+    let l = app.loaded.as_ref().unwrap();
+    assert_eq!((l.root(), l.collection.as_deref()), (collection_root().as_path(), Some(db.as_path())));
+    assert_eq!(l.library.tracks.len(), 2);
+    let anlz = l.library.tracks.iter().find(|t| t.title == "Here").unwrap().analyze_path.clone();
+    assert_eq!(PathBuf::from(anlz), dir.path().join("rekordbox/share/PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT"));
+    assert!(l.tree.iter().any(|n| n.name == "Shows"), "its folders and playlists are the tree");
+    assert_eq!(app.drive_label(l.root()), COLLECTION_NAME);
+    assert_eq!((app.source_rows(), app.source_row()), (1, Some(0)));
+
+    // Its audio is found where the collection says it is.
+    wait(&mut app, |a| a.loaded.as_ref().is_some_and(|l| l.problems.missing.is_some()));
+    let l = app.loaded.as_ref().unwrap();
+    let missing: Vec<(&str, bool)> =
+        (l.library.tracks.iter().map(|t| t.title.as_str())).zip(l.problems.missing.clone().unwrap()).collect();
+    assert!(missing.contains(&("Here", false)) && missing.contains(&("Gone", true)), "{missing:?}");
+
+    // Nothing is planned on it, and nothing on disk changes.
+    let before = std::fs::read(&db).unwrap();
+    app.plan_edits(collection_root(), Vec::new());
+    assert!(app.job.is_none());
+    assert_eq!(last_message(&app), COLLECTION_READ_ONLY);
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+
+    // Polling for the open drive leaves it alone: it can't be unplugged.
+    app.last_volume_poll = Instant::now() - Duration::from_secs(5);
+    app.tick();
+    wait(&mut app, |a| !a.volumes_in_flight);
+    assert!(!app.loaded.as_ref().unwrap().stale);
+}
+
+#[test]
+fn the_sources_go_from_the_collection_to_a_drive_and_back() {
+    let (mut app, dir) = blank(View::Library);
+    app.collection_db = Some(master_db(dir.path()));
+    let (_drive_dir, drive) = demo_drive();
+    let info = drive_info(&drive);
+    let drive = info.root.clone();
+    app.handle_msg(Msg::Drives(vec![info]));
+    // A drive with an export is there: it opens first, as before.
+    wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
+    assert_eq!((app.source_rows(), app.source_row()), (2, Some(1)));
+
+    app.focus = Focus::Drives;
+    app.move_selection(-1);
+    assert_eq!(app.source_row(), Some(0), "up from the drive is the collection");
+    app.activate();
+    wait(&mut app, showing_collection);
+    assert_eq!(app.focus, Focus::Playlists);
+
+    // `r` reads the collection again, not a drive at `/`.
+    app.refresh();
+    wait(&mut app, showing_collection);
+
+    app.focus = Focus::Drives;
+    app.move_selection(1);
+    assert_eq!((app.collection_row, app.drive_state.selected()), (false, Some(0)));
+    app.activate();
+    wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
+    assert!(!app.loaded.as_ref().unwrap().is_collection());
+}
+
+#[test]
+fn without_rekordbox_the_pane_is_the_drives_as_before() {
+    let (mut app, _dir) = blank(View::Library);
+    app.handle_msg(Msg::Drives(Vec::new()));
+    assert!(app.loaded.is_none() && app.loading.is_none());
+    assert_eq!((app.source_rows(), app.source_row()), (0, None));
+    app.focus = Focus::Drives;
+    app.move_selection(1);
+    assert!(!app.collection_row);
+}
+
+/// The drive at `drive`, as a read of the drives answers it.
+fn drive_info(drive: &Path) -> locallibrary::DeviceInfo {
+    locallibrary::api::drive_info(&locallibrary::api::DriveRef { drive: drive.display().to_string() }).unwrap()
+}
+
+/// The collection's row in the Library view's sources pane, as drawn on a 120 by 30 screen.
+fn collection_row(app: &mut App) -> String {
+    let s = crate::tui::ui::screen(app, 120, 30);
+    let r = app.areas.drives;
+    let mut pane = (s.lines().skip(r.y as usize).take(r.height as usize))
+        .map(|l| l.chars().skip(r.x as usize).take(r.width as usize).collect::<String>());
+    pane.find(|l| l.contains(COLLECTION_NAME)).unwrap_or_else(|| panic!("no collection in {r:?}:\n{s}"))
+}
+
+#[test]
+fn the_sources_pane_draws_the_collection_above_the_drives_and_a_double_click_opens_it() {
+    let (mut app, dir) = blank(View::Library);
+    app.collection_db = Some(master_db(dir.path()));
+    let (_drive_dir, drive) = demo_drive();
+    let info = drive_info(&drive);
+    let drive = info.root.clone();
+    app.handle_msg(Msg::Drives(vec![info]));
+    wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
+
+    // Unread, it has no track count yet, and the pane holds sources rather than only drives.
+    app.focus = Focus::Drives;
+    let s = crate::tui::ui::screen(&mut app, 120, 30);
+    assert!(s.contains("Sources") && s.contains("2/2"), "the footer counts the sources, the drive second:\n{s}");
+    let row = collection_row(&mut app);
+    assert!(row.trim_end_matches(['│', ' ']).ends_with(COLLECTION_NAME), "{row:?}");
+
+    point(&mut app, LEFT, COLLECTION_NAME);
+    assert_eq!(app.source_row(), Some(0), "a click selects it");
+    assert!(crate::tui::ui::screen(&mut app, 120, 30).contains("1/2"));
+    quick_again(&mut app);
+    point(&mut app, LEFT, COLLECTION_NAME);
+    wait(&mut app, showing_collection);
+    assert_eq!(app.focus, Focus::Playlists, "opening it goes on to its playlists");
+
+    // Open, it shows its track count.
+    app.focus = Focus::Drives;
+    let row = collection_row(&mut app);
+    assert!(row.trim_end_matches(['│', ' ']).ends_with(" 2"), "{row:?}");
+
+    // My Tags are an edit too: none on the collection.
+    app.focus = Focus::Playlists;
+    press(&mut app, "T");
+    assert_eq!(last_message(&app), COLLECTION_READ_ONLY);
+    assert!(app.modal.is_none() && app.job.is_none());
+}
+
+#[test]
+fn the_collection_open_at_the_last_quit_opens_first_next_time() {
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+    let saved = app.saved_state();
+
+    // The next run: a drive with an export is there, and still the collection opens.
+    let mut next = App::blank(app.store_root.clone(), None);
+    next.view = View::Library;
+    next.apply_saved(&saved, true);
+    next.collection_db = Some(db);
+    let (_drive_dir, drive) = demo_drive();
+    next.handle_msg(Msg::Drives(vec![drive_info(&drive)]));
+    wait(&mut next, showing_collection);
+    assert_eq!(next.source_row(), Some(0));
+}
+
+#[test]
+fn a_collection_that_cant_be_read_says_why_and_opens_nothing() {
+    let (mut app, dir) = blank(View::Library);
+    let db = dir.path().join("master.db");
+    rusqlite::Connection::open(&db).unwrap().execute_batch("CREATE TABLE notes (body TEXT);").unwrap();
+    app.collection_db = Some(db);
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, |a| a.loading.is_none());
+    assert!(app.loaded.is_none());
+    assert!(last_message(&app).contains("not a rekordbox collection database"), "{}", last_message(&app));
+
+    // With no collection on this computer, asking for it says so.
+    app.collection_db = None;
+    app.load_collection();
+    assert!(app.loading.is_none());
+    assert_eq!(last_message(&app), "rekordbox's collection isn't on this computer");
+}
+
+/// Moving through the sources stays on a row there is, one at a time, the collection first, and
+/// selecting a row past the last changes nothing.
+#[hegel::test(test_cases = 100)]
+fn moving_through_the_sources_stays_on_them(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, dir) = blank(View::Library);
+    app.focus = Focus::Drives;
+    let (_drive_dir, drive) = demo_drive();
+    let info = drive_info(&drive);
+    let drives = tc.draw(gs::integers::<usize>().max_value(4));
+    let root = |i: usize| dir.path().join(i.to_string());
+    app.drives = (0..drives).map(|i| locallibrary::DeviceInfo { root: root(i), ..info.clone() }).collect();
+    let collection = tc.draw(gs::booleans());
+    app.collection_db = collection.then(|| dir.path().join("master.db"));
+    let rows = usize::from(collection) + drives;
+    assert_eq!(app.source_rows(), rows);
+    let mut at = None;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        if tc.draw(gs::booleans()) {
+            let delta = tc.draw(gs::sampled_from(&[-3isize, -1, 1, 2][..]));
+            app.move_selection(delta);
+            if rows > 0 {
+                at = Some((at.unwrap_or(0) as isize + delta).clamp(0, rows as isize - 1) as usize);
+            }
+        } else {
+            let row = tc.draw(gs::integers::<usize>().max_value(rows + 1));
+            app.select_source_row(row);
+            if row < rows {
+                at = Some(row);
+            }
+        }
+        assert_eq!(app.source_row(), at);
+        assert_eq!(app.collection_row, collection && at == Some(0));
+    }
+}

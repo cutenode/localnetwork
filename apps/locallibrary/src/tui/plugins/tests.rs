@@ -46,7 +46,7 @@ fn plugins_commands_are_in_the_palette() {
     press(&mut app, ":");
     let (item, why) = entry(&app, "answer the params…");
     assert_eq!((item.detail.as_str(), why), ("Echo", Some("open a drive first")));
-    assert_eq!(entry(&app, "fetch cover art…").0.detail, "Cover art");
+    assert_eq!(entry(&app, "fetch cover art…").0.detail, "Cover art, Discogs");
     let p = picker(&app);
     let echo = p.items.iter().position(|i| i.label == "answer the params…").unwrap();
     assert!(p.items[..echo].iter().any(|i| i.label == "quit"), "the player's own first");

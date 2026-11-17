@@ -1,4 +1,5 @@
 import type { Selectable } from 'kysely';
+import type { BookingRole } from '#lib/bookings.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
@@ -37,6 +38,7 @@ export interface Database {
 	spacePerson: SpacePersonTable;
 	performer: PerformerTable;
 	venue: VenueTable;
+	venueBlock: VenueBlockTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -99,7 +101,7 @@ export interface RequestTable {
 	rkey: string;
 	kind: RequestKind;
 	projectUri: string | null;
-	/** What a list request asks staff to list (a profile's URI); null for other kinds. */
+	/** What a list request asks staff to list (a profile's URI), or the venue's space a claim is for; null otherwise. */
 	subjectUri: string | null;
 	status: RequestStatus;
 	record: string;
@@ -261,7 +263,7 @@ export interface BookingThreadTable {
 export interface BookingParticipantTable {
 	spaceUri: string;
 	did: string;
-	role: 'promoter' | 'manager';
+	role: BookingRole;
 }
 
 export interface BookingEventTable {
@@ -279,14 +281,13 @@ export interface EpkRequestTable {
 	spaceUri: string;
 	epkUri: string;
 	requesterDid: string;
-	role: string | null;
 	message: string | null;
 	/** What the press kit's rules said when the request came in: auto, review or none. */
 	rule: string;
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
-	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without its message. */
 	deletedAt: string | null;
 }
 
@@ -379,6 +380,16 @@ export interface VenueTable {
 	record: string;
 	cid: string;
 	updatedAt: string;
+}
+
+/** Someone a venue blocked, from the root's block record in its public repo. */
+export interface VenueBlockTable {
+	uri: string;
+	/** The venue's space. */
+	venue: string;
+	/** The blocked profile's record, or the act's or party's listing URI. */
+	subject: string;
+	createdAt: string;
 }
 
 export interface SpaceInviteTable {

@@ -143,7 +143,7 @@ Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/service
 
 ## People in shared spaces
 
-How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people. No page starts a space yet either: `SharedSpaces.create` and `createAct`, which add its first person, have no caller.
+How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people, and an approved venue claim adds the venue's owner. No page starts a space yet either: `SharedSpaces.create` and `createAct`, which add its first person, have no caller.
 
 ```mermaid
 flowchart TD

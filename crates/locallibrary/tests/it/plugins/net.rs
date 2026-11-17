@@ -74,6 +74,24 @@ fn a_plugin_fetches_from_a_server_it_may_talk_to_as_locallibrary() {
     assert_eq!(server.got()[2].headers["user-agent"], format!("locallibrary/{}", env!("CARGO_PKG_VERSION")));
 }
 
+/// A host whose plugins are given nothing (as `plugin check` runs one) refuses every callback,
+/// whatever the plugin's capabilities: `net/fetch` (the server never hears of it), a read and
+/// `accounts/ensure`.
+#[test]
+fn a_plugin_given_nothing_calls_back_for_nothing() {
+    let server = Server::new(|_, _| ok("here"));
+    let f = fixture(&talking(100.0), &[], Options { isolated: true, ..Options::default() });
+    let fetched = f.fetch(json!({ "url": format!("{}/hello", server.url) }));
+    let read = f.echo_params(json!({ "call": "drive.library", "params": { "drive": "USB" } })).unwrap();
+    let ensure = json!({ "call": "accounts/ensure", "params": { "type": "google", "scopes": [] } });
+    let ensured = f.echo_params(ensure).unwrap();
+    for (method, refused) in [("net/fetch", fetched), ("drive.library", read), ("accounts/ensure", ensured)] {
+        let why = format!("the echo plugin is given nothing to call back for here, {method} included");
+        assert_eq!((&refused["error"]["data"]["kind"], &refused["error"]["message"]), (&json!("denied"), &json!(why)));
+    }
+    assert!(server.got().is_empty(), "{:?}", server.got());
+}
+
 /// Only servers the plugin's `net:` capabilities grant, at public https addresses (or this
 /// computer, in tests), however a redirect leads, five at most.
 #[test]

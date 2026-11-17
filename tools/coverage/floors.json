@@ -96,6 +96,11 @@
 			"functions": 99.8,
 			"regions": 99.8
 		},
+		"plugins/discogs": {
+			"lines": 99.4,
+			"functions": 97.9,
+			"regions": 98.3
+		},
 		"plugins/interop": {
 			"lines": 99.1,
 			"functions": 96.7,

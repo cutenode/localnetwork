@@ -4,6 +4,9 @@
  */
 export type VenueOption = { space: string; skey: string; name: string; locality?: string; country: string };
 
+/** A venue someone is in, and their role there (owner or booker). */
+export type VenueRole = { name: string; locality: string | null; role: string };
+
 /** The body `/api/venues` answers a search with. */
 export type VenuesResponse = { venues: VenueOption[] };
 

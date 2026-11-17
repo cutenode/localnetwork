@@ -3,22 +3,17 @@ import { afterEach, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { draftKey } from '#lib/form-draft.svelte.ts';
 import { inquiryDefaults, inquiryValues } from '#lib/shows.ts';
-import type { ProjectView, Viewer } from '#lib/types.ts';
+import type { Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
 
-const project: ProjectView = {
+/** The act Neon Tide, as the form shows who the inquiry goes to. */
+const act = {
 	uri: 'at://did:plc:root/computer.localnetwork.project/2',
-	rkey: '2',
-	cid: 'c',
-	slug: 'neon-tide',
-	profile: { name: 'Neon Tide', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } },
-	managers: ['did:plc:neon'],
-	status: 'active',
-	revision: 1,
-	createdBy: 'did:plc:a',
-	createdAt: '2026-01-01T00:00:00Z',
-	updatedAt: '2026-01-01T00:00:00Z',
-	avatarUrl: null
+	name: 'Neon Tide',
+	avatarUrl: null,
+	place: 'Berlin, DE',
+	href: '/projects/neon-tide',
+	dj: false
 };
 
 const viewer: Viewer = {
@@ -39,7 +34,7 @@ const fromShow = {
 	access: Promise.resolve([]),
 	sections: Promise.resolve(null),
 	projects: Promise.resolve([]),
-	project,
+	to: act,
 	values: inquiryValues({ title: 'Rooftop Rave', date: '2026-12-12T23:30:00.000Z', venue: 'The Lot', capacity: 300 }),
 	show: { rkey: '3kshow', title: 'Rooftop Rave' },
 	asks: [],
@@ -48,7 +43,7 @@ const fromShow = {
 
 const posted = () => new FormData(page.getByRole('button', { name: 'Send inquiry' }).element().closest('form')!);
 
-const KEY = draftKey(viewer, `inquiry:${project.uri}:3kshow`)!;
+const KEY = draftKey(viewer, `inquiry:${act.uri}:3kshow`)!;
 
 afterEach(() => localStorage.removeItem(KEY));
 
@@ -115,4 +110,22 @@ it('keeps the venue city after a failed send, with nothing beside the budget for
 
 	await expect.element(page.getByLabelText('City')).toHaveValue('Leipzig');
 	await expect.element(page.getByLabelText('Budget')).not.toHaveAttribute('aria-describedby');
+});
+
+it('tells a promoter writing to a listed DJ that the thread is with them, and goes back to their profile', async () => {
+	const dj = {
+		uri: 'at://did:plc:neon/computer.localnetwork.profile/self',
+		name: 'Neon',
+		avatarUrl: null,
+		place: null,
+		href: '/@neon.test',
+		dj: true
+	};
+
+	await render(Page, { params: {}, data: { ...fromShow, to: dj, values: inquiryDefaults, show: null }, form: null });
+
+	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon' })).toBeInTheDocument();
+	await expect.element(page.getByText('This opens a private thread with Neon.', { exact: false })).toBeInTheDocument();
+	await expect.element(page.getByText("the project's managers", { exact: false })).not.toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/@neon.test');
 });
