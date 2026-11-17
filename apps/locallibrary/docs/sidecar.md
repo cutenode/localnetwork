@@ -269,7 +269,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),
-  `account.status`, `account.check`, `account.logout`, `account.client_metadata`, `collection.info`,
+  `account.status`, `account.check`, `account.flags` (optional `refresh`: each flag on or off, how
+  fresh the website's answer is, and `needs_sign_in`), `account.logout`,
+  `account.client_metadata`, `collection.info`,
   `collection.library` and `collection.diff` (rekordbox's `master.db`: optional `db` and `key`, and
   `drive` for the diff). Signing in takes two calls: `account.login.begin` (`handle`, optional
   `client_id`, `dev_client`, `session_file`, `scopes`, and `publish: true` to allow publishing)
@@ -404,7 +406,11 @@ when that can help) and `accounts.access.set_default`.
 
 ## Plugins
 
-What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
+What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. A plugin you're writing
+runs in the sidecar as in any command, given as it starts (`locallibrary --dev-plugin
+MANIFEST:PROGRAM rpc`, or `LOCALLIBRARY_DEV_PLUGINS`, see [Writing one](plugins.md#writing-one)):
+it's listed after the plugins locallibrary ships, the sidecar warns on stderr that it's loaded, and
+one that can't run keeps the sidecar from starting, saying why. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, account_types,
 commands, destinations, events, operations, panels, analyzers, checks, exporters, importers,
 providers, services, sources, themes, settings, running, left_out}`, `means` saying in plain words

@@ -1,4 +1,6 @@
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { writtenUrl } from '#lib/testing/links.ts';
 import { isWebUrl, webHref } from './web-url';
 
 describe('webHref', () => {
@@ -20,5 +22,19 @@ describe('webHref', () => {
 		undefined
 	])('drops %s', (url) => {
 		expect(webHref(url)).toBeUndefined();
+	});
+});
+
+describe('webHref on any address', () => {
+	it('gives back only http(s) addresses, as written', () => {
+		fc.assert(
+			fc.property(fc.option(writtenUrl), (url) => {
+				const href = webHref(url);
+
+				if (href === undefined) return;
+				expect(href).toBe(url);
+				expect(['http:', 'https:']).toContain(new URL(href).protocol);
+			})
+		);
 	});
 });

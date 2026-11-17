@@ -25,7 +25,7 @@ async function planned() {
 	});
 }
 
-it('loads the saved projects and planned shows, with the projects they name', async () => {
+it('loads the saved performers and planned shows, with the performers they name', async () => {
 	const rkey = await planned();
 
 	const data = await callRoute(load, { app: f.t, viewer: await f.t.viewer(PROMOTER), url: '/dashboard/planner' });
@@ -34,7 +34,7 @@ it('loads the saved projects and planned shows, with the projects they name', as
 		available: true,
 		saves: [{ project: f.project.uri, note: 'Ask about NYE' }],
 		shows: [{ rkey, details: { title: 'Rooftop Rave' } }],
-		projects: { [f.project.uri]: { slug: f.project.slug } }
+		performers: { [f.project.uri]: { href: `/projects/${f.project.slug}`, inquiry: `project=${f.project.slug}` } }
 	});
 });
 

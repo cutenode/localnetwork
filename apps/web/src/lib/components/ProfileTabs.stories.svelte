@@ -1,26 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
-	import { NEON_CREW, neonPlaying, neonProfile } from '#lib/testing/profiles.ts';
-	import type { ProfileView } from '#lib/types.ts';
+	import { dj, neon, playsIn, profile, waiting } from '#lib/profile-tabs/stories/fixtures.ts';
+	import { light } from '#lib/testing/light.ts';
 	import ProfileTabs from './ProfileTabs.svelte';
-
-	const profile = (performer: NonNullable<ProfileView['record']['performer']>, bio?: string) =>
-		neonProfile({ basics: { name: 'Neon', bio }, performer });
-
-	const neon = profile(
-		{
-			mixes: [{ title: 'Warehouse Hours', url: 'https://soundcloud.com/neon/warehouse' }],
-			highlights: ['Four-year residency at Halle Nord']
-		},
-		'Plays long techno sets in Berlin, and runs a monthly warehouse night with friends.'
-	);
-
-	const dj = neonPlaying({ stats: true });
-
-	const playsIn = [NEON_CREW];
-
-	const waiting = new Promise<never>(() => {});
 
 	/** A person's profile sections as tabs, with Neon from the seed data; the first two at 1280px, the rest at 390px too. */
 	const { Story } = defineMeta({
@@ -65,6 +48,8 @@
 		await expect(within(canvasElement).getByRole('tabpanel', { name: 'Sets' })).toBeInTheDocument();
 	}}
 />
+
+<Story name="Linked to Sets, light" args={{ requested: 'sets' }} globals={desktop} beforeEach={light} />
 
 <Story name="Linked to Sets on a phone" args={{ requested: 'sets' }} globals={phone} />
 

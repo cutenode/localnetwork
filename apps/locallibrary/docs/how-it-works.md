@@ -24,6 +24,9 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
                             exportLibrary.db and master.db are decrypted and written
+crates/loclib-anlz/         rekordbox's analysis files (ANLZ0000.DAT, .EXT, .2EX): path rewriting, beat grid,
+                            cues (read and write), waveforms, phrases, decoded into loclib-model's analysis
+                            types; the writers keep every section they don't change byte for byte
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
@@ -52,6 +55,8 @@ plugins/accounts/           the account plugins: a manifest each and no crate, w
                             and never starts
   archive-account/          the `archive` account type, signed in to with the account's S3 keys; its scope
                             `upload`
+  discogs-account/          the `discogs` account type, signed in to with a personal access token; its scope
+                            `database`
   google-account/           the `google` account type, signed in to through Local Network's token exchange;
                             its scope `youtube-upload`
   mixcloud-account/         the `mixcloud` account type, through the token exchange; its scope `upload`
@@ -65,6 +70,9 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
                             removed by `clean` as one `delete_unbacked` edit
+plugins/discogs/            the discogs plugin: front covers and track details for tracks lacking them (or all,
+                            asked to), each album searched on Discogs with the user's Discogs account,
+                            offered as candidates locallibrary plans the edits of
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
@@ -132,7 +140,8 @@ crates/locallibrary/src/    the library, built on the crates above
                files) are cached by their contents
   fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, analyzer
                and the analyzer's version
-  plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
+  plugin/      the plugin host: starting the plugins (those locallibrary ships, and one a developer
+               gives for a run, held to a third party's rules) and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
   sound/       tempo, key and loudness from the analyzers chosen for those roles: doctor's analysis
@@ -155,8 +164,7 @@ crates/locallibrary/src/    the library, built on the crates above
   settings.rs  My Settings on drives and in rekordbox's folder (the files' codec is loclib-mysettings),
                and the settings profile
   artwork.rs   drive artwork rows/thumbnails, audio tag embedding
-  anlz.rs      analysis files (anlz/write.rs writes them): path rewriting, beat grid, cues (read and write),
-               waveforms, phrases, decoded into loclib-model's analysis types
+  anlz.rs      a track's analysis files on a drive, read through loclib-anlz (which it re-exports)
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
   onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
@@ -188,7 +196,8 @@ apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs;
                             and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
                             linked in from the table build.rs writes, each run as `locallibrary plugin serve
                             <id>`, and the manifest of every account plugin in plugins/accounts/, which nothing
-                            runs; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            runs, and those --dev-plugin gives for a run; plugin_cmd/: what they add to the
+                            command line, and `plugin check`), and the player (tui/:
                             ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)

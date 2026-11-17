@@ -251,7 +251,11 @@ export const searchable = (site: SearchSite, track: SearchTrack) =>
 /** The address a badge opens: the template, filled in and URL-encoded. */
 export const searchUrl = (site: SearchSite, track: SearchTrack) =>
 	// siteOf has kept only a URL whose every placeholder names a variable.
-	site.url.replace(PLACEHOLDER, (_match, field: VariableName) => encodeURIComponent(VARIABLES[field](track)));
+	// encodeURIComponent throws on half a surrogate pair, which a title cut off
+	// mid-emoji or an imported file can hold, so that half becomes U+FFFD first.
+	site.url.replace(PLACEHOLDER, (_match, field: VariableName) =>
+		encodeURIComponent(VARIABLES[field](track).toWellFormed())
+	);
 
 /** The sites named in a sentence: "Beatport, Bandcamp, ZIPDJ". */
 export const siteNames = (sites: Pick<SearchSite, 'name'>[]) => sites.map((site) => site.name).join(', ');

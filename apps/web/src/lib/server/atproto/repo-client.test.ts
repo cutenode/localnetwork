@@ -240,14 +240,14 @@ describe('AgentRepoClient', () => {
 		const policy = memberSpacePolicy({ publicWrite: true });
 
 		const { calls, client } = pds({
-			'com.atproto.space.createSpace': () => Response.json({ uri: SPACE }),
-			'com.atproto.space.getSpace': () => Response.json({ uri: SPACE, policy })
+			'com.atproto.space.createSpace': () => Response.json({ space: SPACE }),
+			'com.atproto.space.getSpace': () => Response.json({ space: SPACE, policy })
 		});
 
 		expect(await client.createSpace({ spaceType: 'computer.localnetwork.space.planner', skey: 'self', policy })).toBe(
 			SPACE
 		);
-		expect(await client.getSpace(SPACE)).toEqual({ uri: SPACE, policy });
+		expect(await client.getSpace(SPACE)).toEqual({ space: SPACE, policy });
 		await client.putMember({ space: SPACE, did: 'did:plc:bob', read: true, write: false });
 		await client.removeMember({ space: SPACE, did: 'did:plc:bob' });
 		await client.deleteSpace(SPACE);
@@ -255,8 +255,11 @@ describe('AgentRepoClient', () => {
 		expect(calls.map(({ nsid, params, body }) => [nsid, body ?? params])).toEqual([
 			['com.atproto.space.createSpace', { spaceType: 'computer.localnetwork.space.planner', skey: 'self', policy }],
 			['com.atproto.space.getSpace', { space: SPACE }],
-			['com.atproto.memberspace.putMember', { space: SPACE, did: 'did:plc:bob', read: true, write: false }],
-			['com.atproto.memberspace.removeMember', { space: SPACE, did: 'did:plc:bob' }],
+			[
+				'com.atproto.memberspace.putMembers',
+				{ space: SPACE, members: [{ did: 'did:plc:bob', read: true, write: false }] }
+			],
+			['com.atproto.memberspace.removeMembers', { space: SPACE, dids: ['did:plc:bob'] }],
 			['com.atproto.space.deleteSpace', { space: SPACE }]
 		]);
 	});
@@ -316,13 +319,13 @@ describe('AgentRootClient', () => {
 
 		const { calls, root } = pds({
 			'com.atproto.space.listSpaces': ({ params }) =>
-				Response.json(params.cursor ? { spaces: [{ uri: other }] } : { spaces: [{ uri: SPACE }], cursor: 'p2' })
+				Response.json(params.cursor ? { spaces: [{ space: other }] } : { spaces: [{ space: SPACE }], cursor: 'p2' })
 		});
 
 		expect(await root.listSpaces('computer.localnetwork.space.booking')).toEqual([SPACE, other]);
 		expect(calls.map(({ params }) => params)).toEqual([
-			{ spaceType: 'computer.localnetwork.space.booking', did: DID, limit: '100' },
-			{ spaceType: 'computer.localnetwork.space.booking', did: DID, limit: '100', cursor: 'p2' }
+			{ spaceType: 'computer.localnetwork.space.booking', spaceDid: DID, limit: '100' },
+			{ spaceType: 'computer.localnetwork.space.booking', spaceDid: DID, limit: '100', cursor: 'p2' }
 		]);
 	});
 });

@@ -26,7 +26,7 @@ describe('syncing the moderation space into an empty database', () => {
 		const syncer = new SpaceSyncer({
 			db: t.db,
 			logger: silentLogger,
-			notifyService: null,
+			notifyEndpoint: null,
 			onChange: createProjections(t),
 			onSpaceDropped: async () => undefined,
 			identity: host.identity,
