@@ -56,7 +56,7 @@
 	{#if data.threads.length === 0}
 		{#if managed.value === undefined || sections.value === undefined}
 			<EmptyState title="No bookings yet">
-				<div role="status" aria-label="Loading" class="flex flex-col items-center gap-3"><span class={['h-4 w-64 max-w-full', ghost]}></span><span class={['h-11 w-28', ghost]}></span></div>
+				<div role="status" aria-label="Loading" class="flex flex-col items-center gap-3"><span class={['h-4 w-64 max-w-full', ghost]}></span><span class={['min-h-11 w-28', ghost]}></span></div>
 			</EmptyState>
 		{:else if managed.value?.[0]}
 			<EmptyState title="No bookings yet" body="When a promoter sends an inquiry, it starts here. A full page helps them find you.">
@@ -95,10 +95,10 @@
 				{#each groups as { value, label, threads } (value)}
 					<section aria-labelledby="group-{value}" class="flex flex-col gap-3">
 						{#if value === 'settled'}
-							<details class="group/settled">
+							<details class="group">
 								<summary class="flex min-h-11 cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
 									{@render heading(value, label, threads.length)}
-									<ChevronDown class="size-4 text-fg-subtle group-open/settled:rotate-180 motion-safe:transition-transform" aria-hidden="true" />
+									<ChevronDown class="size-4 text-fg-subtle transition-transform motion-reduce:transition-none group-open:rotate-180" aria-hidden="true" />
 								</summary>
 								<div class="mt-1"><BookingRows {threads} group={value} {viewer} {actsPending} /></div>
 							</details>

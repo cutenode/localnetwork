@@ -20,7 +20,7 @@
 </script>
 
 {#snippet act(thread: BookingListThread, fallback = '')}
-	{#if thread.project}{thread.project.name}{:else if actsPending}<span class="inline-block h-3 w-20 rounded-md bg-well align-baseline motion-safe:animate-pulse"></span>{:else}{fallback}{/if}
+	{#if thread.project}{thread.project.name}{:else if actsPending}<span class="inline-block h-3 w-20 rounded-md bg-well motion-safe:animate-pulse"></span>{:else}{fallback}{/if}
 {/snippet}
 
 <ul class="card m-0 list-none divide-y divide-line overflow-hidden p-0" aria-busy={loading > 0 || undefined}>
