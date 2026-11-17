@@ -105,7 +105,7 @@
 				<p class="m-0 text-small text-fg-muted">All quiet. A good time to freshen up <a class="link" href="/dashboard/projects/{act.slug}">{act.profile.name}</a>.</p>
 			{:else if !firstRun.value}
 				<EmptyState title="Nothing here yet" body="Bookings show up here as soon as someone writes.">
-					<div class="flex flex-wrap justify-center gap-2"><a class="btn-primary" href="/projects">Find DJs</a><a class="btn-secondary" href="/dashboard/projects/new">List a project</a></div>
+					<div class="flex flex-wrap justify-center gap-2"><a class="btn-primary" href="/djs">Find DJs</a><a class="btn-secondary" href="/dashboard/projects/new">List a project</a></div>
 				</EmptyState>
 			{/if}
 		{/await}

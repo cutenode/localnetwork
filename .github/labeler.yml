@@ -146,7 +146,7 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/hooks.server.ts"
           - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing}/**"
-          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,http,logger,rate-limit}.*"
+          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,edit-mode,http,logger,rate-limit}.*"
           - "apps/web/src/routes/{xrpc,.well-known,media,healthz}/**"
           - "apps/web/lua/**"
           - "apps/web/scripts/**"

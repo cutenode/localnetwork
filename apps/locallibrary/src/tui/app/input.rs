@@ -348,6 +348,7 @@ impl App {
             Act::KeyPalette(k) => self.use_key_palette(k),
             Act::EndWarning(secs) => self.use_end_warning(secs),
             Act::Art(on) => self.use_art(on),
+            Act::ArtHalfblocks(on) => self.use_art_halfblocks(on),
             Act::ResetPlayed => self.reset_played(),
             Act::Zoom(true) => self.deck_secs = (self.deck_secs / 1.5).max(1.5),
             Act::Zoom(false) => self.deck_secs = (self.deck_secs * 1.5).min(60.0),
@@ -665,6 +666,10 @@ impl App {
             (View::Drives, _) if self.drive_pane == DrivePane::Snapshots => self.restore_from_selected_snapshot(),
             (View::Drives, _) if self.drive_pane == DrivePane::History => self.open_played(),
             (View::Drives, _) if self.drive_header.is_some() => self.activate_header(),
+            (View::Library, Focus::Drives) if self.collection_row && self.collection_db.is_some() => {
+                self.load_collection();
+                self.focus = Focus::Playlists;
+            }
             (View::Library, Focus::Drives) | (View::Drives, _) => {
                 if let Some(d) = self.drive_state.selected().and_then(|i| self.drives.get(i)) {
                     if !d.has_export {
@@ -724,7 +729,8 @@ impl App {
             (View::Prepare, _) => crate::tui::prepare::len(),
             (View::Drives, _) if self.drive_pane == DrivePane::Snapshots => self.history_rows(),
             (View::Drives, _) if self.drive_pane == DrivePane::History => self.played_lists().len(),
-            (View::Library, Focus::Drives) | (View::Drives, _) => self.drives.len(),
+            (View::Library, Focus::Drives) => self.source_rows(),
+            (View::Drives, _) => self.drives.len(),
             (View::Profile, _) => 0,
             (View::Mixes, _) => self.mix.sources.len(),
         }
@@ -757,6 +763,9 @@ impl App {
     }
 
     pub(super) fn move_selection(&mut self, delta: isize) {
+        if self.view == View::Library && self.focus == Focus::Drives && !self.deck_showing() {
+            return self.move_source_row(delta);
+        }
         match (self.view, self.drive_pane) {
             (View::Drives, DrivePane::List) => return self.move_drive_row(delta),
             (View::Drives, DrivePane::Info) => {

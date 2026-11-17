@@ -22,6 +22,7 @@ import type { Upload } from '../forms/project';
 import type { ListingWriter } from './listings';
 import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
 import { slugify } from './projects';
+import { savedChanges } from './diff';
 import { indexVenue, VENUE_KEY } from './venue-index';
 import { actorRole } from './requests';
 import { reconcileMembers } from './space-members';
@@ -270,7 +271,7 @@ export class SharedSpaces {
 
 			if (!stored || current?.subject.$type !== ACT_TYPE) throw new NotFoundError('That act does not exist');
 
-			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE);
+			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE, 409);
 
 			const avatar =
 				input.avatar === 'remove'
@@ -292,9 +293,15 @@ export class SharedSpaces {
 
 			await live.root.putSpaceRecord({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, record });
 			await this.index({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, value: record });
-			await this.record(actor, actingAs, 'page.update', space, `Updated ${input.basics.name}'s page`, {
-				slug: current.subject.slug
-			});
+			await this.record(
+				actor,
+				actingAs,
+				'page.update',
+				space,
+				`Updated ${input.basics.name}'s page`,
+				{ slug: current.subject.slug },
+				savedChanges(current, record)
+			);
 		});
 	}
 

@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { light } from '#lib/testing/light.ts';
 	import { NEON_CREW, neonPlaying, neonProfile } from '#lib/testing/profiles.ts';
 	import type { ProfileView } from '#lib/types.ts';
 	import ProfileTabs from './ProfileTabs.svelte';
@@ -65,6 +66,8 @@
 		await expect(within(canvasElement).getByRole('tabpanel', { name: 'Sets' })).toBeInTheDocument();
 	}}
 />
+
+<Story name="Linked to Sets, light" args={{ requested: 'sets' }} globals={desktop} beforeEach={light} />
 
 <Story name="Linked to Sets on a phone" args={{ requested: 'sets' }} globals={phone} />
 

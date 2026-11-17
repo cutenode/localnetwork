@@ -184,7 +184,9 @@ fn walk(root: &Path, top: &Path, ctx: &Ctx<'_>) -> Result<Vec<Found>> {
     while !depth.is_empty() {
         let mut next = listings.len() + depth.len();
         let listed: Vec<(Vec<Item>, Vec<PathBuf>)> = depth.par_iter().map(|dir| list(root, top, dir, ctx)).collect();
-        depth = Vec::new();
+        // Room for the whole depth at once: grown a listing at a time, what it allocates would
+        // depend on the order the file system lists folders in, which differs between file systems.
+        depth = Vec::with_capacity(listed.iter().map(|(_, subdirs)| subdirs.len()).sum());
         for (items, subdirs) in listed {
             listings.push((items.into_iter(), next));
             next += subdirs.len();

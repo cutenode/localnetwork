@@ -1,0 +1,22 @@
+id = "discogs-account"
+name = "Discogs Account"
+version = "0.1.0"
+protocol = "^0.2"
+
+# Discogs takes a personal access token, made at discogs.com/settings/developers, in the
+# Authorization header as `Discogs token=<token>`, and says whose it is at `/oauth/identity`.
+[[contributes.account_types]]
+type = "discogs"
+title = "Discogs"
+kind = "keys"
+keys_url = "https://www.discogs.com/settings/developers"
+authorization = "Discogs token={token}"
+whoami = { url = "https://api.discogs.com/oauth/identity", subject = "/id", name = "/username" }
+
+[contributes.account_types.keys.token]
+title = "Personal access token"
+
+# A search of the database: the releases it finds, with their labels, years, styles and covers.
+[contributes.account_types.scopes.database]
+title = "search the Discogs database"
+requests = [{ method = "GET", url = "https://api.discogs.com/database/search*" }]

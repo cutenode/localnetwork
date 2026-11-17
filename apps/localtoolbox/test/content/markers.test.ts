@@ -19,13 +19,14 @@ import {
 	likedTile,
 	trackPage,
 	playerBar,
-	moreMenu
+	moreMenu,
+	hydrationScript,
+	apiTrack,
+	pageLoaded,
+	type ApiTrackOptions
 } from '../helpers/dom.ts';
-import type { KnownDetails } from '$lib/types';
 
 declare const chrome: ChromeMock;
-
-const NOW = new Date('2026-09-08T12:00:00Z').getTime();
 
 const ISO = '2026-09-08T12:00:00.000Z';
 
@@ -43,18 +44,14 @@ afterEach(() => {
 	disposeContentScripts();
 });
 
-const details = (permalink: string, extra: Partial<KnownDetails> = {}) => ({
-	id: 1,
-	permalink,
-	downloadable: false,
-	hasDownloadsLeft: true,
-	purchaseUrl: '',
-	purchaseTitle: '',
-	genre: '',
-	artworkUrl: '',
-	at: NOW,
-	...extra
-});
+// What SoundCloud's API says about a track, by default one with no download
+// link of any kind: the kind a nodl pill is for.
+const track = (permalink: string, extra: ApiTrackOptions = {}) => apiTrack({ permalink, ...extra });
+
+// The tracks the page was served with, which is how the content script knows
+// about them before it has seen any of the page's own requests.
+const served = (...tracks: ReturnType<typeof apiTrack>[]) =>
+	hydrationScript(tracks.map((data) => ({ hydratable: 'sound', data })));
 
 // The markers inside an artwork element: [{ kind, pill }].
 const markersIn = (art: Element) =>
@@ -116,24 +113,18 @@ describe('painting marks', () => {
 	});
 
 	it('paints nodl on tracks known to have no download link, unless they are downloaded', async () => {
-		globalThis.chrome = createChrome({
-			storage: {
-				downloaded: { '/a/both': ISO },
-				details: {
-					'/a/nodl': details('/a/nodl'),
-					'/a/both': details('/a/both'),
-					'/a/buy': details('/a/buy', { purchaseUrl: 'https://buy.test' }),
-					'/a/dl': details('/a/dl', { downloadable: true }),
-					'/a/old': details('/a/old', { at: NOW - 40 * 24 * 60 * 60 * 1000 }),
-					'/a/failed': { unavailable: true, at: NOW }
-				}
-			}
-		});
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/a/both': ISO } } });
 		render(
 			playlistPage({
-				rows: ['nodl', 'both', 'buy', 'dl', 'old', 'failed'].map((n) => playlistRow({ href: `/a/${n}?in=c/sets/p` }))
+				rows: ['nodl', 'both', 'buy', 'dl', 'unknown'].map((n) => playlistRow({ href: `/a/${n}?in=c/sets/p` }))
 			}),
 			'/c/sets/p'
+		);
+		served(
+			track('/a/nodl'),
+			track('/a/both'),
+			track('/a/buy', { purchaseUrl: 'https://buy.test' }),
+			track('/a/dl', { downloadable: true })
 		);
 		await loadContentScript();
 		expect(marksOf('/a/nodl')).toEqual([
@@ -141,7 +132,8 @@ describe('painting marks', () => {
 		]);
 		expect(marksOf('/a/both').map((m) => m.kind)).toEqual(['downloaded']);
 
-		for (const n of ['buy', 'dl', 'old', 'failed']) expect(marksOf(`/a/${n}`)).toEqual([]);
+		// A track the page has not loaded is not known to lack a link.
+		for (const n of ['buy', 'dl', 'unknown']) expect(marksOf(`/a/${n}`)).toEqual([]);
 	});
 
 	// The button that fills the queue also says a track is in it, so a queued
@@ -175,12 +167,14 @@ describe('painting marks', () => {
 	// identity (detectPage), and the hero nests one .sc-artwork inside another:
 	// the outer box is the one marked, once.
 	it("paints every pill on a track page's own hero artwork", async () => {
-		for (const [store, kind, pill] of [
-			[{ storage: { downloaded: { '/uploader/single-track': ISO } } }, 'downloaded', 'downloaded'],
-			[{ storage: { details: { '/uploader/single-track': details('/uploader/single-track') } } }, 'nodl', 'nodl']
-		] satisfies [ChromeOptions, string, string][]) {
+		for (const [store, tracks, kind, pill] of [
+			[{ storage: { downloaded: { '/uploader/single-track': ISO } } }, [], 'downloaded', 'downloaded'],
+			[{}, [track('/uploader/single-track')], 'nodl', 'nodl']
+		] satisfies [ChromeOptions, ReturnType<typeof track>[], string, string][]) {
 			globalThis.chrome = createChrome(store);
 			render(trackPage(), '/uploader/single-track');
+			document.head.innerHTML = '';
+			served(...tracks);
 			await loadContentScript();
 			const art = document.querySelector('.listenArtworkWrapper__artwork > .sc-artwork')!;
 			expect(markersIn(art)).toEqual([{ kind, pill, className: `tbx-mark tbx-mark--${kind} tbx-mark--large` }]);
@@ -211,10 +205,9 @@ describe('painting marks', () => {
 	// 30 px artwork takes the compact variant, and an ad (whose title is a bare
 	// <span> naming no track) takes nothing.
 	it('paints the player bar, compact, and leaves an ad alone', async () => {
-		globalThis.chrome = createChrome({
-			storage: { downloaded: { '/a/one': ISO }, details: { '/a/two': details('/a/two') } }
-		});
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/a/one': ISO } } });
 		render(playerBar({ href: '/a/one' }), '/discover');
+		served(track('/a/two'));
 		await loadContentScript();
 		const badgeArt = () => document.querySelector('.playbackSoundBadge__avatar .sc-artwork')!;
 		expect(markersIn(badgeArt())).toEqual([
@@ -258,7 +251,7 @@ describe('painting marks', () => {
 		expect(document.querySelectorAll('.tbx-mark')).toHaveLength(0);
 	});
 
-	it('follows the marks and details as storage changes, swapping and removing pills', async () => {
+	it('follows the marks as storage changes, and what the page loads, swapping and removing pills', async () => {
 		globalThis.chrome = createChrome({ storage: { downloaded: { '/a/one': ISO } } });
 		render(
 			playlistPage({
@@ -272,7 +265,16 @@ describe('painting marks', () => {
 		chrome.testEmitStorageChange({ downloaded: { newValue: undefined } });
 		expect(marksOf('/a/one')).toEqual([]);
 
-		chrome.testEmitStorageChange({ details: { newValue: { '/a/two': details('/a/two') } } });
+		// Details come from the page's own requests now, and repaint the
+		// markers in the same coalesced pass as a burst of new rows does.
+		pageLoaded('/tracks', [track('/a/two')]);
+		expect(marksOf('/a/two')).toEqual([]);
+		await vi.advanceTimersByTimeAsync(150);
+		expect(marksOf('/a/two').map((m) => m.kind)).toEqual(['nodl']);
+
+		// Nothing else in storage stands for them: a `details` key, which older
+		// versions kept, is not read.
+		chrome.testEmitStorageChange({ details: { newValue: {} } });
 		expect(marksOf('/a/two').map((m) => m.kind)).toEqual(['nodl']);
 
 		chrome.testEmitStorageChange({ downloaded: { newValue: { '/a/two': ISO } } });

@@ -243,7 +243,7 @@ it('works without act names, and says so', async () => {
 it('keeps New inquiry reachable', async () => {
 	await list(data(PAT, [thread('a', 'open', PAT)]));
 
-	await expect.element(page.getByRole('link', { name: 'New inquiry' })).toHaveAttribute('href', '/projects');
+	await expect.element(page.getByRole('link', { name: 'New inquiry' })).toHaveAttribute('href', '/djs');
 });
 
 it('gives a DJ and a promoter each a next step when there are no bookings', async () => {
@@ -264,7 +264,7 @@ it('gives a DJ and a promoter each a next step when there are no bookings', asyn
 		.element(page.getByRole('link', { name: 'Edit your profile' }))
 		.toHaveAttribute('href', '/dashboard/profile');
 	await rerender({ data: data(PAT, []) });
-	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/djs');
 });
 
 const MARA = 'did:plc:mara';

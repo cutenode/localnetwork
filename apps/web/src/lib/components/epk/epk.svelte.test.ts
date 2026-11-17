@@ -32,7 +32,8 @@ describe('EpkAccessCard', () => {
 		await render(EpkAccessCard, { name: 'Neon Tide', access: { kind: 'canAsk', rule: 'review' } });
 
 		await expect.element(page.getByRole('button', { name: 'Ask for access' })).toBeVisible();
-		await expect.element(page.getByLabelText("You're a")).toBeVisible();
+		await expect.element(page.getByLabelText(/Message/)).toBeVisible();
+		await expect.element(page.getByRole('combobox')).not.toBeInTheDocument();
 		await expect.element(page.getByText(/Neon Tide decides\. Asking shares your handle/)).toBeVisible();
 	});
 
@@ -69,24 +70,23 @@ describe('EpkAccessCard', () => {
 		await render(EpkAccessCard, {
 			name: 'Neon Tide',
 			access: { kind: 'canAsk', rule: 'review' },
-			error: 'Pick what you are.'
+			error: 'Write less than 1000 characters.'
 		});
 
-		await expect.element(page.getByRole('alert')).toHaveTextContent('Pick what you are.');
+		await expect.element(page.getByRole('alert')).toHaveTextContent('Write less than 1000 characters.');
 	});
 
-	it('sends the role and message, and can be sent again once the answer is back', async () => {
+	it('sends the message, and can be sent again once the answer is back', async () => {
 		const action = stubFormAction();
 		await render(EpkAccessCard, { name: 'Neon Tide', access: { kind: 'canAsk', rule: 'review' } });
 		const ask = page.getByRole('button', { name: 'Ask for access' });
 
-		await page.getByLabelText("You're a").selectOptions('Press');
 		await page.getByLabelText(/Message/).fill('Writing up the Halle Nord weekend');
 		await userEvent.click(ask);
 
 		await expect.element(ask).toBeDisabled();
 		await expect.poll(() => action.sent.length).toBe(1);
-		expect(action.sent[0].get('role')).toBe('press');
+		expect([...action.sent[0].keys()]).toEqual(['message']);
 		expect(action.sent[0].get('message')).toBe('Writing up the Halle Nord weekend');
 		action.answer();
 		await expect.element(ask).toBeEnabled();

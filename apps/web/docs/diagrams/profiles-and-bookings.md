@@ -104,12 +104,12 @@ How a promoter finds a performer and starts a booking.
 
 ```mermaid
 flowchart TD
-  Find["/projects: Find DJs"] --> Search["searchPerformers:<br/>active performers and listed DJs"]
+  Find["/djs: Find DJs"] --> Search["searchPerformers:<br/>active performers and listed DJs"]
   Match["/match: describe the night"] --> Rank["matchProjects: ranked,<br/>with reason codes"]
   City["City search"] --> Places["/api/places, cached in SQLite"]
   Places --> Find
   Places --> Match
-  City -- "typed, not picked" --> Lookup["/projects looks it up once,<br/>same cache"]
+  City -- "typed, not picked" --> Lookup["/djs looks it up once,<br/>same cache"]
   Lookup --> Search
   Search --> Dj["/@[handle] for a listed DJ"]
   Search --> Page["/projects/[slug]"]
@@ -119,9 +119,10 @@ flowchart TD
   Page --> Save["Save to the planner"]
   Page --> Inquire["/dashboard/bookings/new"]
   Dj -- "if they take inquiries" --> Inquire
+  Dj --> Save
 ```
 
-Source: [`src/routes/projects/+page.server.ts`](../../src/routes/projects/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/routes/@[handle]/+page.svelte`](../../src/routes/@[handle]/+page.svelte), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
+Source: [`src/routes/djs/+page.server.ts`](../../src/routes/djs/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/routes/@[handle]/+page.svelte`](../../src/routes/@[handle]/+page.svelte), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
 
 ## Planner flow
 

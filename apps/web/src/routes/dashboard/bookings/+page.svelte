@@ -50,7 +50,7 @@
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
 		<h1 class="m-0 text-heading font-semibold">Bookings</h1>
-		{#if data.threads.length}<a class="btn-secondary btn-sm" href="/projects">New inquiry</a>{/if}
+		{#if data.threads.length}<a class="btn-secondary btn-sm" href="/djs">New inquiry</a>{/if}
 	</header>
 
 	{#if data.threads.length === 0}
@@ -68,7 +68,7 @@
 			</EmptyState>
 		{:else}
 			<EmptyState title="No bookings yet" body="Find a DJ and send an inquiry with your show details.">
-				<Button href="/projects">Find DJs</Button>
+				<Button href="/djs">Find DJs</Button>
 			</EmptyState>
 		{/if}
 	{:else}

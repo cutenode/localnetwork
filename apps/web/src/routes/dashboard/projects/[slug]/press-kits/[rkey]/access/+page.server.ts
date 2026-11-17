@@ -1,3 +1,4 @@
+import type { RequesterAbout } from '#lib/epk.ts';
 import { UserError } from '#lib/server/core.ts';
 import { managedKit } from '#lib/server/epk-page.ts';
 import { act, text } from '#lib/server/http.ts';
@@ -7,8 +8,21 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 	const { kit, legacyMaker } = await managedKit(locals, url, params);
 	const { epk } = kit;
 	const [requests, grants] = await Promise.all([locals.app.epks.requests(epk), locals.app.epks.grants(epk)]);
+	const askers = requests.map((request) => request.requester.did);
+	const [profiles, venues] = await Promise.all([locals.app.profiles.many(askers), locals.app.venues.runBy(askers)]);
 
-	return { epk, legacyMaker, requests, grants };
+	const about = (did: string): RequesterAbout => {
+		const record = profiles.get(did)?.record;
+
+		return { promoter: record?.promoter ?? null, performer: record?.performer ?? null, venues: venues.get(did) ?? [] };
+	};
+
+	return {
+		epk,
+		legacyMaker,
+		requests: requests.map((request) => ({ ...request, about: about(request.requester.did) })),
+		grants
+	};
 };
 
 export const actions: Actions = {

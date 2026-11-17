@@ -62,12 +62,13 @@ flowchart LR
     sound["sound"] --> soundadds["Analyzer tempo-key-loudness<br/>events: suggests analysing new tracks"]
     musicbrainz["musicbrainz"] --> mbadds["Analyzer ids<br/>musicbrainz.org"]
     coverart["coverart"] --> coveradds["Providers covers, tags<br/>events: suggests fetching covers<br/>musicbrainz.org, coverartarchive.org,<br/>archive.org, *.archive.org"]
+    discogs["discogs"] --> discogsadds["Providers covers, tags<br/>discogs account: a personal access token<br/>api.discogs.com, i.discogs.com"]
     demos["demos"] --> demoadds["Check tracks, operation clean"]
     tracklist["tracklist"] --> trackadds["Operation import: playlist import<br/>Importer and source for rekordbox XML"]
     interop["interop"] --> interopadds["Exporters traktor, serato, engine, rekordbox<br/>Importer and source for Traktor"]
 ```
 
-Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml)
+Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml)
 
 ## Built-in plugins that publish a set
 
@@ -87,15 +88,20 @@ Source: [`plugins/plyr/locallibrary-plugin.toml`](../../../../plugins/plyr/local
 
 ## Loading plugins
 
-How the plugins in `plugins/` end up in a host. Only built-in plugins run. A clash is with a command, a sidecar method or another plugin, or an account nothing can meet.
+How the plugins in `plugins/`, and any a developer gives for one run, end up in a host. A clash is with a command, a sidecar method or another plugin, or an account nothing can meet.
 
 ```mermaid
 flowchart TD
     folders["plugins/ID, plugins/accounts/ID"] --> build["build.rs writes the table:<br/>each manifest and how it serves"]
     build --> specs["Compiled in. A spec for each:<br/>run this binary, plugin serve ID"]
-    specs --> check{"Debug builds<br/>only: a clash?"}
-    check -->|yes| out["Left out, and said why"]
-    check -->|"no, or a release"| host["The plugin host. A repeated id or<br/>cli place refuses every plugin"]
+    dev["--dev-plugin MANIFEST:PROGRAM,<br/>or LOCALLIBRARY_DEV_PLUGINS"] --> rules{"Its manifest keeps<br/>a third party's rules?"}
+    rules -->|no| fail["The run fails, saying why"]
+    rules -->|yes| given["A spec: run that program"]
+    specs --> check{"Debug builds, or plugins<br/>given: a clash?"}
+    given --> check
+    check -->|"yes, a shipped plugin"| out["Left out, and said why"]
+    check -->|"yes, or a shipped plugin's<br/>id: a given plugin"| fail
+    check -->|"no, or a release<br/>with none given"| host["The plugin host. A repeated id or<br/>cli place refuses every plugin"]
     host --> lazy["Started when first used"]
     host --> account["Account plugins:<br/>signed in from, never started"]
 ```
@@ -188,12 +194,13 @@ flowchart LR
     plugin -->|"its answers"| scratch["Its request's scratch folder"]
     plugin -->|"its files"| work["STORE/plugins/ID/work/"]
     plugin -->|"fs:read"| folders["Folders you grant for a source read"]
+    plugin -->|"collection:files"| rekordbox["rekordbox's library here: where its files are,<br/>whether it runs, a copy of master.db in scratch,<br/>its tracks, with real paths"]
     plugin -->|"host/notify"| notify["A message or a suggestion"]
     plugin -.->|"no way through the host"| drive[("Writing a drive or the store")]
     plugin -.->|"no way through the host"| tokens["Tokens, keys, secret settings"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
+Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
 
 ## A plugin's net/fetch
 

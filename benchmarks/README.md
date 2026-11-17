@@ -39,15 +39,23 @@ A merge queue group runs `release-budgets` on its pull requests together, agains
 and allows each pull request in it its allowance, so two that each passed alone can't land over
 together.
 
-Growing a metric past its allowance on purpose takes a line in the pull request's body, which the
-`budgets` and `release-budgets` jobs read, and a merge queue group's from each pull request in it:
+Growing a metric past its allowance on purpose takes a `Budget-Raise` trailer on one of the pull
+request's commits, saying by how much in the metric's unit and why. A commit of its own does it:
 
-```text
-budget-raise: size-x86_64-unknown-linux-gnu/locallibrary: the Opus decoder adds 400 KiB
+```bash
+git commit --allow-empty -m 'chore(budgets): make room for the Opus decoder' \
+  --trailer 'Budget-Raise: size-x86_64-unknown-linux-gnu/locallibrary +409600: the Opus decoder'
 ```
 
-So does widening an allowance or dropping a metric, which the `budgets` job checks with
-`tools/budgets/cli.ts raises`. Rerun the job after editing the body.
+The failure says the exact trailer it needs. Raises add up, on top of the allowance. In a commit,
+review covers a raise, and the merge queue reads the trailers of every pull request in a group. A
+package name counts as 1, so a new crate takes `Budget-Raise: deps/locallibrary-cli +1: <why>`.
+
+Widening an allowance or dropping a metric takes a trailer naming it too (`+0` will do), which the
+`budgets` job checks with `tools/budgets/cli.ts raises`.
+
+Until 2026-11-30, a `budget-raise: <metric>: <why>` line in the pull request's body still allows any
+growth, for pull requests opened before trailers. Rerun the job after editing the body.
 
 To run the check yourself, download a run's measurements and its base's:
 
