@@ -171,9 +171,9 @@ describe('EpkService', () => {
 		expect(await f.t.epks.accessState(kit, stranger)).toEqual({ kind: 'canAsk', rule: 'review' });
 		expect(await f.t.epks.accessState(kit, await f.t.viewer(CODJ))).toEqual({ kind: 'manager' });
 
-		expect((await f.t.epks.request(stranger, kit, { role: 'press', message: 'For a feature' })).kind).toBe('pending');
+		expect((await f.t.epks.request(stranger, kit, { message: 'For a feature' })).kind).toBe('pending');
 		const [request] = await f.t.epks.requests(epk);
-		expect(request).toMatchObject({ role: 'press', message: 'For a feature', status: 'pending', rule: 'review' });
+		expect(request).toMatchObject({ message: 'For a feature', status: 'pending', rule: 'review' });
 		expect(f.t.net.spaceRecordsIn(requestSpace(), STRANGER)).toHaveLength(1);
 		expect(f.t.net.spaceRecordsIn(epk.space, STRANGER)).toEqual([]);
 

@@ -15,7 +15,7 @@
 		"css": {
 			"allowance": 1024,
 			"unit": "bytes",
-			"measures": "Every page's CSS together, uncompressed."
+			"measures": "Every page's CSS together, uncompressed, without the stylesheets only edit mode's editor loads."
 		}
 	}
 }

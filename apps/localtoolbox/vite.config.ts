@@ -50,7 +50,8 @@ const unbundled = {
 	icons: 'icons'
 };
 
-// The classic scripts: the two content scripts and the three the popup reads. A classic
+// The classic scripts: the three content scripts (content, gate-page and
+// page-data) and the three the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
 // annotation with spaces, and the comments go the same way
 // (scripts/page-script.mts): every line and column of code stays where it was,
@@ -59,6 +60,7 @@ const unbundled = {
 const pageScripts = {
 	'content.js': 'content.ts',
 	'gate-page.js': 'gate-page.ts',
+	'page-data.js': 'page-data.ts',
 	'downloaded-store.js': 'downloaded-store.ts',
 	'state-transfer.js': 'state-transfer.ts',
 	'theme-prepaint.js': 'theme-prepaint.ts'

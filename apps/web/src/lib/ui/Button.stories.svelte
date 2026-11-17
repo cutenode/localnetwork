@@ -36,7 +36,7 @@
 
 <Story name="As a link" asChild>
 	<div class="flex flex-wrap gap-3">
-		<Button href="/projects">Find DJs near you</Button>
+		<Button href="/djs">Find DJs near you</Button>
 		<Button href="/dashboard/projects/new" variant="secondary">List your project</Button>
 	</div>
 </Story>

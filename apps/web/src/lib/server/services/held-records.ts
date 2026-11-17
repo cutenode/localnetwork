@@ -218,7 +218,7 @@ export class HeldRecords {
 		if (kind === 'epkRequest') {
 			const kept = await db
 				.updateTable('epkRequest')
-				.set({ role: null, message: null, deletedAt })
+				.set({ message: null, deletedAt })
 				.where('uri', '=', uri)
 				.where('status', 'in', ['approved', 'declined'])
 				.executeTakeFirst();

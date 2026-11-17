@@ -184,6 +184,36 @@ describe('SpaceCredentialManager', () => {
 		});
 	});
 
+	it('rejects an answer it cannot read as an InvalidResponse from the method that sent it', async () => {
+		const invalid = (nsid: string) => ({ status: 502, error: 'InvalidResponse', nsid });
+
+		const listReposCall = () =>
+			credentials.query({ space: SPACE, service: host.url, ...listRepos, schema: z.unknown() });
+
+		await host.put(DJ, NOTE, 'a', { $type: NOTE, text: 'hi' });
+
+		// Deeper than lex JSON's recursion goes, and a key it refuses.
+		for (const body of [`${'['.repeat(20_000)}${']'.repeat(20_000)}`, '{"__proto__":{}}', 'not json']) {
+			host.overrides.set(listRepos.nsid, () => new Response(body));
+			await expect(listReposCall()).rejects.toMatchObject(invalid(listRepos.nsid));
+		}
+
+		host.overrides.set('com.atproto.space.getRecord', () => new Response('not json'));
+		await expect(credentials.readRecord({ space: SPACE, repo: DJ, collection: NOTE, rkey: 'a' })).rejects.toMatchObject(
+			invalid('com.atproto.space.getRecord')
+		);
+
+		host.overrides.set('com.atproto.space.getRecord', () => Response.json({ uri: 'at://x' }));
+		await expect(credentials.readRecord({ space: SPACE, repo: DJ, collection: NOTE, rkey: 'a' })).rejects.toMatchObject(
+			invalid('com.atproto.space.getRecord')
+		);
+
+		// A credential whose header part is base64url `null`, which the token parser reads a field of.
+		credentials.invalidate(SPACE);
+		host.overrides.set('com.atproto.space.getSpaceCredential', () => Response.json({ credential: 'bnVsbA.e30.c2ln' }));
+		await expect(credentials.get(SPACE)).rejects.toMatchObject(invalid('com.atproto.space.getSpaceCredential'));
+	});
+
 	it("calls a procedure with the space's credential, retrying once with a fresh one if it was revoked", async () => {
 		const procedure = <T>(schema: z.ZodType<T>) =>
 			credentials.procedure({ space: SPACE, service: host.url, ...listRepos, body: {}, schema });

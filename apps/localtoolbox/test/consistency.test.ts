@@ -91,20 +91,37 @@ describe('manifest.json', () => {
 	// and only there: a match no page site claims would put it on a site it has
 	// nothing to do on.
 	it('runs the gate page script on exactly the page sites', () => {
-		const [, gatePage] = manifest.content_scripts;
+		const [, , gatePage] = manifest.content_scripts;
 
 		expect(gatePage.matches).toEqual(PAGE_HOSTS.map((host) => `https://${host}/*`));
 	});
 
 	it('refers only to files that ship, with the store loaded before each content script', () => {
-		const [contentScript, gatePage] = manifest.content_scripts;
+		const [pageData, contentScript, gatePage] = manifest.content_scripts;
+		expect(manifest.content_scripts).toHaveLength(3);
+
+		// First the page's own side: page-data.ts runs in the page's world, before
+		// SoundCloud's scripts do, so it sees every API answer the page loads and
+		// hands each to the content script (content.ts listenToPage). In every
+		// frame, since an embedded player loads its own.
+		expect(pageData).toEqual({
+			matches: ['https://soundcloud.com/*'],
+			js: ['page-data.js'],
+			run_at: 'document_start',
+			all_frames: true,
+			world: 'MAIN'
+		});
+
 		expect(contentScript.matches).toEqual(['https://soundcloud.com/*']);
 		expect(contentScript.js).toEqual(['downloaded-store.js', 'content.js']);
 		expect(gatePage.js).toEqual(['downloaded-store.js', 'gate-page.js']);
+
 		// The scripts are written in TypeScript and shipped with their types and
 		// comments blanked out (see "the build" below), so it is the .ts that has
 		// to exist.
-		const sources = [...contentScript.js, ...gatePage.js].map((file: string) => file.replace(/\.js$/, '.ts'));
+		const sources = [...pageData.js, ...contentScript.js, ...gatePage.js].map((file: string) =>
+			file.replace(/\.js$/, '.ts')
+		);
 
 		for (const file of [...sources, ...contentScript.css, ...Object.values(manifest.icons)]) {
 			expect(exists(file), file).toBe(true);
@@ -238,7 +255,7 @@ describe('the session queue', () => {
 		expect(view).toContain("const KEY = 'view';");
 		expect(read('downloaded-store.ts')).toContain('chrome.storage.local');
 		// The exported state file carries the queue but does not reach for it: the
-		// marks and the details it reads out of local storage itself, while the
+		// marks it reads out of local storage itself, while the
 		// queue comes from the store above and goes back into it
 		// (StateTransfer.svelte hands `queue.entries` out and `doc.queue` back).
 		// That is what puts a queue this store could only keep in memory into the
@@ -616,15 +633,18 @@ describe('the exported state file', () => {
 		expect(JSON.parse(read('package.json')).scripts['validate:state']).toBe('node scripts/validate-state.mts');
 	});
 
-	// state-transfer.ts writes the details cache that content.ts owns; a rename
-	// on either side would stop restoring the looked-up details.
+	// A rename on either side of a key would stop restoring what is under it.
 	it('is written under the same storage keys the rest of the extension uses', () => {
-		// Each key is matched with or without a type annotation: the value is what has to agree.
-		expect(transfer).toMatch(/const DETAILS_KEY(?:: [^=\n]+)? = 'details'(?: as const)?;/);
-		expect(read('content.ts')).toContain("const DETAILS_KEY = 'details';");
 		expect(transfer).toContain('TbxDownloaded.KEY');
-		// The Manager's own list is named here for the same reason the details
-		// cache is: one word, on both sides of a file that has to restore it.
+		// Download details are kept nowhere any more (they last as long as the tab
+		// that loaded them), so the file writes none. The key older versions kept
+		// them under is the one the worker clears when this version is installed.
+		expect(transfer).not.toContain('DETAILS_KEY');
+		expect(read('content.ts')).not.toContain('DETAILS_KEY');
+		expect(read('src/background.ts')).toContain("chrome.storage.local.remove('details')");
+		// The Manager's own list is named here so the word is known to be one,
+		// on both sides of a file that has to restore it. Each key is matched
+		// with or without a type annotation: the value is what has to agree.
 		expect(transfer).toMatch(/const LISTED_KEY(?:: [^=\n]+)? = 'listed'(?: as const)?;/);
 		expect(read('src/tools/manager/listed.svelte.ts')).toContain("export const LISTED_KEY = 'listed';");
 		// And the artists tool's list, for the same reason again.
@@ -676,8 +696,8 @@ describe('the exported state file', () => {
 	});
 
 	// In the settings sheet, not in a tool: the file carries the marks a
-	// SoundCloud page paints, the content script's cache, the session queue and
-	// three panels' options, and only one of its members is the Manager's.
+	// SoundCloud page paints, the session queue, the two lists and three
+	// panels' options, and only one of its members is the Manager's.
 	it('is offered and read back by the settings sheet', () => {
 		const section = read('src/lib/components/StateTransfer.svelte');
 

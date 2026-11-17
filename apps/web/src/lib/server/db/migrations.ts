@@ -536,6 +536,27 @@ export const migrations = {
 			// Adding a venue no other has the Foursquare place of looks for the same name in the same city.
 			await sql.raw('CREATE INDEX venue_name_city ON venue (name_key, locality, country)').execute(db);
 		}
+	},
+	'017_venue_blocks': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE venue_block (
+						uri TEXT PRIMARY KEY,
+						venue TEXT NOT NULL,
+						subject TEXT NOT NULL,
+						created_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX venue_block_venue_subject ON venue_block (venue, subject)').execute(db);
+		}
+	},
+	// Requests stopped naming a role the asker picked for themself; the access page shows their profile instead.
+	'018_epk_request_without_role': {
+		async up(db) {
+			await sql.raw('ALTER TABLE epk_request DROP COLUMN role').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

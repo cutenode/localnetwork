@@ -86,12 +86,12 @@ it("hides a hidden project's press kit from everyone but its managers and staff"
 it('sends a request to the managers, and says it waits on them', async () => {
 	const epk = await f.publish(DJ);
 
-	const result = await ask(PROMOTER, epk.rkey, { role: 'promoter', message: 'For our winter series' });
+	const result = await ask(PROMOTER, epk.rkey, { message: 'For our winter series' });
 
 	expect(result).toEqual({ requested: 'pending' });
-	expect(
-		(await f.t.epks.requests(epk)).map((request) => [request.requester.did, request.role, request.message])
-	).toEqual([[PROMOTER, 'promoter', 'For our winter series']]);
+	expect((await f.t.epks.requests(epk)).map((request) => [request.requester.did, request.message])).toEqual([
+		[PROMOTER, 'For our winter series']
+	]);
 });
 
 it('opens the whole press kit straight away when its rules let the asker in', async () => {

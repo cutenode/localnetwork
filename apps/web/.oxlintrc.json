@@ -1,7 +1,14 @@
 {
 	"$schema": "../../node_modules/oxlint/configuration_schema.json",
 	"extends": ["../../.oxlintrc.json"],
-	"ignorePatterns": ["build/**", ".svelte-kit/**", "data/**", "playwright-report/**", "test-results/**"],
+	"ignorePatterns": [
+		"build/**",
+		"fuzz/build/**",
+		".svelte-kit/**",
+		"data/**",
+		"playwright-report/**",
+		"test-results/**"
+	],
 	"overrides": [
 		{
 			"files": ["scripts/**", "tests/**"],

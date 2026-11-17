@@ -28,7 +28,7 @@ it('switches between searching and matching a show, with matching current', asyn
 	const modes = page.getByRole('navigation', { name: 'Find DJs' });
 
 	await expect.element(modes.getByRole('link', { name: 'Match a show' })).toHaveAttribute('aria-current', 'page');
-	await expect.element(modes.getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/projects');
+	await expect.element(modes.getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/djs');
 	await expect.element(modes.getByRole('link', { name: 'Search' })).not.toHaveAttribute('aria-current');
 	await expect.element(page.getByRole('heading', { level: 1, name: 'Who fits your show?' })).toBeInTheDocument();
 });

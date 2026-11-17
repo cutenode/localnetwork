@@ -35,7 +35,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 mod set_export;
-mod traktor_read;
+pub mod traktor_read;
 mod write;
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
