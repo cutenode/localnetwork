@@ -53,6 +53,21 @@ it('shows the threads while the directory is down, and says it has no names for 
 	expect(await names).toBeNull();
 });
 
+it('shows the threads without names when reading the directory fails some other way', async () => {
+	await f.t.bookings.start({
+		actor: await f.t.viewer(PROMOTER),
+		projectUri: f.project.uri,
+		show: { title: 'Warehouse Night' },
+		message: 'Free on the 12th?'
+	});
+	vi.spyOn(f.t.directory, 'query').mockRejectedValue(new Error('socket hang up'));
+
+	const { threads, names } = await listed(DJ);
+
+	expect(threads.map((thread) => thread.title)).toEqual(['Warehouse Night']);
+	expect(await names).toBeNull();
+});
+
 it("doesn't hold the threads back for a slow directory", async () => {
 	await f.t.bookings.start({
 		actor: await f.t.viewer(PROMOTER),
