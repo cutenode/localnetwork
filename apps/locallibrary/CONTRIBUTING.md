@@ -289,7 +289,9 @@ AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (A
 the binary XML, the project it builds and its mixdown) and `traktor` (Traktor's `collection.nml`,
 the beat grids it lays down and what an import makes of it). libFuzzer mutates the test fixtures
 (and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
-sequences from nothing) looking for a panic, a hang or a runaway allocation. `fuzz/` is a
+sequences from nothing) looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz`
+aliases also hand libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values
+the readers branch on), so it gets past a header without guessing four bytes at once. `fuzz/` is a
 workspace of its own and needs nightly:
 
 ```bash
