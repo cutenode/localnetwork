@@ -23,7 +23,9 @@ describe('shared spaces on a real atproto spaces network', () => {
 	beforeAll(async () => {
 		net = await TestNetwork.create(['ada', 'bobo', 'cyan', 'mira'], {
 			admins: ['mira'],
-			listingSources: { performer: { publicFields: async () => ({ name: 'Night Shift' }) } }
+			listingSources: { performer: { publicFields: async () => ({ name: 'Night Shift' }) } },
+			// A listing points at a public page, so none is written while the pages are off.
+			flags: 'spacePages=on'
 		});
 		space = await net.app.sharedSpaces.create(await net.viewer('ada'), 'performer');
 	});

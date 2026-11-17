@@ -165,6 +165,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         bands,
         end_warning,
         art,
+        art_halfblocks,
         hints,
         recent_commands,
     } = saved.clone();
@@ -189,6 +190,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         bands,
         end_warning,
         art,
+        art_halfblocks,
         hints,
         recent_commands,
         ..Default::default()
@@ -238,6 +240,7 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
         recent_commands: on().then(|| "shuffle on or off".to_string()).into_iter().collect(),
         intro_seen: Some("0.1.0".into()),
         art: tc.draw(gs::optional(gs::booleans())),
+        art_halfblocks: on(),
         mixes: vec!["/m/a.wav".into()],
         mix_folders: vec!["/m".into()],
         crate_list: vec![SavedCrateTrack {
@@ -297,4 +300,17 @@ fn a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
     save(&store, &Saved::default());
     mode(0o644);
     assert_eq!(load(&store).as_ref(), Some(&kept));
+}
+
+/// The crate's fields answer only to their own names: what development builds wrote before the
+/// crate was called that (`tags`, `tag_list`) is left out, not read as the crate.
+#[test]
+fn the_crates_old_names_are_not_read() {
+    let old: Saved =
+        serde_json::from_str(r#"{"tags": true, "tag_list": [{"root": "/Volumes/A", "path": "/Contents/a.mp3"}]}"#)
+            .unwrap();
+    assert!(!old.crate_panel);
+    assert!(old.crate_list.is_empty());
+    let new: Saved = serde_json::from_str(r#"{"crate_panel": true}"#).unwrap();
+    assert!(new.crate_panel);
 }

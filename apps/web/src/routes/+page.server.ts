@@ -2,6 +2,7 @@ import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { chartFilters } from '#lib/supports.ts';
 import { pageMeta } from '#lib/server/meta.ts';
+import { socialHome } from '#lib/server/social-home.ts';
 import { SITE_NAME } from '#lib/meta.ts';
 import { toolCards } from '#lib/tools/index.ts';
 import type { PageServerLoad } from './$types';
@@ -11,11 +12,26 @@ const SHOWS = 3;
 
 const TRACKS = 5;
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url, cookies }) => {
 	const { projects, shows, supports, geocoder, config } = locals.app;
+
+	if (locals.flags.socialHome) {
+		return {
+			social: true as const,
+			geocoder: geocoder.enabled,
+			...socialHome(locals, url, cookies),
+			meta: pageMeta(config.publicUrl, {
+				title: SITE_NAME,
+				documentTitle: `${SITE_NAME} · What's on near you`,
+				description: 'Upcoming shows near you, and from the DJs and acts you follow.',
+				path: '/'
+			})
+		};
+	}
 
 	// The tools' docs are bundled server-side, so the page gets only what its cards show: no captures.
 	const page = {
+		social: false as const,
 		geocoder: geocoder.enabled,
 		// Streamed, so the page paints before the directory answers. Null when it's offline.
 		shows: unlessOffline(locals.log, async () => (await shows.upcoming({ limit: SHOWS })).items),

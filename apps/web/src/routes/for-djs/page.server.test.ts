@@ -79,3 +79,19 @@ it('still opens while HappyView is down', async () => {
 
 	expect(await data.directory).toBeNull();
 });
+
+it("streams the next shows and the month's most played tracks, with two locallibrary captures", async () => {
+	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/for-djs' });
+
+	expect(await data.shows).toEqual([]);
+	expect(await data.tracks).toEqual([]);
+	expect(data.captures.map((shown) => shown.line)).toEqual([
+		'Keeps every copy of your library identical to the drive you export to, My Settings included',
+		expect.stringMatching(/./)
+	]);
+	expect(
+		data.captures.every(({ capture }) =>
+			Object.keys(capture.picture.sources).every((format) => ['avif', 'webp'].includes(format))
+		)
+	).toBe(true);
+});

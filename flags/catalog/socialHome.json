@@ -1,0 +1,7 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "socialHome",
+	"description": "The home page built around events near you and your network, in place of the one for booking DJs. Turn it on with event pages and RSVPs.",
+	"type": "release",
+	"removeBy": "2027-02-12"
+}

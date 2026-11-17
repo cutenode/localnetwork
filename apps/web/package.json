@@ -7,7 +7,8 @@
 	"type": "module",
 	"imports": {
 		"#lib/*": "./src/lib/*",
-		"#lexicon-files": "./scripts/lib/lexicon-files.ts"
+		"#lexicon-files": "./scripts/lib/lexicon-files.ts",
+		"#notification-kinds": "./scripts/lib/kind-files.ts"
 	},
 	"scripts": {
 		"dev": "tsx scripts/dev-network.ts --app",
@@ -16,9 +17,9 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"start": "node build",
-		"prepare": "(svelte-kit sync && node scripts/flag-keys.ts && pnpm lexicons:types) || echo ''",
-		"check": "svelte-kit sync && node scripts/flag-keys.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && node scripts/flag-keys.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json --watch",
+		"prepare": "(svelte-kit sync && node scripts/flag-keys.ts && node scripts/notification-kinds.ts && pnpm lexicons:types) || echo ''",
+		"check": "svelte-kit sync && node scripts/flag-keys.ts && node scripts/notification-kinds.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && node scripts/flag-keys.ts && node scripts/notification-kinds.ts && pnpm lexicons:types && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "oxlint --type-aware",
 		"lint:fix": "oxlint --type-aware --fix",
 		"format": "oxfmt",
@@ -42,7 +43,8 @@
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test && pnpm test:storybook && pnpm test:build",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
-		"test:storybook": "vitest run --project storybook"
+		"test:storybook": "vitest run --project storybook",
+		"fuzz": "node scripts/fuzz.ts"
 	},
 	"dependencies": {
 		"@atproto-labs/did-resolver": "0.0.0-spaces-alpha-20261105160032",
@@ -85,6 +87,7 @@
 		"@atproto/lex": "0.0.0-spaces-alpha-20261105160032",
 		"@atproto/sync": "0.0.0-spaces-alpha-20261105160032",
 		"@axe-core/playwright": "^4.13.0",
+		"@jazzer.js/core": "^4.0.0",
 		"@lhci/cli": "^0.16.0",
 		"@playwright/test": "^1.63.0",
 		"@storybook/addon-a11y": "10.6.2",
@@ -104,6 +107,7 @@
 		"@vitest/browser-playwright": "^5.0.3",
 		"@vitest/coverage-v8": "^5.0.3",
 		"cloudflare": "^7.3.0",
+		"esbuild": "^0.28.2",
 		"fast-check": "^4.10.2",
 		"marked": "^18.1.0",
 		"marked-gfm-heading-id": "^4.1.4",

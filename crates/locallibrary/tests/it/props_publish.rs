@@ -1481,7 +1481,8 @@ fn the_published_profile_is_the_documents_record(tc: TestCase) {
         common::add_history(&drive, &format!("HISTORY 00{}", n + 1), &tracks.into_iter().collect::<Vec<_>>());
     }
     let store = Store::open(&root).unwrap();
-    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(15));
+    let publishable: Vec<Section> = Section::ALL.into_iter().filter(|s| s.publishable()).collect();
+    let sections = tc.draw(gs::vecs(gs::sampled_from(publishable)).max_size(6));
     api::profile_prefs_update(&store, &PrefsUpdate { sections: Some(sections), ..Default::default() }).unwrap();
     let req = ProfileRequest { drives: vec![drive.display().to_string()], ..Default::default() };
     let plan = api::profile_publish_plan(&root, &req, &Ctx::silent()).unwrap();

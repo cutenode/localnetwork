@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { parseAvatar, parseDetails, parseProfile, profileToValues, withTracklists } from '#lib/server/forms/project.ts';
 import { formValues } from '#lib/project-form.ts';
+import { claimTerms } from '#lib/requests.ts';
 import { parseClaim } from '#lib/server/forms/claim.ts';
 import { act, optionalText, requireViewer, stringValues } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
@@ -62,7 +63,7 @@ export const actions: Actions = {
 					await locals.app.requests.revise(viewer, request.uri, { message });
 				} else if (request.kind === 'claim') {
 					await locals.app.requests.revise(viewer, request.uri, {
-						claim: parseClaim(form),
+						claim: parseClaim(form, claimTerms(request.record)),
 						message
 					});
 				} else {

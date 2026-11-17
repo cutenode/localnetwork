@@ -10,27 +10,27 @@ fn comparisons_say_which_drive_is_newer_and_what_to_do() {
     let env = Env::new();
     let (a, b) = (env.demo("A"), env.blank("B"));
     env.ok(&["--yes", "sync", "--from", path(&a), path(&b)]);
-    assert!(env.ok(&["compare", "A", "B"]).starts_with("A and B are identical"));
+    assert!(env.ok(&["diff", "A", "B", "--summary"]).starts_with("A and B are identical"));
 
     env.ok(&["--yes", "track", "set", "A", "--track", "1", "--rating", "2"]);
     env.ok(&["--yes", "playlist", "new", "A", "Warmup", "--track", "1"]);
-    let newer = env.ok(&["compare", "A", "B"]);
+    let newer = env.ok(&["diff", "A", "B", "--summary"]);
     assert!(newer.starts_with("A is newer than B [high confidence]"), "{newer}");
     assert!(line(&newer, "  A ").contains("2 tracks, 1 playlists, exported "), "{newer}");
     assert!(newer.contains("Evidence\n  • A previously held B's current state (favours A)"), "{newer}");
     assert!(newer.contains("~ tracks (1):\n    Loopmasters - Demo Track 1 (rating)"), "{newer}");
     assert!(newer.contains("+ playlists (1):\n    Warmup"), "{newer}");
     assert!(newer.ends_with("run `locallibrary sync` with the same two drives to update the older one\n"));
-    assert!(env.ok(&["compare", "B", "A"]).starts_with("A is newer than B"), "either way round");
+    assert!(env.ok(&["diff", "B", "A", "--summary"]).starts_with("A is newer than B"), "either way round");
 
     env.ok(&["--yes", "track", "set", "B", "--track", "2", "--rating", "1"]);
-    let diverged = env.ok(&["compare", "A", "B"]);
+    let diverged = env.ok(&["diff", "A", "B", "--summary"]);
     assert!(diverged.starts_with("A and B have both changed since they were last in sync"), "{diverged}");
     assert!(diverged.contains("pick a winner, or `locallibrary merge` to combine"), "{diverged}");
 
     // Another library: long lists are cut short.
     env.club("Other");
-    let unrelated = env.ok(&["compare", "A", "Other"]);
+    let unrelated = env.ok(&["diff", "A", "Other", "--summary"]);
     assert!(unrelated.starts_with("A and Other hold different libraries (0% overlap)"), "{unrelated}");
     assert!(unrelated.contains("+ tracks (12):") && unrelated.contains("    ... and 2 more"), "{unrelated}");
     assert!(unrelated.ends_with("use `locallibrary merge <source> <target>` to combine them\n"), "{unrelated}");

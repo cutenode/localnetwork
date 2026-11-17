@@ -619,6 +619,28 @@ export function apiTrack({
 	};
 }
 
-export const CLIENT_ID = 'test-client-id';
+/**
+ * A user object as SoundCloud's API sends one. A track carries its uploader in short; a profile
+ * page loads the whole account, which is the one with a `description` (pass `bio`, even '').
+ */
+export function apiUser({
+	id = 7,
+	permalink = 'artist',
+	username = 'Artist',
+	bio,
+	...rest
+}: { id?: number; permalink?: string; username?: string; bio?: string | null } & Record<string, Json> = {}) {
+	const user = { kind: 'user', id, permalink, permalink_url: `https://soundcloud.com/${permalink}`, username };
+	const described = bio === undefined ? user : { ...user, description: bio };
 
-export const apiClientEntry = (id = CLIENT_ID) => ({ hydratable: 'apiClient', data: { id } });
+	// Anything else given wins, `description` included.
+	return { ...described, ...rest };
+}
+
+/**
+ * One of the page's own API answers, handed to the content script the way page-data.ts does it:
+ * a `tbx:page-data` event on the document whose detail is the path, a newline, and the body.
+ */
+export function pageLoaded(path: string, body: Json) {
+	document.dispatchEvent(new CustomEvent('tbx:page-data', { detail: `${path}\n${JSON.stringify(body)}` }));
+}

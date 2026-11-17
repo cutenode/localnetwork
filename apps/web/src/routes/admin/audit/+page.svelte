@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { Check, Download, ShieldCheck, ShieldX } from '@lucide/svelte';
+	import { roleLabel } from '#lib/capabilities.ts';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -36,7 +37,7 @@
 </script>
 
 {#snippet actor(entry: (typeof data.entries)[number])}
-	<Handle account={entry.actor} />{#if entry.actorRole && entry.actorRole !== 'member'}<p class="text-label text-fg-subtle">{entry.actorRole}</p>{/if}
+	<Handle account={entry.actor} />{#if entry.actorRole && entry.actorRole !== 'member'}<p class="text-label text-fg-subtle">{roleLabel(entry.actorRole)}</p>{/if}
 {/snippet}
 
 {#snippet action(entry: (typeof data.entries)[number])}

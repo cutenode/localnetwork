@@ -33,8 +33,7 @@ pub struct Saved {
     /// The visualiser's name (`spectrum`, `deck`...).
     pub vis: Option<String>,
     pub details: bool,
-    /// The crate panel (`tags` before the crate was called that).
-    #[serde(alias = "tags")]
+    /// The crate panel.
     pub crate_panel: bool,
     /// The track list's rating column.
     pub ratings: bool,
@@ -71,6 +70,8 @@ pub struct Saved {
     pub end_warning: Option<u16>,
     /// Cover art (on unless turned off).
     pub art: Option<bool>,
+    /// Cover art in half blocks, whatever graphics the terminal seems to have.
+    pub art_halfblocks: bool,
     /// How much the footer says (`full`, `compact`, `off`): all of it without one.
     pub hints: Option<String>,
     /// The palette's commands run lately, newest first, by name.
@@ -81,8 +82,7 @@ pub struct Saved {
     pub mixes: Vec<PathBuf>,
     /// Folders of recorded sets opened in the Mixes view, newest first.
     pub mix_folders: Vec<PathBuf>,
-    /// The crate, which is the queue's picks (`tag_list` before it was called that).
-    #[serde(alias = "tag_list")]
+    /// The crate, which is the queue's picks.
     pub crate_list: Vec<SavedCrateTrack>,
     /// The pick playing, or ready to play, and how far into it (as the queue's `at_ms`).
     pub crate_playing: Option<SavedCrateTrack>,

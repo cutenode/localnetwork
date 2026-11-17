@@ -318,7 +318,7 @@ pub fn drive_forget(store: &Store, req: &DriveRef) -> Result<DriveRecord> {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct SetRole {
     pub drive: String,
-    /// `primary`, `backup`, `set` (or `gig`, its old name) or `archive`; `None` clears it.
+    /// `primary`, `backup`, `set` or `archive`; `None` clears it.
     #[serde(default)]
     pub role: Option<String>,
 }

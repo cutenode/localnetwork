@@ -25,7 +25,11 @@ import {
 	likedTile,
 	trackPage,
 	playerBar,
-	ART
+	ART,
+	hydrationScript,
+	apiTrack,
+	pageLoaded,
+	type ApiTrackOptions
 } from '../helpers/dom.ts';
 import type { KnownDetails } from '$lib/types';
 
@@ -53,6 +57,15 @@ const details = (permalink: string, extra: Partial<KnownDetails> = {}) => ({
 	at: NOW,
 	...extra
 });
+
+// The same track as SoundCloud's API describes it, which is where the content
+// script learns those details from: the page's hydration, or a request the
+// page made later.
+const apiDetails = (permalink: string, extra: ApiTrackOptions = {}) =>
+	apiTrack({ id: 1, permalink, downloadable: true, ...extra });
+
+const served = (...tracks: ReturnType<typeof apiTrack>[]) =>
+	hydrationScript(tracks.map((data) => ({ hydratable: 'sound', data })));
 
 // The artwork of the row that names a track, whichever layout it is in.
 const artOf = (permalink: string) =>
@@ -181,9 +194,7 @@ describe('where the queue button turns up', () => {
 
 describe('what a click on it does', () => {
 	it('queues the track the way the panel would, artwork and details and all', async () => {
-		globalThis.chrome = createChrome({
-			storage: { details: { '/uploader/liked-track': details('/uploader/liked-track') } }
-		});
+		served(apiDetails('/uploader/liked-track'));
 		render(
 			publicLikesPage({
 				items: [
@@ -225,9 +236,7 @@ describe('what a click on it does', () => {
 	// rather than a placeholder. See detailsOf in content.ts.
 	it('takes the cover from the details when the row never loaded one', async () => {
 		const cover = ART('from-the-api', 'large');
-		globalThis.chrome = createChrome({
-			storage: { details: { '/a/one': details('/a/one', { artworkUrl: cover }) } }
-		});
+		served(apiDetails('/a/one', { artworkUrl: cover }));
 		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p', artwork: '' })] }), '/c/sets/p');
 		await loadContentScript();
 
@@ -530,16 +539,16 @@ describe('what a click on it does', () => {
 		]);
 	});
 
-	it('leaves details out where what is known about the track has gone stale', async () => {
-		const month = 31 * 24 * 60 * 60 * 1000;
-		globalThis.chrome = createChrome({
-			storage: { details: { '/l/one': details('/l/one', { at: NOW - 2 * month }) } }
-		});
-		render(publicLikesPage({ items: [likedSound({ href: '/l/one' })] }), '/dj/likes');
+	// The page loads more as it scrolls, and a track it loads after the button
+	// was painted goes into the queue with what that request said about it.
+	it('carries details the page loaded after the button was painted', async () => {
+		render(publicLikesPage({ items: [likedSound({ href: '/l/one' }), likedSound({ href: '/l/two' })] }), '/dj/likes');
 		await loadContentScript();
+		pageLoaded('/users/9/track_likes', { collection: [{ track: apiDetails('/l/one') }] });
 
 		await clickQueue(buttonOf('/l/one'));
-		expect(queueIn()[0].details).toBe(null);
+		await clickQueue(buttonOf('/l/two'));
+		expect(queueIn().map((entry) => entry.details)).toEqual([details('/l/one'), null]);
 	});
 
 	it('shrugs off a session storage that shuts under it', async () => {

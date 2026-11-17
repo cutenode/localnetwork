@@ -38,6 +38,10 @@ impl App {
             self.toast("the drive was unplugged", Level::Error);
             return;
         }
+        if l.is_collection() {
+            self.toast(crate::tui::edits::COLLECTION_READ_ONLY, Level::Info);
+            return;
+        }
         let root = l.root().to_path_buf();
         let tracks: Vec<String> = self.targets().iter().map(|&i| l.library.tracks[i].file_path.clone()).collect();
         if tracks.is_empty() {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+	djSetLabel,
 	accountLabel,
 	feeLabel,
 	feeLevels,
@@ -80,6 +81,12 @@ describe('format helpers', () => {
 		expect(initials('!!!')).toBe('?');
 		expect(hueFor('abc')).toBe(hueFor('abc'));
 		expect(hueFor('abc')).toBeGreaterThanOrEqual(0);
+	});
+
+	it('labels a set by its title, else its venue, else as untitled', () => {
+		expect(djSetLabel({ title: 'Tidal Hours', venue: 'Halle Nord', date: '2026-11-13' })).toMatch(/^Tidal Hours · /);
+		expect(djSetLabel({ venue: 'Halle Nord', date: '2026-11-13' })).toMatch(/^Halle Nord · /);
+		expect(djSetLabel({ date: '2026-11-13' })).toMatch(/^Untitled set · /);
 	});
 
 	it('shows show dates as the wall-clock time that was entered', () => {

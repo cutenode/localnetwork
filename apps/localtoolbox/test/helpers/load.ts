@@ -2,10 +2,10 @@
 // top-level scripts against the prepared globals) through Vitest's module
 // pipeline, so coverage lands on the real files.
 //
-// `vi.resetModules()` makes each load re-execute the file; the content
-// script's side effects that outlive a module instance (its document click
-// listener and MutationObserver) are captured so they can be disposed of
-// between tests.
+// `vi.resetModules()` makes each load re-execute the file; the page scripts'
+// side effects that outlive a module instance (the content script's document
+// listeners and MutationObserver, page-data.ts's wrapped XMLHttpRequest) are
+// captured so they can be disposed of between tests.
 import { vi } from 'vitest';
 import type { ChromeMock, MessageListener, StorageListener, StubEvent } from './chrome.ts';
 import { flush, until } from './flush.ts';
@@ -56,14 +56,14 @@ export async function loadState() {
 
 let live: ContentScript[] = [];
 
-export async function loadContentScript(): Promise<ContentScript> {
-	vi.resetModules();
-	// @ts-expect-error -- a classic script, run for the global it defines
-	await import('../../downloaded-store.ts');
+type DocumentListener = [string, EventListenerOrEventListenerObject, ListenerOptions?];
 
-	const listeners: [string, EventListenerOrEventListenerObject, ListenerOptions?][] = [];
-	// The script listens on `document`; an own property shadows the prototype's
-	// method for as long as it loads, and records what it adds.
+// A page script listens on `document`; an own property shadows the prototype's
+// method for as long as it loads, and records what it adds, so that taking the
+// script down can take its listeners off again.
+const recordDocumentListeners = () => {
+	const listeners: DocumentListener[] = [];
+
 	document.addEventListener = function (
 		this: Document,
 		type: string,
@@ -74,6 +74,45 @@ export async function loadContentScript(): Promise<ContentScript> {
 
 		return Document.prototype.addEventListener.call(this, type, handler, options);
 	};
+
+	return listeners;
+};
+
+const removeDocumentListeners = (listeners: DocumentListener[]) => {
+	for (const [type, handler, options] of listeners) document.removeEventListener(type, handler, options);
+};
+
+/**
+ * Runs page-data.ts in this document. It wraps XMLHttpRequest.prototype.open for good and listens
+ * for the content script's hello; `dispose` puts back the `open` it found and takes the listener
+ * off, so one test's instance never answers another test's requests.
+ */
+export async function loadPageData(): Promise<ContentScript> {
+	vi.resetModules();
+	const open = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'open')!;
+	const listeners = recordDocumentListeners();
+
+	try {
+		// @ts-expect-error -- a classic script, run for what it does to the page
+		await import('../../page-data.ts');
+	} finally {
+		Reflect.deleteProperty(document, 'addEventListener');
+	}
+
+	return {
+		dispose() {
+			removeDocumentListeners(listeners);
+			Object.defineProperty(XMLHttpRequest.prototype, 'open', open);
+		}
+	};
+}
+
+export async function loadContentScript(): Promise<ContentScript> {
+	vi.resetModules();
+	// @ts-expect-error -- a classic script, run for the global it defines
+	await import('../../downloaded-store.ts');
+
+	const listeners = recordDocumentListeners();
 
 	// Listeners the script registers with the chrome API, so a disposed
 	// instance stops answering messages and storage changes.
@@ -155,9 +194,7 @@ export async function loadContentScript(): Promise<ContentScript> {
 
 	const instance = {
 		dispose() {
-			for (const [type, handler, options] of listeners) {
-				document.removeEventListener(type, handler, options);
-			}
+			removeDocumentListeners(listeners);
 
 			for (const observer of observers) observer.disconnect();
 			globalThis.MutationObserver = RealObserver;

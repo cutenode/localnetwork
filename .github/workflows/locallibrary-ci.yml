@@ -22,11 +22,15 @@ on:
         type: boolean
         required: true
       deny:
-        description: Whether what cargo-deny reads changed (locallibrary_deny).
+        description: Whether what cargo-deny or `cargo notices` reads changed (locallibrary_deny).
         type: boolean
         required: true
       release:
-        description: Whether a pull request changed what the release budgets measure (locallibrary_release).
+        description: Whether a pull request or merge queue group changed what the release budgets measure (locallibrary_release).
+        type: boolean
+        required: true
+      budgets:
+        description: Whether to measure the budgets job's numbers alone, for a push to main that changed the workspace, so pull requests have their base's.
         type: boolean
         required: true
       dist:
@@ -172,7 +176,7 @@ jobs:
   # .cargo/config.toml. On a push to main that changed what the caches are keyed on (`cache`), it
   # only builds, for its cache.
   build:
-    if: inputs.linux || inputs.cache
+    if: inputs.linux || inputs.cache || inputs.budgets
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -268,64 +272,91 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # The exact counts a pull request can't change without saying so, against benchmarks/budgets/ (see
-  # benchmarks/README.md): what everyday operations and a frame of the player allocate, the
-  # instructions of a frame, and how many packages the CLI builds, from the shards' archive and
-  # `cargo tree`, so no build of its own. And that no budget was loosened without a `budget-raise:`
-  # line in the pull request's body.
+  # The exact counts a pull request can't grow without saying so, against benchmarks/budgets/ (see
+  # benchmarks/README.md): what everyday operations and a frame of the player allocate, what writing
+  # a library asks of the filesystem, and the instructions of a frame, from the shards' archive, so
+  # no build of its own. A pull request is held to how much it grows each over the commit its merge
+  # commit sits on (HEAD^1), whose numbers a push to main measures here; only when none did is the
+  # base built here too. And that no allowance was widened without a `budget-raise:` line in the
+  # pull request's body.
   budgets:
     needs: build
-    if: inputs.linux
+    if: inputs.linux || inputs.budgets
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The base's archive, when no run measured the base.
+    timeout-minutes: 45
     permissions:
       contents: read
+      # The base's measurements, from its run's artifact.
+      actions: read
       # The pull request's body.
       pull-requests: read
     steps:
+      # The base, and enough of main before it for the baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 30
       - run: rustup toolchain install
+      # The build job's cache, which a key per job would miss, for a base built here. Never saved.
+      - if: github.event_name == 'pull_request'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: build
+          save-if: false
       # nextest lists what's in every binary of the archive, and the CLI's links ALSA. Valgrind is
       # for a frame's instructions.
       - uses: ./.github/actions/apt-packages
         with:
           packages: libasound2-dev strace valgrind
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
+          cache: pnpm
+      - if: github.event_name == 'pull_request'
+        run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest@0.9.148
+          tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: tests
-      - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
-      - run: |
-          mkdir "$RUNNER_TEMP/tests"
-          cargo nextest run --archive-file tests.tar.zst --extract-to "$RUNNER_TEMP/tests" -E 'binary(counters) | binary(export_counters) | test(/tui::frames::tests::/)'
-      # A frame's instructions from the archive's debug test binary, so a pure CPU slowdown shows on
-      # the pull request and doesn't wait for the weekly release-profile run. Unoptimised and built
-      # for coverage, these only compare one build's frame with another's.
-      - run: |
-          .github/actions/release-budgets/frame-instructions.sh "$RUNNER_TEMP"/tests/target/debug/deps/unit-* 200 tui-debug-instructions "$LOCALLIBRARY_BUDGETS_OUT"
-      # Without colour: CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
-      - run: |
-          cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary --prefix none |
-            sed 's/ (.*//' | sort -u | wc -l | jq '{"locallibrary": .}' > "$LOCALLIBRARY_BUDGETS_OUT/deps.json"
-      - run: node tools/budgets/cli.ts check "$LOCALLIBRARY_BUDGETS_OUT" pull-request
+      - run: tools/budgets/measure-archive.sh tests.tar.zst "$PWD/target/budgets"
       - if: github.event_name == 'pull_request'
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/budgets/cli.ts baseline "$(git rev-parse HEAD^1)" locallibrary budgets target/budgets-base >> "$GITHUB_OUTPUT"
+      # In this checkout, as a byte count includes the length of the paths it reads, with this
+      # commit's scripts.
+      - if: github.event_name == 'pull_request' && steps.baseline.outputs.found != 'true'
+        run: |
+          echo "::notice::No run measured $(git rev-parse --short HEAD^1) or a commit before it that changed none of what this measures, so this job measures it too"
+          cp tools/budgets/*.sh "$RUNNER_TEMP/"
+          head=$(git rev-parse HEAD)
+          git checkout -q --detach HEAD^1
+          cargo llvm-cov nextest-archive --workspace --locked --archive-file "$RUNNER_TEMP/base.tar.zst"
+          "$RUNNER_TEMP/measure-archive.sh" "$RUNNER_TEMP/base.tar.zst" "$PWD/target/budgets-base"
+          git checkout -q --detach "$head"
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - if: github.event_name == 'pull_request'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
-          BASE: ${{ github.base_ref }}
         run: |
-          git fetch --depth=1 origin "$BASE"
-          # From the API: a body edited since this run's event wouldn't be in it.
-          gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
-          node tools/budgets/cli.ts raises FETCH_HEAD "$RUNNER_TEMP/body.md"
+          # The pull request's commits' Budget-Raise trailers, and its body, from the API: a body
+          # edited since this run's event wouldn't be in it.
+          {
+            git log --format='%(trailers:key=Budget-Raise)' HEAD^1..HEAD
+            gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""'
+          } > "$RUNNER_TEMP/raises.md"
+          node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" | tee -a "$GITHUB_STEP_SUMMARY"
+          node tools/budgets/cli.ts raises HEAD^1 "$RUNNER_TEMP/raises.md"
+      # Under the run's own commit: for a push to main, main's measurement.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -334,26 +365,94 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # What only a release build can tell, against benchmarks/budgets/: when a manifest, the lockfile
-  # or the Rust that ships changed (ci.yml's locallibrary_release paths). Changes to tests alone are
+  # What only a release build can tell, against benchmarks/budgets/ (see benchmarks/README.md): when a
+  # manifest, the lockfile or the Rust that ships changed (ci.yml's locallibrary_release paths).
+  # A pull request is held to how much it grows each number over the commit its merge commit sits on
+  # (HEAD^1), and a merge queue group to how much its pull requests grow them together over the
+  # group's base. The base's numbers come from the run that measured that commit, or of the nearest
+  # one before it that changed nothing these measure: a group's head becomes main, so the queue's
+  # runs measure main. Only when no run did is the base built here too. Changes to tests alone are
   # caught by locallibrary-bench.yml's weekly run of the same.
   release-budgets:
     if: inputs.release
     runs-on: ubuntu-latest
-    # Two release builds: dist's for the CLI and the release profile's for the frame test.
-    timeout-minutes: 60
+    # Two release builds, dist's for the CLI and the release profile's for the frame test, and the
+    # base's two when no run measured it.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      # The base's measurements, from its run's artifact.
+      actions: read
+      # The bodies of the pull requests, for budget-raise lines from before trailers.
+      pull-requests: read
     steps:
+      # The base and a group's pull requests' merge commits, and enough of main before them for the
+      # baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 30
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
       - uses: ./.github/actions/release-budgets
+        with:
+          out: ${{ github.workspace }}/target/budgets
+      # A merge queue group's base, how many pull requests it holds, and their commits' Budget-Raise
+      # trailers and bodies, or a pull request's base, trailers and body.
+      - id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          if [ "$EVENT" = merge_group ]; then base=$GROUP_BASE; else base=$(git rev-parse HEAD^1); fi
+          git log --format='%(trailers:key=Budget-Raise)' "$base..HEAD" > "$RUNNER_TEMP/raises.md"
+          if [ "$EVENT" = merge_group ]; then
+            numbers=$(git log --first-parent --merges --format=%s "$base..HEAD" | sed -n 's/^Merge pull request #\([0-9]*\) .*/\1/p')
+            for number in $numbers; do gh api "repos/$GH_REPO/pulls/$number" --jq '.body // ""' >> "$RUNNER_TEMP/raises.md"; done
+            entries=$(git rev-list --first-parent --merges --count "$base..HEAD")
+          else
+            # From the API: a body edited since this run's event wouldn't be in it.
+            if [ "$EVENT" = pull_request ]; then gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' >> "$RUNNER_TEMP/raises.md"; fi
+            entries=1
+          fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+          echo "entries=$entries" >> "$GITHUB_OUTPUT"
+      - id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ steps.base.outputs.sha }}
+        run: node tools/budgets/cli.ts baseline "$BASE" locallibrary_release release-budgets target/budgets-base >> "$GITHUB_OUTPUT"
+      - if: steps.baseline.outputs.found != 'true'
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          echo "::notice::No run measured ${BASE:0:9} or a commit before it that changed none of what this measures, so this job measures it too"
+          git worktree add "$RUNNER_TEMP/base" "$BASE"
+      - if: steps.baseline.outputs.found != 'true'
+        uses: ./.github/actions/release-budgets
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        with:
+          root: ${{ runner.temp }}/base
+          out: ${{ github.workspace }}/target/budgets-base
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - shell: bash
+        env:
+          ENTRIES: ${{ steps.base.outputs.entries }}
+        run: node tools/budgets/cli.ts check release target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -602,7 +701,8 @@ jobs:
 
   # RustSec advisories, banned crates and where crates come from (see deny.toml), when what it reads
   # changed. locallibrary-scheduled.yml also checks advisories weekly, for ones published between
-  # pushes.
+  # pushes. Then the third-party notices locallibrary-release.yml writes, so a crate whose licence
+  # cargo-about can't work out fails here rather than in a release.
   deny:
     if: inputs.deny
     runs-on: ubuntu-latest
@@ -614,8 +714,9 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny@0.20.2
+          tool: cargo-deny@0.20.2,cargo-about@0.9.3
       - run: cargo deny --locked check advisories bans licenses sources
+      - run: cargo notices
 
   # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
   # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the

@@ -21,7 +21,7 @@ const photo = (cid: string): EpkPhoto => ({
 });
 
 /** A PNG header with the given size: enough for type sniffing and reading dimensions. */
-function png(width: number, height: number): File {
+function pngBytes(width: number, height: number): Uint8Array<ArrayBuffer> {
 	const ihdr = Buffer.alloc(25);
 	ihdr.writeUInt32BE(13, 0);
 	ihdr.write('IHDR', 4);
@@ -29,10 +29,13 @@ function png(width: number, height: number): File {
 	ihdr.writeUInt32BE(height, 12);
 	ihdr[16] = 8;
 	ihdr[17] = 2;
-	const bytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), ihdr, deflateSync(Buffer.alloc(8))]);
 
-	return new File([bytes], 'shot.png', { type: 'image/png' });
+	return Uint8Array.from(
+		Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), ihdr, deflateSync(Buffer.alloc(8))])
+	);
 }
+
+const png = (width: number, height: number) => new File([pngBytes(width, height)], 'shot.png', { type: 'image/png' });
 
 const form = (entries: [string, string | File][]) => {
 	const data = new FormData();
@@ -407,6 +410,90 @@ describe('parseEpkForm on any submission', () => {
 
 				expect(readOrExplained).toBe(true);
 				expect(submittedValues(data, projectMixes).mixes).toHaveLength(projectMixes.length);
+			})
+		);
+	});
+});
+
+describe('parseEpkForm on any photo', () => {
+	/** A baseline JPEG's start: its signature, then a frame header giving the size. */
+	const jpegBytes = (width: number, height: number) =>
+		Uint8Array.from([
+			0xff,
+			0xd8,
+			0xff,
+			0xc0,
+			0,
+			17,
+			8,
+			height >> 8,
+			height & 255,
+			width >> 8,
+			width & 255,
+			3,
+			1,
+			0x22,
+			0,
+			2,
+			0x11,
+			1,
+			3,
+			0x11,
+			1
+		]);
+
+	/** An extended WebP's start: its RIFF header, then a VP8X chunk giving the size less one, in 24 bits. */
+	const webpBytes = (width: number, height: number) => {
+		const bytes = Buffer.alloc(30);
+		bytes.write('RIFFxxxxWEBPVP8X', 0);
+		bytes.writeUInt32LE(10, 16);
+		bytes.writeUIntLE(Math.max(0, width - 1), 24, 3);
+		bytes.writeUIntLE(Math.max(0, height - 1), 27, 3);
+
+		return Uint8Array.from(bytes);
+	};
+
+	// How long each type's signature is: shorter and the photo is refused before its size is read.
+	const formats = [
+		{ type: 'image/png', header: pngBytes, signature: 8 },
+		{ type: 'image/jpeg', header: jpegBytes, signature: 3 },
+		{ type: 'image/webp', header: webpBytes, signature: 12 }
+	];
+
+	// A real header of any size, cut anywhere past its signature, then anything at all.
+	const photoFile = fc
+		.tuple(
+			fc.constantFrom(...formats),
+			fc.oneof(fc.constant(0), fc.nat({ max: 0xffff })),
+			fc.oneof(fc.constant(0), fc.nat({ max: 0xffff })),
+			fc.oneof(fc.constant(64), fc.nat({ max: 64 })),
+			fc.uint8Array({ maxLength: 64 })
+		)
+		.map(([{ type, header, signature }, width, height, cut, tail]) => {
+			const bytes = header(width, height);
+
+			return new File([bytes.subarray(0, signature + cut), tail], 'shot', { type });
+		});
+
+	it('reads a size of whole pixels, or none, from any photo it takes', async () => {
+		await fc.assert(
+			fc.asyncProperty(photoFile, async (file) => {
+				const parsed = await parseEpkForm(
+					form([
+						['title', 'x'],
+						['newPhotos', file]
+					]),
+					[],
+					[]
+				);
+
+				const size = parsed.uploads[0].aspectRatio;
+				const sides = size ? [size.width, size.height] : [];
+
+				expect(
+					sides.every((side) => Number.isInteger(side) && side > 0),
+					JSON.stringify(size)
+				).toBe(true);
 			})
 		);
 	});

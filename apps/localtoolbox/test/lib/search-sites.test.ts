@@ -214,6 +214,14 @@ describe('filling a template in', () => {
 		expect(url('https://shop.test/?q={query}')).toBe('https://shop.test/?q=N%C3%B6m%20%26%20Co%20Track%20One');
 	});
 
+	it('searches for a title cut off halfway through an emoji', () => {
+		const track = { artist: 'Nöm', title: 'Track \ud83c' };
+
+		expect(searchUrl(one({ url: 'https://shop.test/?q={query}' }), track)).toBe(
+			'https://shop.test/?q=N%C3%B6m%20Track%20%EF%BF%BD'
+		);
+	});
+
 	it('fills every variable in an address, however many times it is named', () => {
 		expect(searchUrl(one({ url: 'https://shop.test/{artist}/{title}/{artist}' }), TRACK)).toBe(
 			'https://shop.test/N%C3%B6m%20%26%20Co/Track%20One/N%C3%B6m%20%26%20Co'

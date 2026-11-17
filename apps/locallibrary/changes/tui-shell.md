@@ -8,14 +8,14 @@
   Under 30 rows the header carries the context.
 - Pane titles have numbers, and digits jump to panes. The pane with focus has a marker in its title
   as well as its border.
-- `g` and a letter goes to a view: `g l`, `g p`, `g d`, `g r`, `g u`, with a hint after a moment.
+- `g` and a letter goes to a view: `g l`, `g p`, `g d`, `g r`, `g n`, with a hint after a moment.
   `g g` is the first row. The digits play hot cues while the pads are on, now in every view.
 - The Drives view's History pane: what players recorded on the drive open in the library.
 
 ### Changed
 
-- The player has five views, one for each job: Library, Prepare, Drives, Recordings and Publish.
-  Mixes is now Recordings, Profile is now Publish, and the store's snapshots are a pane of Drives.
+- The player has five views, one for each job: Library, Prepare, Drives, Recordings and
+  localnetwork. Mixes is now Recordings, Profile is now localnetwork, and the store's snapshots are a pane of Drives.
 - The deck strip takes the place of the Now playing pane, so the track list has more rows. `f` still
   opens the full deck.
 - Sessions are called History in the player.

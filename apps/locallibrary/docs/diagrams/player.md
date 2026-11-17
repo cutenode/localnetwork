@@ -22,15 +22,15 @@ First run, views, panes, jobs, threads, playback and what it remembers. The rest
 
 ## Player views
 
-The player's five views and what crosses from one to another. `g` and a letter switches views (`g l`, `g p`, `g d`, `g r`, `g u`), and the digits jump to a pane, or play hot cues while the pads are on. `o` goes to the playing track, in the library or, for a recording, in Recordings; in Recordings with a recording open, it goes to the selected track in the library.
+The player's five views and what crosses from one to another. `g` and a letter switches views (`g l`, `g p`, `g d`, `g r`, `g n`), and the digits jump to a pane, or play hot cues while the pads are on. `o` goes to the playing track, in the library or, for a recording, in Recordings; in Recordings with a recording open, it goes to the selected track in the library.
 
 ```mermaid
 flowchart TD
-    library["Library<br/>drives, playlist tree, tracks, details, queue"]
+    library["Library<br/>sources (rekordbox's collection, drives),<br/>playlist tree, tracks, details, queue"]
     prepare["Prepare<br/>the jobs that get a drive ready"]
     drives["Drives<br/>libraries, drives, snapshots, what players recorded"]
     recordings["Recordings<br/>recorded sets and their tracks"]
-    publish["Publish<br/>DJ profile, Atmosphere account"]
+    publish["localnetwork<br/>DJ profile, Atmosphere account"]
     drives -->|"enter opens a drive, or a<br/>list players recorded"| library
     drives -.->|"enter on a snapshot: a playlist back<br/>onto the open drive, staying here"| library
     prepare -.->|"enter: a job on the open<br/>drive, staying here"| library
@@ -51,14 +51,16 @@ What someone new sees. Nothing is said about drives until the first read of them
 ```mermaid
 flowchart TD
     start["The player starts"] --> read["The drives read in the background"]
+    read -->|"rekordbox's collection<br/>was open at the last quit"| collection["rekordbox's collection opens, read only"]
     read -->|"one with an export"| open["A library opens: last run's drive,<br/>else a library's lead clone, else the first"]
-    read -->|"none"| empty["No rekordbox drive open:<br/>plug one in, or a next step"]
+    read -->|"none, with rekordbox<br/>on this computer"| collection
+    read -->|"none, and no rekordbox"| empty["No rekordbox drive open:<br/>plug one in, or a next step"]
     empty -->|"plugged in"| open
     empty -->|"open a folder"| folder["Prompt: the folder holding an export"]
     folder --> open
     empty -->|"browse snapshots,<br/>while the store has a library"| snapshots["Drives view, its snapshots"]
-    empty -->|"sign in, until someone is"| publish["Publish view, typing the handle"]
-    open -->|"the first this version,<br/>unless the hints are off"| intro["The footer names enter, e, : and ?<br/>until a key or a click"]
+    empty -->|"sign in, until someone is"| publish["localnetwork view, typing the handle"]
+    open & collection -->|"the first this version,<br/>unless the hints are off"| intro["The footer names enter, e, : and ?<br/>until a key or a click"]
 ```
 
 Source: [`src/tui/first_run.rs`](../../src/tui/first_run.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/mouse.rs`](../../src/tui/app/mouse.rs), [`src/tui/ui/library.rs`](../../src/tui/ui/library.rs), [`src/tui/ui/chrome.rs`](../../src/tui/ui/chrome.rs)
@@ -138,7 +140,7 @@ stateDiagram-v2
     [*] --> Deck: last run's layout
     Panes --> Deck: f
     Deck --> Panes: f or esc
-    Deck --> Browse: b, or no drive to open at the first read
+    Deck --> Browse: b, or nothing to open at the first read
     Browse --> Deck: a track played from the list, or esc
     Browse --> Panes: f
 ```
@@ -178,8 +180,9 @@ sequenceDiagram
     participant L as Library read
     participant B as Other reads
     U->>L: Read the library
+    Note over U,L: rekordbox's collection: master.db read as<br/>collection reads it, files as full paths<br/>on this computer, My Tags with it
     L-->>U: Library, tracks shown at once
-    U->>B: Check files, index, sets, replay offer
+    U->>B: Check files, index, sets, replay offer (not for the collection)
     U->>B: My Tags and analyzer fields, when shown
     B-->>U: Missing: tracks with no audio file
     B-->>U: Indexed: sort ranks, Browse's groups
@@ -188,7 +191,7 @@ sequenceDiagram
     B-->>U: MyTags, Fields
 ```
 
-Source: [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs)
+Source: [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs)
 
 ## Changing a drive from the player
 
@@ -316,7 +319,7 @@ Source: [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/deck.r
 
 ## Signing in from the player
 
-The Atmosphere account's sign-in in the Publish view, kept off the UI thread. `L` starts it there, and "sign in", in the empty library or the palette, goes there to start it.
+The Atmosphere account's sign-in in the localnetwork view, kept off the UI thread. `L` starts it there, and "sign in", in the empty library or the palette, goes there to start it.
 
 ```mermaid
 stateDiagram-v2

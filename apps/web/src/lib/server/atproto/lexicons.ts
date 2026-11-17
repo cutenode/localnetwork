@@ -154,3 +154,17 @@ export function validateRecord<T extends JsonObject>(collection: string, record:
 
 	return typed;
 }
+
+/**
+ * Whether `record` is valid by `collection`'s lexicon, which `T` mirrors. validateRecord throws nothing but
+ * RecordValidationError, so any throw means invalid.
+ */
+export function isValidRecord<T>(collection: string, record: JsonObject): record is JsonObject & T {
+	try {
+		validateRecord(collection, record);
+
+		return true;
+	} catch {
+		return false;
+	}
+}
