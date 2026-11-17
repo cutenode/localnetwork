@@ -14,7 +14,7 @@
 </Story>
 
 <Story name="Linked genres" asChild>
-	<div class="flex flex-wrap gap-1.5"><Tag href="/projects?genres=disco">disco</Tag><Tag href="/projects?genres=house">house</Tag><Tag href="/projects?genres=edits">edits</Tag></div>
+	<div class="flex flex-wrap gap-1.5"><Tag href="/djs?genres=disco">disco</Tag><Tag href="/djs?genres=house">house</Tag><Tag href="/djs?genres=edits">edits</Tag></div>
 </Story>
 
 <Story name="Filters" asChild>

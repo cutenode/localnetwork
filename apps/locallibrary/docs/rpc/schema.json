@@ -2883,6 +2883,18 @@
       }
     },
     {
+      "name": "account.flags",
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/AccountFlagsRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/FlagReport"
+      }
+    },
+    {
       "name": "account.login.begin",
       "kind": "immediate",
       "long_running": false,
@@ -9711,6 +9723,16 @@
         "identity"
       ]
     },
+    "AccountFlagsRequest": {
+      "type": "object",
+      "properties": {
+        "refresh": {
+          "type": "boolean",
+          "description": "Ask the website now, however recent its last answer or failure.",
+          "default": false
+        }
+      }
+    },
     "AccountLoginRequest": {
       "type": "object",
       "properties": {
@@ -9748,7 +9770,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Scopes to ask for (default: `atproto`, which identifies you and nothing more).",
+          "description": "Scopes to ask for (default: `atproto`, which identifies you, and\n[`atmosphere::FLAGS_SCOPE`], tokens for two methods of Local Network's website).",
           "default": []
         },
         "publish": {
@@ -24577,6 +24599,76 @@
         }
       ],
       "description": "Where secrets are kept."
+    },
+    "FlagReport": {
+      "type": "object",
+      "properties": {
+        "flags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FlagState"
+          },
+          "description": "Every flag this version knows."
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness"
+        },
+        "fetched_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When the website last answered, however long ago."
+        },
+        "needs_sign_in": {
+          "type": "boolean",
+          "description": "The session can't ask about flags that target an account or group: only a new sign-in can."
+        }
+      },
+      "required": [
+        "flags",
+        "freshness",
+        "fetched_at",
+        "needs_sign_in"
+      ],
+      "description": "What `account flags` shows."
+    },
+    "FlagState": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "on"
+      ],
+      "description": "A flag in [`FlagReport`]."
+    },
+    "Freshness": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "fresh",
+          "description": "Younger than [`FRESH`]."
+        },
+        {
+          "type": "string",
+          "const": "stale",
+          "description": "The website hasn't answered since, but it's younger than [`LAST_KNOWN_GOOD`]."
+        },
+        {
+          "type": "string",
+          "const": "none",
+          "description": "No answer, or one older than that: every flag is off."
+        }
+      ],
+      "description": "How much an answer can be gone by."
     },
     "LoginStart": {
       "type": "object",

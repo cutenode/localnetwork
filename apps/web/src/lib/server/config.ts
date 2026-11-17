@@ -131,11 +131,10 @@ export type Config = {
 	happyView: { url: string; apiKey?: string };
 	/** The userinput.app space signed-in people post bug reports to. Unset, every report goes to GitHub instead. */
 	userinputSpace?: string;
-	/** did:web identity of this app, used as the notification target for spaces. */
+	/** did:web identity of this app, the audience of the service auth it accepts. */
 	serviceDid: string;
-	/** Service id (DID + fragment) that space hosts deliver notifyWrite to. */
-	syncService: string;
 	syncPollIntervalMs: number;
+	/** Whether space hosts send this app their spaces' updates at `publicUrl`, so it hears of them before its next poll. */
 	syncNotify: boolean;
 	geocoder: 'open-meteo' | 'nominatim' | 'none';
 	/** Where the sign-in page's account typeahead searches. */
@@ -161,8 +160,6 @@ export type Config = {
 	/** Flags forced on (true) or off for every request to this server. Development and tests only. */
 	flagOverrides: Record<string, boolean>;
 };
-
-export const SYNC_SERVICE_FRAGMENT = 'localnetwork_syncer';
 
 /**
  * did:web for this deployment. Loopback IPs become `localhost`, the only host
@@ -230,7 +227,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		happyView: { url: value.HAPPYVIEW_URL, apiKey: value.HAPPYVIEW_API_KEY },
 		userinputSpace: value.USERINPUT_SPACE,
 		serviceDid,
-		syncService: `${serviceDid}#${SYNC_SERVICE_FRAGMENT}`,
 		syncPollIntervalMs: value.SYNC_POLL_INTERVAL_MS,
 		syncNotify: truthy(value.SYNC_NOTIFY, isHttps || dev),
 		geocoder: value.GEOCODER,

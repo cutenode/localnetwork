@@ -1,0 +1,50 @@
+# Values the export.pdb and exportExt.pdb readers branch on (vendor/rekordbox-pdb), for libFuzzer's -dict.
+# Integers are little-endian, as the files have them.
+
+# Page size, and the header's directory start
+"\x00\x10\x00\x00"
+"\x1c\x00\x00\x00"
+
+# Table types (export.pdb 0-19, exportExt.pdb's tags 3 and tag tracks 4)
+"\x00\x00\x00\x00"
+"\x01\x00\x00\x00"
+"\x02\x00\x00\x00"
+"\x03\x00\x00\x00"
+"\x04\x00\x00\x00"
+"\x05\x00\x00\x00"
+"\x06\x00\x00\x00"
+"\x07\x00\x00\x00"
+"\x08\x00\x00\x00"
+"\x0b\x00\x00\x00"
+"\x0c\x00\x00\x00"
+"\x0d\x00\x00\x00"
+"\x10\x00\x00\x00"
+"\x13\x00\x00\x00"
+
+# Page flags at 0x1b: data pages, and the index bit
+"\x24"
+"\x34"
+"\x64"
+"\x40"
+
+# A row group's present-rows bitmask, all 16 present
+"\xff\xff"
+
+# Row subtypes: tracks, near and far artists and albums, near and far My Tags
+"\x24\x00"
+"\x60\x00"
+"\x64\x00"
+"\x80\x00"
+"\x84\x00"
+"\x80\x06"
+"\x84\x06"
+
+# A My Tag category's flag, and a tag track row's trailing 3
+"\x00\x00\x00\x01"
+"\x03\x00\x00\x00"
+
+# DeviceSQL strings: the empty short one, long ASCII and UTF-16LE headers, an ISRC's
+"\x03"
+"\x40\x04\x00\x00"
+"\x90\x04\x00\x00"
+"\x90\x08\x00\x00\x03"

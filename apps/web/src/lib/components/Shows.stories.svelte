@@ -90,7 +90,7 @@
 
 <Story name="Nothing on, with a next step" asChild>
 	<ShowList shows={[]} empty={{ title: 'Nothing coming up from DJs you follow', body: 'Follow DJs on their pages and their shows land here.' }}>
-		<a class="btn-secondary btn-sm" href="/projects">Find DJs</a>
+		<a class="btn-secondary btn-sm" href="/djs">Find DJs</a>
 	</ShowList>
 </Story>
 

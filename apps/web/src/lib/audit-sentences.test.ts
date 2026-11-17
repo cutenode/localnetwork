@@ -35,7 +35,10 @@ describe('auditSentence', () => {
 
 	it('rewords entries written before the words changed', () => {
 		expect(said('record.delete', 'Deleted a submission filed on their behalf')).toBe(
-			'You deleted a request to staff filed on your behalf'
+			'You deleted a review request filed on your behalf'
+		);
+		expect(said('record.delete', 'Deleted a request to staff filed on their behalf')).toBe(
+			'You deleted a review request filed on your behalf'
 		);
 		expect(said('record.delete', 'Deleted a press kit request filed on their behalf')).toBe(
 			'You deleted a press kit access request filed on your behalf'

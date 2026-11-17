@@ -78,7 +78,7 @@ What each sign-in asks of the account's server. Each is asked for the first time
 
 ```mermaid
 flowchart TD
-    plain["account login<br/>atproto: know who you are"] --> publish["Publishing, or login --publish<br/>include:computer.localnetwork.locallibraryPublishing,<br/>blob:audio/*"]
+    plain["account login<br/>atproto: know who you are,<br/>and tokens for the website's<br/>getFlags and requestIndex"] --> publish["Publishing, or login --publish<br/>include:computer.localnetwork.locallibraryPublishing,<br/>blob:audio/*"]
     plain --> report["bug, the first time<br/>repo:app.userinput.discussion?action=create"]
     plain --> plugin["A plugin's record write, the first time,<br/>or login --scope: repo:NSID"]
     publish --> records["Create and replace settings, profile, set, recording.<br/>Delete set, recording.<br/>A token for directory.requestIndex"]

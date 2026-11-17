@@ -18,8 +18,6 @@ import {
 	LEGACY_KIT,
 	MAX_EPKS_PER_PROJECT,
 	readRule,
-	REQUEST_ROLES,
-	type RequestRole,
 	ruleFor
 } from '#lib/epk.ts';
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
@@ -349,7 +347,7 @@ export class EpkService {
 	 * the root writes the grant straight away; for a legacy press kit, only its maker could, so the grant waits for the
 	 * press kit to move.
 	 */
-	async request(actor: Viewer, kit: PressKit, input: { role?: string; message?: string }): Promise<EpkAccessState> {
+	async request(actor: Viewer, kit: PressKit, input: { message?: string }): Promise<EpkAccessState> {
 		const { epk } = kit;
 		const state = await this.accessState(kit, actor);
 
@@ -360,12 +358,9 @@ export class EpkService {
 		if (state.kind === 'declined') throw new UserError("The managers didn't share this press kit with you");
 
 		if (state.kind !== 'canAsk') throw new UserError("This press kit isn't taking requests");
-		const role = REQUEST_ROLES.find((value) => value === input.role);
 		const message = input.message?.trim();
 		const createdAt = nowIso();
 		const draft: JsonObject = { epk: epk.uri, createdAt };
-
-		if (role) draft.role = role;
 
 		if (message) draft.message = message;
 
@@ -381,7 +376,6 @@ export class EpkService {
 			space,
 			epk: epk.uri,
 			requester: actor.did,
-			role: role ?? null,
 			message: message ?? null,
 			rule: state.rule,
 			createdAt
@@ -530,7 +524,6 @@ export class EpkService {
 		return rows.map((row) => ({
 			uri: row.uri,
 			requester: accounts.get(row.requesterDid),
-			role: REQUEST_ROLES.find((role): role is RequestRole => role === row.role) ?? null,
 			message: row.message,
 			status: row.status,
 			rule: readRule(row.rule),
@@ -577,7 +570,6 @@ export class EpkService {
 			space: input.space,
 			epk: kit.epk.uri,
 			requester,
-			role: REQUEST_ROLES.find((value) => value === request.data.role) ?? null,
 			message: request.data.message ?? null,
 			rule: await this.ruleForViewer(kit, requester),
 			createdAt: request.data.createdAt,
@@ -689,7 +681,6 @@ export class EpkService {
 
 		const record = toJson({
 			epk,
-			role: row.role ?? undefined,
 			message: row.message ?? undefined,
 			onBehalfOf: row.requesterDid,
 			createdAt: row.createdAt
@@ -706,7 +697,6 @@ export class EpkService {
 			space,
 			epk,
 			requester: row.requesterDid,
-			role: row.role,
 			message: row.message,
 			rule: row.rule,
 			createdAt: row.createdAt
@@ -763,7 +753,6 @@ export class EpkService {
 		space: string;
 		epk: string;
 		requester: string;
-		role: string | null;
 		message: string | null;
 		rule: string;
 		createdAt: string;
@@ -776,7 +765,6 @@ export class EpkService {
 				spaceUri: row.space,
 				epkUri: row.epk,
 				requesterDid: row.requester,
-				role: row.role,
 				message: row.message,
 				rule: row.rule,
 				status: row.status ?? 'pending',

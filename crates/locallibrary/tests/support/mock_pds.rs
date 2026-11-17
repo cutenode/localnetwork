@@ -14,7 +14,8 @@
 //! `computer.localnetwork.directory.requestIndex` copies the caller's locallibrary records into
 //! it, as HappyView reading the account's repository again would. A `computer.localnetwork.dj.set`
 //! is indexed as the directory's record script keeps it: without its `$type`, with fields of its
-//! own.
+//! own. The website's `computer.localnetwork.flags.getFlags` lists what [`MockPds::set_flags`]
+//! says, targeting only a caller with a token.
 //!
 //! Writes and uploads must be DPoP-bound: an `Authorization: DPoP <token>` header and a `DPoP` proof, which
 //! must carry the nonce the server hands out (the first write is told to use one, as servers
@@ -78,6 +79,9 @@ pub enum Writes {
     RefuseRecord,
 }
 
+/// A status and its body.
+type Answered = (u16, Value);
+
 /// `(repo, collection, rkey)` → (record, CID).
 type Records = IndexMap<(String, String, String), (Value, String)>;
 
@@ -112,6 +116,12 @@ struct State {
     blob_limit: usize,
     /// The files uploaded, by CID: their type, as the upload said, and their bytes.
     blobs: IndexMap<String, (String, Vec<u8>)>,
+    /// What `getFlags` lists: each flag's key and public gates.
+    flags: Vec<(String, bool, u32)>,
+    /// The flags in `flags` that target a caller with a token.
+    targeted: Vec<String>,
+    /// What `getFlags` answers instead: without a token, and with one.
+    flags_answers: (Option<Answered>, Option<Answered>),
     requests: Vec<Request>,
 }
 
@@ -138,6 +148,9 @@ impl MockPds {
             revocation: 200,
             blob_limit: usize::MAX,
             blobs: IndexMap::new(),
+            flags: Vec::new(),
+            targeted: Vec::new(),
+            flags_answers: (None, None),
             requests: Vec::new(),
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -234,6 +247,20 @@ impl MockPds {
             let all: Vec<_> = s.records.keys().cloned().collect();
             all.iter().for_each(|id| index(&mut s, id));
         }
+    }
+
+    /// What `getFlags` lists from now on: each flag's key, `everyone` and `percentage`, those
+    /// named in `targeted` targeting a caller with a token.
+    pub fn set_flags(&self, flags: &[(&str, bool, u32)], targeted: &[&str]) {
+        let mut s = self.state.lock().unwrap();
+        s.flags = flags.iter().map(|(key, everyone, percentage)| (key.to_string(), *everyone, *percentage)).collect();
+        s.targeted = targeted.iter().map(|key| key.to_string()).collect();
+    }
+
+    /// What `getFlags` answers instead of its list, without a token and with one (`None`: its
+    /// list).
+    pub fn set_flags_answers(&self, public: Option<(u16, Value)>, with_token: Option<(u16, Value)>) {
+        self.state.lock().unwrap().flags_answers = (public, with_token);
     }
 
     /// Whether the directory finishes reading an account again within `requestIndex` (it does
@@ -513,6 +540,17 @@ fn refused(req: &Request, s: &State) -> Option<Answer> {
     }
 }
 
+/// The claims of the service token `req` carries, when it's one this server's getServiceAuth
+/// signed for the method `lxm`, at this website.
+fn service_claims(req: &Request, base: &str, lxm: &str) -> Option<Value> {
+    let audience = format!("did:web:{}", base.trim_start_matches("http://").replace(':', "%3A"));
+    req.header("authorization")
+        .and_then(|a| a.strip_prefix("Bearer "))
+        .and_then(|t| t.split('.').nth(1))
+        .and_then(decode_json)
+        .filter(|c| c["aud"] == audience.as_str() && c["lxm"] == lxm)
+}
+
 fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
     let mut s = state.lock().unwrap();
     match (req.method.as_str(), req.path.as_str()) {
@@ -659,16 +697,7 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
             (200, vec![], json!({ "records": records }))
         }
         ("POST", "/xrpc/computer.localnetwork.directory.requestIndex") => {
-            // A token this server's getServiceAuth signed for this method, at this website.
-            let audience = format!("did:web:{}", base.trim_start_matches("http://").replace(':', "%3A"));
-            let claims = req
-                .header("authorization")
-                .and_then(|a| a.strip_prefix("Bearer "))
-                .and_then(|t| t.split('.').nth(1))
-                .and_then(decode_json)
-                .filter(|c| {
-                    c["aud"] == audience.as_str() && c["lxm"] == "computer.localnetwork.directory.requestIndex"
-                });
+            let claims = service_claims(req, base, "computer.localnetwork.directory.requestIndex");
             let Some(claims) = claims else {
                 return (401, vec![], json!({ "error": "AuthenticationRequired", "message": "Invalid service auth" }));
             };
@@ -684,6 +713,21 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
                 .collect();
             theirs.iter().for_each(|id| index(&mut s, id));
             (200, vec![], json!({ "indexed": true }))
+        }
+        ("GET", "/xrpc/computer.localnetwork.flags.getFlags") => {
+            let token = req.header("authorization").is_some();
+            let instead = if token { &s.flags_answers.1 } else { &s.flags_answers.0 };
+            if let Some((status, body)) = instead {
+                return (*status, vec![], body.clone());
+            }
+            if token && service_claims(req, base, "computer.localnetwork.flags.getFlags").is_none() {
+                return (401, vec![], json!({ "error": "AuthenticationRequired", "message": "Invalid service auth" }));
+            }
+            let flag = |(key, everyone, percentage): &(String, bool, u32)| {
+                let targeted = token && s.targeted.contains(key);
+                json!({ "key": key, "everyone": everyone, "percentage": percentage, "targeted": targeted })
+            };
+            (200, vec![], json!({ "flags": s.flags.iter().map(flag).collect::<Vec<_>>() }))
         }
         ("POST", "/oauth/revoke") => (s.revocation, vec![], json!({})),
         ("POST", "/oauth/token") => {

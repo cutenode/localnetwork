@@ -13,7 +13,7 @@
 
 <div class="container-page flex flex-col items-center gap-6 py-20 sm:py-30">
 	<SectionHeader level={1} align="center" eyebrow="Error {page.status}" {title} {lede}>
-		{#snippet actions()}<Button href="/">Back to home</Button><Button variant="secondary" href="/projects">Find DJs</Button>{/snippet}
+		{#snippet actions()}<Button href="/">Back to home</Button><Button variant="secondary" href="/djs">Find DJs</Button>{/snippet}
 	</SectionHeader>
 	<!-- A reference is for reporting a fault, so a missing or refused page doesn't show one. -->
 	{#if page.error?.requestId && page.status >= 500}<p class="m-0 font-mono text-caption text-fg-subtle">Reference: {page.error.requestId}</p>{/if}

@@ -5,11 +5,10 @@ import type { NeedsRow, NightRow } from '#lib/home.ts';
 import type { BookingThreadView, PlannerShowView, ProjectView, RequestView, Viewer } from '#lib/types.ts';
 import { unlessOffline } from './happyview/offline';
 import type { Logger } from './logger';
-import { loadPlanner } from './planner-page';
+import { loadPlanner, type PlannerApp } from './planner-page';
 import type { BookingService } from './services/bookings';
 import type { EpkService } from './services/epk';
 import type { PlannerService } from './services/planner';
-import type { ProjectService } from './services/projects';
 import type { RequestService } from './services/requests';
 import type { ShowService } from './services/shows';
 
@@ -82,7 +81,7 @@ function byNight(a: BookingThreadView, b: BookingThreadView, now: number) {
 const requestRow = (request: RequestView, now: number): NeedsRow => ({
 	key: request.uri,
 	scope: requestTitle(request),
-	title: 'Update your request',
+	title: 'Update your review request',
 	detail: `${requestTitle(request)} · Staff asked for changes · ${timeAgo(request.decision?.at ?? request.updatedAt, now)}`,
 	href: `/dashboard/account/requests/${request.rkey}`,
 	action: 'Update'
@@ -210,8 +209,7 @@ export async function nextNights(
 		app: {
 			shows: Pick<ShowService, 'forProject'>;
 			planner: Pick<PlannerService, 'saves' | 'shows'>;
-			projects: Pick<ProjectService, 'byUris'>;
-		};
+		} & PlannerApp;
 		log: Log;
 	},
 	viewer: Viewer,
