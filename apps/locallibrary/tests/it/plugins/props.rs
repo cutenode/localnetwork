@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 21] = [
+const CAPABILITIES: [&str; 22] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -43,6 +43,7 @@ const CAPABILITIES: [&str; 21] = [
     "sets:read",
     "account:status",
     "collection:read",
+    "collection:files",
     "library:plan",
     "library:delete",
     "tags:plan",
@@ -1538,7 +1539,7 @@ fn a_plugin_that_clashes_is_left_out_saying_why(tc: TestCase) {
             )
         }
         1 => {
-            let c = tc.draw(gs::sampled_from(&["eject", "info"][..]));
+            let c = tc.draw(gs::sampled_from(&["eject", "set"][..]));
             (plain(c), format!("the {c} plugin's id is a locallibrary command already"))
         }
         2 => {

@@ -29,7 +29,11 @@ afterEach(async () => {
 const app = () => ({ ...t, rootDid: ROOT, geocoder: { enabled: false }, sets: t.projects.sets });
 
 /** DJ's Bluesky profile, as their own repo holds it, with a picture when `avatar` is set. */
-async function blueskyProfile(did: string, fields: { displayName?: string; description?: string }, avatar = false) {
+async function blueskyProfile(
+	did: string,
+	fields: { displayName?: string; description?: string; pronouns?: string },
+	avatar = false
+) {
 	const client = t.net.client(did);
 	const image = avatar ? await client.uploadBlob(new TextEncoder().encode('portrait'), 'image/png') : undefined;
 
@@ -117,6 +121,19 @@ it('fills the form in from a saved profile, with the request to be listed that i
 	});
 });
 
+it("shows the pronouns from someone's Bluesky profile, else the ones their profile kept, else none", async () => {
+	await t.profiles.save(await t.viewer(DJ), {
+		basics: { name: 'Neon', pronouns: 'they/them' },
+		avatar: 'remove',
+		swap: null
+	});
+	expect((await loaded(DJ)).pronouns).toBe('they/them');
+
+	await blueskyProfile(DJ, { displayName: 'Neon', pronouns: 'she/her' });
+	expect((await loaded(DJ)).pronouns).toBe('she/her');
+	expect((await loaded(LAPSED)).pronouns).toBe('');
+});
+
 it('says when staff list the account in Find DJs', async () => {
 	await savedProfile();
 	const listed = await t.djListings.list(await t.viewer(ADMIN), DJ);
@@ -173,7 +190,7 @@ it('asks staff to list the profile in Find DJs, and opens the request', async ()
 
 	await expect(sent).rejects.toMatchObject({ status: 303 });
 	const [request] = await t.requests.list({ kind: 'list', requester: DJ });
-	await expect(sent).rejects.toMatchObject({ location: `/dashboard/requests/${request.rkey}?submitted=1` });
+	await expect(sent).rejects.toMatchObject({ location: `/dashboard/account/requests/${request.rkey}?submitted=1` });
 	expect(request?.record).toMatchObject({
 		listing: { subject: profile.uri, cid: profile.cid },
 		message: 'I play every weekend'

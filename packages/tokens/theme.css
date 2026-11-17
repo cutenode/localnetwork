@@ -24,7 +24,8 @@
 	--color-line: #1f1f24;
 	--color-line-strong: #2c2c33;
 
-	/* Text, strongest to quietest. Every step reads at 4.5:1 or better on every surface. */
+	/* Text, strongest to quietest. Every step reads at 4.5:1 or better on every surface, in both
+	   palettes (apps/localtoolbox/test/contrast.test.ts checks). */
 	--color-fg: #f4f4f5;
 	--color-fg-soft: #d4d4d8;
 	--color-fg-muted: #a1a1aa;
@@ -104,7 +105,7 @@
 		--color-fg: #09090b;
 		--color-fg-soft: #27272a;
 		--color-fg-muted: #52525b;
-		--color-fg-subtle: #71717a;
+		--color-fg-subtle: #6b6b74;
 		--color-fg-inverse: #ffffff;
 		--color-link: #1d4ed8;
 		--color-link-wash: #dbeafe;

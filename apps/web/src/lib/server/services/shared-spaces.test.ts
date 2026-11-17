@@ -1,10 +1,11 @@
 import type { JsonObject } from '@atproto/lex-json';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { memberSpacePolicy } from '../atproto/repo-client';
 import { FakeRootClient } from '../testing/fakes';
 import { createTestServices, ROOT } from '../testing/core';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
+import { ACT_TYPE, performerRecord } from './performer-index';
 
 const ADMIN = 'did:plc:admin';
 
@@ -509,14 +510,43 @@ describe('SharedSpaces', () => {
 				{ actor: BO, actorRole: 'member', subject: space, details: { slug: 'crew' } }
 			]);
 
-			// The form was opened on the version before.
-			await expect(t.sharedSpaces.updatePage(await t.viewer(BO), space, input)).rejects.toThrow(
-				new UserError('The page changed since you opened it. Reload to see the latest, then save again.')
-			);
+			// The form was opened on the version before: a stale write, which edit mode turns into a conflict.
+			await expect(t.sharedSpaces.updatePage(await t.viewer(BO), space, input)).rejects.toMatchObject({
+				message: 'The page changed since you opened it. Reload to see the latest, then save again.',
+				status: 409
+			});
 
-			await t.sharedSpaces.updatePage(admin, space, { ...input, avatar: 'keep', swap: saved.cid });
+			await t.sharedSpaces.updatePage(admin, space, {
+				...input,
+				basics: { name: 'Crew Four' },
+				avatar: 'keep',
+				swap: saved.cid
+			});
 			// The same page, avatar kept.
-			expect(page(space)?.value.subject).toEqual(saved.value.subject);
+			const before = performerRecord(saved.value)?.subject;
+			assert(before?.$type === ACT_TYPE);
+			expect(performerRecord(page(space)?.value)?.subject).toEqual({
+				...before,
+				basics: { ...before.basics, name: 'Crew Four' }
+			});
+			// Each save lists the fields it changed with their values before and after, so a staff edit is on record whole.
+			expect(
+				(await t.audit.list({ action: 'page.update' })).map(({ actorRole, changes }) => ({
+					actorRole,
+					changes: JSON.parse(changes ?? '[]')
+				}))
+			).toEqual([
+				{ actorRole: 'admin', changes: [{ field: 'subject.basics.name', before: 'Crew Three', after: 'Crew Four' }] },
+				{
+					actorRole: 'member',
+					changes: [
+						{ field: 'subject.basics.avatar', after: expect.stringMatching(/^image /) },
+						{ field: 'subject.basics.name', before: basics.name, after: 'Crew Three' },
+						{ field: 'subject.form', before: 'duo', after: 'group' },
+						{ field: 'subject.performer.genres', after: 'techno' }
+					]
+				}
+			]);
 		});
 
 		it('refuses to save the page for someone whose page.edit was taken away, and for a space with no act', async () => {

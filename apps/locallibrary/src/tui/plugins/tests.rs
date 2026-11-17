@@ -46,7 +46,7 @@ fn plugins_commands_are_in_the_palette() {
     press(&mut app, ":");
     let (item, why) = entry(&app, "answer the params…");
     assert_eq!((item.detail.as_str(), why), ("Echo", Some("open a drive first")));
-    assert_eq!(entry(&app, "fetch cover art…").0.detail, "Cover art");
+    assert_eq!(entry(&app, "fetch cover art…").0.detail, "Cover art, Discogs");
     let p = picker(&app);
     let echo = p.items.iter().position(|i| i.label == "answer the params…").unwrap();
     assert!(p.items[..echo].iter().any(|i| i.label == "quit"), "the player's own first");
@@ -395,7 +395,7 @@ fn operations_are_offered_where_they_can_run() {
     press(&mut app, "\u{1b}e");
     let items = menu(&app);
     let echo = items.iter().position(|(l, _)| l == "make a playlist…").expect("in the menu");
-    assert!(items[..echo].iter().any(|(l, _)| l == "clear the crate"), "after the player's own");
+    assert!(items[..echo].iter().any(|(l, _)| l == "clear the queue"), "after the player's own");
     assert!(items.iter().all(|(l, _)| l != "answer the params…"), "commands change nothing: not here");
     assert_eq!(items[echo].1, None);
     press(&mut app, "\u{1b}");

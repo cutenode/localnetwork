@@ -1,0 +1,43 @@
+[package]
+name = "loclib-sqlcipher"
+description = "Read and write SQLCipher 4 databases page by page in pure Rust, replaying SQLite's write-ahead log"
+readme = "README.md"
+keywords = ["sqlcipher", "sqlite", "encryption", "wal", "rekordbox"]
+categories = ["cryptography", "database", "parser-implementations"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aes.workspace = true
+cbc.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+indexmap.workspace = true
+ring = "0.17.14"
+rusqlite = { workspace = true, optional = true }
+rustc-hash.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[features]
+# `wal::tests::build`: WALs written as SQLite writes them, for tests in this crate and the ones
+# built on it.
+test-util = []
+# `untrusted`: opening a decrypted database, or any SQLite file someone else wrote, with rusqlite
+# safely.
+rusqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+criterion.workspace = true
+hegeltest.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "sqlcipher"
+harness = false
+required-features = ["test-util"]

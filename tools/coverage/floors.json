@@ -21,6 +21,11 @@
 			"functions": 97.9,
 			"regions": 97.3
 		},
+		"crates/loclib-capacity": {
+			"lines": 96.4,
+			"functions": 99.8,
+			"regions": 95.3
+		},
 		"crates/loclib-equipment": {
 			"lines": 99.8,
 			"functions": 99.8,
@@ -56,6 +61,11 @@
 			"functions": 99.8,
 			"regions": 99.8
 		},
+		"crates/loclib-sqlcipher": {
+			"lines": 97.9,
+			"functions": 88.3,
+			"regions": 97.4
+		},
 		"crates/loclib-tracklist": {
 			"lines": 99.7,
 			"functions": 99.8,
@@ -85,6 +95,11 @@
 			"lines": 99.8,
 			"functions": 99.8,
 			"regions": 99.8
+		},
+		"plugins/discogs": {
+			"lines": 99.4,
+			"functions": 97.9,
+			"regions": 98.3
 		},
 		"plugins/interop": {
 			"lines": 99.1,

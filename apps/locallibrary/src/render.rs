@@ -665,6 +665,11 @@ pub fn merge_plan(p: &MergePlan) {
         })
         .collect();
     capped(&differing, 15);
+    if !p.source_onelibrary_only.is_empty() {
+        say!("  {} only in {}'s OneLibrary aren't merged", p.source_onelibrary_only.len(), p.source);
+    }
+    let left: Vec<String> = p.source_onelibrary_only.iter().map(|t| format!("- {}", t.name)).collect();
+    capped(&left, 15);
     match p.takes_in_source {
         true => say!("  {}", dim(format!("afterwards, sync copies the merged library to {}", p.source))),
         false => {
@@ -763,13 +768,18 @@ pub fn pull(r: &PullReport) {
     match (&r.snapshot, r.up_to_date) {
         (Some(s), true) => ok(format!("{} is up to date (snapshot {}{})", r.library, s.short_id, labels(&s.labels))),
         (Some(s), false) => ok(format!(
-            "snapshot {}{} of {}: {} tracks; stored {} new files ({}), {} already in the store",
+            "snapshot {}{} of {}: {} tracks; stored {} new files ({}{}), {} already in the store",
             s.short_id,
             labels(&s.labels),
             r.library,
             s.summary.tracks,
             r.imported_files,
             bytes(r.imported_bytes),
+            match (r.imported_files, r.from_collection) {
+                (0, _) => String::new(),
+                (_, 0) => ", copied from the drive".into(),
+                (_, n) => format!(", {n} from rekordbox's collection"),
+            },
             r.reused_files
         )),
         (None, _) => ok("nothing to do"),

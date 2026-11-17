@@ -1,5 +1,7 @@
+import type { JsonValue } from '@atproto/lex-json';
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
 	BLEND_SECS,
 	bandColor,
@@ -23,7 +25,7 @@ import {
 	timeStep,
 	tracklist
 } from './report';
-import { parseMixReport, parseMixReportText } from './schema';
+import { type ParseResult, parseMixReport, parseMixReportText } from './schema';
 import exported from './fixtures/v2.mix.json' with { type: 'json' };
 import { riddenReport, sampleReport } from './sample';
 
@@ -128,6 +130,141 @@ describe('parseMixReport', () => {
 		expect(parseMixReportText('{nope')).toMatchObject({ ok: false, error: expect.stringContaining('JSON') });
 		expect(parseMixReportText(JSON.stringify(sampleReport)).ok).toBe(true);
 		expect(parseMixReportText(new TextEncoder().encode(JSON.stringify(sampleReport))).ok).toBe(true);
+	});
+});
+
+describe('parseMixReport on any input', () => {
+	/** Where a value sits in a report: keys, and list indexes as strings, from the top. */
+	type Path = string[];
+
+	/** A list or an object, read by key alike: a list's keys are its indexes. */
+	type Container = { [key: string]: JsonValue | undefined };
+
+	// `Object(value) === value` holds only for lists and objects, the values with places inside them.
+	const isContainer = (value: JsonValue | undefined): value is Container => Object(value) === value;
+
+	/**
+	 * Every place in `value`, reading only the first two items of a list so the waveform's thousands of numbers don't
+	 * crowd out the fields.
+	 */
+	const paths = (value: JsonValue | undefined, at: Path = []): Path[] => {
+		if (!isContainer(value)) return [at];
+
+		const entries = Array.isArray(value) ? Object.entries(value).slice(0, 2) : Object.entries(value);
+
+		return [at, ...entries.flatMap(([key, item]) => paths(item, [...at, key]))];
+	};
+
+	/** What sits at `path` in `value`, if anything does. */
+	const valueAt = (value: JsonValue, path: Path) =>
+		path.reduce<JsonValue | undefined>((node, key) => (isContainer(node) ? node[key] : undefined), value);
+
+	/** A copy of `report` with each change made: a new value at a path, or the path removed. */
+	const mutate = (report: JsonValue, changes: [Path, JsonValue | undefined][]): JsonValue => {
+		const copy = structuredClone(report);
+
+		for (const [path, value] of changes) {
+			const parent = valueAt(copy, path.slice(0, -1));
+			const key = path[path.length - 1];
+
+			if (!isContainer(parent)) continue;
+
+			if (value !== undefined) parent[key] = value;
+			else if (Array.isArray(parent)) parent.splice(Number(key), 1);
+			else delete parent[key];
+		}
+
+		return copy;
+	};
+
+	// Changes to the exporter's own output and to the richer sample: any field to an odd value or removed, and text to
+	// other text, blank or padded, which is where trimming and length limits show. Text changes come three times as
+	// often, and whitespace-only text a third of the time, since most odd values make the whole report invalid and hide
+	// a blank title behind an error.
+	const mutatedReport = fc.constantFrom<JsonValue>(exported, structuredClone(sampleReport)).chain((report) => {
+		const all = paths(report).filter((path) => path.length > 0);
+		const text = all.filter((path) => z.string().safeParse(valueAt(report, path)).success);
+
+		const change = fc.oneof(
+			fc.tuple(
+				fc.constantFrom(...all),
+				fc.option(fc.oneof(fc.jsonValue({ maxDepth: 2 }), fc.constantFrom<JsonValue>(-1, 0, 1e9, null, [], {})), {
+					nil: undefined
+				})
+			),
+			{
+				arbitrary: fc.tuple(
+					fc.constantFrom(...text),
+					fc.oneof(fc.constantFrom('', '   ', ' padded ', '#zzzzzz', '13C'), fc.stringMatching(/^\s+$/), fc.string())
+				),
+				weight: 3
+			}
+		);
+
+		return fc.array(change, { minLength: 1, maxLength: 3 }).map((changes) => mutate(report, changes));
+	});
+
+	// The errors a DJ is shown.
+	const knownError = new RegExp(
+		[
+			/^This isn’t a mix report from locallibrary /,
+			/^This report uses format version .+, newer than this site reads\.$/,
+			/^This mix report is damaged or incomplete: .+\.$/,
+			/^That file isn’t JSON\. /,
+			/^Mix reports can be at most 1 MB\.$/
+		]
+			.map((error) => error.source)
+			.join('|')
+	);
+
+	/** A result as the site reads it back: a report stored as JSON and parsed again, an error as it was. */
+	const readBack = (result: ParseResult): ParseResult =>
+		result.ok ? parseMixReportText(JSON.stringify(result.report)) : result;
+
+	/**
+	 * What a parse should settle to: one of the errors a DJ is shown, or a report that reads back the same once stored,
+	 * since the site stores the report it parsed and parses that again when it shows it. Stored as JSON, which writes -0
+	 * as 0.
+	 */
+	const settled = (result: ParseResult) =>
+		result.ok
+			? { ok: true, report: JSON.parse(JSON.stringify(result.report)) }
+			: { ok: false, error: expect.stringMatching(knownError) };
+
+	it('settles any JSON value', () => {
+		fc.assert(
+			fc.property(fc.jsonValue(), (value) => {
+				const result = parseMixReport(value);
+
+				expect(readBack(result)).toEqual(settled(result));
+			})
+		);
+	});
+
+	it('settles any text or bytes', () => {
+		fc.assert(
+			fc.property(
+				fc.oneof(
+					fc.string(),
+					fc.jsonValue().map((value) => JSON.stringify(value)),
+					fc.uint8Array()
+				),
+				(raw) => {
+					const result = parseMixReportText(raw);
+
+					expect(readBack(result)).toEqual(settled(result));
+				}
+			)
+		);
+	});
+
+	it('settles any change to a valid report', () => {
+		fc.assert(
+			fc.property(mutatedReport, (report) => {
+				for (const result of [parseMixReport(report), parseMixReportText(JSON.stringify(report))])
+					expect(readBack(result)).toEqual(settled(result));
+			})
+		);
 	});
 });
 

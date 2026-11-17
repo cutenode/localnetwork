@@ -99,9 +99,14 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env("SOURCE_DATE_EPOCH", STAMPED.to_string())
         .env("LOCALLIBRARY_TEST_OFFLINE", "1")
         .env("LOCALLIBRARY_NO_OPEN", "1")
+        // rekordbox's collection: none, so the player never opens the real one of the computer
+        // the tests run on, unless a test gives its own.
+        .env("LOCALLIBRARY_MASTERDB", store.join("no-rekordbox").join("master.db"))
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")
+        .env_remove("LOCALLIBRARY_TEST_SERVE")
+        .env_remove("LOCALLIBRARY_DEV_PLUGINS")
         .env_remove("LOCALLIBRARY_TEST_LOOPBACK")
         .env_remove("LOCALLIBRARY_USERINPUT_SPACE")
         // Local Network's directory and website: nowhere, unless a test names its own.

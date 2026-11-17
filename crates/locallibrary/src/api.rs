@@ -718,7 +718,7 @@ fn sync_pinned(store: Option<&Store>, req: &SyncRequest, confirmed: &SyncPlan, c
             Error::conflict(Reason::NotSaved, "keeping the changes players made needs the store; pull the drive first")
                 .with("drive", &drive)
                 .action(Action::call(
-                    "pull",
+                    "pull.apply",
                     serde_json::json!({ "drive": drive }),
                     format!("Pull {} into the store", dst.name()),
                 ))

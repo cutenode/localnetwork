@@ -55,7 +55,7 @@ const PUSH_LONG_HELP: &str = "Examples:
   locallibrary library push BACKUP --snapshot \"before NYE\"  a labelled snapshot
   locallibrary library push /Volumes/NEW -l Home --snapshot 3f9a2c";
 
-/// `library log` (and `log`).
+/// `library log`.
 #[derive(Args)]
 pub struct LogArgs {
     /// Library name [default: all libraries]
@@ -65,7 +65,7 @@ pub struct LogArgs {
     limit: Option<usize>,
 }
 
-/// `library push` (and `push`).
+/// `library push`.
 #[derive(Args)]
 pub struct PushArgs {
     #[arg(help = DRIVE_HELP)]

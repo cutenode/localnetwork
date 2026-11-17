@@ -13,11 +13,11 @@
 use std::sync::LazyLock;
 
 use libfuzzer_sys::fuzz_target;
-use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, SALT_LEN, SQLITE_MAGIC};
+use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, PASSPHRASE, SALT_LEN, SQLITE_MAGIC};
 use locallibrary::onelibrary::{self, OneLibrary, wal};
 
 /// Deriving a salt's keys takes 256,000 rounds of PBKDF2, so plain inputs all get this one.
-static CODEC: LazyLock<Codec> = LazyLock::new(|| Codec::with_salt([0; SALT_LEN]));
+static CODEC: LazyLock<Codec> = LazyLock::new(|| Codec::with_key(PASSPHRASE.as_bytes(), [0; SALT_LEN]));
 
 fuzz_target!(|data: &[u8]| {
     let _ = cipher::check_plain_header(data);
