@@ -14,6 +14,8 @@
 			"ignoreBinaries": ["playwright", "tsx"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
+			// tools/policy.sh runs it, and the workflows that run the other tools/*/cli.ts don't.
+			"entry": ["tools/reads/cli.ts"],
 			// The repo's own tooling: nothing here ships.
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
