@@ -34,13 +34,20 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static COUNTING: Counting = Counting;
 
-/// A file whose bytes and name don't say MP4 is passed without allocating anything.
+/// What `f` allocates on this thread.
+fn allocations(f: impl FnOnce()) -> u64 {
+    let before = ALLOCATIONS.with(Cell::get);
+    f();
+    ALLOCATIONS.with(Cell::get) - before
+}
+
+/// A file whose bytes and name don't say MP4 is passed allocating nothing beyond opening it.
 #[test]
 fn vetting_a_file_that_isnt_an_mp4_allocates_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.mp3");
     std::fs::write(&path, b"ID3\x04\0\0\0\0\0\0 not really an mp3").unwrap();
-    let before = ALLOCATIONS.with(Cell::get);
-    vet_container(&path).unwrap();
-    assert_eq!(ALLOCATIONS.with(Cell::get) - before, 0);
+    // On Windows std's `File::open` allocates the path as UTF-16, which isn't the vetting's.
+    let open = allocations(|| drop(std::fs::File::open(&path).unwrap()));
+    assert_eq!(allocations(|| vet_container(&path).unwrap()), open);
 }
