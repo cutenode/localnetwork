@@ -1,10 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import FormSection from './FormSection.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Form section', component: FormSection, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet fields()}

@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { cuePoints } from '#lib/tools/cues.ts';
 	import { demoTrack, tools } from '#lib/tools/index.ts';
 	import Deck from './Deck.svelte';
@@ -10,8 +11,6 @@
 
 	// As the page's load places them: every tool's cues along the demo track.
 	const track = { ...demoTrack, cues: cuePoints(tools.flatMap((tool) => tool.cues).length, demoTrack.durationSecs, demoTrack.phrases) };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** The arrow keys move to the next cue along the track. */
 	const arrowsMove = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

@@ -1,11 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { sampleReport } from '#lib/mix/sample.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import KeyWheel from './KeyWheel.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Key wheel', component: KeyWheel, tags: ['autodocs'], args: { report: sampleReport } });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const noKeys = { ...sampleReport, plays: sampleReport.plays.map((play) => ({ ...play, playedKey: undefined })) };
 </script>

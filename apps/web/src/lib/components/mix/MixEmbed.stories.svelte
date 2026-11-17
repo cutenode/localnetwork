@@ -3,6 +3,7 @@
 	import { expect, within } from 'storybook/test';
 	import { embedUrl } from '#lib/mix/links.ts';
 	import { light } from '#lib/testing/light.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import MixEmbed from './MixEmbed.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Platform player', component: MixEmbed, tags: ['autodocs'] });
@@ -11,9 +12,6 @@
 	const soundcloud = { id: 'player-soundcloud', title: 'Flickermood', src: embedUrl('https://soundcloud.com/forss/flickermood') ?? '' };
 
 	const mixcloud = { id: 'player-mixcloud', title: 'Party Time', src: embedUrl('https://www.mixcloud.com/spartacus/party-time/') ?? '' };
-
-	/** The light palette (packages/tokens/theme.css), which applies under a `light` class on the root. */
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** The player gets the height its platform lays out for, and Mixcloud's is asked for the theme's palette. */
 	const sized =

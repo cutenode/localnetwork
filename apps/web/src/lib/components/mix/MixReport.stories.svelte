@@ -4,11 +4,10 @@
 	import type { MixReport as Report } from '#lib/mix/report.ts';
 	import { riddenReport, sampleReport } from '#lib/mix/sample.ts';
 	import { light } from '#lib/testing/light.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import MixReport from './MixReport.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Mix report', component: MixReport, tags: ['autodocs'], args: { report: sampleReport } });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** The sample's five tracks three times over, so the track colours come round again under two-digit numbers. */
 	const longReport: Report = {
@@ -76,4 +75,5 @@
 
 <Story name="Track picked from its row" play={pickRow} />
 
-<Story name="Key picked from the keyboard" play={pickKey} />
+<!-- desktop-only: picks a key on the full wheel; the Key wheel stories cover it at a phone's width. -->
+<Story name="Key picked from the keyboard" play={pickKey} tags={['desktop-only']} />

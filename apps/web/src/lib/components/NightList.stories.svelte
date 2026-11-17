@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { NightRow } from '#lib/home.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import NightList from './NightList.svelte';
 
 	const { Story } = defineMeta({ title: 'Dashboard/Night list', component: NightList, tags: ['autodocs'] });
@@ -13,8 +14,6 @@
 		night('c', '2026-11-14', 'Rooftop Rave, a long show name that runs past the edge of a phone', 'Booking for Neon Tide · not confirmed', { tentative: true }),
 		night('d', '2026-12-12', 'Winter Social', 'Planned · Halle 4 · 3 DJs', { tentative: true })
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Settled and not" args={{ nights }} />

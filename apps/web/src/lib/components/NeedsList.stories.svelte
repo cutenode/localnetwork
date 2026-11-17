@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { NeedsRow } from '#lib/home.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import NeedsList from './NeedsList.svelte';
 
 	const { Story } = defineMeta({ title: 'Dashboard/Needs list', component: NeedsList, tags: ['autodocs'] });
@@ -12,8 +13,6 @@
 		need('2', 'Saffron Social', 'Reply to Walkthrough Night, a long show name that runs past the edge of a phone', 'No date yet · From @jonas.test · 3 hours ago'),
 		need('3', 'Second Act', 'Update your request for Second Act', 'Staff asked for changes · yesterday', 'Update')
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Waiting" args={{ rows }} />

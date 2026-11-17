@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { Combobox } from '#lib/combobox.svelte.ts';
 	import { placeKey, placeText, type Place } from '#lib/places.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import ComboboxOptions from './ComboboxOptions.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Combobox options', component: ComboboxOptions, tags: ['autodocs'] });
@@ -34,8 +35,6 @@
 	const nothing = found([]);
 
 	const onPhone = found(places, 1);
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <!-- The list under an input that points at it, as PlacePicker and NearInput draw it. VenuePicker's stories show the second line it gives venues. -->

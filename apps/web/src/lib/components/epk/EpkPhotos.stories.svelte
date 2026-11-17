@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import EpkPhotos from './EpkPhotos.svelte';
 
 	const image = (cid: string) => ({ $type: 'blob' as const, ref: { $link: cid }, mimeType: 'image/jpeg', size: 1 });
@@ -20,8 +21,6 @@
 		tags: ['autodocs'],
 		args: { photos, base: '/epk/did:plc:neon/3k/photos' }
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Photos" />

@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Screen from './Screen.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Landing screen', component: Screen, tags: ['autodocs'] });
@@ -8,8 +9,6 @@
 		{ title: 'Friday Social', with: 'Neon Tide' },
 		{ title: 'Rooftop Rave, a long show name that runs past the edge of a phone', with: 'Saffron Social' }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet inbox()}

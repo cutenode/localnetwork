@@ -1,11 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { riddenReport, sampleReport } from '#lib/mix/sample.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import MixTracklist from './MixTracklist.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Tracklist', component: MixTracklist, tags: ['autodocs'], args: { report: sampleReport } });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="A set" />

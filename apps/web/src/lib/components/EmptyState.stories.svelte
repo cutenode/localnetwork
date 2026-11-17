@@ -1,11 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import EmptyState from './EmptyState.svelte';
 
 	const { Story } = defineMeta({ title: 'Primitives/Empty state', component: EmptyState, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Title only" args={{ title: 'Nothing on this profile yet' }} />

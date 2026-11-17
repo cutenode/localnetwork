@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import { light } from '#lib/testing/light.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { Charts, SupportedArtist } from '#lib/types.ts';
 	import ArtistResults from './ArtistResults.svelte';
 	import ArtistSupport from './ArtistSupport.svelte';
@@ -26,8 +27,6 @@
 
 		return promise;
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const retryHref = '/charts';
 

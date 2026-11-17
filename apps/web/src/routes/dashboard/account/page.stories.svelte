@@ -5,6 +5,7 @@
 	import { accountLayout, auditEntry } from '#lib/testing/account.ts';
 	import { request } from '#lib/testing/requests.ts';
 	import type { ChannelView, HeldRecordView } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Activity from './activity/+page.svelte';
 	import Data from './data/+page.svelte';
 	import Landing from './+page.svelte';
@@ -21,8 +22,6 @@
 	const failed = Promise.reject(new Error('disk gone'));
 
 	failed.catch(() => {});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
 
