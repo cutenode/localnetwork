@@ -1,6 +1,7 @@
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { projectSummary } from '#lib/performers.ts';
 import type { ProjectView } from '#lib/types.ts';
 import Page from './+page.svelte';
 
@@ -41,7 +42,11 @@ const data = {
 	needs: [],
 	access: Promise.resolve([]),
 	sections: Promise.resolve(null),
-	projects: { [neon.uri]: neon, [unclaimed.uri]: unclaimed },
+	projects: Promise.resolve([]),
+	performers: {
+		[neon.uri]: { ...projectSummary(neon), inquiry: 'project=neon-tide' },
+		[unclaimed.uri]: { ...projectSummary(unclaimed), inquiry: null }
+	},
 	saves: [],
 	show,
 	isNew: false,

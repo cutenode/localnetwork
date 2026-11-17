@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
 	import { dj, neon, playsIn, profile, waiting } from '#lib/profile-tabs/stories/fixtures.ts';
+	import { light } from '#lib/testing/light.ts';
 	import ProfileTabs from './ProfileTabs.svelte';
 
 	/** A person's profile sections as tabs, with Neon from the seed data; the first two at 1280px, the rest at 390px too. */
@@ -47,6 +48,8 @@
 		await expect(within(canvasElement).getByRole('tabpanel', { name: 'Sets' })).toBeInTheDocument();
 	}}
 />
+
+<Story name="Linked to Sets, light" args={{ requested: 'sets' }} globals={desktop} beforeEach={light} />
 
 <Story name="Linked to Sets on a phone" args={{ requested: 'sets' }} globals={phone} />
 

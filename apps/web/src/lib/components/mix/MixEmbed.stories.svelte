@@ -2,7 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import { embedUrl } from '#lib/mix/links.ts';
-	import { lightTheme } from '#lib/testing/light-theme.ts';
+	import { light } from '#lib/testing/light.ts';
 	import MixEmbed from './MixEmbed.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Platform player', component: MixEmbed, tags: ['autodocs'] });
@@ -30,6 +30,6 @@
 
 <Story name="Mixcloud" args={mixcloud} play={sized('Party Time', 120)} />
 
-<Story name="Mixcloud, light" args={mixcloud} play={sized('Party Time', 120, '1')} beforeEach={lightTheme} />
+<Story name="Mixcloud, light" args={mixcloud} play={sized('Party Time', 120, '1')} beforeEach={light} />
 
 <Story name="Phone" args={soundcloud} globals={phone} />

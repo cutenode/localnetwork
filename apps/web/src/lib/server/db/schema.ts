@@ -281,14 +281,13 @@ export interface EpkRequestTable {
 	spaceUri: string;
 	epkUri: string;
 	requesterDid: string;
-	role: string | null;
 	message: string | null;
 	/** What the press kit's rules said when the request came in: auto, review or none. */
 	rule: string;
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
-	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without its message. */
 	deletedAt: string | null;
 }
 

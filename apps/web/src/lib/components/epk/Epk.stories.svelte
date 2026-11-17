@@ -10,6 +10,8 @@
 
 	const card = { name: 'Neon Tide', askHref: '/dashboard/access/did:plc:neon/3k' };
 
+	const phone = { viewport: { value: 'mobile2', isRotated: false } };
+
 	const mixes = [
 		{ title: 'Tidal Hours 004', url: 'https://soundcloud.com/example-neon-tide/tidal-hours-004', durationMinutes: 62, year: 2026 },
 		{ title: 'Halle Nord closing set (promo)', url: 'https://soundcloud.com/example-neon-tide/halle-nord', onRequest: true }
@@ -36,6 +38,8 @@
 <Story name="Can ask, straight in" args={{ ...card, access: { kind: 'canAsk', rule: 'auto' } }} />
 
 <Story name="Asking, on the dashboard" args={{ name: card.name, access: { kind: 'canAsk', rule: 'review' } }} />
+
+<Story name="Asking, on a phone" args={{ name: card.name, access: { kind: 'canAsk', rule: 'review' } }} globals={phone} />
 
 <Story name="Asking, straight in" args={{ name: card.name, access: { kind: 'canAsk', rule: 'auto' } }} />
 

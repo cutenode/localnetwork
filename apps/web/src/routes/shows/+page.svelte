@@ -51,7 +51,7 @@
 	{#if data.following && !viewer}
 		<a class="btn-primary btn-sm" href="/login?next=/shows?view=following">Sign in</a>
 	{:else if data.following}
-		<a class="btn-secondary btn-sm" href="/projects">Find DJs</a>
+		<a class="btn-secondary btn-sm" href="/djs">Find DJs</a>
 	{:else if place}
 		<a class="btn-secondary btn-sm" href="/shows?place=">Look everywhere</a>
 	{/if}

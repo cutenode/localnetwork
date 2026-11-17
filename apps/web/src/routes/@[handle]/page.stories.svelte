@@ -24,9 +24,10 @@
 
 	/**
 	 * Neon's page as `viewer` sees it, with `follow` streaming in (undefined when there's no Follow), and `bookable` when
-	 * staff list them in Find DJs and they take inquiries.
+	 * staff list them in Find DJs and they take inquiries. `saved` is whether they're in the viewer's planner, null when
+	 * the viewer can't save them.
 	 */
-	const data = (viewer: Viewer | null, follow?: Promise<FollowState | null>, bookable = false) => ({
+	const data = (viewer: Viewer | null, follow?: Promise<FollowState | null>, bookable = false, saved: boolean | null = null) => ({
 		viewer,
 		pendingRequests: 0,
 		profile,
@@ -38,7 +39,8 @@
 		dj: Promise.resolve([]),
 		sets: undefined,
 		playsIn: Promise.resolve([NEON_CREW]),
-		follow
+		follow,
+		saved
 	});
 
 	const followState = (followers: number, following = false) => Promise.resolve({ followers, following });
@@ -94,6 +96,10 @@
 </Story>
 
 <Story name="Listed DJ on a phone" asChild globals={phone}>{@render page(data(fan, followState(13), true))}</Story>
+
+<Story name="Listed DJ, saved to the planner" asChild>{@render page(data(fan, followState(13), true, true))}</Story>
+
+<Story name="Listed DJ, saved, on a phone" asChild globals={phone}>{@render page(data(fan, followState(13), true, true))}</Story>
 
 <Story
 	name="Listed DJ, signed out"

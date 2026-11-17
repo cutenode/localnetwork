@@ -31,7 +31,7 @@
 	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
 		{#snippet headline()}<HeroHeadline paused={typing} />{/snippet}
 		<SectionHeader id="hero-title" level={1} size="display" align="center" title={headline} lede="Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their booking details kept private." />
-		<form action="/projects" method="GET" role="search" aria-label="Find DJs" onfocusin={() => (typing = true)} onfocusout={(event) => (typing = event.currentTarget.contains(event.relatedTarget as Node | null))} class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
+		<form action="/djs" method="GET" role="search" aria-label="Find DJs" onfocusin={() => (typing = true)} onfocusout={(event) => (typing = event.currentTarget.contains(event.relatedTarget as Node | null))} class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
 			<div>
 				<label for="hero-q" class="label">Sound or name</label>
 				<input id="hero-q" name="q" class="input" placeholder="disco, jungle, a name" />
@@ -96,11 +96,11 @@
 				<SectionHeader id="recent-title" tone="low" title="New on the directory" />
 				{#if data.stats?.active}
 					<p class="m-0 text-lede text-fg-muted">
-						{pluralize(data.stats.active, 'DJ')} in {pluralize(data.stats.cities, 'city', 'cities')}{#if data.stats.unclaimed}, <a class="link" href="/projects?unclaimed=on">{data.stats.unclaimed} up for claiming</a>{/if}.
+						{pluralize(data.stats.active, 'DJ')} in {pluralize(data.stats.cities, 'city', 'cities')}{#if data.stats.unclaimed}, <a class="link" href="/djs?unclaimed=on">{data.stats.unclaimed} up for claiming</a>{/if}.
 					</p>
 				{/if}
 			</div>
-			{#if data.recent.length}<Button variant="secondary" href="/projects?sort=recent">See all DJs</Button>{/if}
+			{#if data.recent.length}<Button variant="secondary" href="/djs?sort=recent">See all DJs</Button>{/if}
 		</div>
 		{#if !data.stats}
 			<Card tone="outline" padding="lg" radius="2xl">
@@ -136,7 +136,7 @@
 						<h3 class="m-0 text-body font-semibold">By sound</h3>
 						<ul class="m-0 flex list-none flex-wrap gap-2 p-0">
 							{#each data.genres as genre (genre.value)}
-								<li><Tag href="/projects?genres={encodeURIComponent(genre.value)}">{genre.value} <span class="font-mono text-caption text-fg-subtle">{genre.count}</span></Tag></li>
+								<li><Tag href="/djs?genres={encodeURIComponent(genre.value)}">{genre.value} <span class="font-mono text-caption text-fg-subtle">{genre.count}</span></Tag></li>
 							{/each}
 						</ul>
 					</div>
@@ -146,7 +146,7 @@
 						<h3 class="m-0 text-body font-semibold">By city</h3>
 						<ul class="m-0 flex list-none flex-wrap gap-2 p-0">
 							{#each data.cities as city (city.city + city.country)}
-								<li><Tag href="/projects?q={encodeURIComponent(city.city)}&country={city.country}">{city.city}, {city.country} <span class="font-mono text-caption text-fg-subtle">{city.count}</span></Tag></li>
+								<li><Tag href="/djs?q={encodeURIComponent(city.city)}&country={city.country}">{city.city}, {city.country} <span class="font-mono text-caption text-fg-subtle">{city.count}</span></Tag></li>
 							{/each}
 						</ul>
 					</div>
@@ -198,6 +198,6 @@
 
 <Section tone="grid" labelledby="closing-title">
 	<SectionHeader id="closing-title" align="center" title="You play out? Get on the map." lede="List yourself, a b2b duo or a whole crew. Already listed by an admin? Claim it. A moderator reviews every change.">
-		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">Get listed</Button><Button size="lg" variant="secondary" href="/projects?unclaimed=on">Claim yours</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
+		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">Get listed</Button><Button size="lg" variant="secondary" href="/djs?unclaimed=on">Claim yours</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
 	</SectionHeader>
 </Section>

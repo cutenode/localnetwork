@@ -194,7 +194,7 @@ describe('OnboardingChecklist', () => {
 
 	const steps = collect({
 		'./steps/follow.ts': {
-			default: { order: 1, title: 'Follow a DJ', gets: 'Shows.', href: '/projects', done: () => false }
+			default: { order: 1, title: 'Follow a DJ', gets: 'Shows.', href: '/djs', done: () => false }
 		},
 		'./steps/mixes.ts': {
 			default: { order: 2, title: 'Add a mix', gets: 'Plays.', href: '/mixes', flag: 'parityCanary', done: () => false }

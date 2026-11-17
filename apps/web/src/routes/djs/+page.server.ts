@@ -95,7 +95,7 @@ export const load: PageServerLoad = async (event) => {
 		meta: pageMeta(locals.app.config.publicUrl, {
 			title: 'Find DJs',
 			description: "Search Local Network's DJs by sound, place, fee and slot.",
-			path: '/projects'
+			path: '/djs'
 		})
 	};
 };
