@@ -23,7 +23,6 @@ use super::browse;
 use super::edits::{Modal, PromptFor};
 use super::keymap::Act;
 use super::palette::{Then, fuzzy};
-use super::profile::Scope;
 use super::screens::{Fixture, fixture, shown};
 use super::ui::screen;
 
@@ -78,9 +77,8 @@ fn key_event(name: &str) -> KeyEvent {
     KeyEvent::new(code, mods)
 }
 
-/// What the palette mustn't run here: signing in, profiling every drive mounted on the machine,
-/// opening a report in the browser.
-const DENIED: [Act; 3] = [Act::ProfileAccount, Act::ProfileScope, Act::MixReport];
+/// What the palette mustn't run here: signing in, opening a report in the browser.
+const DENIED: [Act; 2] = [Act::ProfileAccount, Act::MixReport];
 
 fn denied_pick(then: &Then, item: usize) -> bool {
     matches!(then, Then::Act(acts) if DENIED.contains(&acts[item]))
@@ -367,8 +365,7 @@ pub(super) fn walk_fixture() -> Fixture {
     let (template, name) = template();
     let root = template.write(dir.path()).join(name);
     let mut f = shown(dir, root);
-    let name = f.app.loaded.as_ref().unwrap().device.name();
-    f.app.profile.scope = Scope::Drive(f.root.clone(), name);
+    f.app.profile.only_drive = Some(f.root.clone());
     f.app.mix = super::mix::tests::tab_on(f.app.sender());
     f
 }

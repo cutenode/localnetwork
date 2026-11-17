@@ -167,8 +167,6 @@ icons! {
     /// A message that wants an answer, a memory cue.
     DIAMOND: "\u{f219}" "◆" "*",
     STAR: "\u{f005}" "★" "*",
-    /// A track kept out.
-    BLOCKED: "\u{f05e}" "⊘" "/",
     /// Almost: a track with copies.
     NEAR: "≈" "≈" "~",
     /// Keys that mix; shuffle.
