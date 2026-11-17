@@ -51,9 +51,9 @@ What someone new sees. Nothing is said about drives until the first read of them
 ```mermaid
 flowchart TD
     start["The player starts"] --> read["The drives read in the background"]
-    read -->|"rekordbox's collection<br/>was open at the last quit"| collection["rekordbox's collection opens, read only"]
-    read -->|"one with an export"| open["A library opens: last run's drive,<br/>else a library's lead clone, else the first"]
-    read -->|"none, with rekordbox<br/>on this computer"| collection
+    read -->|"rekordbox on this computer"| collection["rekordbox's collection opens, read only,<br/>and is read again when rekordbox saves"]
+    read -->|"last run's drive is here<br/>(not a copy of the collection)"| open["A library opens: last run's drive,<br/>else a library's lead clone, else the first"]
+    read -->|"one with an export,<br/>and no rekordbox"| open
     read -->|"none, and no rekordbox"| empty["No rekordbox drive open:<br/>plug one in, or a next step"]
     empty -->|"plugged in"| open
     empty -->|"open a folder"| folder["Prompt: the folder holding an export"]

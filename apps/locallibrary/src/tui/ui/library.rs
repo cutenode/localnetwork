@@ -135,10 +135,13 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect) {
     if collection {
         items.push(ListItem::new(collection_line(open.map(|l| l.library.tracks.len()), open.is_some(), inner_w)));
     }
-    items.extend(
-        (app.drives.iter())
-            .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w))),
-    );
+    items.extend(app.drives.iter().map(|d| {
+        let open = loaded_root.as_deref() == Some(d.root.as_path());
+        ListItem::new(match app.collection_copies.get(&d.root) {
+            Some(at) => copy_line(d, *at, open, inner_w),
+            None => drive_line(d, open, "", inner_w),
+        })
+    }));
     if area.height <= 1 {
         return title_row(f, pane_title(1, title, focused), focused, area);
     }
@@ -167,9 +170,25 @@ fn collection_line(tracks: Option<usize>, open: bool, width: u16) -> Line<'stati
     spread(left, right, width)
 }
 
+/// A drive holding a copy of the collection, made `at`: said so in place of its track count, so
+/// it isn't taken for the collection as it is now.
+fn copy_line(d: &DeviceInfo, at: chrono::DateTime<chrono::Utc>, open: bool, width: u16) -> Line<'static> {
+    let note = format!("copy, {}", at.with_timezone(&chrono::Local).format("%b %-d"));
+    spread(drive_name_spans(d, open, ""), vec![Span::styled(note, faint())], width)
+}
+
 /// A drive in a list: a dot (pink: open, green: has an export, hollow: blank), its name and its
 /// track count, after `indent`.
 pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -> Line<'static> {
+    let right = match &d.summary {
+        Some(s) => vec![Span::styled(compact(s.tracks), dim())],
+        None => vec![Span::styled("blank", faint())],
+    };
+    spread(drive_name_spans(d, open, indent), right, width)
+}
+
+/// A drive's dot and name in a list, after `indent`.
+fn drive_name_spans(d: &DeviceInfo, open: bool, indent: &str) -> Vec<Span<'static>> {
     let dot = if !d.has_export {
         Span::styled(icons::RING.spaced(), faint())
     } else if open {
@@ -178,12 +197,7 @@ pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -
         Span::styled(icons::DOT.spaced(), fg(theme::current().good))
     };
     let name_style = if open { bold(theme::current().text) } else { text() };
-    let left = vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)];
-    let right = match &d.summary {
-        Some(s) => vec![Span::styled(compact(s.tracks), dim())],
-        None => vec![Span::styled("blank", faint())],
-    };
-    spread(left, right, width)
+    vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)]
 }
 
 /// The drive lists' frame, and what they say with no drive.
