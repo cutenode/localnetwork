@@ -290,8 +290,11 @@ describe('IdentityResolver, given names someone else chose', () => {
 					(error: Error) => (error.cause instanceof Error ? error.cause.message : error.message)
 				);
 
-			expect(await refusal('https://127.0.0.1/', { redirect: 'error' })).toBe('Hostname is a non-unicast address');
-			expect(await refusal('https://[::1]/', { redirect: 'error' })).toBe('Hostname is a non-unicast address');
+			// The fetch's dispatcher refuses an IP host, and names the origin it refused before the reason.
+			expect(await refusal('https://127.0.0.1/', { redirect: 'error' })).toMatch(
+				/: Hostname is a non-unicast address$/
+			);
+			expect(await refusal('https://[::1]/', { redirect: 'error' })).toMatch(/: Hostname is a non-unicast address$/);
 			expect(await refusal('https://localhost/', { redirect: 'error' })).toBe('Hostname is not a public domain');
 			expect(await refusal('http://dj.localnetwork.computer/', { redirect: 'error' })).toBe(
 				'Forbidden protocol "http:"'

@@ -44,7 +44,7 @@
 		k: '/for-promoters',
 		b: '/dashboard/bookings',
 		n: '/dashboard/projects/new',
-		c: '/projects?unclaimed=on',
+		c: '/djs?unclaimed=on',
 		...Object.fromEntries([...nav.links, ...nav.actions, ...(nav.account?.links ?? [])].map((link) => [link.key.toLowerCase(), link.href]))
 	});
 

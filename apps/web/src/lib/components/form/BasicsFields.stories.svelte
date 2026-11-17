@@ -4,9 +4,12 @@
 	import type { ProjectFormValues } from '#lib/types.ts';
 	import BasicsFields from './BasicsFields.svelte';
 
-	const { Story } = defineMeta({ title: 'Patterns/Basics fields', component: BasicsFields, tags: ['autodocs'] });
-
-	const description = 'How promoters will see you in search results.';
+	const { Story } = defineMeta({
+		title: 'Patterns/Basics fields',
+		component: BasicsFields,
+		tags: ['autodocs'],
+		args: { description: 'How people see you across Local Network.', geocoder: false }
+	});
 
 	const values: ProjectFormValues = {
 		name: 'Neon Tide',
@@ -24,9 +27,13 @@
 	const avatarUrl = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="#2a6f6f"/></svg>')}`;
 </script>
 
-<Story name="New profile" args={{ description, geocoder: false }} />
+<Story name="New profile" args={{ pronouns: '' }} />
 
-<Story name="Filled in" args={{ values, avatarUrl, description, geocoder: false }} />
+<Story name="A project's, pronouns to edit" args={{ values }} />
+
+<Story name="A person's, pronouns from Bluesky" args={{ values, avatarUrl, pronouns: 'she/her' }} />
+
+<Story name="A person's, no pronouns" args={{ values: { name: 'Neon Tide' }, pronouns: '' }} />
 
 <Story name="With a kind beside the name" asChild>
 	<BasicsFields {values} geocoder={false} nameLabel="Project name" description="How promoters will see the project in search results." placeRequired>
@@ -39,4 +46,4 @@
 	</BasicsFields>
 </Story>
 
-<Story name="Phone" args={{ values, avatarUrl, description, geocoder: false }} globals={phone} />
+<Story name="Phone, a person's" args={{ values, avatarUrl, pronouns: 'she/her' }} globals={phone} />

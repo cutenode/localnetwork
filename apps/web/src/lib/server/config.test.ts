@@ -15,7 +15,6 @@ describe('loadConfig', () => {
 			dev: true,
 			publicUrl: 'http://127.0.0.1:5173',
 			serviceDid: 'did:web:localhost%3A5173',
-			syncService: 'did:web:localhost%3A5173#localnetwork_syncer',
 			allowPrivateNetwork: true,
 			syncNotify: true,
 			logLevel: 'debug',

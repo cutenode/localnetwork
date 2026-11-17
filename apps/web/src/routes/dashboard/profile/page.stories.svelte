@@ -33,6 +33,7 @@
 		sections: Promise.resolve(null),
 		profile,
 		values: { name: 'Neon', tagline: 'Hypnotic techno', takesInquiries: false },
+		pronouns: '',
 		sectionsOn: { performer: true, promoter: false },
 		needsSignIn: false,
 		listing: { listedAt: '2026-10-30T00:00:00Z' },

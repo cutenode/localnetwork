@@ -2,7 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import { embedUrl } from '#lib/mix/links.ts';
-	import { lightTheme } from '#lib/testing/light-theme.ts';
+	import { light } from '#lib/testing/light.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import MixEmbed from './MixEmbed.svelte';
 
@@ -13,7 +13,6 @@
 
 	const mixcloud = { id: 'player-mixcloud', title: 'Party Time', src: embedUrl('https://www.mixcloud.com/spartacus/party-time/') ?? '' };
 
-	/** The light palette (packages/tokens/theme.css), which applies under a `light` class on the root. */
 	/** The player gets the height its platform lays out for, and Mixcloud's is asked for the theme's palette. */
 	const sized =
 		(title: string, height: number, palette: string | null = null) =>
@@ -29,6 +28,6 @@
 
 <Story name="Mixcloud" args={mixcloud} play={sized('Party Time', 120)} />
 
-<Story name="Mixcloud, light" args={mixcloud} play={sized('Party Time', 120, '1')} beforeEach={lightTheme} />
+<Story name="Mixcloud, light" args={mixcloud} play={sized('Party Time', 120, '1')} beforeEach={light} />
 
 <Story name="Phone" args={soundcloud} globals={phone} />

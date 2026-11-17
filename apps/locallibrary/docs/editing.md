@@ -429,11 +429,12 @@ up before it's written, and it's recorded with the picture kept on the drive
 after rekordbox exports. `art auto` given
 no drive takes each library plugged in (and each rekordbox drive of none) but archive and retired
 drives: it shows each plan and asks once. `art fetch` asks the plugins' providers (the coverart
-plugin's: MusicBrainz and the Cover Art Archive) for tracks without artwork (`--replace`: any), and
+plugin's: MusicBrainz and the Cover Art Archive; and the discogs plugin's, once you sign in to
+Discogs) for tracks without artwork (`--replace`: any), and
 asks you which cover when an album could be several; it's an edit like `art set` (see
-[Providers](plugins.md#providers)). `track fetch` asks the same plugin, from the same MusicBrainz
-lookups, for the details tracks lack: the album's title, year and genre, its label when it was
-found by name, and a track's own title and artist when its ISRC found it. `check` and `doctor`
+[Providers](plugins.md#providers)). `track fetch` asks the same plugins, from the same lookups,
+for the details tracks lack: the album's title, year and genre, its label (from MusicBrainz when it
+was found by name), and a track's own title and artist when its ISRC found it on MusicBrainz. `check` and `doctor`
 name `art fetch` beside `art auto` for tracks without artwork while a plugin finds cover art.
 
 ## Clean
