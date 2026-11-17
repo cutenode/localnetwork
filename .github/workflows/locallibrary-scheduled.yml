@@ -401,7 +401,7 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148
-      # As the fuzz corpus is: each run saves under its own key and the next restores the newest.
+      # Each run saves under its own key, and the next run restores the newest.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .hegel
