@@ -16,9 +16,7 @@ export function nameSlug(input: string): string {
 
 /**
  * An act's, party's or venue's page: `/<kind>/<key>/<name>`. Names repeat, so the key is what finds it and the name
- * is only there to read (ADR 0016). A name with nothing to keep leaves just the key. Only tests call it until the
- * first link to one of these pages lands.
- * @internal
+ * is only there to read (ADR 0016). A name with nothing to keep leaves just the key.
  */
 export function spacePagePath(kind: SpacePageKind, key: string, name: string): string {
 	const slug = nameSlug(name);

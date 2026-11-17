@@ -108,6 +108,7 @@ atstore:
           - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
           - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index}.*"
           - "apps/web/src/lib/server/venue-blocks.*"
+          - "apps/web/src/lib/server/forms/party.*"
           - "apps/web/src/lib/components/{Venue,Party,Event}*"
           - "lexicons/computer/localnetwork/{venue,party,event}.json"
           - "lexicons/computer/localnetwork/venue/**"

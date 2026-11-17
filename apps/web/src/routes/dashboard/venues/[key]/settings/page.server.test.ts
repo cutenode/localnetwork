@@ -36,7 +36,11 @@ beforeEach(async () => {
 	actKey = keyOf(
 		await t.sharedSpaces.createAct(await t.viewer(DJ), { slug: 'crew', form: 'duo', basics: { name: 'Crew' } })
 	);
-	partySpace = await t.sharedSpaces.create(await t.viewer(DJ), 'party');
+	partySpace = await t.parties.start(await t.viewer(DJ), {
+		basics: { name: 'Night Shift' },
+		avatar: 'keep',
+		publish: true
+	});
 	partyKey = keyOf(partySpace);
 	await t.accounts.recordLogin({
 		did: DJ,
@@ -102,7 +106,7 @@ it("shows a venue's owners its approval mode and blocks, by name", async () => {
 	expect((await opened(OWNER)).blocks.map(({ kind, name }) => [kind, name])).toEqual([
 		['profile', '@dj.test'],
 		['act', 'Crew'],
-		['party', partyKey]
+		['party', 'Night Shift']
 	]);
 });
 

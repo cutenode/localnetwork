@@ -39,6 +39,8 @@ import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
+import { partyListingSource } from './services/party-index';
+import { PartyService } from './services/parties';
 import { venueListingSource } from './services/venue-index';
 import { VenueService } from './services/venues';
 import { VenueRules } from './services/venue-rules';
@@ -276,6 +278,7 @@ export async function createApp(options: CreateAppOptions) {
 	const listings = new ListingWriter(core, flags, {
 		performer: performerListingSource(db),
 		venue: venueListingSource(db),
+		party: partyListingSource(db),
 		...options.listingSources
 	});
 
@@ -296,6 +299,7 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, limits.write);
 	const venueRules = new VenueRules(core);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
@@ -416,6 +420,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectMigration,
 		venues,
 		venueRules,
+		parties,
 		recordings,
 		supports,
 		epks,
