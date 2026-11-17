@@ -1,0 +1,28 @@
+[package]
+name = "locallibrary-plugin-discogs"
+description = "locallibrary's Discogs plugin: front covers and track details found on Discogs for tracks, with a Discogs account's personal access token"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+form_urlencoded = "1.2.2"
+image.workspace = true
+indexmap.workspace = true
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
+loclib-plugin = { workspace = true, features = ["test-util"] }
+url = "2.5"

@@ -291,7 +291,7 @@ it('gives someone with nothing yet a next step', async () => {
 	await open({ summary: { others: null, hasBookings: false }, projects: Promise.resolve([]) });
 
 	await expect.element(page.getByText('Nothing here yet')).toBeInTheDocument();
-	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/djs');
 	await expect
 		.element(page.getByRole('link', { name: 'List a project' }))
 		.toHaveAttribute('href', '/dashboard/projects/new');
@@ -302,7 +302,7 @@ it("says when the account's server can't keep private data", async () => {
 
 	await expect
 		.element(page.getByRole('link', { name: 'see what it keeps' }))
-		.toHaveAttribute('href', '/dashboard/data');
+		.toHaveAttribute('href', '/dashboard/account/data');
 });
 
 const library = () => page.getByRole('region', { name: 'locallibrary' });

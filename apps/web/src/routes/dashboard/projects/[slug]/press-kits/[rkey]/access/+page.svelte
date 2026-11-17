@@ -5,7 +5,8 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import Handle from '#lib/components/Handle.svelte';
-	import { AUDIENCE_LABELS, AUDIENCES, presetFor, ROLE_LABELS, RULE_LABELS } from '#lib/epk.ts';
+	import { AUDIENCE_LABELS, AUDIENCES, presetFor, RULE_LABELS } from '#lib/epk.ts';
+	import RequesterFacts from '#lib/components/epk/RequesterFacts.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import { control } from '#lib/ui/Field.svelte';
 	import type { PageProps } from './$types';
@@ -56,7 +57,8 @@
 				{#each pending as request (request.uri)}
 					<li class="flex flex-wrap items-start justify-between gap-3 border-t border-line py-4 last:border-b">
 						<div class="flex min-w-0 flex-col gap-1">
-							<p class="m-0 text-small"><Handle account={request.requester} />{#if request.role}{' '}<span class="text-fg-muted">· {ROLE_LABELS[request.role]}</span>{/if}</p>
+							<p class="m-0 text-small"><Handle account={request.requester} /></p>
+							<RequesterFacts about={request.about} />
 							{#if request.message}<p class="m-0 text-small text-fg-soft">{request.message}</p>{/if}
 							<p class="m-0 text-caption text-fg-subtle">Asked {formatDate(request.createdAt)}{request.rule === 'auto' ? ' · approved by the rules, saved once the press kit moves' : ''}</p>
 						</div>

@@ -41,7 +41,7 @@
 
 <Story name="Phone" globals={phone} />
 
-<Story name="Phone, menu open" args={{ open: true, current: '/projects' }} globals={phone} />
+<Story name="Phone, menu open" args={{ open: true, current: '/djs' }} globals={phone} />
 
 <Story name="Phone, staff with requests waiting" args={staff} globals={phone} />
 

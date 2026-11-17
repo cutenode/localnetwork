@@ -16,10 +16,11 @@
 
   const ICONS = { system: Monitor, light: Sun, dark: Moon };
 
+  // What it is now, then what a click makes it: the icon only shows the first.
   const LABELS = {
-    system: 'theme: follows the browser',
-    light: 'theme: light',
-    dark: 'theme: dark',
+    system: 'theme: follows the browser. switch to light',
+    light: 'theme: light. switch to dark',
+    dark: 'theme: dark. switch to follow the browser',
   };
 
   const Icon = $derived(ICONS[theme.mode]);

@@ -71,18 +71,18 @@ const heading = () => document.querySelector('h1')!.textContent.trim();
 describe('the button in the header', () => {
 	it('is on the tool menu and in every tool, and says how full the queue is', async () => {
 		await openApp({ session: queued() });
-		expect(queueButton()!.getAttribute('aria-label')).toBe('session queue: 3 tracks');
+		expect(queueButton()!.getAttribute('aria-label')).toBe('open the session queue: 3 tracks');
 		expect(clean(queueButton())).toBe('3');
 
 		// Into a tool, and the same button is still there.
 		await click(button('playlist to text'));
 		expect(heading()).toBe('SoundCloud playlist to text');
-		expect(queueButton()!.getAttribute('aria-label')).toBe('session queue: 3 tracks');
+		expect(queueButton()!.getAttribute('aria-label')).toBe('open the session queue: 3 tracks');
 	});
 
 	it('says the queue is empty rather than hiding itself', async () => {
 		await openApp();
-		expect(queueButton()!.getAttribute('aria-label')).toBe('session queue: empty');
+		expect(queueButton()!.getAttribute('aria-label')).toBe('open the session queue: empty');
 		// Nothing to count, so there is no count.
 		expect(clean(queueButton())).toBe('');
 	});
@@ -108,12 +108,12 @@ describe('the button in the header', () => {
 		await queue.add([track('Bicep', 'Glue')]);
 		await settle();
 		expect(clean(queueButton())).toBe('1');
-		expect(queueButton()!.getAttribute('aria-label')).toBe('session queue: 1 track');
+		expect(queueButton()!.getAttribute('aria-label')).toBe('open the session queue: 1 track');
 
 		await queue.clear();
 		await settle();
 		expect(clean(queueButton())).toBe('');
-		expect(queueButton()!.getAttribute('aria-label')).toBe('session queue: empty');
+		expect(queueButton()!.getAttribute('aria-label')).toBe('open the session queue: empty');
 	});
 });
 

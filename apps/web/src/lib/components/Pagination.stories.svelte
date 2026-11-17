@@ -8,7 +8,7 @@
 		title: 'Patterns/Pagination',
 		component: Pagination,
 		tags: ['autodocs'],
-		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/projects?genre=techno&page=2') } } } }
+		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/djs?genre=techno&page=2') } } } }
 	});
 
 	const links = (canvasElement: HTMLElement) => {
@@ -24,7 +24,7 @@
 	name="First page"
 	args={{ page: 1, pageSize: 20, total: 45 }}
 	play={async ({ canvasElement }) => {
-		await expect(links(canvasElement)).toEqual([null, '/projects?genre=techno&page=2']);
+		await expect(links(canvasElement)).toEqual([null, '/djs?genre=techno&page=2']);
 	}}
 />
 
@@ -32,7 +32,7 @@
 	name="Middle page"
 	args={{ page: 2, pageSize: 20, total: 45 }}
 	play={async ({ canvasElement }) => {
-		await expect(links(canvasElement)).toEqual(['/projects?genre=techno&page=1', '/projects?genre=techno&page=3']);
+		await expect(links(canvasElement)).toEqual(['/djs?genre=techno&page=1', '/djs?genre=techno&page=3']);
 	}}
 />
 
@@ -40,7 +40,7 @@
 	name="Last page"
 	args={{ page: 3, pageSize: 20, total: 45 }}
 	play={async ({ canvasElement }) => {
-		await expect(links(canvasElement)).toEqual(['/projects?genre=techno&page=2', null]);
+		await expect(links(canvasElement)).toEqual(['/djs?genre=techno&page=2', null]);
 	}}
 />
 

@@ -1,0 +1,42 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.venue",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "A real place events happen, one per place, identified by its space's key: two venues can share a name. Written only by the Local Network root account, into the venue's space. Adding a venue doesn't make anyone its owner: that takes a confirmed claim.",
+			"record": {
+				"type": "object",
+				"required": ["name", "address", "createdAt", "updatedAt"],
+				"properties": {
+					"name": { "type": "string", "minLength": 1, "maxLength": 640, "maxGraphemes": 64 },
+					"address": {
+						"type": "ref",
+						"ref": "community.lexicon.location.address",
+						"description": "Its street address, or at least its city and country."
+					},
+					"geo": {
+						"type": "ref",
+						"ref": "community.lexicon.location.geo",
+						"description": "Its coordinates, or its city's until someone adds the place's own."
+					},
+					"fsq": {
+						"type": "ref",
+						"ref": "community.lexicon.location.fsq",
+						"description": "The place in the Foursquare Open Source Places dataset. No two venues have the same one."
+					},
+					"approval": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["open", "approval"],
+						"default": "open",
+						"description": "open (Anyone can list): events naming it show at once, waiting for the venue until an owner confirms them. approval (Venue approves): they show only once confirmed."
+					},
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

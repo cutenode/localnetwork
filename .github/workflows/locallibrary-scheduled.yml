@@ -324,12 +324,12 @@ jobs:
           path: mutants.out
           if-no-files-found: ignore
 
-  # libFuzzer feeds the parsers of what a drive, an import or another computer hands locallibrary
-  # inputs grown from the test fixtures: every target `cargo fuzz list` names for five minutes,
-  # several at once (.github/actions/fuzz, see CONTRIBUTING.md). One job runs them all, so the
-  # targets' shared dependencies build once. The corpus each run grows is minimized and kept as an
-  # artifact for the next one and for pull requests' smoke runs (locallibrary-ci.yml); a crash fails
-  # the job and uploads its input.
+  # libFuzzer feeds the parsers of what a drive, an import or another computer hands locallibrary,
+  # and PdbEditor's edits, inputs grown from the test fixtures: every target `cargo fuzz list` names
+  # for five minutes, several at once (.github/actions/fuzz, see CONTRIBUTING.md). One job runs them
+  # all, so the targets' shared dependencies build once. The corpus each run grows is minimized and
+  # kept as an artifact for the next one and for pull requests' smoke runs (locallibrary-ci.yml); a
+  # crash fails the job and uploads its input.
   fuzz:
     needs: changes
     if: needs.changes.outputs.run == 'true'
@@ -507,7 +507,8 @@ jobs:
           archive=$(size "target/distrib/locallibrary-cli-$TARGET.tar.xz" "target/distrib/locallibrary-cli-$TARGET.zip")
           jq -n --argjson binary "$binary" --argjson archive "$archive" \
             '{"locallibrary": $binary, "archive": $archive}' > "target/budgets/size-$TARGET.json"
-          node tools/budgets/cli.ts check target/budgets "$TARGET"
+          # No run measures these targets between weekly ones, so there's no base: the table is a record.
+          node tools/budgets/cli.ts check "$TARGET" target/no-base target/budgets /dev/null | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: artifacts-build-local-${{ join(matrix.targets, '_') }}

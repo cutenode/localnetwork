@@ -17,6 +17,49 @@ fn a_collection_that_isnt_there_says_so() {
     assert!(matches!(&err, Error::NotFound(m) if m.contains("is rekordbox 6 or 7 installed?")), "{err}");
 }
 
+/// Without the collection, nothing is read from it, compared with it or exported from it; nor is
+/// it compared with a folder without a library.
+#[test]
+fn what_needs_the_collection_says_when_it_isnt_there() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = CollectionRef { db: Some(dir.path().join("gone.db")), key: None };
+    let not_there = |e: Error| matches!(&e, Error::NotFound(m) if m.contains("is rekordbox 6 or 7 installed?"));
+    assert!(not_there(collection_library(&missing).unwrap_err()));
+    let drive = dir.path().join("Main");
+    let pdb = drive.join(crate::paths::EXPORT_PDB);
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks");
+    std::fs::copy(fixture.join(crate::paths::EXPORT_PDB), &pdb).unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    let diff = |drive: &Path, collection: &CollectionRef| {
+        let drive = drive.display().to_string();
+        collection_diff(&CollectionDiffRequest { collection: collection.clone(), drive, playlist: None }).unwrap_err()
+    };
+    assert_eq!(diff(empty.path(), &collection(dir.path())).code(), "not_an_export");
+    assert!(not_there(diff(&drive, &missing)));
+    let ctx = Ctx::silent();
+    let export = CollectionExportRequest {
+        collection: missing.clone(),
+        drive: drive.display().to_string(),
+        options: CollectionExportOptions::default(),
+    };
+    assert!(not_there(collection_export_plan(&export, &ctx).map(|p| p.noop).unwrap_err()));
+    assert!(not_there(collection_export_apply(None, &export, &ctx).unwrap_err()));
+}
+
+/// A folder named by a relative path whose parent isn't there isn't made: its drive isn't mounted.
+#[test]
+fn a_relative_folder_whose_parent_isnt_there_isnt_made() {
+    let spec = "Unplugged drive/USB";
+    let err = export_planned("collection export", spec, &CollectionExportOptions::default(), &Ctx::silent(), |_| {
+        unreachable!("nothing is planned without the folder")
+    })
+    .map(|p| p.noop)
+    .unwrap_err();
+    assert!(matches!(&err, Error::NotFound(m) if m.starts_with("Unplugged drive, the folder to export into")), "{err}");
+    assert!(!Path::new("Unplugged drive").exists());
+}
+
 #[test]
 fn the_collection_is_read_with_its_cues_and_my_tags() {
     let dir = tempfile::tempdir().unwrap();
