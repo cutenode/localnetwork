@@ -257,7 +257,7 @@ describe('shared press kits on a real atproto spaces network', () => {
 		await net.app.epks.request(pat, shared, { message: 'Pat asking' });
 		const [asked] = await net.app.epks.requests(shared.epk);
 		await net.app.epks.decide(neon, shared, asked.uri, 'approve');
-		await net.app.epks.request(lou, shared, { role: 'promoter', message: "Lou's rates, just for the managers" });
+		await net.app.epks.request(lou, shared, { message: "Lou's rates, just for the managers" });
 		await net.app.epks.invite(neon, shared, 'remy.test');
 
 		// Pat, let in, reads the private part with their own credential, and nothing else in its space: no request, Lou's

@@ -33,7 +33,6 @@ export const actions: Actions = {
 
 		const result = await act(async () => {
 			const state = await event.locals.app.epks.request(viewer, kit, {
-				role: text(form, 'role', 32),
 				message: text(form, 'message', 1000)
 			});
 

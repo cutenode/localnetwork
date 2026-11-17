@@ -41,6 +41,7 @@ export const request = (kind: RequestKind, overrides: Partial<RequestView> = {})
 	repoDid: neon.did,
 	projectUri: neonTide.uri,
 	project: { slug: neonTide.slug, name: neonTide.profile.name },
+	venue: null,
 	record: {
 		kind,
 		baseRevision: 1,

@@ -129,6 +129,7 @@
 				"bands": { "description": "How waveforms are coloured. Without one, as the drive says.", "enum": ["blue", "rgb", "3band"] },
 				"end_warning": { "description": "Seconds before a track's end the deck warns of it; 0 for not at all.", "type": "integer", "minimum": 0 },
 				"art": { "description": "Cover art.", "type": "boolean" },
+				"art_halfblocks": { "description": "Cover art in half blocks, whatever graphics the terminal seems to have.", "type": "boolean" },
 				"hints": { "description": "How much the footer says.", "enum": ["full", "compact", "off"] },
 				"recent_commands": { "description": "The palette's commands run lately, newest first, by name.", "$ref": "#/$defs/names" }
 			}
@@ -142,6 +143,17 @@
 					"description": "The largest fingerprint index kept for a drive between runs, in MiB (512 when it's not set): a bigger one is built again each run. 0 keeps none.",
 					"type": "integer",
 					"minimum": 0
+				}
+			}
+		},
+		"store": {
+			"description": "What's set for the store on this computer.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"copy_on_write": {
+					"description": "Whether a pull makes a track rekordbox's collection holds on the store's volume a copy-on-write copy of the collection's file. Off when it's not set.",
+					"type": "boolean"
 				}
 			}
 		},

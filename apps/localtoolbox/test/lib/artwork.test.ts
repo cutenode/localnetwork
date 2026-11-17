@@ -47,6 +47,24 @@ describe('artworkOf', () => {
 		expect(artworkOf(queueEntry({ artworkUrl: '', details: knownDetails({ artworkUrl: fromApi }) }))).toBe(fromApi);
 	});
 
+	it('passes over a cover that is not a web address', () => {
+		const notWeb = 'javascript:alert(1)//artworks-x-t120x120.jpg';
+
+		expect(artworkOf(queueEntry({ artworkUrl: notWeb, details: knownDetails({ artworkUrl: fromApi }) }))).toBe(fromApi);
+		expect(artworkOf(queueEntry({ artworkUrl: 'http://i1.sndcdn.com/a-t120x120.jpg' }))).toBe(
+			'http://i1.sndcdn.com/a-t120x120.jpg'
+		);
+		expect(artworkOf(queueEntry({ artworkUrl: 'HTTPS://i1.sndcdn.com/a-t120x120.jpg' }))).toBe(
+			'HTTPS://i1.sndcdn.com/a-t120x120.jpg'
+		);
+		expect(
+			artworkOf(queueEntry({ artworkUrl: '', details: knownDetails({ artworkUrl: 'data:image/png;base64,AA' }) }))
+		).toBe('');
+		expect(artworkOf(queueEntry({ artworkUrl: `blob:${withArt}`, details: knownDetails({ artworkUrl: '' }) }))).toBe(
+			''
+		);
+	});
+
 	it.each([
 		['neither', queueEntry({ artworkUrl: '', details: knownDetails({ artworkUrl: '' }) })],
 		['details nobody asked for', queueEntry({ artworkUrl: '', details: null })],

@@ -29,9 +29,10 @@ import type {
 	SaveGateRequest,
 	WalkGateAnswer
 } from '$lib/types';
+import { dropOldProfiles } from './tools/artists/old-profiles.ts';
 import { onPage } from './tools/third-party-downloads/on-page.ts';
 import { save } from './tools/third-party-downloads/save.ts';
-import { siteFor } from './tools/third-party-downloads/sites/index.ts';
+import { hostOf, siteFor } from './tools/third-party-downloads/sites/index.ts';
 
 const OFFSCREEN = 'offscreen.html';
 
@@ -88,6 +89,11 @@ const pages = onPage(async () => (await ask<GatePagePrefs>({ type: 'READ_PREFS' 
  * page's help.
  */
 async function saveGate(request: SaveGateRequest, from: chrome.tabs.Tab | undefined): Promise<SaveGateAnswer> {
+	// The link was read off a SoundCloud page and the file's address is the gate
+	// server's, so either can be anything: only a web address (which is what
+	// hostOf names a host for) is opened or saved.
+	if (!hostOf(request.url)) return { saved: false, mark: false };
+
 	if (siteFor(request.url)?.how === 'page') {
 		await pages.open([{ url: request.url, permalink: request.permalink }], from);
 
@@ -99,20 +105,22 @@ async function saveGate(request: SaveGateRequest, from: chrome.tabs.Tab | undefi
 		openUrl: request.url
 	};
 
-	let openUrl = answer.ok ? answer.url : answer.openUrl;
+	const opened = answer.ok ? answer.url : answer.openUrl;
 
-	if (answer.ok) {
+	if (answer.ok && hostOf(answer.url)) {
 		try {
 			await save(answer.url, { subfolder: answer.subfolder });
 
 			return { saved: true, mark: answer.mark };
 		} catch (_e) {
-			openUrl = answer.url;
+			// Opened in a tab below, where the browser can say what went wrong.
 		}
 	}
 
+	const url = hostOf(opened) ? opened : request.url;
+
 	try {
-		await chrome.tabs.create(from ? { url: openUrl, index: from.index + 1, openerTabId: from.id } : { url: openUrl });
+		await chrome.tabs.create(from ? { url, index: from.index + 1, openerTabId: from.id } : { url });
 	} catch (_e) {
 		// The tab that asked is gone, and the person with it.
 	}
@@ -174,4 +182,15 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 	void pages.file(item).then((where) => suggest(where));
 
 	return true;
+});
+
+// Versions before this one kept every track's download details for a month,
+// under `details` in the local area, and every listed artist's profile on the
+// artists list for good. Details last as long as the tab that loaded them now
+// (content.ts) and profiles as long as the browser session
+// (artists/artists.svelte.ts), so what an older version left on the disk is
+// cleared once, when this one is installed over it.
+chrome.runtime.onInstalled.addListener(() => {
+	void chrome.storage.local.remove('details');
+	void dropOldProfiles();
 });

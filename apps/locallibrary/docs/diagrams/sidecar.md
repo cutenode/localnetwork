@@ -212,7 +212,7 @@ One list of methods is behind dispatch, `rpc.describe` and the files in `docs/rp
 
 ```mermaid
 flowchart TD
-    registry["Method registry: name, kind, aliases,<br/>params and result types"] --> dispatch["Dispatch at run time"]
+    registry["Method registry: name, kind,<br/>params and result types"] --> dispatch["Dispatch at run time"]
     registry --> kinds["Kinds: read, plan, apply,<br/>immediate, control"]
     registry -->|"a debug build, or one<br/>without account or peers"| contract["The contract"]
     docs["docs/rpc/schema.json,<br/>bundled at build time"] -->|"a release build<br/>with both"| contract

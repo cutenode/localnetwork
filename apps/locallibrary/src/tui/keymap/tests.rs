@@ -98,7 +98,7 @@ fn every_key_is_in_the_help_or_the_palette() {
     assert_eq!(titles[..3], ["Browsing", "Marks and the queue", "Changing the drive"]);
     assert!(titles.contains(&"Playback") && titles.contains(&"Deck"));
     let (own, _) = help(View::Profile);
-    assert_eq!(own[0].0, "Publish");
+    assert_eq!(own[0].0, "localnetwork");
 }
 
 #[test]
@@ -257,6 +257,7 @@ fn reached(act: Act) -> Reached {
         | Act::KeyPalette(_)
         | Act::EndWarning(_)
         | Act::Art(_)
+        | Act::ArtHalfblocks(_)
         | Act::Theme(_)
         | Act::Colours(_)
         | Act::Icons(_)

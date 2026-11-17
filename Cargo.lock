@@ -1700,7 +1700,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -4038,11 +4038,9 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "locallibrary"
 version = "0.1.0"
 dependencies = [
- "aes 0.9.3",
  "base64 0.22.1",
  "binrw",
  "blake3",
- "cbc",
  "chrono",
  "codspeed-criterion-compat",
  "directories",
@@ -4054,7 +4052,6 @@ dependencies = [
  "getrandom 0.3.4",
  "hegeltest",
  "hickory-resolver",
- "hmac 0.12.1",
  "http",
  "image",
  "indexmap",
@@ -4071,6 +4068,7 @@ dependencies = [
  "locallibrary-plugin-demos",
  "loclib-analysis",
  "loclib-audio",
+ "loclib-capacity",
  "loclib-equipment",
  "loclib-interop",
  "loclib-mixid",
@@ -4078,6 +4076,7 @@ dependencies = [
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-sqlcipher",
  "loclib-testkit",
  "loclib-tracklist",
  "loclib-transcode",
@@ -4086,12 +4085,12 @@ dependencies = [
  "mio",
  "oauth2",
  "percent-encoding",
+ "plist",
  "quick-xml 0.42.0",
  "rayon",
  "rekordbox-pdb",
  "rekordcrate",
  "reqwest 0.12.28",
- "ring",
  "rusqlite",
  "rustc-hash",
  "same-file",
@@ -4101,6 +4100,7 @@ dependencies = [
  "sha2 0.10.9",
  "strsim",
  "symphonia",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -4138,6 +4138,7 @@ dependencies = [
  "locallibrary-plugin-archive",
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-demos",
+ "locallibrary-plugin-discogs",
  "locallibrary-plugin-interop",
  "locallibrary-plugin-mixcloud",
  "locallibrary-plugin-musicbrainz",
@@ -4218,6 +4219,22 @@ dependencies = [
  "loclib-plugin",
  "rustc-hash",
  "serde_json",
+]
+
+[[package]]
+name = "locallibrary-plugin-discogs"
+version = "0.1.0"
+dependencies = [
+ "form_urlencoded",
+ "hegeltest",
+ "image",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -4382,6 +4399,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-capacity"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "hegeltest",
+ "loclib-progress",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "loclib-equipment"
 version = "0.1.0"
 dependencies = [
@@ -4494,6 +4525,24 @@ dependencies = [
  "hegeltest",
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-sqlcipher"
+version = "0.1.0"
+dependencies = [
+ "aes 0.9.3",
+ "cbc",
+ "codspeed-criterion-compat",
+ "getrandom 0.3.4",
+ "hegeltest",
+ "hmac 0.12.1",
+ "indexmap",
+ "ring",
+ "rusqlite",
+ "rustc-hash",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
 ]
 
@@ -5291,6 +5340,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ntapi"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5633,6 +5691,16 @@ dependencies = [
  "block2",
  "libc",
  "objc2",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
  "objc2-core-foundation",
 ]
 
@@ -8140,6 +8208,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.38.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92ab6a2f8bfe508deb3c6406578252e491d299cbbf3bc0529ecc3313aee4a52f"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows 0.62.2",
 ]
 
 [[package]]

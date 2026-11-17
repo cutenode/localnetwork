@@ -5,12 +5,12 @@ import type { Viewer } from '#lib/types.ts';
 export type NavLink = { key: string; href: string; label: string; also?: string[]; badge?: number };
 
 /**
- * What the site header shows a viewer: the four destinations, then For DJs and Sign in, or once
+ * What the site header shows a viewer: the four destinations, then For promoters, For DJs and Sign in, or once
  * signed in, Dashboard and an account menu (Account, and the staff console for staff).
  */
 export function siteNav(viewer: Viewer | null, pendingRequests: number) {
 	const links: NavLink[] = [
-		{ key: 'F', href: '/projects', label: 'Find DJs', also: ['/match'] },
+		{ key: 'F', href: '/djs', label: 'Find DJs', also: ['/match', '/projects'] },
 		{ key: 'W', href: '/shows', label: 'Shows' },
 		{ key: 'R', href: '/charts', label: 'Charts', also: ['/artists'] },
 		{ key: 'O', href: '/tools', label: 'Tools' }
@@ -18,6 +18,7 @@ export function siteNav(viewer: Viewer | null, pendingRequests: number) {
 
 	if (!viewer) {
 		const actions: NavLink[] = [
+			{ key: 'K', href: '/for-promoters', label: 'For promoters' },
 			{ key: 'D', href: '/for-djs', label: 'For DJs' },
 			{ key: 'S', href: '/login', label: 'Sign in' }
 		];

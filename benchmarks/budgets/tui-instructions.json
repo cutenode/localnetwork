@@ -1,35 +1,34 @@
 {
 	"$schema": "../budget.schema.json",
 	"job": "release",
-	"tolerance_percent": 1,
 	"metrics": {
 		"library": {
-			"limit": 5046942,
+			"allowance": 5047,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Library view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"deck": {
-			"limit": 3489265,
+			"allowance": 3490,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of player mode at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"drives": {
-			"limit": 3212290,
+			"allowance": 3250,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Drives view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"prepare": {
-			"limit": 3329555,
+			"allowance": 3366,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Prepare view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"palette": {
-			"limit": 5983369,
+			"allowance": 5984,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the command palette, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"help": {
-			"limit": 8053147,
+			"allowance": 8054,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the help, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		}

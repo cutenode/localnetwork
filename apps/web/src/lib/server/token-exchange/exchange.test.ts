@@ -343,7 +343,16 @@ describe('exchangeToken', () => {
 		expect((await exchangeToken('mixcloud', post(code), { log, env, fetch: thrown })).status).toBe(502);
 		expect(JSON.stringify(lines)).toContain('"reason":"unknown"');
 
-		for (const body of ['<html>maintenance</html>', JSON.stringify({ a: 'b'.repeat(70_000) }), '["at-1"]', null]) {
+		// The last is nested deeper than answering it could stringify, though it's well under the size cap.
+		const deep = `{"a":${'['.repeat(30_000)}${']'.repeat(30_000)}}`;
+
+		for (const body of [
+			'<html>maintenance</html>',
+			JSON.stringify({ a: 'b'.repeat(70_000) }),
+			'["at-1"]',
+			null,
+			deep
+		]) {
 			const odd = async () => new Response(body, { status: body === null ? 502 : 200 });
 			const answer = await exchangeToken('soundcloud', post(code), { log, env, fetch: odd });
 

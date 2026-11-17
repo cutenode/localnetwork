@@ -55,7 +55,7 @@ fn tags_are_listed_planned_and_applied() {
     assert_eq!(tracks_with(&list, "Genre/Techno"), ["Loopmasters - Demo Track 1", "Loopmasters - Demo Track 2"]);
 
     json(dir.path(), &["--yes", "tags", "rename", d, "Genre/Techno", "Hard Techno"]);
-    json(dir.path(), &["--yes", "tags", "remove", d, "Genre/Hard Techno", "--track", "1"]);
+    json(dir.path(), &["--yes", "tags", "untag", d, "Genre/Hard Techno", "--track", "1"]);
     let list = json(dir.path(), &["tags", d]);
     assert_eq!(tracks_with(&list, "Genre/Hard Techno"), ["Loopmasters - Demo Track 2"]);
 

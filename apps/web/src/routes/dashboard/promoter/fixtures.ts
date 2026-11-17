@@ -16,23 +16,28 @@ const thread = (
 	project: string,
 	status: string,
 	showDate: string | null = null
-): BookingThreadView => ({
-	space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
-	skey,
-	status,
-	title,
-	showDate,
-	project: {
-		uri: `at://did:plc:root/computer.localnetwork.project/${skey}`,
-		slug: project.toLowerCase().replaceAll(' ', '-'),
-		name: project
-	},
-	promoter: { did: PAT.did, handle: PAT.handle },
-	participants: [{ did: PAT.did, handle: PAT.handle, role: 'promoter' }],
-	lastAuthor: PAT.did,
-	lastActivityAt: '2026-11-10T12:00:00Z',
-	createdAt: '2026-11-01T12:00:00Z'
-});
+): BookingThreadView => {
+	const slug = project.toLowerCase().replaceAll(' ', '-');
+
+	return {
+		space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
+		skey,
+		status,
+		title,
+		showDate,
+		project: {
+			uri: `at://did:plc:root/computer.localnetwork.project/${skey}`,
+			slug,
+			name: project,
+			href: `/projects/${slug}`
+		},
+		promoter: { did: PAT.did, handle: PAT.handle },
+		participants: [{ did: PAT.did, handle: PAT.handle, role: 'promoter' }],
+		lastAuthor: PAT.did,
+		lastActivityAt: '2026-11-10T12:00:00Z',
+		createdAt: '2026-11-01T12:00:00Z'
+	};
+};
 
 export const INQUIRIES = [
 	thread('3k1', 'Warehouse closing set', 'Halflight', 'negotiating', '2027-02-14T23:00:00.000Z'),

@@ -25,7 +25,7 @@
 		"role": {
 			"type": "string",
 			"maxLength": 32,
-			"description": "A named starting set of capabilities. Performers have members and managers, parties have hosts, cohosts and door staff, and venues have owners and bookers.",
+			"description": "A named starting set of capabilities. Performers have members and managers, parties have hosts, cohosts and door staff, and venues have owners and booking managers (booker).",
 			"knownValues": ["member", "manager", "host", "cohost", "door", "owner", "booker"]
 		},
 		"capabilities": {

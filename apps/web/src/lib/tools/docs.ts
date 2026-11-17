@@ -5,7 +5,7 @@ import type { ToolDoc } from './types.ts';
  * `import.meta.glob` of them and the tool's folder in the repo. The overview comes first, then the
  * guides in the order it first links them, then any it doesn't link, by title, then the changelog.
  * The overview is the README, or `docs/overview.md` for a tool whose glob leaves out a README
- * written for developers. A README's `## Diagrams` section stays on GitHub: it's for developers,
+ * written for developers. Any file's `## Diagrams` section stays on GitHub: it's for developers,
  * and only GitHub draws Mermaid. So does the changelog's preamble, which tells maintainers how to
  * add to it.
  */

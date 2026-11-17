@@ -39,11 +39,11 @@ The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrar
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
 every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
-Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host
-(loclib-plugin's `FakeHost` for new ones, see its README's "Testing a plugin"); the
-CLI's tests run them through the real one. Account plugins are the exception: each is a
-`locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
-`build.rs` includes and nothing runs, so adding one is adding its folder.
+Their tests sit beside their code, driving the plugin over in-memory pipes with loclib-plugin's
+`FakeHost` (see its README's "Testing a plugin"); the CLI's tests run them through the real one.
+Account plugins are the exception: each is a `locallibrary-plugin.toml` alone in
+`plugins/accounts/<id>/`, outside the workspace, which `build.rs` includes and nothing runs, so
+adding one is adding its folder.
 
 `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with clippy, rustfmt
 and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that
@@ -225,8 +225,9 @@ Crates with work that grows with a library or a recording have
 `locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
 of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
-`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
-`loclib-analysis`. `loclib-model` needs `--features test-util`. The first
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget),
+`loclib-sqlcipher` (decrypting a database, with and without a WAL) and `loclib-analysis`.
+`loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 
@@ -278,10 +279,18 @@ failing examples it finds for the next week's run.
 
 The parsers for what a drive or an import hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
-root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
-their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+root): `pdb` (`export.pdb` and `exportExt.pdb`), `pdb_edit` (`PdbEditor`'s playlist, entry,
+track string and history edits on the vendored fixtures, each read back and checked against a
+model of what it changes), `anlz` (analysis files, and the rewrites of their paths, cues and
+times), `mysettings` (the players' settings files), `tracklist`, `mp4` (MP4 and M4A atoms as
+`vet_container` walks them, then symphonia opening and decoding what it lets through, and the
+probe's format, health and length checks), `wav` (WAV headers of recordings, and the WAV and
+AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (Audacity projects:
+the binary XML, the project it builds and its mixdown) and `traktor` (Traktor's `collection.nml`,
+the beat grids it lays down and what an import makes of it). libFuzzer mutates the test fixtures
+(and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
+sequences from nothing) looking for a panic, a hang or a runaway allocation. `fuzz/` is a
+workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -340,21 +349,26 @@ The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
-`.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs
-`dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
-generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
-`allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the
-file (`dist generate --mode=ci`, with `allow-dirty` removed for the run) and carry the additions
-over. Upgrading dist also takes the new version and its archives' checksums in
-`.github/actions/install-dist/action.yml`.
+`.github/build-setup.yml`, `.github/actions/install-dist` or the workflow itself,
+`locallibrary-ci.yml`'s lint job runs `dist plan`, which checks the configuration.
+`locallibrary-release.yml` is dist 0.33.0's generated workflow with hand-written additions listed
+at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing the dist
+configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
+`allow-dirty` removed for the run) and carry the additions over. Upgrading dist also takes the new
+version and its archives' checksums in `.github/actions/install-dist/action.yml`.
+
+Each archive has `THIRD-PARTY-NOTICES.md` next to `LICENSE`: the licences of the crates the binary
+is built from, among them the vendored rekordbox-pdb's, which `template.pdb` is under too. The
+build jobs write it with `cargo notices` ([cargo-about](https://github.com/EmbarkStudios/cargo-about),
+set up in the root's `about.toml` and `about.hbs`) before dist builds, and the Homebrew formula
+installs it in `share/locallibrary`. `about.toml` accepts the licences `deny.toml` allows, which
+`tools/policy.sh` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
+that change the lockfile or their configuration. To see what it writes, run `cargo install
+--locked cargo-about` and then `cargo notices`, which writes `THIRD-PARTY-NOTICES.md` at the root.
 
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):
 
-- Third-party notices: dist puts `LICENSE` in the archives and the Homebrew formula, but the
-  binary also holds code under other licences (the dependencies, and the vendored rekordbox-pdb
-  with its `template.pdb`), whose notices have to ship with it: generate a notices file at
-  release (with `cargo about`, say) and include it.
 - The Homebrew tap: create the `cutenode/homebrew-tap` repository, and save a fine-grained
   token that can write to its contents as the `HOMEBREW_TAP_TOKEN` secret. Until then the
   formula is only attached to the release.

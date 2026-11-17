@@ -67,7 +67,7 @@ async function conflicting(epk: EpkView) {
 
 it('opens a published press kit with its requests waiting and the notice it came back with', async () => {
 	const epk = await f.publish(DJ);
-	await f.t.epks.request(await f.t.viewer(PROMOTER), f.kit(epk), { role: 'promoter' });
+	await f.t.epks.request(await f.t.viewer(PROMOTER), f.kit(epk), {});
 
 	const data = await open(DJ, epk.rkey, '?notice=published');
 

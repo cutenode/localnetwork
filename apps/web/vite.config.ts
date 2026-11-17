@@ -75,9 +75,10 @@ const isShared = (id: string, ctx: Rolldown.ChunkingContext) => {
 
 // Not the Tools pages' own components, the follow button, the mix player, the staff console's table, the booking rules
 // the dashboard's booking pages share, the suggestion lists only the place and handle fields use, or the drafts only
-// long forms keep: only those pages load them, and every page loads the shared file.
+// long forms keep: only those pages load them, and every page loads the shared file. Nor edit mode, which only people
+// who can edit a page use.
 const SHARED =
-	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
+	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|edit[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
 
 export default defineConfig({
 	plugins: [
@@ -154,9 +155,14 @@ export default defineConfig({
 			}
 		}
 	},
-	// Under Vite, `#lexicon-files` bundles the lexicons in. Node (the tsx scripts) resolves it through package.json to
-	// a loader that reads them from disk, since tsx has no `import.meta.glob`.
-	resolve: { alias: { '#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts` } },
+	// Under Vite, `#lexicon-files` and `#notification-kinds` bundle their folders in. Node (the tsx scripts) resolves
+	// them through package.json to loaders that read the same files from disk, since tsx has no `import.meta.glob`.
+	resolve: {
+		alias: {
+			'#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts`,
+			'#notification-kinds': `${import.meta.dirname}/src/lib/server/notifications/kind-files.ts`
+		}
+	},
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
@@ -201,7 +207,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 99.6, functions: 99.5, statements: 99.3, branches: 94.6 }
+			thresholds: { lines: 99.7, functions: 99.6, statements: 99.3, branches: 94.6 }
 		},
 		projects: [
 			{

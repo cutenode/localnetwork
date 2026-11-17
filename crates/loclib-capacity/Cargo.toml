@@ -1,0 +1,29 @@
+[package]
+name = "loclib-capacity"
+description = "Catch fake-capacity USB sticks and SD cards: an f3probe-style test that writes and reads back regions across a whole disk and reports how much of it really keeps data"
+readme = "README.md"
+keywords = ["usb", "fake", "capacity", "f3", "disk"]
+categories = ["filesystem", "hardware-support"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+loclib-progress.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
+serde.workspace = true
+thiserror.workspace = true
+
+[features]
+schemars = ["dep:schemars"]
+
+[dev-dependencies]
+hegeltest.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
