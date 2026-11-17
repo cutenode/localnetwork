@@ -506,7 +506,7 @@ The rest of the command tree, with the commands the help leaves out.
 ```mermaid
 flowchart TD
     hub["Other"]
-    hub --> account["account<br/>status, login, logout, flags, TARGET status, TARGET sign-in, TARGET sign-out"]
+    hub --> account["account<br/>status, login, logout, flags, TARGET status, TARGET sign-in, TARGET sign-out, TARGET restore"]
     hub --> plugin["plugin<br/>list, info, settings, access, roles, checks, providers, check"]
     hub --> misc["bug, completions, help"]
     hub --> more["import, analysis bench"]

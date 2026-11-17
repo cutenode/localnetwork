@@ -296,6 +296,7 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         | crate::tui::form::For::Access(..) => "save",
         crate::tui::form::For::AskAccess(_) => "answer",
         crate::tui::form::For::Keys(..) => "sign in",
+        crate::tui::form::For::Restore(_) => "restore",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())

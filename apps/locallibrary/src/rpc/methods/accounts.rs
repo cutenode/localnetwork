@@ -1,12 +1,12 @@
 //! `accounts.*`: the accounts a store keeps, signed in to through account plugins in the browser
 //! or with keys (the host keeps the tokens and keys, never answered) and out of, and the access
-//! plugins are given to them.
+//! plugins are given to them, which signing out removes and signing in again restores.
 
 use std::time::Duration;
 
 use indexmap::IndexMap;
 use locallibrary::api::{Cancelled, NoParams};
-use locallibrary::plugin::AccountId;
+use locallibrary::plugin::{AccountId, Chosen, Restoring};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -25,13 +25,19 @@ struct BeginSignIn {
     /// can do without.
     #[serde(default, rename = "for")]
     for_plugin: Option<String>,
-    /// An account the store keeps, or one signed out that plugins still have access to, by
-    /// subject, to sign in to again (asking for more scopes, say).
+    /// An account the store keeps, or one signed out that plugins had access to, by subject, to
+    /// sign in to again (asking for more scopes, say).
     #[serde(default)]
     account: Option<String>,
     /// The type's scopes to ask for besides, by name.
     #[serde(default)]
     scopes: Vec<String>,
+    /// What signing in does with the access plugins had to the account before it was signed out:
+    /// `restore` gives it all back, `reset` forgets it. Without, Automatically Restore Access
+    /// decides, else it stays off and the answer's `remembered` lists it, for
+    /// `accounts.access.restore`.
+    #[serde(default)]
+    restore: Option<Restoring>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -89,6 +95,23 @@ struct AccessRef {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct RestoreAccess {
+    account: AccountId,
+    /// The plugins to give their access back, with the scopes each gets: those left out are
+    /// forgotten, and none resets it. Without, every plugin gets its access back as it was.
+    #[serde(default)]
+    plugins: Option<Vec<Chosen>>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct RestoreAutomatically {
+    /// Only this account [default: every account without a setting of its own].
+    #[serde(default)]
+    account: Option<AccountId>,
+    on: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct GiveAccess {
     /// The plugin's id.
     plugin: String,
@@ -104,7 +127,7 @@ pub(super) fn register(r: &mut Registry) {
         let plugins = host()?;
         let with = plugins.provider(&req.kind, req.with.as_deref())?;
         let (for_plugin, again) = (req.for_plugin.as_deref(), req.account.as_deref());
-        Ok(plugins.begin_account_sign_in(&req.kind, &with, for_plugin, again, &req.scopes, &c.store()?)?)
+        Ok(plugins.begin_account_sign_in(&req.kind, &with, for_plugin, again, &req.scopes, req.restore, &c.store()?)?)
     })
     .keeps_cache();
     r.immediate("accounts.sign_in.finish", |c, req: FinishSignIn| {
@@ -143,6 +166,14 @@ pub(super) fn register(r: &mut Registry) {
     .keeps_cache();
     r.immediate("accounts.access.take_away", |c, req: AccessRef| {
         Ok(host()?.take_away_access(&req.plugin, &req.account, &c.store()?)?)
+    })
+    .keeps_cache();
+    r.immediate("accounts.access.restore", |c, req: RestoreAccess| {
+        Ok(host()?.restore_access(&req.account, req.plugins.as_deref(), &c.store()?)?)
+    })
+    .keeps_cache();
+    r.immediate("accounts.restore_automatically", |c, req: RestoreAutomatically| {
+        Ok(host()?.restore_automatically(req.account.as_ref(), req.on, &c.store()?)?)
     })
     .keeps_cache();
 }

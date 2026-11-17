@@ -2,10 +2,11 @@
 //! asks for: those its access has and the account was granted what they ask; not those the user
 //! (or the service) declined for the access before; and the rest as the user says, asked by the
 //! front end (see [`AskAccess`]). Allowed, the access is given them, signing in again first when
-//! the account is signed out or wasn't granted what they ask; declined, the access remembers it,
-//! and the plugin isn't asked about them again until the user gives them. Where nobody can be
-//! asked, it fails as `scope`, `needs` naming them, which passed on says how to give them. Without
-//! an access of the type it fails as a request would (`access`). Never a token.
+//! the account wasn't granted what they ask; declined, the access remembers it, and the plugin
+//! isn't asked about them again until the user gives them. Where nobody can be asked, it fails as
+//! `scope`, `needs` naming them, which passed on says how to give them. Without an access of the
+//! type (signing out of its account removes it) it fails as a request would (`access`). Never a
+//! token.
 
 use std::sync::Arc;
 
@@ -16,7 +17,6 @@ use serde_json::Value;
 use super::PENDING_LIMIT;
 use super::access::Access;
 use super::kept;
-use super::shared::AccountSignIn;
 use super::token::{about, failed};
 use crate::Error;
 use crate::api::RpcFailure;
@@ -40,13 +40,13 @@ pub struct AccessQuestion {
     pub titles: Vec<String>,
     /// Why it asks for them, as its manifest says.
     pub why: Vec<String>,
-    /// Allowing them signs in again first: the account is signed out, or wasn't granted what they
-    /// ask.
+    /// Allowing them signs in again first: the account wasn't granted what they ask. Never for an
+    /// account signed in to with keys, whose scopes ask the service for nothing.
     pub sign_in: bool,
 }
 
 /// The keys a user enters to sign in to an account with keys, by name, and the account's name
-/// when they name it (see [`AskAccess::enter_keys`]).
+/// when they name it (see [`crate::plugin::Plugins::finish_account_sign_in_with_keys`]).
 pub type EnteredKeys = (IndexMap<String, String>, Option<String>);
 
 /// How a front end asks the user whether a plugin may use more of an account it has access to,
@@ -59,14 +59,6 @@ pub trait AskAccess: Send + Sync {
     /// Opens `url` in the browser to sign in again (or says to): the host waits for the browser
     /// to come back.
     fn sign_in(&self, url: &str);
-
-    /// The keys the user enters to sign in again with keys (`start`: its `keys` are the ones to
-    /// enter, its `url` where they get them), by name, and the account's name when `start` is
-    /// `named`: `None` when they can't be asked here, or don't enter them. Never opens the browser.
-    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
-        let _ = start;
-        None
-    }
 
     /// Whether the user confirms writing `write` in the Atmosphere account, its record shown to
     /// them as [`RecordWrite::shown`] has it: `None` when they can't be asked here, and nothing's
@@ -108,7 +100,7 @@ impl Plugin {
         self.with_access(live, need, req.access.as_deref(), |a, k, with, t| {
             let serviced = |name: &String| {
                 let asks = t.scopes.get(name).map(|s| &s.asks);
-                k.is_some_and(|k| asks.is_some_and(|asks| asks.iter().all(|x| k.scopes.contains(x))))
+                asks.is_some_and(|asks| asks.iter().all(|x| k.scopes.contains(x)))
             };
             let (granted, rest): (Vec<String>, Vec<String>) =
                 req.scopes.iter().cloned().partition(|s| a.scopes.contains(s) && serviced(s));
@@ -134,9 +126,8 @@ impl Plugin {
     }
 
     /// Asks the user about `s`'s question, and does as they say: gives the access its scopes
-    /// (signing in again first when it has to, in the browser or with the keys they enter) or
-    /// remembers they declined them. Fails as the module's docs say when nobody can be asked, nor
-    /// the keys entered (the sign-in is over then).
+    /// (signing in again first in the browser when it has to) or remembers they declined them.
+    /// Fails as the module's docs say when nobody can be asked.
     fn ask(&self, live: &Live, need: &AccountNeed, s: Standing, ctx: &Ctx<'_>) -> Result<(), RpcError> {
         let Standing { with, question: q, .. } = s;
         let store = live.store.as_ref().expect("an access is to an account a store keeps");
@@ -151,16 +142,10 @@ impl Plugin {
             return remember(store, id, |a| a.more(scopes, &[])).map_err(external);
         }
         let account = &q.access.account.subject;
-        let start = with.begin_sign_in(&q.access.kind, Some(self), Some(account), scopes, store).map_err(external)?;
-        if start.keys.is_empty() {
-            ask.sign_in(&start.url);
-            return self.host.finish_sign_in(&start.id, PENDING_LIMIT, ctx).map(drop).map_err(external);
-        }
-        let Some((keys, name)) = ask.enter_keys(&start) else {
-            drop(self.host.pending(&start.id));
-            return Err(unasked(need, &q));
-        };
-        self.host.finish_sign_in_with_keys(&start.id, &keys, name.as_deref()).map(drop).map_err(external)
+        let start =
+            with.begin_sign_in(&q.access.kind, Some(self), Some(account), scopes, None, store).map_err(external)?;
+        ask.sign_in(&start.url);
+        self.host.finish_sign_in(&start.id, PENDING_LIMIT, ctx).map(drop).map_err(external)
     }
 }
 

@@ -152,7 +152,9 @@ needs.
   while the player does.
 - **Accounts**: "sign in to a Google account…" in the palette signs in in the browser, in the
   background (for a service that gives you keys, a form says where to get them and takes them
-  unseen), and "sign out of NAME" signs out. "access for PLUGIN…" opens a form with the
+  unseen), and "sign out of NAME" signs out, removing every plugin's access to it. Signing in
+  again to it opens a form: `enter` restores that access, or pick Choose (typing each plugin's
+  scopes) or Reset. "access for PLUGIN…" opens a form with the
   account of each type the plugin uses, what it needs it for, and signing in to another; `enter`
   makes the ones chosen its defaults (see [Accounts](plugins.md#accounts)).
 - **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
