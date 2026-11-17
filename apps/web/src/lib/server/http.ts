@@ -204,13 +204,17 @@ export function clientIp(event: { getClientAddress(): string }): string {
  * Lets a page that shows the same thing to everyone be cached for `seconds`: by anyone when the request has no
  * session cookie, by the browser alone when it has one. A signed-in page carries the account, and one whose session
  * ended asks to sign in again or clears the cookie, so neither may reach a shared cache. It varies on the cookie, so
- * signing in or out isn't answered from a copy made before.
+ * signing in or out isn't answered from a copy made before. Someone who `can` change the page (its pageContext) gets
+ * it uncached, so a reload after saving never shows the page from before.
  */
 export function cacheBriefly(
 	event: { locals: LocalsLike & { sessionToken?: string }; setHeaders(headers: Record<string, string>): void },
-	seconds = 60
+	seconds = 60,
+	can: readonly string[] = []
 ): void {
 	const isAnonymous = !event.locals.viewer && !event.locals.sessionToken;
 
-	event.setHeaders({ 'cache-control': `${isAnonymous ? 'public' : 'private'}, max-age=${seconds}`, vary: 'Cookie' });
+	const cacheControl = can.length ? 'no-store' : `${isAnonymous ? 'public' : 'private'}, max-age=${seconds}`;
+
+	event.setHeaders({ 'cache-control': cacheControl, vary: 'Cookie' });
 }

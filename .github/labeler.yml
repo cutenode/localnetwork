@@ -37,7 +37,7 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/{+page,page}.*"
-          - "apps/web/src/routes/projects/{+page,page}.*"
+          - "apps/web/src/routes/djs/**"
           - "apps/web/src/routes/{match,charts}/**"
           - "apps/web/src/routes/api/places/**"
           - "apps/web/src/lib/{matching,places,geo,directory-filters,supports}.*"
@@ -167,7 +167,7 @@ atstore:
           - "apps/web/src/{hooks.server,app.d}.*"
           - "apps/web/src/lib/{nsid,types,space-paths}.*"
           - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing,backup}/**"
-          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,http,logger,rate-limit}.*"
+          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,edit-mode,http,logger,rate-limit}.*"
           - "apps/web/src/lib/server/{env-files,crawler-head,images,utf8,moved-pages,meta,meta-records,structured-data}.*"
           - "apps/web/src/lib/server/services/{shared-spaces,space-joins,space-members,manager-spaces,own-repo,held-records,services}.*"
           - "apps/web/src/routes/{xrpc,.well-known,media,healthz}/**"
