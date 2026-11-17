@@ -5,8 +5,9 @@ the track was used, at what speed, with or without key lock, and how sure the ma
 split out of [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), which matches a set
 against the tracks on a rekordbox USB drive, but all it needs is audio files and a recording.
 
-It follows Dan Ellis's audfprint, in the line of Wang's Shazam paper. Audio is decoded through
-symphonia (MP3, AAC and ALAC in `.m4a`, FLAC, WAV, AIFF), averaged to mono and resampled to
+It follows Dan Ellis's audfprint, in the line of Wang's Shazam paper. Audio is decoded by
+[loclib-audio](https://github.com/cutenode/localnetwork/tree/main/crates/loclib-audio) (MP3, AAC
+and ALAC in `.m4a`, FLAC, WAV, AIFF), averaged to mono and resampled to
 11,025 Hz as it streams, so an hour-long recording never sits in memory at full rate. Spectral
 peaks are paired into landmark hashes, and every hash in the mix is looked up through a range of
 playback speeds, both time-stretched (key lock) and pitched with the tempo (no key lock). Votes
@@ -111,10 +112,6 @@ if r.correlation >= REFINE_MIN_CORRELATION {
   heuristic score, not a probability.
 - Hashes shared by too many tracks (a bare kick pattern) are dropped from the index, and peaks
   below ~65 Hz are ignored.
-
-## Features
-
-- `test-util`: synthetic audio and WAV files for tests. Not a stable API.
 
 ## What it doesn't do
 

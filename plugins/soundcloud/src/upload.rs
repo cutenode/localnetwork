@@ -12,11 +12,11 @@
 //! since the upload began: that's the answer. Anything else SoundCloud refuses is said in its
 //! words and not sent again.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, TimeDelta, Utc};
-use loclib_plugin::{Fetch, Fetched, FormPart, Host, RpcError};
-use loclib_progress::{Ctx, Phase};
+use loclib_plugin::{Fetch, Fetched, FormPart, Host, RpcError, pause};
+use loclib_progress::Phase;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -46,9 +46,6 @@ pub(crate) const LONGEST_WAIT: u64 = 300;
 /// How much earlier than the upload began, by this computer's clock, a track SoundCloud made of
 /// it may say it was made: the two clocks needn't agree.
 const CLOCKS_APART: TimeDelta = TimeDelta::minutes(5);
-
-/// How often a wait notices the hook being cancelled.
-const CHECK_EVERY: Duration = Duration::from_millis(50);
 
 /// A track SoundCloud made, as far as it's read.
 #[derive(Deserialize)]
@@ -88,7 +85,7 @@ pub(crate) fn upload(host: &Host, title: &str, form: Vec<FormPart>, bytes: u64) 
         let (failure, wait, unknown) = match answer {
             Ok(answer) if (200..300).contains(&answer.status) => return read(&answer),
             Ok(answer) if answer.status == 429 => {
-                let said = retry_after(&answer).unwrap_or(backoff);
+                let said = answer.retry_after(SystemTime::now()).unwrap_or(backoff);
                 (refused(&answer, "the set"), said, false)
             }
             Ok(answer) if matches!(answer.status, 500 | 502 | 503 | 504) => {
@@ -160,14 +157,6 @@ fn request(url: &str) -> Fetch {
     Fetch { headers: headers.into_iter().map(|(k, v)| (k.into(), v.into())).collect(), ..Fetch::get(url) }
 }
 
-/// How many seconds SoundCloud asks to wait (`Retry-After`, a number of them), when it says.
-pub(crate) fn retry_after(answer: &Fetched) -> Option<u64> {
-    let said = answer.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("retry-after"))?.1.trim();
-    let digits = !said.is_empty() && said.bytes().all(|b| b.is_ascii_digit());
-    // One too big to count is longer than any wait.
-    digits.then(|| said.parse().unwrap_or(u64::MAX))
-}
-
 /// SoundCloud's answer as `T`.
 fn read<T: DeserializeOwned>(answer: &Fetched) -> Result<T, RpcError> {
     serde_json::from_str(answer.body.as_deref().unwrap_or_default())
@@ -206,17 +195,4 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
     let verb = if status >= 500 { "failed" } else { "refused" };
     let why = if why.is_empty() { String::new() } else { format!(": {why}") };
     RpcError::failed(kind, format!("SoundCloud {verb} {what} ({words}){why}"))
-}
-
-/// Waits `wait`, failing with `cancelled` once `ctx` is.
-fn pause(ctx: &Ctx<'_>, wait: Duration) -> Result<(), RpcError> {
-    let until = Instant::now() + wait;
-    loop {
-        ctx.check()?;
-        let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(());
-        }
-        std::thread::sleep(left.min(CHECK_EVERY));
-    }
 }

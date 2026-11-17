@@ -66,7 +66,7 @@ it("embeds a platform's player when that's all a set links", async () => {
 
 it('has no source for a set with nothing to play, and is a 404 for a set the directory lacks', async () => {
 	expect(await (await played('3kplain', [])).json()).toEqual({ source: null });
-	await expect(callRoute(GET, { app: app(), params: { did: DJ, rkey: '3kmissing' } })).rejects.toMatchObject({
-		status: 404
-	});
+
+	for (const rkey of ['3kmissing', '..'])
+		await expect(callRoute(GET, { app: app(), params: { did: DJ, rkey } })).rejects.toMatchObject({ status: 404 });
 });

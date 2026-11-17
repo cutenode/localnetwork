@@ -45,7 +45,7 @@ fn a_store_is_made_only_where_it_can_be(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_librarys_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
+fn library_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::bigger_drive(dir.path(), "A");

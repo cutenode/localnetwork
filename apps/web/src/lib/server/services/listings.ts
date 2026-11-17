@@ -8,6 +8,7 @@ import { parseSpaceUri, rkeyOf, sharedSpace } from '../atproto/spaces';
 import { canonicalJson } from '../audit/chain';
 import type { Core } from '../core';
 import { nowIso } from '../db';
+import type { FlagService } from './flags';
 
 /** What a listing shows of its space beyond its people, from the kind's {@link ListingSource}. */
 export type ListingFields = { name: string; slug?: string; fields?: JsonObject };
@@ -34,9 +35,10 @@ const publishedDigest = ({ value }: StoredRecord) => {
 
 /**
  * Writes each listed act's, party's or venue's public listing to the root's repo, from its space, so HappyView can
- * index what spaces keep from it. A listing holds only what the public page shows and the people in a listed role who
- * haven't hidden; it never holds capabilities, how anyone came in, invites or requests. It's rewritten only when it
- * would change, and deleted when the space isn't listed or its kind has nothing to list.
+ * index what spaces keep from it. A listing holds only what the public page shows, the people in a listed role who
+ * haven't hidden, and a performer's managers who haven't; it never holds capabilities, how anyone came in, invites or requests. It's rewritten only when it
+ * would change, and deleted when the space isn't listed or its kind has nothing to list. A listing points at a public
+ * page, so none is written until the `spacePages` flag is on for everyone, and turning it off takes them down.
  */
 export class ListingWriter {
 	/** The latest refresh of each space, and one that hasn't started yet, which later calls share. */
@@ -45,6 +47,7 @@ export class ListingWriter {
 
 	constructor(
 		private readonly core: Core,
+		private readonly flags: Pick<FlagService, 'evaluate'>,
 		private readonly sources: Partial<Record<SpaceKind, ListingSource>>
 	) {}
 
@@ -127,7 +130,9 @@ export class ListingWriter {
 			.executeTakeFirst();
 
 		const source = status && this.sources[status.kind];
-		const fields = status?.listed === 1 && source ? await source.publicFields(space) : null;
+		// As a signed-out visitor sees it, who only gets flags that are on for everyone.
+		const { spacePages } = await this.flags.evaluate(null);
+		const fields = status?.listed === 1 && source && spacePages ? await source.publicFields(space) : null;
 		const stored = await db.selectFrom('kv').select('value').where('key', '=', digestKey(space)).executeTakeFirst();
 		const root = await this.core.root();
 
@@ -175,13 +180,23 @@ export class ListingWriter {
 			.orderBy('did')
 			.execute();
 
-		const people = rows
-			.filter((row) => row.hidden === 0 && isListedRole(kind, row.role))
+		const shown = rows.filter((row) => row.hidden === 0);
+
+		const people = shown
+			.filter((row) => isListedRole(kind, row.role))
 			.slice(0, MAX_PEOPLE)
 			.map(({ did, role }) => ({ did, role }));
 
+		// A performer's managers, who work for it without the credit, so the directory can tell who to ask.
+		const managers = shown
+			.flatMap((row) => (kind === 'performer' && row.role === 'manager' ? [row.did] : []))
+			.slice(0, MAX_PEOPLE);
+
 		// Round-tripped, so a field left undefined is gone before the digest and the safety check read it.
-		const record: JsonObject = JSON.parse(JSON.stringify({ kind: LISTING_KIND[kind], ...fields, people }));
+		const record: JsonObject = JSON.parse(
+			JSON.stringify({ kind: LISTING_KIND[kind], ...fields, people, ...(managers.length > 0 && { managers }) })
+		);
+
 		const json = JSON.stringify(record);
 		const leaked = rows.filter((row) => row.hidden === 1 && json.includes(row.did));
 

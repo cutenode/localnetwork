@@ -40,7 +40,7 @@ fn points(kinds: &[u8], at: u32) -> Vec<CuePoint> {
 #[hegel::explicit_test_case(kinds = vec![0u8, 1, 2], at = 10_000u32, keeper = 0u8)]
 #[hegel::explicit_test_case(kinds = vec![2u8], at = 4_000u32, keeper = 1u8)]
 #[hegel::explicit_test_case(kinds = vec![1u8, 0], at = 6_000u32, keeper = 2u8)]
-fn a_copys_cues_are_carried_onto_a_keeper_without_any(tc: TestCase) {
+fn cues_of_a_copy_are_carried_onto_a_keeper_without_any(tc: TestCase) {
     let kinds = tc.draw(gs::vecs(gs::integers::<u8>().max_value(2)).min_size(1).max_size(3));
     let at = tc.draw(gs::integers::<u32>().min_value(1_000).max_value(10_000));
     // The keeper's cues: none, the copy's, or one of its own.

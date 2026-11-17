@@ -1,0 +1,16 @@
+{
+	// The root package's own TypeScript, which Node runs as it is (type stripping): the tools, the
+	// tools' Vitest config, the Railway config, and the RPC types locallibrary generates for sidecar
+	// clients, which nothing else compiles. Each app and package has a tsconfig of its own.
+	"compilerOptions": {
+		"target": "esnext",
+		"module": "nodenext",
+		"strict": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"erasableSyntaxOnly": true,
+		"verbatimModuleSyntax": true,
+		"types": ["node"]
+	},
+	"include": ["tools/**/*.ts", "vitest.config.ts", ".railway/railway.ts", "apps/locallibrary/docs/rpc/locallibrary.d.ts"]
+}

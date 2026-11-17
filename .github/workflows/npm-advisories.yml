@@ -1,9 +1,9 @@
 name: npm advisories
 
 # Known vulnerabilities in the npm packages the website and the extension ship, the npm side of
-# what `cargo deny` checks for Rust. ci.yml calls it when a pull request or push changes the
-# lockfile or the ignore list (auditConfig in pnpm-workspace.yaml), and it runs weekly for
-# advisories published between them. Only production dependencies: the dev tooling's advisories
+# what `cargo deny` checks for Rust, and no duplicate in the lockfile that pnpm dedupe would merge.
+# ci.yml calls it when a pull request or push changes the lockfile or the ignore list (auditConfig
+# in pnpm-workspace.yaml), and it runs weekly for advisories published between them. Only production dependencies: the dev tooling's advisories
 # (Lighthouse, the atproto dev network) don't reach anyone using the tools, and Dependabot updates
 # them monthly.
 on:
@@ -29,3 +29,8 @@ jobs:
           node-version-file: .node-version
       # Reads pnpm-lock.yaml alone: nothing is installed.
       - run: pnpm audit --prod
+      # A package the lockfile holds twice where one version would do: `pnpm dedupe` fixes it.
+      # Pull requests only: a release since then can make one version do, which no change here
+      # caused.
+      - if: github.event_name != 'schedule'
+        run: pnpm dedupe --check

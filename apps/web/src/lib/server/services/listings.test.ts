@@ -25,7 +25,8 @@ describe('ListingWriter', () => {
 		fields = { name: 'Night Shift', slug: 'night-shift', fields: { city: 'Berlin' } };
 		t = await createTestServices({
 			admins: [ADMIN],
-			listingSources: { party: { publicFields: async () => fields }, performer: { publicFields: async () => fields } }
+			listingSources: { party: { publicFields: async () => fields }, performer: { publicFields: async () => fields } },
+			flagOverrides: { spacePages: true }
 		});
 		space = await t.sharedSpaces.create(await t.viewer(ADA), 'party');
 	});
@@ -40,6 +41,38 @@ describe('ListingWriter', () => {
 		t.net.records.get(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(inSpace)!.skey}`)?.value;
 
 	const list = async () => t.sharedSpaces.setListed(await t.viewer(ADMIN), space, true);
+
+	it('writes listings only while spacePages is on for everyone, and takes them down when it goes off', async () => {
+		const pages = await createTestServices({
+			admins: [ADMIN],
+			listingSources: { party: { publicFields: async () => fields } }
+		});
+
+		const admin = await pages.viewer(ADMIN);
+		const party = await pages.sharedSpaces.create(await pages.viewer(ADA), 'party');
+		const written = () => pages.net.records.get(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(party)!.skey}`)?.value;
+		const gates = { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
+
+		await pages.sharedSpaces.setListed(admin, party, true);
+		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		// On for one account isn't on for the signed-out visitors a listing sends to the page.
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, dids: [ADMIN] });
+		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true });
+		await pages.listings.reconcile();
+		expect(written()).toMatchObject({ kind: 'party', name: 'Night Shift' });
+
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true, enabled: false });
+		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		await pages.audit.idle();
+		await pages.db.destroy();
+	});
 
 	it("writes nothing for a space staff haven't listed", async () => {
 		await t.sharedSpaces.addPerson(await t.viewer(ADMIN), space, { did: BO, role: 'cohost' });
@@ -302,5 +335,61 @@ describe('ListingWriter', () => {
 				expect(listing(party)?.people).toEqual(credits && hidden.length > 0 ? undefined : listed);
 			})
 		);
+	});
+});
+
+describe("an act's listing", () => {
+	let t: Awaited<ReturnType<typeof createTestServices>>;
+
+	beforeEach(async () => {
+		t = await createTestServices({ admins: [ADMIN], flagOverrides: { spacePages: true } });
+	});
+	afterEach(async () => {
+		await t.audit.idle();
+		await t.db.destroy();
+	});
+
+	const listing = (space: string) =>
+		t.net.records.get(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(space)!.skey}`)?.value;
+
+	it("shows its public sections, a root-held avatar, and the managers who haven't hidden", async () => {
+		const admin = await t.viewer(ADMIN);
+		const basics = { name: 'Crew', bio: 'Two of us' };
+		const performer = { genres: ['techno'] };
+		const space = await t.sharedSpaces.createAct(await t.viewer(ADA), { slug: 'crew', form: 'duo', basics, performer });
+		const swap = t.net.spaceRecords.get(`${space}|${ROOT}|${COLLECTION.performer}|self`)!.cid;
+		const avatar = { upload: { bytes: new Uint8Array([7]), mimeType: 'image/png' } };
+		await t.sharedSpaces.updatePage(await t.viewer(ADA), space, { form: 'duo', basics, performer, avatar, swap });
+		await t.sharedSpaces.addPerson(admin, space, { did: BO, role: 'manager', hidden: true });
+		await t.sharedSpaces.addPerson(admin, space, { did: CY, role: 'manager' });
+		await t.sharedSpaces.setListed(admin, space, true);
+
+		const record = listing(space)!;
+		const cid = [...t.net.blobs.keys()].at(-1)!;
+		const blob = { $type: 'blob', ref: { $link: cid }, mimeType: 'image/png', size: 1 };
+		expect(record).toEqual({
+			$type: COLLECTION.listing,
+			kind: 'act',
+			name: 'Crew',
+			slug: 'crew',
+			fields: { form: 'duo', basics: { ...basics, avatar: blob }, performer },
+			people: [{ did: ADA, role: 'member' }],
+			managers: [CY],
+			updatedAt: expect.any(String)
+		});
+		expect(() => validateRecord(COLLECTION.listing, record)).not.toThrow();
+		// The root can write a public record holding the avatar because it uploaded the blob itself.
+		expect(t.net.blobHolders.get(cid)).toContain(ROOT);
+	});
+
+	it("never lists a DJ's own space as an act", async () => {
+		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
+		const at = new Date().toISOString();
+		const subject = { $type: `${COLLECTION.performer}#dj`, did: ADA };
+		const value = { $type: COLLECTION.performer, subject, createdAt: at, updatedAt: at };
+		await t.sharedSpaces.index({ space, collection: COLLECTION.performer, rkey: 'self', value });
+		await t.sharedSpaces.setListed(await t.viewer(ADMIN), space, true);
+
+		expect(listing(space)).toBeUndefined();
 	});
 });

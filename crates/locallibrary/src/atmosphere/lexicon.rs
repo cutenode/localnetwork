@@ -12,11 +12,14 @@
 //!
 //! [`validate`] checks a record against its document before it's written. It's strict, so a field
 //! the document doesn't define is an error, and it follows the AT Protocol's data model, which has
-//! no fractional numbers. It covers the parts of Lexicon these documents use: objects, refs (within
-//! a document and to another one), unions, strings, integers, booleans, arrays and blobs, and the
-//! string formats `datetime`, `at-uri`, `did`, `cid` and `uri`. The AT Protocol library's parsers
-//! check DIDs, at:// URIs and CIDs and chrono checks times; a `uri` only gets the light check the
-//! protocol's reference implementation gives one (a scheme, then no spaces).
+//! no fractional numbers. [`validate_with`] checks one a plugin writes, against these documents
+//! and those its manifest ships (see `crate::plugin`), these first: a plugin can't change one. It
+//! covers the parts of Lexicon these documents use: objects, refs (within a document and to
+//! another one), unions, strings, integers, booleans, arrays and blobs, and the string formats
+//! `datetime`, `at-uri`, `did`, `cid` and `uri`. The AT Protocol library's parsers check DIDs,
+//! at:// URIs and CIDs and chrono checks times; a `uri` only gets the light check the protocol's
+//! reference implementation gives one (a scheme, then no spaces). A loop of refs (a plugin's
+//! Lexicon can have one) is an error, not a hang.
 
 use rustc_hash::FxHashMap;
 use std::sync::LazyLock;
@@ -75,10 +78,20 @@ pub fn document(nsid: &str) -> Option<&'static Value> {
     PARSED.get(nsid)
 }
 
-/// The definition `name` in the document `doc`. `r` is the ref that named it, and `path` where in
-/// the record it was met.
-fn resolve(doc: &str, name: &str, r: &str, path: &str) -> std::result::Result<&'static Value, String> {
-    def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))
+/// The most refs and unions followed in a row without going into the record: past it, a document
+/// refers to itself in a loop (a plugin's can).
+const MAX_HOPS: usize = 32;
+
+/// The definition `name` in the document `doc`, one of [`DOCUMENTS`] or else of `shipped`. `r` is
+/// the ref that named it, and `path` where in the record it was met.
+fn resolve<'a>(
+    shipped: &'a [Value],
+    doc: &str,
+    name: &str,
+    r: &str,
+    path: &str,
+) -> std::result::Result<&'a Value, String> {
+    def(shipped, doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))
 }
 
 /// The last part of an NSID: `settings` for [`SETTINGS`].
@@ -86,14 +99,23 @@ pub fn short_name(nsid: &str) -> &str {
     nsid.rsplit('.').next().unwrap_or(nsid)
 }
 
-fn def(nsid: &str, name: &str) -> Option<&'static Value> {
-    document(nsid)?.get("defs")?.get(name)
+fn def<'a>(shipped: &'a [Value], nsid: &str, name: &str) -> Option<&'a Value> {
+    let doc = match document(nsid) {
+        Some(doc) => doc,
+        None => shipped.iter().find(|d| d["id"] == nsid)?,
+    };
+    doc.get("defs")?.get(name)
 }
 
 /// Check `record` (with its `$type`) against the record type `nsid`.
 pub fn validate(nsid: &str, record: &Value) -> Result<()> {
+    validate_with(&[], nsid, record)
+}
+
+/// [`validate`], with the Lexicon documents `shipped` besides [`DOCUMENTS`], which come first.
+pub fn validate_with(shipped: &[Value], nsid: &str, record: &Value) -> Result<()> {
     let bad = |why: String| Error::invalid(format!("the {} record doesn't fit its Lexicon: {why}", short_name(nsid)));
-    let main = def(nsid, "main")
+    let main = def(shipped, nsid, "main")
         .filter(|d| d["type"] == "record")
         .ok_or_else(|| Error::invalid(format!("{nsid} isn't one of locallibrary's record types")))?;
     let Value::Object(fields) = record else { return Err(bad("it isn't an object".into())) };
@@ -102,7 +124,7 @@ pub fn validate(nsid: &str, record: &Value) -> Result<()> {
     }
     let mut rest = fields.clone();
     rest.remove("$type");
-    check(nsid, &main["record"], &Value::Object(rest), "").map_err(bad)
+    check(shipped, nsid, &main["record"], &Value::Object(rest), "", 0).map_err(bad)
 }
 
 fn join(path: &str, key: &str) -> String {
@@ -136,15 +158,27 @@ fn is_uri(s: &str) -> bool {
         && !rest.contains(char::is_whitespace)
 }
 
-/// Check `v` against `schema`, a definition in the document `nsid` (local refs resolve there).
-fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Result<(), String> {
+/// Check `v` against `schema`, a definition in the document `nsid` (local refs resolve there),
+/// `hops` refs and unions after the last step into the record.
+fn check(
+    shipped: &[Value],
+    nsid: &str,
+    schema: &Value,
+    v: &Value,
+    path: &str,
+    hops: usize,
+) -> std::result::Result<(), String> {
     let num = |key: &str| schema[key].as_i64();
-    match schema["type"].as_str().unwrap_or_default() {
+    let kind = schema["type"].as_str().unwrap_or_default();
+    if hops > MAX_HOPS && matches!(kind, "ref" | "union") {
+        return Err(format!("{}: its Lexicon refers to itself in a loop", what(path)));
+    }
+    match kind {
         "ref" => {
             let r = schema["ref"].as_str().unwrap_or_default();
             let (doc, name) = target(nsid, r);
-            let found = resolve(doc, name, r, path)?;
-            check(doc, found, v, path)
+            let found = resolve(shipped, doc, name, r, path)?;
+            check(shipped, doc, found, v, path, hops + 1)
         }
         // A union's value names its type in `$type`: `nsid` for a document's main definition,
         // `nsid#name` for another. A type the union doesn't list passes unless it's closed.
@@ -164,10 +198,10 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 };
             };
             let (doc, name) = target(nsid, r);
-            let found = resolve(doc, name, r, path)?;
+            let found = resolve(shipped, doc, name, r, path)?;
             let mut rest = fields.clone();
             rest.remove("$type");
-            check(doc, found, &Value::Object(rest), path)
+            check(shipped, doc, found, &Value::Object(rest), path, hops + 1)
         }
         "object" => {
             let Value::Object(fields) = v else { return Err(format!("{} should be an object", what(path))) };
@@ -185,7 +219,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 if x.is_null() && nullable.is_some_and(|n| n.iter().any(|k| k == key.as_str())) {
                     continue;
                 }
-                check(nsid, property, x, &at)?;
+                check(shipped, nsid, property, x, &at, 0)?;
             }
             Ok(())
         }
@@ -237,7 +271,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 return Err(format!("{} has {n} entries, outside what the Lexicon allows", what(path)));
             }
             for (i, x) in items.iter().enumerate() {
-                check(nsid, &schema["items"], x, &format!("{}[{i}]", what(path)))?;
+                check(shipped, nsid, &schema["items"], x, &format!("{}[{i}]", what(path)), 0)?;
             }
             Ok(())
         }

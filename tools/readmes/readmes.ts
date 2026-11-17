@@ -1,9 +1,13 @@
 // What can be checked about the apps' Mermaid diagrams without drawing them: the Diagrams section of
 // each README and the pages in its docs/diagrams/. A diagram's truth is the reader's to check against
 // its sources, so each one has to name them and they have to be there: moving a file a diagram
-// describes fails here. mermaid.test.ts parses the blocks.
-import { readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+// describes fails here. mermaid.test.ts parses the blocks. A pull request that changes a source but
+// not its diagram says why the diagram still holds, which `drift` checks on each one in CI:
+//
+//   node tools/readmes/cli.ts drift <base-ref> <body-file>
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { posix, resolve } from 'node:path';
 
 // GitHub's anchor for a heading: lower-cased, punctuation dropped, spaces to dashes.
 const anchor = (heading: string) =>
@@ -22,10 +26,11 @@ const STYLED = /^\s*(?:style|classDef|linkStyle)\s|%%\{/m;
 const MOST_ON_A_PAGE = 40;
 
 /** The Markdown files of the app in `folder` that hold diagrams, relative to it. */
-export const diagramFiles = (folder: string) => [
-	'README.md',
-	...readdirSync(resolve(folder, 'docs/diagrams')).map((file) => `docs/diagrams/${file}`)
-];
+export const diagramFiles = (folder: string) => {
+	const pages = resolve(folder, 'docs/diagrams');
+
+	return ['README.md', ...(existsSync(pages) ? readdirSync(pages) : []).map((file) => `docs/diagrams/${file}`)];
+};
 
 /** The body of each Mermaid block in `markdown`. */
 export const mermaidBlocks = (markdown: string) =>
@@ -53,4 +58,82 @@ export function diagramProblems(markdown: string, exists: (path: string) => bool
 		...blocks.flatMap(([, body, next]) => (next.startsWith('Source: ') ? [] : [`no Source: after ${body}`])),
 		...blocks.flatMap(([, body]) => (STYLED.test(body) ? [`sets a colour: ${body}`] : []))
 	];
+}
+
+/** A diagram: the file it's in, the anchor of the heading above it, and what its Source: line links to. */
+export type Diagram = { file: string; heading: string; sources: string[] };
+
+/** The diagrams in `markdown`, the file at `file`, with every path from the repository's root. */
+export function diagramsIn(file: string, markdown: string): Diagram[] {
+	const found: Diagram[] = [];
+	let heading = '';
+
+	for (const [, title, next] of markdown.matchAll(/^#{1,6} (.+)$|^```mermaid\n[\s\S]*?^```\n+(.*)/gm)) {
+		if (title !== undefined) {
+			heading = anchor(title);
+			continue;
+		}
+
+		const links = next.startsWith('Source: ')
+			? [...next.matchAll(/\]\(([^)#]+)[^)]*\)/g)].map((match) => match[1])
+			: [];
+
+		const local = links.filter((target) => !/^https?:/.test(target));
+		// A link to a directory may end in a slash; a change anywhere under it changes it.
+		const sources = local.map((target) => posix.join(posix.dirname(file), target).replace(/\/$/, ''));
+		found.push({ file, heading, sources });
+	}
+
+	return found;
+}
+
+/**
+ * The diagrams a pull request that changes the files in `changed` leaves unchecked, each as a line to
+ * print: one of its sources changed, its own file didn't, and the pull request's `body` has no line
+ * `diagrams-checked: <file>#<heading>: <why>` for it, or `diagrams-checked: <file>: <why>` for its file.
+ */
+export function unchecked(diagrams: Diagram[], changed: string[], body: string): string[] {
+	const lines = body.split(/\r?\n/).map((line) => line.trim());
+	const isNamed = (name: string) => lines.some((line) => line.startsWith(`diagrams-checked: ${name}: `));
+	// By heading, which is what a body line names: diagrams under the same one share a line.
+	const touched = new Map<string, Set<string>>();
+
+	for (const { file, heading, sources } of diagrams) {
+		const name = `${file}#${heading}`;
+		const checked = changed.includes(file) || isNamed(file) || isNamed(name);
+
+		for (const source of sources) {
+			const isChanged = changed.some((path) => path === source || path.startsWith(`${source}/`));
+
+			if (isChanged && !checked) touched.set(name, (touched.get(name) ?? new Set()).add(source));
+		}
+	}
+
+	return [...touched].map(([name, sources]) => {
+		const file = name.split('#')[0];
+
+		return `${name}: ${[...sources].join(', ')} changed: update the diagram, or add a line \`diagrams-checked: ${name}: <why>\` (or \`diagrams-checked: ${file}: <why>\` for every diagram in the file) to the pull request's body`;
+	});
+}
+
+/** `unchecked` for every app's diagrams, the changes since `base`, and the body in `bodyFile`. */
+function drift(base: string, bodyFile: string): string[] {
+	const apps = readdirSync('apps', { withFileTypes: true }).filter((entry) => entry.isDirectory());
+	const files = apps.flatMap(({ name }) => diagramFiles(`apps/${name}`).map((file) => `apps/${name}/${file}`));
+	const diagrams = files.flatMap((file) => diagramsIn(file, readFileSync(file, 'utf8')));
+	// Without renames, so a source moved away counts as changed under the path a diagram names.
+	const diff = execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...HEAD`], { encoding: 'utf8' });
+
+	return unchecked(diagrams, diff.split('\n').filter(Boolean), readFileSync(bodyFile, 'utf8'));
+}
+
+/** Runs a command and gives the lines to print and whether it passed. */
+export function run([command, base, bodyFile, ...extra]: string[]) {
+	if (command !== 'drift' || base === undefined || bodyFile === undefined || extra.length > 0) {
+		return { lines: ['usage: cli.ts drift <base-ref> <body-file>'], ok: false };
+	}
+
+	const lines = drift(base, bodyFile);
+
+	return { lines, ok: lines.length === 0 };
 }

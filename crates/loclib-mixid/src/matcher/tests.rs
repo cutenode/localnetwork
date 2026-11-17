@@ -2,7 +2,7 @@ use super::*;
 use crate::audio::Resampler;
 use crate::fingerprint::{Analyzer, LIBRARY, QUERY, RATE};
 use crate::index::TrackPrint;
-use crate::test_util::synth;
+use loclib_testkit::audio::synth;
 
 fn peaks(x: &[f32], density: fingerprint::Density) -> (Vec<Peak>, u32) {
     let mut a = Analyzer::new(density, false);

@@ -12,14 +12,8 @@ test_fixture_passes if {
 }
 
 test_gated_workflows if {
-	gated := {path | some path, _ in workflows.gated} with input as fixtures.repo
+	gated := object.keys(workflows.gated) with input as fixtures.repo
 	gated == {".github/workflows/site-ci.yml", ".github/workflows/rust.yml", ".github/workflows/deps.yml", ".github/workflows/lint.yml"}
-}
-
-test_ungated_workflow_is_skipped if {
-	broken := json.remove(ci, ["jobs/passed"])
-	repo := fixtures.with_file(".github/workflows/dependency-review.yml", broken)
-	count(workflows.deny) == 0 with input as repo
 }
 
 test_no_changes_job if {
@@ -182,7 +176,7 @@ e2e := fixtures.file(".github/workflows/site-e2e.yml")
 with_e2e(contents) := fixtures.with_file(".github/workflows/site-e2e.yml", contents)
 
 test_called_workflows if {
-	called := {path | some path, _ in workflows.called} with input as fixtures.repo
+	called := object.keys(workflows.called) with input as fixtures.repo
 	called == {".github/workflows/site-e2e.yml"}
 }
 
@@ -242,5 +236,21 @@ test_codeql_filter_with_both if {
 	denied := workflows.deny with input as with_codeql_filter(["**/*.rs", ".github/codeql/**", ".github/workflows/codeql.yml"])
 	every msg in denied {
 		not contains(msg, "codeql_rust")
+	}
+}
+
+install(tools) := {"true": ["workflow_dispatch"], "jobs": {"lint": {"steps": [
+	{"uses": "taiki-e/install-action@0000000000000000000000000000000000000000", "with": {"tool": tools}},
+]}}}
+
+test_install_without_version if {
+	repo := fixtures.with_file(".github/workflows/tools.yml", install("cargo-deny@0.20.2, zizmor"))
+	".github/workflows/tools.yml: job \"lint\" installs zizmor with no exact version; name one, as zizmor@1.2.3" in workflows.deny with input as repo
+}
+
+test_install_with_versions if {
+	denied := workflows.deny with input as fixtures.with_file(".github/workflows/tools.yml", install("cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1"))
+	every msg in denied {
+		not contains(msg, "tools.yml")
 	}
 }

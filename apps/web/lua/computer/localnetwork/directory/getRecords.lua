@@ -4,7 +4,9 @@ function handle()
 	local uris = list(params.uris, 25)
 	local byUri = {}
 	local rows = db.raw('SELECT uri, cid, record FROM happyview_records WHERE uri IN (' .. marks(#uris) .. ')', uris)
-	for _, row in ipairs(rows) do byUri[row.uri] = row end
+	for _, row in ipairs(rows) do
+		byUri[row.uri] = row
+	end
 	local out = {}
 	for _, uri in ipairs(uris) do
 		if byUri[uri] then

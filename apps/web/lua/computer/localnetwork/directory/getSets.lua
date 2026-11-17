@@ -3,7 +3,9 @@
 function handle()
 	local uris = list(params.uris, 25)
 	local byUri = {}
-	for _, set in ipairs(sets(' AND uri IN (' .. marks(#uris) .. ')', uris, '')) do byUri[set.uri] = set end
+	for _, set in ipairs(sets(' AND uri IN (' .. marks(#uris) .. ')', uris, '')) do
+		byUri[set.uri] = set
+	end
 	local out = {}
 	for _, uri in ipairs(uris) do
 		if byUri[uri] then

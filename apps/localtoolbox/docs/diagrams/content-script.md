@@ -15,13 +15,15 @@ Repaints, pills, replaced buttons, walks and the likes list. The rest are listed
 
 ## Content script start
 
-What runs when `content.js` loads in a frame. Marks and the cache are in before any lookup, so a panel opened right away asks for nothing known.
+What runs when the page's scripts load in a frame. `page-data.js` is in before SoundCloud's own scripts, and `content.js` listens to it only once marks, queue and settings are in, since what it learns repaints the page.
 
 ```mermaid
 flowchart TD
-  Load["downloaded-store.js, then content.js<br/>at document_idle, in every frame"]
-  Read["read marks, queue, details cache<br/>and settings together"]
-  Harvest["harvest full tracks from<br/>the page's hydration"]
+  PageData["page-data.js<br/>at document_start, main world, every frame"]
+  Wrap["wraps XMLHttpRequest open,<br/>holds the page's answers"]
+  Load["downloaded-store.js, then content.js<br/>at document_idle, isolated world, every frame"]
+  Read["read marks, queue<br/>and settings together"]
+  Listen["listenToPage: learn the hydration,<br/>listen, say hello"]
   Paint["first repaint"]
   Observe["MutationObserver on body"]
   Storage["chrome.storage.onChanged"]
@@ -30,18 +32,20 @@ flowchart TD
   Answer["answer the panels' messages"]
   Quiet["frame work only"]
 
+  PageData --> Wrap
+  Wrap -.->|"held answers, after hello"| Listen
   Load --> Read
   Load --> Hook
   Load --> Top
-  Read --> Harvest
-  Harvest --> Paint
+  Read --> Listen
+  Listen --> Paint
   Paint --> Observe
   Paint --> Storage
   Top -->|yes| Answer
   Top -->|no| Quiet
 ```
 
-Source: [`content.ts`](../../content.ts), [`src/manifest.json`](../../src/manifest.json)
+Source: [`content.ts`](../../content.ts), [`page-data.ts`](../../page-data.ts), [`src/manifest.json`](../../src/manifest.json)
 
 ## The repaint pass
 
@@ -50,9 +54,9 @@ Source: [`content.ts`](../../content.ts), [`src/manifest.json`](../../src/manife
 ```mermaid
 flowchart TD
   Added["Element nodes added"]
-  Learned["Details learned"]
+  Learned["The page loaded tracks"]
   Timer["requestMarkers<br/>coalesced into 150 ms"]
-  Changed["Storage changed<br/>queue, marks, details, settings"]
+  Changed["Storage changed<br/>queue, marks, settings"]
   Pass["applyMarkers"]
   Likes["applyLikesView"]
   Targets["each MARKER_TARGETS layout:<br/>playlist rows, likes rows, tiles,<br/>track hero, player bar"]
@@ -78,7 +82,7 @@ Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css)
 
 ## Pills and the queue button
 
-Each piece of artwork carries at most one pill, with `downloaded` winning.
+Each piece of artwork carries at most one pill, with `downloaded` winning. Details last as long as the page, so a `nodl` pill only goes when the track is marked or the tab reloads.
 
 ```mermaid
 stateDiagram-v2
@@ -89,27 +93,33 @@ stateDiagram-v2
   None --> Nodl: known details offer no link
   None --> Downloaded: marked
   Nodl --> Downloaded: marked
-  Nodl --> None: details expire
   Downloaded --> None: unmarked
   Downloaded --> Nodl: unmarked, details offer no link
 ```
 
 Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css)
 
-And one queue button that says whether the track is queued. Small art has room for a plus sign alone.
+And one queue button that says whether the track is queued. Small art has room for one sign: a plus, a check once queued, a minus under the pointer. Small art that's downloaded already shows the mark's check, so a queued button there hides until hovered.
 
 ```mermaid
 stateDiagram-v2
   state "No button" as Off
-  state "Offers + queue, on hover" as Offer
-  state "Stays up reading queued, or + on small art" as Queued
+  state "Offers + queue, or + on small art, on hover" as Offer
+  state "Stays up reading queued, or a check on small art" as Queued
+  state "Small art, downloaded: hidden, a minus on hover" as SmallDone
   [*] --> Off
   Off --> Offer: queue reachable, row names a track
   Off --> Queued: same, track already queued
+  Off --> SmallDone: same, small art, queued and downloaded
   Offer --> Queued: queued, here or anywhere
+  Offer --> SmallDone: queued on small art, downloaded
   Queued --> Offer: taken out, here or anywhere
+  Queued --> SmallDone: small art, marked downloaded
+  SmallDone --> Queued: unmarked
+  SmallDone --> Offer: taken out, here or anywhere
   Offer --> Off: row names no track
   Queued --> Off: row names no track
+  SmallDone --> Off: row names no track
 ```
 
 Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css)
@@ -173,7 +183,7 @@ One pass over SoundCloud's own controls. Nothing is removed, so turning the sett
 ```mermaid
 flowchart TD
   Native["Each SoundCloud control<br/>.sc-button-download, purchase link,<br/>Track header's outbound link"]
-  Plan{"setting on, names a track,<br/>a link goes somewhere?"}
+  Plan{"setting on, names a track,<br/>a link to a web address?"}
   Restore["remove ours,<br/>show SoundCloud's"]
   Ours["ours after it, theirs hidden<br/>with tbx-dl-replaced"]
   Fit["height of the controls beside it,<br/>tooltip says the domain"]
@@ -196,12 +206,12 @@ flowchart TD
   Kind{"stands in for"}
   Press["press SoundCloud's hidden button,<br/>the listener marks the track"]
   Queue["queue the track"]
-  Walked{"plain click on Hypeddit,<br/>Droploud or Pump Your Sound?"}
+  Walked{"plain click on Hypeddit, Droploud,<br/>Pump Your Sound or Laylo?"}
   Follow["queue the track,<br/>the browser follows the link"]
-  Save["SAVE_GATE to the worker"]
+  Save["SAVE_GATE to the worker,<br/>the link and the track"]
   Saved{"saved?"}
   Mark["mark the track,<br/>if pref:mark is on"]
-  Gone["queue the track,<br/>a tab has opened"]
+  Gone["queue the track,<br/>a tab has opened: the gate, or a page gate<br/>with help, marked when its file lands"]
 
   Start --> Kind
   Kind -->|"Download file"| Press
@@ -218,7 +228,7 @@ Source: [`content.ts`](../../content.ts), [`src/background.ts`](../../src/backgr
 
 ## The walk behind a Download button
 
-The same site modules the Downloader panel uses. The offscreen page has `DOMParser` and host access, and the worker has tabs and downloads.
+The same site modules the Downloader panel uses. The offscreen page has `DOMParser` and host access, and the worker has tabs and downloads. A Droploud, Pump Your Sound or Laylo link is not walked: the worker opens it as a gate done on its own page (the Downloader diagrams, "A gate done on its own page").
 
 ```mermaid
 sequenceDiagram
@@ -226,7 +236,11 @@ sequenceDiagram
   participant W as Background worker
   participant O as Offscreen page
   participant G as Gate site
-  C->>W: SAVE_GATE, the link
+  C->>W: SAVE_GATE, the link and the track
+  alt a page site
+    Note over W: opens it with help, beside the page
+    W-->>C: not saved
+  end
   Note over W: one walk at a time
   W->>O: WALK_GATE
   O->>G: unlock, with email and name
@@ -245,11 +259,11 @@ sequenceDiagram
   Note over W: offscreen page closes when idle
 ```
 
-Source: [`src/background.ts`](../../src/background.ts), [`src/offscreen.ts`](../../src/offscreen.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`content.ts`](../../content.ts)
+Source: [`src/background.ts`](../../src/background.ts), [`src/offscreen.ts`](../../src/offscreen.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts), [`content.ts`](../../content.ts)
 
 ## The signed-in frame
 
-Signed in, a track page puts the track in an iframe. The script runs in both documents and each does different work.
+Signed in, a track page puts the track in an iframe. Both scripts run in both documents, and each document does different work. Only the top one answers a panel, so what the frame's own page loads stays in the frame.
 
 ```mermaid
 flowchart TD
@@ -262,18 +276,21 @@ flowchart TD
   Cart["purchase link replaced"]
   Notice["clicks on it noticed"]
   Silent["no marker target,<br/>no answers to panels"]
+  Own["page-data.ts and content.ts<br/>each document learns its own answers"]
 
   Tab --> Top
   Tab --> Frame
   Top --> Answers
   Top --> Bar
+  Top --> Own
+  Frame --> Own
   Frame --> Header
   Frame --> Silent
   Header --> Cart
   Header --> Notice
 ```
 
-Source: [`content.ts`](../../content.ts), [`src/manifest.json`](../../src/manifest.json)
+Source: [`content.ts`](../../content.ts), [`page-data.ts`](../../page-data.ts), [`src/manifest.json`](../../src/manifest.json)
 
 ## Pressing the List toggle
 

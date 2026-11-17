@@ -4,10 +4,6 @@ package workflows
 
 import data.lib
 
-# Pull request workflows with no passed check: dependency review is GitHub's own check of what a
-# pull request adds, which isn't a required check.
-ungated := {".github/workflows/dependency-review.yml"}
-
 # Gated workflows that check the pull request itself rather than its files, so they have nothing
 # to filter and no changes job: pr-issue.yml reads the description, branch and labels.
 unfiltered := {".github/workflows/pr-issue.yml"}
@@ -24,15 +20,14 @@ triggers(wf) := wf["true"]
 # Workflows that run on pull requests and have to report a "... passed" check.
 gated[path] := wf if {
 	some path in lib.paths(".github/workflows/*.yml")
-	not path in ungated
 	wf := lib.file(path)
 	runs_on(triggers(wf), "pull_request")
 }
 
 # The workflows a gated one calls (ci.yml's tools), which run as jobs of its run.
 called[path] := wf if {
-	some _, gated_wf in gated
-	some _, job in gated_wf.jobs
+	some gated_wf in gated
+	some job in gated_wf.jobs
 	path := trim_prefix(job.uses, "./")
 	wf := lib.file(path)
 }
@@ -45,7 +40,7 @@ runs_on(on, event) if event in on
 runs_on(on, event) if event in object.keys(on)
 
 # The jobs a job waits for, as a set.
-needs(job) := lib.strings(object.get(job, "needs", []))
+needs(job) := lib.string_set(object.get(job, "needs", []))
 
 deny contains msg if {
 	some path, wf in gated
@@ -124,7 +119,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some path, wf in gated
-	some _, value in object.get(wf.jobs.changes, "outputs", {})
+	some value in object.get(wf.jobs.changes, "outputs", {})
 	contains(value, "draft")
 	not fails_on_draft(wf.jobs.passed)
 	msg := sprintf("%s: the passed job should exit 1 when the changes job's draft output is true, or a draft's skipped jobs pass it", [path])
@@ -221,14 +216,14 @@ base_from_last_passed(job, filter) if {
 }
 
 # Every glob a gated workflow's changes job filters on.
-filter_globs contains glob if {
-	some _, wf in gated
-	some _, job in wf.jobs
+filter_globs contains pattern if {
+	some wf in gated
+	some job in wf.jobs
 	some step in job.steps
 	startswith(step.uses, "dorny/paths-filter@")
-	some _, globs in yaml.unmarshal(step["with"].filters)
-	some glob in lib.strings(globs)
-	not startswith(glob, "!")
+	some globs in yaml.unmarshal(step["with"].filters)
+	some pattern in lib.string_set(globs)
+	not startswith(pattern, "!")
 }
 
 deny contains msg if {
@@ -238,13 +233,13 @@ deny contains msg if {
 }
 
 covered(path) if {
-	some glob in filter_globs
-	lib.matches(glob, path)
+	some pattern in filter_globs
+	lib.matches(pattern, path)
 }
 
 # The paths of the filter named `name` in a gated workflow's changes job.
-filter(name) := lib.strings(globs) if {
-	some _, wf in gated
+filter(name) := lib.string_set(globs) if {
+	some wf in gated
 	some step in wf.jobs.changes.steps
 	startswith(step.uses, "dorny/paths-filter@")
 	globs := yaml.unmarshal(step["with"].filters)[name]
@@ -252,16 +247,16 @@ filter(name) := lib.strings(globs) if {
 
 filtered(name, path) if {
 	globs := filter(name)
-	some glob in globs
-	not startswith(glob, "!")
-	lib.matches(glob, path)
 	not excluded(globs, path)
+	some pattern in globs
+	not startswith(pattern, "!")
+	lib.matches(pattern, path)
 }
 
 excluded(globs, path) if {
-	some glob in globs
-	startswith(glob, "!")
-	lib.matches(substring(glob, 1, -1), path)
+	some pattern in globs
+	startswith(pattern, "!")
+	lib.matches(substring(pattern, 1, -1), path)
 }
 
 # A file the Rust code embeds from outside its crate (include_str! and include_bytes!) changes
@@ -275,7 +270,7 @@ deny contains msg if {
 
 # The filters that say a language's CodeQL results can be reused (ci.yml's codeql_*).
 codeql_filters contains name if {
-	some _, wf in gated
+	some wf in gated
 	some step in wf.jobs.changes.steps
 	startswith(step.uses, "dorny/paths-filter@")
 	some name, _ in yaml.unmarshal(step["with"].filters)
@@ -289,4 +284,17 @@ deny contains msg if {
 	some path in [".github/codeql/codeql-config.yml", ".github/workflows/codeql.yml"]
 	not filtered(name, path)
 	msg := sprintf("%s: add it to the %s paths filter; CodeQL's results change with it", [path, name])
+}
+
+# Each tool taiki-e/install-action installs names its exact version, so a run installs what the
+# last one did, and a new version comes in as a change to the workflow.
+deny contains msg if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some id, job in lib.file(path).jobs
+	some step in object.get(job, "steps", [])
+	startswith(object.get(step, "uses", ""), "taiki-e/install-action@")
+	some entry in split(step["with"].tool, ",")
+	tool := trim_space(entry)
+	not regex.match(`@[0-9]+\.[0-9]+\.[0-9]+$`, tool)
+	msg := sprintf("%s: job %q installs %s with no exact version; name one, as %s@1.2.3", [path, id, tool, tool])
 }

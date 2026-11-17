@@ -1321,7 +1321,7 @@ fn a_drive_that_made_the_change_another_made_is_behind_it_once_that_moved_on() {
 /// Backup's state was never saved, but the library's latest went through it: Backup is behind,
 /// so its pull is refused as older, and the push it offers brings it up to date.
 #[test]
-fn a_drive_the_librarys_latest_went_through_is_behind_it_unsaved() {
+fn a_drive_the_library_latest_went_through_is_behind_it_unsaved() {
     let m = SyncMachine::new();
     let (main, backup) = (&m.roots[0], &m.roots[1]);
     edit_drive(&m, 0, Edit::CreatePlaylist { path: "Friday".into(), folder: false });

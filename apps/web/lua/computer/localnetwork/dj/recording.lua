@@ -25,7 +25,7 @@ local function gate()
 	return {
 		audio = audio,
 		durationSeconds = math.type(seconds) == 'integer' and seconds > 0 and seconds or nil,
-		createdAt = type(record.createdAt) == 'string' and record.createdAt or nil
+		createdAt = type(record.createdAt) == 'string' and record.createdAt or nil,
 	}
 end
 

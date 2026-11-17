@@ -5,7 +5,7 @@ import { stubFormAction } from '#lib/testing/form-action.ts';
 import type { IssuedVerification, SpacePerson, StaffMember } from '#lib/types.ts';
 import ChannelTopics from './ChannelTopics.svelte';
 import FollowButton from './FollowButton.svelte';
-import ProfileSetupCard from './ProfileSetupCard.svelte';
+import ProfileSetupForm from './ProfileSetupForm.svelte';
 import SpacePeople from './SpacePeople.svelte';
 import StaffTable from './StaffTable.svelte';
 import VerificationTable from './VerificationTable.svelte';
@@ -29,10 +29,12 @@ describe('FollowButton', () => {
 	});
 });
 
-describe('ProfileSetupCard', () => {
+describe('ProfileSetupForm', () => {
 	it('sends the name as typed, saying so until the server answers', async () => {
 		const server = stubFormAction();
-		await render(ProfileSetupCard, { name: 'neon.test', hasAvatar: false });
+		await render(ProfileSetupForm, {
+			data: { profile: null, prefill: { name: 'neon.test', hasAvatar: false }, listing: false, follows: false }
+		});
 
 		await page.getByLabelText('Name').fill('Neon Tide');
 		await page.getByRole('button', { name: 'Create profile' }).click();

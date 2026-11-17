@@ -35,8 +35,12 @@ end
 local isStrings = isList(isString)
 
 local function isLocation(value)
-	return isObject(value) and isString(value.city) and isString(value.country) and optional(isString, value.region)
-		and optional(isInteger, value.latE6) and optional(isInteger, value.lngE6)
+	return isObject(value)
+		and isString(value.city)
+		and isString(value.country)
+		and optional(isString, value.region)
+		and optional(isInteger, value.latE6)
+		and optional(isInteger, value.lngE6)
 end
 
 local function isLink(value)

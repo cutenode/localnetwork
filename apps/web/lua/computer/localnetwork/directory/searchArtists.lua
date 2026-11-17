@@ -20,6 +20,8 @@ function handle()
 		args
 	)
 	local out = {}
-	for i, row in ipairs(rows) do out[i] = artistView(row) end
+	for i, row in ipairs(rows) do
+		out[i] = artistView(row)
+	end
 	return { artists = toarray(out) }
 end

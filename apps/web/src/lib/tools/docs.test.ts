@@ -48,6 +48,22 @@ describe('loadDocs', () => {
 		expect(guide(`# localthing\n\n## Use\n\nU.\n\n${diagrams}`)).toBe('\n## Use\n\nU.\n\n');
 	});
 
+	it('puts the changelog last, starting at its first version', () => {
+		const docs = loadDocs('apps/localthing', {
+			'../../../../localthing/CHANGELOG.md': '# Changelog\n\nHow to add to it.\n\n## [Unreleased]\n\n- Z.\n',
+			'../../../../localthing/docs/zebra.md': '# Zebra\n\nZ.\n',
+			'../../../../localthing/README.md': '# localthing\n\nL.\n'
+		});
+
+		expect(docs.map((doc) => doc.slug)).toEqual(['readme', 'zebra', 'changelog']);
+		expect(docs[2]).toEqual({
+			slug: 'changelog',
+			path: 'apps/localthing/CHANGELOG.md',
+			title: 'Changelog',
+			markdown: '## [Unreleased]\n\n- Z.\n'
+		});
+	});
+
 	it('refuses files that are neither', () => {
 		expect(() => loadDocs('apps/x', { '../x/src/notes.md': '' })).toThrow("isn't a README");
 	});

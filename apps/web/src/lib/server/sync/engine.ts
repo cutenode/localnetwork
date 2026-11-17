@@ -75,6 +75,15 @@ export type SyncStatus = {
 	registrationExpiresAt: string | null;
 	/** A repo that has failed since before it ever synced has no rev or sync time. */
 	repos: { did: string; rev: string | null; lastSyncedAt: string | null; lastError: string | null }[];
+	/** Records whose projection has failed at least once and is waiting for its next try. */
+	stuck: {
+		did: string;
+		collection: string;
+		rkey: string;
+		attempts: number;
+		nextAttemptAt: string;
+		lastError: string | null;
+	}[];
 };
 
 /**
@@ -126,6 +135,12 @@ const REPO_UNAVAILABLE = new Set(['RepoTakendown', 'RepoSuspended', 'RepoDeactiv
  */
 const isRepoUnavailable = (cause: unknown) =>
 	cause instanceof XrpcResponseError && REPO_UNAVAILABLE.has(cause.error) && !failsWholeSpace(cause);
+
+/**
+ * The most pages of a listRepos or listRepoOps listing one pass reads. The host decides when its listing ends, so
+ * without a limit one that keeps answering with a cursor would hold the space's pass, and every pass after it.
+ */
+const MAX_PAGES = 100;
 
 /** How long a repo waits after its `attempts`th failure in a row: 1 minute, doubling up to an hour. */
 const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1), 3_600_000);
@@ -270,7 +285,7 @@ export class SpaceSyncer {
 				}
 			};
 
-			for (;;) {
+			for (let pages = 1; ; pages++) {
 				const page = await this.deps.credentials.query({
 					space,
 					service: authority.pds,
@@ -288,6 +303,12 @@ export class SpaceSyncer {
 				cursor = page.cursor ?? last.spaceRev;
 
 				if (!page.cursor) break;
+
+				// The cursor is kept, so the next pass reads on from here.
+				if (pages === MAX_PAGES) {
+					logger.warn('repo list ran past the page limit; reading on next pass', { pages });
+					break;
+				}
 			}
 
 			const due = await db
@@ -483,8 +504,12 @@ export class SpaceSyncer {
 		const changes: SyncedChange[] = [];
 		let cursor: string | undefined;
 		let commit: Commit | undefined;
+		let pages = 0;
 
 		do {
+			// A full download replaces an oplog this long in one request, so syncRepo falls back to one.
+			if (++pages > MAX_PAGES) throw new Error(`Oplog ran past ${MAX_PAGES} pages`);
+
 			// The host wants a MAC request on every page, and only MACs the pages that carry a commit.
 			const { response, macParams } = await this.deps.credentials.macRequest({
 				space,
@@ -857,6 +882,14 @@ export class SpaceSyncer {
 
 		const repos = [...synced, ...unsynced.map((repo) => ({ ...repo, rev: null, lastSyncedAt: null }))];
 
+		// A row with no attempts is only waiting for its first run, which isn't a failure.
+		const stuck = await this.deps.db
+			.selectFrom('pendingProjection')
+			.selectAll()
+			.where('attempts', '>', 0)
+			.orderBy('nextAttemptAt')
+			.execute();
+
 		return watches.map((watch) => ({
 			space: watch.spaceUri,
 			type: watch.spaceType,
@@ -873,6 +906,18 @@ export class SpaceSyncer {
 					rev: repo.rev,
 					lastSyncedAt: repo.lastSyncedAt,
 					lastError: repo.lastError
+				}))
+				.toArray(),
+			stuck: stuck
+				.values()
+				.filter((record) => record.spaceUri === watch.spaceUri)
+				.map(({ repoDid, collection, rkey, attempts, nextAttemptAt, lastError }) => ({
+					did: repoDid,
+					collection,
+					rkey,
+					attempts,
+					nextAttemptAt,
+					lastError
 				}))
 				.toArray()
 		}));

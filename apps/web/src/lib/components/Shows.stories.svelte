@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { EVENT_STATUS, showFormDefaults } from '#lib/shows.ts';
+	import { light } from '#lib/testing/light.ts';
 	import type { ProjectView, ShowView } from '#lib/types.ts';
 	import FollowButton from './FollowButton.svelte';
 	import ShowForm from './ShowForm.svelte';
@@ -75,6 +76,8 @@
 
 <Story name="Near a city" args={{ shows, empty }} />
 
+<Story name="Near a city, light" args={{ shows, empty }} beforeEach={light} />
+
 <Story name="Near a city on a phone" args={{ shows, empty }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
 
 <Story name="On a project's page, for its manager" asChild>
@@ -87,7 +90,7 @@
 
 <Story name="Nothing on, with a next step" asChild>
 	<ShowList shows={[]} empty={{ title: 'Nothing coming up from DJs you follow', body: 'Follow DJs on their pages and their shows land here.' }}>
-		<a class="btn-secondary btn-sm" href="/projects">Find DJs</a>
+		<a class="btn-secondary btn-sm" href="/djs">Find DJs</a>
 	</ShowList>
 </Story>
 

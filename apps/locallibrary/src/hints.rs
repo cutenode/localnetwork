@@ -71,7 +71,7 @@ fn command(a: &Action) -> Option<String> {
     let p = |key: &str| a.params.get(key).and_then(Value::as_str).map(quote);
     let yes = |key: &str| a.params.get(key) == Some(&Value::Bool(true));
     Some(match method {
-        "pull" => format!("locallibrary pull {}", p("drive")?),
+        "pull.apply" => format!("locallibrary pull {}", p("drive")?),
         "push.plan" => format!("locallibrary library push {}", p("drive")?),
         "sync.plan" => match a.params.get("direction").and_then(Value::as_str) {
             Some("left_to_right") => format!("locallibrary sync --from {} {}", p("left")?, p("right")?),
@@ -86,7 +86,7 @@ fn command(a: &Action) -> Option<String> {
             format!("locallibrary drive role {} {}", p("drive").unwrap_or_else(|| "<DRIVE>".into()), p("role")?)
         }
         "drive.retire" if yes("undo") => format!("locallibrary drive retire {} --undo", p("drive")?),
-        "drive.reidentify" => format!("locallibrary drive reidentify {}", p("drive")?),
+        "drive.reidentify.apply" => format!("locallibrary drive reidentify {}", p("drive")?),
         "snapshot.label" if yes("remove") => format!("locallibrary store unlabel {}", p("label")?),
         "convert.plan" => {
             let to = p("to")?.replace('_', "");
@@ -95,7 +95,15 @@ fn command(a: &Action) -> Option<String> {
             format!("locallibrary convert {} --to {to}{replace}", p("drive")?)
         }
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
-        "account.login.begin" => "locallibrary account login".into(),
+        "account.login.begin" => {
+            // `atproto` left out: signing in asks for it anyway.
+            let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
+            let scopes = scopes.filter_map(Value::as_str).filter(|s| *s != "atproto");
+            format!(
+                "locallibrary account login{}",
+                scopes.map(|s| format!(" --scope {}", quote(s))).collect::<String>()
+            )
+        }
         "accounts.sign_in.begin" => {
             // Again as an account, named TYPE:SUBJECT.
             let target = match a.params.get("account").and_then(Value::as_str) {

@@ -14,3 +14,5 @@
   where the website reads them.
 - **Grant and access**: the website's grant lets an account read a press kit. locallibrary's
   access lets a plugin use an account. They're unrelated.
+- **Plan and plan**: the website's plan is an event someone's going to or a show they're on.
+  locallibrary's plan is what a command will change, shown before it's applied. They're unrelated.

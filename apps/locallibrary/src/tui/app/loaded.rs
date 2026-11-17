@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use locallibrary::anlz::{self, TrackAnalysis};
 use locallibrary::api;
-use locallibrary::fields::{OverlayStore, TrackValues};
+use locallibrary::fields::{OverlayStore, TrackValues, roles};
 use locallibrary::query::SortField;
 use locallibrary::sets::Set;
 use locallibrary::settings::{self, DriveSettings, SettingValue, SettingsFile, SettingsLocation};
@@ -72,6 +72,9 @@ pub struct Loaded {
     pub(super) sets: Option<Vec<Set>>,
     /// The drive went away: what's shown may be out of date, and can't be played or edited.
     pub stale: bool,
+    /// rekordbox's collection, read from this `master.db`: its files are full paths from `/` (see
+    /// `masterdb::Collection::library_from_root`), and it's never written.
+    pub collection: Option<PathBuf>,
 }
 
 impl Loaded {
@@ -100,6 +103,7 @@ impl Loaded {
             fields: Fields::Unread,
             sets: None,
             stale: false,
+            collection: None,
         };
         l.rebuild_tree();
         l
@@ -194,6 +198,11 @@ impl Loaded {
 
     pub fn root(&self) -> &Path {
         self.device.root()
+    }
+
+    /// Whether this is rekordbox's collection rather than a drive's library.
+    pub fn is_collection(&self) -> bool {
+        self.collection.is_some()
     }
 
     pub fn index_of(&self, file_path: &str) -> Option<usize> {
@@ -346,8 +355,8 @@ pub struct Details {
 }
 
 /// What starting a track reads in the background: its analysis files and artwork from the
-/// drive (what they lack from what plugins' analyzers kept in the store, if they have it), and its
-/// matches and playlists from the library.
+/// drive (what they lack from what plugins' analyzers kept in the store, if they have it, each part
+/// from the analyzer chosen for it first), and its matches and playlists from the library.
 #[derive(Default)]
 pub struct TrackInfo {
     pub(in crate::tui) analysis: TrackAnalysis,
@@ -365,8 +374,9 @@ pub(super) fn track_info(root: &Path, track: &Track, library: Option<Arc<Library
     let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
     let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
     let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
-        let overlays = OverlayStore::in_store(&Store::open(store_root).ok()?);
-        overlays.first(&audio, &analyzers).fill(&mut analysis)
+        let store = Store::open(store_root).ok()?;
+        let chosen = roles::parts_chosen(Some(&store));
+        OverlayStore::in_store(&store).first(&audio, &analyzers, &chosen, true).fill(&mut analysis)
     });
     let art = (device.as_ref().and_then(|d| artwork::file_on_drive(d, track)))
         .and_then(|f| std::fs::read(f).ok())

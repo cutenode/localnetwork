@@ -15,6 +15,8 @@ function handle()
 		args
 	)
 	local out = {}
-	for i = 1, math.min(#rows, limit) do out[i] = recordView(rows[i]) end
+	for i = 1, math.min(#rows, limit) do
+		out[i] = recordView(rows[i])
+	end
 	return { records = toarray(out), cursor = #rows > limit and rows[limit].rkey or nil }
 end

@@ -27,7 +27,7 @@
 
 <div class="flex min-h-[200px] flex-col" style:max-height="{frameHeight.max}px" aria-busy="true">
   <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
-    <button type="button" class="icon-btn -ml-1" aria-label="back to all tools" onclick={onback}>
+    <button type="button" class="icon-btn -ml-1" aria-label="back to all tools" title="all tools" onclick={onback}>
       <ArrowLeft class="size-4" />
     </button>
 

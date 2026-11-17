@@ -5,7 +5,18 @@
 	"description": "Colours that mean the same thing wherever DJ data is drawn: the website's mix report, locallibrary's HTML report and its terminal player. Each surface keeps its own chrome and accent.",
 	"type": "object",
 	"additionalProperties": false,
-	"required": ["bands", "phrases", "phrasesLight", "cues", "cuesLight", "trackColors", "status", "hotCueTextLight", "playhead", "playheadLight"],
+	"required": [
+		"bands",
+		"phrases",
+		"phrasesLight",
+		"cues",
+		"cuesLight",
+		"trackColors",
+		"status",
+		"hotCueTextLight",
+		"playhead",
+		"playheadLight"
+	],
 	"properties": {
 		"$schema": { "type": "string" },
 		"bands": {

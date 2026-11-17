@@ -66,33 +66,6 @@ fn a_damaged_b_tree_is_refused_before_anything_reads_it() {
     assert!(err.contains("SQLite finds it damaged"), "{err}");
 }
 
-/// SQLite reads a page from the WAL when a committed frame holds it, so the main file's copy
-/// may be anything (zeros an interrupted checkpoint left, say). Anywhere else, zeros are damage.
-#[test]
-fn only_pages_sqlite_reads_must_authenticate() {
-    let one = OneLibrary::create().unwrap();
-    let bytes = one.to_encrypted().unwrap();
-    let (codec, plain) = decrypt(&bytes, None).unwrap();
-    let pages = (plain.len() / PAGE_SIZE) as u32;
-    let frame = codec.encrypt_page(2, &plain[PAGE_SIZE..2 * PAGE_SIZE]).unwrap();
-    let wal = wal::tests::build(PAGE_SIZE, (1, 2), &[(2, pages, frame)]);
-    let mut holed = bytes.clone();
-    holed[PAGE_SIZE..2 * PAGE_SIZE].fill(0);
-    // Equal but for the reserve, which keeps each page's own IV and HMAC.
-    let usable =
-        |db: &[u8]| db.chunks(PAGE_SIZE).flat_map(|p| p[..PAGE_SIZE - cipher::RESERVE].to_vec()).collect::<Vec<_>>();
-    assert_eq!(usable(&decrypt(&holed, Some(&wal)).unwrap().1), usable(&plain));
-    let err = decrypt(&holed, None).map(|_| ()).unwrap_err().to_string();
-    assert!(err.contains("page 2 fails authentication"), "{err}");
-
-    let committed = wal::committed(&wal, PAGE_SIZE).unwrap().unwrap();
-    assert!(!reads_main_page(2, Some(&committed)));
-    assert!(!reads_main_page(pages + 1, Some(&committed)), "past the last commit");
-    assert!(reads_main_page(3, Some(&committed)));
-    assert!(!reads_main_page(cipher::LOCK_PAGE, None));
-    assert!(reads_main_page(1, None));
-}
-
 #[test]
 fn file_types() {
     assert_eq!(file_type("/Contents/a/b.MP3"), 1);

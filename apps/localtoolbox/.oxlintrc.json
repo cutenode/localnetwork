@@ -7,7 +7,7 @@
 			// The page scripts are classic scripts: they can't import a schema library, so their few
 			// boundary readers check JSON's kinds themselves, and their top-level consts are page
 			// globals (TbxDownloaded, TbxState) that other scripts read.
-			"files": ["content.ts", "downloaded-store.ts", "state-transfer.ts"],
+			"files": ["content.ts", "gate-page.ts", "downloaded-store.ts", "state-transfer.ts"],
 			"rules": {
 				"anti-slop/no-runtime-typeof": "off",
 				"no-unused-vars": [

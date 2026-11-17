@@ -20,7 +20,10 @@ and replace the four record types it publishes, to delete sets and their recordi
 delete` takes them off the account), to upload audio files (a set's recording), and to ask Local
 Network's directory to read them again, and nothing else in the account. `account login
 --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
-the same way, the first time, for permission to post bug reports and nothing else.
+the same way, the first time, for permission to post bug reports and nothing else. A plugin that
+writes records needs permission for each type it writes, which `account login --scope
+'repo:NSID?action=create&action=update'` asks for, and the plugin's error says which (see
+[Plugins](plugins.md#atmosphere-records)).
 
 - **Publishing's permission is a permission set**, the Lexicon
   [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):
@@ -98,7 +101,7 @@ shows the plan again for the account you approved. Publishing again replaces the
 | `sets publish <set> --upload` | `computer.localnetwork.dj.recording`, keyed by the set's id, then the set's record | the recording on this computer, uploaded to your account (as AAC when it has to be, see [Sets](sets.md#sets)), and how long it plays |
 | `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, studio, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`, each with its name) and the record its recording plays from (`recording`, such as a plyr.fm track), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
 
-A set's notes, its recording (unless you upload it), the sessions it came from and the files'
+A set's notes, its recording (unless you upload it), the histories it came from and the files'
 paths stay on this computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
 (`profile hide`) and the positions you give with `--hide 3,7` are published as unidentified:
 only their place in the set and when it starts. The venue, city and country also go out as a

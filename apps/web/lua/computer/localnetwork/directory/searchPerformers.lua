@@ -62,10 +62,16 @@ function handle()
 	local profileWhere, profileArgs = {}, {}
 	local function filter(where, args, clause, values)
 		where[#where + 1] = ' AND ' .. clause
-		for _, value in ipairs(values or {}) do args[#args + 1] = value end
+		for _, value in ipairs(values or {}) do
+			args[#args + 1] = value
+		end
 	end
-	local function project(clause, values) filter(projectWhere, projectArgs, clause, values) end
-	local function profile(clause, values) filter(profileWhere, profileArgs, clause, values) end
+	local function project(clause, values)
+		filter(projectWhere, projectArgs, clause, values)
+	end
+	local function profile(clause, values)
+		filter(profileWhere, profileArgs, clause, values)
+	end
 
 	local country = text(params.country)
 	if country then
@@ -78,8 +84,13 @@ function handle()
 	if params.unclaimed == true then project("json_array_length(record, '$.managers') = 0") end
 	-- A solo project its one manager stands behind as a listed DJ is them, so it gives way to their profile.
 	if profiles then
-		project("NOT (json_extract(record, '$.profile.kind') = 'solo' AND json_array_length(record, '$.managers') = 1"
-			.. " AND json_extract(record, '$.managers[0]') IN (" .. LISTED_DJS .. '))', { PROFILE, LISTING, ROOT_DID })
+		project(
+			"NOT (json_extract(record, '$.profile.kind') = 'solo' AND json_array_length(record, '$.managers') = 1"
+				.. " AND json_extract(record, '$.managers[0]') IN ("
+				.. LISTED_DJS
+				.. '))',
+			{ PROFILE, LISTING, ROOT_DID }
+		)
 	end
 	if #tiers > 0 then
 		project(inFeeTiers('record', '$.profile.fees', tiers, '$.profile.fee'))

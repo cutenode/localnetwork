@@ -3,7 +3,9 @@
 
 -- Fee tiers by rank, cheapest first.
 local TIER = {}
-for rank, tier in ipairs(TAXONOMY.feeTiers) do TIER[tier] = rank end
+for rank, tier in ipairs(TAXONOMY.feeTiers) do
+	TIER[tier] = rank
+end
 
 local function percent(fraction)
 	return math.floor(fraction * 100 + 0.5)
@@ -22,7 +24,9 @@ local function genreFit(count, related, offered)
 		if hits then
 			for k = 1, #hits, 2 do
 				local i, value = hits[k], hits[k + 1]
-				if value > (best[i] or 0) then best[i], from[i] = value, offered[j] end
+				if value > (best[i] or 0) then
+					best[i], from[i] = value, offered[j]
+				end
 			end
 		end
 	end
@@ -157,7 +161,8 @@ local function score(show, profile)
 		},
 		reasons = reasons,
 		warnings = warnings,
-	}, km
+	},
+		km
 end
 
 function handle()
@@ -208,7 +213,9 @@ function handle()
 	local matches = {}
 	for i = 1, math.min(#ranked, pageSize(params.limit, 30, 50)) do
 		local result, breakdown = ranked[i].result, {}
-		for factor, value in pairs(result.factors) do breakdown[factor] = percent(value) end
+		for factor, value in pairs(result.factors) do
+			breakdown[factor] = percent(value)
+		end
 		matches[i] = {
 			project = ranked[i].project,
 			score = ranked[i].score,

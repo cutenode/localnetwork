@@ -162,7 +162,7 @@ fn a_set_needs_its_tracks_on_a_drive() {
         let said = format!("a {what}'s export points at its tracks' audio: name the drive they're on");
         assert_eq!(e.message, said);
     }
-    assert!(session.calls.lock().unwrap().is_empty(), "nothing is read");
+    assert!(session.host.calls().is_empty(), "nothing is read");
     for (format, source, said) in [
         ("serato", json!({ "drive": "USB", "set": "1a2b" }), "none of the set's tracks are on the drive"),
         ("traktor", json!({ "drive": "USB", "mix": "live" }), "none of the mix's tracks are on the drive"),

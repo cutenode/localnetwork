@@ -1,0 +1,9 @@
+syntax = "Lua54"
+column_width = 120
+line_endings = "Unix"
+indent_type = "Tabs"
+# A tab counts as 2 columns toward column_width, as oxfmt counts it in the TypeScript.
+indent_width = 2
+quote_style = "AutoPreferSingle"
+call_parentheses = "Always"
+collapse_simple_statement = "ConditionalOnly"

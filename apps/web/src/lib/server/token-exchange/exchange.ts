@@ -4,14 +4,20 @@
 // environment, sends it on to the service's token endpoint (only ever one in services.json), and
 // answers what the service answered. Codes, verifiers, tokens and secrets are never logged.
 //
+// Each service has an ops flag (its pauseFlag) that stops its exchange without a deploy, say when a
+// secret leaks. The request has no account, so only "on for everyone" pauses it.
+//
 // It only trades codes sent back to locallibrary's listener on this computer: a redirect_uri, when
 // a grant has one, must be `http://127.0.0.1:<port>/callback` or `http://[::1]:<port>/callback`,
 // as locallibrary sends it. A service that only compares the redirect_uri with the authorize
 // request's (Mixcloud, without PKCE) would otherwise trade a code that a link with Local Network's
 // client sent to someone else's site, giving them that account's token.
+import type { JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
+import { isTooDeep } from '../atproto/lexicons';
 import { parseJson } from '../db';
 import type { Logger } from '../logger';
+import type { Flags } from '#lib/types.ts';
 import { type Service, services } from './services';
 
 /** The most of a request, or of a service's answer, read: either is a few kilobytes. */
@@ -100,14 +106,22 @@ export type ExchangeOptions = {
 	/** Where the services' client ids and secrets are read from. */
 	env?: Record<string, string | undefined>;
 	fetch?: typeof fetch;
+	/** The request's flags, where a service's pauseFlag stops its exchange. Nothing is paused without them. */
+	flags?: Partial<Flags>;
 };
 
 /** Trades a code or refresh token for tokens at the service `id` names, with Local Network's client there. */
 export async function exchangeToken(id: string, request: Request, options: ExchangeOptions): Promise<Response> {
-	const { log, env = process.env, fetch: send = fetch } = options;
+	const { log, env = process.env, fetch: send = fetch, flags = {} } = options;
 	const service = Object.hasOwn(services, id) ? services[id] : undefined;
 
 	if (!service) return refuse(404, 'invalid_request', `Local Network doesn't sign in to "${id.slice(0, 64)}"`);
+
+	if (flags[service.pauseFlag]) {
+		log.info('token exchange paused', { service: id, flag: service.pauseFlag });
+
+		return refuse(503, 'temporarily_unavailable', `Local Network has paused signing in to ${service.title}`);
+	}
 
 	const body = await readCapped(request);
 
@@ -150,10 +164,12 @@ export async function exchangeToken(id: string, request: Request, options: Excha
 		return refuse(502, 'temporarily_unavailable', `${service.title} isn't answering`);
 	}
 
-	const tokens = answerSchema.safeParse(parseJson<unknown>(await readCapped(answer), undefined));
+	const answered = parseJson<JsonValue | undefined>(await readCapped(answer), undefined);
+	const tokens = answerSchema.safeParse(answered);
 	log.info('token exchange', { ...at, status: answer.status, ms: Math.round(performance.now() - started) });
 
-	if (!tokens.success)
+	// Answering it stringifies it by recursion, which an answer nested thousands of levels deep would overflow.
+	if (!tokens.success || isTooDeep(answered))
 		return refuse(502, 'temporarily_unavailable', `${service.title} answered something that isn't a token response`);
 
 	// OAuth clients need a token_type, which Mixcloud doesn't document sending.

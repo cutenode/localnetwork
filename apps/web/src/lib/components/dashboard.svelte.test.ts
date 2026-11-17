@@ -1,11 +1,14 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { collect, type OnboardingData } from '#lib/onboarding/checklist.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { RequestView, Viewer } from '#lib/types.ts';
 import Handle from './Handle.svelte';
 import ManageLink from './ManageLink.svelte';
-import ProfileSetupCard from './ProfileSetupCard.svelte';
+import OnboardingChecklist from './OnboardingChecklist.svelte';
 import PreviewBanner from './PreviewBanner.svelte';
+import ProfileSetupForm from './ProfileSetupForm.svelte';
 import RequestList from './RequestList.svelte';
 
 const viewer = (did: string, staff = false): Viewer => ({
@@ -95,6 +98,7 @@ describe('RequestList', () => {
 		repoDid: 'did:plc:pat',
 		projectUri: null,
 		project: null,
+		venue: null,
 		record: { kind: 'claim', createdAt: '2026-10-01T00:00:00Z' },
 		createdAt: '2026-10-01T00:00:00Z',
 		updatedAt: '2026-10-01T00:00:00Z',
@@ -122,34 +126,91 @@ describe('RequestList', () => {
 
 		await expect
 			.element(page.getByRole('link', { name: 'Claim: Halflight' }))
-			.toHaveAttribute('href', '/dashboard/requests/a');
+			.toHaveAttribute('href', '/dashboard/account/requests/a');
 		await expect
 			.element(page.getByRole('link', { name: 'New project: Night Shift' }))
-			.toHaveAttribute('href', '/dashboard/requests/b');
-		await expect.element(page.getByText('Approved')).toBeInTheDocument();
+			.toHaveAttribute('href', '/dashboard/account/requests/b');
+		await expect.element(page.getByText(/^Approved on/)).toBeInTheDocument();
+	});
+
+	it('says who has each one, and lists what is back with the viewer first', async () => {
+		const { container } = await render(RequestList, {
+			requests: [
+				request('a', { status: 'approved', decision: { at: '2026-10-03T12:00:00Z', by: null, reason: null } }),
+				request('b', { status: 'pending', updatedAt: '2026-10-02T12:00:00Z' }),
+				request('c', {
+					status: 'changes_requested',
+					project: { slug: 'neon-tide', name: 'Neon Tide' },
+					decision: { at: '2026-10-04T12:00:00Z', by: null, reason: 'One more link?' }
+				})
+			]
+		});
+
+		await expect.element(page.getByText('With staff since 2 Oct. Nothing needed from you.')).toBeVisible();
+		await expect
+			.element(page.getByRole('link', { name: 'Update: Claim: Neon Tide' }))
+			.toHaveAttribute('href', '/dashboard/account/requests/c');
+		expect([...container.querySelectorAll('li')].map((row) => row.textContent)).toEqual([
+			expect.stringContaining('Staff asked for changes on 4 Oct.'),
+			expect.stringContaining('With staff since'),
+			expect.stringContaining('Approved on 3 Oct.')
+		]);
+	});
+
+	it('holds their room while loading', async () => {
+		await render(RequestList, { loading: true });
+
+		await expect.element(page.getByRole('list')).toHaveAttribute('aria-busy', 'true');
+		await expect.element(page.getByText('No requests yet')).not.toBeInTheDocument();
 	});
 
 	it('says when there are none', async () => {
 		await render(RequestList, { requests: [] });
 
-		await expect.element(page.getByText('No submissions yet')).toBeInTheDocument();
+		await expect.element(page.getByText('No requests yet')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'List a project' }))
 			.toHaveAttribute('href', '/dashboard/projects/new');
 	});
 });
 
-describe('ProfileSetupCard', () => {
+describe('ProfileSetupForm', () => {
 	it('starts a profile from the Bluesky name, offering its picture only when there is one', async () => {
-		const { rerender } = await render(ProfileSetupCard, { name: 'Neon', hasAvatar: true });
+		const { rerender } = await render(ProfileSetupForm, {
+			data: { profile: null, prefill: { name: 'Neon', hasAvatar: true }, listing: false, follows: false }
+		});
 
 		await expect.element(page.getByLabelText('Name')).toHaveValue('Neon');
 		await expect.element(page.getByLabelText('Use my Bluesky picture')).toBeChecked();
 		expect(document.querySelector('form')?.getAttribute('action')).toBe('/dashboard/profile?/create');
-		await expect
-			.element(page.getByRole('link', { name: 'Fill in everything' }))
-			.toHaveAttribute('href', '/dashboard/profile');
-		await rerender({ name: 'neon.test', hasAvatar: false });
+		await rerender({ data: { profile: null, prefill: null, listing: false, follows: false } });
+		await expect.element(page.getByLabelText('Name')).toHaveValue('');
 		await expect.element(page.getByLabelText('Use my Bluesky picture')).not.toBeInTheDocument();
+	});
+});
+
+describe('OnboardingChecklist', () => {
+	const data: OnboardingData = { profile: null, prefill: null, listing: false, follows: false };
+
+	const steps = collect({
+		'./steps/follow.ts': {
+			default: { order: 1, title: 'Follow a DJ', gets: 'Shows.', href: '/djs', done: () => false }
+		},
+		'./steps/mixes.ts': {
+			default: { order: 2, title: 'Add a mix', gets: 'Plays.', href: '/mixes', flag: 'parityCanary', done: () => false }
+		}
+	});
+
+	it("marks a feature's step new while its flag is on, and leaves it out otherwise", async () => {
+		const { rerender } = await render(OnboardingChecklist, { data, steps, flags: { ...flagsOff, parityCanary: true } });
+
+		const mix = page.getByRole('listitem').filter({ hasText: 'Add a mix' });
+		await expect.element(mix.getByRole('link', { name: 'Add a mix' })).toHaveAttribute('href', '/mixes');
+		await expect.element(mix.getByText('new', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByText('0 of 2 done')).toBeInTheDocument();
+
+		await rerender({ data, steps, flags: { ...flagsOff, parityCanary: false } });
+		await expect.element(page.getByText('Add a mix')).not.toBeInTheDocument();
+		await expect.element(page.getByText('0 of 1 done')).toBeInTheDocument();
 	});
 });

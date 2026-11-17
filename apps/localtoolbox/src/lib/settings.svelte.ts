@@ -9,7 +9,7 @@
 // So they cannot live where the prefs do. The popup's localStorage belongs to
 // the popup page; a content script cannot see it, and a setting it cannot see
 // is a setting it cannot obey. They live in chrome.storage.local instead,
-// beside the marks and the details cache, as one object under one key, read by
+// beside the marks and the lists, as one object under one key, read by
 // both sides and written only here.
 //
 // The defaults are duplicated in content.ts, which cannot import this file

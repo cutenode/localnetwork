@@ -9,24 +9,31 @@ use std::time::{Duration, Instant};
 use hegel::TestCase;
 use hegel::generators as gs;
 
-use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, method};
+use loclib_plugin::{Published, PublishedSet, TracklistEntry, method};
 use loclib_progress::{Event, Phase};
 use serde_json::json;
 
-use super::{entry, set};
+use super::set;
 use crate::*;
 use youtube::{YouTube, start};
+
+fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
+    TracklistEntry {
+        artist: artist.map(Into::into),
+        title: title.map(Into::into),
+        start_seconds: start,
+        ..Default::default()
+    }
+}
 
 /// Served as a real one is, it says it's its manifest, publishing sets through fetches with an
 /// account.
 #[test]
 fn it_serves_its_manifest() {
-    let manifest = Manifest::parse(MANIFEST).unwrap();
+    // `start` checks that it describes itself as its manifest.
     let s = start(YouTube::new());
-    let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.hello.features);
-    let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    let has = |f: &&str| s.host.hello().features.iter().any(|had| had == f);
+    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.host.hello().features);
     s.stop();
 }
 
@@ -43,8 +50,9 @@ fn without_a_scratch_folder_nothing_goes() {
     let path = tools::file(dir.path(), "set.m4a", 10);
     tools::working(tools::AAC, b"video");
     let s = start(YouTube::new());
-    let req = json!({ "destination": "video", "set": set(), "recording": path, "tracklist": [] });
-    let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+    let req = json!({ "destination": "video", "set": set(), "recording": path, "tracklist": [],
+        "context": { "scratch": null } });
+    let e = s.host.request::<Published>(method::SET_PUBLISH, &req).unwrap_err();
     assert_eq!(e.message, "invalid params: no scratch folder to make the video in");
     assert_eq!(tools::args("ffmpeg"), None);
     assert!(s.stop().requests.is_empty());
@@ -212,7 +220,7 @@ fn cancelling_stops_ffmpeg() {
         assert!(pending.wait_timeout::<Published>(Duration::from_millis(20)).is_none(), "it waits for ffmpeg");
     }
     let asked = Instant::now();
-    s.host.notify(method::CANCEL, &Cancel { id: pending.id().into() });
+    pending.cancel();
     let answer = pending.wait_timeout::<Published>(Duration::from_secs(30)).expect("an answer");
     assert!(asked.elapsed() < Duration::from_secs(10), "{:?}", asked.elapsed());
     assert_eq!(answer.unwrap_err().kind(), Some("cancelled"));
@@ -293,6 +301,26 @@ fn ffmpeg_going_wrong_says_why_and_sends_nothing() {
         assert_eq!(kind(&e), ("not_found", said));
     }
     assert!(s.stop().requests.is_empty());
+}
+
+/// FFmpeg's tools ending in a way that can't be waited for (here because the process ignores
+/// SIGCHLD, so the system reaps them itself) fails the probe and the render, saying so.
+#[test]
+fn a_tool_that_cant_be_waited_for_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = tools::file(dir.path(), "set.wav", 10);
+    tools::working(tools::WAV, b"video");
+    let audio = crate::render::probe(&recording).unwrap();
+    // SAFETY: nextest gives each test a process of its own, and nothing else in it runs a child.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_IGN) };
+    let e = crate::render::probe(&recording).unwrap_err();
+    assert!(e.message.starts_with("ffprobe: "), "{e:?}");
+    let ctx = loclib_progress::Ctx::new(&loclib_progress::NoProgress, loclib_progress::CancelToken::new());
+    let to = dir.path().join("video.mp4");
+    let e = crate::render::render(&recording, &audio, 10, None, &to, &ctx).unwrap_err();
+    assert!(e.message.starts_with("ffmpeg: "), "{e:?}");
+    // SAFETY: as above.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) };
 }
 
 /// A dry run reads how long the recording is, says what would go and what YouTube does with it,
@@ -614,8 +642,9 @@ fn cant_make_its_video(tc: &TestCase, case: u8) {
         }
         _ => {
             let s = shared();
-            let req = json!({ "destination": "video", "set": set(), "recording": recording, "tracklist": [] });
-            let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+            let req = json!({ "destination": "video", "set": set(), "recording": recording, "tracklist": [],
+                "context": { "scratch": null } });
+            let e = s.host.request::<Published>(method::SET_PUBLISH, &req).unwrap_err();
             assert_eq!(e.message, "invalid params: no scratch folder to make the video in");
             assert_eq!((tools::args("ffmpeg"), s.received().requests.len()), (None, 0));
             return;
@@ -888,7 +917,7 @@ fn prop_a_dry_run_says_what_would_go(tc: TestCase) {
     let shown = if picture.is_some() { "cover.jpg" } else { "a black frame" };
     let mut what = format!(
         "set.m4a ({}) would go to YouTube as the unlisted video \"Closing set\", {shown} over the audio",
-        video::clock(seconds)
+        loclib_plugin::clock(seconds)
     );
     match (tracklist.len(), d.chapters) {
         (0, _) => {}

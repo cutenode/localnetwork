@@ -27,6 +27,10 @@ describe('signInPurpose', () => {
 		['/projects/neon-tide#follow', 'follow Neon Tide'],
 		['/dashboard/bookings/new?project=neon-tide', 'book Neon Tide'],
 		['/shows?view=following', 'see shows from DJs you follow'],
+		['/@mara.test#follow', 'follow @mara.test'],
+		['/@mara.test', null],
+		['/@did:plc:mara#follow', null],
+		['/@mara.test/sets/3k#follow', null],
 		['/projects/hidden-crew', null],
 		['/projects/nobody', null],
 		['/dashboard/bookings/new', null],
@@ -64,7 +68,7 @@ describe('accountHosts', () => {
 		expect(rest).toEqual(hostList.hosts);
 	});
 
-	// hosts.schema.json checks this in an editor; this keeps a bad edit from reaching the sign-up list.
+	// tools/schemas/schemas.test.ts holds this to hosts.schema.json; this keeps a bad edit from reaching the sign-up list.
 	it('lists each host once, at an https origin', () => {
 		const services = hostList.hosts.map((host) => host.service);
 

@@ -6,7 +6,7 @@ use super::*;
 fn detail_rides_along_without_changing_the_error() {
     let e = Error::conflict(Reason::NotSaved, "DNA's history isn't in the store yet")
         .with("drive", "/Volumes/DNA")
-        .action(Action::call("pull", json!({ "drive": "/Volumes/DNA" }), "Pull DNA"))
+        .action(Action::call("pull.apply", json!({ "drive": "/Volumes/DNA" }), "Pull DNA"))
         .action(Action::retry(json!({ "force": true }), "Delete them anyway"));
     assert_eq!((e.code(), e.to_string().as_str()), ("conflict", "DNA's history isn't in the store yet"));
     assert!(matches!(e.inner(), Error::Conflict(_)));
@@ -70,7 +70,7 @@ fn every_kind_keeps_its_code_and_says_what_its_about() {
     }
     assert_eq!(Error::stale("DNA", "changed").to_string(), "DNA changed since the plan was made; plan again");
     // An action's params are an object, or nothing.
-    assert!(Action::call("pull", json!("DNA"), "Pull").params.is_empty());
+    assert!(Action::call("pull.apply", json!("DNA"), "Pull").params.is_empty());
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
                 fields.insert(key.into(), step.into());
             }
             2 => {
-                let a = Action::call("pull", serde_json::json!({ "step": step }), format!("Step {step}"));
+                let a = Action::call("pull.apply", serde_json::json!({ "step": step }), format!("Step {step}"));
                 e = e.action(a.clone());
                 actions.push(a);
             }
@@ -216,10 +216,10 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
     let message = tc.draw(gs::text().alphabet("abc é:").min_size(1).max_size(8));
     let io = || io::Error::other(message.clone());
     let mixid = |kind: u8| match kind {
-        0 => loclib_mixid::Error::Io { path: path.clone(), source: io() },
-        1 => loclib_mixid::Error::Parse { path: path.clone(), message: message.clone() },
-        2 => loclib_mixid::Error::Invalid(message.clone()),
-        _ => loclib_mixid::Error::Cancelled(loclib_progress::Cancelled),
+        0 => loclib_audio::Error::Io { path: path.clone(), source: io() },
+        1 => loclib_audio::Error::Parse { path: path.clone(), message: message.clone() },
+        2 => loclib_audio::Error::Invalid(message.clone()),
+        _ => loclib_audio::Error::Cancelled(loclib_progress::Cancelled),
     };
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));
@@ -294,4 +294,27 @@ fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
     assert_eq!(panic_text(&*formatted), said);
     let other = std::panic::catch_unwind(|| std::panic::panic_any(7u8)).unwrap_err();
     assert_eq!(panic_text(&*other), "a panic");
+}
+
+/// What a capacity probe's errors become: an I/O error keeps its path, a device that needs rights
+/// is a `permission` error that says so and asks to run as an administrator, a stop `cancelled`.
+#[hegel::test(test_cases = 50)]
+fn capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_capacity::Error as C;
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/dev/rdisk4", "/dev/sdb"])));
+    let (e, code): (Error, &str) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => (C::Io { path: path.clone(), source: io::Error::other("unplugged") }.into(), "io"),
+        1 => (C::Permission { path: path.clone() }.into(), "permission"),
+        _ => (C::Cancelled(loclib_progress::Cancelled).into(), "cancelled"),
+    };
+    assert_eq!(e.code(), code, "{e:?}");
+    match code {
+        "io" => assert_eq!(e.detail().fields["path"], path.display().to_string()),
+        "permission" => {
+            let said = format!("checking the capacity of {} needs administrator rights", path.display());
+            assert_eq!((e.to_string(), e.reason()), (said, Some(Reason::NeedsAdmin)));
+        }
+        _ => {}
+    }
 }

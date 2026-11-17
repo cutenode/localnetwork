@@ -74,7 +74,7 @@ fn settings_publish_and_import_from_the_command_line() {
     other.json(&[&from[..], &["--dry-run"][..]].concat());
     let out = other.ok(&[&["--yes"][..], &from[..]].concat());
     assert!(out.contains("imported 2 settings from did:plc:testdj"), "{out}");
-    let profile = other.json(&["settings", "profile"]);
+    let profile = other.json(&["settings", "base"]);
     assert_eq!(profile["base"], json!({ "jog_mode": "cdj", "quantize": "off" }));
     // Read from the directory, never from the account's data server.
     assert!(pds.calls("com.atproto.repo.getRecord").is_empty());
@@ -144,7 +144,7 @@ fn sets_publish_upload_from_the_command_line() {
     pds.set_account(DID, "dj.example.com");
     let env = Env::new().with_directory(&pds.url);
     let recording = env.outside("friday.wav");
-    std::fs::write(&recording, loclib_mixid::test_util::wav(8000, 16, 2.0)).unwrap();
+    std::fs::write(&recording, loclib_testkit::audio::wav(8000, 16, 2.0)).unwrap();
     let (id, at) = ("3m4n5o6p7q8r9", "2026-10-03T23:00:00Z");
     let set = json!({
         "id": id, "title": "Friday", "date": "2026-10-03", "recording": { "path": recording },
@@ -468,18 +468,17 @@ fn a_profile_is_shown_against_what_was_published() {
     let d = path(&club);
     let out = env.ok(&["profile", "publish", d, "--dry-run"]);
     assert!(out.starts_with("Your profile, as it would be published\n"), "{out}");
-    assert!(out.contains("  Tempo             "), "{out}");
+    assert!(out.contains("  Genres            "), "{out}");
+    assert!(!out.contains("  Tempo ") && !out.contains("  Headline "), "what was played isn't published: {out}");
     assert!(out.contains("  rounded numbers - `locallibrary profile sections` shows what each section reveals"));
 
     sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
     env.ok(&["--yes", "profile", "publish", d]);
-    env.ok(&["profile", "headline", "Techno warm-ups"]);
     env.ok(&["profile", "exclude", "genres"]);
-    env.ok(&["profile", "include", "signature"]);
+    env.ok(&["profile", "include", "artists"]);
     let out = env.ok(&["profile", "publish", d, "--dry-run"]);
-    assert!(out.contains("  Headline          Techno warm-ups (changed)\n"), "{out}");
     assert!(out.contains("  Genres            no longer published\n"), "{out}");
-    assert!(out.lines().any(|l| l.starts_with("  Signature tracks  ") && l.ends_with(" (new)")), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("  Artists           ") && l.ends_with(" (new)")), "{out}");
 }
 
 #[test]

@@ -128,7 +128,7 @@ fn status_and_compare_say_which_side_moved(tc: hegel::TestCase) {
         (true, true) => "diverged from the store",
     };
     assert!(state.contains(expected), "{said}: {state}");
-    let compared = env.ok(&["compare", "Main", "B"]);
+    let compared = env.ok(&["diff", "Main", "B", "--summary"]);
     let ending = match (store_moved, drive_edited) {
         (false, false) => None,
         (true, true) => Some("pick a winner, or `locallibrary merge` to combine\n"),
@@ -195,7 +195,7 @@ fn a_drive_says_when_its_two_databases_differ() {
 }
 
 #[test]
-fn status_offers_to_save_drives_as_theyre_plugged_in() {
+fn status_offers_to_save_drives_as_they_are_plugged_in() {
     let env = Env::new();
     env.demo("A");
     env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
@@ -226,7 +226,7 @@ fn status_offers_to_save_drives_as_theyre_plugged_in() {
 fn status_shows_each_library_with_its_clones() {
     let env = Env::new();
     let main = env.drive("REKORDBOX");
-    env.ok(&["--yes", "adopt", path(&main), "--name", "REKORDBOX"]);
+    env.ok(&["--yes", "drive", "adopt", path(&main), "--name", "REKORDBOX"]);
     env.ok(&["pull", "REKORDBOX", "--library", "Home", "--new-library"]);
     env.ok(&["--yes", "drive", "role", "REKORDBOX", "primary"]);
     for (name, role) in [("BACKUP", "backup"), ("SD", "set"), ("Spare", "backup")] {

@@ -1,6 +1,10 @@
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { silentLogger } from '../logger';
+import { remoteObject } from '../testing/remote-bodies';
 import { writtenLog } from '../testing/written-log';
 import { exchangeToken } from './exchange';
+import { services as registered } from './services';
 
 const env = {
 	SOUNDCLOUD_CLIENT_ID: 'sc-client',
@@ -202,6 +206,27 @@ describe('exchangeToken', () => {
 		expect(JSON.stringify(lines[0])).toContain('"env":["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET"]');
 	});
 
+	it('answers 503 for a service whose pause flag is on, sending it nothing, while the others still trade', async () => {
+		const { sent, fetch } = services();
+		const { lines, log } = capture();
+		const flags = { pauseMixcloudTokenExchange: true };
+
+		const paused = await exchangeToken('mixcloud', post(code), { log, env, fetch, flags });
+
+		expect([paused.status, await paused.json()]).toEqual([
+			503,
+			{ error: 'temporarily_unavailable', error_description: 'Local Network has paused signing in to Mixcloud' }
+		]);
+		expect(paused.headers.get('cache-control')).toBe('no-store');
+		expect(sent).toEqual([]);
+		expect(JSON.stringify(lines)).toContain('"flag":"pauseMixcloudTokenExchange"');
+
+		const trading = await exchangeToken('soundcloud', post(code), { log, env, fetch, flags });
+
+		expect(trading.status).toBe(200);
+		expect(sent.map((s) => s.url.origin)).toEqual(['https://secure.soundcloud.com']);
+	});
+
 	it.each([
 		['not JSON', 'code=c0de'],
 		['another grant', JSON.stringify({ grant_type: 'password', username: 'a', password: 'b' })],
@@ -315,7 +340,23 @@ describe('exchangeToken', () => {
 		expect(late.status).toBe(502);
 		expect(JSON.stringify(lines)).toContain('"reason":"The operation was aborted due to timeout"');
 
-		for (const body of ['<html>maintenance</html>', JSON.stringify({ a: 'b'.repeat(70_000) }), '["at-1"]', null]) {
+		const thrown = async () => {
+			throw 'mc-secret';
+		};
+
+		expect((await exchangeToken('mixcloud', post(code), { log, env, fetch: thrown })).status).toBe(502);
+		expect(JSON.stringify(lines)).toContain('"reason":"unknown"');
+
+		// The last is nested deeper than answering it could stringify, though it's well under the size cap.
+		const deep = `{"a":${'['.repeat(30_000)}${']'.repeat(30_000)}}`;
+
+		for (const body of [
+			'<html>maintenance</html>',
+			JSON.stringify({ a: 'b'.repeat(70_000) }),
+			'["at-1"]',
+			null,
+			deep
+		]) {
 			const odd = async () => new Response(body, { status: body === null ? 502 : 200 });
 			const answer = await exchangeToken('soundcloud', post(code), { log, env, fetch: odd });
 
@@ -326,5 +367,126 @@ describe('exchangeToken', () => {
 		}
 
 		expect(SECRETS.filter((secret) => JSON.stringify(lines).includes(secret))).toEqual([]);
+	});
+});
+
+describe('exchangeToken, for anything sent to it', () => {
+	const everywhere = { ...env, GOOGLE_CLIENT_ID: 'g-client', GOOGLE_CLIENT_SECRET: 'g-secret' };
+
+	// Keys every object has, which a lookup by id must not mistake for a service, besides any string.
+	const ids = fc.oneof(
+		{ arbitrary: fc.constantFrom(...Object.keys(registered)), weight: 3 },
+		fc.constantFrom('constructor', '__proto__', 'toString', 'hasOwnProperty'),
+		fc.string({ maxLength: 12 })
+	);
+
+	/** Addresses a code could be sent back to: locallibrary's listener, ones a character off it, and anywhere else. */
+	const redirect = fc.oneof(
+		fc
+			.tuple(
+				fc.constantFrom('127.0.0.1', '[::1]', 'localhost', '127.0.0.2', '[::2]'),
+				fc.integer({ min: -1, max: 70_000 })
+			)
+			.chain(([host, port]) =>
+				fc
+					.constantFrom('', '/', '?x=1', '#x', '/x', '%2F', '@evil.example', '.evil.example')
+					.map((suffix) => `http://${host}${port < 0 ? '' : `:${port}`}/callback${suffix}`)
+			),
+		fc.constantFrom('https://127.0.0.1:4/callback', 'HTTP://127.0.0.1:4/callback', 'http://a@127.0.0.1:4/callback'),
+		fc.webUrl(),
+		fc.string()
+	);
+
+	const grant = fc.oneof(
+		remoteObject({
+			grant_type: fc.oneof(fc.constantFrom('authorization_code', 'refresh_token', 'password'), fc.string()),
+			code: fc.oneof(fc.string({ minLength: 1 }), fc.jsonValue()),
+			refresh_token: fc.oneof(fc.string({ minLength: 1 }), fc.jsonValue()),
+			code_verifier: fc.string(),
+			redirect_uri: redirect,
+			client_id: fc.string()
+		}),
+		// A grant locallibrary could have sent but for its redirect, so the redirect check decides most of these.
+		fc
+			.record({
+				grant_type: fc.constantFrom('authorization_code', 'refresh_token'),
+				code: fc.string({ minLength: 1, maxLength: 16 }),
+				refresh_token: fc.string({ minLength: 1, maxLength: 16 }),
+				redirect_uri: redirect
+			})
+			.map((value) => JSON.stringify(value))
+	);
+
+	const LOOPBACK_CALLBACK = /^http:\/\/(127\.0\.0\.1|\[::1\]):\d+\/callback$/;
+
+	it('answers a token or a 4xx, and sends only a loopback redirect, only to the registered token endpoint', async () => {
+		await fc.assert(
+			fc.asyncProperty(ids, grant, async (id, body) => {
+				const sent: Request[] = [];
+
+				const fetch = async (input: RequestInfo | URL) => {
+					sent.push(new Request(input));
+
+					return Response.json({ access_token: 'at-1', token_type: 'bearer' });
+				};
+
+				const answer = await exchangeToken(id, posted(body), { log: silentLogger, env: everywhere, fetch });
+
+				expect([200, 400, 404, 413]).toContain(answer.status);
+				// Only an id no service is registered under, "constructor" and "__proto__" among them, is a 404.
+				expect(answer.status === 404).toBe(!Object.hasOwn(registered, id));
+				expect(answer.headers.get('cache-control')).toBe('no-store');
+
+				const offLoopback: string[] = [];
+
+				for (const request of sent) {
+					const url = new URL(request.url);
+					const form = request.method === 'POST' ? new URLSearchParams(await request.text()) : url.searchParams;
+					const redirectUri = form.get('redirect_uri');
+
+					expect(`${url.origin}${url.pathname}`).toBe(registered[id].tokenUrl);
+
+					if (redirectUri !== null && !LOOPBACK_CALLBACK.test(redirectUri)) offLoopback.push(redirectUri);
+				}
+
+				expect(offLoopback).toEqual([]);
+
+				expect(sent.length).toBe(answer.status === 200 ? 1 : 0);
+			})
+		);
+	});
+
+	/** Statuses whose answers have no body. */
+	const BODILESS = new Set([204, 205, 304]);
+
+	/** A token answer with one field nested up to 30,000 arrays deep, which still fits under the 64 KiB read cap. */
+	const deepAnswer = fc
+		.integer({ min: 1, max: 30_000 })
+		.map((depth) => `{"access_token":"t","nested":${'['.repeat(depth)}${']'.repeat(depth)}}`);
+
+	it("passes on any service's JSON object answer with its status, and answers 502 for anything else", async () => {
+		await fc.assert(
+			fc.asyncProperty(
+				fc.constantFrom('soundcloud', 'mixcloud'),
+				fc.integer({ min: 200, max: 599 }),
+				fc.oneof(
+					remoteObject({ access_token: fc.oneof(fc.string(), fc.jsonValue()), token_type: fc.jsonValue() }),
+					deepAnswer
+				),
+				fc.constantFrom('application/json', 'text/html', 'application/octet-stream'),
+				async (id, status, text, type) => {
+					const body = BODILESS.has(status) ? null : text;
+					const fetch = async () => new Response(body, { status, headers: { 'content-type': type } });
+
+					const answer = await exchangeToken(id, post(code), { log: silentLogger, env, fetch });
+					const answered: unknown = await answer.json();
+
+					expect(answered).toBeTypeOf('object');
+					expect(answered).not.toBeNull();
+					expect(answer.headers.get('cache-control')).toBe('no-store');
+					expect([status, 502]).toContain(answer.status);
+				}
+			)
+		);
 	});
 });

@@ -1,4 +1,5 @@
 import type { Selectable } from 'kysely';
+import type { BookingRole } from '#lib/bookings.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
@@ -35,6 +36,9 @@ export interface Database {
 	epkDraft: EpkDraftTable;
 	sharedSpace: SharedSpaceTable;
 	spacePerson: SpacePersonTable;
+	performer: PerformerTable;
+	venue: VenueTable;
+	venueBlock: VenueBlockTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -97,7 +101,7 @@ export interface RequestTable {
 	rkey: string;
 	kind: RequestKind;
 	projectUri: string | null;
-	/** What a list request asks staff to list (a profile's URI); null for other kinds. */
+	/** What a list request asks staff to list (a profile's URI), or the venue's space a claim is for; null otherwise. */
 	subjectUri: string | null;
 	status: RequestStatus;
 	record: string;
@@ -259,7 +263,7 @@ export interface BookingThreadTable {
 export interface BookingParticipantTable {
 	spaceUri: string;
 	did: string;
-	role: 'promoter' | 'manager';
+	role: BookingRole;
 }
 
 export interface BookingEventTable {
@@ -277,14 +281,13 @@ export interface EpkRequestTable {
 	spaceUri: string;
 	epkUri: string;
 	requesterDid: string;
-	role: string | null;
 	message: string | null;
 	/** What the press kit's rules said when the request came in: auto, review or none. */
 	rule: string;
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
-	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without its message. */
 	deletedAt: string | null;
 }
 
@@ -340,6 +343,53 @@ export interface SpacePersonTable {
 	source: string | null;
 	createdAt: string;
 	updatedAt: string;
+}
+
+/** Who a performer's space is for, from the root's `computer.localnetwork.performer` record in it. */
+export interface PerformerTable {
+	spaceUri: string;
+	skey: string;
+	kind: 'act' | 'dj';
+	/** An act's, unique among acts; null for a DJ. */
+	slug: string | null;
+	/** A DJ's; null for an act. */
+	did: string | null;
+	/** The whole record, as JSON. */
+	record: string;
+	/** The project URIs it was before, as a JSON array. */
+	formerly: string;
+	cid: string;
+	updatedAt: string;
+}
+
+/** A venue, from the root's venue record in its space. */
+export interface VenueTable {
+	spaceUri: string;
+	skey: string;
+	/** Its Foursquare place ID, unique among venues; null until someone adds it. */
+	fsqPlaceId: string | null;
+	/** Not unique: two venues can share a name. */
+	name: string;
+	/** The name lowercased with its spaces collapsed, to find the same name typed another way. */
+	nameKey: string;
+	/** Its city, from its address. */
+	locality: string | null;
+	/** Its country code, from its address. */
+	country: string;
+	/** The whole record, as JSON. */
+	record: string;
+	cid: string;
+	updatedAt: string;
+}
+
+/** Someone a venue blocked, from the root's block record in its public repo. */
+export interface VenueBlockTable {
+	uri: string;
+	/** The venue's space. */
+	venue: string;
+	/** The blocked profile's record, or the act's or party's listing URI. */
+	subject: string;
+	createdAt: string;
 }
 
 export interface SpaceInviteTable {

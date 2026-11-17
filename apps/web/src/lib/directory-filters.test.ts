@@ -68,7 +68,7 @@ describe('activeFilters', () => {
 	it('leaves out a place that has no coordinates, and links to the bare page when the last filter goes', () => {
 		expect(activeFilters({ ...none, place: 'Atlantis' }, new URLSearchParams('place=Atlantis'))).toEqual([]);
 		expect(activeFilters({ ...none, q: 'neon' }, new URLSearchParams('q=neon'))).toEqual([
-			{ label: '“neon”', href: '/projects' }
+			{ label: '“neon”', href: '/djs' }
 		]);
 	});
 });

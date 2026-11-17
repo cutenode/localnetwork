@@ -1,9 +1,44 @@
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
 /** View models shared between server and browser code. */
 
+import type { BlobRef } from '@atproto/lex-data';
+import type { BookingRole } from './bookings.ts';
 import type { Capability, SpaceKind } from './capabilities.ts';
+import type { localnetwork } from './lexicons/computer.ts';
 
 export type BlobRefJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
+
+type Element<T> = T extends readonly (infer Item)[] ? Item : never;
+
+/** Every key of any object in `T`, which can be a union of the objects a lexicon union allows. */
+type Keys<T> = T extends object ? keyof T : never;
+
+type At<T, K> = T extends object ? (K extends keyof T ? T[K] : never) : never;
+
+/**
+ * The lexicon type `Lexicon` (src/lib/lexicons, from `pnpm lexicons:types`) in JSON form, cut to the fields `Read` has,
+ * as a lenient reader may give it back: any field can be missing, since a reader drops a section it can't parse, and
+ * string formats and known values only need to be strings. A field the lexicon doesn't have is `never`.
+ */
+type Fit<Read, Lexicon> = { [K in keyof Read]: K extends Keys<Lexicon> ? FitValue<Read[K], At<Lexicon, K>> : never };
+
+type FitValue<Read, Lexicon> = Read extends undefined
+	? undefined
+	: Read extends readonly (infer Item)[]
+		? FitValue<Item, Element<Lexicon>>[]
+		: Read extends object
+			? [Exclude<Lexicon, undefined>] extends [BlobRef]
+				? BlobRefJson
+				: Fit<Read, Lexicon>
+			: Lexicon extends string
+				? string
+				: Lexicon;
+
+/**
+ * `Read`, a record as a reader gives it back or as this app writes it, which fails the type check unless it fits the
+ * lexicon type `Lexicon`, so a lexicon change it misses (a field renamed, or of another type) fails `pnpm check`.
+ */
+export type LexiconRead<Read extends Fit<Read, Lexicon>, Lexicon> = Read;
 
 export type Location = {
 	city: string;
@@ -141,13 +176,18 @@ export type PerformerSection = Partial<
 export type PromoterSection = { cities?: Location[] };
 
 /** A person's profile (`computer.localnetwork.profile`). A section is on when it's present, even empty. */
-export type ProfileRecord = {
-	basics: BasicsSection;
-	performer?: PerformerSection;
-	promoter?: PromoterSection;
-	createdAt: string;
-	updatedAt: string;
-};
+export type ProfileRecord = LexiconRead<
+	{
+		basics: BasicsSection;
+		performer?: PerformerSection;
+		promoter?: PromoterSection;
+		/** Whether the DJ takes booking inquiries here, which they turn on themself. */
+		takesInquiries?: boolean;
+		createdAt: string;
+		updatedAt: string;
+	},
+	localnetwork.profile.Main
+>;
 
 /** A person's profile as the site shows it, read from what the directory indexed. */
 export type ProfileView = {
@@ -158,6 +198,52 @@ export type ProfileView = {
 	/** The avatar through this site's `/media`, or null without one. */
 	avatarUrl: string | null;
 };
+
+/** What kind of act it is: an alias has one member, the others several. */
+export type ActForm = 'alias' | 'duo' | 'group' | 'collective';
+
+/** An act's public fields (`computer.localnetwork.performer#act`). */
+export type ActSubject = { slug: string; form: ActForm; basics: BasicsSection; performer: PerformerSection };
+
+/**
+ * Who a performer's space is for (`computer.localnetwork.performer`): an act, or a DJ under their own name, whose
+ * backstage and managers the space holds. `formerly` lists the projects it was before.
+ */
+export type PerformerRecord = {
+	subject:
+		| ({ $type: 'computer.localnetwork.performer#act' } & ActSubject)
+		| { $type: 'computer.localnetwork.performer#dj'; did: string };
+	formerly?: string[];
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** How a venue takes events that name it (`computer.localnetwork.venue#approval`'s knownValues). */
+export type VenueApproval = 'open' | 'approval';
+
+/** A real place events happen (`computer.localnetwork.venue`), as the root wrote it into the venue's space. */
+export type VenueRecord = {
+	name: string;
+	/** `community.lexicon.location.address`: only the country is required. */
+	address: { country: string; locality?: string; region?: string; street?: string; postalCode?: string; name?: string };
+	/** `community.lexicon.location.geo`, its coordinates as decimal strings. */
+	geo?: { latitude: string; longitude: string; name?: string };
+	/** `community.lexicon.location.fsq`. */
+	fsq?: { fsq_place_id: string; latitude?: string; longitude?: string; name?: string };
+	/** Missing reads as open; a value a newer app added reads as open too. */
+	approval?: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/**
+ * A performer by what names it: a DJ by their profile, an act by its listing (whose key is its space's key), or a
+ * project that hasn't become an act yet.
+ */
+export type PerformerRef =
+	| { kind: 'dj'; did: string }
+	| { kind: 'act'; skey: string }
+	| { kind: 'project'; rkey: string };
 
 /** A DJ Find DJs lists: their profile, handle, the genres they were found by, and how far they are from the place searched. */
 export type ListedDj = { profile: ProfileView; handle: string | null; genres: string[]; distanceKm?: number };
@@ -195,6 +281,8 @@ export type ProjectFormValues = ProjectDetails & {
 	travelRadiusKm?: number | string;
 	international?: boolean;
 	travelNotes?: string;
+	/** The profile form's "Take inquiries" box. */
+	takesInquiries?: boolean;
 	formats?: string[];
 	setTypes?: string[];
 	setMin?: number | string;
@@ -228,17 +316,20 @@ export type CityFormRow = { city: string; region: string; country: string };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';
 
-export type ProjectRecord = {
-	slug: string;
-	profile: ProjectProfile;
-	managers: string[];
-	status: ProjectStatus;
-	revision: number;
-	createdBy: string;
-	lastRequest?: string;
-	createdAt: string;
-	updatedAt: string;
-};
+export type ProjectRecord = LexiconRead<
+	{
+		slug: string;
+		profile: ProjectProfile;
+		managers: string[];
+		status: ProjectStatus;
+		revision: number;
+		createdBy: string;
+		lastRequest?: string;
+		createdAt: string;
+		updatedAt: string;
+	},
+	localnetwork.project.Main
+>;
 
 export type ProjectView = {
 	uri: string;
@@ -259,10 +350,10 @@ export type ProjectView = {
 };
 
 /**
- * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
- * lists stream in so their placeholders hold that much room.
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, and how many of its
+ * managers have DJ stats or sets, known before those stream in so their placeholders hold that much room (or none).
  */
-export type ProjectCounts = { pressKits: number; upcomingShows: number };
+export type ProjectCounts = { pressKits: number; upcomingShows: number; djs: number };
 
 export type AccountView = { did: string; handle: string | null };
 
@@ -270,18 +361,21 @@ export type AccountView = { did: string; handle: string | null };
  * A show (`computer.localnetwork.show`): a copy of the calendar event a manager announced, tied to the project. Its
  * times carry the venue's UTC offset, so their first 16 characters read as the venue's clock.
  */
-export type ShowRecord = {
-	project: string;
-	event: StrongRef;
-	name: string;
-	startsAt: string;
-	endsAt?: string;
-	venue?: string;
-	location: Location;
-	status?: string;
-	tickets?: string;
-	createdAt: string;
-};
+export type ShowRecord = LexiconRead<
+	{
+		project: string;
+		event: StrongRef;
+		name: string;
+		startsAt: string;
+		endsAt?: string;
+		venue?: string;
+		location: Location;
+		status?: string;
+		tickets?: string;
+		createdAt: string;
+	},
+	localnetwork.show.Main
+>;
 
 /** A show as pages list it, with its project. `did` and `rkey` are the announcing manager's repo and its key. */
 export type ShowView = {
@@ -303,21 +397,26 @@ export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_reque
 
 export type ClaimEvidence = { relationship: string; evidence: string; links?: string[] };
 
-export type RequestRecord = {
-	kind: RequestKind;
-	project?: string;
-	baseRevision?: number;
-	profile?: ProjectProfile;
-	details?: ProjectDetails;
-	claim?: ClaimEvidence;
-	/** For a list request: the profile to list, and the version it was asked for with. */
-	listing?: { subject: string; cid?: string };
-	message?: string;
-	onBehalfOf?: string;
-	withdrawnAt?: string;
-	createdAt: string;
-	updatedAt?: string;
-};
+export type RequestRecord = LexiconRead<
+	{
+		kind: RequestKind;
+		project?: string;
+		/** For a claim on a venue: its space. */
+		space?: string;
+		baseRevision?: number;
+		profile?: ProjectProfile;
+		details?: ProjectDetails;
+		claim?: ClaimEvidence;
+		/** For a list request: the profile to list, and the version it was asked for with. */
+		listing?: { subject: string; cid?: string };
+		message?: string;
+		onBehalfOf?: string;
+		withdrawnAt?: string;
+		createdAt: string;
+		updatedAt?: string;
+	},
+	localnetwork.moderation.request.Main
+>;
 
 export type RequestView = {
 	uri: string;
@@ -329,6 +428,8 @@ export type RequestView = {
 	repoDid: string;
 	projectUri: string | null;
 	project: { slug: string; name: string } | null;
+	/** The venue a claim is for, when it's a venue's. */
+	venue: { key: string; name: string } | null;
 	record: RequestRecord;
 	createdAt: string;
 	updatedAt: string;
@@ -450,13 +551,22 @@ export type BookingThreadView = {
 	status: string;
 	title: string | null;
 	showDate: string | null;
-	project: { uri: string; slug: string; name: string } | null;
+	/** Who the inquiry went to: an act (with its project's `slug`) or a listed DJ (no slug), with their public page. */
+	project: { uri: string; slug: string | null; name: string; href: string } | null;
 	promoter: AccountView;
-	participants: (AccountView & { role: 'promoter' | 'manager' })[];
+	participants: (AccountView & { role: BookingRole })[];
 	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */
 	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
+};
+
+/** The shows a booking thread links to, which its page shows beside the details. */
+export type BookingShowLinks = {
+	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */
+	plannerShow: string | null;
+	/** The public show a manager announced from the thread, as the account that wrote it and its key. */
+	announcedShow: { did: string; rkey: string } | null;
 };
 
 export type BookingEventView = {

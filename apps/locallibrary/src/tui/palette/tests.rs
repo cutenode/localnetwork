@@ -55,8 +55,8 @@ fn the_palette_lists_the_views_commands_first_and_runs_one() {
     press(&mut app, "gotod");
     let Some(Modal::Pick(p)) = &app.modal else { panic!() };
     assert_eq!(p.items[p.selected().unwrap()].label, "go to Drives");
-    // Keys go to the box, not to the player: q didn't quit.
-    press(&mut app, "q");
+    // Keys go to the box, not to the player: Q didn't quit.
+    press(&mut app, "Q");
     assert!(!app.quit);
     key(&mut app, KeyCode::Backspace);
     press(&mut app, "\n");
@@ -343,6 +343,20 @@ fn recent_is_an_edge_with_something_typed() {
     assert_eq!(shown_labels(&p), ["sync the sets", "sync the drives"]);
 }
 
+/// A label typed out in full is the one chosen, even with a longer one holding it used lately.
+#[test]
+fn a_label_typed_in_full_outranks_a_recent_one() {
+    let items = vec![Item::new("cover art", ""), Item::new("no cover art", "")];
+    let mut p = Picker::new("Commands", items, Then::Act(vec![Act::Art(true), Act::Art(false)]));
+    p.rank(&["no cover art".to_string()]);
+    p.query = "cover art".into();
+    p.filter();
+    assert_eq!(shown_labels(&p), ["cover art", "no cover art"]);
+    p.query = "cover".into();
+    p.filter();
+    assert_eq!(shown_labels(&p), ["no cover art", "cover art"], "a part typed still leans to the recent one");
+}
+
 /// They're kept between runs, in what's saved and what `settings export` takes.
 #[test]
 fn recent_commands_outlive_a_run() {
@@ -363,7 +377,8 @@ fn recent_commands_outlive_a_run() {
 #[test]
 fn every_command_shows_its_key_or_its_home() {
     let detail = |view, act| commands(view).into_iter().find(|(a, _)| *a == act).unwrap().1.detail;
-    assert_eq!(detail(View::Library, Act::Quit), "q");
+    assert_eq!(detail(View::Library, Act::Quit), "Q");
+    assert_eq!(detail(View::Library, Act::QueueNext), "q n");
     assert_eq!(detail(View::Drives, Act::Pull), "W · pull");
     assert_eq!(detail(View::Prepare, Act::Eject), "E · eject");
     assert_eq!(detail(View::Library, Act::Pull), "Prepare · pull");

@@ -1,18 +1,16 @@
-use std::io::pipe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageFormat, RgbImage};
+use loclib_plugin::test_util::{FakeHost, Response, Sent};
 use loclib_plugin::{
-    EventName, Fetch, Fetched, HelloReply, Incoming, Listener, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Provider,
-    ProviderKind, Suggestion, method,
+    EventName, Fetch, Fetched, Listener, Manifest, NetLimit, Provider, ProviderKind, Suggestion, method,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -52,6 +50,8 @@ struct Req {
 /// failure to get an answer.
 enum Reply {
     Answer(u16, Vec<u8>),
+    /// Busy (`503`), asking to wait this `Retry-After`.
+    Busy(String),
     Fails(RpcError),
     /// No answer yet: the fetch is under way until the plugin's hook is cancelled.
     Held,
@@ -80,12 +80,14 @@ fn asked(url: &str) -> Req {
 /// The host's answer to a fetch the server answered with `reply`, as the host gives it: the body
 /// as text, or in the file `into_blob` names. None while it's held.
 fn fetched(reply: Reply, into_blob: Option<PathBuf>) -> Option<Result<Value, RpcError>> {
-    let (status, body) = match reply {
-        Reply::Answer(status, body) => (status, body),
+    let (status, wait, body) = match reply {
+        Reply::Answer(status, body) => (status, None, body),
+        Reply::Busy(wait) => (503, Some(wait), Vec::new()),
         Reply::Fails(e) => return Some(Err(e)),
         Reply::Held => return None,
     };
-    let fetched = Fetched { status, headers: IndexMap::new(), body: None, blob: None };
+    let headers = wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
+    let fetched = Fetched { status, headers, body: None, blob: None };
     let fetched = match into_blob {
         Some(file) => std::fs::File::create_new(&file)
             .and_then(|mut f| f.write_all(&body))
@@ -136,59 +138,34 @@ fn services_as_they_are(req: &Req) -> Reply {
     }
 }
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// that answers its fetches as `route` has MusicBrainz and the Cover Art Archive answer them, and
-/// refuses any read it calls back for (a provider is given the tracks: it needs none).
+/// The plugin served by a fake host that answers its fetches as `route` has MusicBrainz and the
+/// Cover Art Archive answer them, and no read it calls back for (a provider is given the tracks:
+/// it needs none).
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    /// The reads the plugin called back for: each one's method and params.
-    calls: Arc<Mutex<Vec<(String, Value)>>>,
-    /// The fetches it asked for.
-    got: Arc<Mutex<Vec<Req>>>,
+    host: FakeHost,
     /// Told of each fetch once it's asked.
     heard: Receiver<()>,
-    /// The scratch folders the host made for the requests, the latest last: kept until the test
-    /// has read them, as the host keeps one until it has read the answer.
+    /// The scratch folders made for the requests, the latest last: kept until the test has read
+    /// them, as the host keeps one until it has read the answer (the fake host's own go once the
+    /// request's answer is in).
     scratches: Mutex<Vec<TempDir>>,
 }
 
 fn start(route: impl Fn(&Req) -> Reply + Send + 'static) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let calls: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
-    let got: Arc<Mutex<Vec<Req>>> = Arc::default();
+    let host = FakeHost::start(MANIFEST, serve);
     let (tell, heard) = channel();
-    let (to, reads, fetches) = (host.clone(), calls.clone(), got.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            if req.method != method::NET_FETCH {
-                reads.lock().unwrap().push((req.method.clone(), req.params.clone()));
-                to.respond(&req.id, Err(RpcError::failed("denied", "no reads here")));
-                continue;
-            }
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let asked = asked(&fetch.url);
-            fetches.lock().unwrap().push(asked.clone());
-            let _ = tell.send(());
-            if let Some(answer) = fetched(route(&asked), fetch.into_blob) {
-                to.respond(&req.id, answer);
-            }
-        }
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let _ = tell.send(());
+        fetched(route(&asked(&fetch.url)), fetch.into_blob).map_or(Response::Hold, Response::Answer)
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, calls, got, heard, scratches: Mutex::default() }
+    Session { host, heard, scratches: Mutex::default() }
 }
 
 impl Session {
     /// Asks for covers (or tags, as `kind` says) for `tracks`, with a scratch folder of its own
     /// unless `context` gives one (or, `null`, none).
-    fn send(&self, kind: ProviderKind, tracks: &[TrackTags], mut context: Value) -> loclib_plugin::Pending {
+    fn send(&self, kind: ProviderKind, tracks: &[TrackTags], mut context: Value) -> Sent {
         if context.get("scratch").is_none() {
             let scratch = TempDir::new().unwrap();
             context["scratch"] = json!(scratch.path());
@@ -199,7 +176,7 @@ impl Session {
             ProviderKind::Metadata => "tags",
         };
         let req = json!({ "provider": provider, "kind": kind, "tracks": tracks, "context": context });
-        self.host.send_request(method::PROVIDE, &req).unwrap()
+        self.host.send(method::PROVIDE, &req)
     }
 
     fn provide_with(&self, tracks: &[TrackTags], context: Value) -> Result<Candidates, RpcError> {
@@ -220,8 +197,10 @@ impl Session {
         self.scratches.lock().unwrap().last().unwrap().path().into()
     }
 
+    /// The fetches it asked for.
     fn got(&self) -> Vec<Req> {
-        self.got.lock().unwrap().clone()
+        let fetches = self.host.calls().into_iter().filter(|(m, _)| m == method::NET_FETCH);
+        fetches.map(|(_, fetch)| asked(fetch["url"].as_str().unwrap())).collect()
     }
 
     /// The searches MusicBrainz was asked: each one's path and query.
@@ -238,12 +217,11 @@ impl Session {
             .collect()
     }
 
-    /// Closes the plugin's input: it stops. Answers the reads it called back for.
+    /// Closes the plugin's input: it stops. Answers the reads it called back for: each one's
+    /// method and params.
     fn stop(self) -> Vec<(String, Value)> {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        Arc::try_unwrap(self.calls).unwrap().into_inner().unwrap()
+        self.host.stop();
+        self.host.calls().into_iter().filter(|(m, _)| m != method::NET_FETCH).collect()
     }
 }
 
@@ -316,68 +294,45 @@ fn the_manifest_is_a_built_in_artwork_and_metadata_provider() {
     assert_eq!(manifest.contributes.providers, [covers, tags]);
     assert!(manifest.contributes.operations.is_empty() && manifest.contributes.commands.is_empty());
 
-    // Served as a real one is: it says it's this manifest, providing, sending fetches and
-    // answering blobs.
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, _incoming) = Peer::new(from_plugin, to_plugin);
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello: HelloReply = host.request(method::HELLO, &hello).unwrap();
+    // Served as a real one is: it says it's this manifest (`FakeHost::start` checks), providing,
+    // sending fetches and answering blobs.
+    let host = FakeHost::start(MANIFEST, serve);
+    let hello = host.hello();
     let has = |f: &&str| hello.features.iter().any(|had| had == f);
     assert!(["providers", "events", "blobs", "net"].iter().all(has), "{:?}", hello.features);
-    let described: Manifest = host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
-    host.close();
-    served.join().unwrap();
+    host.stop();
 }
 
-/// The plugin served over pipes past `hello`, told `events` in order while the host answers each
+/// The plugin served by a fake host, told `events` in order while the host answers each
 /// `drive.library` it asks with `tracks` (failing it for the drive `GONE`, as for one unplugged):
 /// what it suggests, and how many times it read the library.
 fn told(events: &[EventNotify], tracks: &[loclib_model::Track]) -> (Vec<HostNotify>, usize) {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    for e in events {
-        host.notify(method::EVENT_NOTIFY, e);
-    }
-    // One last event that suggests something, so everything before it has been handled.
-    host.notify(method::EVENT_NOTIFY, &databases_changed("LAST"));
-    let (mut suggested, mut reads) = (Vec::new(), 0);
-    for msg in incoming {
-        match msg {
-            Incoming::Request(req) => {
-                assert_eq!(req.method, "drive.library");
-                reads += 1;
-                if req.params["drive"] == "GONE" {
-                    host.respond(&req.id, Err(RpcError::failed("not_found", "not found: drive GONE")));
-                    continue;
-                }
-                let mut tracks = tracks.to_vec();
-                if req.params["drive"] == "LAST" {
-                    tracks = vec![loclib_model::Track { id: 1, ..Default::default() }];
-                }
-                let total = tracks.len();
-                let library = loclib_model::Library { tracks, ..Default::default() };
-                host.respond(&req.id, Ok(json!({ "library": library, "page": { "total": total } })));
-            }
-            Incoming::Notification { method: m, params } if m == method::HOST_NOTIFY => {
-                let notice: HostNotify = serde_json::from_value(params).unwrap();
-                if notice.action.as_ref().is_some_and(|a| a.params["drive"] == "LAST") {
-                    break;
-                }
-                suggested.push(notice);
-            }
-            Incoming::Notification { .. } => {}
+    let host = FakeHost::start(MANIFEST, serve);
+    let tracks = tracks.to_vec();
+    let (last, handled) = channel();
+    host.on_call("drive.library", move |params| {
+        if params["drive"] == "LAST" {
+            let _ = last.send(());
+            return Response::Hold;
         }
+        if params["drive"] == "GONE" {
+            return Response::Answer(Err(RpcError::failed("not_found", "not found: drive GONE")));
+        }
+        let library = loclib_model::Library { tracks: tracks.clone(), ..Default::default() };
+        Response::Answer(Ok(json!({ "library": library, "page": { "total": tracks.len() } })))
+    });
+    for e in events {
+        host.event(e);
     }
-    host.close();
-    served.join().unwrap();
-    (suggested, reads - 1)
+    // One last event: its read comes once every event before it has been handled, and is held,
+    // so stopping the plugin then cuts no read short.
+    host.event(&databases_changed("LAST"));
+    handled.recv().unwrap();
+    host.stop();
+    let reads: Vec<(String, Value)> =
+        host.calls().into_iter().filter(|(_, params)| params["drive"] != "LAST").collect();
+    assert!(reads.iter().all(|(m, _)| m == "drive.library"), "{reads:?}");
+    (host.notices(), reads.len())
 }
 
 /// `drive.changed` for `drive`, its databases changed.
@@ -816,6 +771,89 @@ fn an_isrc_search_refused_leaves_the_album_out() {
     assert_eq!(candidates.warnings, ["Young Fathers - Cocoa Sugar: left out, as MusicBrainz answered 503"]);
     let queries: Vec<String> = session.searches().into_iter().map(|(_, q)| q).collect();
     assert_eq!(queries, [format!("isrc:{ISRC}"), format!("isrc:{ISRC}"), format!("isrc:{ISRC}")]);
+}
+
+/// A busy MusicBrainz (`503`) is asked again once its `Retry-After` has passed (seconds, here
+/// [`musicbrainz::SECOND`]s, or an HTTP-date, at once when it's past); asking for longer than
+/// it waits, its album is left out at once.
+#[test]
+fn a_busy_musicbrainz_is_asked_again_after_its_wait() {
+    for (wait, waited) in [("25", musicbrainz::SECOND * 25), ("Sun, 06 Nov 1994 08:49:37 GMT", Duration::ZERO)] {
+        let asked: Arc<Mutex<Vec<Instant>>> = Arc::default();
+        let asking = asked.clone();
+        let route = move |req: &Req| {
+            let mut asked = asking.lock().unwrap();
+            asked.push(Instant::now());
+            match asked.len() {
+                1 => Reply::Busy(wait.into()),
+                _ => services_as_they_are(req),
+            }
+        };
+        let session = start(route);
+        let candidates = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap();
+        assert_eq!(found(&candidates, &session.scratch()).len(), 1);
+        let bicep = ("/ws/2/release/".to_string(), r#"release:"Bicep" AND artist:"Bicep""#.to_string());
+        assert_eq!(session.searches()[..2], [bicep.clone(), bicep]);
+        let asked = asked.lock().unwrap();
+        assert!(asked[1] - asked[0] >= waited, "{:?}", asked[1] - asked[0]);
+    }
+
+    let route = |req: &Req| match req.path.starts_with(SEARCH) {
+        true => Reply::Busy("31".into()),
+        false => services_as_they_are(req),
+    };
+    let session = start(route);
+    let candidates = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap();
+    assert_eq!(candidates.warnings, ["Bicep - Bicep: left out, as MusicBrainz answered 503"]);
+    assert_eq!(session.searches().len(), 1, "not worth waiting for");
+}
+
+/// For any number of seconds a busy MusicBrainz asks its first search to wait, the search is
+/// asked again once they've passed, when they're no more than it waits for; any more, and the
+/// album is left out at once.
+#[hegel::test(test_cases = 15)]
+fn prop_a_busy_musicbrainz_is_waited_for_as_long_as_it_asks(tc: TestCase) {
+    let wait = tc.draw(gs::integers::<u64>().max_value(musicbrainz::LONGEST_WAIT + 10));
+    let asked: Arc<Mutex<Vec<Instant>>> = Arc::default();
+    let asking = asked.clone();
+    let route = move |req: &Req| {
+        let mut asked = asking.lock().unwrap();
+        asked.push(Instant::now());
+        match asked.len() {
+            1 => Reply::Busy(wait.to_string()),
+            _ => services_as_they_are(req),
+        }
+    };
+    let session = start(route);
+    let candidates = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap();
+    if wait > musicbrainz::LONGEST_WAIT {
+        assert_eq!(candidates.warnings, ["Bicep - Bicep: left out, as MusicBrainz answered 503"]);
+        assert_eq!(session.searches().len(), 1);
+        return;
+    }
+    assert_eq!(found(&candidates, &session.scratch()).len(), 1);
+    let asked = asked.lock().unwrap();
+    let waited = musicbrainz::SECOND * u32::try_from(wait).unwrap();
+    assert!(asked[1] - asked[0] >= waited, "{:?} for {wait}", asked[1] - asked[0]);
+}
+
+/// Cancelled while it waits out a busy MusicBrainz's `Retry-After`, the hook stops then, asking
+/// for no more.
+#[test]
+fn cancelling_while_it_waits_for_musicbrainz_stops_it() {
+    let route = |req: &Req| match req.path.starts_with(SEARCH) {
+        true => Reply::Busy("30".into()),
+        false => services_as_they_are(req),
+    };
+    let session = start(route);
+    let pending = session.send(ProviderKind::Artwork, &[tags(1, "Bicep", "Bicep", "Glue")], json!({}));
+    session.heard.recv_timeout(Duration::from_secs(10)).expect("a search");
+    // A sixth of the wait: the plugin has the 503 by then, so the cancel finds it waiting.
+    std::thread::sleep(musicbrainz::SECOND * 5);
+    pending.cancel();
+    let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
+    assert_eq!(answer.map(|_: Candidates| ()).unwrap_err(), RpcError::cancelled());
+    assert_eq!(session.searches().len(), 1);
 }
 
 /// A tags candidate found: its track, score, label and tags.

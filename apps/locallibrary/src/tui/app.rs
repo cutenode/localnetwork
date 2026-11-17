@@ -30,10 +30,10 @@ use std::time::{Duration, Instant};
 
 use locallibrary::query::{FieldName, SortKey};
 use locallibrary::{DeviceInfo, api};
+use loclib_waveform::analyzer::Analyzer;
 use ratatui::widgets::{ListState, TableState};
 use uuid::Uuid;
 
-use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::SavedNode;
 use super::choices::Hints;
@@ -84,17 +84,17 @@ impl View {
             View::Prepare => "Prepare",
             View::Drives => "Drives",
             View::Mixes => "Recordings",
-            View::Profile => "Publish",
+            View::Profile => "localnetwork",
         }
     }
 
     /// The view a saved title names, as it was called in the run that saved it: the store's
-    /// snapshots had a view of their own, first as `History`, and these two other names.
+    /// snapshots had a view of their own, first as `History`, and these other names.
     fn from_title(s: &str) -> Option<View> {
         let s = match s {
             "History" | "Snapshots" => "Drives",
             "Mixes" => "Recordings",
-            "Profile" => "Publish",
+            "Profile" | "Publish" => "localnetwork",
             s => s,
         };
         View::ALL.into_iter().find(|v| v.title() == s)
@@ -167,6 +167,9 @@ pub enum Level {
     Info,
     Error,
 }
+
+/// rekordbox's collection on this computer, as the player names it.
+pub const COLLECTION_NAME: &str = "rekordbox collection";
 
 pub struct App {
     pub store_root: PathBuf,
@@ -246,6 +249,13 @@ pub struct App {
     /// The Drives view's row of a library (or of the drives of none) when that's what's selected
     /// rather than a drive.
     pub drive_header: Option<DriveRow>,
+    /// rekordbox's `master.db` on this computer, when there is one: the Library view's first
+    /// source, above the drives. Only the real player looks for it (see `tui::run`).
+    pub collection_db: Option<PathBuf>,
+    /// The collection's row is what's selected in the Library view's sources, rather than a drive.
+    pub collection_row: bool,
+    /// How far the Library view's sources are scrolled.
+    pub source_offset: usize,
     /// The Drives view's rows, scrolled.
     pub drive_rows: ListState,
     /// The Drives view's pane with focus.
@@ -277,17 +287,23 @@ pub struct App {
     /// through: it waits for the output (see `output_ready`).
     waiting_file: Option<(u64, audio::OpenedFile)>,
     pub queue: Queue,
+    /// Fill: when the queue runs out, the best match that hasn't played goes on the end of it.
+    pub fill: bool,
     pub shuffle: bool,
     pub repeat: Repeat,
     pub analyzer: Analyzer,
+    /// What the analyser is fed: the playing output's latest samples.
+    pub tap_reader: audio::TapReader,
     /// Hot cue pads and the rest of what the deck does (see `deck.rs`).
     pub deck: super::deck::Deck,
     pub vis: Vis,
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
-    /// `g` was pressed at this time and waits for what follows (see `keymap`).
+    /// `g` (or `q`) was pressed at this time and waits for what follows (see `keymap`).
     pub chord: Option<Instant>,
+    /// The chord waiting is `q`'s, the queue's, rather than `g`'s.
+    pub chord_queue: bool,
     /// The terminal says it draws sixels.
     pub sixel: bool,
     /// What's been read of cover art.
@@ -302,11 +318,13 @@ pub struct App {
     /// Keeps the terminal's late answers out of the keys.
     late_answers: LateAnswers,
     last_pos_ms: f64,
-    /// The Library view shows the deck in place of its panes.
+    /// Player mode: the Library view shows the deck in place of its panes. Saved as it was.
     pub deck_layout: bool,
-    /// Browse is open over the Deck layout: the panes are back until a track's loaded.
+    /// The tab player mode was opened from, to go back to when it closes.
+    pub player_from: Option<View>,
+    /// Browse is open over player mode: the panes are back until a track's loaded.
     pub browsing: bool,
-    /// The Deck layout: the pick among the tracks that mix into the playing one, to play next.
+    /// Player mode: the pick among the tracks that mix into the playing one, to play next.
     pub next_pick: ListState,
     pub help: bool,
     /// The help's row selected, among those `help_query` leaves.
@@ -314,7 +332,7 @@ pub struct App {
     /// What's been typed in the help.
     pub help_query: String,
     /// The latest message, in the footer: an info for a few seconds (see `reading_time`), an
-    /// error until esc dismisses it.
+    /// error until esc dismisses it or another view is shown.
     pub toast: Option<(String, Level, Instant)>,
     /// An error a newer message came after before it was dismissed: still shown, above it.
     pub held: Option<String>,
@@ -346,6 +364,8 @@ pub struct App {
     failed_in_row: usize,
     /// What was saved last, and when it was last checked for changes.
     saved: Option<Saved>,
+    /// The saved state couldn't be read at startup: this run leaves its file alone.
+    state_unreadable: bool,
     last_save_check: Instant,
     pub areas: Areas,
     pub started: Instant,
@@ -395,8 +415,10 @@ pub struct App {
 
 impl App {
     pub fn new(store_root: PathBuf, drive: Option<String>) -> App {
-        let saved = state::load(&store_root);
+        let read = state::load(&store_root);
         let mut app = App::blank(store_root, None);
+        app.state_unreadable = read.is_none();
+        let saved = read.unwrap_or_default();
         app.offline = false;
         app.transitions.enabled = true;
         app.outputs = Outputs::from_env();
@@ -478,6 +500,9 @@ impl App {
             fleet_libraries: Vec::new(),
             library_names: FxHashMap::default(),
             drive_header: None,
+            collection_db: None,
+            collection_row: false,
+            source_offset: 0,
             drive_rows: ListState::default(),
             drive_pane: DrivePane::List,
             drive_tab: DrivePane::Info,
@@ -497,14 +522,17 @@ impl App {
             upcoming: None,
             waiting_file: None,
             queue: Queue::default(),
+            fill: false,
             shuffle: false,
             repeat: Repeat::Off,
             analyzer: Analyzer::default(),
+            tap_reader: Default::default(),
             deck: Default::default(),
             vis: Vis::Bars,
             deck_secs: 8.0,
             flash: None,
             chord: None,
+            chord_queue: false,
             sixel: false,
             covers: Default::default(),
             played_tracks: FxHashSet::default(),
@@ -514,6 +542,7 @@ impl App {
             late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
             deck_layout: false,
+            player_from: None,
             browsing: false,
             next_pick: ListState::default(),
             help: false,
@@ -536,6 +565,7 @@ impl App {
             start_paused: false,
             failed_in_row: 0,
             saved: None,
+            state_unreadable: false,
             last_save_check: Instant::now(),
             areas: Areas::default(),
             started: Instant::now(),

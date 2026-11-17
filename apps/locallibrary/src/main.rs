@@ -170,6 +170,13 @@ pub struct Cli {
     /// Print long lists straight to the terminal instead of through a pager ($PAGER, else less)
     #[arg(long, global = true, help_heading = GLOBAL)]
     no_pager: bool,
+    /// Run a plugin locallibrary doesn't ship, for this run only: its manifest and the program to
+    /// run it with (`;` between them on Windows). It runs as you, unsandboxed (repeatable)
+    #[arg(long, global = true, env = plugins::DEV_PLUGINS, value_name = "MANIFEST:PROGRAM", help_heading = GLOBAL)]
+    // Read before the command line is parsed (see `plugins::dev_loaded`): it's built from the
+    // plugins.
+    #[allow(dead_code)]
+    dev_plugin: Vec<std::ffi::OsString>,
     /// Without one, opens the interactive player (`locallibrary tui`) in a terminal.
     #[command(subcommand)]
     command: Option<Command>,
@@ -445,35 +452,6 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
         #[arg(long, value_name = "DIR")]
         emit_schema: Option<PathBuf>,
     },
-    /// `library log`
-    #[command(hide = true)]
-    Log(library_cmd::LogArgs),
-    /// `library push`
-    #[command(hide = true)]
-    Push(library_cmd::PushArgs),
-    /// `plays lists`
-    #[command(hide = true)]
-    History(plays_cmd::HistoryArgs),
-    /// `plays stats`
-    #[command(hide = true)]
-    Stats(plays_cmd::StatsArgs),
-    /// `playlist ls`
-    #[command(hide = true)]
-    Playlists {
-        #[arg(help = DEFAULT_LIBRARY_HELP)]
-        drive: Option<String>,
-    },
-    /// `sync --from SOURCE TARGET`
-    #[command(hide = true)]
-    Mirror {
-        source: String,
-        target: String,
-        #[command(flatten)]
-        opts: SyncFlags,
-    },
-    /// `diff --summary`
-    #[command(hide = true)]
-    Compare(diff_cmd::DiffArgs),
 }
 
 impl Command {
@@ -654,6 +632,14 @@ enum StoreCommand {
         #[arg(value_name = "MIB", value_parser = store_cmd::parse_index_limit)]
         limit: Option<store_cmd::IndexLimit>,
     },
+    /// Whether `pull` makes a track rekordbox's collection holds on the store's volume a
+    /// copy-on-write copy of the collection's file, taking no space but no longer a second copy
+    /// (off unless turned on): show it, or set it
+    CopyOnWrite {
+        /// `on` or `off`
+        #[arg(value_name = "on|off", value_parser = store_cmd::parse_switch)]
+        on: Option<bool>,
+    },
     /// Label a snapshot ("before NYE"): shown in `library log`, usable as its id, kept by `store prune`
     Label {
         /// Snapshot id (prefix) or another label
@@ -772,7 +758,6 @@ enum SettingsCommand {
     /// All settings, their values and defaults
     Schema,
     /// The settings profile: the base values for every drive, and per-drive overrides
-    #[command(alias = "profile")]
     Base,
     /// Set values (KEY=VALUE ...), for all drives or as an override for one
     Set {
@@ -1057,6 +1042,9 @@ fn main() -> ExitCode {
     if answered_directly() {
         return ExitCode::SUCCESS;
     }
+    if let Err(e) = plugins::dev_loaded() {
+        return failed(&anyhow::Error::from(e), json_asked());
+    }
     let mut cmd = help::for_this_run();
     let mut matches = match cmd.try_get_matches_from_mut(std::env::args_os()) {
         Ok(m) => m,
@@ -1094,6 +1082,14 @@ fn main() -> ExitCode {
         for (m, why) in plugins::left_out() {
             output::diag(format!("the {} plugin is left out: {why}", m.id));
         }
+        for m in plugins::dev() {
+            let capabilities: Vec<String> = m.capabilities.iter().map(ToString::to_string).collect();
+            let with = match capabilities.is_empty() {
+                true => "no capabilities".to_string(),
+                false => format!("capabilities {}", capabilities.join(", ")),
+            };
+            output::diag(format!("the {} plugin isn't one locallibrary ships: it runs as you, with {with}", m.id));
+        }
     }
     let code = run(cli, out, contributed);
     // Plugins started for the command stop with it.
@@ -1103,30 +1099,40 @@ fn main() -> ExitCode {
     pager::finish();
     match code {
         Ok(code) => code,
-        Err(e) => {
-            let kind = error_kind(&e);
-            let library = e.chain().find_map(|c| c.downcast_ref::<locallibrary::Error>());
-            let message = describe(&e);
-            if out.json {
-                print_error(kind, library.map(locallibrary::Error::detail).unwrap_or_default(), &message);
-            } else {
-                eprintln!("{} {message}", console::style("error:").red().bold());
-                for hint in library.map(hints::hints).unwrap_or_default() {
-                    eprintln!("  {} {hint}", console::style("hint:").dim());
-                }
-            }
-            match kind {
-                "cancelled" => ExitCode::from(130),
-                "usage" => ExitCode::from(2),
-                _ => ExitCode::FAILURE,
-            }
+        Err(e) => failed(&e, out.json),
+    }
+}
+
+/// Says the error a run failed with, on stderr with its hints (`json`: on stdout, as JSON), and
+/// answers its exit status.
+fn failed(e: &anyhow::Error, json: bool) -> ExitCode {
+    let kind = error_kind(e);
+    let library = e.chain().find_map(|c| c.downcast_ref::<locallibrary::Error>());
+    let message = describe(e);
+    if json {
+        print_error(kind, library.map(locallibrary::Error::detail).unwrap_or_default(), &message);
+    } else {
+        eprintln!("{} {message}", console::style("error:").red().bold());
+        for hint in library.map(hints::hints).unwrap_or_default() {
+            eprintln!("  {} {hint}", console::style("hint:").dim());
         }
     }
+    match kind {
+        "cancelled" => ExitCode::from(130),
+        "usage" => ExitCode::from(2),
+        _ => ExitCode::FAILURE,
+    }
+}
+
+/// Whether `--json` is on the command line, for what's said before it's parsed.
+fn json_asked() -> bool {
+    std::env::args_os().skip(1).take_while(|a| a != "--").any(|a| a == "--json")
 }
 
 /// Answers what needs no command line built, whose every flag and command take most of the time
 /// of a run: `--version` alone, and `plugin serve <id>` for a plugin locallibrary ships, which is
-/// every plugin's start.
+/// every plugin's start. And, for the tests, the test plugin served with no arguments (see
+/// `plugins::serve_test`).
 fn answered_directly() -> bool {
     let args: Option<Vec<String>> = std::env::args_os().skip(1).take(4).map(|a| a.into_string().ok()).collect();
     let args = args.unwrap_or_default();
@@ -1137,6 +1143,8 @@ fn answered_directly() -> bool {
             true
         }
         ["plugin", "serve", id] => plugins::serve_shipped(id),
+        #[cfg(debug_assertions)]
+        [] => plugins::serve_test(),
         _ => false,
     }
 }
@@ -1165,7 +1173,7 @@ fn print_error(kind: &str, detail: locallibrary::error::Detail, message: &str) {
 /// A command line that can't be read: clap's message and exit status 2, or under `--json` the
 /// error as every other one prints (kind `usage`). Help and `--version` go out as they are.
 fn usage_error(e: clap::Error) -> ExitCode {
-    if !e.use_stderr() || !std::env::args().skip(1).take_while(|a| a != "--").any(|a| a == "--json") {
+    if !e.use_stderr() || !json_asked() {
         e.exit();
     }
     print_error("usage", Default::default(), e.render().to_string().trim().trim_start_matches("error: "));
@@ -1305,7 +1313,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             return Ok(reads.emit_headed(out, |p| render::tracks(p, &a.columns, a.format)).exit());
         }
         Command::Playlist(a) => return edit_cmd::playlist(a, out, &ctx),
-        Command::Playlists { drive } => return edit_cmd::tree(drive, out),
         Command::Track(a) => return edit_cmd::track(a, &cli.store, out, &ctx),
         Command::Smart(a) => return edit_cmd::smart(a, &cli.store, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
@@ -1330,7 +1337,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 locallibrary::pack::PackOptions { playlists, history, keep_extra, overwrite_archive: false, transcode };
             return edit_cmd::pack(api::PackRequest { source, target, options }, dry_run, &cli.store, out, &ctx);
         }
-        Command::Compare(args) => return diff_cmd::compare_alias(args, &cli.store, out, &ctx),
         Command::Sync { drives, from: Some(source), library: _, opts, allow_guess: _ } => {
             let [target] = <[String; 1]>::try_from(drives).map_err(|d| {
                 jobs_cmd::usage(format!("--from copies onto one drive: give the drive to copy onto (got {})", d.len()))
@@ -1364,7 +1370,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             }
             return run_sync_many(&cli.store, drives, &opts, allow_guess, out, &ctx);
         }
-        Command::Mirror { source, target, opts } => return mirror(&cli.store, source, target, &opts, out, &ctx),
         Command::Merge { source, target, playlists, folder, only, match_path_only, history, dry_run } => {
             let options = MergeOptions {
                 playlists: match playlists {
@@ -1432,8 +1437,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             }
         },
         Command::Library(a) => return library_cmd::run(a, &cli.store, out, &ctx),
-        Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
-        Command::Log(a) => return library_cmd::log(a, &diff_cmd::store_to_read(&cli.store)?, out),
         Command::Store { command } => {
             // Reads about the store, and changes to what it holds already, never make one.
             let existing = || diff_cmd::store_to_read(&cli.store);
@@ -1494,6 +1497,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 StoreCommand::Views => return store_cmd::views(&cli.store, out),
                 StoreCommand::Unbrowse { path } => return store_cmd::unbrowse(&existing()?, path, out),
                 StoreCommand::IndexLimit { limit } => return store_cmd::index_limit(&cli.store, limit, out),
+                StoreCommand::CopyOnWrite { on } => return store_cmd::copy_on_write(&cli.store, on, out),
                 StoreCommand::Restore { from, libraries, dry_run } => {
                     let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
                     return store_cmd::restore(&store()?, &from, &options, out, &ctx);
@@ -1549,8 +1553,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Doctor(args) => return doctor_cmd::run(args, &cli.store, out, &ctx),
         Command::Plays(a) => return plays_cmd::run(a, &cli.store, out, &ctx),
         Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),
-        Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
-        Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
         Command::Login(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
@@ -1605,7 +1607,7 @@ fn search_terms(search: &str) -> String {
         .join(" ")
 }
 
-/// `sync --from SOURCE TARGET` (and `mirror`): one drive onto another, whichever is newer.
+/// `sync --from SOURCE TARGET`: one drive onto another, whichever is newer.
 fn mirror(
     store: &Option<PathBuf>,
     source: String,

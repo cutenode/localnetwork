@@ -36,7 +36,7 @@ export type Tool = {
 	install: { note?: string; steps: InstallStep[] };
 	/** What installing it means today, in a line, shown by the page's install button. */
 	status?: string;
-	/** More sections for the tool's page, in Markdown. */
+	/** More sections for the tool's page, in Markdown. A link to `/@me` goes to the reader's own profile (see `renderSections`). */
 	sections?: { title: string; markdown: string }[];
 	/** The overview first, then the guides in the order it links them (see `loadDocs`). */
 	docs: ToolDoc[];

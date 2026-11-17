@@ -22,14 +22,15 @@ whether your own Likes page is opened as a list rather than a grid of badges
 (see [Opening your likes as a list](#opening-your-likes-as-a-list)),
 what the third-party downloader hands a gate that asks for it — the email
 address, the name beside it, and whether saving a file marks its track —
-which shops the Manager's search badges point at (see
+which shops the Manager's search badges point at, including ones you add (see
 [Artist searches](#artist-searches); the [artists](#artists) tool's opened
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
 options; a failed row that wants one opens this sheet. One section is not a setting at all: most of what the
-extension has saved (the marks, the looked-up details, the Manager's list,
-the artists list, the session queue and three panel options) goes out to one JSON file there and
+extension has saved (the marks, the Manager's list, the artists list, the
+session queue, the search sites you added and three panel options) goes out
+to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
 it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
 **about**, says which version this is (and the commit it was built from), and
@@ -51,7 +52,7 @@ Current tools:
   The list is grouped by the site its links point to (SoundCloud's own
   "Download file", Hypeddit, Droploud, Bandcamp, …) or shown in the order it
   was built; the tracks with no link carry shortcuts to search for the artist
-  elsewhere, and the ones nobody has asked SoundCloud about say so. Opening a
+  elsewhere, and the ones the page had not loaded yet say so. Opening a
   link puts that track in the session queue, a batch of rows can be ticked to
   queue, mark or remove in one go, and the marks are painted on the SoundCloud
   page itself: a "Downloaded" pill on the cover art of tracks you have
@@ -63,26 +64,56 @@ Current tools:
   Settings. Clicking a row's cover art copies that track's artwork at full
   size; ⌘-clicking opens it in a tab. The list can be searched, and the
   downloaded tracks hidden, to see what is still to get.
-- **third-party downloader** — walks the download links behind a page and saves
-  what comes back: Hypeddit, ToneDen, Droploud, Pump Your Sound, Laylo,
-  Feature.fm and FanLink. Takes its links from the SoundCloud page in the
-  active tab (the same ones the Manager tool groups by site), from the session
-  queue, from a tab on one of those sites, or from pasted text, and works
-  through them one after another. Not every site ends in a file, and it says
-  which: a link that resolves to somewhere to go rather than something to save
-  says so and offers to open it. A Hypeddit, Droploud or Pump Your Sound link
-  is also walked and saved straight from the SoundCloud page, when its
-  Download button there is pressed.
+- **third-party downloader**: gets the downloads behind a page's links, on
+  Hypeddit, Droploud, Pump Your Sound and Laylo, and opens ToneDen, FanLink
+  and Feature.fm links. Takes its links from the SoundCloud page in the active
+  tab (the same ones the Manager tool groups by site), from the session queue,
+  from a tab on one of those sites, or from pasted text, and works through them
+  one after another. A Hypeddit gate is walked here and its file saved. A
+  Droploud, Pump Your Sound or Laylo gate opens in a tab, where the extension
+  outlines what to press, fills in your email, and saves the file once the page
+  hands it over; you do the steps. A Hypeddit, Droploud, Pump Your Sound or
+  Laylo link on a SoundCloud page goes the same way when its Download button
+  there is pressed.
 - **artists** — keeps a **list of artists**: the uploaders behind the tracks
   you add, from the page in front, from the Manager's list or from the session
-  queue, and asks SoundCloud about each one for their public profile and their
-  **socials** — the links they put on it (Instagram, Bandcamp, a website,
-  whatever is there) and the addresses they wrote into their bio. A row is the
+  queue, and fills in what the SoundCloud tab has loaded about each one: their
+  public profile and their **socials**, the links they put on it (Instagram,
+  Bandcamp, a website, whatever is there) and the web addresses they wrote into
+  their bio. A row is the
   artist's picture, name and a line about them, then their links as lettered
   badges, each opening that page; it opens out into every address to copy, the
   bio, the place, the follower count, the tracks that brought the artist in,
   and the same search badges the Manager offers. The list is searchable,
-  sortable, kept for good, and copied out as text in one press.
+  sortable, kept for good, and copied out as text in one press; the profiles
+  on it last the browser session.
+
+## Privacy
+
+localtoolbox has no server, and nothing it does reaches one of Local Network's.
+Everything it keeps stays in the browser: the marks, the Manager's list, the
+artists list, the session queue and the settings, in the extension's own
+storage, and the email address and name in the popup's.
+
+What leaves the browser, and where to:
+
+- **The email address and name in Settings go to Hypeddit**, and only to a gate
+  that asks for an address. Hypeddit's privacy policy says it shares that
+  address with the artist, with the service it checks addresses with, and with
+  its marketing providers. The address is also typed into the email field of a
+  Droploud or Laylo page you open from the Downloader; it goes to them only if
+  you send that form.
+- **A Hypeddit gate with a Spotify step follows the artist and saves the track
+  on your own Spotify account**, through Hypeddit's Spotify app, once you have
+  said yes to that app. The row names the artist.
+- **SoundCloud** is asked nothing. The tracks and artists come from what the
+  page you are on has already loaded.
+- **Hypeddit gate pages** are fetched and posted back to when you press
+  **Get** on one. Every other site gets nothing from the extension but the
+  pages you open.
+
+The popup says the first two in a short notice the first time it opens, with
+one button to carry on.
 
 ## Install
 
@@ -111,29 +142,35 @@ rather than pulling them from a package, so they can be read and changed like
 any other file here. Everything that runs **inside the SoundCloud page** is
 still a plain classic script — a content script has no imports, and the marks
 have to be written by the same code on both sides — so it is not bundled at
-all. The build only blanks its types out (ts-blank-space puts spaces where the
-annotations were) and ships each file under a `.js` name, `content.ts` as
-`content.js` and the two shared ones likewise, with every line and column
-where it was: an error on soundcloud.com points at the same place in the
-source, and there is no sourcemap to carry. The manifest names the `.js`
-files, which exist only in `dist/`.
+all. The build only blanks its types and comments out (ts-blank-space puts
+spaces where the annotations were, `scripts/page-script.mts` takes the comments
+away) and ships each file under a `.js` name, `content.ts` as `content.js`,
+`page-data.ts` as `page-data.js` and the others likewise, with every line and
+column of code where it was: an error on soundcloud.com points at the same
+place in the source, and there is no sourcemap to carry. The manifest names
+the `.js` files, which exist only in `dist/`.
 
 ```
 content.ts             SoundCloud content script (see below); ships as content.js
+page-data.ts           runs in the SoundCloud page's own world and hands
+                       content.ts the answers the page's API client receives
 content.css            styles for what the content script adds to the page:
                        the markers, the queue button, the download button
 downloaded-store.ts    the set of downloaded tracks (extension storage), shared by
                        content.ts and the popup as the TbxDownloaded global
-state-transfer.ts      import/export of the whole saved state as JSON — the
-                       marks, the lookups, the list, the queue and the panel
+state-transfer.ts      import/export of the whole saved state as JSON: the
+                       marks, the two lists, the queue and the panel
                        options (the TbxState global). Adds by default;
                        replacing is an opt-in the settings sheet asks for
+theme-prepaint.ts      puts the saved theme on the popup's <html> before it
+                       first paints
 src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
   popup.html           the page the toolbar icon opens; main.ts mounts App
   background.ts        the background worker: saves a gate the page's Download
-                       button was pressed on (see "Walking a gate from the page")
+                       button was pressed on (see "Walking a gate from the page"),
+                       and clears what an older version kept on install
   offscreen.html, offscreen.ts  the page that worker walks the gate in
   app.css              the shared Local Network theme and fonts, plus what only
                        the popup needs (its width, in rem so it grows with
@@ -153,9 +190,12 @@ src/
                        track — set in the settings sheet and read by the panel
     search-sites.json  the sites a link-less track offers a search on: a list of
                        plain objects, which is all adding one takes
+    search-sites.schema.json  the JSON Schema that file names in `$schema`
     search-sites.ts    reads that file and fills a search URL's {variables} in
-    search-sites.svelte.ts  which of those badges are switched on, set in the
-                       settings sheet and read by the Manager panel
+    search-sites.svelte.ts  which of those badges are switched on, and the sites
+                       added in settings, read by the Manager panel
+    components/SearchSiteForm.svelte  the settings sheet's form for adding or
+                       editing a search site
     settings-sheet.ts  fetches the settings sheet's chunk
     bug-report.ts      the settings sheet's report a bug link: GitHub's bug
                        form, with the version, browser and open tool filled in
@@ -167,8 +207,6 @@ src/
                        HintSwitch, …
     components/StateTransfer.svelte  the settings sheet's backup section: the
                        whole saved state out to a JSON file and back
-    details.svelte.ts  how many tracks have been looked up, for the count that
-                       section shows beside the marks and the list
     components/ui/     shadcn-svelte's components, copied in
     selection.svelte.ts  the tracks ticked in a list, and the mode that shows
                        the tick boxes — the batch a marker is then put on
@@ -176,7 +214,6 @@ src/
                        browser asks for reduced motion
     frame-height.svelte.ts  how tall a panel's frame may be: 580px, or less once
                        the popup is seen to have less room (zoomed, a short screen)
-    lookup-errors.ts   what Manager and artists say when a lookup stops short
     painting.svelte.ts which rows of a long list are in the DOM yet: a frame's
                        worth more each frame, for the Manager and artists lists
     chrome.ts soundcloud.ts downloaded.svelte.ts prefs.svelte.ts filter.ts …
@@ -190,29 +227,32 @@ src/
     third-party-downloads/walked.svelte.ts   the Downloader's list, kept for
                        the session: what became of every link it has walked
     artists/artists.svelte.ts  the artists tool's own list of uploaders, kept
-                       for good in chrome.storage.local, each with what
-                       SoundCloud said about the account
+                       for good in chrome.storage.local, and each one's
+                       profile, kept for the session in chrome.storage.session
     artists/profiles.ts        who is behind a track, which network an address
                        is on, and the links written into a bio
-    artists/lookup.ts          asking a SoundCloud tab for the profiles
+    artists/lookup.ts          asking a SoundCloud tab for the profiles it has loaded
+    artists/old-profiles.ts    taking an older version's stored profiles off the
+                       list, run by the background worker on install
     artists/AddBar.svelte      the three sources — the tab, the Manager's list,
                        the session queue — and the buttons that add from them
 docs/                  the JSON Schema for the exported state file
 scripts/               validate-state.mts, behind `pnpm validate:state` —
-                       run by Node as it is, which strips the types itself
+                       run by Node as it is, which strips the types itself;
+                       page-script.mts, what the build makes of a page script
 test/                  the test suite (see "Tests" below)
 package.json           the scripts below; the workspace and its lockfile are
                        at the repo root
 .oxlintrc.json         the lint config: the repo's shared rules, extended
 tsconfig.json          what the type check holds the browser code to: src/ and
-                       the three page scripts, strict, against Chrome's types
+                       the four page scripts, strict, against Chrome's types
 tsconfig.node.json     the same for what runs in Node: the configs, scripts/
                        and the tests
 dist/                  the built extension — what Chrome loads
 ```
 
 The tools used to be a page each, which the popup window navigated between —
-a reload, and a fresh round of lookups, every time one went back. They are one
+a reload, and a fresh read of the page, every time one went back. They are one
 app now: picking a tool swaps the view, going back is instant, and the marks
 and the queue, read from storage once, are shared by all of them. The queue
 sheet uses that to hand a batch to another tool: it sets the shared source
@@ -271,8 +311,7 @@ over a shape where the body will be.
 
 **The page read starts before the panel exists.** Reading a SoundCloud page
 is a round trip to the browser process for the tab and another to the content
-script, which for download details is a good many requests to SoundCloud on
-top; a chunk compiling is no reason for them to wait. Each registry entry
+script; a chunk compiling is no reason for them to wait. Each registry entry
 says what its tool will ask the page for (`warm`), the shell starts it as
 soon as it knows which tool is opening, and the panel is handed that read
 rather than starting a second one.
@@ -285,12 +324,13 @@ different lengths of time.
 **Options** are settings, and are kept for good in the popup page's own
 `localStorage` (`$lib/prefs.svelte.ts`): the output format, the sort order,
 the background-tabs switch, the two Hide toggles, the email and name some gates and drops ask for,
-which search badges are switched on, and whether an opened row's words are
-title-cased.
+which search badges are switched on, the search sites you added, and whether
+an opened row's words are title-cased.
 No storage permission is asked for on the user's behalf to hold them. Three of
 them, the background-tabs switch, the sort order and **Hide downloaded**, are
 in the exported state file, so they travel to another install with the marks
-(see "Saving and restoring it all"); the rest stay on this install. An
+(see "Saving and restoring it all"), and so do the search sites you added; the
+rest stay on this install. An
 import sets one of the three only where nothing is set already, so a file carries an option
 to an install that has never been asked rather than overruling a choice made
 here; asking the import to replace is what overrules them, and then it puts
@@ -312,10 +352,14 @@ which rows there are.
 
 **What the tools know** outlives the browser, and lives in the extension's own
 storage (`chrome.storage.local`): the tracks marked as downloaded
-(`downloaded-store.ts`), the cached download details (`content.ts`), the
-Manager's own list of tracks (`src/tools/manager/listed.svelte.ts`) and the
-artists tool's list of uploaders (`src/tools/artists/artists.svelte.ts`), which
-is the same arrangement again. The Manager's list is the reason it can open anywhere: it
+(`downloaded-store.ts`), the Manager's own list of tracks
+(`src/tools/manager/listed.svelte.ts`) and the artists tool's list of uploaders
+(`src/tools/artists/artists.svelte.ts`), which is the same arrangement again.
+The one exception is what a SoundCloud page loaded about those uploaders'
+accounts (place, bio, links): that is somebody else's, so it is kept in
+`chrome.storage.session` and goes when the browser closes. What a page loaded
+about its tracks is kept by the content script for as long as that tab holds
+the page, and nowhere else. The Manager's list is the reason it can open anywhere: it
 used to _be_ whichever page was in front, so the panel had nothing to show on
 the gate tab a row had just sent you to, and every opening cost SoundCloud a
 few hundred requests about tracks nobody had asked about. Now a page is a
@@ -359,7 +403,7 @@ popup closed comes back as the row it was before **Get** was pressed, since
 nothing on this side can know how far it went. A Clear button that was armed
 comes back disarmed. The settings sheet's import box is the one text box not
 remembered, though the drawer around it is — what goes into it is a whole
-exported state file, which can be megabytes of marks and looked-up details, and
+exported state file, which can be megabytes of marks and lists, and
 it is emptied the moment it is read. Nor is the **replace** switch beside it:
 that is the one control in the extension that can lose something, and a popup
 reopened an hour later must not still be armed.
@@ -386,15 +430,18 @@ page than the one it was left on.
    `src/manifest.json`, which names files as they will be in `dist/`. A file
    that must not be compiled goes in `unbundled` in `vite.config.ts`; a classic
    script goes in `pageScripts` there instead, under the `.js` name the
-   manifest gives it, and ships with its types blanked out and nothing else.
+   manifest gives it, and ships with its types and comments blanked out and
+   nothing else.
 
 To add a **site** to the third-party downloader: write
-`src/tools/third-party-downloads/sites/<id>.ts` exporting the shape the other
-six do (see `sites/index.ts` for the contract, including what a thrown error
-offers the person next), add it to `SITES` there, and add its hostnames
-to `host_permissions` in `src/manifest.json` — without which every fetch it
-makes is blocked. A test in `test/consistency.test.ts` checks those three
-agree.
+`src/tools/third-party-downloads/sites/<id>.ts` exporting the shape the others
+do (see `sites/index.ts` for the contract: `how` says whether the panel walks
+it, the person does it on its own page, or it is only opened), and add it to
+`SITES` there. A walked site also needs its walk in `walks/` and its id in
+`WalkedId`. A walked site's hostnames go in `host_permissions` in
+`src/manifest.json`, without which every fetch it makes is blocked; a page
+site's go in the `matches` of the `gate-page.js` content script. A test in
+`test/consistency.test.ts` checks those agree.
 
 The tone is the only thing a panel says about its own look: a `bg-*` class
 for one of the DJ-data colours in `packages/tokens/colors.json`, which is
@@ -419,7 +466,11 @@ focus).
 `downloaded-store.ts` and `state-transfer.ts` stay classic scripts: they define
 page globals, which only a classic script can do, and the content script loads
 the first of them too. The build ships them as `downloaded-store.js` and
-`state-transfer.js`. The store goes into `popup.html` ahead of the bundle; the
+`state-transfer.js`. `theme-prepaint.ts` is a classic script for another
+reason: the bundle is a module, which runs after the page could already have
+painted, so it ships as `theme-prepaint.js` and goes first in `popup.html`,
+putting `light` on `<html>` when that is the saved theme (or, with nothing
+saved, the browser's). The store goes into `popup.html` ahead of the bundle; the
 state file's script is only needed by the settings sheet, so
 `src/lib/globals.ts` adds it to the page when the sheet first opens. That file
 is the one place that reaches either of them by name.
@@ -430,8 +481,9 @@ The extension is two kinds of code, and the tests treat it as such (Vitest +
 jsdom). What runs in the page is loaded the way Chrome loads it — a plain
 script against a prepared `document`, `chrome` API mock and `TbxDownloaded`
 global, with its types blanked out by the same call the build makes, so what
-is tested is the file that ships — and driven through its messages, clicks and
-storage changes. The popup is compiled by the same plugin that builds it, so a
+is tested is the file that ships plus the comments the build takes out
+(coverage reads its `v8 ignore` hints from them) — and driven through its
+messages, clicks and storage changes. The popup is compiled by the same plugin that builds it, so a
 panel is tested as the component it is: mounted into jsdom with the chrome
 APIs mocked, and asserted on through what a user would see.
 
@@ -445,7 +497,7 @@ pnpm -w knip         # unused files, exports and dependencies, repo-wide
 pnpm test:shuffle    # the same suite in a random order, to catch tests that
                      # only pass because of the ones before them
 pnpm test:repeat     # every test twice, to catch state kept between runs
-pnpm verify          # format, lint, types, coverage, shuffled, repeated
+pnpm verify          # format, lint, types, knip, coverage, shuffled, repeated
                      # and the build: the whole gate
 pnpm test:mutation   # Stryker; slow, so CI runs it weekly. The report is in
                      # reports/mutation/
@@ -481,27 +533,32 @@ in several other ways as well:
   each other while both being wrong.
 - **The artifact** (`build.test.ts`) — runs the real build and inspects `dist/`:
   the manifest against a Manifest V3 schema, every file it names, the page
-  scripts (their sources with the types blanked out, and nothing else
-  changed), the popup's asset paths (relative, or the extension origin breaks
-  them), no `eval` the V3 policy would refuse, no sourcemap, no absolute path
-  from the machine that built it, icons that really are PNGs of the size they
-  claim, and the popup's type set on `body` outside every CSS layer, where
+  scripts (their sources with the types and comments blanked out, every node
+  still on its line and column), the popup's asset paths (relative, or the
+  extension origin breaks them), no `eval` the V3 policy would refuse, no
+  sourcemap, no absolute path from the machine that built it, icons that really
+  are PNGs of the size they claim, and the popup's type set on `body` outside every CSS layer, where
   Chrome's own `body { font-family: system-ui; font-size: 75% }` for extension
   pages cannot beat it.
-- **Accessibility** (`a11y.test.ts`) — every panel, in every state a test can
-  put it in, through an audit: a name for every control, a state attribute for
-  every toggle, no duplicate ids, nothing focusable hidden from a screen
-  reader, no tab stop that is not a control. Rows here are icons and colour;
-  without this none of that is checked. It also follows focus: into a sheet as
-  it comes up and back to its button, and to the heading of the view a click
-  opened.
+- **Accessibility** (`a11y.test.ts`): every panel, in every state a test can
+  put it in, in the light theme and the dark one, through an audit and axe's
+  naming rules: a name for every control, a title or tooltip on every button
+  that is only an icon, a state attribute for every toggle, no duplicate ids,
+  nothing focusable hidden from a screen reader, no tab stop that is not a
+  control. Rows here are icons and colour; without this none of that is
+  checked. It also follows focus: into a sheet as it comes up and back to its
+  button, and to the heading of the view a click opened.
+- **Contrast** (`contrast.test.ts`): jsdom paints nothing, so the colours are
+  read where they are written instead. Every text colour on every surface in
+  both themes, the content script's buttons and pills on SoundCloud, and every
+  badge's letters, at 4.5:1 or better.
 - **Failure** (`resilience.test.ts`) — storage that will not read or write,
   a tab that has gone, site data blocked, a clipboard that refuses, a content
   script left over from before an update. Each panel has to draw something a
   person can read and leave no promise rejected.
-- **Size** (`scale.test.ts`) — five hundred rows. The assertions are on work
-  done (requests made in batches of fifty, one marker per marked row, writes
-  that do not grow with tracks), because that is the part that goes wrong.
+- **Size** (`scale.test.ts`): five hundred rows. The assertions are on work
+  done (searches of the page, one marker per marked row, writes that do not
+  grow with tracks), because that is the part that goes wrong.
 - **The exact bytes** (`golden.test.ts`) — snapshots of every output format,
   every saved filename and the whole exported state file, so a file exported
   last year still reads.
@@ -525,7 +582,7 @@ The other is `pnpm check`: svelte-check over the TypeScript — the `.ts`
 files and the components' `<script lang="ts">` — with `strict` on, so a
 `| null` in a type is enforced rather than taken on trust. It runs twice,
 because the code runs in two places: `tsconfig.json` holds what runs in the
-browser (`src/` and the three page scripts, against Chrome's types), and
+browser (`src/` and the four page scripts, against Chrome's types), and
 `tsconfig.node.json` what runs in Node (the configs, `scripts/` and the tests,
 which bring `src/` in through their imports and are checked against it).
 Nothing about the types reaches the build — Vite compiles the popup's away,
@@ -537,16 +594,20 @@ test/
   setup.ts               fresh chrome mock, clean document, and an unhandled
                          rejection fails the test it happened in
   helpers/chrome.ts      in-memory chrome.storage/runtime/tabs
-  helpers/dom.ts         SoundCloud page builders (playlist, Likes, track pages, hydration)
-  helpers/api.ts         fetch stub for the SoundCloud API
+  helpers/dom.ts         SoundCloud page builders (playlist, Likes, track pages,
+                         hydration, and the answers page-data.ts hands over)
+  helpers/api.ts         fetch stub, to check the content script asks SoundCloud
+                         for nothing
   helpers/load.ts        loads the classic scripts fresh, with cleanup of
                          listeners/observers
   helpers/panel.ts       mounts a panel (or the whole popup) against a mocked
                          chrome, and reads it back
-  helpers/a11y.ts        the accessibility audit, and what a keyboard reaches
-  content/               page detection, extraction, download details, artist
-                         profiles, markers, the queue button, the replaced
-                         download buttons, and the Likes page's view
+  helpers/a11y.ts        the accessibility audit, axe's naming rules, and what a
+                         keyboard reaches
+  content/               page detection, extraction, what the page has loaded
+                         (page-data.ts and content.ts), download details,
+                         artist profiles, markers, the queue button, the
+                         replaced download buttons, and the Likes page's view
   panels/                one file per tool panel, and one for what they all
                          remember between openings of the popup
   lib/, tools/           the logic each panel is built on, on its own
@@ -555,17 +616,20 @@ test/
                          wins when a page is added twice; tools/artists.test.ts,
                          tools/profiles.test.ts and tools/lookup.test.ts are the
                          artists tool's list, its reading of a profile, and its
-                         asking for one)
+                         reading a tab for them)
   property/pure-logic.test.ts   every parser and formatter, over generated input
   property/state.test.ts        the state file and the marks, over generated documents
   property/dom-fuzz.test.ts     the content script over generated and truncated pages
   integration/page-to-panel.test.ts  page → content script → panel, and back
   a11y.test.ts           every panel through the accessibility audit
+  contrast.test.ts       text against what it is written on, in both themes
   resilience.test.ts     every panel against a browser that says no
-  scale.test.ts          five hundred rows: requests, writes, markers, rows
+  scale.test.ts          five hundred rows: reading, writes, markers, rows
   stepping-past-a-timeout.test.ts  a timed-out test can't reach the next one
   golden.test.ts         snapshots of every output the extension hands over
   build.test.ts          the real build, inspected as Chrome would load it
+  page-script.test.ts    each page script as it ships: no comments, and every
+                         token where the source had it
   docs.test.ts           this README against the code it describes
   app.test.ts            the tool menu, the routing between tools, where the
                          popup was left, the theme
@@ -713,8 +777,8 @@ nested rows are therefore never picked up.
 **Track pages** (`/<user>/<track>`) list nothing: the page is about one song,
 and the hero is the only thing on it that names that song. It is read as a
 list of the one, so a page with a single track answers in the shape a page
-with fifty does and everything downstream — the count, the lookup, the
-Manager's list — works on it without knowing which kind of page it came off.
+with fifty does and everything downstream (the count, the download details, the
+Manager's list) works on it without knowing which kind of page it came off.
 
 | Data                 | Selector                                                                                                                                                                   |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -745,16 +809,13 @@ Permissions: `activeTab` (to read the active tab's URL when you click the
 icon), `clipboardWrite` (for the Copy button), `storage` (the Manager tool's own
 list of tracks and its set of downloaded ones; see that tool), `downloads` (the third-party
 downloader saves the files it unlocks), and `offscreen` (the page the background
-worker walks a gate in when the page's Download button is pressed on one; see
+worker walks a gate in, and reads settings from; see
 [Walking a gate from the page](#walking-a-gate-from-the-page)). The host patterns are the content
-script's match on `soundcloud.com`, plus one `host_permissions` entry per site
-the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
-`fanlink.tv`, `droploud.com` and its `api.` host, `pumpyoursound.com`,
-`laylo.com` with the two CDNs its drop pages read from
-(`d21i0hc4hl3bvt.cloudfront.net` for the drop, `d3oyaxbt9vo0fg.cloudfront.net`
-for the artist) and `events.laylo.com`, where a signup is posted, and `ffm.to`.
-Chrome reports those as site access on exactly those sites. No other host
-access, no remote code.
+scripts' matches, `soundcloud.com` for the tools and `droploud.com`,
+`pumpyoursound.com` and `laylo.com` for the help on a gate's own page, plus one
+`host_permissions` entry, `hypeddit.com`, the one site the Downloader fetches
+from. Chrome reports those as site access on exactly those sites. No other
+host access, no remote code.
 
 ### Limitations
 
@@ -799,12 +860,11 @@ the work), and that opening the tool was itself a few hundred requests to
 SoundCloud about tracks nobody had asked about, paid again on every opening.
 Now the page is a source you add from. The bar at the top of the panel says
 what the tab in front is offering and how much of it the list already holds;
-**add** brings it in, and asking SoundCloud anything is something somebody
-pressed a button for.
+**add** brings it in.
 
-This is the one tool that is not a pure observer: when you add a page it asks
-SoundCloud's public API about that page's tracks, and it paints a marker on the
-SoundCloud page. Both are spelled out below.
+This tool is not a pure observer: it keeps what the SoundCloud page's own API
+client loads about the page's tracks, and it paints a marker on the SoundCloud
+page. Both are spelled out below.
 
 ### Use
 
@@ -818,13 +878,14 @@ SoundCloud page. Both are spelled out below.
      holds, and the number of liked playlists skipped where there are any. The
      button says **add 12** when twelve of them are new, and **refresh 42**
      when the page is wholly on the list already, which is what pressing it
-     then really does: it asks SoundCloud about all of them again, so their
-     links are up to date. A track page offers exactly one track, so the
+     then really does: it reads what the page has loaded about all of them
+     again, so their links pick up anything loaded since. A track page offers exactly one track, so the
      button there reads **add 1**.
    - **queue (7)** beside it when the session queue has anything in it. Queued
-     tracks come in with whatever was known when they were queued; nothing is
-     looked up, because a lookup runs on the page a track is on and the point
-     of this source is that that page need not be open at all.
+     tracks come in with whatever was known when they were queued; nothing
+     more is learned, because what is known about a track comes from the page
+     it is on, and the point of this source is that that page need not be
+     open at all.
    - When the tab has nothing to offer, the bar says why — not a playlist,
      Likes or track page, a page that has not finished loading, a tab that
      needs a reload — and the button is disabled. The list below it is untouched: a tab
@@ -835,20 +896,22 @@ SoundCloud page. Both are spelled out below.
    SoundCloud renders more only as you scroll. A track page has nothing to
    scroll: its one track is in the hero.
 
-3. Adding puts the page's tracks on the list **straight away**, from what the
-   page itself renders, and then asks SoundCloud where each one can be had — a
-   progress counter runs on long lists. So the rows are up before the first
-   answer and settle where they already are as the answers land, rather than
-   appearing all at once at the end. A track already on the list is not added
-   twice: it keeps its place and takes the better of the two answers (a full
-   answer beats a Likes row's half one; between two of the same kind, the
-   newer). When the lookup cannot run at all the rows still go on, and the
+3. Adding puts the page's tracks on the list with where each one can be had,
+   from what the page has already loaded about it (see
+   [How it works](#how-it-works-and-what-it-costs-soundcloud)). The tab
+   answers from memory, so this is one quick read with no request behind it.
+   A track already on the list is not added twice: it keeps its place and
+   takes the better of the two answers (a full answer beats a Likes row's half
+   one; between two of the same kind, the newer). A track the page has not
+   loaded yet goes on as **not loaded yet**, and the note says how many and
+   what to do: scroll to them or open the track, then add again. When the
+   page cannot be read for its details at all the rows still go on, and the
    note says what is missing from them rather than that nothing happened.
 4. **Sort** chooses the layout, and is remembered:
    - **By site** (the default): one section per site, **soundcloud.com**
      first, then the others (hypeddit.com, droploud.com, bandcamp.com, …)
-     by size, then the tracks without links, then the ones nobody has asked
-     SoundCloud about. A track can appear in two sections — once for its
+     by size, then the tracks without links, then the ones the page had not
+     loaded yet. A track can appear in two sections: once for its
      SoundCloud download and once for its purchase link.
    - **List order**: every track once, in the order it was added, with all of
      its links on the one row; the row's detail line says where each link goes.
@@ -900,14 +963,13 @@ SoundCloud page. Both are spelled out below.
    Beatport, **bc** Bandcamp, **Z** ZIPDJ, **M** MyMP3Pool, all four on to
    begin with (URLs below, and the switches in Settings). Opening a search
    neither queues nor marks anything.
-8. The last section, **Not checked**, is the one a kept list needs and a page
-   never did: tracks nobody has an answer about. A track that came in from the
-   session queue on a tab that was not SoundCloud, one whose page was added
-   before it finished loading, one SoundCloud would not describe — the row says
-   _not checked_ rather than pretending to be either of the two above, because
-   "no download links" is a claim and this is the absence of one. Add the page
-   such a track is on to find out; while an add is running the rows there say
-   they are being checked, and leave a few at a time as the answers arrive.
+8. The last section, **Not loaded yet**, is the one a kept list needs and a
+   page never did: tracks nobody has an answer about. A track that came in from
+   the session queue on a tab that was not SoundCloud, or one further down its
+   page than SoundCloud had drawn when the page was added: the row says _not
+   loaded yet_ rather than pretending to be either of the two above, because
+   "no download links" is a claim and this is the absence of one. Scroll to
+   such a track on its page, or open it, then add the page again.
 9. Each row carries two toggles, and each works on the one row it is on. The
    **list** button puts the track in the session queue, or takes it out again —
    the way to collect a batch without opening anything. The **check** button
@@ -958,12 +1020,12 @@ link is a click that closes the popup, and a selection of twenty tracks is
 not something to ask for twice. It goes when the browser does. 11. The **chevron** at the end of every row opens it downwards into the rest
 of what is known about the track, one field a line:
 
-| field                 | where it comes from                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **title**, **artist** | the page's own row                                                                                                              |
-| **genre**             | the tag the page renders beside the row, where it renders one; else the lookup — SoundCloud's API (`genre` on the track object) |
-| **link**              | the track's address, `https://soundcloud.com` + its permalink                                                                   |
-| **from**              | the list itself: the page the track was added from, or "the session queue"                                                      |
+| field                 | where it comes from                                                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **title**, **artist** | the page's own row                                                                                              |
+| **genre**             | the tag the page renders beside the row, where it renders one; else `genre` on the track object the page loaded |
+| **link**              | the track's address, `https://soundcloud.com` + its permalink                                                   |
+| **from**              | the list itself: the page the track was added from, or "the session queue"                                      |
 
 **Clicking any of them copies that one field** to the clipboard, which is
 the point of the thing: these are the words about to be typed into a
@@ -996,14 +1058,11 @@ A field nobody has an answer for says **unknown** and cannot be copied, so
 that no claim the extension never made ends up pasted somewhere. There are
 two ways that happens, and they are different things:
 
-- **genre** on a track whose page rendered no tag for it and which nobody
-  has looked up. Playlist rows and the badge tiles render none; Likes rows
-  and a track page's hero do, and that tag _is_ the track's genre — so a
-  Likes page in **List** view answers this field for every row it draws,
-  with SoundCloud never asked. (A track cached by a version of this extension from before
-  the genre was kept does _not_ read as unknown: such an entry counts as
-  stale however recent it is, and is asked about again. See
-  [When a cache entry goes off](#when-a-cache-entry-goes-off).)
+- **genre** on a track whose page rendered no tag for it and whose track
+  object the page had not loaded when it was added. Playlist rows and the
+  badge tiles render none; Likes rows and a track page's hero do, and that
+  tag _is_ the track's genre, so a Likes page in **List** view answers this
+  field for every row it draws.
 - **genre** where the uploader set none reads **none** instead, because
   that _is_ an answer and it is the reason the field is empty.
 
@@ -1023,8 +1082,8 @@ clipboard as an image; the thumbnail shows a spinner while that one fetch
 runs, then a check. **⌘-click** (Ctrl-click on Windows/Linux) opens the
 full-size image in a tab instead, and fetches nothing here — it follows the
 **Background tabs** toggle like any other link. A row whose thumbnail never
-loaded on the page takes its cover from what SoundCloud said about the
-track instead; only a track that has no cover at all shows a placeholder.
+loaded on the page takes its cover from the track object the page loaded
+instead; only a track that has no cover at all shows a placeholder.
 How the full-size address is arrived at is below. 13. **Unmark** in the header takes every downloaded mark off, on every page;
 it carries the number of marks there are, and is the eraser button beside
 the tick-box one. It asks once more: the first click arms it (it turns red
@@ -1049,12 +1108,12 @@ tool); the search lasts as long as the browsing session (see
 
 The line under the tool's name is about the list rather than about any page:
 how many tracks are on it, how many download links they add up to, how many
-have none, how many are not checked, and — once the list has been built from
-more than one page — how many sources it came from.
+have none, how many are not loaded yet, and (once the list has been built from
+more than one page) how many sources it came from.
 
 What an add came to is said either way round. A clean one is a toast, because
 the rows that just appeared are the report; anything that has to be read — a
-page that could not be reached, tracks SoundCloud would not describe, tracks
+page that could not be reached, tracks the page had not loaded, tracks
 that did not fit — is a note that stays above the list until something replaces
 it.
 
@@ -1077,13 +1136,13 @@ untouched rather than mangled.
 
 A page lazy-loads its thumbnails as they scroll into view, so most rows of a
 list read without scrolling through all of it render no thumbnail at all. Those
-rows are not left with a placeholder: every track object SoundCloud sends the
-lookup — the page's own hydration, `/tracks?ids=`, the likes listing,
-`/resolve` — names the track's artwork (`artwork_url`, at its legacy `-large`
-size, which is one of the tokens rewritten above), or its uploader's avatar
-where the track has no artwork of its own, which is the same picture the site's
-own rows fall back to. That address is kept with the rest of the details, at no
-extra request, and stands in wherever the row showed nothing. The row's own URL
+rows are not left with a placeholder: every track object the page loads (its
+hydration, and the API answers its own client receives) names the track's
+artwork (`artwork_url`, at its legacy `-large` size, which is one of the tokens
+rewritten above), or its uploader's avatar where the track has no artwork of
+its own, which is the same picture the site's own rows fall back to. That
+address is kept with the rest of the details and stands in wherever the row
+showed nothing. The row's own URL
 wins where there is one: that rendition is already in the browser's cache. A
 track with neither still shows the placeholder.
 
@@ -1147,13 +1206,13 @@ appears, so it is reachable without a pointer — and a click on it neither
 plays the track nor follows the link the artwork sits in.
 
 The track goes into the queue with what the row says about it (title, artist,
-cover art) plus whatever download details have been looked up for it, which
+cover art) plus whatever download details the page has loaded for it, which
 is the same entry the panel would have made — so the Downloader can find its
 gate later without the page. A row showing no title or artist queues with
 those fields empty, exactly as extracting the page would give them.
 
-The session queue is one of three things the content script writes, beside the
-marks and the details cache. This button
+The session queue is one of two things the content script writes, beside the
+marks. This button
 fills it, and so does the download button below. It writes to the extension's
 own session storage, never to the page, and Chrome keeps that area shut to a
 content script until a trusted context opens it — so until the popup has been
@@ -1162,15 +1221,14 @@ sign on the page of what is in the queue. Open the toolbox once and it
 appears on pages loaded after that; a tab already open gets it at the next
 change to the queue, or when it is reloaded.
 
-A track that has been looked up and offers no download link at all gets a
+A track the page has loaded and that offers no download link at all gets a
 dark **nodl** pill in the same corner (artwork left as is), so the ones not
 worth opening are visible at a glance. One pill per track: a downloaded mark
-wins over "nodl", being the end of the story. The nodl
-pills follow the known details, which the extension keeps for
-thirty days (see below), so they appear as soon as a page loads for tracks
-checked (or harvested from a page) before, and disappear once the details
-expire and are checked again. A track whose purchase link is only known
-from the page never gets a "nodl" pill: its SoundCloud download is unknown.
+wins over "nodl", being the end of the story. The nodl pills follow what the
+page has loaded, so they appear as SoundCloud's own client loads each track:
+the rows the page arrived with straight away, the rest as the list is
+scrolled. A track whose purchase link is only known from the page never gets
+a "nodl" pill: its SoundCloud download is unknown.
 
 What "downloaded" means: SoundCloud's own **Download file** button or a
 purchase-link button was clicked on a SoundCloud page itself, the
@@ -1188,9 +1246,9 @@ until a trusted context opens it, so the popup does — once, as the queue
 starts — which is what lets the page offer its queue button at all. SoundCloud's own scripts still cannot reach it: the door is
 opened to the extension's content script, not to the page.) They
 survive reloads and browser restarts, are per browser profile (not synced),
-and go away with the extension (or with **Clear**). The known details
-sit next to them (key `details`, permalink path → the four fields above
-plus the time they were learned), expiring after thirty days.
+and go away with the extension (or with **Clear**). The download details are
+not kept there: the content script holds them in memory for as long as the
+tab holds the page.
 
 **`pnpm dev` and the loaded extension.** The watch build writes into the
 same `dist/` Chrome has loaded, and Chrome reads an unpacked extension's files
@@ -1207,17 +1265,16 @@ under Chrome and one that is simply there.
 which for a while was `.sc-artwork:has(> .tbx-mark) { position: relative }` —
 one line, and by a wide margin the slowest thing the extension did. `:has()`
 turns every `.sc-artwork` on the page into a candidate to restyle whenever any
-`.tbx-mark` is added or removed, so a playlist scrolled to the end, where the
-lookup inserts hundreds of markers as the answers arrive, invalidated the
-document on each one. Measured on a 479-track playlist, a single repaint took
-**17 seconds** — and it is the content script's main thread, so nothing else in
-the page moved either: answers coming back from SoundCloud sat unhandled, the
-next batch of requests was not sent, and the panel's progress bar stopped. The
-whole lookup took 10–35 seconds, of which under 7 were SoundCloud's.
+`.tbx-mark` is added or removed, so a playlist scrolled to the end, where
+hundreds of markers go in at once, invalidated the document on each one.
+Measured on a 479-track playlist, a single repaint took **17 seconds**, on the
+content script's main thread, so nothing else in the page moved either. (The
+extension still asked SoundCloud for each track's details then, and a lookup
+SoundCloud answered in under 7 seconds took 10 to 35.)
 
 The script knows which artwork it has just marked, so it says so: a
 `tbx-mark-host` class on that element, which invalidates that element and
-nothing else. The same lookup then takes **2.5 seconds** and the slowest
+nothing else. The same lookup then took **2.5 seconds** and the slowest
 repaint **7 milliseconds**. Anything painted onto a page this size wants the
 same care — the page is not the extension's to make slow.
 
@@ -1269,11 +1326,11 @@ same page at all.
 
 The controls are not quite alike underneath:
 
-| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit, Droploud or Pump Your Sound is saved instead; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
-| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                            |
-| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | presses SoundCloud's own button, hidden beneath it, then queues the track; the click detection above sees the press, so the track is marked downloaded as it always was                                                             |
+| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit is saved instead, and one to Droploud, Pump Your Sound or Laylo opens with help on its page; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
+| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                                                                          |
+| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | presses SoundCloud's own button, hidden beneath it, then queues the track; the click detection above sees the press, so the track is marked downloaded as it always was                                                                                                           |
 
 The panel's button for a SoundCloud download opens the _track page_, because
 "Download file" has no URL of its own to open; on the track page itself that
@@ -1329,36 +1386,40 @@ does what it always did.
 
 ### Walking a gate from the page
 
-A purchase link to Hypeddit, Droploud or Pump Your Sound is a gate the
-[third-party downloader](#third-party-downloader) can always walk to a file,
-so a plain click on this extension's button there does what that tool's
-**Get** does: the gate is walked, the file lands in the site's folder under the
-download directory, and the track is marked downloaded (unless **mark the
-SoundCloud track downloaded** is off in Settings). The button dims while the
-walk runs and ignores another click until it ends, and a screen reader hears
-"saved" or "opened the gate" when it does. Nothing goes into the session queue,
-since nothing is left to mark.
+A purchase link to Hypeddit is a gate the
+[third-party downloader](#third-party-downloader) walks to a file, so a plain
+click on this extension's button there does what that tool's **Get** does: the
+gate is walked, the file lands in the `Hypeddit` folder under the download
+directory, and the track is marked downloaded (unless **mark the SoundCloud
+track downloaded** is off in Settings). The button dims while the walk runs and
+ignores another click until it ends, and a screen reader hears "saved" or
+"opened the gate" when it does. Nothing goes into the session queue, since
+nothing is left to mark.
 
 When the walk does not end in a saved file, the gate opens in a tab beside the
 page and the track is queued, which is what the button did before. That covers
 a gate that wants an email address Settings does not have yet, a Spotify step
-that needs pressing **Connect** once, a CAPTCHA, a Droploud gate pointed at a
-page, and a transfer Chrome refused (then it is the file that opens). A click
-with ⌘, Ctrl, Shift or Alt held is someone asking for the link itself, and is
-followed as before. The other gate sites (ToneDen, FanLink, Laylo,
-Feature.fm) often end in a page or a signup rather than a file, so their links
-are followed as before too.
+that needs pressing **Connect** once, a CAPTCHA, and a transfer Chrome refused
+(then it is the file that opens).
+
+A link to Droploud, Pump Your Sound or Laylo opens beside the page with the
+extension's help on it, the way the Downloader's **Get** opens one (see
+[Gates done on their own page](#gates-done-on-their-own-page)), and the track
+is queued. When the page hands over its file, the file lands in the site's
+folder and the track is marked. A click with ⌘, Ctrl, Shift or Alt held is
+someone asking for the link itself, and is followed as before. ToneDen,
+FanLink and Feature.fm links are followed as before too.
 
 The walk runs in two places because neither the page nor a service worker can
 run it alone. A content script fetches as the page it is in, so every gate is
 an origin it is refused; a service worker has no `DOMParser`, which the
-Hypeddit and Pump Your Sound walks read pages with. So the button sends the
-link to the background worker (`src/background.ts`), which opens an offscreen
-page (`src/offscreen.ts`, Chrome's `DOM_PARSER` reason) and has the site module
-walk it there, with the address, name and mark setting the popup keeps. The
-worker does the parts that need a tab or the downloads API: the Spotify trip,
-the download, and the tab the gate opens in. Walks run one at a time, and the
-offscreen page is closed once none is waiting.
+Hypeddit walk reads its page with. So the button sends the link to the
+background worker (`src/background.ts`), which opens an offscreen page
+(`src/offscreen.ts`, Chrome's `DOM_PARSER` and `LOCAL_STORAGE` reasons) and has
+the site module walk it there, with the address, name and mark setting the
+popup keeps. The worker does the parts that need a tab or the downloads API:
+the Spotify trip, the download, and the tab the gate opens in. Walks run one at
+a time, and the offscreen page is closed once none is waiting.
 
 ### The signed-in track page
 
@@ -1375,7 +1436,9 @@ The purchase link is drawn there as a **cart** rather than a pill.
 Two things follow.
 
 The content script runs **in every frame** (`all_frames` in the manifest), or
-it would never see that page at all. What it reads there is the
+it would never see that page at all. `page-data.ts` does too, so the frame
+keeps what its own page loads as the tab's document does; which API answers
+that page loads signed in has not been checked. What it reads there is the
 **accessibility tree**, which is the part SoundCloud cannot rename without
 breaking a screen reader: `section[aria-label="Track header"]` around the
 hero, the `<h1>` for the title, the one link in that header that leaves the
@@ -1414,7 +1477,7 @@ reads off that page it reads out of what SoundCloud drew:
 
 |                                                       | Badges (a tile)                                                                                         | List (a row)                                             |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Genre                                                 | none — the tag is not rendered, so every track has to be looked up for it                               | the tag beside the title, which _is_ the genre           |
+| Genre                                                 | none: the tag is not rendered, so it is known only where the page has loaded the track object           | the tag beside the title, which _is_ the genre           |
 | Liked / reposted                                      | no buttons, so the panel draws its “nobody said” mark rather than making a claim about your own account | both buttons, read from the page                         |
 | Purchase link                                         | none, so there is nothing to put a download button in the place of                                      | **Buy** / **Free Download**, replaced as everywhere else |
 | Title, artist, artwork, marks, the **+ queue** button | all there                                                                                               | all there                                                |
@@ -1494,20 +1557,20 @@ worth a line in a format every install has to keep reading.
 
 Everything above lives in the extension's own storage, which goes away when
 the extension does. Reinstalling it, or moving to another browser profile,
-otherwise means losing every mark and paying for every lookup again. **your
+otherwise means losing every mark and both lists. **your
 data**, a section of the Settings sheet, takes most of it out to a JSON
 file and reads one back (`src/lib/components/StateTransfer.svelte`).
 
 It was the Manager panel's own footer, which was the wrong place for it twice
-over. The file carries the marks a SoundCloud page paints, the content
-script's cache of lookups, the [session queue](#session-queue) behind every
-header's count, the [artists](#artists) tool's list and three panels' options
-— one of its members is the Manager's list and the rest are not — and a
-backup is something one takes _before_ opening a playlist rather than while
-looking at one. The panel's footer still
+over. The file carries the marks a SoundCloud page paints, the
+[session queue](#session-queue) behind every header's count, the
+[artists](#artists) tool's list, the search sites added in settings and three
+panels' options. Only one of its members is the Manager's list, and a backup
+is something one takes _before_ opening a playlist rather than while looking
+at one. The panel's footer still
 points at it, since the list is the biggest thing in the file and so where
-somebody goes looking. The section opens with a row of counts — marks, tracks
-looked up, tracks listed, artists, tracks queued — because a button reading
+somebody goes looking. The section opens with a row of counts (marks, tracks
+listed, artists, tracks queued) because a button reading
 "export" says nothing at all about how much there is to lose by not pressing
 it.
 
@@ -1532,7 +1595,7 @@ under it off the bottom of a popup that is only as tall as what is in it.
 The text in the box is **read as it lands**, not when Import is pressed:
 whatever is there is put through the same parser the import uses, and the line
 under the box says either what the file holds ("a backup from 2026-09-08 — 128
-marks, 96 looked-up tracks, 42 tracks listed") or what is wrong with it. The
+marks, 42 tracks listed") or what is wrong with it. The
 button that would write it is off until it reads. Nothing is written by any of
 that — `parse` only ever refuses — so a file chosen by mistake says so before
 it has touched anything.
@@ -1544,8 +1607,6 @@ By default an import **never removes anything**:
 - marks are added, and a track already marked keeps the earlier of the two
   times, so re-importing an old backup cannot make a mark look newer than it
   is;
-- details are taken only where they are newer than what is already known —
-  the same rule the content script applies to another tab's lookups;
 - listed tracks are appended to the list, in the order the file has them, and
   a track already on it keeps its place and takes the better of the two
   answers — the same rule adding a page twice follows. A restored entry keeps
@@ -1553,8 +1614,8 @@ By default an import **never removes anything**:
   from nowhere", so a restored list is the list that was exported;
 - artists are appended to the artists tool's list the same way, and one
   already on it keeps its place, takes the file's tracks on top of its own and
-  the better of the two answers about the account — a profile over a
-  remembered failure, and the newer of two profiles;
+  the better of the two answers about the account, where an older file
+  carries one (see [The file format](#the-file-format));
 - queued tracks are appended to the queue, in the order the file has them, and
   a track the queue already holds is left exactly as it was queued — the
   permalink is the identity, so the same track never lands in it twice, and
@@ -1570,8 +1631,7 @@ By default an import **never removes anything**:
 
 The switch in the import box turns every one of those the other way round, and
 it is off every time the popup opens: the marks become the file's marks, the
-details cache becomes the file's cache, the list, the artists and the queue
-become the file's, and the three options the file carries go to what the file says, or back to their defaults where the file says
+list, the artists and the queue become the file's, and the three options the file carries go to what the file says, or back to their defaults where the file says
 nothing about one. What was here and is not in the file
 is gone. The button changes with it, from **add to what's here** to **replace
 everything**.
@@ -1579,13 +1639,10 @@ everything**.
 That is the way to restore an exact snapshot. Doing it by hand still works
 (**Unmark** for the marks, Select → the box at the left of the bar → **Remove**
 for the list) and reaches the same place. A SoundCloud tab that is already
-open repaints the marks as they land, and keeps the details it holds, taking
-only newer ones, until it is reloaded. Until then its next save can put back
-entries a replacing import removed.
+open repaints the marks as they land.
 
 A file exported before the tool kept a list carries no `listed` member, and
-still reads: adding such a file restores the marks and the lookups as it
-always did and leaves the list as it is, and replacing with one empties the
+still reads: adding such a file restores the marks as it always did and leaves the list as it is, and replacing with one empties the
 list, which is what replacing with a file that holds no list means. The
 `artists` member is newer still, and a file without one reads the same way.
 
@@ -1610,20 +1667,6 @@ pnpm validate:state manager-2026-09-09.json
 	"version": 1,
 	"exportedAt": "2026-09-09T10:04:00.000Z",
 	"downloaded": { "/bicep/glue": "2026-09-08T12:00:00.000Z" },
-	"details": {
-		"/bicep/glue": {
-			"id": 1234,
-			"permalink": "/bicep/glue",
-			"downloadable": true,
-			"hasDownloadsLeft": true,
-			"purchaseUrl": "https://hypeddit.com/x",
-			"purchaseTitle": "Free Download",
-			"genre": "Techno",
-			"artworkUrl": "https://i1.sndcdn.com/artworks-abc-large.jpg",
-			"at": 1757332800000
-		},
-		"/someone/unreachable": { "unavailable": true, "at": 1757332800000 }
-	},
 	"queue": [
 		{
 			"permalink": "/bicep/glue",
@@ -1651,21 +1694,7 @@ pnpm validate:state manager-2026-09-09.json
 			"permalink": "/bicep",
 			"name": "Bicep",
 			"tracks": [{ "permalink": "/bicep/glue", "title": "Glue" }],
-			"profile": {
-				"id": 5678,
-				"permalink": "/bicep",
-				"username": "Bicep",
-				"fullName": "",
-				"city": "Belfast",
-				"country": "GB",
-				"followers": 123456,
-				"trackCount": 42,
-				"verified": true,
-				"avatarUrl": "https://i1.sndcdn.com/avatars-abc-large.jpg",
-				"bio": "bookings: agent@example.com",
-				"links": [{ "network": "instagram", "title": "", "url": "https://www.instagram.com/bicepmusic/" }],
-				"at": 1757332800000
-			},
+			"profile": null,
 			"from": "Late Night Cuts",
 			"at": 1757332800000
 		}
@@ -1675,29 +1704,31 @@ pnpm validate:state manager-2026-09-09.json
 ```
 
 Only `format` and `version` are required; the data members default to
-empty, so a hand-written file restoring nothing but a few marks is valid. A
-`details` entry is either what SoundCloud said about a track or a remembered
-lookup failure (`unavailable`), and `additionalProperties` is `false`
-throughout, so a typo is refused rather than silently dropped. `genre` and
-`artworkUrl` are the optional members of a details entry, and only because of
-the files that already exist: entries cached before either was kept carry no
-such key, so a backup taken then would otherwise stop reading back. `""` in
-them is an answer — the uploader set no genre; the track has neither artwork
-nor an uploader avatar. An imported entry without the key is accepted, and then
-asked about again on the next page that lists the track — see
-[When a cache entry goes off](#when-a-cache-entry-goes-off).
+empty, so a hand-written file restoring nothing but a few marks is valid, and
+`additionalProperties` is `false` throughout, so a typo is refused rather than
+silently dropped.
+
+Files from older versions also carry `details`: the download details those
+versions kept for a month, per track either what SoundCloud said about it or a
+remembered lookup failure (`unavailable`). The schema still describes it and
+the importer still checks it, so such a file reads, and then leaves it out:
+details now come from the page and last as long as its tab. Nothing writes the
+member any more.
 
 A `queue` entry is a track as the queue keeps one, and only its `permalink` is
-required — a track queued from a page that showed no title carries none. The
-details it was queued with are either the ones SoundCloud gave (as above) or
-the partial ones a Likes row renders by itself, which carry `"partial": true`
-and `null` for everything only the API could answer. A remembered lookup
-failure is refused there: it is not an answer about the track, so it is never
-what one was queued with.
+required; a track queued from a page that showed no title carries none. The
+details it was queued with are either what the page loaded about the track
+(as above) or the partial ones a Likes row renders by itself, which carry
+`"partial": true` and `null` for everything only the track object could
+answer. A remembered failure is refused there: it is not an answer about the
+track, so it is never what one was queued with. `genre` and `artworkUrl` are
+optional in details only because of the files that already exist, written
+before either was kept. `""` in them is an answer: the uploader set no genre,
+or the track has neither artwork nor an uploader avatar.
 
 Its `genre`, `liked` and `reposted` are what the page it was queued from said,
 and the reason a queue entry carries them at all is the Manager's list, which
-adds from the queue: by then that page is gone, no lookup answers those three,
+adds from the queue: by then that page is gone, nothing answers those three,
 and a track that arrived this way would otherwise never know them. `null` is
 "the page never said" — a badge tile renders no tag and neither button — as is
 their absence, in a queue written before they were kept. A `listed` entry
@@ -1705,12 +1736,15 @@ carries the same three, with what only a list knows on top: `domPurchaseTitle`,
 `from` and `at`.
 
 An `artists` entry is an uploader as the artists tool keeps one, and only its
-`permalink` — an artist's path, one segment (`/bicep`) rather than a track's
-two — is required. Its `profile` is what SoundCloud said about the account
-(`artistProfile` in the schema, of which only `at` is required), a remembered
-failure to find one (`unavailable`), or `null` for an artist nobody has asked
-about yet; the importer refuses a profile under a track's path, as it refuses
-a track's permalink where an artist's belongs.
+`permalink` (an artist's path, one segment like `/bicep` rather than a track's
+two) is required. Its `profile` is always `null` in a file exported now: what
+a SoundCloud page loaded about somebody else's account is kept for the
+browser session only, and a file would keep it for good. An older file may
+carry what SoundCloud said about the account (`artistProfile` in the schema,
+of which only `at` is required) or a remembered failure to find one
+(`unavailable`); importing it puts those in this session's profiles. The
+importer refuses a profile under a track's path, as it refuses a track's
+permalink where an artist's belongs.
 
 `state-transfer.ts` is a classic script, which cannot import a validator, so
 it enforces that schema by hand rather than running one in the browser. The two are
@@ -1718,10 +1752,10 @@ kept in step by `test/state-schema.test.ts`, which feeds the same documents
 to Ajv and to the importer and requires the same verdict from each. There are
 two deliberate asymmetries, each pinned down by its own test: JSON Schema
 cannot say "this property must equal that one", so the importer alone refuses
-a `details` entry naming a track other than the one it is filed under, and a
-`queue` entry whose details name a track other than the one queued. Filed
-wrongly, the first would answer for the wrong track ever after and the second
-would send the Downloader to another track's gate.
+an older file's `details` entry naming a track other than the one it is filed
+under, and a `queue` entry whose details name a track other than the one
+queued. Filed wrongly, the second would send the Downloader to another
+track's gate.
 
 A file listing the same track twice is _not_ one of them: the schema accepts
 it, the importer accepts it, and the queue drops the second copy when the
@@ -1735,235 +1769,128 @@ Which tracks are downloadable is not visible in playlist or Likes rows, nor
 in a track page's hero: "Download file" only renders inside a row's More menu
 when it is opened, and playlist rows show no purchase link at all. The direct download URL of
 years past (`soundcloud.com/<user>/<track>/download`) now answers `410
-Gone`, signed in or not. So the extension uses everything the page already
-holds first, asks SoundCloud only for what is left, and remembers the
-answers.
-
-**Free, from the page (no request):**
+Gone`, signed in or not. The page knows all the same: SoundCloud's web app
+draws every row from a track object it loaded as JSON, and that object says
+whether the track can be downloaded (`downloadable`, `has_downloads_left`),
+where its purchase link goes (`purchase_url`, `purchase_title`), its `genre`
+and its artwork (`artwork_url`, else the uploader's `avatar_url`). Those are
+the fields kept. The extension reads them from what the page has loaded and
+asks SoundCloud for nothing.
 
 1. **The page's hydration data.** SoundCloud server-renders a `<script>`
    element with `window.__sc_hydration = [...]`, the JSON the page was built
    from. Being a DOM element, its text can be read from the isolated world
    and parsed as JSON (it is never executed). It holds a full track object
    for a track page's track and for the first few tracks of a playlist
-   (5 to 19 in practice), bare `{id}` stubs for the playlist's other tracks,
-   and on every page the public API client id the page itself uses. Every
-   full track in it is harvested into the cache when the page loads — so
-   just browsing SoundCloud fills the cache for free. It describes the page
-   loaded by the last full navigation, so after in-app navigation it is
-   stale (the client id in it stays valid).
-2. **Likes rows** (List view) render the purchase link as
+   (5 to 19 in practice), and the user of a profile page. It is read once,
+   when the content script starts; after in-app navigation it describes the
+   page before, and the answers below take over.
+2. **The page's own API answers.** `page-data.ts` runs in the page's main
+   world (`"world": "MAIN"` in the manifest, from `document_start`, in every
+   frame), because the isolated world never sees the page's
+   `XMLHttpRequest`. It wraps `XMLHttpRequest.prototype.open`, and for a
+   `GET` the page makes to `api-v2.soundcloud.com` on a path that carries
+   tracks or users (`/tracks`, `/resolve`, `/playlists/<id>`, `/users/<id>`,
+   and a user's `/likes`, `/track_likes` and `/web-profiles`) it waits for
+   the answer. On a `200` it hands the text the page received to `content.ts`
+   in a `tbx:page-data` event on the document. It makes no request of its
+   own, changes none of the page's, and leaves what the page gets back alone.
+   Answers that land before `content.ts` is listening (it starts at
+   `document_idle`) are held, and handed over in order when it says hello
+   (`tbx:page-data-hello`). So the rest of a playlist's tracks arrive as
+   SoundCloud loads them for the rows it draws, a Likes page's listing as it
+   is scrolled, and a track, playlist or profile after in-app navigation.
+3. **Likes rows** (List view) render the purchase link as
    `a.soundActions__purchaseLink`, wrapped in SoundCloud's `gate.sc`
    redirector, with SoundCloud's label for it in `aria-label` ("Buy",
-   "Free Download", …). That settles purchase links for those rows without
-   asking anyone; only "can SoundCloud itself download it" is unknown. A
-   **track page** renders the same link in its engagement bar
-   (`.listenEngagement`, legacy class `.sc-buylink`), read the same way — so
-   a song page after in-app navigation, whose hydration is stale, still
-   answers for its own purchase link for free.
-3. **Track identity** is the `href` of each row's title link, minus the
+   "Free Download", …). That settles purchase links for those rows even
+   before anything else is known; only "can SoundCloud itself download it"
+   is not. A **track page** renders the same link in its engagement bar
+   (`.listenEngagement`, legacy class `.sc-buylink`), read the same way.
+4. **Track identity** is the `href` of each row's title link, minus the
    `?in=<playlist>` query SoundCloud adds on playlist pages (that query is
    also how the extension knows which playlist the rows belong to, whatever
    the address bar says).
-4. **Liked and reposted** come from the row's own `.sc-button-like` and
-   `.sc-button-repost`, which say whether they are on twice over — the
-   `sc-button-selected` class and `aria-pressed` — and either is taken, so a
+5. **Liked and reposted** come from the row's own `.sc-button-like` and
+   `.sc-button-repost`, which say whether they are on twice over (the
+   `sc-button-selected` class and `aria-pressed`), and either is taken, so a
    redesign that drops one of them still reads correctly. This is page state
    rather than track metadata (it is about the signed-in account, and it
    changes the moment either button is clicked), so unlike the fields above it
-   is never cached: it is read afresh every time the panel asks for the page.
-   A row that renders no such button — every badge tile on `/you/likes` in
-   Badges view, which
-   [Opening your likes as a list](#opening-your-likes-as-a-list) is there to
-   avoid — answers `null`, which is "nobody knows" rather than "no".
-5. **The genre** is the tag SoundCloud renders beside a row's title
+   is never kept: it is read afresh every time the panel asks for the page.
+   A row that renders no such button answers `null`, which is "nobody knows"
+   rather than "no". Every badge tile on `/you/likes` in Badges view is one,
+   which [Opening your likes as a list](#opening-your-likes-as-a-list) is
+   there to avoid.
+6. **The genre** is the tag SoundCloud renders beside a row's title
    (`.soundTitle__tagContainer .sc-tagContent` on Likes rows,
    `.sc-tagContent` in a track page's hero). It is the track's `genre` field
-   and not one of its free tags — both were read off soundcloud.com and
-   checked against the same tracks' own page data — so a Likes page names the
-   genre of every row it draws and nothing has to be asked for it. Playlist
-   rows and badge tiles render no tag, and answer `null`: "nobody knows",
-   which is not the uploader's "no genre set" (`''`). Like the two above, it
-   is read off the page rather than taken from the details cache, and the
-   panel prefers it to a lookup's answer.
+   and not one of its free tags (both were read off soundcloud.com and
+   checked against the same tracks' own page data), so a Likes page names the
+   genre of every row it draws. Playlist rows and badge tiles render no tag,
+   and answer `null`: "nobody knows", which is not the uploader's "no genre
+   set" (`''`). The panel prefers the row's tag to the track object's.
 
-**Asked of SoundCloud** — only when the panel is opened, only for tracks the
-cache does not know, all `GET`s to its public API (`api-v2.soundcloud.com`,
-the one the page calls), anonymous (that client id, no cookies —
-`credentials: 'omit'` — no auth header), returning public track metadata of
-which `downloadable`, `has_downloads_left`, `purchase_url`, `purchase_title`,
-`genre` and `artwork_url` (else the uploader's `avatar_url`) are kept:
-
-| Page                              | Request                   | When                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Playlist                          | `/tracks?ids=…`           | for the hydration's stubs, 50 per request, in playlist order, only as far as the rendered rows need, as many at once as the rendered rows can reach, up to four: a page that has not been scrolled asks for one batch, and the other nine of a 479-track playlist are never made                                                                                                                                                                 |
-| Playlist, after in-app navigation | `/resolve?url=<playlist>` | once per page, for the track ids (74 KB for a 479-track playlist; re-fetching the page would be 149 KB of server-rendered HTML). The answer is kept for as long as the page is open, so a second panel spends its requests on rows rather than on asking what playlist this is again                                                                                                                                                             |
-| Likes                             | `/users/<id>/likes`       | the listing the page itself loads, in page order; the first request asks for exactly as many likes as the page shows (plus a little slack), later ones for 200, the API's maximum, until every rendered row is covered or 2,000 likes deep. One request instead of one per track. The user id is in the hydration; after in-app navigation to another user's likes, one `/resolve` of the profile URL, also kept for as long as the page is open |
-| Track page                        | nothing of its own        | the one track is in the page's own hydration, so a song page loaded fresh is answered without a request at all; after in-app navigation it falls to the row below, which is one request for one track                                                                                                                                                                                                                                            |
-| Anything left over                | `/resolve?url=<track>`    | private tracks, a filtered Likes list, rows past the listing's reach — four at a time                                                                                                                                                                                                                                                                                                                                                            |
-
-The listing is skipped when resolving the few pending tracks one by one
-would cost fewer requests. `429` answers are backed off and retried a couple
-of times. The API accepts cross-origin calls from `soundcloud.com` only,
-which is why the content script makes them (from the page's origin) rather
-than the panel.
-
-**A page the API cannot see.** These requests are anonymous — the extension
-asks SoundCloud the way a signed-out visitor would, which is what keeps it from
-needing the user's account — so a page whose tracks are not public is one the
-API will not describe however it is asked. The ordinary case is somebody
-looking at their own private playlist. The bulk request comes back empty, and
-resolving each row in turn then fails the same way one request at a time: on a
-private 90-track playlist that was ninety round trips, a minute of "still
-checking", and an answer of no.
-
-So when the bulk source settles nothing at all, five rows are resolved before
-the rest. If even one comes back, the rest follow as they always did — the page
-is visible and the bulk source simply did not reach it (a filtered list, rows
-past a listing's reach). If none do, the lookup stops and says why: those
-tracks are not ones SoundCloud will describe, and whatever the page itself
-renders for them is still listed.
-
-**The listing is carried on, not restarted.** Scrolling a Likes page and
-opening the panel again is the ordinary way to use it, and every opening
-brings rows nobody has asked about before. Walking the listing from the top
-each time would cost 55 requests over ten such scrolls of a 2,000-like page,
-for the ten pages of data SoundCloud actually had to send; instead the page's
-cursor is kept and the next walk asks only for what the last one had not
-reached, which makes it ten. It resumes only when every row now wanted lies
-past what the earlier walk covered — a filtered list, or a like added at the
-top since, starts from the top as before, and a cursor SoundCloud no longer
-honours is dropped rather than retried.
-
-**Nothing is looked up until somebody asks.** Opening the panel asks the
-content script one thing — `EXTRACT_TRACKS`, a scan of the page's own DOM that
-comes back in a few milliseconds and costs SoundCloud nothing — and that is
-only to say what the tab is offering: its name, its curator, how many tracks
-it has. `GET_DOWNLOAD_DETAILS`, which is the lookup below, runs when **add** is
-pressed. It used to run on every opening of the tool, over every track of
-whatever page happened to be in front.
-
-**The rows do not wait for the lookup either.** Adding puts the page's tracks
-on the list from that first scan — title, artist, cover art, and on Likes pages
-the purchase links the page itself renders — and the lookup fills them in
-underneath. Rows nothing is known about yet say so ("Not checked" sorted by
-site, "checking…" in list order) rather than being called link-less. Answers
-arrive a few at a time on the `DOWNLOAD_DETAILS_PROGRESS` message the lookup
-was already sending its progress on, and each row settles where it stands.
-
-The panel used to await the lookup and show a spinner in place of the list
-until it finished, which on a scrolled playlist was several seconds of an
-empty popup. What is left is the shell in about ten milliseconds and the list
-as fast as storage answers — and a long list is painted
-a screenful at a time (sixty rows on the first frame, forty on each one
-after, `$lib/painting.svelte.ts`) because five hundred rows are the best part
-of a second of DOM work and the popup shows eight of them. Rows a search hid
-come back the same way when it is deleted, beside the rows that stayed, so
-the Backspace that brings back three hundred tracks mounts forty of them
-rather than all three hundred in one go. The artists list is painted the same
-way.
-
-**Four at a time** is what the lookup costs in wall clock. These requests are
-round trips and nothing else — SoundCloud answers one in half a second on a
-good day and in two on a bad one — so a lookup takes as long as the number
-of them it waits through end to end, and the panel counts them out on a
-progress bar above the list. Measured against the live API, ten `/tracks` batches one
-after another took 10.3 s and the same ten four at a time took 2.1 s; twenty
-`/resolve` calls went from 5.0 s to 1.3 s. Six at a time was no faster than
-four (the server becomes the queue), and nothing at any of these rates drew
-a single `429`. Four is where the extension stops, being polite rather than
-fastest: the requests are anonymous `GET`s of public metadata, but they are
-made in the user's name on the user's page.
-
-**Remembered:** every answer is kept in extension storage for thirty days
-(uploaders occasionally add a purchase link later, so not forever), on every
-tab; a track that could not be looked up is remembered for a day so it is
-not retried on every panel open. Reopening the panel, reloading, scrolling
-further and coming back, another tab — none of it asks again for a track
-already known. Answers go into the cache as they arrive, not when a lookup
-ends, and are written back within a second, so a lookup cut short by a
-reload keeps what it had learned, "nodl" pills appear as answers come in,
-and a later request benefits from an earlier one's progress. The hydration
-is parsed once per page.
-
-The cache holds 20,000 tracks — about 6 MB of the 10 MB `storage.local`
-allows, leaving the marks room beside it — and drops the entries it learned
-longest ago to stay under that. The cap is there for SoundCloud's sake, not
-for tidiness: nothing waits on the write, so a cache that outgrew the area
-would fail its write in silence and be empty on the next visit, and an empty
-cache asks about every track on every page all over again, forever. Forgetting
-pages not seen in weeks costs a handful of requests; refusing to forget costs
-all of them. If the area still will not take the write, half as much is
-written rather than nothing.
-
-#### When a cache entry goes off
-
-Age is not the only way. An entry also goes off when it is missing a field
-this version keeps, whatever its age — because it will never gain one by
-waiting.
-
-The fields kept per track have grown: the **genre** was added after the cache
-had been filling up for a month, and the **cover** after that. An entry written
-before either has no `genre` or `artworkUrl` key, and nothing about being
-thirty days fresh would ever fix it — nothing would ask about the track again
-until it expired, so for a month the panel would have said it did not know the
-genre of a track SoundCloud was about to name the genre of anyway, in a request
-it was going to make regardless.
-
-So `hasEveryField()` in `content.ts` checks an entry against the list of
-fields `detailsOf()` writes, and one that is short of any of them is treated
-exactly as an expired entry is: dropped on load, dropped on write-back, and
-looked up again. Remembered failures are exempt — they are not details and
-have none of those fields, and their own day-long lifetime is what expires
+**Kept in the tab, in memory.** What is learned goes into a map in the
+content script, by permalink, and nowhere else: not extension storage, and not
+other tabs. A reload, or closing the tab, starts again from what the page
+loads then. Learning anything repaints the markers, so "nodl" pills appear as
+SoundCloud loads the tracks. Versions before this one kept every track's
+details for thirty days in `chrome.storage.local` under `details`;
+`background.ts` removes that key when this version is installed over one of
 them.
 
-What this costs is one round of looking up, once, on each page whose tracks
-were cached by an older version — and most of it never becomes a request,
-because the hydration harvest runs on every page load and refills those
-entries from the page itself for nothing. What it buys is that adding a field
-to `detailsOf()` is the whole of the change: there is no separate cache
-version to remember to bump, and no release in which the panel quietly says
-"unknown" about something it could have asked for.
+**A track the page has not loaded** has no details yet. Its row says **not
+loaded yet**, and the note after an add says how to get them: scroll to the
+track, or open it, then add the page again. Rows SoundCloud has drawn are
+tracks it has loaded, so in practice that is a row further down than the page
+has drawn.
 
-**One lookup at a time:** the panel can be closed and reopened, or the page
-left and come back to in-app, while a long lookup is still running — and
-each reopen asks again. A request whose tracks are all covered by a lookup
-already queued or running joins it (the panel says "continuing a lookup
-already under way") and is answered as soon as its own tracks are settled,
-even while that lookup goes on with the rest; a request for other tracks
-gets a lookup of its own, run after the ones before it and asking only for
-what is still unknown by then. Two lookups never run at once from one tab,
-and nothing is asked twice — the price being that a request for a
-different page waits for the lookup in progress to finish.
+**Nothing waits on SoundCloud.** Opening the panel asks the content script
+`EXTRACT_TRACKS`, a scan of the page's own DOM, only to say what the tab is
+offering: its name, its curator, how many tracks it has. **add** asks
+`GET_DOWNLOAD_DETAILS`, the same scan with each track's details from memory.
+Both are answered at once. The list is then as fast as storage answers, and a
+long list is painted a screenful at a time (sixty rows on the first frame,
+forty on each one after, `$lib/painting.svelte.ts`) because five hundred rows
+are the best part of a second of DOM work and the popup shows eight of them.
+Rows a search hid come back the same way when it is deleted, beside the rows
+that stayed, so the Backspace that brings back three hundred tracks mounts
+forty of them rather than all three hundred in one go. The artists list is
+painted the same way.
 
-So in practice: a fresh playlist page costs one request per 50 tracks past
-the hydrated ones (often zero for short playlists); a Likes page costs one
-request per 200 rendered likes; a track you have already seen anywhere costs
-nothing. The panel itself fetches nothing to draw the list (thumbnails are the URLs the
+**Measured** on real pages, signed out, with the last version that asked
+SoundCloud's API itself and with this one (before → after):
+
+| Page                                                 | `nodl` pills before the panel opens | Rows the panel had an answer for | The extension's own `api-v2` requests | The panel's answer |
+| ---------------------------------------------------- | ----------------------------------- | -------------------------------- | ------------------------------------- | ------------------ |
+| playlist `anjunadeep/sets/anjunadeep-2026`, 135 rows | 5 → 126                             | 135 → 135                        | 4 → 0                                 | 472 ms → 6 ms      |
+| Likes `feelmybicep/likes`, 48 rows                   | 0 → 22                              | 48 → 48                          | 1 → 0                                 | not measured       |
+
+Both were scrolled to those rows first. Unscrolled, the same playlist showed
+15 rows with 5 → 15 pills, and the Likes page 9 rows with 0 → 5.
+
+The panel itself fetches nothing to draw the list (thumbnails are the URLs the
 page already rendered), and no request is ever made to any of the external
 sites: their links are only opened when clicked. The one fetch it ever makes is
 for a cover art click, described above.
 
 ### Keeping it above board
 
-- Reads only what a signed-out visitor can see: public track metadata, via
-  the public API the site's own front end uses, with the public client id
-  the page itself was served with. No cookies, no session, no auth header —
-  nothing that would let a request act as you.
-- `GET` only. Nothing is ever written to SoundCloud, and no data of yours
-  (marks, cache, clicks) leaves the browser.
-- No code runs in the page's own JavaScript context and no network traffic of
-  the page is intercepted. The changes to the page are the inert marker
-  overlay, the queue button and the replaced download buttons. The one
-  SoundCloud control pressed with no click from you is the Likes page's List
-  toggle, with **open your likes as a list** on. SoundCloud's hidden Download
-  file is pressed by a click on its replacement. The only clicks acted on are
-  those on the page's own More, download and purchase buttons.
-- Asks little and never twice: bulk endpoints sized to what is on screen,
-  nothing prefetched beyond the rendered rows, no polling or background
-  activity (requests happen only when the panel is opened), a month-long
-  cache shared by all tabs, failures not retried for a day, one lookup at a
-  time per tab with low concurrency within it, and back-off on `429`.
+- Makes no request to SoundCloud's API and uses no client id: what it knows
+  about a track is what SoundCloud's own page loaded to draw it, and it is
+  kept for as long as that tab holds the page.
+- Nothing is ever written to SoundCloud, and no data of yours (marks, lists,
+  clicks) leaves the browser.
+- One script runs in the page's own JavaScript context, `page-data.ts`, and
+  it only listens: it reads the answers to requests the page made anyway and
+  changes neither the requests nor the answers. The changes to the page are
+  the inert marker overlay, the queue button and the replaced download
+  buttons. The one SoundCloud control pressed with no click from you is the
+  Likes page's List toggle, with **open your likes as a list** on.
+  SoundCloud's hidden Download file is pressed by a click on its replacement.
+  The only clicks acted on are those on the page's own More, download and
+  purchase buttons.
 
 Elements the marker and click detection rely on (verified September 2026):
 
@@ -2015,11 +1942,23 @@ one off takes its badge off every row and its name out of the sentence above
 the section. Turn them all off and a link-less row carries nothing but its own
 toggles, which the panel and the sheet both say out loud.
 
-The sites are not written into the panel. They are a list of plain objects in
-[`src/lib/search-sites.json`](src/lib/search-sites.json), read and checked by
-[`src/lib/search-sites.ts`](src/lib/search-sites.ts), and adding one is an
+The sites are not written into the panel. They are a list of plain objects
+under `sites` in [`src/lib/search-sites.json`](src/lib/search-sites.json),
+specified by [`src/lib/search-sites.schema.json`](src/lib/search-sites.schema.json)
+(which the file names in `$schema`, so an editor checks it), read and checked
+by [`src/lib/search-sites.ts`](src/lib/search-sites.ts), and adding one is an
 entry in that file and nothing else — no code change, and no manifest change
 either, since a badge opens a tab and never fetches.
+
+**add a site** in the same Settings section adds one of your own in the same
+shape: a name, the badge's letters and colours, and the search address. The
+line under the address says why one cannot be used (not `https:`, no
+variable, a variable that does not exist, or a search that is already a
+badge), and **save** stays off until it can. Yours come after the shipped
+ones, each with its own switch and with buttons to edit and remove it. They
+are kept in the popup's `localStorage` (`pref:search-sites`) and go into the
+exported state file; importing one adds the sites whose search is not already
+a badge.
 
 | Badge | Site      | URL                                                         |
 | ----- | --------- | ----------------------------------------------------------- |
@@ -2074,19 +2013,17 @@ other tools, so a channel upload searches for the channel.
   what will not fit rather than dropping the oldest: what is on it was put
   there on purpose. The add says how many did not fit; taking some off is
   Select → the box at the left of the bar → **Remove**.
-- The lookup runs in the SoundCloud tab, over the tracks that tab renders, so
-  a track is checked by adding a page it is on — its own page counts, and is
-  the way to check one track. A track put on the list from the session queue on
-  some other tab keeps whatever was known when it was queued, and reads as
-  _not checked_ until a page it is on is added.
+- What is known about a track comes from the SoundCloud tab it is on, and
+  only once that page has loaded it, so a track's links are read by adding a
+  page it is on after scrolling to it. Its own page counts, and is the way to
+  read one track. A track put on the list from the session queue on some other
+  tab keeps whatever was known when it was queued, and reads as _not loaded
+  yet_ until a page it is on is added.
 - A track page whose address SoundCloud has left pointing somewhere else (its
   URL naming one uploader while the hero names another, which in-app navigation
   can do for a moment) offers a track with no permalink, and the list cannot
   hold one: the bar counts it among the page's tracks but the button has
   nothing to add. Reloading the tab settles it.
-- Private tracks (secret links) cannot be looked up anonymously and are
-  reported as not checked (their purchase link, if any, still comes from the
-  page on Likes pages and track pages); the attempt is not repeated for a day.
 - Marks are stored per browser profile and are not synced.
 - On playlist rows the thumbnail is 32 px, so the Downloaded pill is a check
   mark rather than the word ("nodl" still fits), and the queue button is a
@@ -2101,11 +2038,10 @@ other tools, so a channel upload searches for the channel.
 - The queue button follows the cover art, so it reaches only tracks whose art
   is on screen — there is no button in a search result's text row or the
   sidebar's related tracks.
-- "nodl" pills only appear for tracks whose details are known — looked up by
-  opening the panel on a page listing them, or harvested from a page that
-  was served with them — within the last thirty days.
-- SoundCloud's class names and hydration format are not a public API and may
-  change; everything relied on is listed above.
+- "nodl" pills only appear for tracks the page in that tab has loaded, and go
+  with a reload until the reloaded page loads them again.
+- SoundCloud's class names, hydration format and API answers are not a public
+  API and may change; everything relied on is listed above.
 
 ## third-party downloader
 
@@ -2116,27 +2052,28 @@ repost this, drop your email, open my Instagram — with the download button at
 the end. Collecting a playlist's worth of those is a lot of clicking through
 the same four screens, on seven different sites that each do it differently.
 
-This tool does the walking. Give it a set of links and it takes each one as far
-as it goes, and hands the browser whatever file comes back.
+This tool takes a set of links and gets each one as far as the site allows
+from here. One site it walks itself; on three it puts you on the gate's own
+page with the steps outlined and your email filled in, and saves the file when
+the page hands it over; the last three it only opens.
 
 Seven sites, and they are not the same
 --------------------------------------
 
 The honest summary first, because it decides what the tool can do for each:
 
-| Site                                                            | What the link is                                                      | Ends in a file?                |
-| --------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------ |
-| **Hypeddit** `hypeddit.com`                                     | A download gate whose social steps are decoration, apart from Spotify | Yes                            |
-| **Droploud** `droploud.com`                                     | A download gate whose steps are self-reported, bar one                | Yes                            |
-| **Pump Your Sound** `pumpyoursound.com`                         | A download gate that is a plain HTML form                             | Yes                            |
-| **ToneDen** `toneden.io`                                        | A download gate with a real OAuth step                                | Only sometimes — see below     |
-| **FanLink** `fanlink.tv` (and the dead `fanlink.to`, rewritten) | ToneDen's smart link; sometimes a gate in disguise                    | Only sometimes                 |
-| **Laylo** `laylo.com`                                           | A notify-me signup, not a gate at all — so the tool signs up          | No: the artist mails it to you |
-| **Feature.fm** `ffm.to`                                         | A smart link: a chooser of streaming and shop links                   | Rarely                         |
+| Site                                                                  | What the link is                                                      | What **Get** does                                      |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Hypeddit** `hypeddit.com`                                           | A download gate whose social steps are decoration, apart from Spotify | Walks it here and saves the file                       |
+| **Droploud** `droploud.com`                                           | A download gate of email, Instagram and SoundCloud steps              | Opens it for you to do; saves the file when it unlocks |
+| **Pump Your Sound** `pumpyoursound.com`                               | A download gate that is a plain HTML form                             | Opens it for you to press Download; saves the file     |
+| **Laylo** `laylo.com`                                                 | A notify-me signup, not a gate at all                                 | Opens it with your email filled in, for you to RSVP    |
+| **ToneDen** `toneden.io`                                              | A download gate with a real OAuth step; shuts down Dec 1, 2026        | Nothing: the row opens it                              |
+| **FanLink** `fanlink.tv` (and the dead `fanlink.to`, opened on `.tv`) | ToneDen's smart link; shuts down with it                              | Nothing: the row opens it                              |
+| **Feature.fm** `ffm.to`                                               | A smart link: a chooser of streaming and shop links                   | Nothing: the row opens it                              |
 
-A row's badge says which site it is, and a row that resolves to somewhere to go
-rather than something to save says so and offers an **Open** button instead of
-reporting a failure it did not have.
+A row's badge says which site it is. A row for a site that is only opened is
+an **Open** button with a line about the site, and **Get all** passes it by.
 
 ("DropCloud" is how the name gets written down; the site spells it Droploud,
 and so does the link SoundCloud carries.)
@@ -2175,12 +2112,15 @@ and so does the link SoundCloud carries.)
    run says which of the two it is in, and a link with no SoundCloud track
    behind it (from a gate tab, or the paste box) is never dropped by either.
    When something is hidden, a line says how many of the links are showing.
-5. **Get all**, or **Get** on a single row. Rows run one at a time and
-   report as they go: _Unlocking…_, _Saving…_, _Saved_, _Signed up_ for a
-   Laylo drop the address was left with, the page it turned out to point at,
-   or the reason it did not work. **Get all** runs what is
-   listed, so the toggles are also how a batch is chosen — and with **Hide
-   downloaded** on, each row goes as soon as saving it marks its track.
+5. **Get all**, or **Get** on a single row. Hypeddit rows run here, one at a
+   time, and report as they go: _Unlocking…_, _Saving…_, _Saved_, or the
+   reason it did not work. Droploud, Pump Your
+   Sound and Laylo rows then open one after another in a single tab (see
+   [Gates done on their own page](#gates-done-on-their-own-page)), which closes
+   the popup; their rows say _opened_, then _Saved_ or _Signed up_ once you
+   have done the gate there. **Get all** runs what is listed, so the toggles
+   are also how a batch is chosen, and with **Hide downloaded** on, each row
+   goes as soon as saving it marks its track.
 6. A row that failed says what to do about it, and offers to do it. Most of
    these gates fail because they want something a fetch cannot give them — a
    connected account, a CAPTCHA, a step the page does to itself — so the failed
@@ -2192,18 +2132,17 @@ and so does the link SoundCloud carries.)
    the [session queue](#session-queue) when the file has landed. **Get**
    stays beside it, for the failures worth another go on their own.
 
-   The failures that are not a trip to a tab are the ones Settings already
-   has the answer to: a Hypeddit gate or a Laylo drop that wants an email
-   address and has not been given one offers **add email**, and a drop that
-   asks for a name with it offers **add name**. Either opens the settings
-   sheet, over the panel and with the list behind it untouched, at the fields
-   where those are typed.
+   The failure that is not a trip to a tab is the one Settings already has
+   the answer to: a Hypeddit gate that wants an email address and has not
+   been given one offers **add email**, which opens the settings sheet, over
+   the panel and with the list behind it untouched, at the field where it is
+   typed.
 
 Files land in a folder named for the site (`Hypeddit`, `Droploud`,
-`PumpYourSound`, `ToneDen`, `Laylo`, `FeatureFM`) under the browser's download
-directory, named as the artist named them where the site says so — Hypeddit and
-Droploud both sign the real filename into the link, so the name is known before
-a byte is fetched.
+`PumpYourSound`) under the browser's download directory, named as the artist
+named them where the site says so: Hypeddit signs the real filename into the
+link, so the name is known before a byte is fetched, and a file a gate's own
+page hands over keeps the name the site gave it.
 
 A name is made safe first, because Chrome refuses a download outright —
 _Invalid filename_ — rather than cleaning one up, and holds every name to what
@@ -2230,9 +2169,9 @@ so:
 - the **check button** on the row makes that mark by hand, and clicking it
   again takes it off. It is on every row with a track behind it, in whatever
   state the walk left it — which is the point, because the tracks that need it
-  are the ones a walk did not finish: a Laylo or Feature.fm row that only ever
-  resolved to a page you then went to yourself, a gate you opened and clicked
-  through in a tab, a file that was on the disk before any of this started, a
+  are the ones a walk did not finish: a ToneDen or Feature.fm row you opened
+  and got the file from yourself, a gate whose file landed somewhere the
+  extension did not see, a file that was on the disk before any of this started, a
   row saved with that setting off. It also undoes a mark made in
   error. With **Hide downloaded** on the row goes as the mark is made, the same
   way a saved one does — so take a mark off before hiding, not after. The same
@@ -2241,14 +2180,26 @@ so:
 
 ### How each site works
 
-Every site is one module under `sites/`, and they all answer the same two
-ways — _here is a file to save_, or _here is somewhere to go_ — or throw with
-the sentence the row should show. A thrown error sends the person to the gate
-itself, which is what the failed row's **Open** does; a gate that failed for
-want of something the panel can ask for instead says so by throwing a `Wanting` from
-`next-step.ts` — today the email address, and the name a Laylo drop sometimes
-asks for beside it. A third answer joins the two above for Laylo alone: _the
-address has been left with the artist_, which is neither a file nor a page.
+Every site is one module under `sites/`, and its `how` says which of three
+kinds it is.
+
+A **walked** site's `unlock` fetches the gate and answers with the file to
+save, or throws with the sentence the row should show. A thrown error sends
+the person to the gate itself, which is what the failed row's **Open** does; a
+gate that failed for want of the email address says so by throwing a
+`Wanting` from `next-step.ts`, and the row offers to open Settings instead.
+Hypeddit is the one. Its walk is `walks/hypeddit.ts`, reached through
+`walks/index.ts`, which only the panel and the offscreen page import: the
+background worker reads the site registry but never holds a walk, since it has
+no `DOMParser` to read a page with.
+
+A **page** site is done by the person on the site's own page, with help. Its
+module says what to outline there, which field takes the email, and, for a
+sign-up page, which form's submit is the sign-up. Droploud, Pump Your Sound
+and Laylo are these; see [Gates done on their own page](#gates-done-on-their-own-page).
+
+A **link** site is only opened. Its module is a name, hosts and the line its
+row shows: ToneDen, FanLink and Feature.fm.
 
 **Hypeddit.** A gate page is an ordinary form. Every value the download button
 posts is already in the page as a hidden input, so the panel fetches the page,
@@ -2300,231 +2251,145 @@ after which every later `sp` gate goes through without a word. **The follow and
 the library save really happen**, which is the point: it is the artist's side
 of that bargain, exactly as the address is.
 
-**Droploud.** A `/gate/<track id>` or `/track/<track id>` page ships its whole
-gate in the HTML, as part of the Next.js server-component payload: the track,
-the artist, and a `steps` list saying which follows, likes, reposts and saves
-it asks for. Walking it is `POST api.droploud.com/api/gate/<id>/step` with
-`{session_id, step}` for each step, then `POST /gate/<id>/download` with
-`{session_id}`, which answers `{download_url, type}`. The session id is not a
-credential: the page invents a UUID on first paint and keeps it in
-`sessionStorage`, and the server only uses it to tie one visitor's steps
-together, so a gate walked here is a fresh visitor exactly as a private window
-would be.
+**Droploud.** A `/gate/<id>` or `/track/<id>` page is a box of steps: an email
+address with a consent box beside it, follows on Instagram, and a SoundCloud
+connection that follows, likes, reposts and comments for you. Droploud's terms
+say those are yours to do ("To unlock the track you complete one or more
+actions chosen by the artist"; no "bots, scripts or click farms to
+mass-complete gates"), so the tool opens the gate, outlines the box, and fills
+the email field from Settings while it is empty. You tick the box and do the
+steps. When the gate unlocks, the page starts the download itself, by clicking
+a link to the file, and the extension files that download into `Droploud/` and
+marks the track.
 
-**What the gate actually checks:** the download is refused (`403 "Gate not
-completed"`) until the steps have been posted, but the steps themselves are
-self-reported — the page marks one done the moment its button is clicked, the
-click opens the artist's page in a popup, and nothing checks what happens
-there. Posting the step is worth exactly what clicking the button is worth,
-which is why the tool does it and says so here rather than pretending
-otherwise. **One step is different.** A `soundcloud_repost` step is verified
-for real: Droploud wants a SoundCloud account connected by OAuth and then reads
-that account's reposts back. There is nothing to self-report and nothing here
-signs in as anybody, so the tool takes Droploud's own way out — the "give up"
-its page offers after a couple of failed checks (`POST
-/soundcloud/verify-repost` with `give_up: true`), which drops the step rather
-than claiming it. A gate that will not open without it says so on its row, and
-is one to open in a tab.
+**Pump Your Sound.** A fangate page (`/f/<channel>/<slug>/<id>`) is
+server-rendered PHP with an ordinary form in it, `frm-freeDownloadForm`, and
+pressing its Download button submits it; the answer is the file. The steps
+beside the button (follow on SoundCloud or Instagram, leave a comment) are
+OAuth flows of their own. The tool opens the page and outlines Download; you
+press it, and the file the form answers with goes into `PumpYourSound/`.
 
-**Pump Your Sound.** The simplest of the set. A fangate page
-(`/f/<channel>/<slug>/<id>`) is server-rendered PHP with an ordinary Nette form
-in it, `frm-freeDownloadForm`, posting back to the page it is on with
-`_do=freeDownloadForm-submit`. The tool reads the form's fields off the page
-and posts them, which is exactly what pressing Download does; the answer is the
-file, or a page with the link in it. The steps beside the button — follow on
-SoundCloud, follow on Instagram, leave a comment — are separate OAuth flows of
-their own, not part of the form, and the button is not disabled while they are
-undone. Nothing is posted to SoundCloud by submitting the form.
+**Laylo.** Not a download gate: a `laylo.com/<artist>/<slug>` drop is a
+notify-me page. You leave an email address or a phone number, and the artist's
+link reaches you later, by mail or by text. Laylo's terms count pressing its
+RSVP button as your signature on that sign-up, so the press is yours: the tool
+opens the drop, outlines the form and its switch to email (some drops open on
+SMS), and fills the email field from Settings while it is empty. When you
+submit the form, the row says _Signed up_. Nothing is downloaded.
 
-**ToneDen.** The one whose steps have teeth, and the tool does not pretend
-otherwise. A `toneden.io/<artist>/post/<slug>` gate says "Follow on SoundCloud"
-(or Spotify, or Facebook) and leads to `/auth/<platform>`, an OAuth round trip
-that ends with ToneDen holding a token for that account; it performs the follow
-itself and opens the gate for the fan it just met.
-`GET /api/v1/attachments/<id>/download` answers `401 "Please login to your
-account to continue."` to everyone else. So there is nothing to walk, and what
-the tool does instead is:
+**ToneDen** and **FanLink** (`fanlink.tv`, ToneDen's smart links). Opened,
+nothing more. A ToneDen gate's step is an OAuth follow ToneDen does itself, so
+it was always done on its page, and ToneDen shuts down on December 1, 2026,
+both domains with it. `fanlink.to`, ToneDen's earlier domain for FanLinks,
+answers "Brand not found" on every path, and the paths came across to
+`fanlink.tv` unchanged, so a `.to` link opens on `.tv`. In the registry that is
+the site's `aliases`: hostnames it claims, opened on its first host instead.
 
-- read the post through ToneDen's own public lookup
-  (`GET /api/v1/posts?author_username=&link_path=`), which needs no account, so
-  a row can say what the gate is;
-- finish the gates whose `download_source` is `redirect` — those are not files
-  behind a login at all, they are the artist pointing at a Dropbox link or a
-  shop, and that destination is in the post;
-- for the rest, ask for the download with whatever ToneDen session the browser
-  already has. If you have been through a ToneDen gate once in this browser,
-  that is a real unlocked session and the file comes back. If not, the row says
-  to open the gate and connect once — which is the artist's side of the bargain
-  and not something to fake.
-
-A refusal is not one shape, and the row should not report it as a status code.
-Nobody signed in at all gets `401 "Please login to your account to continue."`;
-a browser ToneDen _does_ know, whose fan has not been through this particular
-gate, gets a `400` with a sentence of its own. So the answer body is read either
-way, and a download that comes back no is followed by
-`GET /api/v1/attachments/<id>/gateMetadata`, which is public and answers the two
-questions worth asking: `is_gate_open` — is this browser through this gate — and
-`viewer_id` — does ToneDen know this browser at all. With those the row names
-the account the gate wants (`platform`, or `platforms` with `is_or_condition`
-for a multi-action gate) instead of the status it answered with: _"this gate
-wants Twitch, and ToneDen doesn't know this browser"_. A gate that is open and
-still says no keeps ToneDen's own words. A gate whose `platform` is `email`
-wants an address left on ToneDen's page rather than an account, and says that;
-one with `skip_download` set has no file behind it at all.
-
-**FanLink** (`fanlink.tv`) is ToneDen's smart-link product on the same backend:
-a chooser pointing at Spotify, SoundCloud, Beatport and so on, with no file of
-its own. The page ships the whole thing as `window.preloadLink`, so the tool
-reads the destinations out and offers the one worth opening — a direct file if
-there is one, else Bandcamp, Beatport or iTunes, else where the link itself
-points. (Not every destination is a web address: a "music" link can carry a
-`spotify:album:…` URI, which is for the app and not for a tab, and those are
-skipped.)
-
-Two shapes of FanLink are more than a chooser, and the tool follows both. One
-has an unlock hung off it (`rsvp_attachment`), which is a ToneDen gate like any
-other. The other has no services at all and a `target_url` pointing at a
-`toneden.io/…/post/…` — a gate wearing a smart link's clothes; following it is
-the difference between offering a page to open and finishing the job.
-
-**fanlink.to**, ToneDen's earlier domain for these links, is gone: every path on
-it now answers "Brand not found". The paths came across unchanged, so a `.to`
-link is a working `.tv` one with a different suffix, and the tool rewrites it
-before the request rather than reporting a dead link. Nothing ever fetches
-fanlink.to — which is why the manifest names only `fanlink.tv`. In the registry
-that is the site's `aliases`: hostnames it claims but never reaches, and so
-deliberately outside `host_permissions`. (`fanlink.to` links written before the
-move are still all over SoundCloud, and all six in the export this was built
-against resolve on `.tv`.)
-
-**Laylo.** Not a download gate, and the tool does not pretend it is one. A
-`laylo.com/<artist>/<slug>` drop is a notify-me page: you leave an email
-address or a phone number, and the artist's link reaches you later, by mail or
-by text. There is no file on the page and no request that produces one — which
-means the signup _is_ the walk, and that is the walk the tool makes.
-
-Reading the drop first. The page is a shell that fetches its own JSON from
-Laylo's CDN — the title, the artist's id, which channels the drop is
-collecting, what else it asks for — and then fetches the artist's own record
-from a second CDN, for their display name and whether they have asked Laylo to
-confirm an address by mail before adding it. Both URLs are read off the page
-rather than guessed at.
-
-Then the signup, which is the same single POST the page's own RSVP button
-makes: `{type: 'rsvp', payload: {productId, creatorId, email, optIn, dropDate,
-fingerprintId, …}}` to `events.laylo.com/actions/rsvp/rsvp`, answered
-`{success}`. `creatorId` is the one field the endpoint refuses outright
-without; everything past it is checked later and out of sight, so `success`
-means _taken_, not _subscribed_ — and the row says the former. `optIn` is true
-unless the artist's record asks for a confirmation mail first, in which case
-the row says to look for it. The `fingerprintId` is a fresh random one per
-signup rather than the cookie the page keeps, which exists to recognise the
-same visitor from one artist's drop to the next.
-
-The page also attaches a captcha token (reCAPTCHA v3, or Turnstile). That field
-is optional — the endpoint takes a signup carrying none — and a forged one is
-refused, so none is sent rather than one faked. If Laylo ever makes it
-compulsory, the signups come back refused and the row goes back to offering the
-drop.
-
-Some drops it leaves alone, and says why: one collecting only a phone number,
-one that confirms by text (Laylo offers double opt-in over SMS alone), and one
-asking questions beyond a name. There is no phone number here to give and no
-way to answer the rest. A drop of the _link_ kind, where the artist put a
-destination on it rather than a signup, has somewhere to go, and that goes back
-as a link with nothing signed up for.
-
-**Feature.fm.** Another smart link. An `ffm.to` page is a list of the places a
+**Feature.fm.** A smart link: an `ffm.to` page is a list of the places a
 release can be played or bought, and the "download" on it is usually iTunes or
-Beatport rather than a file. Every button points at
-`api.ffm.to/sl/e/c/<slug>?cd=<payload>` — a click tracker that counts the click
-and then redirects — and the payload is base64url JSON with the real
-destination (`destUrl`) inside it. So the tool reads every destination out of
-the page it already fetched, without a single request to the tracker: faster,
-and one fewer fake click in somebody's dashboard. It then offers the best of
-them — a direct file, else Bandcamp, Beatport, iTunes or Amazon, else the page.
+Beatport rather than a file. Choosing one is your click on Feature.fm's page,
+so the row opens it.
+
+### Gates done on their own page
+
+**Get** on a Droploud, Pump Your Sound or Laylo row, or **Get all** with some
+listed, hands their links to the background worker
+(`src/tools/third-party-downloads/on-page.ts`), which opens the first in a tab
+and keeps the rest. The popup closes as the tab opens. The tracks go into the
+session queue on the way, as any gate opened by hand does.
+
+On the gate's page, `gate-page.ts`, a content script on those three sites,
+asks the worker whether this tab is one it opened, and does nothing if not.
+When it is, it puts a small bar in the corner saying what to press and which
+gate of how many this is, outlines what to press, and fills the email field
+with the address from Settings, once and only while the field is empty. It
+never presses anything, ticks a box or submits a form.
+
+When the page starts its download, the worker files it into the site's folder
+under the name the site gave it, tells the bar, which says where it went, and
+marks the track (unless **mark the SoundCloud track downloaded** is off). A
+download counts as the gate's when it starts while that gate is open and comes
+from the gate's site, by its referrer or its address; anything else you
+download meanwhile keeps the name the browser gives it, and a file the
+extension saves itself is never renamed. A second or so later the next gate
+opens in the same tab. On a Laylo drop, submitting the form is the end of it,
+and the bar offers **next**. **skip** moves on without doing the one in front,
+and the bar's close button stops the help on that tab.
+
+What became of each gate is kept for the session beside the run, and the
+Downloader's rows read it when the popup next opens: _opened_, _Saved_ with
+the file's name, or _Signed up_.
 
 ### Keeping it above board
 
-- **Nothing is faked that anyone can check.** No fabricated follows, likes or
-  reposts are sent to SoundCloud or anywhere else. On Hypeddit the social steps
-  are neither asked for nor recorded, so there is nothing to fake; on Droploud
-  the steps posted are the same self-reported clicks the page posts, and the
-  one step Droploud really verifies is given up rather than claimed; on ToneDen
-  the gate is enforced by an OAuth account and the tool simply does not walk
-  it.
-- **A step that is really checked is really done.** Hypeddit's Spotify step is
-  walked by going through Spotify's own sign-in in a tab, so the artist is
-  genuinely followed and the track genuinely saved to your library — the gate's
-  price, paid rather than dodged. It happens only on the gates that ask for it,
-  and only on the first press of **Get** for each one.
+- **The steps a gate asks for are done by you, on its page.** Droploud and
+  Pump Your Sound gates are opened for you to do; nothing is posted to their
+  servers, and no step is reported as done that you did not do. A Laylo
+  sign-up is your press of Laylo's own RSVP button.
+- **Hypeddit is walked, and a step it really checks is really done.** Its
+  social steps are neither asked for nor recorded, so there is nothing to
+  fake. Its Spotify step is walked by going through Spotify's own sign-in in
+  a tab, so the artist is genuinely followed and the track genuinely saved to
+  your library, and the row says whose Spotify you now follow. It happens only
+  on the gates that ask for it, and only on the first press of **Get** for
+  each one.
 - **The email step is honoured with a real address, or the gate is not
-  unlocked.** The address in Settings goes to two places, both of them the
-  artist: Hypeddit gates with an email step, which check it is deliverable
-  before they unlock, and Laylo drops, where the signup is the whole of what
-  the page is. Nothing else here is ever sent it, it is not written into an
-  exported state file, and a row with no address set signs up for nothing — it
-  asks for one instead.
-- **A Laylo signup is a mailing list, and Settings says so where the address is
-  typed.** Handing an address to a drop puts it on that artist's list, which is
-  what the drop is for and the price the artist set for the link. The hint
-  under the field says it in as many words, so it is not something a **Download
-  all** does quietly.
-- **One link at a time, a handful of requests each** — roughly what opening the
-  page yourself costs the site, minus the pixel and analytics traffic. Every
-  one of these is somebody's small server.
+  unlocked.** The address in Settings is posted to one place: a Hypeddit gate
+  with an email step, which checks it is deliverable before it unlocks.
+  Hypeddit's privacy policy says it shares that address with the artist, with
+  the service it checks addresses with, and with its own marketing providers;
+  the hint under the field says so. The address is also filled into the email
+  field of a Droploud or Laylo page you open from here, where sending it is
+  yours to do. It is not written into an exported state file, and a Hypeddit
+  row with no address set sends nothing; it asks for one instead.
+- **ToneDen, FanLink and Feature.fm are only opened.** Nothing is read from
+  them in the background.
+- **One link at a time, a handful of requests each**, for the one site that is
+  walked: roughly what opening the page yourself costs it, minus the pixel and
+  analytics traffic.
 - The files are the ones the artist put behind the gate for free download.
-  Following the artists whose tracks you keep is still the point of the thing;
-  this tool just stops you doing it four clicks at a time.
+  Following the artists whose tracks you keep is still the point of the thing.
 
 ### Limitations
 
-- **A Laylo drop still ends in your inbox, not in a file.** The tool leaves
-  the address; the link is the artist's to send, in their own time, and nothing
-  here can hurry it. A signed-up row says so and marks nothing as downloaded.
-  Drops collecting only a phone number, confirming by text, or asking questions
-  beyond a name are left for you to do on the page.
+- **Droploud, Pump Your Sound and Laylo gates are done by hand.** The tool
+  saves you finding each page and typing the address, and files the download,
+  but the steps are clicks on the page. With **Get all**, the next gate opens
+  in the same tab as each one is done.
+- **A file a gate's page hands over is caught by where it comes from.** A
+  download that starts on the gate's site while its tab is open is the gate's.
+  If a site ever hands its file over some other way, it lands in the download
+  folder under its own name and the row stays _opened_; the check button marks
+  it.
+- **The help on a page goes by its markup.** If Droploud, Pump Your Sound or
+  Laylo change their pages, the outline or the email fill can stop finding
+  their target; the page still works as it always did.
+- **A Laylo drop still ends in your inbox, not in a file.** The link is the
+  artist's to send, in their own time. A signed-up row marks nothing as
+  downloaded.
 - **A Hypeddit gate with a Spotify step follows the artist from your account.**
   That is what makes it open, and there is no version of it that does not: the
   check is Hypeddit's, on its own Spotify token, and it is the reason the
   artist put the step there. The first such gate needs one press of **Connect**
   on the page, to say yes to Hypeddit's Spotify app; after that the rest go
   through from the panel, each one opening a tab for about a second. A gate
-  wanting Deezer or Apple Music instead is not walked at all — the row names
+  wanting Deezer or Apple Music instead is not walked at all; the row names
   what it wants and offers to open it.
-- **ToneDen and FanLink gates need one visit by hand** unless the browser
-  already carries a ToneDen session that has been through _that_ gate — a
-  session alone is not enough, since the follow is recorded per gate. The row
-  names the account it wants ("this gate wants Twitch") and offers to open it;
-  going through it once in a tab makes that gate, and later gates by the same
-  route, work.
-- **Feature.fm and FanLink are smart links**, not gates — expect a page to open
-  rather than a file, unless the artist put a direct file behind one, or the
-  FanLink turns out to point at a ToneDen gate.
-- **The fanlink.to rewrite assumes the paths stayed put**, which is what ToneDen
-  did when it moved. A `.to` link whose path was _not_ carried over comes back
-  as "not a ToneDen FanLink" rather than as a dead domain.
-- A **link gate** anywhere (where the "download" is a redirect to Spotify,
-  Patreon or a shop rather than a file) has no file to save; the row reports
-  where it points and offers to open it.
+- **ToneDen and FanLink stop working on December 1, 2026**, when ToneDen shuts
+  down. Their rows open the page until then.
 - A Hypeddit gate behind a CAPTCHA has to be visited once in a tab, which is
   what the failed row's **Open** offers.
-- **Pump Your Sound's success path is inferred, not observed.** The form is
-  read off the page and submitted as the page submits it; what the server hands
-  back for a satisfied gate has not been exercised end to end here, so a row
-  that says the form was taken but no file came back may mean the gate wants
-  its SoundCloud step done in a tab — or may mean the answer has a shape this
-  does not recognise yet.
 - A row says _Saved_ when the browser has accepted the transfer, not when the
-  bytes have landed — the popup usually closes first. If a transfer is
-  interrupted while the panel is still open, the row turns red and offers the
-  file itself to open. A transfer that breaks after the popup has closed is the
-  browser's own download list to deal with; nothing here hears about it.
+  bytes have landed. If a transfer from a walk is interrupted while the panel
+  is still open, the row turns red and offers the file itself to open. A
+  transfer that breaks after the popup has closed is the browser's own
+  download list to deal with; nothing here hears about it.
 - Only tracks rendered in the DOM are read off a SoundCloud page, the same rule
   as the other tools; scroll a long playlist first.
 - None of these sites' markup or endpoints is a public API. Everything relied
   on is listed above, and a change to any of it will show up as rows that
-  report "not a … download gate", "would not unlock", or a status code.
+  report "not a Hypeddit gate", "would not unlock", or a status code, or as a
+  gate page with nothing outlined.
 
 ---
 
@@ -2532,14 +2397,14 @@ them — a direct file, else Bandcamp, Beatport, iTunes or Amazon, else the page
 
 Lives in `src/tools/artists/`. The other tools are about tracks; this one is
 about who made them. Working through a playlist means, sooner or later,
-wanting to find the people behind it somewhere other than SoundCloud — to
-follow them, to ask for a track nobody will sell you, to credit them — and
+wanting to find the people behind it somewhere other than SoundCloud: to
+follow them, to ask for a track nobody will sell you, to credit them. And
 SoundCloud puts that on each profile page, one page and a scroll to the links
-at a time. This tool collects the uploaders behind the tracks you add, asks
-SoundCloud about each of them once, and keeps the answer: a searchable list of
-artists, each with their **socials**.
+at a time. This tool collects the uploaders behind the tracks you add and
+fills in what the SoundCloud tab has loaded about each of them: a searchable
+list of artists, each with their **socials**.
 
-An artist, here, is the uploader of a track — the account the track's
+An artist, here, is the uploader of a track: the account the track's
 permalink names, which on a playlist page is also the name the row shows.
 That path is the artist's identity throughout the tool: it is what SoundCloud
 resolves to a profile, what the list holds an artist once under, and what
@@ -2549,60 +2414,62 @@ takes one off again.
 
 1. Open the tool from the menu. It opens on any tab, with whatever is on the
    list; nothing goes onto the list by itself. The bar at the top says what the
-   tab in front is offering — a playlist, Likes page or track page, by name and
-   by how many artists are behind its tracks — and **add** is what brings them
+   tab in front is offering (a playlist, Likes page or track page, by name and
+   by how many artists are behind its tracks), and **add** is what brings them
    in. Beside it, when either holds anything, are the two sources that work
    from anywhere: **Manager**, the artists behind every track on the Manager's
    list, and **queue**, the ones behind the session queue. Each button counts
    what it would add, and the tab's says **refresh** instead once its artists
    are all here.
 2. Adding puts the artists on the list at once, from what the source itself
-   says — a name and the tracks — and then, if the tab in front is a SoundCloud
-   page, asks SoundCloud about each one it has no answer for. The rows are up
-   before the first answer and fill in as the answers land, with a progress
-   bar under the header. On any other tab the rows say **not looked up**, and
-   a line above the list says how many, and that a SoundCloud tab is needed;
-   open one (any page of it) and the **look up** button on that line asks
-   about them all.
+   says (a name and the tracks), and then, if the tab in front is a SoundCloud
+   page, fills in what that page has loaded about each one. The same happens
+   whenever the panel opens on a SoundCloud tab. Every track the page loads
+   names its uploader in short (name, picture, place, follower count); the
+   bio, the track count and the links come with the artist's own profile
+   page. So a row says **not loaded yet** until a SoundCloud tab has loaded
+   the account, and **links not loaded yet** until it has loaded the profile
+   page, and a line above the list says how many artists are without socials
+   yet and what to do: open their SoundCloud page, then come back here, or,
+   on a tab that is not SoundCloud, open one.
 3. A row is the artist's picture, name (with SoundCloud's verified mark where
-   it has one) and a line about them — where they say they are, how many
-   follow them, how many links they offer — and then the links as lettered
+   it has one) and a line about them (where they say they are, how many
+   follow them, how many links they offer), and then the links as lettered
    badges, up to three on the row and a **+n** for the rest. Each badge opens
    that page, behind the popup or in front depending on the **background
-   tabs** switch the Manager also has. An artist SoundCloud had no public
-   profile for says **no public profile**. A lookup that fails says **lookup
-   failed** and leaves what the row knew.
+   tabs** switch the Manager also has. An artist an older version's lookup
+   found no public profile for says **no public profile**.
 4. The chevron opens the row into everything else, one field a line, each a
    button that copies it: the SoundCloud profile and every link as an address
    (with an arrow to open it), SoundCloud's own name for the account where the
-   page called it something else, the place, the follower count, the bio, the
-   tracks that brought the artist here, and where they came in from. Below
-   that are the search badges switched on in **Settings → search badges** —
-   the same shops the Manager searches, given the artist's name — and the two
-   ways out: **look up again**, which asks SoundCloud about this one artist
-   afresh, and **off the list**.
+   page called it something else, the place, the follower count, the bio (or
+   **not loaded yet**), the tracks that brought the artist here, and where
+   they came in from. Below that are the search badges switched on in
+   **Settings → search badges** (the same shops the Manager searches, given
+   the artist's name) and the way **off the list**.
 5. The search box finds an artist by anything known about them: name, path,
    place, bio, the address or name of any link, the titles of their tracks.
    The sort menu offers **by name**, **list order** (the order they were added)
    and **most followed**. **copy** in the header puts every artist the search
-   leaves showing on the clipboard as text — a block per artist: the name, the
+   leaves showing on the clipboard as text, a block per artist: the name, the
    profile, then every link on its own line.
 
 The list is kept for good, in the extension's own storage beside the Manager's
 (see [What the popup remembers](#what-the-popup-remembers)), and travels in
 the state file with it (see [Saving and restoring it all](#saving-and-restoring-it-all)).
 It holds two thousand artists and refuses past that, saying how many did not
-fit, rather than dropping the oldest.
+fit, rather than dropping the oldest. The profiles on it are kept apart, for
+the browser session only (see below).
 
 ### Where the socials come from
 
 Two places, and the row does not distinguish them: the links the uploader put
-on their SoundCloud profile, which the API lists, and whatever addresses they
-wrote into their bio — which is where a good many of them put the links that
-matter. The bio is read for full addresses, `www.` ones, a known host with a
-path after it (`linktr.ee/bicep`), and email addresses; a bare word with a dot
-in it is left alone. An address the profile already lists is not listed twice
-for appearing in the bio too.
+on their SoundCloud profile, which the profile page loads, and whatever web
+addresses they wrote into their bio, which is where a good many of them put
+the links that matter. The bio is read for full addresses, `www.` ones, and a
+known host with a path after it (`linktr.ee/bicep`); a bare word with a dot in
+it is left alone, and so are email addresses. An address the profile already
+lists is not listed twice for appearing in the bio too.
 
 Which network a link is on is read off its address rather than trusted from
 SoundCloud's own `network` field, so a link written into a bio is filed exactly
@@ -2633,7 +2500,6 @@ and fetches nothing:
 | PT    | Patreon                              |
 | LT    | Linktree                             |
 | sc    | SoundCloud                           |
-| @     | an email address                     |
 | www   | any other website, named by its host |
 
 The catalogue is `NETWORKS` in `src/tools/artists/profiles.ts`; adding one is
@@ -2641,41 +2507,41 @@ an entry there.
 
 ### How it works, and what it costs SoundCloud
 
-Two requests per artist, and only when somebody presses a button for it: a
-`/resolve` of the profile URL for the user object — id, name, avatar, place,
-follower and track counts, bio — and then `/users/<id>/web-profiles` for the
-links. Both go to the same public API the Manager's lookups use, on the same
-terms: from the SoundCloud page's own origin (the content script makes them,
-`GET_ARTIST_PROFILES`), with the public client id the page was served with,
-anonymously, `GET` only. Four artists are asked about at a time, the
-concurrency the Manager's lookups were measured at; a `429` is backed off and
-retried; a `401` — the page's client id no longer accepted — stops the lot,
-since it says nothing about any one artist. The `/resolve` half is shared with
-the Likes lookup and kept for the life of the page, so a profile asked about
-twice on one page is one request.
+Nothing is asked of SoundCloud. The content script keeps the users the page
+loads, the way it keeps tracks (see the Manager's
+[How it works](#how-it-works-and-what-it-costs-soundcloud)): the short form
+every track object carries of its uploader, and the whole user object a
+profile page loads, which a short one never replaces. The links on a profile
+come with the page's own `/users/<id>/web-profiles` answer. The panel asks
+`GET_ARTIST_PROFILES` for the paths still missing a profile, or its bio and
+links, and the tab answers at once from memory with the ones it has. A
+profile counts as whole only when the page has loaded both the user and its
+links; anything less is kept as partial, and a whole profile always beats a
+partial one when the two meet. The version before this one asked SoundCloud's
+API for two requests per artist; this one makes none.
 
-Nothing is cached in the content script for this. The panel keeps what it is
-told on the entry it asked for, asks only about the artists it has no answer
-for, and a failure to find a profile is remembered on the entry too, so a
-deleted or private account is not asked about on every press — **look up
-again** on the row is what asks about one afresh. Any failed `/resolve` but a
-`401` is remembered the same way, over whatever the entry held. A lookup cut short by the
-popup closing keeps the answers that had arrived, bar the last second's: the
-list is written back once per burst of answers rather than once per answer,
-and the rest say **not looked up** until the button is pressed again.
+Profiles last the browser session. They are somebody else's account (their
+place, their bio, their links), so they live in `chrome.storage.session`
+under `artistProfiles`, by path, and go when the browser closes. The list in
+`chrome.storage.local` and the exported state file carry each artist with
+`profile: null`. A list an older version kept with its profiles in local
+storage has them taken off when this version is installed over it
+(`src/tools/artists/old-profiles.ts`, run by the background worker), so they
+leave the disk without the panel being opened. Reopening the panel on a
+SoundCloud tab fills the profiles in again from what that tab has loaded.
 
-What the panel keeps of a profile is the subset above — the bio cut off at a
+What the panel keeps of a profile is the subset above: the bio cut off at a
 thousand characters, at most twenty links, and only those that are `http(s)`
 addresses.
 
 ### Keeping it above board
 
-- Reads only what a signed-out visitor can see: the public profile and the
-  links the uploader chose to put on it, via the public API the site's own
-  front end uses. No cookies, no session, no auth header.
-- `GET` only, and only on a press. Nothing is prefetched, nothing runs in the
-  background, and nothing about the artists — the list, the answers — leaves
-  the browser.
+- Reads only what SoundCloud's own page loaded to draw itself: the public
+  profile and the links the uploader chose to put on it. No request, no
+  client id, no cookies.
+- Profiles are kept for the browser session and are not exported, and email
+  addresses in a bio are left in the bio, so the list is not a contact list.
+  Nothing about the artists leaves the browser.
 - The bio is read as text and never executed; the addresses found in it are
   opened only when a badge is pressed.
 
@@ -2685,9 +2551,10 @@ addresses.
   uploader is the channel, not the person who made the track, and that is
   whose profile comes back; the tool does not read artists out of titles the
   way the text tool's "pull the artist out" option does.
-- A SoundCloud tab has to be in front for a lookup — any page of it — because
-  the API takes requests from the page's origin and from nowhere else. The
-  list itself is on screen on any tab.
+- Socials are filled in from a SoundCloud tab in front (any page of it), and
+  only for the accounts that tab has loaded: the bio and the links need the
+  artist's own profile page to have been opened in it. The list itself is on
+  screen on any tab.
 - What counts as a link in a bio is a guess at prose: an address with a
   scheme, a `www.`, or a known host with a path. A bare domain with none of
   those is not picked up, and an address a sentence ends with a bracket is
@@ -2761,8 +2628,8 @@ click does not put it away.
 
 In `chrome.storage.session`, key `queue`, an array of entries in the order they
 were queued. Each is the track as the tools that read the queue need it: its
-permalink path, title, artist, artwork URL and the download details that were
-looked up for it (which is how the Downloader finds its gate without a page
+permalink path, title, artist, artwork URL and the download details the page
+had loaded for it (which is how the Downloader finds its gate without a page
 to read).
 
 Session storage is the extension's own, for the length of the browsing session:
@@ -2828,75 +2695,91 @@ How the extension fits together.
 - Overview: [Parts and how they connect](#parts-and-how-they-connect), [Messages between the parts](#messages-between-the-parts), [What the manifest declares](#what-the-manifest-declares), [Building into dist](#building-into-dist), [The three build commands](#the-three-build-commands), [What the popup loads and when](#what-the-popup-loads-and-when), [Declaring a tool in the registry](#declaring-a-tool-in-the-registry), [Opening the popup](#opening-the-popup), [Views and sheets](#views-and-sheets)
 - [Reading pages](docs/diagrams/reading-pages.md): what the panels ask a tab, and playlist to text
 - [The Manager](docs/diagrams/manager.md): adding, filing and acting on rows, filters and search badges
-- [The downloader](docs/diagrams/downloader.md): gate links, row life, walks and gate sites
+- [The downloader](docs/diagrams/downloader.md): gate links, row life, walks, gates done on their own page, and gate sites
 - [Artists, the queue and settings](docs/diagrams/artists-and-queue.md): artist rows, the session queue and the settings sheet
 - [The content script](docs/diagrams/content-script.md): repaints, pills, replaced buttons, walks and the likes list
-- [Lookups](docs/diagrams/lookups.md): runJob, the likes listing, API failures and the details cache
-- [State](docs/diagrams/state.md): every store, marks, export and import
-- [Outside requests](docs/diagrams/outside-requests.md): what each host is asked and what else leaves the browser
+- [What the page has loaded](docs/diagrams/page-data.md): what page-data.ts passes on, the hello handshake, the details and profile answers, and what older versions left
+- [State](docs/diagrams/state.md): every store, what lasts the session or the tab, marks, export and import
+- [Outside requests](docs/diagrams/outside-requests.md): what is read from SoundCloud's page, what each gate host is asked, and what else leaves the browser
 
 ### Parts and how they connect
 
-The four kinds of context the extension runs in, the three stores they share, and what each talks to.
+The five kinds of context the extension runs in, the three stores they share, and what each talks to.
 
 ```mermaid
 flowchart TD
   Popup["Popup<br/>menu, tool panels, sheets"]
+  PageData["page-data.js<br/>the page's own world, every frame"]
   Content["Content script<br/>every frame of soundcloud.com"]
+  GatePage["Gate page script<br/>droploud.com, pumpyoursound.com, laylo.com"]
   Worker["Background worker"]
   Offscreen["Offscreen page"]
   Local[("chrome.storage.local")]
   Session[("chrome.storage.session")]
   Web[("localStorage<br/>extension origin")]
-  SoundCloud["SoundCloud public API"]
-  Gates["Gate sites"]
+  SoundCloud["SoundCloud's web app<br/>its own API requests"]
+  Gates["Hypeddit"]
   Downloads["chrome.downloads"]
 
   Popup -->|"asks the active tab"| Content
   Content -->|"Download button on a gate"| Worker
-  Worker -->|"opens, sends the walk"| Offscreen
+  Popup -->|"page gates to open"| Worker
+  GatePage <-->|"what to help with, what was done"| Worker
+  Worker -->|"opens, sends the walk, reads settings"| Offscreen
   Popup <--> Local
   Popup <--> Session
   Popup <--> Web
   Content <--> Local
   Content <--> Session
+  GatePage -->|"marks a saved file's track"| Local
+  Worker <--> Session
   Offscreen -->|"reads email, name, mark"| Web
-  Content -->|"GET, anonymous"| SoundCloud
+  PageData -.->|"listens to the answers"| SoundCloud
+  PageData -->|"tbx:page-data events"| Content
   Popup -->|"walks gates"| Gates
   Offscreen -->|"walks gates"| Gates
   Popup -->|"saves files"| Downloads
-  Worker -->|"saves files"| Downloads
+  Worker -->|"saves files, files a page gate's"| Downloads
 ```
 
-Source: [`src/manifest.json`](src/manifest.json), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`content.ts`](content.ts)
+Source: [`src/manifest.json`](src/manifest.json), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`content.ts`](content.ts), [`page-data.ts`](page-data.ts), [`gate-page.ts`](gate-page.ts), [`src/tools/third-party-downloads/on-page.ts`](src/tools/third-party-downloads/on-page.ts)
 
 ### Messages between the parts
 
-Every message type the parts send each other. Only the top frame's content script answers the panels.
+Every message type the parts send each other. Only the top frame's content script answers the panels, and it answers each at once from what the tab holds.
 
 ```mermaid
 sequenceDiagram
+  participant D as page-data.js
   participant P as Popup
   participant C as Content script
   participant W as Background worker
   participant O as Offscreen page
+  participant G as Gate page script
+  C->>D: tbx:page-data-hello
+  D--)C: tbx:page-data, held answers then each as it lands
   P->>C: EXTRACT_TRACKS
   C-->>P: the tracks the page renders
   P->>C: GET_DOWNLOAD_DETAILS
-  C--)P: DOWNLOAD_DETAILS_PROGRESS, many
-  C-->>P: tracks with details
+  C-->>P: tracks with what the page loaded
   P->>C: GET_ARTIST_PROFILES
-  C--)P: ARTIST_PROFILES_PROGRESS, many
-  C-->>P: profiles, failed, error
+  C-->>P: the profiles the page loaded
   C->>W: SAVE_GATE
   W->>O: WALK_GATE
   O->>W: ROUND_TRIP, a sign-in tab
   W-->>O: whether the tab came back
   O-->>W: file to save, or where to open
   W-->>C: saved, mark
+  P->>W: OPEN_GATES
+  G->>W: GATE_PAGE_HELLO
+  W->>O: READ_PREFS
+  O-->>W: email, mark
+  W-->>G: what to help with, or nothing
+  W->>G: GATE_PAGE_SAVED
+  G->>W: GATE_PAGE_SIGNED_UP, GATE_PAGE_NEXT, GATE_PAGE_STOP
 ```
 
-Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`content.ts`](content.ts), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts)
+Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`content.ts`](content.ts), [`page-data.ts`](page-data.ts), [`gate-page.ts`](gate-page.ts), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte)
 
 ### What the manifest declares
 
@@ -2909,9 +2792,11 @@ flowchart LR
   Manifest --> Clip["clipboardWrite<br/>the Copy buttons"]
   Manifest --> Store["storage<br/>chrome.storage areas"]
   Manifest --> Dl["downloads<br/>saving what a walk unlocks"]
-  Manifest --> Off["offscreen<br/>the page a walk runs in"]
-  Manifest --> Hosts["host_permissions<br/>the gate sites' hosts only"]
+  Manifest --> Off["offscreen<br/>the page a walk runs in, and settings are read in"]
+  Manifest --> Hosts["host_permissions<br/>hypeddit.com, the one site walked"]
+  Manifest --> Pd["content_scripts<br/>soundcloud.com, all frames, main world,<br/>document_start: page-data.js"]
   Manifest --> Cs["content_scripts<br/>soundcloud.com, all frames,<br/>downloaded-store.js then content.js,<br/>content.css"]
+  Manifest --> Gp["content_scripts<br/>droploud.com, pumpyoursound.com, laylo.com,<br/>downloaded-store.js then gate-page.js"]
   Manifest --> Bg["background<br/>background.js, a module worker"]
   Manifest --> Act["action<br/>popup.html"]
 ```
@@ -2925,14 +2810,14 @@ Source: [`src/manifest.json`](src/manifest.json)
 ```mermaid
 flowchart TD
   Pages["src/popup.html, src/offscreen.html,<br/>src/background.ts"]
-  Classic["content.ts, downloaded-store.ts,<br/>state-transfer.ts"]
+  Classic["content.ts, page-data.ts, gate-page.ts,<br/>downloaded-store.ts, state-transfer.ts,<br/>theme-prepaint.ts"]
   Static["src/manifest.json,<br/>content.css, icons"]
   Vite["vite build<br/>Svelte, Tailwind"]
   Blank["ts-blank-space<br/>types become spaces"]
   Copy["copied as they are"]
   Mjs["assets/: the page entries, core, ui, shared,<br/>panel-shell, a chunk per Panel and sheet,<br/>CSS and fonts"]
-  Html["popup.html with the store's script tag,<br/>offscreen.html, background.js"]
-  Js["content.js, downloaded-store.js,<br/>state-transfer.js<br/>same lines and columns as the source"]
+  Html["popup.html with the theme's and the store's<br/>script tags, offscreen.html, background.js"]
+  Js["content.js, page-data.js, gate-page.js,<br/>downloaded-store.js, state-transfer.js,<br/>theme-prepaint.js<br/>same lines and columns as the source"]
   Dist["dist/, loaded unpacked in Chrome"]
 
   Pages --> Vite
@@ -2947,7 +2832,7 @@ flowchart TD
   Copy --> Dist
 ```
 
-Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css)
+Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css), [`theme-prepaint.ts`](theme-prepaint.ts)
 
 ### The three build commands
 
@@ -2977,6 +2862,7 @@ The shell boots on its own. Everything heavy is a chunk fetched at most once per
 ```mermaid
 flowchart TD
   Html["popup.html"]
+  Theme["theme-prepaint.js<br/>classic script, the light class"]
   Store["downloaded-store.js<br/>classic script, TbxDownloaded"]
   Shell["The shell<br/>main.ts, App.svelte, the registry, the stores"]
   Panel["The tool's Panel chunk"]
@@ -2984,6 +2870,7 @@ flowchart TD
   SettingsSheet["SettingsSheet chunk"]
   Transfer["state-transfer.js<br/>classic script, TbxState"]
 
+  Html --> Theme
   Html --> Store
   Html --> Shell
   Shell -->|"a tool opens, or was left open"| Panel
@@ -2992,7 +2879,7 @@ flowchart TD
   SettingsSheet -->|"loaded beside it"| Transfer
 ```
 
-Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts)
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts), [`theme-prepaint.ts`](theme-prepaint.ts), [`vite.config.ts`](vite.config.ts)
 
 ### Declaring a tool in the registry
 
@@ -3067,6 +2954,9 @@ stateDiagram-v2
   state "Tool menu" as Menu
   state "Ghost of the panel" as Ghost
   state "Tool panel" as Panel
+  state "Before you start notice, in the menu" as Notice
+  [*] --> Notice: nothing left open, pref:notice-seen unset
+  Notice --> Menu: continue
   [*] --> Menu: nothing left open
   [*] --> Ghost: view:open names a tool
   Ghost --> Menu: session says a new browsing session
@@ -3078,7 +2968,7 @@ stateDiagram-v2
   Panel --> Menu: back arrow
 ```
 
-Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/App.svelte`](src/App.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)
+Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/App.svelte`](src/App.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte), [`src/lib/components/ToolMenu.svelte`](src/lib/components/ToolMenu.svelte), [`src/lib/components/FirstRun.svelte`](src/lib/components/FirstRun.svelte)
 
 The sheet over it. `view.svelte.ts` keeps it to one at a time, and a sheet left open comes back with the session.
 
@@ -3092,7 +2982,7 @@ stateDiagram-v2
   [*] --> Settings: left open this session
   None --> Queue: queue button
   None --> Settings: settings button, Manager footer
-  None --> Settings: add email or add name
+  None --> Settings: add email
   Queue --> None: close, or send to a tool
   Settings --> None: close
 ```

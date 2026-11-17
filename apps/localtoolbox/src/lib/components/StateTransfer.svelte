@@ -1,11 +1,10 @@
 <!--
-  Your data: the marks, the lists, the queue and three panel options, out to a
-  JSON file and back.
+  Your data: the marks, the lists, the queue, the search sites added in
+  settings and three panel options, out to a JSON file and back.
 
   What the file carries is not one tool's: the marks are painted on the
-  SoundCloud page, the looked-up details are the content script's cache, the
-  session queue is behind the count in every header, and the options belong to
-  three panels. A backup of all that is about the extension, which is what
+  SoundCloud page, the session queue is behind the count in every header, and
+  the options belong to three panels. A backup of all that is about the extension, which is what
   this sheet is for, and here it can be taken from any view rather than only
   from one tool.
 
@@ -13,8 +12,8 @@
   nothing about what would come out of it. A row of numbers says how much
   there is to lose.
 
-  Importing adds by default, and every part of it does: marks merge, the
-  newer lookups win, listed and queued tracks go on the end without landing
+  Importing adds by default, and every part of it does: marks merge, listed
+  and queued tracks and added search sites go on the end without landing
   twice, and an option you have already chosen is left alone. Replacing is a
   switch you have to find and turn on, and then it is the exact opposite in
   every one of those parts. See `apply` in state-transfer.ts, which does the
@@ -33,11 +32,11 @@
   import { Switch } from '$lib/components/ui/switch/index.ts';
   import { Textarea } from '$lib/components/ui/textarea/index.ts';
   import { downloadText } from '$lib/clipboard.ts';
-  import { details } from '$lib/details.svelte.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { transfer } from '$lib/globals.ts';
   import { reloadPrefs } from '$lib/prefs.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
+  import { searchSites } from '$lib/search-sites.svelte.ts';
   import { count } from '$lib/soundcloud.ts';
   import { remembered } from '$lib/view.svelte.ts';
   // The two things here that belong to a tool rather than to the extension.
@@ -47,12 +46,10 @@
   import { listed } from '../../tools/manager/listed.svelte.ts';
   import { artists } from '../../tools/artists/artists.svelte.ts';
 
-  // All three are read once here and followed after, so the numbers below are
-  // live: a lookup made in a SoundCloud tab, or an import run in another
-  // window, moves them without this sheet being reopened. None is awaited:
-  // the strip shows zeroes for the turn it takes them to land.
-  details.start();
-
+  // Both are read once here and followed after, so the numbers below are
+  // live: an import run in another window moves them without this sheet being
+  // reopened. Neither is awaited: the strip shows zeroes for the turn it takes
+  // them to land.
   listed.start();
 
   artists.start();
@@ -69,7 +66,7 @@
 
   // What has been pasted in is *not* kept, unlike every other text box in the
   // extension: what goes in here is a whole state file, which can be megabytes
-  // of marks and looked-up details, and it is emptied the moment it is read.
+  // of marks and lists, and it is emptied the moment it is read.
   let pasted = $state('');
 
   // Nor is the replace switch. It comes back off every time the popup does,
@@ -100,7 +97,6 @@
 
   const HELD = [
     { label: 'marks', of: () => downloaded.count },
-    { label: 'looked up', of: () => details.count },
     { label: 'listed', of: () => listed.count },
     { label: 'artists', of: () => artists.count },
     { label: 'queued', of: () => queue.count },
@@ -139,13 +135,13 @@
 
     if (holds.marks > 0) parts.push(count(holds.marks, 'mark'));
 
-    if (holds.details > 0) parts.push(count(holds.details, 'looked-up track'));
-
     if (holds.listed > 0) parts.push(`${count(holds.listed, 'track')} listed`);
 
     if (holds.artists > 0) parts.push(count(holds.artists, 'artist'));
 
     if (holds.queue > 0) parts.push(count(holds.queue, 'queued track'));
+
+    if (holds.searchSites > 0) parts.push(count(holds.searchSites, 'search site'));
 
     if (holds.prefs > 0) parts.push(count(holds.prefs, 'option'));
 
@@ -160,7 +156,12 @@
       // storage, so a queue the store could only keep in memory (the header is
       // counting it either way) is in the file too. Plain entries: what goes
       // into the file cannot be a `$state` proxy.
-      const snapshot = await transfer().snapshot(queue.entries, listed.entries, artists.entries);
+      const snapshot = await transfer().snapshot(
+        queue.entries,
+        listed.entries,
+        artists.entries,
+        searchSites.entries
+      );
 
       const name = downloadText(
         transfer().serialize(snapshot),
@@ -224,22 +225,24 @@
     const queued = replace ? await queue.replace(doc.queue) : await queue.add(doc.queue);
     const put = replace ? await listed.replace(doc.listed) : await listed.add(doc.listed);
     const who = replace ? await artists.replace(doc.artists) : await artists.add(doc.artists);
+    const sites = replace ? searchSites.replace(doc.searchSites) : searchSites.add(doc.searchSites);
 
     const parts = replace
       ? [
           count(result.marks, 'mark'),
-          `${count(result.details, 'track')} of download details`,
           `${count(put.added, 'track')} listed`,
           count(who.added, 'artist'),
           `${count(queued, 'track')} queued`,
         ]
-      : [count(result.marks, 'new mark'), `${count(result.details, 'track')} of download details`];
+      : [count(result.marks, 'new mark')];
 
     if (!replace && put.added > 0) parts.push(`${count(put.added, 'track')} onto the list`);
 
     if (!replace && who.added > 0) parts.push(`${count(who.added, 'artist')} onto the artists`);
 
     if (!replace && queued > 0) parts.push(`${count(queued, 'track')} into the queue`);
+
+    if (sites > 0) parts.push(count(sites, 'search site'));
 
     if (result.prefs > 0) parts.push(count(result.prefs, 'option'));
 
@@ -263,7 +266,7 @@
   <div>
     <h3 class="section-title m-0">your data</h3>
     <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
-      your marks, lists, queue and a few options, out to one file and back.
+      your marks, lists, queue, search sites and a few options, out to one file and back.
     </p>
   </div>
 

@@ -12,9 +12,9 @@
 //! partway leaves a session YouTube drops on its own, and publishing again starts afresh.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError};
+use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError, pause};
 use loclib_progress::{Ctx, Phase};
 use serde::Deserialize;
 use serde_json::Value;
@@ -40,9 +40,6 @@ pub(crate) const TRIES: u32 = 4;
 /// The wait after the first failure, doubling for each after. In this crate's tests it's a
 /// thousandth of a second, so they wait out every try without spending seconds on it.
 const FIRST_WAIT: Duration = if cfg!(test) { Duration::from_millis(1) } else { Duration::from_secs(1) };
-
-/// How often a wait notices the hook being cancelled.
-const CHECK_EVERY: Duration = Duration::from_millis(50);
 
 /// What YouTube answers the last chunk with, as far as it's read.
 #[derive(Deserialize)]
@@ -241,17 +238,4 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
     let verb = if kind == "external" && status >= 500 { "failed" } else { "refused" };
     let why = if why.is_empty() { String::new() } else { format!(": {why}") };
     RpcError::failed(kind, format!("YouTube {verb} {what} ({words}){why}"))
-}
-
-/// Waits `wait`, failing with `cancelled` once `ctx` is.
-fn pause(ctx: &Ctx<'_>, wait: Duration) -> Result<(), RpcError> {
-    let until = Instant::now() + wait;
-    loop {
-        ctx.check()?;
-        let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(());
-        }
-        std::thread::sleep(left.min(CHECK_EVERY));
-    }
 }

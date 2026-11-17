@@ -1,13 +1,12 @@
 // Import and export of what the extension holds that would hurt to lose, as
 // one JSON file: the Manager's own list of tracks, the ones marked as
-// downloaded, the cached download details, the artists tool's list, the
-// session queue and the three panel options in PREFS below.
+// downloaded, the artists tool's list, the session queue, the search sites
+// added in settings and the three panel options in PREFS below.
 //
-// Why it exists: the list, the marks and the details cache live in the
-// extension's own storage, which goes away with the extension. Reinstalling it
-// (or moving to another browser profile) otherwise means losing a list built
-// over months, every mark on it, and paying for every API lookup again. The
-// queue goes sooner than any of them (it is a working list, and closing the
+// Why it exists: the lists and the marks live in the extension's own storage,
+// which goes away with the extension. Reinstalling it (or moving to another
+// browser profile) otherwise means losing a list built over months and every
+// mark on it. The queue goes sooner than any of them (it is a working list, and closing the
 // browser is enough to end it), so a file is also the only way a batch picked
 // out but not yet worked through outlives the day it was picked. Exporting
 // writes a file; importing merges it back.
@@ -46,6 +45,8 @@ const TbxState = (() => {
 
 	type ArtistEntry = Tbx.ArtistEntry;
 
+	type SearchSiteEntry = Tbx.SearchSiteEntry;
+
 	type LocalArea = Tbx.LocalArea;
 
 	type Json = Tbx.Json;
@@ -79,16 +80,11 @@ const TbxState = (() => {
 	// What the tool was called before, and so what every file exported before
 	// the rename says it is. Only the format's name changed, so such a file is
 	// read exactly as a current one is, and rewritten under the current name
-	// the next time one is exported. Refusing it would lose the marks, the
-	// cached lookups and the half-worked batch it was written to keep.
+	// the next time one is exported. Refusing it would lose the marks and the
+	// half-worked batch it was written to keep.
 	const READS: StateFile['format'][] = [FORMAT, 'toolbox.soundcloud-downloads.state'];
 
 	const VERSION = 1 as const;
-
-	// The details cache belongs to the content script (content.ts, DETAILS_KEY);
-	// this is the same key, read and written here so a restored file brings the
-	// lookups back. test/consistency.test.ts checks the two agree.
-	const DETAILS_KEY = 'details' as const;
 
 	// The Manager's own list of tracks, which belongs to the popup's listed
 	// store (src/tools/manager/listed.svelte.ts, LISTED_KEY). Named here only so
@@ -460,6 +456,51 @@ const TbxState = (() => {
 		});
 	};
 
+	// The words a search site cannot go without: anything but blank.
+	const isWords = (value: Json): value is string => isString(value) && /\S/.test(value);
+
+	// The schema's `colour`, which lands in a style attribute.
+	const isColour = (value: Json) => isString(value) && /^#[0-9a-fA-F]{3,8}$/.test(value);
+
+	// A search address a badge can use (src/lib/search-sites.ts, readTemplate):
+	// https, with at least one variable in it and no word in braces that is not
+	// one. The schema says it with the same three expressions.
+	const isTemplate = (value: Json) =>
+		isString(value) &&
+		value.startsWith('https://') &&
+		/\{(?:artist|title|query)\}/.test(value) &&
+		!/\{(?!(?:artist|title|query)\})\w+\}/.test(value);
+
+	// The schema's `searchSites`: the sites somebody added in settings, each one
+	// a `site` of src/lib/search-sites.schema.json, the shipped list's own shape.
+	const checkSearchSites = (list: Json) => {
+		if (!Array.isArray(list)) fail('“searchSites” must be an array');
+		list.forEach((entry, index) => {
+			const where = `search site #${index + 1}`;
+
+			if (!isObject(entry)) fail(`${where}: must be an object`);
+			checkMembers(entry, where, {
+				id: { required: true, check: isWords, expected: 'some text' },
+				name: { required: true, check: isWords, expected: 'some text' },
+				// Counted as the schema's maxLength counts, in characters rather than
+				// UTF-16 units (the `u`), so an emoji badge is one.
+				badge: {
+					required: true,
+					check: (v) => isWords(v) && /^.{1,3}$/su.test(v),
+					expected: 'one to three characters'
+				},
+				url: {
+					required: true,
+					check: isTemplate,
+					expected: 'an https address with {artist}, {title} or {query} in it'
+				},
+				background: { check: isColour, expected: 'a hex colour' },
+				color: { check: isColour, expected: 'a hex colour' },
+				on: { check: isBoolean, expected: 'true or false' }
+			});
+		});
+	};
+
 	// The schema's `downloaded` map.
 	const checkDownloaded = (downloaded: Json) => {
 		if (!isObject(downloaded)) fail('“downloaded” must be an object');
@@ -509,9 +550,18 @@ const TbxState = (() => {
 
 		for (const name of Object.keys(doc)) {
 			if (
-				!['format', 'version', 'exportedAt', 'downloaded', 'details', 'listed', 'artists', 'queue', 'prefs'].includes(
-					name
-				)
+				![
+					'format',
+					'version',
+					'exportedAt',
+					'downloaded',
+					'details',
+					'listed',
+					'artists',
+					'queue',
+					'prefs',
+					'searchSites'
+				].includes(name)
 			) {
 				fail(`“${name}” is not part of this format`);
 			}
@@ -536,12 +586,15 @@ const TbxState = (() => {
 		if ('queue' in doc) checkQueue(doc.queue);
 
 		if ('prefs' in doc) checkPrefs(doc.prefs);
+
+		// The newest member, absent from every file before sites could be added.
+		if ('searchSites' in doc) checkSearchSites(doc.searchSites);
 	};
 
 	// --- parsing ---------------------------------------------------------------
 
 	// Reads exported JSON, refusing anything the schema would refuse. Returns
-	// the document with its six collections filled in, so callers never
+	// the document with its seven collections filled in, so callers never
 	// have to check for them. Throws StateError with a message naming what is
 	// wrong; nothing is written before this has passed.
 	const parse = (text: string): ParsedState => {
@@ -558,11 +611,11 @@ const TbxState = (() => {
 		return {
 			...doc,
 			downloaded: doc.downloaded || {},
-			details: doc.details || {},
 			listed: doc.listed || [],
 			artists: doc.artists || [],
 			queue: doc.queue || [],
-			prefs: doc.prefs || {}
+			prefs: doc.prefs || {},
+			searchSites: doc.searchSites || []
 		};
 	};
 
@@ -589,8 +642,8 @@ const TbxState = (() => {
 
 	// Everything worth keeping, as the object that gets written to the file.
 	//
-	// The queue and the two lists are handed in rather than read out of
-	// storage, because the stores that own them do not always get to write them
+	// The queue, the two lists and the added search sites are handed in rather
+	// than read out of storage, because the stores that own them do not always get to write them
 	// there: when storage cannot be reached each is held in memory and shown on
 	// screen all the same (queue.svelte.ts, listed.svelte.ts,
 	// artists.svelte.ts), and a file written from storage would then carry
@@ -598,23 +651,28 @@ const TbxState = (() => {
 	// data (the stores' `entries`, not the panel's `$state`), since they go
 	// straight into the file. A caller with none to give still gets a valid
 	// document, which is the same bargain the options make.
+	//
+	// The artists go without their profiles: what a SoundCloud page loaded
+	// about somebody else's account is kept for the browser session and no
+	// longer (artists.svelte.ts), and a file would keep it for good.
 	const snapshot = async (
 		queue: QueueEntry[] = [],
 		listed: ListedEntry[] = [],
-		artists: ArtistEntry[] = []
-	): Promise<Required<StateFile>> => {
-		const stored: Stored = await chrome.storage.local.get([TbxDownloaded.KEY, DETAILS_KEY]);
+		artists: ArtistEntry[] = [],
+		searchSites: SearchSiteEntry[] = []
+	): Promise<Required<Omit<StateFile, 'details'>>> => {
+		const stored: Stored = await chrome.storage.local.get(TbxDownloaded.KEY);
 
 		return {
 			format: FORMAT,
 			version: VERSION,
 			exportedAt: new Date().toISOString(),
 			downloaded: stored[TbxDownloaded.KEY] || {},
-			details: stored[DETAILS_KEY] || {},
 			listed,
-			artists,
+			artists: artists.map((artist) => ({ ...artist, profile: null })),
 			queue,
-			prefs: readPrefs()
+			prefs: readPrefs(),
+			searchSites
 		};
 	};
 
@@ -628,11 +686,11 @@ const TbxState = (() => {
 	// document `parse` answers with, so every member is there to count.
 	const summary = (doc: ParsedState) => ({
 		marks: Object.keys(doc.downloaded).length,
-		details: Object.keys(doc.details).length,
 		listed: doc.listed.length,
 		artists: doc.artists.length,
 		queue: doc.queue.length,
 		prefs: Object.keys(doc.prefs).length,
+		searchSites: doc.searchSites.length,
 		exportedAt: doc.exportedAt ?? ''
 	});
 
@@ -642,53 +700,31 @@ const TbxState = (() => {
 	//
 	// Adding, which is what happens unless somebody asks for the other, never
 	// removes anything: marks are added (the store keeps the earlier time for
-	// one already there), details are taken only where they are newer than what
-	// is known (the same rule the content script applies to another tab's
-	// lookups), and an option the file carries is set only where nothing is set
-	// already. That last one follows the same rule: an option somebody has
-	// chosen here is a thing they have, and an import that is adding to what
-	// they have does not overwrite it.
+	// one already there), and an option the file carries is set only where
+	// nothing is set already. That last one follows the same rule: an option
+	// somebody has chosen here is a thing they have, and an import that is
+	// adding to what they have does not overwrite it.
 	//
 	// Replacing is the opt-in, and it is the exact opposite in every part: the
-	// marks become the file's marks, the details cache becomes the file's cache,
-	// and every option goes to what the file says or, where the file says
-	// nothing, back to its default. What was here and is not in the file is
-	// gone. Nobody gets there without turning a switch on first.
+	// marks become the file's marks, and every option goes to what the file
+	// says or, where the file says nothing, back to its default. What was here
+	// and is not in the file is gone. Nobody gets there without turning a
+	// switch on first.
 	//
-	// Either way, neither the file's queue nor its lists are written here, for
-	// the same reason the marks are not: the store that owns a thing does the
-	// writing. The sheet hands `doc.queue`, `doc.listed` and `doc.artists` to
-	// those stores' own `add` (or `replace`), and folds the counts it gets back
-	// into the same report.
+	// A file from an older version may carry `details`, the download details
+	// it kept for a month. They are read (the schema still describes them) and
+	// left out: details now last as long as the tab that loaded them
+	// (content.ts).
+	//
+	// Either way, neither the file's queue nor its lists nor its search sites
+	// are written here, for the same reason the marks are not: the store that
+	// owns a thing does the writing. The sheet hands `doc.queue`, `doc.listed`,
+	// `doc.artists` and `doc.searchSites` to those stores' own `add` (or
+	// `replace`), and folds the counts it gets back into the same report.
 	//
 	// Returns what changed, for the sheet to report.
 	const apply = async (doc: ParsedState, { replace = false }: { replace?: boolean } = {}) => {
 		const marks = replace ? await TbxDownloaded.replaceAll(doc.downloaded) : await TbxDownloaded.merge(doc.downloaded);
-
-		let details = 0;
-
-		if (replace) {
-			details = Object.keys(doc.details).length;
-			await chrome.storage.local.set({ [DETAILS_KEY]: doc.details });
-		} else {
-			const entries = Object.entries(doc.details);
-
-			// Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent. With no entries the loop below counts none and nothing is written; the check only saves a storage read.
-			if (entries.length > 0) {
-				const held: Stored = await chrome.storage.local.get(DETAILS_KEY);
-				const stored = held[DETAILS_KEY] || {};
-
-				for (const [permalink, entry] of entries) {
-					const known = stored[permalink];
-
-					if (known && known.at >= entry.at) continue;
-					stored[permalink] = entry;
-					details++;
-				}
-
-				if (details > 0) await chrome.storage.local.set({ [DETAILS_KEY]: stored });
-			}
-		}
 
 		let prefs = 0;
 
@@ -717,14 +753,13 @@ const TbxState = (() => {
 			// Storage unavailable: the options stay as they are.
 		}
 
-		return { marks, details, prefs };
+		return { marks, prefs };
 	};
 
 	return {
 		FORMAT,
 		READS,
 		VERSION,
-		DETAILS_KEY,
 		LISTED_KEY,
 		ARTISTS_KEY,
 		PREFS,

@@ -130,7 +130,9 @@ fn roles_are_set_and_cleared_and_unknown_ones_refused() {
     assert!(err.to_string().contains("unknown role"), "{err}");
     assert!(f.store.drives().unwrap().is_empty(), "nothing is registered");
 
-    assert_eq!(set(Some("gig")).unwrap().role, Some(Role::Set), "the old name still works");
+    assert!(set(Some("gig")).is_err(), "a development build's name for set is no role");
+    assert!(f.store.drives().unwrap().is_empty(), "nothing is registered");
+    assert_eq!(set(Some("set")).unwrap().role, Some(Role::Set));
     assert_eq!(f.store.drives().unwrap().values().next().unwrap().role, Some(Role::Set));
     assert_eq!(set(None).unwrap().role, None);
     let shown = api::drive_to_change(&f.store, &drive("Stick")).unwrap();

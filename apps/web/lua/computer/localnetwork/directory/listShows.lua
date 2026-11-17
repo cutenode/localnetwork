@@ -7,7 +7,9 @@ function handle()
 	local where, args = { UPCOMING }, {}
 	local function filter(clause, values)
 		where[#where + 1] = ' AND ' .. clause
-		for _, value in ipairs(values) do args[#args + 1] = value end
+		for _, value in ipairs(values) do
+			args[#args + 1] = value
+		end
 	end
 
 	local project = text(params.project)
@@ -55,6 +57,8 @@ function handle()
 
 	local first = paged and 0 or offset
 	local page = {}
-	for i = first + 1, math.min(#items, first + limit) do page[#page + 1] = showView(items[i].row, items[i].km) end
+	for i = first + 1, math.min(#items, first + limit) do
+		page[#page + 1] = showView(items[i].row, items[i].km)
+	end
 	return { shows = toarray(page), cursor = first + limit < #items and tostring(offset + limit) or nil }
 end

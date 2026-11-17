@@ -6,8 +6,10 @@
 //! ISRC names its title and artist, and a release group looked up on its own its genres and the
 //! date it first came out.
 
+use std::time::{Duration, SystemTime};
+
 use loclib_model::model::normalize;
-use loclib_plugin::{Fetch, Host, RpcError};
+use loclib_plugin::{Fetch, Host, RpcError, pause};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -102,7 +104,8 @@ pub(crate) enum Found {
     /// The release groups of releases named as the album is, as MusicBrainz lists them (none, or
     /// several), and whether they were found by an ISRC.
     Groups { groups: Vec<Group>, by_isrc: bool },
-    /// MusicBrainz didn't answer the search (`503`, each time: it's busy).
+    /// MusicBrainz didn't answer the search (`503`, each time or asking too long a wait: it's
+    /// busy).
     Refused(u16),
 }
 
@@ -186,6 +189,14 @@ fn year(date: &str) -> Option<u16> {
 /// requests come at once (from everyone, at busy times), each waiting its turn at the host.
 const TRIES: usize = 3;
 
+/// The longest `Retry-After` waited for, in seconds: a longer one is a refusal, to be tried
+/// another time.
+pub(crate) const LONGEST_WAIT: u64 = 30;
+
+/// A second of `Retry-After`. In this crate's tests it's a hundredth of one, so they wait out
+/// MusicBrainz's waits, in proportion, without spending seconds on each.
+pub(crate) const SECOND: Duration = if cfg!(test) { Duration::from_millis(10) } else { Duration::from_secs(1) };
+
 /// Searches MusicBrainz for `entity` (`release`, `recording`) with the Lucene `query`: the answer,
 /// or the status it was refused with.
 fn search<T: DeserializeOwned>(host: &Host, entity: &str, query: &str) -> Result<Result<T, u16>, RpcError> {
@@ -195,7 +206,8 @@ fn search<T: DeserializeOwned>(host: &Host, entity: &str, query: &str) -> Result
 }
 
 /// Asks MusicBrainz's API for `path` (`release/?query=...`): its answer, a `what` (`asked`, as
-/// the log says), or the status it was refused with.
+/// the log says), or the status it was refused with. A `503` is asked again once its
+/// `Retry-After` has passed, a few times.
 fn get<T: DeserializeOwned>(host: &Host, path: &str, asked: &str, what: &str) -> Result<Result<T, u16>, RpcError> {
     let fetch = Fetch::get(format!("{MUSICBRAINZ}/ws/2/{path}"));
     let mut tries = 1;
@@ -205,8 +217,13 @@ fn get<T: DeserializeOwned>(host: &Host, path: &str, asked: &str, what: &str) ->
             _ => RpcError { message: format!("couldn't reach MusicBrainz: {}", e.message), ..e },
         })?;
         eprintln!("coverart: MusicBrainz {asked}: {}", fetched.status);
+        // None, or one past, is no wait past the host's turns.
+        let wait = fetched.retry_after(SystemTime::now()).unwrap_or(0);
         match fetched.status {
-            503 if tries < TRIES => tries += 1,
+            503 if tries < TRIES && wait <= LONGEST_WAIT => {
+                pause(&host.ctx(), SECOND * wait as u32)?;
+                tries += 1;
+            }
             200 => {
                 let answer = serde_json::from_str(fetched.body.as_deref().unwrap_or_default()).map_err(|e| {
                     RpcError::failed("external", format!("MusicBrainz answered what isn't a {what}: {e}"))

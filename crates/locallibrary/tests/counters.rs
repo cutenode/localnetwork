@@ -63,14 +63,19 @@ fn count<T>(counts: &mut IndexMap<String, u64>, name: &str, f: impl FnOnce() -> 
 fn everyday_operations_allocate_what_their_budgets_say() {
     // The same pool whatever the machine: how work is split decides some of what it allocates.
     rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
+    // No disk tools: `check` would ask the system about the drives' disk, and on Linux `lsblk`
+    // answers with every disk the machine has, which isn't the same on every runner.
+    locallibrary::testing::volumes_on_this_thread(Some(Vec::new()));
     let bytes = build_pdb(0, 2_000);
     let path = Path::new("export.pdb");
     let lib = library(&bytes);
     let other = library(&build_pdb(200, 2_000));
     // In the temporary folder, not the target folder: a path's length is part of what's counted,
-    // and CI's target folder isn't where anyone else's is.
-    let dir = std::env::temp_dir().join("locallibrary-counters");
-    let (a, b) = (drive_in(&dir, "A", 0, 500), drive_in(&dir, "B", 50, 500));
+    // and CI's target folder isn't where anyone else's is. A folder of this run's own, so runs at
+    // once don't build and read the same drives, with a name as long as every run's.
+    let dir = tempfile::Builder::new().prefix("counters-").rand_bytes(12).tempdir().unwrap();
+    assert_eq!(dir.path().file_name().unwrap().len(), 21, "the length the budgets were measured with");
+    let (a, b) = (drive_in(dir.path(), "A", 0, 500), drive_in(dir.path(), "B", 50, 500));
     let ctx = Ctx::silent();
     // Once uncounted: the first scan of a new drive hashes what later ones find in its hash cache.
     sync::plan_drive_to_drive(&a, &b, &SyncOptions::default(), &ctx).unwrap();

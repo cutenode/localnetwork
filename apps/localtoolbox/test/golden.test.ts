@@ -95,6 +95,9 @@ describe('the exported state file', () => {
 	// works out for itself (what it is, when it was written, and the panels'
 	// options read out of localStorage's strings) stated rather than recorded.
 	it('carries what it was given, works out the rest, and reads back the same', async () => {
+		// The marks, and the details cache an older version kept, which may still
+		// be there on the day this one is installed over it. The file leaves it
+		// out: details last as long as the tab that loaded them now.
 		const storage = {
 			downloaded: {
 				'/bicep/glue': '2026-01-02T03:04:05.678Z',
@@ -207,9 +210,11 @@ describe('the exported state file', () => {
 			}
 		];
 
-		// The artists tool's list, handed in the same way: one artist SoundCloud
-		// described, links and all, one it had no profile for, and one nobody has
-		// asked about yet.
+		// The artists tool's list, handed in the same way: one artist a SoundCloud
+		// tab described, links and all, one an older version found no profile
+		// for, and one no tab has loaded yet. The file carries all three with no
+		// profile: those are somebody else's account, kept for the browser
+		// session only (src/tools/artists/artists.svelte.ts).
 		const artists: ArtistEntry[] = [
 			{
 				permalink: '/bicep',
@@ -254,7 +259,19 @@ describe('the exported state file', () => {
 			}
 		];
 
-		const file = TbxState.serialize(await TbxState.snapshot(queue, listed, artists));
+		// A search site added in settings, with an accent in its name.
+		const searchSites = [
+			{
+				id: 'juno',
+				name: 'Juno Récords',
+				badge: 'J',
+				url: 'https://www.juno.co.uk/search/?q={query}',
+				background: '#f26522',
+				color: '#ffffff'
+			}
+		];
+
+		const file = TbxState.serialize(await TbxState.snapshot(queue, listed, artists, searchSites));
 		const doc = JSON.parse(file);
 		// The order the schema declares them in, which is the order two exports
 		// are compared by when somebody diffs them.
@@ -263,11 +280,11 @@ describe('the exported state file', () => {
 			'version',
 			'exportedAt',
 			'downloaded',
-			'details',
 			'listed',
 			'artists',
 			'queue',
-			'prefs'
+			'prefs',
+			'searchSites'
 		]);
 		expect(doc).toEqual({
 			format: 'toolbox.manager.state',
@@ -275,12 +292,12 @@ describe('the exported state file', () => {
 			// The clock test/setup.ts freezes every test at.
 			exportedAt: '2026-09-08T12:00:00.000Z',
 			downloaded: storage.downloaded,
-			details: storage.details,
 			listed,
-			artists,
+			artists: artists.map((artist) => ({ ...artist, profile: null })),
 			queue,
 			// '1', 'page' and '0' as localStorage holds them.
-			prefs: { background: true, sort: 'page', hideDownloaded: false }
+			prefs: { background: true, sort: 'page', hideDownloaded: false },
+			searchSites
 		});
 		// Laid out as plain two-space JSON, with nothing escaped that need not be
 		// (the accents and the curly apostrophe are written as themselves).
@@ -312,7 +329,10 @@ describe('the exported state file', () => {
 			'{"format":"toolbox.manager.state","version":1,"queue":[{"permalink":"/a/b","details":{"partial":true,"permalink":"/a/b","downloadable":false,"hasDownloadsLeft":null,"purchaseUrl":"","purchaseTitle":""}}]}',
 			'{"format":"toolbox.manager.state","version":1,"queue":[{"permalink":"/a/b","details":{"permalink":"/c/d","downloadable":true,"hasDownloadsLeft":true,"purchaseUrl":"","purchaseTitle":"","at":1}}]}',
 			'{"format":"toolbox.manager.state","version":1,"prefs":{"sort":"sideways"}}',
-			'{"format":"toolbox.manager.state","version":1,"prefs":{"nope":true}}'
+			'{"format":"toolbox.manager.state","version":1,"prefs":{"nope":true}}',
+			'{"format":"toolbox.manager.state","version":1,"searchSites":{}}',
+			'{"format":"toolbox.manager.state","version":1,"searchSites":[{"id":"a","name":"A","badge":"A","url":"http://a.test/?q={artist}"}]}',
+			'{"format":"toolbox.manager.state","version":1,"searchSites":[{"id":"a","name":"A","badge":"A","url":"https://a.test/?q={artis}"}]}'
 		].map((text) => {
 			try {
 				TbxState.parse(text);

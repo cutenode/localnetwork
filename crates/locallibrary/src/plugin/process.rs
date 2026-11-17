@@ -383,11 +383,19 @@ pub(crate) fn printable_json<R: DeserializeOwned>(file: impl std::io::Read) -> s
 
 /// `manifest` with its text [`printable`], as what the plugin answers `describe` is: as it was
 /// when all of it is.
-#[cfg(any(test, debug_assertions))]
 pub(crate) fn printable_manifest(manifest: Manifest) -> serde_json::Result<Manifest> {
     match printed(serde_json::to_value(&manifest)?) {
         None => Ok(manifest),
         Some(v) => serde_json::from_value(v),
+    }
+}
+
+impl super::Plugins {
+    /// Starts the plugin, if it isn't running (without a store, in a new folder in the temporary
+    /// folder), shaking hands with it: answers the features it and the host both have.
+    pub fn start(&self, plugin: &str) -> Result<Vec<String>> {
+        let p = self.slot(plugin)?.start(None)?;
+        Ok(p.live.features.get().cloned().unwrap_or_default())
     }
 }
 
@@ -430,8 +438,9 @@ impl Slot {
     /// the host's plans go stale) too. `access` and `scope` (its request couldn't use an account,
     /// see [`super::accounts::token`]) are `account` errors, whose actions come from its
     /// manifest and the store: of what its fields say, they take only the type, which of its own
-    /// accesses it used and the scopes it needs that the manifest asks for. Its connection
-    /// closing means it stopped. The secrets the host filled in for it are left out.
+    /// accesses it used and the scopes it needs that the manifest asks for. So is `account` about
+    /// a record type it writes (the Atmosphere account couldn't write it, see [`super::atmosphere`]).
+    /// Its connection closing means it stopped. The secrets the host filled in for it are left out.
     fn error(&self, p: &Process, mut e: RpcError) -> Error {
         e.message = self.net.scrub(&e.message);
         let said = format!("{} ({})", e.message, self.label());
@@ -444,10 +453,20 @@ impl Slot {
             let actions = access::actions(&self.host, &self.manifest, kind, p.live.store.as_ref(), &fields);
             actions.into_iter().fold(Error::Account(said.clone()).because(reason), Error::action)
         };
+        // Passed on from `atmosphere/put_record`: an account error only about a record it writes.
+        #[cfg(feature = "account")]
+        let written = match e.kind() {
+            Some("account") => {
+                super::atmosphere::account_error(&self.manifest, p.live.store.as_ref(), e.data.as_deref(), &said)
+            }
+            _ => None,
+        };
         let error = match (e.kind(), file) {
             (Some("access"), _) if signed_out => account(Reason::NotSignedIn),
             (Some("access"), _) => account(Reason::NoAccess),
             (Some("scope"), _) => account(Reason::MissingScope),
+            #[cfg(feature = "account")]
+            (Some("account"), _) if written.is_some() => written.expect("it's an account error about a record"),
             (Some("cancelled"), _) => return Error::Cancelled,
             (Some("closed"), _) => {
                 p.dead.store(true, Ordering::SeqCst);

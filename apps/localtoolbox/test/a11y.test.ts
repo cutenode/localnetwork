@@ -8,7 +8,7 @@
 // `byLabel('mark downloaded')` fails loudly, but a *new* button with no
 // label at all fails nowhere.
 import { describe, it, expect } from 'vitest';
-import { audit, accessibleName, focusable } from './helpers/a11y.ts';
+import { audit, accessibleName, axeNames, focusable } from './helpers/a11y.ts';
 import {
 	addPage,
 	byLabel,
@@ -76,7 +76,7 @@ const withDetails = () => [
 
 // The artists tool's list, one artist in each state a row can be in: one
 // SoundCloud described (links, a picture, a verified mark), one it had no
-// profile for, and one nobody has asked about.
+// profile for, and one no SoundCloud tab has loaded yet.
 const ARTISTS = [
 	{
 		permalink: '/bicep',
@@ -114,7 +114,30 @@ const ARTISTS = [
 	{ permalink: '/unknown', name: '', tracks: [], profile: null, from: '', at: 1 }
 ];
 
-const clean = () => expect(audit()).toEqual([]);
+// That list as the artists store keeps it: the entries in the local area with
+// no profile, and the profiles in the session area by path.
+const ARTIST_AREAS = {
+	storage: { artists: ARTISTS.map((artist) => ({ ...artist, profile: null })) },
+	session: {
+		artistProfiles: Object.fromEntries(
+			ARTISTS.flatMap((artist) => (artist.profile ? [[artist.permalink, artist.profile] as const] : []))
+		)
+	}
+};
+
+const clean = async () => {
+	expect(audit()).toEqual([]);
+	expect(await axeNames()).toEqual([]);
+};
+
+// Both themes, as the popup would open in each: the saved choice the shell
+// reads, and the class on <html> a panel mounted on its own is drawn under.
+const THEMES = ['dark', 'light'] as const;
+
+const inTheme = (name: (typeof THEMES)[number]) => {
+	localStorage.setItem('pref:theme', name);
+	document.documentElement.classList.toggle('light', name === 'light');
+};
 
 // Every state each panel can be in that a test can reach, as
 // [name, what to set up, what to do once it is mounted].
@@ -237,22 +260,20 @@ const STATES: [id: string, states: State[]][] = [
 			['a page to add, not yet added', () => panelChrome({ response: extraction({ tracks: TRACKS }) })],
 			[
 				// Added on a page whose every answer is the page itself, which is a
-				// lookup that could not be read: the artists are listed, unlooked-up,
-				// under the note that says so.
-				'a page added, whose lookup could not be read',
+				// profile read that could not be understood: the artists are listed,
+				// not filled in, under the note that says so.
+				'a page added, whose socials could not be read',
 				() => panelChrome({ response: extraction({ tracks: TRACKS }) }),
 				async () => {
 					await click(document.querySelector('[aria-label$="from this tab"]'));
-					expect(document.body.textContent).toContain('not looked up');
+					expect(document.body.textContent).toContain('couldn’t read their socials');
+					expect(document.body.textContent).toContain('not loaded yet');
 				}
 			],
-			[
-				'artists of every kind',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } })
-			],
+			['artists of every kind', () => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS })],
 			[
 				'artists of every kind, with rows opened',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } }),
+				() => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS }),
 				async () => {
 					for (const chevron of document.querySelectorAll('li [aria-expanded]')) await click(chevron);
 					expect(document.querySelectorAll('li dl').length).toBe(3);
@@ -260,14 +281,14 @@ const STATES: [id: string, states: State[]][] = [
 			],
 			[
 				'artists of every kind, filtered to none',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } }),
+				() => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS }),
 				async () => {
 					await type(document.querySelector('[aria-label="search the artists"]'), 'zzzzzz');
 				}
 			],
 			[
 				'artists of every kind, with the sort menu open',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } }),
+				() => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS }),
 				async () => {
 					await click(document.querySelector('[aria-label="sort order"]'));
 				}
@@ -291,6 +312,11 @@ const STATES: [id: string, states: State[]][] = [
 								{
 									...track('Artist', 'Two'),
 									details: details({ permalink: '/artist/two', purchaseUrl: 'https://laylo.com/x/y' })
+								},
+								// A site that is only opened: an Open button and a line, no Get.
+								{
+									...track('Artist', 'Three'),
+									details: details({ permalink: '/artist/three', purchaseUrl: 'https://www.toneden.io/a/post/b' })
 								}
 							],
 							lookupFailed: 0,
@@ -303,18 +329,21 @@ const STATES: [id: string, states: State[]][] = [
 	]
 ];
 
-describe.each(STATES)('%s', (id, states) => {
-	it.each(states)('is readable without sight: %s', async (_name, setUp, act, minControls = 1) => {
-		setUp();
-		await mountPanel(id);
+describe.each(THEMES)('in the %s theme', (themeName) => {
+	describe.each(STATES)('%s', (id, states) => {
+		it.each(states)('is readable without sight: %s', async (_name, setUp, act, minControls = 1) => {
+			inTheme(themeName);
+			setUp();
+			await mountPanel(id);
 
-		if (act) await act();
-		await settle();
-		// An audit of a panel that drew nothing would pass without saying
-		// anything; every state here has to have put something on screen.
-		expect(document.body.textContent.trim().length).toBeGreaterThan(20);
-		expect(focusable().length).toBeGreaterThanOrEqual(minControls);
-		clean();
+			if (act) await act();
+			await settle();
+			// An audit of a panel that drew nothing would pass without saying
+			// anything; every state here has to have put something on screen.
+			expect(document.body.textContent.trim().length).toBeGreaterThan(20);
+			expect(focusable().length).toBeGreaterThanOrEqual(minControls);
+			await clean();
+		});
 	});
 });
 
@@ -332,14 +361,17 @@ describe('the queue sheet', () => {
 		]
 	];
 
-	it.each(SHEET_STATES)('is readable without sight: %s', async (_name, setUp) => {
-		setUp();
-		await mountApp();
-		await openQueue();
-		expect(document.body.textContent.trim().length).toBeGreaterThan(20);
-		// Even over an empty queue there is a way out of it.
-		expect(focusable().length).toBeGreaterThanOrEqual(1);
-		clean();
+	describe.each(THEMES)('in the %s theme', (themeName) => {
+		it.each(SHEET_STATES)('is readable without sight: %s', async (_name, setUp) => {
+			inTheme(themeName);
+			setUp();
+			await mountApp();
+			await openQueue();
+			expect(document.body.textContent.trim().length).toBeGreaterThan(20);
+			// Even over an empty queue there is a way out of it.
+			expect(focusable().length).toBeGreaterThanOrEqual(1);
+			await clean();
+		});
 	});
 
 	// While a sheet is up, the only controls a keyboard reaches are its own.
@@ -362,25 +394,99 @@ describe('the queue sheet', () => {
 		panelChrome({ session: { queue: TRACKS } });
 		await mountApp();
 		const opener = queueButton()!;
-		expect(accessibleName(opener)).toBe('session queue: 3 tracks');
+		expect(accessibleName(opener)).toBe('open the session queue: 3 tracks');
 		expect(opener.getAttribute('aria-expanded')).toBe('false');
 
 		await openQueue();
 		expect(queueButton()!.getAttribute('aria-expanded')).toBe('true');
-		clean();
+		await clean();
+	});
+});
+
+describe.each(THEMES)('settings and toasts, in the %s theme', (themeName) => {
+	// With a search site of your own on it, which is the one that brings the
+	// buttons to edit and remove it.
+	it('reads the settings sheet without sight', async () => {
+		inTheme(themeName);
+		localStorage.setItem(
+			'pref:search-sites',
+			JSON.stringify([
+				{
+					id: 'juno',
+					name: 'Juno',
+					badge: 'J',
+					url: 'https://www.juno.co.uk/search/?q={query}',
+					background: '#f26522',
+					color: '#000000'
+				}
+			])
+		);
+		panelChrome();
+		await mountApp();
+		expect(await openSettings()).not.toBe(null);
+		await settle();
+		expect(byLabel('edit Juno')).not.toBe(null);
+		await clean();
+	});
+
+	it('reads a toast without sight, and the way to put it away', async () => {
+		inTheme(themeName);
+		panelChrome();
+		await mountApp();
+		const { toasts } = await import('../src/lib/toast.svelte.ts');
+		toasts.bad('couldn’t copy');
+		await settle();
+		expect(byLabel('dismiss the message')).not.toBe(null);
+		await clean();
 	});
 });
 
 describe('the popup as a whole', () => {
+	// The three in every header are icons alone: each says what a click does,
+	// to a screen reader and in the tooltip a pointer brings up.
+	it('names the header’s buttons for what a click does', async () => {
+		panelChrome({ session: { queue: TRACKS } });
+		await mountApp();
+
+		for (const name of ['open the session queue: 3 tracks', 'open settings']) {
+			const button = byLabel(name)!;
+			expect(accessibleName(button)).toBe(name);
+			expect(button.getAttribute('title')).toBe(name);
+		}
+
+		const toggle = () => document.querySelector('[aria-label^="theme:"]')!;
+		const labels: string[] = [];
+
+		for (let i = 0; i < 3; i++) {
+			labels.push(accessibleName(toggle()));
+			expect(toggle().getAttribute('title')).toBe(labels[i]);
+			await click(toggle());
+		}
+
+		expect(labels).toEqual([
+			'theme: follows the browser. switch to light',
+			'theme: light. switch to dark',
+			'theme: dark. switch to follow the browser'
+		]);
+	});
+
 	it('names every tool in the menu, and puts them in one list', async () => {
 		panelChrome({ response: extraction({ tracks: TRACKS }) });
 		await mountApp();
-		clean();
+		await clean();
 
 		const menu = document.querySelectorAll('nav button, main button');
 		expect(menu.length).toBeGreaterThan(0);
 
 		for (const item of menu) expect(accessibleName(item)).not.toBe('');
+	});
+
+	it('reads the first-run notice without sight', async () => {
+		localStorage.removeItem('pref:notice-seen');
+		panelChrome({ response: extraction({ tracks: TRACKS }) });
+		await mountApp();
+		expect(document.querySelector('section[aria-labelledby="first-run"]')).not.toBe(null);
+		await clean();
 	});
 
 	it('keeps every control reachable by keyboard, in the order it is drawn', async () => {
@@ -400,11 +506,11 @@ describe('the popup as a whole', () => {
 
 		const open = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('playlist to text'));
 		await click(open);
-		clean();
+		await clean();
 		expect(accessibleName(document.querySelector('[aria-label="back to all tools"]')!)).toBe('back to all tools');
 
 		await click(document.querySelector('[aria-label="back to all tools"]'));
-		clean();
+		await clean();
 	});
 
 	it('says which theme the toggle would switch to, in both themes', async () => {
@@ -414,7 +520,7 @@ describe('the popup as a whole', () => {
 		const first = toggle()!.getAttribute('aria-label');
 		await click(toggle());
 		expect(toggle()!.getAttribute('aria-label')).not.toBe(first);
-		clean();
+		await clean();
 	});
 });
 
@@ -518,7 +624,7 @@ describe('where focus goes', () => {
 describe('the audit itself', () => {
 	// An audit that never fails might not be running, so it is handed known
 	// mistakes.
-	it('catches the mistakes it is there to catch', () => {
+	it('catches the mistakes it is there to catch', async () => {
 		document.body.innerHTML = `
       <button><svg></svg></button>
       <div id="dup"></div><div id="dup"></div>
@@ -544,8 +650,12 @@ describe('the audit itself', () => {
 				expect.stringContaining('has aria-pressed but its role is "none"'),
 				expect.stringContaining('has aria-pressed="yes"'),
 				expect.stringContaining('is aria-disabled but still focusable'),
-				expect.stringContaining('is a tab stop but its role is "none"')
+				expect.stringContaining('is a tab stop but its role is "none"'),
+				expect.stringContaining('is icon-only with no title or tooltip')
 			])
+		);
+		expect(await axeNames()).toEqual(
+			expect.arrayContaining([expect.stringContaining('button-name'), expect.stringContaining('image-alt')])
 		);
 	});
 
@@ -565,18 +675,21 @@ describe('the audit itself', () => {
 		expect(audit()).toEqual([
 			'<button.tip> has no accessible name',
 			'<button.wrapped> has no accessible name',
-			'<button.pick> has no accessible name'
+			'<button.pick> has no accessible name',
+			'<button.pick> is icon-only with no title or tooltip'
 		]);
 	});
 
-	it('passes markup that is right', () => {
+	it('passes markup that is right', async () => {
 		document.body.innerHTML = `
       <button aria-label="Save">🖫</button>
       <label for="q">Search</label><input id="q">
       <img src="x.jpg" alt="Cover art">
       <img src="y.jpg" aria-hidden="true">
       <button aria-pressed="false">Toggle</button>
-      <button disabled aria-disabled="true">Off</button>`;
+      <button disabled aria-disabled="true">Off</button>
+      <button aria-label="Close" title="close"><svg></svg></button>`;
 		expect(audit()).toEqual([]);
+		expect(await axeNames()).toEqual([]);
 	});
 });

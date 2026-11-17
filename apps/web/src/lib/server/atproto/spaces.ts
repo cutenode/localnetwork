@@ -1,3 +1,4 @@
+import { type AtUriParts, isValidDid, parseAtUriString } from '@atproto/syntax';
 import { SPACE_KINDS, type SpaceKind } from '#lib/capabilities.ts';
 import { ROOT_SPACE_KEY, SELF_SPACE_KEY, SPACE_TYPE, type SpaceType } from '#lib/nsid.ts';
 
@@ -5,21 +6,23 @@ export type SpaceRefParts = { authority: string; type: string; skey: string };
 
 export type SpaceRecordParts = SpaceRefParts & { author: string; collection: string; rkey: string };
 
-const SPACE_URI = /^at:\/\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/space\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})$/;
+/** A valid AT URI's parts, or null. The syntax allows a `#` fragment, but no space or record URI here has one. */
+function atUriParts(uri: string): AtUriParts | null {
+	const parsed = parseAtUriString(uri);
 
-const SPACE_RECORD_URI =
-	/^at:\/\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/space\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})$/;
-
-const PUBLIC_RECORD_URI = /^at:\/\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})$/;
+	return parsed.success && parsed.value.hash === undefined ? parsed.value : null;
+}
 
 export function spaceUri(authority: string, type: string, skey: string): string {
 	return `at://${authority}/space/${type}/${skey}`;
 }
 
 export function parseSpaceUri(uri: string): SpaceRefParts | null {
-	const match = SPACE_URI.exec(uri);
+	const parts = atUriParts(uri);
 
-	return match ? { authority: match[1], type: match[2], skey: match[3] } : null;
+	if (!parts?.isSpace || parts.author) return null;
+
+	return { authority: parts.authority, type: parts.spaceType, skey: parts.skey };
 }
 
 export function spaceRecordUri(space: string, author: string, collection: string, rkey: string): string {
@@ -27,18 +30,18 @@ export function spaceRecordUri(space: string, author: string, collection: string
 }
 
 export function parseSpaceRecordUri(uri: string): SpaceRecordParts | null {
-	const match = SPACE_RECORD_URI.exec(uri);
+	const parts = atUriParts(uri);
 
-	return match
-		? {
-				authority: match[1],
-				type: match[2],
-				skey: match[3],
-				author: match[4],
-				collection: match[5],
-				rkey: match[6]
-			}
-		: null;
+	if (!parts?.isSpace || !parts.author || !parts.rkey) return null;
+
+	return {
+		authority: parts.authority,
+		type: parts.spaceType,
+		skey: parts.skey,
+		author: parts.author,
+		collection: parts.collection,
+		rkey: parts.rkey
+	};
 }
 
 export function spaceOfRecord(uri: string): string | null {
@@ -51,17 +54,18 @@ export function publicRecordUri(did: string, collection: string, rkey: string): 
 	return `at://${did}/${collection}/${rkey}`;
 }
 
-/** A record URI's last segment, its rkey. */
+/** A record URI's last segment, its rkey (or a space URI's, its skey). */
 export function rkeyOf(uri: string): string {
 	return uri.slice(uri.lastIndexOf('/') + 1);
 }
 
 export function parsePublicRecordUri(uri: string): { did: string; collection: string; rkey: string } | null {
-	const match = PUBLIC_RECORD_URI.exec(uri);
+	const parts = atUriParts(uri);
 
-	if (!match || match[2] === 'space') return null;
+	// A public URI's authority may be a handle; a record URI here names its repo by DID.
+	if (!parts || parts.isSpace || !parts.rkey || !isValidDid(parts.authority)) return null;
 
-	return { did: match[1], collection: match[2], rkey: match[3] };
+	return { did: parts.authority, collection: parts.collection, rkey: parts.rkey };
 }
 
 /** The spaces Local Network keeps under its root account. */

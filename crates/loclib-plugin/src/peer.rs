@@ -516,4 +516,4 @@ fn response_id(line: &[u8]) -> Option<u64> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -76,7 +76,7 @@ fn setup_names_a_drive_for_players_that_read_onelibrary() {
 /// the library the drives are in, else a name no library has.
 #[cfg(unix)]
 #[test]
-fn setup_asks_for_the_librarys_name_and_not_the_drives() {
+fn setup_asks_for_the_library_name_and_not_the_drives() {
     use std::io::Write;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
@@ -139,7 +139,7 @@ fn setup_asks_for_the_librarys_name_and_not_the_drives() {
     assert!(!err.contains("Name for /"), "{err}");
     let libraries = env.json(&["library", "ls"]);
     assert_eq!(libraries[0]["name"], "My library", "{libraries}");
-    let drives = env.json(&["drive", "list"]);
+    let drives = env.json(&["drive", "ls", "--known"]);
     let names: Vec<_> = drives.as_array().unwrap().iter().map(|d| (&d["name"], &d["role"])).collect();
     assert_eq!(names, [(&json!("BACKUP"), &json!("primary")), (&json!("REKORDBOX"), &json!("backup"))]);
 
@@ -155,12 +155,12 @@ fn setup_asks_for_the_librarys_name_and_not_the_drives() {
 /// Without a terminal, `--library` is all setup needs: each drive keeps its volume name, and the
 /// report lists the steps it took.
 #[test]
-fn setup_without_a_terminal_needs_only_the_librarys_name() {
+fn setup_without_a_terminal_needs_only_the_library_name() {
     let env = Env::ascii();
     let main = env.demo("REKORDBOX");
     copy_dir(&main, &env.volumes.join("BACKUP"));
     let tip = "`locallibrary setup` starts your library from the drives you have";
-    assert!(env.run(&["drive", "list"]).err.contains(tip));
+    assert!(env.run(&["drive", "ls", "--known"]).err.contains(tip));
     assert!(env.ok(&["setup", "--help"]).contains("Drives keep their volume names"));
     let v = env.json(&["--yes", "setup", "--library", "Home", "--no-settings"]);
     let steps = v["report"]["steps"].as_array().unwrap();
@@ -169,7 +169,7 @@ fn setup_without_a_terminal_needs_only_the_librarys_name() {
     let named: Vec<_> = steps[..2].iter().map(|s| &s["plan"]["name"]).collect();
     assert_eq!(named, [&json!("BACKUP"), &json!("REKORDBOX")], "{v}");
     assert!(v["report"]["notes"].is_array(), "{v}");
-    let drives = env.json(&["drive", "list"]);
+    let drives = env.json(&["drive", "ls", "--known"]);
     let names: Vec<_> = drives.as_array().unwrap().iter().map(|d| &d["name"]).collect();
     assert_eq!(names, [&json!("BACKUP"), &json!("REKORDBOX")], "{drives}");
 }

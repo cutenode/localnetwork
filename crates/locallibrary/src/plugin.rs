@@ -4,22 +4,25 @@
 //! themes and settings, and listening for events. The CLI, the TUI and the RPC sidecar host them
 //! through [`Plugins`].
 //!
-//! Only plugins locallibrary ships run for now ([`PluginSpec::built_in`]): the app hands the
-//! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
-//! `plugin serve <id>`). A plugin starts when it's first used, in a folder of its own in the store,
-//! and must speak the protocol, describe itself exactly as its manifest does and have the features
-//! (kinds of hooks) what it contributes needs; it's stopped once it has been idle a while,
-//! started again after it crashed, and killed when it doesn't stop as asked. None starts from an
-//! elevated process.
+//! The app hands the host each plugin's manifest and how to start it: one locallibrary ships
+//! ([`PluginSpec::built_in`]) has its manifest compiled in and is the locallibrary binary itself
+//! (`plugin serve <id>`); one it doesn't, which a developer gives for a run, is held to a third
+//! party's rules ([`Manifest::validate`]). A plugin starts when it's first used, in a folder of its
+//! own in the store, and must speak the protocol, describe itself exactly as its manifest does and
+//! have the features (kinds of hooks) what it contributes needs (see [`Plugins::start`]); it's
+//! stopped once it has been idle a while, started again after it crashed, and killed when it
+//! doesn't stop as asked. None starts from an elevated process.
 //!
 //! Plugins never write to a drive. They read the library by calling back for the sidecar's read
 //! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
 //! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
 //! (kept in the keychain) and the tokens of the accounts they're given access to (signed in to by
-//! the host, see [`Plugins::begin_account_sign_in`]); an operation's edits are planned and applied
-//! by the host as any edit plan is, and an exporter's overwrites are confirmed first. Answers too
-//! big for a message are files in a folder the host makes for each request (`scratch`), which it
-//! reads itself.
+//! the host, see [`Plugins::begin_account_sign_in`]). They write records in the Atmosphere
+//! account, of the types their `atmosphere:write:` capabilities grant, through the host, which
+//! checks each against its Lexicon and has the user confirm it ([`RecordWrite`]). An operation's
+//! edits are planned and applied by the host as any edit plan is, and an exporter's overwrites are
+//! confirmed first. Answers too big for a message are files in a folder the host makes for each
+//! request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
@@ -39,9 +42,11 @@ mod accounts;
 mod analysis;
 mod analyzers;
 mod apply;
+mod atmosphere;
 mod blobs;
 mod callbacks;
 mod checks;
+mod collection;
 mod commands;
 mod destinations;
 mod events;
@@ -68,7 +73,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
-use crate::fields::roles::{Offered, RoleField};
+use crate::fields::roles::{Offered, RoleField, RoleOrPart};
 use crate::keychain::Storage;
 use crate::model::{Library, Track};
 use crate::{Error, Result};
@@ -81,6 +86,7 @@ pub use accounts::{REFRESH_BEFORE, WARN_DAYS, due_soon};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
+pub use atmosphere::RecordWrite;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub(crate) use checks::hosted;
@@ -129,7 +135,8 @@ pub struct Launch {
 pub struct PluginSpec {
     pub manifest: Manifest,
     pub launch: Launch,
-    /// locallibrary ships it: the only plugins that run for now.
+    /// locallibrary ships it. Another's manifest is checked by a third party's rules, and made
+    /// printable, in every build.
     pub built_in: bool,
 }
 
@@ -148,6 +155,13 @@ impl PluginSpec {
         check_built_in(&manifest)?;
         Ok(PluginSpec { manifest, launch, built_in: true })
     }
+
+    /// A plugin locallibrary doesn't ship, from its parsed manifest, checked by a third party's
+    /// rules in every build.
+    pub fn third_party(manifest: Manifest, launch: Launch) -> Result<PluginSpec> {
+        check_third_party(&manifest)?;
+        Ok(PluginSpec { manifest, launch, built_in: false })
+    }
 }
 
 /// [`Manifest::validate`] for a plugin locallibrary ships, in builds with debug assertions (see
@@ -157,6 +171,11 @@ fn check_built_in(m: &Manifest) -> Result<()> {
         return Ok(());
     }
     m.validate(true).map_err(|e| Error::invalid(format!("the {} plugin's manifest: {e}", m.id)))
+}
+
+/// [`Manifest::validate`] for a plugin locallibrary doesn't ship (see [`PluginSpec::third_party`]).
+fn check_third_party(m: &Manifest) -> Result<()> {
+    m.validate(false).map_err(|e| Error::invalid(format!("the {} plugin's manifest: {e}", m.id)))
 }
 
 /// How the host runs plugins.
@@ -194,6 +213,9 @@ pub struct Options {
     /// Plugins reach no server but this computer's, for tests (`LOCALLIBRARY_TEST_OFFLINE` in the
     /// CLI's), so none reaches MusicBrainz: only in builds with debug assertions.
     pub test_offline: bool,
+    /// Plugins are given nothing: every request one sends the host (a read, `net/fetch`,
+    /// `accounts/ensure`) is refused, whatever its capabilities, as `plugin check` runs one.
+    pub isolated: bool,
     /// Where plugins' logs go: what they write to stderr (without terminal escapes), and what
     /// the host has to say about them. A front end drawing on the terminal gives its own.
     pub log: Log,
@@ -203,7 +225,9 @@ pub struct Options {
     /// end shows them its own way. Called on the thread reading the plugin, so it mustn't wait.
     pub notices: Notices,
     /// How the front end asks the user whether a plugin may use more of an account it has access
-    /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it.
+    /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it. And
+    /// whether a plugin may write a record in the Atmosphere account (`atmosphere/put_record`):
+    /// with none, it isn't written.
     pub ask: Option<Arc<dyn AskAccess>>,
     /// How many times in a row a service that stopped or failed is started again before it's left
     /// off: the failure after the last of them is the one that does it.
@@ -242,6 +266,7 @@ impl Default for Options {
             secrets: Storage::from_env(),
             test_loopback: false,
             test_offline: false,
+            isolated: false,
             log: Arc::new(|id, line| eprintln!("{id}: {line}")),
             events: 64,
             notices: Arc::new(|n| eprintln!("{}: {}", n.plugin, n.message)),
@@ -261,28 +286,31 @@ pub struct Plugins {
 
 impl Plugins {
     /// The host for `specs` (their manifests' text made printable, as all a plugin tells the host
-    /// is), reading for them through `reads`. Refused: a plugin locallibrary
-    /// doesn't ship, an invalid manifest (in builds with debug assertions: see
-    /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
-    /// one `cli` place (the app checks them against its own commands).
+    /// is), reading for them through `reads`. Refused: an invalid manifest (one locallibrary ships
+    /// only in builds with debug assertions, see [`PluginSpec::built_in`]; another's by a third
+    /// party's rules), two plugins with one id, and two commands (or operations) with one `cli`
+    /// place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
         let host = Arc::new(process::Host::new(reads, options));
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
-            // Only in builds with debug assertions: the plugins locallibrary ships print as they
-            // are, which its tests check, and this was a tenth of the time of every run of the CLI.
-            #[cfg(debug_assertions)]
-            let spec = PluginSpec {
-                manifest: process::printable_manifest(spec.manifest)
-                    .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?,
-                ..spec
+            // Every manifest but, outside builds with debug assertions, those of the plugins
+            // locallibrary ships: they print as they are, which its tests check, and this was a
+            // tenth of the time of every run of the CLI.
+            let spec = match spec.built_in && !cfg!(debug_assertions) {
+                true => spec,
+                false => PluginSpec {
+                    manifest: process::printable_manifest(spec.manifest)
+                        .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?,
+                    ..spec
+                },
             };
             let m = &spec.manifest;
-            if !spec.built_in {
-                return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));
+            match spec.built_in {
+                true => check_built_in(m)?,
+                false => check_third_party(m)?,
             }
-            check_built_in(m)?;
             let commands = m.contributes.commands.iter().filter_map(|c| c.cli.as_deref());
             let operations = m.contributes.operations.iter().filter_map(|o| o.cli.as_deref());
             if let Some(name) = commands.chain(operations).find(|n| !cli.insert(n.to_string())) {
@@ -337,14 +365,20 @@ impl Plugins {
         self.installed().map(|(a, _)| a).collect()
     }
 
-    /// The analyzers' fields with each role, in the order the app gave the plugins: what it tells
-    /// the readers ([`crate::fields::roles::set_offered`]).
+    /// The analyzers' fields with each role, and their beat grids, phrases and waveforms (each a
+    /// part of the analysis), in the order the app gave the plugins: what it tells the readers
+    /// ([`crate::fields::roles::set_offered`]).
     pub fn roles(&self) -> Offered {
         let mut offered = Offered::new();
         for (analyzer, declared) in self.installed() {
-            for (role, field) in &declared.roles {
+            let roles = declared.roles.iter().map(|(role, field)| (RoleOrPart::Role(*role), field));
+            let part = |kind: loclib_plugin::FieldType| {
+                AnalysisPart::ALL.into_iter().find(|p| p.kind() == kind).map(RoleOrPart::Part)
+            };
+            let parts = declared.fields.iter().filter_map(|(field, kind)| Some((part(*kind)?, field)));
+            for (at, field) in roles.chain(parts) {
                 let field = RoleField { analyzer: analyzer.clone(), field: field.clone() };
-                offered.entry(*role).or_default().push(field);
+                offered.entry(at).or_default().push(field);
             }
         }
         offered

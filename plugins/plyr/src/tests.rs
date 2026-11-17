@@ -1,16 +1,13 @@
-use std::io::pipe;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use loclib_plugin::test_util::Canceller;
+use loclib_plugin::test_util::{FakeHost, Response};
 use loclib_plugin::{
-    ACCOUNT_PLACEHOLDER, AccountType, ByteRange, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming,
-    Manifest, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, PublishedSet, SignIn, StrongRef, TracklistEntry,
-    account_placeholder, method,
+    ACCOUNT_PLACEHOLDER, AccountType, ByteRange, Capability, DestinationKind, Fetch, Fetched, Manifest, ProgressReport,
+    Progressed, PublishedSet, SignIn, StrongRef, TracklistEntry, account_placeholder, method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
@@ -96,14 +93,15 @@ struct Plyr {
     lent: Option<PathBuf>,
     script: Script,
     received: Received,
-    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
-    cancel: Arc<Canceller>,
+    /// Whether the publish is cancelled once the call in hand is answered, as [`Reply::Cancels`]
+    /// says.
+    cancels: bool,
 }
 
 impl Plyr {
     fn new(part_size: u64) -> Plyr {
         let (script, received) = (Box::new(|_: &str, _| None), Received::default());
-        Plyr { part_size, signed_in: true, lent: None, script, received, cancel: Arc::default() }
+        Plyr { part_size, signed_in: true, lent: None, script, received, cancels: false }
     }
 
     fn scripted(part_size: u64, script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> Plyr {
@@ -144,7 +142,7 @@ impl Plyr {
         let asked = r.requests.iter().filter(|(m, u)| (m, u) == (&fetch.method, &fetch.url)).count() - 1;
         let reply = match (self.script)(&route, asked) {
             Some(Reply::Cancels(then)) => {
-                self.cancel.arm();
+                self.cancels = true;
                 then.map(|r| *r)
             }
             reply => reply,
@@ -235,39 +233,27 @@ fn as_plyr(part_size: u64, r: &mut Received, route: &str, fetch: &Fetch, sent: O
     }
 }
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose fetches `plyr` answers.
+/// The plugin served by a fake host whose fetches `plyr` answers.
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    hello: HelloReply,
+    host: FakeHost,
     /// Answering its fetches: scripted afresh by [`Session::script`].
     plyr: Arc<Mutex<Plyr>>,
 }
 
 fn start(plyr: Plyr) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
+    let host = FakeHost::start(MANIFEST, serve);
     let plyr = Arc::new(Mutex::new(plyr));
-    let (to, answers) = (host.clone(), plyr.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let mut plyr = answers.lock().unwrap();
-            let answer = plyr.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            let cancel = plyr.cancel.clone();
-            drop(plyr);
-            cancel.respond(&to, &req.id, answer);
+    let answers = plyr.clone();
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let mut plyr = answers.lock().unwrap();
+        let answer = plyr.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+        match std::mem::take(&mut plyr.cancels) {
+            true => Response::AnswerThenCancel(answer),
+            false => Response::Answer(answer),
         }
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, hello, plyr }
+    Session { host, plyr }
 }
 
 /// What a publish answered, and the upload phase it reported, in order: `Some` of the parts and
@@ -279,11 +265,11 @@ impl Session {
     fn publish(&self, set: &PublishedSet, recording: &Path, tracklist: &[TracklistEntry], dry_run: bool) -> Outcome {
         self.plyr.lock().unwrap().lent = Some(recording.to_path_buf());
         let req = json!({ "destination": "track", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run });
-        let cancel = self.plyr.lock().unwrap().cancel.clone();
-        let pending = cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap());
+        let pending = self.host.send(method::SET_PUBLISH, &req);
         let answer = pending.wait_timeout(Duration::from_secs(60)).expect("an answer in a minute");
         let upload = pending
             .progress()
+            .into_iter()
             .filter_map(|p| match p {
                 ProgressReport::Known(e) => match e.event {
                     Progressed::Event(Event::PhaseStart { phase: Phase::Upload, items, bytes }) => {
@@ -300,22 +286,21 @@ impl Session {
 
     /// Its fetches answered by `plyr` from now on.
     fn script(&self, plyr: Plyr) {
-        let mut answering = self.plyr.lock().unwrap();
-        *answering = Plyr { cancel: answering.cancel.clone(), ..plyr };
+        *self.plyr.lock().unwrap() = plyr;
     }
 
     /// What plyr.fm has been sent.
     fn received(&self) -> Received {
+        let calls = self.host.calls();
+        assert!(calls.iter().all(|(m, _)| m == method::NET_FETCH), "the plugin reads nothing else: {calls:?}");
         std::mem::take(&mut self.plyr.lock().unwrap().received)
     }
 
     /// Closes the plugin's input: it stops. What plyr.fm was sent, read once all of it is
     /// answered: what the plugin sent before a cancel reached it may still be on its way.
     fn stop(self) -> Received {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        std::mem::take(&mut self.plyr.lock().unwrap().received)
+        self.host.stop();
+        self.received()
     }
 }
 
@@ -337,7 +322,12 @@ fn set() -> PublishedSet {
 }
 
 fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
+    TracklistEntry {
+        artist: artist.map(Into::into),
+        title: title.map(Into::into),
+        start_seconds: start,
+        ..Default::default()
+    }
 }
 
 fn kind(e: &RpcError) -> (&str, &str) {
@@ -371,10 +361,8 @@ fn the_manifest_is_a_built_in_set_destination_on_plyr() {
     // Served as a real one is: it says it's this manifest, publishing sets through fetches with an
     // account.
     let s = start(Plyr::new(4));
-    let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.hello.features);
-    let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    let has = |f: &&str| s.host.hello().features.iter().any(|had| had == f);
+    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.host.hello().features);
     s.stop();
 }
 
@@ -678,6 +666,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
             artist: name(tc),
             title: name(tc),
             start_seconds: tc.draw(gs::optional(gs::integers::<u32>().max_value(5 * 3600))),
+            ..Default::default()
         })
         .collect()
 }
@@ -710,7 +699,7 @@ fn the_track_is_the_set_within_plyrs_lengths(tc: TestCase) {
     assert_eq!(t.notes.iter().any(|n| n.starts_with("the title is cut")), cut);
 
     assert!(t.description.len() <= MAX_DESCRIPTION, "{}", t.description.len());
-    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    let lines: Vec<String> = tracklist.iter().map(TracklistEntry::line).collect();
     let all = lines.join("\n");
     if all.len() <= MAX_DESCRIPTION {
         assert_eq!(t.description, all);
@@ -751,7 +740,7 @@ fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
     let artist = |tc: &TestCase| "\u{3a9}".repeat(tc.draw(gs::integers::<usize>().min_value(150).max_value(300)));
     let tracklist: Vec<TracklistEntry> = (0..n).map(|_| entry(Some(&artist(&tc)), None, None)).collect();
     let t = track::of(&set(), &tracklist);
-    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    let lines: Vec<String> = tracklist.iter().map(TracklistEntry::line).collect();
     assert!(t.description.len() <= MAX_DESCRIPTION);
     let (kept, more) = t.description.rsplit_once('\n').unwrap();
     let kept: Vec<&str> = kept.lines().collect();
@@ -762,24 +751,6 @@ fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
         kept.len()
     );
     assert_eq!(t.notes, [note]);
-}
-
-/// A line's time, as `05:30` or past an hour `1:02:03`, reads back as the entry's.
-#[hegel::test(test_cases = 100)]
-fn a_lines_time_reads_back(tc: TestCase) {
-    let secs = tc.draw(gs::integers::<u32>());
-    let line = track::line(&entry(Some("A"), Some("B"), Some(secs)));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    let fields: Vec<u32> = time.split(':').map(|f| f.parse().unwrap()).collect();
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    match fields[..] {
-        [m, s] => assert_eq!((secs < 3600, m * 60 + s), (true, secs), "{line}"),
-        [h, m, s] => {
-            assert_eq!((secs >= 3600, u64::from(h) * 3600 + u64::from(m * 60 + s)), (true, u64::from(secs)), "{line}")
-        }
-        _ => panic!("{line}"),
-    }
 }
 
 /// What plyr.fm answers a step with in place of going on, in the property below: refusing the

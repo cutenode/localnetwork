@@ -1,15 +1,13 @@
-use std::io::pipe;
+use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use indexmap::IndexMap;
 use loclib_model::Track;
-use loclib_plugin::{Fetch, Fetched, HelloReply, Incoming, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Role, method};
-use loclib_progress::{CancelToken, Ctx, Event};
+use loclib_plugin::test_util::{FakeHost, Response, Sent};
+use loclib_plugin::{Fetch, Fetched, Manifest, NetLimit, Role, method};
 use serde_json::{Value, json};
 
 use super::*;
@@ -41,8 +39,8 @@ enum Reply {
     Fails(RpcError),
     /// No answer yet: the fetch is under way until the plugin's hook is cancelled.
     Held,
-    /// Busy (`503`), asking to wait this `Retry-After`, and then the host cancelling the session's
-    /// first analysis (its second request, after `hello`), while the hook waits.
+    /// Busy (`503`), asking to wait this `Retry-After`, and then the host cancelling the analysis
+    /// under way, while the hook waits.
     BusyThenCancelled(&'static str),
 }
 
@@ -71,88 +69,63 @@ fn as_it_is(isrc: &str, _asked: usize) -> Reply {
 /// A read the plugin called back for: its method and params.
 type Read = (String, Value);
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose library has `tracks` and whose fetches MusicBrainz answers as the route does (given the
-/// ISRC asked about, and how many times it was asked before).
+/// The plugin served by a fake host whose library has `tracks` and whose fetches MusicBrainz
+/// answers as the route does (given the ISRC asked about, and how many times it was asked
+/// before).
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    /// The reads the plugin called back for.
-    reads: Arc<Mutex<Vec<Read>>>,
-    /// The URLs it fetched.
-    fetched: Arc<Mutex<Vec<String>>>,
+    host: FakeHost,
     /// Told of each fetch once it's asked.
     heard: Receiver<()>,
-    /// What the plugin answered `hello`.
-    hello: HelloReply,
     /// The library's tracks.
     tracks: Vec<Track>,
 }
 
 fn start(tracks: Vec<Track>, route: impl Fn(&str, usize) -> Reply + Send + 'static) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let reads: Arc<Mutex<Vec<Read>>> = Arc::default();
-    let fetched: Arc<Mutex<Vec<String>>> = Arc::default();
+    let host = FakeHost::start(MANIFEST, serve);
+    let library = tracks.clone();
+    host.on_read("tracks.get", move |params| {
+        if params["drive"] != "USB" {
+            return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
+        }
+        let ids: Vec<u32> = serde_json::from_value(params["ids"].clone()).unwrap_or_default();
+        let held = |id: &u32| library.iter().find(|t| t.id == *id);
+        let (found, missing): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| held(id).is_some());
+        let found: Vec<&Track> = found.iter().filter_map(held).collect();
+        Ok(json!({ "tracks": found, "missing": missing }))
+    });
     let (tell, heard) = channel();
-    let (to, read, fetches, library) = (host.clone(), reads.clone(), fetched.clone(), tracks.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            if req.method != method::NET_FETCH {
-                read.lock().unwrap().push((req.method.clone(), req.params.clone()));
-                if req.params["drive"] != "USB" {
-                    let gone = RpcError::failed("not_found", format!("not found: drive {}", req.params["drive"]));
-                    to.respond(&req.id, Err(gone));
-                    continue;
-                }
-                let ids: Vec<u32> = serde_json::from_value(req.params["ids"].clone()).unwrap_or_default();
-                let held = |id: &u32| library.iter().find(|t| t.id == *id);
-                let (found, missing): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| held(id).is_some());
-                let found: Vec<&Track> = found.iter().filter_map(held).collect();
-                to.respond(&req.id, Ok(json!({ "tracks": found, "missing": missing })));
-                continue;
-            }
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let asked = {
-                let mut fetched = fetches.lock().unwrap();
-                fetched.push(fetch.url.clone());
-                fetched.iter().filter(|u| **u == fetch.url).count() - 1
-            };
-            let _ = tell.send(());
-            let isrc = fetch.url.strip_prefix(LOOKUP).and_then(|rest| rest.split_once('?')).map_or("", |(i, _)| i);
-            let answered = |status, wait: Option<&str>, body| {
-                let headers: IndexMap<String, String> =
-                    wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
-                Ok(serde_json::to_value(Fetched { status, headers, body: Some(body), blob: None }).unwrap())
-            };
-            let (answer, cancelling) = match route(isrc, asked) {
-                Reply::Answer(status, wait, body) => (answered(status, wait, body), false),
-                Reply::BusyThenCancelled(wait) => (answered(503, Some(wait), String::new()), true),
-                Reply::Fails(e) => (Err(e), false),
-                Reply::Held => continue,
-            };
-            to.respond(&req.id, answer);
-            if cancelling {
-                to.notify(method::CANCEL, &json!({ "id": 2 }));
-            }
+    let fetched = Mutex::new(Vec::new());
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let asked = {
+            let mut fetched = fetched.lock().unwrap();
+            fetched.push(fetch.url.clone());
+            fetched.iter().filter(|u| **u == fetch.url).count() - 1
+        };
+        let _ = tell.send(());
+        let isrc = fetch.url.strip_prefix(LOOKUP).and_then(|rest| rest.split_once('?')).map_or("", |(i, _)| i);
+        let answered = |status, wait: Option<&str>, body| {
+            let headers: IndexMap<String, String> =
+                wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
+            Ok(serde_json::to_value(Fetched { status, headers, body: Some(body), blob: None }).unwrap())
+        };
+        match route(isrc, asked) {
+            Reply::Answer(status, wait, body) => Response::Answer(answered(status, wait, body)),
+            Reply::BusyThenCancelled(wait) => Response::AnswerThenCancel(answered(503, Some(wait), String::new())),
+            Reply::Fails(e) => Response::Answer(Err(e)),
+            Reply::Held => Response::Hold,
         }
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, reads, fetched, heard, hello, tracks }
+    Session { host, heard, tracks }
 }
 
 impl Session {
     /// `track/analyze` with `ids` for track `id`, as the host sends it, in `context`.
-    fn send(&self, id: u32, context: Value) -> loclib_plugin::Pending {
+    fn send(&self, id: u32, context: Value) -> Sent {
         let audio = "/Volumes/USB/Contents/track.mp3";
         let track = json!({ "id": id, "file_path": "/Contents/track.mp3", "audio_path": audio });
         let req = json!({ "analyzer": "ids", "track": track, "context": context });
-        self.host.send_request(method::ANALYZE_TRACK, &req).unwrap()
+        self.host.send(method::ANALYZE_TRACK, &req)
     }
 
     /// Its fields for track `id` in `context` but for the ISRC and credits they're for, which are
@@ -174,16 +147,16 @@ impl Session {
         self.analyze_in(id, json!({ "drive": "USB" }))
     }
 
+    /// The URLs it fetched.
     fn fetched(&self) -> Vec<String> {
-        self.fetched.lock().unwrap().clone()
+        let fetches = self.host.calls().into_iter().filter(|(m, _)| m == method::NET_FETCH);
+        fetches.map(|(_, fetch)| fetch["url"].as_str().unwrap().into()).collect()
     }
 
     /// Closes the plugin's input: it stops. The reads it called back for.
     fn stop(self) -> Vec<Read> {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        Arc::try_unwrap(self.reads).unwrap().into_inner().unwrap()
+        self.host.stop();
+        self.host.calls().into_iter().filter(|(m, _)| m != method::NET_FETCH).collect()
     }
 }
 
@@ -270,12 +243,12 @@ fn the_manifest_is_a_built_in_analyzer_of_musicbrainz_ids() {
     let settings: Vec<&str> = manifest.contributes.settings.iter().map(|s| s.key.as_str()).collect();
     assert_eq!(settings, ["contact"]);
 
-    // Served as a real one is: it says it's this manifest, analysing and sending fetches.
+    // Served as a real one is: it says it's this manifest (`FakeHost::start` checks), analysing and
+    // sending fetches.
     let session = start(Vec::new(), as_it_is);
-    let has = |f: &&str| session.hello.features.iter().any(|had| had == f);
-    assert!(["analyzers", "net"].iter().all(has), "{:?}", session.hello.features);
-    let described: Manifest = session.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    let hello = session.host.hello();
+    let has = |f: &&str| hello.features.iter().any(|had| had == f);
+    assert!(["analyzers", "net"].iter().all(has), "{:?}", hello.features);
     session.stop();
 }
 
@@ -466,39 +439,6 @@ fn a_busy_musicbrainz_is_asked_again_after_its_wait() {
     }
 }
 
-/// `Retry-After` is a number of seconds (one too big to count longer than any wait) or an
-/// HTTP-date, counted from now and rounded up; one past, missing or unreadable is no wait.
-#[test]
-fn retry_after_says_seconds_or_a_date() {
-    let now = SystemTime::UNIX_EPOCH + Duration::from_millis(784_111_770_500);
-    let said = |name: &str, value: &str| {
-        let headers: IndexMap<String, String> = [(name.to_string(), value.to_string())].into_iter().collect();
-        lookup::retry_after(&Fetched { status: 503, headers, body: None, blob: None }, now)
-    };
-    assert_eq!(said("retry-after", " 12 "), 12);
-    assert_eq!(said("Retry-After", "0"), 0);
-    assert_eq!(said("retry-after", "99999999999999999999"), u32::MAX);
-    // 784111777 is Sun, 06 Nov 1994 08:49:37 GMT: 6.5 seconds after `now`.
-    assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT"), 7);
-    assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:30 GMT"), 0, "past");
-    assert_eq!(said("retry-after", "Fri, 31 Dec 9999 23:59:59 GMT"), u32::MAX);
-    assert_eq!((said("retry-after", "soon"), said("retry-after", "-5"), said("x-wait", "9")), (0, 0, 0));
-}
-
-/// A wait stops as soon as it's cancelled (here, before it starts), and otherwise lasts as long
-/// as it's asked to.
-#[test]
-fn a_wait_ends_when_its_cancelled() {
-    let token = CancelToken::new();
-    token.cancel();
-    let started = Instant::now();
-    let cancelled = lookup::pause(&Ctx::new(&|_: &Event| {}, token), Duration::from_secs(30));
-    assert_eq!((cancelled, started.elapsed() < Duration::from_secs(5)), (Err(RpcError::cancelled()), true));
-    let started = Instant::now();
-    assert_eq!(lookup::pause(&Ctx::new(&|_: &Event| {}, CancelToken::new()), lookup::SECOND * 5), Ok(()));
-    assert!(started.elapsed() >= lookup::SECOND * 5, "{:?}", started.elapsed());
-}
-
 /// MusicBrainz busy every time it's asked (a few times), or asking for too long a wait, fails the
 /// track, as does any other refusal, an answer that isn't a lookup's, or the host not reaching it:
 /// none of that is kept as nothing found.
@@ -530,7 +470,7 @@ fn musicbrainz_turning_it_away_fails_the_track() {
 }
 
 /// Cancelled while it waits for MusicBrainz's answer, the hook stops at once, asking for no more.
-/// (A wait for a `Retry-After` stops so too: [`a_wait_ends_when_its_cancelled`].)
+/// (A wait for a `Retry-After` stops so too: [`loclib_plugin::pause`].)
 #[test]
 fn cancelling_while_it_waits_stops_it() {
     let session = start(vec![track(1, "A - B", "", 0, IN_MY_VIEW)], |_, _| Reply::Held);
@@ -906,28 +846,4 @@ fn lookup_stops(stop: Stop, gone: &str) {
         Stop::Waiting => assert!(e == RpcError::cancelled() && (1..=2).contains(&fetched), "{e:?} {fetched}"),
         _ => assert_eq!((e, fetched), (RpcError::cancelled(), 1)),
     }
-}
-
-/// Any `Retry-After` comes to its seconds: a number as it is (one too big to count longer than
-/// any wait), an HTTP-date as the seconds until then, rounded up (none once it's past), and
-/// anything else as none.
-#[hegel::test(test_cases = 100)]
-fn any_retry_after_is_its_seconds(tc: TestCase) {
-    let base = tc.draw(gs::integers::<u64>().min_value(1_000_000_000).max_value(4_000_000_000));
-    let now = SystemTime::UNIX_EPOCH
-        + Duration::from_secs(base)
-        + Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(999)));
-    let n = tc.draw(gs::integers::<u64>().max_value(1_000_000_000));
-    let date = |secs: u64| httpdate::fmt_http_date(SystemTime::UNIX_EPOCH + Duration::from_secs(secs));
-    let big = tc.draw(gs::integers::<u64>().min_value(u64::from(u32::MAX) + 1));
-    let (said, seconds) = tc.draw(gs::sampled_from(vec![
-        (n.to_string(), u32::try_from(n).unwrap()),
-        (big.to_string(), u32::MAX),
-        (format!("{big}0"), u32::MAX),
-        (date(base + n), u32::try_from(n).unwrap()),
-        (date(base - 1 - n.min(base - 1)), 0),
-        ("in a minute".to_string(), 0),
-    ]));
-    let headers: IndexMap<String, String> = [("retry-after".to_string(), said.clone())].into_iter().collect();
-    assert_eq!(lookup::retry_after(&Fetched { status: 503, headers, body: None, blob: None }, now), seconds, "{said}");
 }

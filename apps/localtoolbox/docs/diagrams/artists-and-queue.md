@@ -2,7 +2,7 @@
 
 Artist rows, the session queue and the settings sheet. The rest are listed in the [README](../../README.md#diagrams).
 
-- [Adding artists and asking about them](#adding-artists-and-asking-about-them)
+- [Adding artists and filling them in](#adding-artists-and-filling-them-in)
 - [Life of an artist row](#life-of-an-artist-row)
 - [What an artist row draws](#what-an-artist-row-draws)
 - [Searching and sorting artists](#searching-and-sorting-artists)
@@ -10,29 +10,25 @@ Artist rows, the session queue and the settings sheet. The rest are listed in th
 - [What the queue sheet does](#what-the-queue-sheet-does)
 - [What the settings sheet changes](#what-the-settings-sheet-changes)
 
-## Adding artists and asking about them
+## Adding artists and filling them in
 
-Three sources feed the artists list, and the SoundCloud tab in front, any page of it, can answer for them.
+Three sources feed the artists list. The SoundCloud tab in front, any page of it, fills in what it has loaded about each artist, as the panel opens and after every add. It answers from memory, so nothing is asked of SoundCloud.
 
 ```mermaid
 sequenceDiagram
   participant P as artists panel
   participant L as artists store
   participant C as Content script
-  participant A as SoundCloud API
-  P->>L: add artistsOf the source's tracks
-  alt a SoundCloud tab is in front
-    P->>C: GET_ARTIST_PROFILES, paths with no answer
-    loop four artists at a time
-      C->>A: /resolve of the profile
-      C->>A: /users/id/web-profiles
-      C--)P: ARTIST_PROFILES_PROGRESS
-      P->>L: learn, written a second later
-    end
-    C-->>P: profiles, failed, error
-    P->>L: flush
+  opt adding
+    P->>L: add artistsOf the source's tracks
+  end
+  alt a SoundCloud tab is in front, and some artists are incomplete
+    P->>C: GET_ARTIST_PROFILES, their paths
+    C-->>P: profiles of those the page has loaded
+    P->>L: learn, keeping the better answer
+    P->>L: flush: profiles to the session area,<br/>the list with profile null to the local one
   else any other tab
-    Note over P: rows say not looked up, look up waits for a SoundCloud tab
+    Note over P: N artists without socials yet, open a SoundCloud tab to fill in socials
   end
 ```
 
@@ -40,22 +36,29 @@ Source: [`src/tools/artists/Panel.svelte`](../../src/tools/artists/Panel.svelte)
 
 ## Life of an artist row
 
-What `profile` holds on an entry. A `401` leaves the row as it was, and any other failed `/resolve` counts as no profile, over whatever the row held.
+What `profile` holds on an entry. A track names its uploader in short, and the bio, track count and links come with the artist's own profile page. A whole profile is never replaced by a partial one. Profiles live in the session area, so a new browser session starts every row at not loaded yet.
 
 ```mermaid
 stateDiagram-v2
-  state "Not looked up" as Unchecked
-  state "Has a profile" as Profile
-  state "No profile, remembered" as Unavailable
+  state "Not loaded yet" as Unchecked
+  state "Partial: name, picture, place, followers" as Partial
+  state "Whole: bio and links too" as Whole
+  state "No profile, from an older version" as Unavailable
   [*] --> Unchecked: added
-  Unchecked --> Profile: lookup found the user
-  Unchecked --> Unavailable: not a public profile, or the request failed
-  Unchecked --> Unchecked: 401, or the lookup stopped short
-  Profile --> Profile: look up again
-  Profile --> Unavailable: look up again, gone or failed
-  Unavailable --> Profile: look up again
+  [*] --> Unavailable: restored from an older file
+  Unchecked --> Partial: the tab loaded one of their tracks
+  Unchecked --> Whole: the tab loaded their profile page
+  Partial --> Whole: the tab loaded their profile page
+  Partial --> Partial: a newer partial answer
+  Whole --> Whole: a newer whole answer
+  Unavailable --> Partial: the tab loaded one of their tracks
+  Unavailable --> Whole: the tab loaded their profile page
+  Partial --> Unchecked: the browser closed
+  Whole --> Unchecked: the browser closed
+  Unavailable --> Unchecked: the browser closed
   Unchecked --> [*]: taken off
-  Profile --> [*]: taken off
+  Partial --> [*]: taken off
+  Whole --> [*]: taken off
   Unavailable --> [*]: taken off
 ```
 
@@ -69,7 +72,7 @@ How one profile becomes a row's badges and an opened row's fields.
 flowchart TD
   Profile["profile<br/>bio up to 1,000 characters, up to 20 links"]
   Listed["links the profile lists"]
-  Bio["addresses and emails read out of the bio"]
+  Bio["web addresses read out of the bio"]
   Links["linksOf<br/>one per address, profile links first"]
   Network["networkOf<br/>lettered badge for each"]
   Row["the row: three badges, then +n"]
@@ -157,7 +160,7 @@ Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`content.ts
 
 ## What the queue sheet does
 
-Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. A tool already open under the sheet keeps its source until it next mounts.
+Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. Every tool shares one source, so a tool already open under the sheet switches to the queue at once.
 
 ```mermaid
 flowchart TD
@@ -170,7 +173,7 @@ flowchart TD
   Clear["clear, asks once more"]
   Marks[("marks")]
   Queue[("queue")]
-  Tool["that tool, reading the queue<br/>when it next mounts"]
+  Tool["that tool, open already or not,<br/>reading the queue at once"]
 
   Sheet --> MarkAll
   Sheet --> TakeOut
@@ -186,17 +189,17 @@ flowchart TD
   Send -->|"pref:source set to queue"| Tool
 ```
 
-Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/source.ts`](../../src/lib/source.ts), [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts)
+Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/source.ts`](../../src/lib/source.ts), [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/tools/soundcloud-playlist-to-text/Panel.svelte`](../../src/tools/soundcloud-playlist-to-text/Panel.svelte)
 
 ## What the settings sheet changes
 
-Each section, where it keeps what it sets, and who obeys it. An import writes back to the marks, the details, both lists, the queue and three pref keys.
+Each section, where it keeps what it sets, and who obeys it. An import writes back to the marks, both lists, the queue, the search sites and three pref keys.
 
 ```mermaid
 flowchart LR
   Page["SoundCloud pages<br/>replace buttons, likes as a list"]
   Down["downloads<br/>email, name, mark"]
-  Badges["search badges"]
+  Badges["search badges<br/>switches, sites you add"]
   Look["appearance<br/>theme, title case"]
   Data["your data"]
   About["about<br/>version, report a bug"]
@@ -217,4 +220,4 @@ flowchart LR
   About --> Bug
 ```
 
-Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)
+Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/lib/components/SearchSiteForm.svelte`](../../src/lib/components/SearchSiteForm.svelte), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)

@@ -3,6 +3,7 @@
 
 /// An audio format, as a file's extension names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Format {
     Mp3,
     /// `.aac`: AAC on its own.

@@ -3,7 +3,9 @@
 function handle()
 	local uris = list(params.uris, 25)
 	local byUri = {}
-	for _, project in ipairs(projects(' AND uri IN (' .. marks(#uris) .. ')', uris)) do byUri[project.uri] = project end
+	for _, project in ipairs(projects(' AND uri IN (' .. marks(#uris) .. ')', uris)) do
+		byUri[project.uri] = project
+	end
 	local out = {}
 	for _, uri in ipairs(uris) do
 		if byUri[uri] then

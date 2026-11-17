@@ -55,6 +55,13 @@ export const djProfiles = (dj: DjActivity[] | Promise<DjActivity[]>): string[] =
 		? dj.flatMap((entry) => (entry.profile ? [`at://${entry.did}/${COLLECTION.djProfile}/self`] : []))
 		: [];
 
+/** A DJ's set's page's records: the set, which they wrote. */
+export const setRecords = (uri: string, did: string): PageRecords => ({
+	canonical: byDid([uri]),
+	alternate: [],
+	author: byDid([`at://${did}`])
+});
+
 /** A person's profile page's records: their profile record, which they wrote, when they have one. */
 export const profileRecords = (profile: Pick<ProfileView, 'did'> | null): PageRecords => ({
 	canonical: profile ? byDid([`at://${profile.did}/${COLLECTION.profile}/self`]) : [],

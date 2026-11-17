@@ -15,39 +15,17 @@ name: Dependency review
 # The review compares the snapshot of the pull request's base commit, so main needs one for every
 # commit: ci.yml's changes job submits it on each push, under the same correlator (`pnpm-lock`).
 #
-# Its own workflow, since it covers all three ecosystems and only reviews pull requests. It isn't a
-# required check, so it can filter on paths in its trigger: a pull request that changes none of the
-# files the dependency graph reads starts no runner. Those are the lockfiles and manifests
-# (pnpm-lock.yaml, package-lock.json and package.json, Cargo.lock and Cargo.toml) and the
-# workflows, which only count as manifests in .github/workflows/, plus the action that submits the
-# lockfile's packages. pnpm-workspace.yaml isn't one: what its overrides change shows up in
-# pnpm-lock.yaml.
+# ci.yml calls it on pull requests that change what the dependency graph reads (its
+# dependency_review paths), so a review that fails holds up the merge through "CI passed".
 on:
-  # Not `reopened`: a reopened pull request has the same changes it was reviewed on.
-  pull_request:
-    types: [opened, synchronize, ready_for_review]
-    paths:
-      - "pnpm-lock.yaml"
-      - "**/package-lock.json"
-      - "**/package.json"
-      - "**/Cargo.lock"
-      - "**/Cargo.toml"
-      - ".github/workflows/**"
-      - ".github/actions/npm-snapshot/**"
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   review:
     name: Dependency review
-    # A draft waits until it's ready for review, as ci.yml's jobs do. Nothing requires this check,
-    # so the event's draft state is enough: ready_for_review starts the run that reviews it.
-    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

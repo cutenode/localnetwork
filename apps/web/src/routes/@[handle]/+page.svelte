@@ -1,18 +1,21 @@
 <script lang="ts">
-	import { Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { Bookmark, BookmarkCheck, CalendarPlus, Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
-	import DjSets from '#lib/components/DjSets.svelte';
-	import DjStats from '#lib/components/DjStats.svelte';
+	import FollowButton from '#lib/components/FollowButton.svelte';
+	import FormMessage from '#lib/components/FormMessage.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
-	import MixList from '#lib/components/MixList.svelte';
 	import PerformerFacts, { performerFacts } from '#lib/components/PerformerFacts.svelte';
-	import { accountLabel, placeLabel } from '#lib/format.ts';
+	import ProfileTabs from '#lib/components/ProfileTabs.svelte';
+	import SignInAgain from '#lib/components/SignInAgain.svelte';
+	import { accountLabel, placeLabel, profileHref } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
 	import { webHref } from '#lib/web-url.ts';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 
 	// An account without a profile record still has this page, with only its name and what it plays in.
 	const basics = $derived(data.profile?.record.basics);
@@ -22,6 +25,12 @@
 	const promoter = $derived(data.profile?.record.promoter);
 
 	const place = $derived(basics?.location && placeLabel({ location: basics.location }));
+
+	// A listed DJ takes inquiries from anyone but themself, as an act does from anyone but its managers.
+	const inquire = $derived(data.bookable && data.viewer?.did !== data.account.did);
+
+	// `#follow` lets sign-in say it's to follow them, and brings them back to the button.
+	const followLogin = $derived(data.viewer ? undefined : `/login?next=${encodeURIComponent(`${profileHref(data.account)}#follow`)}`);
 </script>
 
 <div class="border-b border-line">
@@ -34,7 +43,7 @@
 				<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
 					<span class="break-all">{accountLabel(data.account)}</span>
 					{#if place}<span class="inline-flex items-center gap-1.5"><MapPin class="size-4" />{place}</span>{/if}
-					{#if basics?.pronouns}<span>{basics.pronouns}</span>{/if}
+					{#if data.pronouns}<span>{data.pronouns}</span>{/if}
 					{#if performer?.activeSince}<span class="inline-flex items-center gap-1.5"><Clock class="size-4" />Playing since {performer.activeSince}</span>{/if}
 				</p>
 				{#if !data.profile}<p class="m-0 text-small text-fg-muted">Hasn't set up a profile yet.</p>{/if}
@@ -42,65 +51,24 @@
 		</div>
 		{#if performer?.genres?.length}
 			<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Sound">
-				{#each performer.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
+				{#each performer.genres as genre, index (index)}<li><Tag href="/djs?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
-		<div class="flex flex-wrap gap-2 empty:hidden"><ManageLink viewer={data.viewer} profile={data.account} /></div>
+		<div id="follow" class="flex flex-wrap gap-2 empty:hidden">{#if inquire && !data.viewer}<a href="/login?next={encodeURIComponent(profileHref(data.account))}" class="btn-primary"><CalendarPlus class="size-4" />Sign in to book</a>{:else if inquire}<a href="/dashboard/bookings/new?dj={data.account.did}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>{/if}{#if data.follow}{#await data.follow}<FollowButton follow={undefined} loginHref={followLogin} />{:then follow}<FollowButton {follow} loginHref={followLogin} />{/await}{/if}{#if data.viewer && data.saved !== null}<form method="POST" action={data.saved ? '?/unsave' : '?/save'} use:enhance><button class="btn-secondary">{#if data.saved}<BookmarkCheck class="size-4" />Saved{:else}<Bookmark class="size-4" />Save{/if}</button></form>{/if}<ManageLink viewer={data.viewer} profile={data.account} /></div>
 	</div>
 </div>
 
+{#if form?.error}
+	<div class="container-page mt-6">
+		{#if form.reauth && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
+	</div>
+{/if}
+
 <div class="container-page flex flex-wrap gap-x-10 gap-y-8 py-10">
-	<div class="flex min-w-0 flex-[999_1_34rem] flex-col gap-10">
-		{#if basics?.bio || performer?.lookingFor}
-			<section aria-labelledby="about" class="flex flex-col gap-3">
-				<h2 id="about" class="m-0 text-heading font-semibold">About</h2>
-				{#if basics?.bio}<p class="m-0 max-w-[65ch] whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
-				{#if performer?.lookingFor}
-					<div class="flex flex-col gap-1">
-						<h3 class="m-0 eyebrow text-fg-subtle">Looking for</h3>
-						<p class="m-0 max-w-[65ch] whitespace-pre-line text-small text-fg-muted">{performer.lookingFor}</p>
-					</div>
-				{/if}
-			</section>
-		{/if}
-
-		{#if performer?.mixes?.length}
-			<section aria-labelledby="mixes" class="flex flex-col gap-4">
-				<h2 id="mixes" class="m-0 text-heading font-semibold">Mixes</h2>
-				<MixList mixes={performer.mixes} sets={data.sets} />
-			</section>
-		{/if}
-
-		{#await data.dj}
-			<div aria-busy="true" aria-label="Loading how they play" class="flex flex-col gap-4">
-				<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
-				<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
-			</div>
-		{:then accounts}
-			{#each accounts as account (account.did)}
-				{#if account.profile}
-					<section aria-labelledby="stats" class="flex flex-col gap-4">
-						<h2 id="stats" class="m-0 text-heading font-semibold">How they play</h2>
-						<DjStats profile={account.profile} />
-					</section>
-				{/if}
-				{#if account.sets.length}
-					<section aria-labelledby="sets" class="flex flex-col gap-4">
-						<h2 id="sets" class="m-0 text-heading font-semibold">Recent sets</h2>
-						<DjSets sets={account.sets} />
-					</section>
-				{/if}
-			{/each}
-		{/await}
-
-		{#if performer?.highlights?.length}
-			<section aria-labelledby="highlights" class="flex flex-col gap-3">
-				<h2 id="highlights" class="m-0 text-heading font-semibold">Highlights</h2>
-				<ul class="m-0 flex list-none flex-col gap-2 p-0">
-					{#each performer.highlights as highlight, index (index)}<li class="border-l-2 border-line-strong pl-3 text-fg-soft">{highlight}</li>{/each}
-				</ul>
-			</section>
-		{/if}
+	<div class="flex min-w-0 flex-[999_1_34rem] flex-col">
+		{#key data.account.did}
+			<ProfileTabs profile={data.profile} sets={data.sets} dj={data.dj} playsIn={data.playsIn} requested={page.url.searchParams.get('tab')} />
+		{/key}
 	</div>
 
 	<aside class="flex min-w-0 flex-[1_1_18rem] flex-col gap-6">
@@ -128,16 +96,6 @@
 				</ul>
 			</section>
 		{/if}
-		{#await data.playsIn then projects}
-			{#if projects?.length}
-				<section aria-labelledby="plays-in" class="card flex flex-col gap-3 p-5 text-small">
-					<h2 id="plays-in" class="m-0 eyebrow text-fg-subtle">Plays in</h2>
-					<ul class="m-0 flex list-none flex-col gap-1.5 p-0">
-						{#each projects as project (project.uri)}<li><a class="link" href="/projects/{project.slug}">{project.profile.name}</a></li>{/each}
-					</ul>
-				</section>
-			{/if}
-		{/await}
 		{#if data.profile}
 			<section aria-labelledby="record" class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
 				<h2 id="record" class="m-0 eyebrow">On the AT Protocol</h2>

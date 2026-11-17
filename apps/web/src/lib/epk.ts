@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import type { epkContentSchema, epkFieldsSchema, epkRecordSchema } from './epk-schema.ts';
-import type { AccountView } from './types.ts';
+import type { localnetwork } from './lexicons/computer.ts';
+import type { AccountView, LexiconRead, PerformerSection, PromoterSection } from './types.ts';
+import type { VenueRole } from './venues.ts';
 
 /**
  * Press kits (EPKs) as records: a public `computer.localnetwork.epk` in the root account's repo, and a
@@ -110,28 +112,15 @@ export function readRule(value: string | undefined): AccessRule {
 	return ACCESS_RULES.find((rule) => rule === value) ?? 'none';
 }
 
-export type EpkRecord = z.infer<typeof epkRecordSchema>;
+export type EpkRecord = LexiconRead<z.infer<typeof epkRecordSchema>, localnetwork.epk.Main>;
 
-export type EpkContent = z.infer<typeof epkContentSchema>;
+export type EpkContent = LexiconRead<z.infer<typeof epkContentSchema>, localnetwork.epk.content.Main>;
 
 export type EpkMix = NonNullable<EpkRecord['mixes']>[number];
 
 export type EpkPhoto = NonNullable<EpkRecord['photos']>[number];
 
 export type EpkQuote = NonNullable<EpkContent['quotes']>[number];
-
-export const REQUEST_ROLES = ['promoter', 'venue', 'agent', 'press', 'artist', 'other'] as const;
-
-export type RequestRole = (typeof REQUEST_ROLES)[number];
-
-export const ROLE_LABELS: Record<RequestRole, string> = {
-	promoter: 'Promoter',
-	venue: 'Venue',
-	agent: 'Agent',
-	press: 'Press',
-	artist: 'Artist',
-	other: 'Something else'
-};
 
 export type EpkView = {
 	uri: string;
@@ -154,7 +143,7 @@ export const LEGACY_KIT =
 	'This press kit moves to the project the next time the manager who made it opens the dashboard';
 
 /** Some fields of a press kit: the public record's at the top level, the private part's under `content`. */
-export type EpkFields = z.infer<typeof epkFieldsSchema>;
+export type EpkFields = LexiconRead<z.infer<typeof epkFieldsSchema>, localnetwork.epk.draft.Fields>;
 
 type PublicValues = Omit<EpkFields, 'content'>;
 
@@ -228,13 +217,22 @@ export type EpkRequestStatus = 'pending' | 'approved' | 'declined' | 'withdrawn'
 export type EpkRequestView = {
 	uri: string;
 	requester: AccountView;
-	role: RequestRole | null;
 	message: string | null;
 	status: EpkRequestStatus;
 	/** What the press kit's rules say for this person: auto requests of a legacy press kit wait for it to move. */
 	rule: AccessRule;
 	createdAt: string;
 	decidedAt: string | null;
+};
+
+/**
+ * What a press kit's managers see about someone asking for it: the promoter and DJ sections of their own profile, each
+ * null when it's off, and the venues they're in.
+ */
+export type RequesterAbout = {
+	promoter: PromoterSection | null;
+	performer: Pick<PerformerSection, 'genres'> | null;
+	venues: VenueRole[];
 };
 
 export type EpkGrantView = {

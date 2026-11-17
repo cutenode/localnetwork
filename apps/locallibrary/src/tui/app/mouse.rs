@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use locallibrary::query::SortField;
-use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::browse::{self};
@@ -47,6 +47,10 @@ pub struct Areas {
     pub prepare: Rect,
     /// The empty state's next steps.
     pub steps: Rect,
+    /// The footer's hints, each the key it stands for: a click on one is that key.
+    pub hints: Vec<(Rect, KeyEvent)>,
+    /// The loop chip under player mode's waveforms: a click ends the loop.
+    pub loop_chip: Rect,
 }
 
 /// A row clicked: its view, its pane (none for the full-screen player's matches) and its index.
@@ -86,6 +90,16 @@ impl App {
         if self.modal.is_some() {
             self.on_modal_mouse(m);
             return;
+        }
+        // The footer's hints and the loop chip are buttons: a click is their key.
+        if m.kind == MouseEventKind::Down(MouseButton::Left) {
+            if let Some(&(_, key)) = self.areas.hints.iter().find(|(r, _)| r.contains(p)) {
+                self.last_click = None;
+                return self.on_key(key);
+            }
+            if self.areas.loop_chip.contains(p) {
+                return crate::tui::deck::toggle_loop(self);
+            }
         }
         // The tabs and the deck are the same everywhere, and with only the deck, the panes aren't
         // there to click.
@@ -133,7 +147,7 @@ impl App {
                     if i < self.list_len() {
                         self.next_pick.select(Some(i));
                         if again(self, (self.view, None, i)) {
-                            self.play_next();
+                            self.queue_picked(true);
                         }
                     }
                 } else if let Some(&(field, _)) = self.areas.columns.iter().find(|(_, r)| r.contains(p)) {
@@ -258,7 +272,7 @@ impl App {
             (View::Library, Focus::Playlists) => (self.areas.playlists.y + 1, self.playlist_state.offset()),
             (View::Library, Focus::Details) => (self.areas.matches.y, self.details_state.offset()),
             (View::Library, Focus::Crate) => (self.areas.crate_rows.y, self.crate_state.offset()),
-            (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.drive_state.offset()),
+            (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.source_offset),
             (View::Prepare, _) => (self.areas.prepare.y + 1, self.prepare.offset()),
             (View::Drives, Focus::Drives) => (self.areas.drive_list.y + 1, self.drive_rows.offset()),
             (View::Drives, Focus::Tracks) => (self.areas.history.y + 2, self.history_state.offset()),
@@ -276,6 +290,13 @@ impl App {
             let &r = self.drive_rows().get(i)?;
             self.select_drive_row(r);
             return Some(i);
+        }
+        if (self.view, f) == (View::Library, Focus::Drives) {
+            // The sources: rekordbox's collection above the drives.
+            return (i < self.source_rows()).then(|| {
+                self.select_source_row(i);
+                i
+            });
         }
         let (sel, len) = self.list_selection();
         (i < len).then(|| {

@@ -221,20 +221,20 @@ const DRIVE_CHANGES: Changes = &[
     (&["drive", "rename", "A", "A"], &[]),
     (&["?drive", "reidentify", "@v/Blank"], &[]),
     (&["?drive", "adopt", "Demo"], &[]),
-    (&["adopt", "Demo", "--name", "Demo"], &["report.name"]),
+    (&["drive", "adopt", "Demo", "--name", "Demo"], &["report.name"]),
     (&["!erase-club"], &[]),
     (&["?drive", "adopt", "@v/Club", "--as", "Club"], &[]),
     (&["drive", "adopt", "@v/Club", "--as", "Club"], &["plan.summary.[]"]),
     (&["?drive", "firmware", "A", "--remove"], &[]),
-    (&["firmware", "A", "--remove", "--dry-run"], &[]),
+    (&["drive", "firmware", "A", "--remove", "--dry-run"], &[]),
     (&["?drive", "verify", "A", "--repair"], &[]),
     (&["!lose-store-objects"], &[]),
     (&["drive", "verify", "A", "--repair", "--against", "Blank"], &["plan.drive"]),
     (&["drive", "tidy", "A"], &[]),
-    (&["tidy", "A", "--dry-run"], &[]),
+    (&["drive", "tidy", "A", "--dry-run"], &[]),
     (&["track", "rm", "A", "--track", "2"], &[]),
     (&["drive", "backups", "A"], &["[].id"]),
-    (&["restore", "A", "--dry-run"], &[]),
+    (&["drive", "restore", "A", "--dry-run"], &[]),
     (&["!unplug-club"], &[]),
     (&["status"], &["libraries.[].name", "offline.[].name"]),
     (&["drive", "ls", "--known"], &["[].name"]),
@@ -269,7 +269,7 @@ const LIBRARY_CHANGES: Changes = &[
     (&["pull", "--label", "x"], &[]),
     (&["library", "push", "Blank", "-l", "A", "--dry-run"], &[]),
     (&["library", "push", "Blank", "-l", "A", "--force"], &[]),
-    (&["push", "Blank", "--eject"], &[]),
+    (&["library", "push", "Blank", "--eject"], &[]),
     (&["undo", "A", "--dry-run"], &[]),
     (&["undo", "A"], &[]),
     (&["!damage"], &[]),
@@ -305,7 +305,7 @@ const SYNC_CHANGES: Changes = &[
     (&["sync", "A"], &[]),
     (&["sync", "A", "Club", "Blank", "--dry-run"], &[]),
     (&["sync", "A", "Club"], &[]),
-    (&["mirror", "A", "Blank", "--delete-first"], &[]),
+    (&["sync", "--from", "A", "Blank", "--delete-first"], &[]),
     (&["sync", "A", "--library", "A"], &[]),
     (&["sync", "Club"], &[]),
     (&["sync", "--from", "A", "Blank", "Club"], &[]),
@@ -769,10 +769,10 @@ fn upgrades_say_what_their_json_says(tc: TestCase) {
     redraw_waveform(&a.join(track.analyze_path().trim_start_matches('/')).with_extension("EXT"), &mp3);
     // Another recording, with no lossless file of it in the folder, clipped: full scale and over.
     let loud =
-        loclib_mixid::test_util::synth(5.0, 31).into_iter().map(|s| ((s * 200_000.0) as i32).clamp(-32_768, 32_767));
+        loclib_testkit::audio::synth(5.0, 31).into_iter().map(|s| ((s * 200_000.0) as i32).clamp(-32_768, 32_767));
     std::fs::write(
         a.join(crate::props_cli_human::TRACK_2),
-        loclib_mixid::test_util::wav_of(11_025, 16, loud.collect::<Vec<_>>().into_iter()),
+        loclib_testkit::audio::wav_of(11_025, 16, loud.collect::<Vec<_>>().into_iter()),
     )
     .unwrap();
     std::fs::write(a.join("Contents/Hi Res.wav"), recording(5, 1.0, 96_000, 24, 0)).unwrap();

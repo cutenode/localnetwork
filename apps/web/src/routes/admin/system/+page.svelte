@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { CircleCheck, RefreshCw, TriangleAlert } from '@lucide/svelte';
+	import { CircleCheck, FileText, LoaderCircle, RefreshCw, TriangleAlert } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
+	import MigrationPlan from '#lib/components/MigrationPlan.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { shortDid, timeAgo } from '#lib/format.ts';
+	import { pluralize, shortDid, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
@@ -12,9 +13,14 @@
 
 	let busy = $state(false);
 
+	let planning = $state(false);
+
 	const access = (open: boolean) => (open ? 'public' : 'members');
 
-	const failing = (space: (typeof data.sync)[number]) => !!space.lastError || space.repos.some((repo) => repo.lastError);
+	const failing = (space: (typeof data.sync)[number]) =>
+		!!space.lastError || space.repos.some((repo) => repo.lastError) || space.stuck.length > 0;
+
+	const nextTry = (at: string) => (Date.parse(at) > Date.now() ? `next try ${timeAgo(at)}` : 'due on the next sync');
 
 	// Spaces with errors first, so a problem isn't lost among the healthy ones.
 	const spaces = $derived(data.sync.toSorted((a, b) => Number(failing(b)) - Number(failing(a))));
@@ -40,6 +46,9 @@
 <div class="flex flex-col gap-6">
 	<SectionHeader level={1} title="System" lede="Bootstrap and sync creates any missing root spaces, then re-reads every space and the directory. Run it after a deploy or when sync falls behind.">
 		{#snippet actions()}
+			<form method="POST" action="?/planMigration" use:enhance={() => { planning = true; return async ({ update }) => { await update(); planning = false; }; }}>
+				<button class="btn-secondary w-full" disabled={planning}>{#if planning}<LoaderCircle class="size-4 animate-spin" />{:else}<FileText class="size-4" />{/if}Plan the project migration</button>
+			</form>
 			<form method="POST" action="?/retryAudit" use:enhance><button class="btn-secondary w-full">Retry audit copies</button></form>
 			<form method="POST" action="?/resync" use:enhance={({ cancel }) => { if (!confirm('Bootstrap and sync every space now? It can take a minute.')) return cancel(); busy = true; return async ({ update }) => { await update(); busy = false; }; }}>
 				<button class="btn-secondary w-full" disabled={busy}><RefreshCw class="size-4 {busy ? 'animate-spin' : ''}" />Bootstrap and sync</button>
@@ -50,6 +59,7 @@
 		{#if problems.length}<TriangleAlert aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-warning" />{problems.join(' · ')}{:else}<CircleCheck aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-good" />Everything is running and in sync.{/if}
 	</p>
 	<FormMessage {form} />
+	{#if form && 'plan' in form && form.plan}<MigrationPlan plan={form.plan} />{/if}
 
 	<div class="grid items-start gap-6 xl:grid-cols-2">
 		<Card as="section">
@@ -76,7 +86,7 @@
 
 	<section class="flex flex-col gap-3">
 		<h2 class="section-title">Root spaces</h2>
-		<div class="card overflow-x-auto">
+		<div role="region" aria-label="Root spaces" tabindex="0" class="card overflow-x-auto">
 			<table class="table-base min-w-200">
 				<thead><tr><th>Space</th><th>Read</th><th>Write</th><th>URI</th></tr></thead>
 				<tbody>
@@ -105,6 +115,17 @@
 							<li class="text-fg-subtle">No writers yet.</li>
 						{/each}
 					</ul>
+					{#if space.stuck.length}
+						<h3 class="text-label font-medium text-fg">Stuck in projection</h3>
+						<ul class="flex flex-col gap-1 text-label">
+							{#each space.stuck as record (`${record.did} ${record.collection} ${record.rkey}`)}
+								<li class="text-fg-subtle">
+									<p class="font-mono break-all">{record.collection}/{record.rkey}</p>
+									<p><span class="font-mono">{shortDid(record.did)}</span> · {pluralize(record.attempts, 'attempt')} · {nextTry(record.nextAttemptAt)}{#if record.lastError}<span class="text-critical">{` · ${record.lastError}`}</span>{/if}</p>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</Card>
 			{/each}
 		</div>

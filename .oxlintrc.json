@@ -25,6 +25,7 @@
 		"coverage/**",
 		"node_modules/**",
 		".*/**",
+		"!.railway/**",
 		"tools/oxlint/anti-slop/**"
 	],
 	"rules": {

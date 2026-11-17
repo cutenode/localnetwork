@@ -13,7 +13,7 @@ mod video;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use loclib_plugin::{Hooks, Host, PublishSet, Published, RpcError};
+use loclib_plugin::{Hooks, Host, PublishSet, Published, RpcError, clock};
 use serde_json::json;
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
@@ -111,7 +111,7 @@ fn dry_run(
 ) -> Vec<String> {
     let name = |p: &Path| p.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let shown = picture.map_or("a black frame".into(), name);
-    let length = video::clock(seconds as u32);
+    let length = clock(seconds as u32);
     let mut what = format!(
         "{} ({length}) would go to YouTube as the {privacy} video \"{}\", {shown} over the audio",
         name(&req.recording),

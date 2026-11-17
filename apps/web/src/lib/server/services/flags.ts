@@ -57,22 +57,31 @@ const inCatalog = (key: string) => FLAGS.some((flag) => flag.key === key);
 /** How long a flag has to be fully on, untouched, before the console says to remove it. PostHog uses the same. */
 const READY_TO_REMOVE_MS = 30 * 86_400_000;
 
-/** The audit changes between two flags' gates. Empty when saving changes nothing. */
-function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
-	const fields = [
+/** The audit changes among `[field, before, after]` values. Empty when saving changes nothing. */
+const changed = (fields: [string, string, string][]): AuditChange[] =>
+	fields
+		.values()
+		.filter(([, was, is]) => was !== is)
+		.map(([field, was, is]) => ({ field, before: was, after: is }))
+		.toArray();
+
+/** The audit changes between two flags' gates. */
+const flagChanges = (before: FlagInput, after: FlagInput) =>
+	changed([
 		['enabled', String(before.enabled), String(after.enabled)],
 		['everyone', String(before.everyone), String(after.everyone)],
 		['percentage', String(before.percentage), String(after.percentage)],
 		['groups', list(before.groups), list(after.groups)],
 		['accounts', list(before.dids), list(after.dids)]
-	];
+	]);
 
-	return fields
-		.values()
-		.filter(([, was, is]) => was !== is)
-		.map(([field, was, is]) => ({ field, before: was, after: is }))
-		.toArray();
-}
+/** The audit changes between two versions of a group. */
+const groupChanges = (before: FlagGroupInput, after: FlagGroupInput) =>
+	changed([
+		['name', before.name, after.name],
+		['description', before.description ?? '', after.description ?? ''],
+		['members', list(before.members), list(after.members)]
+	]);
 
 /**
  * Feature flags and the groups they target: records in the root's staff space, indexed into SQLite so they rebuild from
@@ -326,22 +335,23 @@ export class FlagService {
 		return rkey;
 	}
 
+	/** Saving what's already set writes nothing. */
 	async updateGroup(actor: Viewer, rkey: string, input: FlagGroupInput): Promise<void> {
 		await this.requireGrant(actor, 'flagGroups');
 		const group = (await this.load()).groups.get(rkey);
 
 		if (!group) throw new UserError('That group no longer exists', 404);
 		await this.checkName(input.name, rkey);
+		const changes = groupChanges({ ...group, members: [...group.members] }, input);
+
+		if (changes.length === 0) return;
 		await this.writeGroup(rkey, { ...input, createdAt: group.createdAt, updatedBy: actor.did, updatedAt: nowIso() });
 		await this.audit(actor, {
 			action: 'flagGroup.update',
 			subject: rkey,
 			subjectKind: 'flagGroup',
 			summary: `Changed the flag group ${input.name}`,
-			changes: [
-				{ field: 'name', before: group.name, after: input.name },
-				{ field: 'members', before: list([...group.members]), after: list(input.members) }
-			]
+			changes
 		});
 	}
 

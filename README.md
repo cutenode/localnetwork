@@ -37,7 +37,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 ```bash
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
-pnpm verify                  # each app's format, lint, type check, tests and build, knip over the whole repo, and the lexicons' format
+pnpm verify                  # each app's format, lint, type check, tests and build, the root's own (pnpm *:tools), knip over the whole repo, and the lexicons' format
 pnpm atstore                 # each tool's AT Store icon, hero and screenshots, and the website's tool captures (packages/atstore)
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 

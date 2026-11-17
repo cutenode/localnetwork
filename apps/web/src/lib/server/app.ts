@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
@@ -32,10 +33,17 @@ import { type ChannelSender, Outbox } from './notifications/outbox';
 import { PlyrClient } from './plyr';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
+import { BookingPerformers } from './services/booking-performers';
 import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
+import { performerListingSource } from './services/performer-index';
+import { venueListingSource } from './services/venue-index';
+import { VenueService } from './services/venues';
+import { VenueRules } from './services/venue-rules';
+import { PerformerService } from './services/performer-registry';
+import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
@@ -70,7 +78,7 @@ export type CreateAppOptions = {
 	userClient?: (did: string) => Promise<RepoClient | null>;
 	/** Start polling, audit retries, and directory sync retries. */
 	background?: boolean;
-	/** What each kind's listing shows. No kind has a public page yet, so only tests list anything. */
+	/** What each kind's listing shows, over the acts' own. Parties and venues have no public page yet. */
 	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
 };
 
@@ -232,7 +240,6 @@ export async function createApp(options: CreateAppOptions) {
 
 	if (Object.keys(config.flagOverrides).length > 0)
 		logger.warn('flags forced by FLAG_OVERRIDES', { flags: config.flagOverrides });
-	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
@@ -240,8 +247,8 @@ export async function createApp(options: CreateAppOptions) {
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const bookings = new BookingService(core, new BookingPerformers(core, projects, profiles, djListings));
 	const performers = new PerformerSearch(core, happyView, projects, profiles);
-	const requests = new RequestService(core, projects, profiles, djListings);
 
 	const recordings = new RecordingService(
 		indexedRepo,
@@ -258,8 +265,16 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const listings = new ListingWriter(core, options.listingSources ?? {});
+
+	const listings = new ListingWriter(core, flags, {
+		performer: performerListingSource(db),
+		venue: venueListingSource(db),
+		...options.listingSources
+	});
+
 	const sharedSpaces = new SharedSpaces(core, listings);
+	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
+	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 
 	const limits = {
 		login: new RateLimiter(10, 10 / 60),
@@ -274,6 +289,9 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const venues = new VenueService(core, sharedSpaces, limits.write);
+	const venueRules = new VenueRules(core);
+	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
 	const bugReports = new BugReportService({
@@ -387,6 +405,10 @@ export async function createApp(options: CreateAppOptions) {
 		profiles,
 		djListings,
 		performers,
+		performerRegistry,
+		projectMigration,
+		venues,
+		venueRules,
 		recordings,
 		supports,
 		epks,
@@ -461,14 +483,14 @@ export async function createApp(options: CreateAppOptions) {
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
 		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
 		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
-		 * root's verifications and DJ listings, and the bug report space. A failure is logged and tried again on the next
-		 * round, without marking the directory sync failed.
+		 * root's verifications, DJ listings and listings, and the bug report space. A failure is logged and tried again on
+		 * the next round, without marking the directory sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
 			const { scripts } = bundle();
 			let managers: Promise<string[]> | undefined;
-			const spaceOwner = config.userinputSpace?.split('/')[2];
+			const spaceOwner = config.userinputSpace && new AtUri(config.userinputSpace).host;
 
 			const refreshes = [
 				...MANAGER_COLLECTIONS.map((collection) => ({
@@ -478,6 +500,7 @@ export async function createApp(options: CreateAppOptions) {
 				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
 				{ collection: VERIFICATION, accounts: async () => [rootDid] },
 				{ collection: COLLECTION.listingProfile, accounts: async () => [rootDid] },
+				{ collection: COLLECTION.listing, accounts: async () => [rootDid] },
 				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
 			];
 
@@ -505,6 +528,7 @@ export async function createApp(options: CreateAppOptions) {
 			await syncer.syncAll();
 			// After the sync, so the index has every space's people, and the requests and grants left in press kit spaces.
 			await listings.reconcile();
+			await venues.reconcileBlocks();
 			await moveKitSpaces(core, epks);
 		},
 
@@ -541,6 +565,8 @@ export async function createApp(options: CreateAppOptions) {
 			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
 			// where one differs.
 			every(60 * 60_000, () => listings.reconcile(), 'listings');
+			// Indexes the root's venue blocks and drops ones that are gone: one listRecords of the root's own repo.
+			every(60 * 60_000, () => venues.reconcileBlocks(), 'venue-blocks');
 			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');

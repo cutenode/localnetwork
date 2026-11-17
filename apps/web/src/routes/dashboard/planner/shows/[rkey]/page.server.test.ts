@@ -56,14 +56,14 @@ async function redirectOf(running: Promise<unknown>) {
 	return null;
 }
 
-it('opens a new show with the saved projects to pick from', async () => {
+it('opens a new show with the saved performers to pick from', async () => {
 	const data = await opened('new');
 
 	expect(data).toMatchObject({ show: null, isNew: true, saves: [{ project: saved.uri }] });
-	expect(Object.keys(data.projects)).toEqual([saved.uri]);
+	expect(Object.keys(data.performers)).toEqual([saved.uri]);
 });
 
-it("opens a planned show with its lineup's projects as well as the saved ones", async () => {
+it("opens a planned show with its lineup's performers as well as the saved ones", async () => {
 	const rkey = await f.t.planner.saveShow(await f.t.viewer(PROMOTER), {
 		details: { title: 'Rooftop Rave' },
 		lineup: [{ project: f.project.uri, status: 'contacted' }]
@@ -71,8 +71,27 @@ it("opens a planned show with its lineup's projects as well as the saved ones", 
 
 	const data = await opened(rkey);
 
-	expect(data).toMatchObject({ isNew: false, show: { rkey, details: { title: 'Rooftop Rave' } } });
-	expect(Object.keys(data.projects).sort()).toEqual([saved.uri, f.project.uri].sort());
+	expect(data).toMatchObject({ isNew: false, show: { rkey, details: { title: 'Rooftop Rave' } }, bookings: {} });
+	expect(Object.keys(data.performers).sort()).toEqual([saved.uri, f.project.uri].sort());
+});
+
+it('names the booking each lineup project was asked through from this show', async () => {
+	const promoter = await f.t.viewer(PROMOTER);
+	const lineup = [{ project: f.project.uri, status: 'contacted' as const }];
+	const rkey = await f.t.planner.saveShow(promoter, { details: { title: 'Rooftop Rave' }, lineup });
+	const other = await f.t.planner.saveShow(promoter, { details: { title: 'Afterparty' }, lineup });
+
+	const space = await f.t.bookings.start({
+		actor: promoter,
+		projectUri: f.project.uri,
+		show: { title: 'Rooftop Rave' },
+		message: 'Free?',
+		plannerShow: rkey
+	});
+
+	expect((await opened(rkey)).bookings).toEqual({ [f.project.uri]: space.split('/').at(-1) });
+	expect((await opened(other)).bookings).toEqual({});
+	expect((await opened('new')).bookings).toEqual({});
 });
 
 it("says a show that isn't planned isn't found, and why an account without spaces has no planner", async () => {

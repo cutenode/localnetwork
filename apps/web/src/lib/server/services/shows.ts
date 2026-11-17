@@ -411,6 +411,17 @@ export class ShowService {
 	}
 
 	/**
+	 * A calendar event's name, or null when HappyView doesn't have the event or can't answer. It keeps only the events
+	 * of accounts that manage a project (lua/community/lexicon/calendar/event.lua).
+	 */
+	async eventName(uri: string): Promise<string | null> {
+		if (parsePublicRecordUri(uri)?.collection !== CALENDAR_EVENT) return null;
+		const record = (await this.indexed.getRecords([uri])).get(uri);
+
+		return (record && readEvent(record.value)?.name) ?? null;
+	}
+
+	/**
 	 * `did`'s show with key `rkey` and its calendar event, as HappyView has them. Strict, since a write goes on what
 	 * this reads, and a HappyView that's down would look like a show that isn't there.
 	 */

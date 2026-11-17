@@ -14,8 +14,8 @@ note: Read through HappyView (IndexedRepo or HappyViewClient in apps/web/src/lib
 ignores:
   # Integration tests and tooling (the dev network, publish-lexicons.ts) seed, publish and check
   # records on a PDS directly.
-  - "apps/web/tests/**"
-  - "apps/web/scripts/**"
+  - 'apps/web/tests/**'
+  - 'apps/web/scripts/**'
 rule:
   any:
     # A record, repo or blob read, or a Bluesky AppView query, named in a string or URL, or the
@@ -44,8 +44,8 @@ message: This reads records straight from a PDS or Bluesky's AppView.
 note: Read through HappyView (crates/locallibrary/src/atmosphere/directory.rs). Approved exceptions are this rule's ignores in tools/ast-grep/rules/no-direct-pds-read.yml.
 ignores:
   # Tests and the mock PDS answer and count these reads, to check none is made.
-  - "**/tests/**"
-  - "**/tests.rs"
+  - '**/tests/**'
+  - '**/tests.rs'
 rule:
   any: [{ kind: string_literal }, { kind: raw_string_literal }]
   regex: 'com\.atproto\.repo\.(getRecord|listRecords|describeRepo)\b|com\.atproto\.sync\.(getRecord|getRepo|listRecords|getBlob)\b|app\.bsky\.\w+\.(get|search|list)[A-Z]|api\.bsky\.app'

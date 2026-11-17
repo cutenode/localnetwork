@@ -53,7 +53,7 @@ Logging: the website logs with [pino](https://getpino.io) (`apps/web/src/lib/ser
 
 | Project      | Tests                                                                                                                         | Coverage and other bars                                                                                                           |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| website      | Vitest projects in `apps/web/vite.config.ts` (server, client in browser mode, integration, build, Storybook); Playwright e2e  | Vitest thresholds in `vite.config.ts`; Lighthouse budgets in `lighthouserc.cjs`, and every page in `lighthouse/pages.json` weekly against its history; Storybook stories fail on a11y violations        |
+| website      | Vitest projects in `apps/web/vite.config.ts` (server, client in browser mode, integration, build, Storybook); Playwright e2e; Jazzer.js fuzz targets in `apps/web/fuzz/` | Vitest thresholds in `vite.config.ts`; Lighthouse budgets in `lighthouserc.cjs`, and every page in `lighthouse/pages.json` weekly against its history; Storybook stories fail on a11y violations        |
 | localtoolbox | Vitest with jsdom; its README is its spec, checked by `test/docs.test.ts`                                                     | per-file thresholds in `vitest.config.ts`; Stryker mutation score of at least 91 (`stryker.config.mjs`)                           |
 | Rust         | cargo-nextest (`.config/nextest.toml`); unit tests in each module's `tests.rs`; Hegel property tests; fuzz targets in `fuzz/` | `cargo coverage` (`.cargo/config.toml`) fails under its thresholds; `tools/hegel-coverage.sh` holds the Hegel tests alone to them |
 
@@ -107,7 +107,7 @@ localtoolbox has no release workflow. `pnpm zip` builds `localtoolbox.zip`, peop
 - Lexicons live in `lexicons/` by NSID. A new tool's own records go under `computer.localnetwork.<tool>.*`, and records several tools read go in a group named for what they are (`computer.localnetwork.dj.*`). The website's records predate this and sit at the top level (`booking`, `epk`, `project`). A tool's OAuth permission set is a top-level document too, like `locallibraryPublishing.json`. A new shared group goes in the list in `tools/policy/lexicons.rego`. locallibrary's tests list every document in `locallibrary/` and `dj/` (`crates/locallibrary/src/atmosphere/lexicon/tests.rs`), so a new one there needs adding to them. `pnpm lexicons:format` formats the lexicons and `pnpm lexicons:publish` (in `apps/web`) publishes all of them.
 - `packages/tokens/colors.json` holds the colours that mean the same thing wherever DJ data is drawn. Use it instead of new colours for the same things.
 - `packages/tokens/theme.css` is the Local Network design system the website and localtoolbox share (tokens, type scale, shared classes). A new web UI imports it after `@import 'tailwindcss'`, along with the two `@fontsource-variable` fonts it names.
-- Each tool has a page at `localnetwork.computer/tools/<tool>`: one file in `apps/web/src/lib/tools/`, listed in its `index.ts`. The page shows the tool's `README.md` and `docs/*.md`, which the website's Docker build picks up from `apps/<tool>/`.
+- Each tool has a page at `localnetwork.computer/tools/<tool>`: one file in `apps/web/src/lib/tools/`, listed in its `index.ts`. The page shows the tool's `docs/*.md` with its `README.md` as the overview, which the website's Docker build copies from `apps/<tool>/`. A README written for developers stays out of that file's glob, and `docs/overview.md` is the overview instead (localtoolbox's is). Any `## Diagrams` section stays on GitHub, which draws the Mermaid, and is left off the page.
 
 ## A new TypeScript app
 
@@ -138,7 +138,7 @@ Then do the steps every app shares, below.
 3. Its lexicons, if it writes records, under `lexicons/computer/localnetwork/<tool>/`.
 4. If it signs people in with their Atmosphere account, as locallibrary does: a permission-set lexicon (`<tool>Publishing.json`), `hosts` and `clientMetadata` in its tool entry, and DNS for its own host (see [Tools' pages and hosts](../apps/web/README.md#tools-pages-and-hosts)).
 5. A label for it in `.github/labels.yml`, its paths under that label in `.github/labeler.yml`, and any areas as `"<tool>: <area>"` labels in both. The `web: tools` label's description names every tool.
-6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`. Questions go to Discussions, which has no form.
+6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`.
 7. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
 8. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
 
@@ -149,7 +149,7 @@ Then do the steps every app shares, below.
 1. Create `plugins/<id>/` with a `Cargo.toml` named `locallibrary-plugin-<id>`, `publish = false`, the workspace's package fields, `[lints] workspace = true`, and `loclib-plugin.workspace = true`.
 2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
-4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
+4. Test it in `src/tests.rs` against loclib-plugin's `FakeHost` ([Testing a plugin](../crates/loclib-plugin/README.md#testing-a-plugin)), as `plugins/interop/src/tests.rs` does: `cargo add --dev -p locallibrary-plugin-<id> loclib-plugin --features test-util`. Include a test that the manifest passes `validate(true)`. `FakeHost::start` checks that `describe` returns it.
 5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/` but `accounts/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
 6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 7. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.

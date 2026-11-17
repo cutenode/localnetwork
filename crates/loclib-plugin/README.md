@@ -15,7 +15,8 @@ caret rule, so before 1.0 the minor version must match. A new kind of hook doesn
 family of hooks is an optional feature named after it (`FEATURES`, see [Hooks](#hooks)), and so
 are the SDK's own, which every plugin written with it has: `blobs` (scratch folders and partial
 results), `net` (fetching through the host), `choose` (asking the user first), `accounts` (naming
-an account in a request, see [accounts](#accounts)) and `views` (trees, charts, images, sections
+an account in a request, see [accounts](#accounts)), `atmosphere` (writing a record in the user's
+Atmosphere account, see [atmosphere](#atmosphere)) and `views` (trees, charts, images, sections
 and typed table columns, see [views](#views)).
 
 1. The host's first message is `hello`
@@ -53,12 +54,41 @@ and typed table columns, see [views](#views)).
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
    they don't grant fails with kind `denied`); writes never can be, nor reads of files on the
-   computer. Each read takes only some of its params from a plugin: drives by id or name (never
-   a path), no files, servers or secrets, and pages of at most 500, and what it answers says
+   computer but rekordbox's (see below). Each read takes only some of its params from a plugin:
+   drives by id or name (never a path), no files but in the request's scratch folder, no
+   servers or secrets, and pages of at most 500, and what it answers says
    nothing of where things are on the computer: no `root` (where a drive is mounted), nor where
    the store's copies, a set's or a mix's recording or rekordbox's collection are, and any other path said
    from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
    kind `busy`).
+   With `collection:files`, a plugin reads rekordbox's own files on the computer, to back them
+   up (`Host::collection`). The host answers these reads itself and never writes to rekordbox's
+   folders. `collection.locations` and `collection.tracks` answer paths as they are, not said
+   from `~` or `<store>`: where the files are is what they're for. `master.db` is where
+   `LOCALLIBRARY_MASTERDB` says, else where rekordbox's settings say it moved its library, else
+   rekordbox's own folder:
+
+   | Read | Params | Answer |
+   | --- | --- | --- |
+   | `collection.locations` | none | `{data, master_db, master_db_exists, share, settings}`: absolute paths |
+   | `collection.status` | none | `{running, version}`: whether rekordbox is running, and its version |
+   | `collection.copy` | `into`, `with_credentials?` | `{bytes, db_id, db_version, credentials_removed}` |
+   | `collection.tracks` | `db?`, `offset`, `limit` | `{db_id, total, tracks: [{id, uuid, path, analysis_path, image_path, deleted, artist?, album?}]}` |
+
+   `collection.copy` writes a copy of `master.db` as of one moment, rebuilt and still
+   encrypted as rekordbox's own backup writes it, to `into`: a new file in the request's
+   scratch folder (absolute), as far as the folder has room. The copy leaves out the cloud
+   agent's sign-in (`agentRegistry`'s `agentCredentials` row) unless `with_credentials` is true.
+   A `master.db` with a trigger can't be copied without it, as the trigger could keep it. `collection.tracks`
+   lists every track row, deleted ones too, in pages of at most 500: `path` is the audio file
+   on this computer (`OrgFolderPath` for a Cloud Library Sync track), and `analysis_path` and
+   `image_path` are in `share`, as stored. `artist` and `album` are the names rekordbox has for
+   them (`djmdArtist`, `djmdAlbum`), left out when it has none: its backup names its music
+   folders after them. `db` names a copy in the scratch folder (one it copied,
+   or a backup's `master.db`) to read instead of rekordbox's own, which can change between
+   pages while rekordbox runs. A file outside the scratch folder, or a link, fails with kind
+   `invalid`. `version` is the installed app's on macOS (`7.2.14.0323`), else the one rekordbox's
+   agent last recorded (`7.2.14`).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
    body_blob?, body_range?, multipart?, into_blob?}` -> `{status, headers, body? | blob?}`. The
    host sends it only to a host the manifest's `net:` capabilities grant, at a public https
@@ -85,6 +115,8 @@ and typed table columns, see [views](#views)).
    (not a host it may reach), `invalid`, `too_big`, `external` (it couldn't be reached) or
    `cancelled`, which a request the plugin cancels fails with at once, as does one still under way
    when the host kills the plugin. Nothing fetched is kept.
+   With `atmosphere`, a plugin writes records in the user's Atmosphere account through the host
+   (`atmosphere/put_record`, see [atmosphere](#atmosphere)).
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
@@ -144,11 +176,17 @@ assert!(manifest.validate(false).is_err());
 
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
-  `collection:read`, `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
+  `collection:read`, `collection:files` (rekordbox's own files, sign-in tokens included, see
+  above), `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
   locallibrary ships only), `tags:plan`, `cues:plan`,
   `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
-  `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
-  other is refused, and each is granted once.
+  `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise), and
+  `atmosphere:write:<nsid>`, a record type it may write in the user's Atmosphere account (see
+  [atmosphere](#atmosphere)). Any other is refused, and each is granted once.
+- `lexicons`: the Lexicon documents of the record types its `atmosphere:write:` capabilities
+  name, and of the definitions they refer to, as their authorities publish them (TOML tables in
+  `locallibrary-plugin.toml`, JSON objects in `describe`'s answer). Each is a Lexicon document
+  (`lexicon = 1`, an NSID for its `id`, `defs`), each id once.
 - `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
   `net/fetch` requests a second the host sends there, at least 1/3600: the limit the server asks
   for. Each host is limited once.
@@ -243,7 +281,7 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   and the website adds its client id and secret for the service, sends the request on the way the
   service takes it and answers what the service answered. `client_id` is then Local Network's
   client at the service. The services it knows are in
-  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  [`apps/web/src/lib/server/token-exchange/services.json`](https://github.com/cutenode/localnetwork/blob/main/apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
@@ -344,7 +382,8 @@ worked out with nothing to show. A field left out wasn't worked out.
 - `roles` says which of an analyzer's fields locallibrary reads as what (`Role`), a role to a
   field: `key` (a Camelot code, `8A`: a string), `bpm`, `key_confidence` and `bpm_confidence`
   (0 to 1), `loudness` (integrated LUFS), `true_peak` (dBTP), each a number, `clipped_runs` (an
-  integer), `identity` (a string, equal for one recording), `recording` and `release` (the
+  integer), `identity` (a string, equal for one recording; no host reads it yet, it's reserved for
+  telling two tracks are the same recording), `recording` and `release` (the
   MusicBrainz recording's and release's IDs, each a string: a bare lowercase UUID) and `artists`
   (a `string[]`: the MusicBrainz artist IDs, one for each name loclib-model's `artist_credits`
   splits the track's artist into, in its order), and what they were worked out from: `isrc` (a
@@ -355,7 +394,38 @@ worked out with nothing to show. A field left out wasn't worked out.
   field of another type than its role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys
   and BPMs to tracks and the MusicBrainz IDs of a set published to an Atmosphere account read a
   role from the analyzer the user chose for it, else the only one, else the first. Roles need no
-  feature of their own: a host that doesn't know them leaves them out.
+  feature of their own: a host that doesn't know them leaves them out. A beat grid, phrases and a
+  waveform need no role: locallibrary lets the user choose whose to draw and write from every
+  analyzer with one.
+
+### atmosphere
+
+The SDK's own feature, without a method of the host's: a plugin writes a record in the
+Atmosphere account signed in to the host, `atmosphere/put_record {collection, rkey?, record,
+swap?}` -> `{uri, cid}` (`PutRecord`, `Host::put_record`), of a record type one of its
+`atmosphere:write:<nsid>` capabilities names. With `rkey` it's written at that record key,
+replacing the version whose CID is `swap`, or created there without one (failing when there's a
+record there already: a plugin never replaces a record without naming the version it read);
+without `rkey`, under a key the account's server picks. The plugin never sees the session.
+
+The host checks, before it asks the user anything: the collection is one the manifest names
+(else kind `denied`), the record key is one and `swap` a CID, and the record fits its Lexicon
+strictly, a field the Lexicon doesn't define being an error (else `invalid`, saying where). The
+Lexicon is the host's own for the record types it knows (Local Network's, and those it publishes
+to), and otherwise the manifest's in `lexicons`, whose definitions may refer to the host's. Then
+it shows the user the record, the account and whether it's created or replaces another, one
+question at a time, and writes it once they confirm, as `{uri, cid}`. Where nobody can be asked
+it fails as `invalid`, and when they decline as `cancelled`. Nobody signed in, or a session that
+may not write the collection (the scope `repo:<nsid>?action=create&action=update`, or for a
+record without a key `repo:<nsid>?action=create`), fails as `account` (`reason` `not_signed_in`
+or `missing_scope`, `fields.collection`), which passed on says how to sign in again allowing it;
+a `swap` that isn't the version there fails as `conflict`. Uploading files isn't part of it.
+
+- `atmosphere:write:<nsid>` names one record type, an NSID with its authority in lowercase
+  (`atmosphere:write:fm.plyr.track`), never a pattern. No plugin writes the AT Protocol's own
+  (`com.atproto.*`), and only a plugin locallibrary ships writes Local Network's
+  (`computer.localnetwork.*`), with locallibrary's Lexicons; any other has its Lexicon in
+  `lexicons`, a record type (its `main` definition of type `record`).
 
 ### checks
 
@@ -408,16 +478,24 @@ content of: stored files by their BLAKE3 hash (in hex) and the store's records b
   when it has none.
 
 A set destination publishes a set: `set/publish {destination, set: {id, date, title?, kind?,
-venue?, city?, country?}, recording, tracklist: [{artist?, title?, start_seconds?}], dry_run}` ->
-`{url?, name?, record?, warnings}`. `recording` is the set's audio file (absolute, to read), a
-track the DJ publishes unnamed has no artist or title, and the DJ's notes never go. The host always
+venue?, city?, country?}, recording, tracklist: [{artist?, title?, album?, start_seconds?,
+duration_seconds?}], dry_run}` -> `{url?, name?, record?, warnings}`. `recording` is the set's
+audio file (absolute, to read), a track the DJ publishes unnamed has no artist, title, album or
+duration, and the DJ's notes never go. The host always
 asks for a dry run first (which publishes nothing and may say where the set would be), shows it to
 the user and asks, then publishes and keeps `url` (https) as the set's link, `name` as what that
 link is (`plyr.fm`, 64 characters at most, kept only with a `url`), and `record` (`{uri, cid}`, a
 `com.atproto.repo.strongRef`: an at:// URI and a CID) as the Atmosphere record the recording is,
 when the destination keeps it as one (a plyr.fm track). The set's published record names the link
 and points to the record. An answer with a link that isn't https, a name too long or a record that
-isn't one is the plugin misbehaving, and the host keeps none of it.
+isn't one is the plugin misbehaving, and the host keeps none of it. In Rust, `set.name()` is the
+set's title, else where and when it was played (`Warehouse, 2026-10-03`), `entry.line()` an
+entry's tracklist line (`05:30 Artist - Title`, `1:02:03` past an hour, `ID - ID` unnamed; each on
+one line; `line_at(at)` with another time, `clock(secs)` the time alone), and `fit_lines` keeps the
+lines that fit a description, then says how many more there are. `youtube::description(tracklist,
+length)` is the tracklist as a YouTube description, its times left off where they would break
+YouTube's chapters (`youtube::chapters`), and `mixcloud::warnings(tracklist)` says which of
+Mixcloud's licensing rules the show breaks: `sets export` writes and warns the same.
 
 - `[[contributes.destinations]]`: `name`, `title` and `kind`, `store` or `set`. Each method is
   only for a destination of its kind.
@@ -617,6 +695,14 @@ drawn, and a section can't be one.
 
 ## Writing a plugin in Rust
 
+To try one in locallibrary, give it the manifest and the program for one run: `locallibrary
+--dev-plugin locallibrary-plugin.toml:target/debug/my-plugin plugin list`, or
+`LOCALLIBRARY_DEV_PLUGINS` (`;` between the two on Windows). It holds the manifest to
+`Manifest::validate(false)` and refuses an id one of its own plugins has. `locallibrary plugin
+check locallibrary-plugin.toml -- target/debug/my-plugin` checks the same without running a
+command: the manifest, then `hello` and `describe` (which must answer the manifest exactly), and
+lists the features both sides have. Either way the plugin runs as you, unsandboxed.
+
 Register a function for each kind of hook the manifest needs in `Hooks` (`.on(run_command)`, for
 a `fn(RunCommand, &Host) -> Result<Value, RpcError>`), and `serve` them, with the manifest, over
 stdin and stdout. `serve` answers `hello` (with the features of the hooks registered) and
@@ -629,7 +715,11 @@ and notices the host cancelling; a callback under way when the host cancels fail
 library, tracks by id or by query, playlists, the tracks' analysis and artwork, and the drive's
 info, each whole however the host pages and batches it (`host.call` makes any other read), as
 loclib-model's types (`Track`, `Library`, `TrackAnalysis`), which `loclib_plugin::loclib_model`
-re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and
+re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and its
+answer's `retry_after(now)` reads how long the server asks to wait (`Retry-After`, seconds or an
+HTTP-date), which `pause(&host.ctx(), wait)` waits out, ending once the hook is cancelled;
+`host.put_record(&PutRecord {..})` writes an Atmosphere record once the user confirms it
+(`atmosphere/put_record`);
 `host.partial_rows(rows)` (`partial_items`) sends a view's rows as they're ready; files the
 answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
 (`host/notify`). A hook answers its answer or what makes one: an
@@ -682,7 +772,7 @@ let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
 let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
 let reply: Value = host.request(method::HELLO, &hello)?;
-assert_eq!(reply["features"], json!(["accounts", "analysis", "commands", "blobs", "net", "choose", "views"]));
+assert_eq!(reply["features"], json!(["accounts", "analysis", "commands", "atmosphere", "blobs", "net", "choose", "views"]));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };
@@ -700,6 +790,72 @@ served.join().expect("the plugin stops");
 `examples/echo` is a whole plugin, with one of each kind of contribution but events, services and
 a library source (`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs
 until it's cancelled).
+
+## Testing a plugin
+
+With the `test-util` feature, `test_util::FakeHost` plays the host over the real protocol, so a
+plugin's tests needn't write one. Add it as a dev-dependency
+(`cargo add --dev loclib-plugin --features test-util`).
+
+`FakeHost::start(MANIFEST, serve)` runs the plugin's `serve(input, output)` on a thread over
+in-memory pipes, sends `hello`, and checks that `describe` answers the manifest. `read(method,
+answer)` answers a read every time the plugin calls it. `on_read(method, f)` works the answer out
+from the params instead, and answers any other call too (`accounts/ensure`). `fetch(url, answer)`
+answers `net/fetch` for one URL. `on_call(method, f)` is `on_read` whose `f` returns a
+`Response`: an answer, an answer followed by a cancel of the hook (the user cancelling just as the
+call came back), or `Hold`, which never answers (a server that keeps the plugin waiting until its
+hook is cancelled). A call with no answer fails: `external` for a fetch, `method_not_found` for
+anything else.
+
+`request(method, params)` sends a hook and waits for its typed answer. `send` returns a `Sent`
+instead, which can `cancel()` it (`$/cancel`), `wait()` or `wait_timeout(limit)` for it, and has
+its `progress()`. With the `blobs` feature each request gets a fresh `context.scratch` folder
+(`Sent::scratch`), removed when the `Sent` is dropped, as the host removes it once it has read the
+answer. Params that already give `context.scratch` keep it: a folder of the test's, or `null` for
+a host without `blobs`. `cancel_on(method)`
+cancels the hook under way the next time the plugin calls `method`. `calls()` lists every call the
+plugin made, with its params. `event(..)` sends `event/notify`, and `notices()` has what the
+plugin told the user (`host/notify`). `stop()` closes the plugin's input and waits for it to stop:
+after that, every notice is in. A call an event's handler is still waiting on fails then, so a
+test whose events make calls first sends one last event and waits for its call, held.
+
+```rust
+# #[cfg(feature = "test-util")] {
+use loclib_plugin::test_util::FakeHost;
+use loclib_plugin::{Hooks, Host, RpcError, RunCommand, View, method, serve};
+use serde_json::{Value, json};
+
+fn count(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
+    let drive = req.context.drive.unwrap_or_default();
+    let tree = host.drive(&drive).playlists()?;
+    let view = View::Text { title: Some(drive), text: format!("{} playlists", tree.playlists.len()) };
+    Ok(serde_json::to_value(view).expect("a view is JSON"))
+}
+
+const MANIFEST: &str = r#"
+    id = "count"
+    name = "Count"
+    version = "0.1.0"
+    protocol = "^0.2"
+    capabilities = ["library:read"]
+
+    [[contributes.commands]]
+    name = "count"
+    title = "Count the playlists"
+    mode = "view"
+"#;
+
+// A plugin crate passes its own `serve`.
+let host = FakeHost::start(MANIFEST, |input, output| serve(MANIFEST, Hooks::new().on(count), input, output));
+let set = |id, name| json!({ "id": id, "name": name, "path": name, "folder": false, "tracks": 0, "duration_secs": 0 });
+host.read("playlists.tree", json!({ "playlists": [set(1, "Friday"), set(2, "Warm up")], "history": [] }));
+let view: View = host.request(method::RUN_COMMAND, &json!({ "command": "count", "context": { "drive": "USB" } }))?;
+assert_eq!(view, View::Text { title: Some("USB".into()), text: "2 playlists".into() });
+assert_eq!(host.calls(), [("playlists.tree".to_string(), json!({ "drive": "USB" }))]);
+host.stop();
+# }
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ## Licence
 

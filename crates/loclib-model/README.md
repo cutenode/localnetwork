@@ -73,12 +73,15 @@ assert!(diff.changed_playlists.is_empty());
 
 - `schemars`: JSON Schema (`schemars::JsonSchema`) for the serialisable types.
 - `test-util`: `test_util::track`, a ready-made track for tests, and Hegel generators of tracks
-  (`tracks_like`), libraries (`libraries`) and Camelot keys (`keys`). Not a stable API.
+  (`tracks_like`), libraries (`libraries`) and Camelot keys (`keys`). Not a stable API, and left
+  out of the docs. It stays here rather than in loclib-testkit because this crate's own tests use
+  it, and those would get a second copy of `Track` from a crate built on this one.
 
 ## What it doesn't do
 
-- Read or write any file. Parsing `export.pdb`, OneLibrary, ANLZ files or rekordbox XML, and
-  writing them back, is locallibrary's job.
+- Read or write a library's files. Parsing `export.pdb`, OneLibrary, ANLZ files or rekordbox XML,
+  and writing them back, is locallibrary's job. The one thing here that touches the disk is
+  `reflink`, which clones a file copy-on-write where the filesystem can.
 - Analyse audio. `analysis` holds what rekordbox worked out; nothing here decodes or measures
   anything.
 - Keep a library consistent. The fields are public: nothing allocates ids or checks that a

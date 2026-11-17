@@ -550,7 +550,8 @@ describe('SpaceSyncer against a repo host', () => {
 				lastSyncedAt: expect.any(String),
 				lastError: null,
 				registrationExpiresAt: null,
-				repos: [{ did: DJ, rev: synced?.rev, lastSyncedAt: synced?.lastSyncedAt, lastError: null }]
+				repos: [{ did: DJ, rev: synced?.rev, lastSyncedAt: synced?.lastSyncedAt, lastError: null }],
+				stuck: []
 			}
 		]);
 
@@ -603,6 +604,50 @@ describe('SpaceSyncer against a repo host', () => {
 			['a', 'one'],
 			['b', 'two']
 		]);
+	});
+
+	describe('a host whose listing never ends', () => {
+		/** Answers `nsid` with one more page and a new cursor each time, then fails the 1,000th time so a test can't hang. */
+		const endless = (nsid: 'listRepos' | 'listRepoOps') => {
+			const page = nsid === 'listRepos' ? { repos: [{ did: DJ, repoRev: '0', spaceRev: '0' }] } : { ops: [] };
+			let answers = 0;
+			host.overrides.set(`com.atproto.space.${nsid}`, () =>
+				++answers < 1000
+					? Response.json({ ...page, cursor: String(answers) })
+					: Response.json({ error: 'TooManyPages' }, { status: 400 })
+			);
+		};
+
+		it('downloads the repo in full once its oplog runs past 100 pages', async () => {
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			await host.put(DJ, NOTE, 'b', note('two'));
+			endless('listRepoOps');
+
+			await s.sync(SPACE);
+			expect(calls('listRepoOps')).toHaveLength(100);
+			expect(calls('getRepo')).toHaveLength(2);
+			expect(await records()).toEqual([
+				['a', 'one'],
+				['b', 'two']
+			]);
+			expect((await repoRow())?.lastError).toBeNull();
+		});
+
+		it('reads 100 pages of its repo list a pass, keeping its place for the next', async () => {
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			endless('listRepos');
+
+			await s.sync(SPACE);
+			expect(calls('listRepos')).toHaveLength(101);
+			expect(await db.selectFrom('spaceWatch').selectAll().executeTakeFirst()).toMatchObject({
+				spaceRev: '100',
+				lastError: null
+			});
+		});
 	});
 
 	it('leaves a repo alone when its host has no ops and no commit for it', async () => {
@@ -784,12 +829,23 @@ describe('SpaceSyncer against a repo host', () => {
 			await s.sync(SPACE);
 			expect((await repoRow())?.rev).toBeTruthy();
 			expect(await pending()).toMatchObject([{ rkey: 'a', attempts: 1, lastError: 'directory offline' }]);
+			expect((await s.status())[0]?.stuck).toEqual([
+				{
+					did: DJ,
+					collection: NOTE,
+					rkey: 'a',
+					attempts: 1,
+					nextAttemptAt: '2026-11-04T12:01:00.000Z',
+					lastError: 'directory offline'
+				}
+			]);
 
 			state.broken = false;
 			after(60_000);
 			await s.sync(SPACE);
 			expect(state.seen).toMatchObject([{ kind: 'upsert', rkey: 'a', value: { text: 'one' } }]);
 			expect(await pending()).toEqual([]);
+			expect((await s.status())[0]?.stuck).toEqual([]);
 		});
 
 		it('shows a failure that is not an Error as its text', async () => {
@@ -870,6 +926,8 @@ describe('SpaceSyncer against a repo host', () => {
 					lastError: null
 				})
 				.execute();
+			// Only waiting for its first run, so not stuck.
+			expect((await s.status())[0]?.stuck).toEqual([]);
 			state.seen.length = 0;
 			await s.sync(SPACE);
 			expect(state.seen).toMatchObject([{ kind: 'upsert', cid, value: JSON.parse(value) }]);

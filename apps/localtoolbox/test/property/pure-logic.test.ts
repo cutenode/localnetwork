@@ -19,7 +19,7 @@
 // which is usually the bug report as well.
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import type { DetailsAnswer, ListedEntry, TracksAnswer } from '$lib/types';
+import type { ListedEntry, TracksAnswer } from '$lib/types';
 
 import { normalize, matches } from '../../src/lib/filter.ts';
 import { count, pageSummary, emptyStatus } from '../../src/lib/soundcloud.ts';
@@ -35,7 +35,6 @@ import {
 import { artworkUrlAtSize, FULL_SIZE } from '../../src/lib/artwork.ts';
 import {
 	unwrapGate,
-	hostOf,
 	domainOf,
 	entriesFor,
 	splitEntries,
@@ -43,16 +42,9 @@ import {
 	buildListOrder,
 	isUnchecked,
 	isWithoutLinks,
-	lookupNotes
+	pageNotes
 } from '../../src/tools/manager/links.ts';
-import { safeName, filenameOf, looksLikeFile } from '../../src/tools/third-party-downloads/save.ts';
-import {
-	jsonAfter,
-	flightPayload,
-	decodeBase64Json,
-	documentOf,
-	formFields
-} from '../../src/tools/third-party-downloads/parse.ts';
+import { safeName, filenameOf } from '../../src/tools/third-party-downloads/save.ts';
 import {
 	siteFor,
 	isGateUrl,
@@ -61,8 +53,10 @@ import {
 	SITES,
 	HOSTS,
 	CLAIMED,
-	unwrapGate as unwrapGateSites
+	unwrapGate as unwrapGateSites,
+	hostOf
 } from '../../src/tools/third-party-downloads/sites/index.ts';
+import { knownDetails, listedEntry } from '../helpers/state-fixtures.ts';
 
 // Enough runs to be worth the name, few enough to keep the suite quick.
 const RUNS = { numRuns: 300 };
@@ -627,6 +621,19 @@ describe('download links (links.js)', () => {
 		);
 	});
 
+	it('lists no link for a purchase address that is not a web address', () => {
+		const notWeb = 'javascript://x.com/%0aalert(1)';
+
+		for (const purchaseUrl of [notWeb, `https://gate.sc?url=${encodeURIComponent(notWeb)}&token=abc`]) {
+			const track = listedEntry({
+				permalink: '/user/track',
+				details: knownDetails({ downloadable: false, purchaseUrl })
+			});
+
+			expect(entriesFor(track)).toEqual([]);
+		}
+	});
+
 	it('leads with one link and trails the rest, best first', () => {
 		fc.assert(
 			fc.property(detailedTrack(), (track) => {
@@ -704,25 +711,6 @@ describe('download links (links.js)', () => {
 		);
 	});
 
-	it('marks as pending exactly the unchecked tracks a lookup is running for', () => {
-		fc.assert(
-			fc.property(fc.array(detailedTrack(), { maxLength: 15 }), (tracks) => {
-				const checking = new Set(tracks.map((track) => track.permalink));
-				const idle = buildListOrder(tracks);
-				const running = buildListOrder(tracks, { checking });
-				// Nothing is pending when no lookup is running, however little is
-				// known about a track...
-				expect(idle.every((row) => !row.pending)).toBe(true);
-				// ...and with one running, the pending rows are exactly the tracks
-				// nobody has an answer about, still in the list's own order.
-				expect(running.filter((row) => row.pending).map((row) => row.track)).toEqual(tracks.filter(isUnchecked));
-
-				for (const row of running.filter((one) => one.pending)) expect(row.entries).toHaveLength(0);
-			}),
-			RUNS
-		);
-	});
-
 	it('never calls a track link-less while it still has an entry', () => {
 		fc.assert(
 			fc.property(detailedTrack(), (track) => {
@@ -733,19 +721,17 @@ describe('download links (links.js)', () => {
 		);
 	});
 
-	it('notes exactly the tracks it could not check', () => {
+	it('notes exactly the tracks the page had not loaded, and the ones it read only in part', () => {
 		fc.assert(
-			fc.property(fc.array(detailedTrack(), { maxLength: 15 }), fc.nat({ max: 5 }), (tracks, lookupFailed) => {
-				// SAFETY: lookupNotes reads each track's details and nothing else of it,
-				// and the other two fields, which are what this hands it.
-				const notes = lookupNotes({ tracks, lookupFailed } as Omit<DetailsAnswer, 'tracks'> & {
-					tracks: ListedEntry[];
-				});
+			fc.property(fc.array(detailedTrack(), { maxLength: 15 }), (tracks) => {
+				const notes = pageNotes({ tracks });
 
 				const unknown = tracks.filter((t) => !t.details).length;
-				expect(notes.includes('couldn’t check')).toBe(unknown > 0);
-				// And how many: "1 track", "3 tracks".
-				expect(notes.includes(`couldn’t check ${count(unknown, 'track')}`)).toBe(unknown > 0);
+				const partial = tracks.filter((t) => t.details && t.details.downloadable === null).length;
+				// How many, said once each: "1 track", "3 tracks".
+				expect(notes.includes(`${count(unknown, 'track')} not loaded yet`)).toBe(unknown > 0);
+				expect(notes.includes(`${count(partial, 'track')}: purchase link read off the page`)).toBe(partial > 0);
+				expect(notes === '').toBe(unknown === 0 && partial === 0);
 			}),
 			RUNS
 		);
@@ -808,10 +794,9 @@ describe('saving files (save.js)', () => {
 			.tuple(fc.domain(), safePath(), fc.constantFrom('mp3', 'wav', 'flac', 'aiff', 'zip'))
 			.map(([host, path, ext]) => `https://${host}${path}.${ext}`);
 
-	it('recognises an audio URL as a file, and takes its name from the path', () => {
+	it('takes an audio URL’s name from its path', () => {
 		fc.assert(
 			fc.property(audioUrl(), (url) => {
-				expect(looksLikeFile(url)).toBe(true);
 				expect(filenameOf(url)).not.toBe('');
 			}),
 			RUNS
@@ -829,167 +814,6 @@ describe('saving files (save.js)', () => {
 
 				expect(filenameOf(url)).toBe(safeName(wanted));
 			}),
-			RUNS
-		);
-	});
-
-	it('says a page is not a file', () => {
-		fc.assert(
-			fc.property(fc.domain(), (host) => {
-				expect(looksLikeFile(`https://${host}/some/page`)).toBe(false);
-			}),
-			RUNS
-		);
-	});
-
-	it('never throws deciding whether arbitrary text is a file', () => {
-		fc.assert(
-			fc.property(bytes(), (text) => {
-				expect(looksLikeFile(text)).toBeTypeOf('boolean');
-			}),
-			RUNS
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-
-describe('reading other people’s pages (parse.js)', () => {
-	const jsonObject = () => fc.dictionary(fc.string({ maxLength: 8 }), fc.jsonValue({ maxDepth: 3 }), { maxKeys: 6 });
-
-	it('finds the object after a marker, whatever is in it or around it', () => {
-		const marker = 'window.__STATE__ =';
-		fc.assert(
-			fc.property(fc.string(), jsonObject(), fc.string(), (before, value, after) => {
-				fc.pre(!before.includes(marker));
-				const html = `${before}${marker} ${JSON.stringify(value)};${after}`;
-				// Compared as JSON: -0 is written "0", and comes back as +0.
-				expect(JSON.stringify(jsonAfter(html, marker))).toBe(JSON.stringify(value));
-			}),
-			RUNS
-		);
-	});
-
-	it('answers null rather than throwing for anything that is not there', () => {
-		fc.assert(
-			fc.property(bytes(), bytes({ minLength: 1, maxLength: 8 }), (text, marker) => {
-				const out = jsonAfter(text, marker);
-				// typeof null is 'object' too: an object, or null.
-				expect(out).toBeTypeOf('object');
-			}),
-			RUNS
-		);
-	});
-
-	it('rejoins a Next.js flight payload out of its pushed chunks', () => {
-		fc.assert(
-			fc.property(fc.array(fc.string(), { maxLength: 8 }), fc.string(), (chunks, noise) => {
-				fc.pre(!noise.includes('self.__next_f'));
-
-				const html = chunks
-					.map((chunk) => `<script>self.__next_f.push([1,${JSON.stringify(chunk)}])</script>`)
-					.join(noise);
-
-				expect(flightPayload(html)).toBe(chunks.join(''));
-			}),
-			RUNS
-		);
-	});
-
-	it('returns the empty payload for a page that has none', () => {
-		fc.assert(
-			fc.property(bytes(), (html) => {
-				expect(flightPayload(html)).toBeTypeOf('string');
-			}),
-			RUNS
-		);
-	});
-
-	const base64url = (text: string) => btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-	it('round-trips a base64url payload back into the object it encodes', () => {
-		const ascii = fc.string({ unit: 'binary-ascii' }).map((s) => s.replace(/[^\x20-\x7e]/g, ''));
-		fc.assert(
-			fc.property(fc.dictionary(ascii, ascii, { maxKeys: 5 }), (value) => {
-				expect(decodeBase64Json(base64url(JSON.stringify(value)))).toEqual(value);
-			}),
-			RUNS
-		);
-	});
-
-	// Near misses as well as noise, each not a payload by construction: text
-	// with a character base64 has no place for, the encoding of something no
-	// JSON value starts with, and a real payload with its end cut off.
-	it('answers null for anything that is not one', () => {
-		const ascii = fc.string({ unit: 'binary-ascii' });
-		fc.assert(
-			fc.property(
-				fc.oneof(
-					bytes().map((text) => `${text}!`),
-					ascii.map((text) => base64url(`x${text}`)),
-					fc
-						.dictionary(ascii, ascii, { minKeys: 1, maxKeys: 3 })
-						.map((value) => base64url(JSON.stringify(value)).slice(0, -2))
-				),
-				(text) => {
-					expect(decodeBase64Json(text)).toBeNull();
-				}
-			),
-			RUNS
-		);
-	});
-
-	it('parses any markup into a document without running anything', () => {
-		fc.assert(
-			fc.property(bytes({ maxLength: 200 }), (html) => {
-				const doc = documentOf(html);
-				expect(doc.body).toBeTruthy();
-			}),
-			RUNS
-		);
-	});
-
-	it('reads a form’s named, enabled, non-button fields and nothing else', () => {
-		fc.assert(
-			fc.property(
-				fc.array(
-					fc.record({
-						name: fc.stringMatching(/^[a-z][a-z0-9_-]{0,8}$/),
-						value: words(),
-						type: fc.constantFrom('text', 'hidden', 'email', 'submit', 'button', 'checkbox'),
-						disabled: fc.boolean(),
-						checked: fc.boolean()
-					}),
-					{ maxLength: 8 }
-				),
-				(fields) => {
-					const form = document.createElement('form');
-
-					const inputs = fields.map((field) => {
-						const input = document.createElement('input');
-						input.type = field.type;
-						input.name = field.name;
-						input.value = field.value;
-						input.disabled = field.disabled;
-						input.checked = field.checked;
-						form.append(input);
-
-						return input;
-					});
-
-					const wanted = inputs.filter(
-						(input, i) =>
-							!fields[i].disabled &&
-							!['submit', 'button'].includes(fields[i].type) &&
-							(fields[i].type !== 'checkbox' || fields[i].checked)
-					);
-
-					// Each with the value the field holds (an email field trims what it
-					// is given, so that is read back off the field); a name used twice
-					// is sent with its last value, as the fields are read in order.
-					expect(formFields(form)).toEqual(Object.fromEntries(wanted.map((input) => [input.name, input.value])));
-				}
-			),
 			RUNS
 		);
 	});

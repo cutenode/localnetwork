@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn actions_become_commands_and_flags() {
     let e = locallibrary::Error::NotFound("library \"Club\" in the store".into())
-        .action(Action::call("pull", json!({ "drive": "/Volumes/My DNA" }), "Pull DNA into the store"))
+        .action(Action::call("pull.apply", json!({ "drive": "/Volumes/My DNA" }), "Pull DNA into the store"))
         .action(Action::retry(json!({ "force": true, "library": null }), "Force it"))
         .action(Action::call(
             "sync.plan",
@@ -91,15 +91,15 @@ const VALUES: &[&str] = &[
     "Wow!",
 ];
 
-/// Every hint that names a command is one the command line reads, with each value given
-/// back as it was (quoted where a shell needs it); one that adds to the request names a flag
-/// for each parameter it adds, and leaves out a switch that's off. One missing a value it needs
-/// (a drive's role without the drive) says where it goes.
+/// Every action names a method the sidecar answers, and every hint that names a command is one
+/// the command line reads, with each value given back as it was (quoted where a shell needs it);
+/// one that adds to the request names a flag for each parameter it adds, and leaves out a switch
+/// that's off. One missing a value it needs (a drive's role without the drive) says where it goes.
 #[hegel::test(test_cases = 200)]
 fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let methods = [
-        "pull",
+        "pull.apply",
         "push.plan",
         "sync.plan",
         "merge.plan",
@@ -108,7 +108,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "drive.backups",
         "drive.role",
         "drive.retire",
-        "drive.reidentify",
+        "drive.reidentify.apply",
         "snapshot.label",
         "convert.plan",
         #[cfg(feature = "account")]
@@ -120,6 +120,10 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "settings.import.plan",
         "library.list",
     ];
+    // An action a front end can't call is no help: each names a method the sidecar answers.
+    for m in methods {
+        assert!(crate::rpc::answers(m), "{m} is no method the sidecar answers");
+    }
     let value = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(VALUES));
     let mut params = Map::new();
     for key in ["drive", "left", "right", "source", "target", "label", "type", "with", "for", "plugin"] {
@@ -180,6 +184,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     }
     match method {
         "accounts.sign_in.begin" => scopes.iter().for_each(|s| comes_back(s)),
+        "account.login.begin" if params["publish"] != true => scopes.iter().for_each(|s| comes_back(s)),
         "accounts.access.set_default" => comes_back(params["account"]["subject"].as_str().unwrap()),
         "accounts.access.give" => {
             comes_back(params["account"]["subject"].as_str().unwrap());

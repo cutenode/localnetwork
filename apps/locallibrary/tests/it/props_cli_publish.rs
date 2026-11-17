@@ -231,7 +231,7 @@ fn uploading_a_recording_publishes_the_set_pointing_at_it(tc: TestCase) {
     let fx = Env::new().with_directory(&pds.url);
     sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
     let recording = fx.outside("friday.wav");
-    std::fs::write(&recording, loclib_mixid::test_util::wav(8000, 16, 2.0)).unwrap();
+    std::fs::write(&recording, loclib_testkit::audio::wav(8000, 16, 2.0)).unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let tracks: Vec<Value> = (0..n)
         .map(|i| {
@@ -400,7 +400,7 @@ fn importing_published_settings_comes_to_what_was_published(tc: TestCase) {
     let r = fx.run(&words);
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     base = imported(&base, &published, replace);
-    let profile = fx.json(&["settings", "profile"]);
+    let profile = fx.json(&["settings", "base"]);
     let want: serde_json::Map<String, Value> = base.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
     assert_eq!(profile["base"], Value::Object(want), "{profile}");
     // Imported, the same import again has nothing to do.

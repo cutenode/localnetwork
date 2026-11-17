@@ -1,6 +1,7 @@
 import { isRedirect } from '@sveltejs/kit';
-import { afterEach, beforeEach, expect, it } from 'vitest';
-import { ADMIN, DJ, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ADMIN, DJ, NO_SPACES, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
+import { parseJson } from '#lib/server/db/index.ts';
 import { inquiryDefaults } from '#lib/shows.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import type { Viewer } from '#lib/types.ts';
@@ -118,12 +119,12 @@ it("won't open an inquiry to a project that's missing or not active, or to the v
 	await expect(loaded(DJ, '')).rejects.toMatchObject({ status: 303, location: `/projects/${f.project.slug}` });
 });
 
-/** Sends the inquiry form to `slug` as `did`, the way the browser posts it. */
-const inquire = async (did: string, form: Record<string, string>, slug = f.project.slug) =>
+/** Sends the inquiry form to `slug` as `did`, the way the browser posts it, back to the URL it opened at. */
+const inquire = async (did: string, form: Record<string, string>, slug = f.project.slug, query = '') =>
 	callRoute(actions.default, {
 		app: f.t,
 		viewer: await f.t.viewer(did),
-		url: `/dashboard/bookings/new?project=${slug}`,
+		url: `/dashboard/bookings/new?project=${slug}${query}`,
 		form
 	});
 
@@ -150,6 +151,44 @@ it('starts a booking thread from the inquiry and opens it', async () => {
 	expect(redirect).toMatchObject({ status: 303, location: `/dashboard/bookings/${thread.skey}` });
 });
 
+/** The planner show each inquiry sent names, as the booking space holds it. */
+const plannerShows = async () =>
+	(await f.t.db.selectFrom('bookingEvent').select('record').where('kind', '=', 'inquiry').execute()).map(
+		(row) => parseJson<{ plannerShow?: string }>(row.record, {}).plannerShow
+	);
+
+it('names the planner show an inquiry started from, which the thread links back to for the promoter', async () => {
+	const promoter = await f.t.viewer(PROMOTER);
+
+	const rkey = await f.t.planner.saveShow(promoter, {
+		details: { title: 'Rooftop Rave' },
+		lineup: [{ project: f.project.uri, status: 'considering' }]
+	});
+
+	await redirectOf(
+		inquire(PROMOTER, { title: 'Rooftop Rave', message: 'Are you free?' }, f.project.slug, `&show=${rkey}`)
+	);
+
+	const [thread] = await f.t.bookings.threadsFor(PROMOTER);
+
+	expect(await plannerShows()).toEqual([
+		`at://${PROMOTER}/space/computer.localnetwork.space.planner/self/${PROMOTER}/computer.localnetwork.planner.show/${rkey}`
+	]);
+	expect((await f.t.bookings.thread(promoter, thread.space)).links.plannerShow).toBe(rkey);
+});
+
+it("names no planner show for one that isn't the sender's, whatever the form says", async () => {
+	const theirs = await f.t.planner.saveShow(await f.t.viewer(ADMIN), { details: { title: 'Not yours' }, lineup: [] });
+	const forged = `at://${ADMIN}/space/computer.localnetwork.space.planner/self/${ADMIN}/computer.localnetwork.planner.show/${theirs}`;
+
+	for (const query of [`&show=${theirs}`, '&show=junk', ''])
+		await redirectOf(
+			inquire(PROMOTER, { title: 'Rooftop Rave', message: 'Are you free?', plannerShow: forged }, f.project.slug, query)
+		);
+
+	expect(await plannerShows()).toEqual([undefined, undefined, undefined]);
+});
+
 it('keeps what was typed when the inquiry is refused', async () => {
 	const result = await inquire(PROMOTER, { title: '', message: 'Are you free?' });
 
@@ -170,4 +209,84 @@ it("refuses an inquiry to a project that doesn't exist", async () => {
 			form: { title: 'Rooftop Rave' }
 		})
 	).rejects.toMatchObject({ status: 404, body: { message: 'Project not found' } });
+});
+
+describe('to a listed DJ', () => {
+	const PROFILE = `at://${STRANGER}/computer.localnetwork.profile/self`;
+
+	/**
+	 * Saves STRANGER's profile as Mara, with a fee in `currency` when there's a performer section and Take inquiries as
+	 * `takesInquiries`, and lists them.
+	 */
+	const listMara = async (currency: string | null = 'EUR', takesInquiries = true) => {
+		await f.t.profiles.save(await f.t.viewer(STRANGER), {
+			basics: { name: 'Mara', location: { city: 'Leipzig', country: 'DE' } },
+			performer: currency ? { fees: [{ tier: 'emerging', currency, minAmount: 200 }] } : undefined,
+			takesInquiries,
+			avatar: 'keep',
+			swap: (await f.t.profiles.get(STRANGER))?.cid ?? null
+		});
+		await f.t.djListings.list(await f.t.viewer(ADMIN), STRANGER);
+	};
+
+	const loadedDj = async (did: string, dj = STRANGER) =>
+		loadRoute<PageServerData>(load, {
+			app: { ...f.t, geocoder: { enabled: false } },
+			viewer: await f.t.viewer(did),
+			url: `/dashboard/bookings/new?dj=${dj}`
+		});
+
+	it('opens with who they are and what they ask, and starts a thread with them', async () => {
+		await listMara();
+		const data = await loadedDj(PROMOTER);
+
+		expect(data.to).toEqual({
+			uri: PROFILE,
+			name: 'Mara',
+			avatarUrl: null,
+			place: 'Leipzig, DE',
+			href: `/@${STRANGER}`,
+			dj: true
+		});
+		expect(data.values.currency).toBe('EUR');
+		expect(data.asks).toEqual(['Fee: Emerging · from €200.']);
+
+		const redirect = await redirectOf(
+			callRoute(actions.default, {
+				app: f.t,
+				viewer: await f.t.viewer(PROMOTER),
+				url: `/dashboard/bookings/new?dj=${STRANGER}`,
+				form: { title: 'Rooftop Rave', message: 'Are you free?' }
+			})
+		);
+
+		const [thread] = await f.t.bookings.threadsFor(STRANGER);
+		expect(thread).toMatchObject({ title: 'Rooftop Rave', project: { uri: PROFILE, name: 'Mara' } });
+		expect(redirect).toMatchObject({ status: 303, location: `/dashboard/bookings/${thread.skey}` });
+	});
+
+	it("won't open one to a DJ who isn't listed, and sends the DJ back to their profile", async () => {
+		await expect(loadedDj(PROMOTER)).rejects.toMatchObject({
+			status: 404,
+			body: { message: 'Pick a DJ to contact first' }
+		});
+		await expect(loadedDj(PROMOTER, 'not-a-did')).rejects.toMatchObject({ status: 404 });
+
+		await listMara(null);
+		await expect(loadedDj(PROMOTER)).rejects.toMatchObject({ status: 404 });
+
+		await listMara('EUR', false);
+		await expect(loadedDj(PROMOTER)).rejects.toMatchObject({ status: 404 });
+
+		await listMara();
+		await expect(loadedDj(STRANGER)).rejects.toMatchObject({ status: 303, location: `/@${STRANGER}` });
+		await expect(
+			callRoute(actions.default, {
+				app: f.t,
+				viewer: await f.t.viewer(PROMOTER),
+				url: '/dashboard/bookings/new?dj=not-a-did',
+				form: { title: 'Rooftop Rave', message: 'Are you free?' }
+			})
+		).rejects.toMatchObject({ status: 404, body: { message: 'Pick a DJ to contact first' } });
+	});
 });

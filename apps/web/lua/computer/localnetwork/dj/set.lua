@@ -10,8 +10,12 @@
 
 local ADDRESS = 'community.lexicon.location.address'
 
-local UUID = '^' .. string.rep('%x', 8) .. string.rep('%-' .. string.rep('%x', 4), 3) .. '%-'
-	.. string.rep('%x', 12) .. '$'
+local UUID = '^'
+	.. string.rep('%x', 8)
+	.. string.rep('%-' .. string.rep('%x', 4), 3)
+	.. '%-'
+	.. string.rep('%x', 12)
+	.. '$'
 
 -- Credits that name nobody: what taggers write for an unreleased or unknown track, and MusicBrainz's own Various
 -- Artists and [unknown] artists. A track credited only to these isn't counted for anyone.
@@ -23,7 +27,7 @@ local PLACEHOLDER = {
 	['[unknown]'] = true,
 	['various artists'] = true,
 	['89ad4ac3-39f7-470e-963a-56509c546377'] = true,
-	['125ec42a-7229-4250-afc5-e057484327fe'] = true
+	['125ec42a-7229-4250-afc5-e057484327fe'] = true,
 }
 
 -- `value` when it's a string, and at most `max` bytes long when there's a max. Nothing checks a record against its
@@ -88,7 +92,9 @@ local function track(value)
 	local line = credit and normalize(credit)
 	if not line or line == '' or PLACEHOLDER[line] then
 		local keys = {}
-		for i, artist in ipairs(artists) do keys[i] = artist.key end
+		for i, artist in ipairs(artists) do
+			keys[i] = artist.key
+		end
 		line = table.concat(keys, ', ')
 		-- At most a credit line's length, so a track's id (supportedTrack's, at most 6006 bytes) fits its title too.
 		if #line > 3000 then return nil end
@@ -102,7 +108,7 @@ local function track(value)
 		isrc = isrc(value.isrc),
 		startSeconds = math.type(start) == 'integer' and start >= 0 and start or nil,
 		-- A newline can't survive normalize(), so it can't be part of either half.
-		key = line .. '\n' .. key
+		key = line .. '\n' .. key,
 	}
 end
 
@@ -114,7 +120,9 @@ local function view(value)
 		return nil, 'bad date or tracks'
 	end
 	local named = {}
-	for _, item in ipairs(value.tracks) do named[#named + 1] = track(item) end
+	for _, item in ipairs(value.tracks) do
+		named[#named + 1] = track(item)
+	end
 	local out = {
 		date = value.date,
 		title = text(value.title, 1000),
@@ -129,7 +137,7 @@ local function view(value)
 		sources = type(value.sources) == 'table' and toarray(value.sources) or nil,
 		event = text(value.event),
 		createdAt = text(value.createdAt),
-		namedTracks = toarray(named)
+		namedTracks = toarray(named),
 	}
 	local place = value.location
 	local isAddress = type(place) == 'table' and place['$type'] == ADDRESS

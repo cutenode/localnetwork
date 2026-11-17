@@ -45,6 +45,20 @@ describe('BasicsFields', () => {
 		});
 	});
 
+	it("shows a person's pronouns from Bluesky without a field, and posts none", async () => {
+		const { form } = await renderInForm(BasicsFields, {
+			description: 'Who you are.',
+			geocoder: false,
+			pronouns: 'she/her',
+			values: { pronouns: 'they/them' }
+		});
+
+		await expect.element(page.getByText('she/her')).toBeInTheDocument();
+		await expect.element(page.getByText('Change them in your Bluesky profile.')).toBeInTheDocument();
+		await expect.element(page.getByLabelText(/Pronouns/)).not.toBeInTheDocument();
+		expect(posted(form, 'pronouns')).toEqual({ pronouns: [] });
+	});
+
 	it('adds links up to twelve', async () => {
 		const { form } = await renderInForm(BasicsFields, { description: 'Who you are.', geocoder: false });
 
