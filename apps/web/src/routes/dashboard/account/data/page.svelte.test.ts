@@ -27,9 +27,9 @@ it('counts what is held by type, with the records one step down', async () => {
 		.toHaveAttribute('href', '/dashboard/account/data/booking');
 	await expect.element(row('Booking messages')).toHaveTextContent('Booking messages Inquiries and messages 2');
 	await expect
-		.element(page.getByRole('link', { name: 'Requests to staff' }))
+		.element(page.getByRole('link', { name: 'Review requests' }))
 		.toHaveAttribute('href', '/dashboard/account/data/request');
-	await expect.element(row('Requests to staff')).toHaveTextContent("Requests to staff What you've asked staff for 1");
+	await expect.element(row('Review requests')).toHaveTextContent("Review requests What you've asked staff for 1");
 });
 
 it('shows a type with nothing held as nothing, with nowhere to go', async () => {

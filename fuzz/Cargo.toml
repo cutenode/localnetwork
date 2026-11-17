@@ -81,6 +81,7 @@ indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
 locallibrary-plugin-interop = { version = "0.1.0", path = "../plugins/interop" }
+loclib-anlz = { version = "0.1.0", path = "../crates/loclib-anlz" }
 loclib-audio = { version = "0.1.0", path = "../crates/loclib-audio" }
 loclib-interop = { version = "0.1.0", path = "../crates/loclib-interop", default-features = false, features = ["serato", "traktor"] }
 loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }

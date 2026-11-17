@@ -39,6 +39,7 @@
 //! * [`mod@format`]: format a drive the way players read it best.
 //! * [`equipment`]: what each player, all-in-one system and mixer reads: databases, file systems,
 //!   audio formats (the `loclib-equipment` crate's table), and the models a DJ plays on.
+//! * [`flags`]: feature flags, the same ones Local Network's website has.
 //! * [`fleet`]: every drive you own, mounted or not: roles, logbook, copies and recognition.
 //! * [`watch`]: notice drives being plugged in, unplugged and changed, by polling cheaply.
 //!
@@ -81,6 +82,7 @@ pub mod error;
 pub mod export;
 pub mod fields;
 pub mod firmware;
+pub mod flags;
 pub mod fleet;
 pub mod format;
 pub mod fscheck;

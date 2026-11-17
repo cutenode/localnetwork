@@ -4,7 +4,7 @@ Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ,
 
 All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index for space data, which it can rebuild from the network, alongside what exists only there (sessions, notifications, press kit view receipts and the geocode cache). Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
 
-> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261105160032` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
+> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261113224550` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
 ## Features
 
@@ -79,7 +79,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Flags
 
-A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
+A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md), which locallibrary reads too. Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
 
 To see a flag without changing it for anyone, staff with the flags grant can turn it on or off for their own browser from its page. The preview is a cookie signed with their session, lasts an hour, shows a banner on every page until it's cleared, and is audited. In development and tests, `FLAG_OVERRIDES=key=on,other=off` forces flags for every request instead; the app won't start with it in production ([ADR 0010](../../docs/adr/0010-flags-turn-off-and-preview-without-touching-targeting.md)).
 
@@ -182,9 +182,9 @@ flowchart TD
   SETS[("DJs' repos: stats, sets,<br/>recordings, settings,<br/>older press kits")]
   FANS[("Managers' and fans' repos:<br/>profiles, shows, calendar<br/>events, follows")]
   HV[("HappyView")]
-  UR -- "notifyWrite" --> SH
-  SH -- "notifyWrite" --> App
-  App -- "space credential:<br/>listRepos" --> SH
+  UR -- "notifyRepoUpdate" --> SH
+  SH -- "notifySpaceUpdate" --> App
+  App -- "space credential:<br/>listWriters" --> SH
   App -- "space credential: listRepoOps,<br/>getRepo, getRecord. OAuth: planners" --> UR
   PUB -- "Jetstream,<br/>or a backfill" --> HV
   SETS -- "Jetstream,<br/>or a backfill" --> HV
@@ -192,7 +192,7 @@ flowchart TD
   App -- "directory queries<br/>and record reads" --> HV
 ```
 
-Source: [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](src/lib/server/atproto/credentials.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
+Source: [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](src/lib/server/atproto/credentials.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts)
 
 ### The audit log
 
@@ -216,7 +216,7 @@ A mix whose link is a plyr.fm track (`https://plyr.fm/track/<id>`) also gets a `
 
 ### Sync
 
-The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. A writer whose account is taken down, suspended, or deactivated is skipped the same way without failing the pass, and the system page shows why. A space whose authority is taken down or deactivated is only suspended, so its local copy stays. A record whose projection into the app's tables fails, such as an inquiry read while the directory is down, waits on the same schedule and shows on the system page until it goes through ([ADR 0009](../../docs/adr/0009-synced-records-queue-for-projection.md)). It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, the show announced from it only from the root's status records, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
+The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential with `authorizeSpaceSync`, sending a fresh delegation token from the root's PDS and the `did:key` of a new P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listWriters`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. A repo the listing says left the writer set (a member removed, or no longer allowed to write) keeps the records already synced from it. Commits and records aren't signed: the repo host MACs the commit or record header of each response (an HTTP message signature) with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. A writer whose account is taken down, suspended, or deactivated is skipped the same way without failing the pass, and the system page shows why. A space whose authority is taken down or deactivated is only suspended, so its local copy stays. A record whose projection into the app's tables fails, such as an inquiry read while the directory is down, waits on the same schedule and shows on the system page until it goes through ([ADR 0009](../../docs/adr/0009-synced-records-queue-for-projection.md)). It also registers for each watched space's updates, and polls. Each credential request names the app's `PUBLIC_URL` and a random token the app keeps for that space; the host checks both with `confirmRegistration` before registering, and the registration lasts as long as the credential, so polling keeps it up. The host posts each update to `notifySpaceUpdate` with that token, and the app syncs the space. A notice that the space was deleted or the registration lapsed makes the app ask for a fresh credential first, and only the authority refusing it with `SpaceDeleted` drops the space. A host that can't confirm the endpoint leaves the space on polling. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, the show announced from it only from the root's status records, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
 
 ### Directory
 
@@ -282,7 +282,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
 | `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
 | `pnpm check`                        | `svelte-check` with TypeScript 6, after `pnpm lexicons:types`                                |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin                             |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin, then the story check       |
 | `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
 | `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
 | `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container                        |
@@ -336,13 +336,13 @@ Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files 
 
 ## Design system
 
-`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. The tokens live in `packages/tokens/theme.css`, which localtoolbox shares, and `src/lib/ui/theme.css` adds the fonts and Tailwind plugins on top; `packages/tokens/data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it. **Patterns/Homepage** renders the real homepage and layout with the seed data, **Patterns/Tools** the Tools pages with the real captures, and **Proposals/Homepage** holds section ideas that aren't on the site. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in the shared theme so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values (localtoolbox's light theme uses them too).
+`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. The tokens live in `packages/tokens/theme.css`, which localtoolbox shares, and `src/lib/ui/theme.css` adds the fonts and Tailwind plugins on top; `packages/tokens/data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it: `pnpm lint` fails on a component in `src/lib/` that no story imports, unless `.storybook/story-exemptions.json` lists it with why. **Patterns/Homepage** renders the real homepage and layout with the seed data, **Patterns/Tools** the Tools pages with the real captures, and **Proposals/Homepage** holds section ideas that aren't on the site. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in the shared theme so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values (localtoolbox's light theme uses them too).
 
 ## Configuration
 
 See [`.env.example`](.env.example) for every option. The essentials:
 
-- `PUBLIC_URL`: the app's origin. OAuth client metadata (`/oauth-client-metadata.json`) and the syncer's `did:web` (`/.well-known/did.json`) are derived from it. Loopback URLs use an atproto loopback OAuth client.
+- `PUBLIC_URL`: the app's origin. OAuth client metadata (`/oauth-client-metadata.json`) and the app's `did:web` (`/.well-known/did.json`) are derived from it, and space hosts send update notifications to it. Loopback URLs use an atproto loopback OAuth client.
 - `ROOT_IDENTIFIER` / `ROOT_PASSWORD`: the Local Network root account. **Use a dedicated account and its account password.** In the alpha, `com.atproto.space.getDelegationToken` requires a full-access session, so app passwords cannot mint space credentials (the app explains this in its logs if you try).
 - `ADMIN_DIDS`: accounts that are always admins. Everyone else is managed in-app.
 - `HAPPYVIEW_URL`: the HappyView instance that serves the directory. Use its public URL: HappyView only answers the host its own `PUBLIC_URL` names. If HappyView is down, the app still starts, and pages that need projects say the directory is offline.
@@ -399,7 +399,7 @@ Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things i
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
-[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, its publishing permission set (`include:computer.localnetwork.locallibraryPublishing`, which grants create/update on `computer.localnetwork.locallibrary.settings` and `computer.localnetwork.dj.profile`, and create/update/delete on `computer.localnetwork.dj.set` and `computer.localnetwork.dj.recording`), `blob:audio/*` to upload a set's recording (a permission set can't grant blobs, so sign-in asks for it directly), and `repo:app.userinput.discussion?action=create` for `locallibrary bug`.
+[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, its publishing permission set (`include:computer.localnetwork.locallibraryPublishing`, which grants create/update on `computer.localnetwork.locallibrary.settings` and `computer.localnetwork.dj.profile`, and create/update/delete on `computer.localnetwork.dj.set` and `computer.localnetwork.dj.recording`), `blob:audio/*` to upload a set's recording (a permission set can't grant blobs, so sign-in asks for it directly), `repo:app.userinput.discussion?action=create` for `locallibrary bug`, and `rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags`, which every sign-in asks for, so locallibrary can call this app's `requestIndex` and `getFlags` with a service token.
 
 locallibrary writes the document; after changing its scopes, regenerate it here before releasing the locallibrary version that asks for them:
 
@@ -503,7 +503,7 @@ flowchart TD
   Jet["Jetstream"]
 
   Browser -- "pages, forms, /api" --> App
-  Tool -- "token exchange,<br/>requestIndex" --> App
+  Tool -- "token exchange,<br/>requestIndex, getFlags" --> App
   Tool -- "reads its<br/>records back" --> HV
   Tool -- "stats, sets,<br/>recordings" --> Pds
   App -- "the index, sessions,<br/>audit, inboxes" --> Db
@@ -511,13 +511,13 @@ flowchart TD
   App -- "queries, scripts,<br/>re-reads" --> HV
   App -- "root session" --> Root
   App -- "OAuth sessions,<br/>space sync" --> Pds
-  Root -- "notifyWrite" --> App
+  Root -- "notifySpaceUpdate" --> App
   Root --> Jet
   Pds --> Jet
   Jet --> HV
 ```
 
-Source: [`src/lib/server/app.ts`](src/lib/server/app.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
+Source: [`src/lib/server/app.ts`](src/lib/server/app.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts)
 
 ### Deployment
 

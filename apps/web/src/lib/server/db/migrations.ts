@@ -557,6 +557,13 @@ export const migrations = {
 		async up(db) {
 			await sql.raw('ALTER TABLE epk_request DROP COLUMN role').execute(db);
 		}
+	},
+	// Space hosts send a watched space's updates with the token the syncer registered them under.
+	'019_space_notify_token': {
+		async up(db) {
+			await sql.raw(`ALTER TABLE space_watch ADD COLUMN notify_token TEXT NOT NULL DEFAULT ''`).execute(db);
+			await sql.raw('UPDATE space_watch SET notify_token = hex(randomblob(32))').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 
