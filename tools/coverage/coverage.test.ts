@@ -16,6 +16,18 @@ const report = (...files: [string, number, number][]): Report => ({
 
 const all = (value: number): Percents => ({ lines: value, functions: value, regions: value });
 
+describe('the cargo aliases', () => {
+	it('leave out the same files from both reports', () => {
+		const config = readFileSync(join(import.meta.dirname, '../../.cargo/config.toml'), 'utf8');
+
+		const ignored = (alias: string) =>
+			new RegExp(`^${alias} = ".*--ignore-filename-regex (\\S+)"$`, 'm').exec(config)?.[1];
+
+		expect(ignored('coverage')).toMatch(/tests/);
+		expect(ignored('coverage-report')).toBe(ignored('coverage'));
+	});
+});
+
 describe('crateOf', () => {
 	it.each([
 		['/home/runner/work/localnetwork/localnetwork/crates/loclib-model/src/lib.rs', 'crates/loclib-model'],

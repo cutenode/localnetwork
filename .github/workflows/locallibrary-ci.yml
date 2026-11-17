@@ -551,9 +551,7 @@ jobs:
       - run: node tools/coverage/cli.ts report target/coverage.json
       # The lines the pull request changed (tools/coverage/patch.json), from the same profiles.
       - if: github.event_name == 'pull_request'
-        run: >-
-          cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
-          --lcov --output-path target/lcov.info
+        run: cargo coverage-report --nextest-archive-file tests.tar.zst --lcov --output-path target/lcov.info
       - if: github.event_name == 'pull_request'
         uses: ./.github/actions/patch-coverage
         with:

@@ -11,6 +11,11 @@
 # it against a nextest archive, which refuses them.
 [alias]
 coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-lines 95.2 --fail-under-functions 93.9 --fail-under-regions 93.3 --ignore-filename-regex (^|[/\\\\])((tests|testing|test_util|screens|props)\\.rs$|(test-plugin|loclib-testkit)[/\\\\])"
+# `cargo coverage-report --nextest-archive-file <archive> --lcov --output-path <file>`: another
+# report of the profiles a `cargo coverage` run left (with --no-clean), leaving out the same files.
+# A second `cargo coverage` on the same archive fails, as nextest won't extract it over itself.
+# tools/coverage/coverage.test.ts holds the two regexes the same.
+coverage-report = "llvm-cov report --failure-mode all --ignore-filename-regex (^|[/\\\\])((tests|testing|test_util|screens|props)\\.rs$|(test-plugin|loclib-testkit)[/\\\\])"
 # `cargo +nightly fuzz-<target>`: one fuzz target (fuzz/) until it finds a crash or you stop it,
 # with libFuzzer options after it (`cargo +nightly fuzz-anlz -max_total_time=300`), from the
 # repository root. libFuzzer keeps what reaches new code in the first folder, fuzz/corpus/<target>/
