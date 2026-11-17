@@ -75,18 +75,16 @@ describe('/', () => {
 		await expect
 			.element(page.getByRole('heading', { level: 1 }))
 			.toHaveAccessibleName(`${headline.verbs[0]} your ${headline.nouns[0]}.`);
-		await expect.element(page.getByRole('search', { name: 'Find DJs' })).toHaveAttribute('action', '/projects');
+		await expect.element(page.getByRole('search', { name: 'Find DJs' })).toHaveAttribute('action', '/djs');
 		await expect.element(page.getByRole('textbox', { name: 'Sound or name' })).toHaveAttribute('name', 'q');
 		await expect.element(page.getByRole('link', { name: 'Neon Tide' })).toHaveAttribute('href', '/projects/neon-tide');
 		await expect
 			.element(page.getByRole('link', { name: '3 up for claiming' }))
-			.toHaveAttribute('href', '/projects?unclaimed=on');
-		await expect
-			.element(page.getByRole('link', { name: 'techno 2' }))
-			.toHaveAttribute('href', '/projects?genres=techno');
+			.toHaveAttribute('href', '/djs?unclaimed=on');
+		await expect.element(page.getByRole('link', { name: 'techno 2' })).toHaveAttribute('href', '/djs?genres=techno');
 		await expect
 			.element(page.getByRole('link', { name: 'Berlin, DE 2' }))
-			.toHaveAttribute('href', '/projects?q=Berlin&country=DE');
+			.toHaveAttribute('href', '/djs?q=Berlin&country=DE');
 		await expect.element(page.getByRole('link', { name: /localthing/ })).toHaveAttribute('href', '/tools/localthing');
 	});
 

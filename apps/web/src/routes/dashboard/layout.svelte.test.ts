@@ -2,6 +2,7 @@ import { createRawSnippet } from 'svelte';
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { cleanup, render } from 'vitest-browser-svelte';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import Layout from './+layout.svelte';
 
@@ -56,7 +57,7 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		await expect.element(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
 	}
 
-	for (const name of ['Submissions', 'Activity', 'Your data']) {
+	for (const name of ['Review requests', 'Activity', 'Your data']) {
 		await expect.element(nav.getByRole('link', { name })).not.toBeInTheDocument();
 	}
 
@@ -162,6 +163,35 @@ it('still offers to list a project when the directory is offline', async () => {
 	const yours = nav.getByRole('list', { name: 'Yours' });
 	await expect.element(yours.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
 	expect(yours.getByRole('link').elements()).toHaveLength(2);
+});
+
+it('offers to start a party while spacePages is on', async () => {
+	const open = async (spacePages: boolean) => {
+		cleanup();
+
+		await render(Layout, {
+			params: {},
+			data: {
+				viewer: viewer(false),
+				pendingRequests: 0,
+				flags: { ...flagsOff, spacePages },
+				unread: 0,
+				waiting: 0,
+				needs: [],
+				access: Promise.resolve([]),
+				projects: Promise.resolve([]),
+				sections: Promise.resolve(null)
+			},
+			children
+		});
+
+		return (await menu()).getByRole('list', { name: 'Yours' });
+	};
+
+	await expect
+		.element((await open(true)).getByRole('link', { name: 'Start a party' }))
+		.toHaveAttribute('href', '/party/new');
+	await expect.element((await open(false)).getByRole('link', { name: 'Start a party' })).not.toBeInTheDocument();
 });
 
 it('shows a DJ their projects and a promoter their planner, by the sections their profile has on', async () => {

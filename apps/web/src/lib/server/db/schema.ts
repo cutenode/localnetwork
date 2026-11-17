@@ -39,6 +39,7 @@ export interface Database {
 	performer: PerformerTable;
 	venue: VenueTable;
 	venueBlock: VenueBlockTable;
+	party: PartyTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -203,6 +204,8 @@ export interface SpaceWatchTable {
 	skey: string;
 	spaceRev: string | null;
 	registrationExpiresAt: string | null;
+	/** Names this app's registration for the space's updates, and proves a host's notice comes from the host. */
+	notifyToken: string;
 	lastSyncedAt: string | null;
 	lastError: string | null;
 	createdAt: string;
@@ -281,14 +284,13 @@ export interface EpkRequestTable {
 	spaceUri: string;
 	epkUri: string;
 	requesterDid: string;
-	role: string | null;
 	message: string | null;
 	/** What the press kit's rules said when the request came in: auto, review or none. */
 	rule: string;
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
-	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without its message. */
 	deletedAt: string | null;
 }
 
@@ -391,6 +393,19 @@ export interface VenueBlockTable {
 	/** The blocked profile's record, or the act's or party's listing URI. */
 	subject: string;
 	createdAt: string;
+}
+
+/** A party, from the root's party record in its space. */
+export interface PartyTable {
+	spaceUri: string;
+	skey: string;
+	name: string;
+	/** Null while it's a draft. */
+	publishedAt: string | null;
+	/** The whole record, as JSON. */
+	record: string;
+	cid: string;
+	updatedAt: string;
 }
 
 export interface SpaceInviteTable {

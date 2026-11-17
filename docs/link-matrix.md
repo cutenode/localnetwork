@@ -35,7 +35,7 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Profile                 | `/@<handle>`, tabs as `?tab=`                                        | yes, without tabs                                                                                                                                                                                          |
 | Act                     | `/act/<key>/<name>`                                                  | as `/projects/<slug>`                                                                                                                                                                                      |
-| Party                   | `/party/<key>/<name>`                                                | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
+| Party                   | `/party/<key>/<name>`                                                | yes, behind `spacePages` ([routes/party/[key]/[...rest]](../apps/web/src/routes/party/%5Bkey%5D/%5B...rest%5D/%2Bpage.svelte)) |
 | Venue                   | `/venue/<key>/<name>`                                                | no                                                                                                                                                                                                         |
 | Event                   | `/party/<slug>/<event>`, or `/@<handle>/events/<rkey>` with no party | no: shows are rows in `/shows` and on act pages                                                                                                                                                            |
 | Set (and mix)           | `/@<handle>/sets/<rkey>`; `/mixes` lists                             | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>`                                                                                                                    |
@@ -43,7 +43,7 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | Artist                  | `/artists/<id>`                                                      | yes                                                                                                                                                                                                        |
 | Track                   | not set yet, behind a flag                                           | no                                                                                                                                                                                                         |
 | Area                    | `/events/<country>/<city>`                                           | no: `/shows` lists shows near a city                                                                                                                                                                       |
-| Search                  | `/search?q=&type=`                                                   | no: Find DJs (`/projects`) searches acts and listed DJs                                                                                                                                                    |
+| Search                  | `/search?q=&type=`                                                   | no: Find DJs (`/djs`) searches acts and listed DJs                                                                                                                                                    |
 | Followers and Following | on every profile, act, party and venue                               | no ([routes/shows/+page.svelte:16-17](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/shows/%2Bpage.svelte#L16-L17) is the only use of follows) |
 | Home                    | `/`                                                                  | yes                                                                                                                                                                                                        |
 | For promoters           | `/for-promoters`                                                     | yes                                                                                                                                                                                                        |
@@ -89,7 +89,7 @@ Wherever a handle shows, it links to that profile. That's on main through `profi
 | Links to                               | When                    | On main  |
 | -------------------------------------- | ----------------------- | -------- |
 | Its events, upcoming and past          | it has events           | new page |
-| Hosts' and cohosts' profiles           | they aren't hidden      | new page |
+| Hosts' and cohosts' profiles           | they aren't hidden      | on main  |
 | Venues it runs nights at               | its events name them    | new page |
 | Performers who played it               | its events have lineups | new page |
 | Community photos' submitters' profiles | a photo was approved    | new page |
@@ -186,7 +186,7 @@ One tab per kind. Each result links its page.
 | Parties, venues, events, sets, mixes | new page |                                                                                                                                                                                                                                                                                                                     |
 | Artists                              | missing  | artist search is its own page, `/artists`, reached from one button on Charts [routes/charts/+page.svelte:16](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/charts/%2Bpage.svelte#L16)                                                                  |
 | Tracks                               | new page |                                                                                                                                                                                                                                                                                                                     |
-| locallibrary                         | on main  | "Get locallibrary" under the Find DJs header [routes/projects/+page.svelte](../apps/web/src/routes/projects/+page.svelte)                                                                                                                                                                                           |
+| locallibrary                         | on main  | "Get locallibrary" under the Find DJs header [routes/djs/+page.svelte](../apps/web/src/routes/djs/+page.svelte)                                                                                                                                                                                           |
 
 ## Followers and Following
 
@@ -262,7 +262,7 @@ flowchart LR
     mix["Mix tracklist /projects/slug/mixes/n"]
     shows["Shows /shows"]
     artist["Artist /artists/id"]
-    find["Find DJs /projects"]
+    find["Find DJs /djs"]
     promoters["For promoters /for-promoters"]
 
     profile -->|"Plays in"| act

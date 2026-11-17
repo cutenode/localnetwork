@@ -39,6 +39,8 @@ import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
+import { partyListingSource } from './services/party-index';
+import { PartyService } from './services/parties';
 import { venueListingSource } from './services/venue-index';
 import { VenueService } from './services/venues';
 import { VenueRules } from './services/venue-rules';
@@ -80,6 +82,11 @@ export type CreateAppOptions = {
 	background?: boolean;
 	/** What each kind's listing shows, over the acts' own. Parties and venues have no public page yet. */
 	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
+	/**
+	 * Where space hosts send updates, in place of PUBLIC_URL (tests: a host won't call an IP address, and a loopback
+	 * PUBLIC_URL has to be one for the OAuth client).
+	 */
+	notifyEndpoint?: string;
 };
 
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
@@ -172,7 +179,9 @@ export async function createApp(options: CreateAppOptions) {
 	const credentials = new SpaceCredentialManager({
 		source: async () => rootClient,
 		identity,
-		logger: logger.child({ component: 'credentials' })
+		logger: logger.child({ component: 'credentials' }),
+		// Only watched spaces register, so a host's notice names a space the syncer has a token for.
+		notify: (space) => syncer.registration(space)
 	});
 
 	const core: Core = {
@@ -269,6 +278,7 @@ export async function createApp(options: CreateAppOptions) {
 	const listings = new ListingWriter(core, flags, {
 		performer: performerListingSource(db),
 		venue: venueListingSource(db),
+		party: partyListingSource(db),
 		...options.listingSources
 	});
 
@@ -289,6 +299,7 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, limits.write);
 	const venueRules = new VenueRules(core);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
@@ -303,7 +314,7 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'bug-reports' })
 	});
 
-	const syncer = new SpaceSyncer({
+	const syncer: SpaceSyncer = new SpaceSyncer({
 		db,
 		logger: logger.child({ component: 'sync' }),
 		identity,
@@ -324,7 +335,7 @@ export async function createApp(options: CreateAppOptions) {
 			await bookings.forget(space);
 			await sharedSpaces.forget(space);
 		},
-		notifyService: config.syncNotify ? config.syncService : null
+		notifyEndpoint: config.syncNotify ? (options.notifyEndpoint ?? config.publicUrl) : null
 	});
 
 	const sessions = new WebSessions(db, config.sessionDays);
@@ -409,6 +420,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectMigration,
 		venues,
 		venueRules,
+		parties,
 		recordings,
 		supports,
 		epks,

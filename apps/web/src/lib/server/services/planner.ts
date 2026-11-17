@@ -140,7 +140,7 @@ export class PlannerService {
 				action: 'planner.save',
 				subject: projectUri,
 				subjectKind: 'planner',
-				summary: 'Saved a project to their planner',
+				summary: 'Saved a DJ to their planner',
 				details: { record: ref.uri }
 			},
 			{ actorClient: client }
@@ -163,7 +163,7 @@ export class PlannerService {
 				action: 'planner.unsave',
 				subject: projectUri,
 				subjectKind: 'planner',
-				summary: 'Removed a project from their planner'
+				summary: 'Removed a DJ from their planner'
 			},
 			{ actorClient: client }
 		);

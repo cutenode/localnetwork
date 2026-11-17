@@ -2240,6 +2240,7 @@ dependencies = [
  "keyring-core",
  "libc",
  "loclib-analysis",
+ "loclib-anlz",
  "loclib-audio",
  "loclib-capacity",
  "loclib-equipment",
@@ -2280,6 +2281,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "locallibrary-plugin-interop"
+version = "0.1.0"
+dependencies = [
+ "fs4",
+ "loclib-interop",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "localnetwork-fuzz"
 version = "0.0.0"
 dependencies = [
@@ -2287,11 +2303,15 @@ dependencies = [
  "indexmap",
  "libfuzzer-sys",
  "locallibrary",
+ "locallibrary-plugin-interop",
+ "loclib-anlz",
  "loclib-audio",
  "loclib-interop",
  "loclib-mysettings",
  "loclib-tracklist",
  "rekordbox-pdb",
+ "rusqlite",
+ "tempfile",
 ]
 
 [[package]]
@@ -2317,6 +2337,16 @@ dependencies = [
  "schemars",
  "serde",
  "stratum-dsp",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-anlz"
+version = "0.1.0"
+dependencies = [
+ "loclib-model",
+ "schemars",
+ "serde",
  "thiserror 2.0.21",
 ]
 
@@ -2356,12 +2386,20 @@ name = "loclib-interop"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "blake3",
+ "chrono",
+ "getrandom 0.3.4",
  "loclib-model",
  "loclib-progress",
  "lofty",
+ "percent-encoding",
+ "quick-xml",
+ "rusqlite",
  "rustc-hash",
  "serde",
+ "tempfile",
  "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]

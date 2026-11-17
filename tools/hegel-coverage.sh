@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 max_filterset_bytes=$((96 * 1024))
 
 # Each test's name is the first `fn` after its attribute, which can span several lines. Plain
-# tests elsewhere can share the name (`cues::x` beside `props_anlz::x`), so each filter also
+# tests elsewhere can share the name (`cues::x` in another crate's tests), so each filter also
 # names the test's file: its module (`app` for src/tui/app.rs, `x` for x/mod.rs, `app::tests` for
 # src/tui/app/tests.rs), or for an integration test's own file (in a package's tests/), its
 # package and binary (several crates have a tests/props.rs). A crate root's src/tests.rs is only

@@ -95,7 +95,7 @@ it('tells a DJ inquiries come to them, and a promoter where to find DJs', async 
 	await rerender({ data: data('did:plc:neon', [], [], { performer: true, promoter: false }) });
 	await expect.element(page.getByText(/When a promoter sends an inquiry to you/)).toBeInTheDocument();
 	await rerender({ data: data('did:plc:pat', []) });
-	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/djs');
 });
 
 it('filters threads with a listed DJ by their handle, beside an act', async () => {

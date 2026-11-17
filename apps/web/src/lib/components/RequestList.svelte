@@ -6,7 +6,7 @@
 	import EmptyState from './EmptyState.svelte';
 
 	/**
-	 * The viewer's own requests to staff, the ones back with them first, each saying where it stands and linking to where
+	 * The viewer's own review requests, the ones back with them first, each saying where it stands and linking to where
 	 * they can follow or revise it. `loading` holds the room of a few.
 	 */
 	let { requests = [], loading = false }: { requests?: RequestView[]; loading?: boolean } = $props();
@@ -42,7 +42,7 @@
 		{/each}
 	</ul>
 {:else}
-	<EmptyState title="No requests yet" body="New projects, claims and profile changes you ask staff for show up here.">
+	<EmptyState title="No review requests yet" body="New projects, claims and profile changes you ask staff for show up here.">
 		<Button variant="secondary" size="sm" href="/dashboard/projects/new">List a project</Button>
 	</EmptyState>
 {/if}

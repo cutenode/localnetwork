@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import type { EpkViewReceipt } from '#lib/epk.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import EpkViewList from './EpkViewList.svelte';
 
 	const { Story } = defineMeta({ title: 'Press kits/Views', component: EpkViewList, tags: ['autodocs'] });
@@ -29,8 +30,6 @@
 
 		return promise;
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const list = { slug: 'neon-tide', retentionDays: 90 };
 </script>

@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { PerformerSummary } from '#lib/performers.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import PerformerCard from './PerformerCard.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Performer card', component: PerformerCard, tags: ['autodocs'] });
@@ -29,8 +30,6 @@
 		genres: ['Techno', 'Ambient'],
 		fee: ''
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="A project" args={{ performer: project }} />

@@ -264,7 +264,6 @@ describe('LegacyEpks', () => {
 			space: legacy.space,
 			epk: legacy.uri,
 			requester: ADMIN,
-			role: null,
 			message: 'Me too',
 			rule: 'review',
 			createdAt: new Date().toISOString()

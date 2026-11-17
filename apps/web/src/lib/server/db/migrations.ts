@@ -551,6 +551,37 @@ export const migrations = {
 				.execute(db);
 			await sql.raw('CREATE INDEX venue_block_venue_subject ON venue_block (venue, subject)').execute(db);
 		}
+	},
+	// Requests stopped naming a role the asker picked for themself; the access page shows their profile instead.
+	'018_epk_request_without_role': {
+		async up(db) {
+			await sql.raw('ALTER TABLE epk_request DROP COLUMN role').execute(db);
+		}
+	},
+	// Space hosts send a watched space's updates with the token the syncer registered them under.
+	'019_space_notify_token': {
+		async up(db) {
+			await sql.raw(`ALTER TABLE space_watch ADD COLUMN notify_token TEXT NOT NULL DEFAULT ''`).execute(db);
+			await sql.raw('UPDATE space_watch SET notify_token = hex(randomblob(32))').execute(db);
+		}
+	},
+	'020_parties': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE party (
+						space_uri TEXT PRIMARY KEY,
+						skey TEXT NOT NULL,
+						name TEXT NOT NULL,
+						published_at TEXT,
+						record TEXT NOT NULL,
+						cid TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX party_skey ON party (skey)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 
