@@ -119,7 +119,10 @@ describe("a thread the directory can't name", () => {
 		const app = {
 			shows: { forProject: async () => [] },
 			planner: { saves: async () => [], shows: async () => [] },
-			projects: { byUris: async () => new Map() }
+			projects: { byUris: async () => new Map() },
+			profiles: f.t.profiles,
+			accounts: f.t.accounts,
+			djListings: f.t.djListings
 		};
 
 		const { nights } = await nextNights(
@@ -222,7 +225,7 @@ describe('soon', () => {
 describe('accessWaiting', () => {
 	it("asks about each person waiting on a press kit, and drops them once they're answered", async () => {
 		const epk = await f.publish(DJ);
-		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), { role: 'press' });
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {});
 
 		const rows = await accessWaiting({ app: f.t, log: silentLogger }, [f.project], NOW);
 
@@ -323,7 +326,10 @@ describe('nextNights', () => {
 		const app = {
 			shows: { forProject: () => answer(shows) },
 			planner: { saves: async () => [], shows: () => answer(plans) },
-			projects: { byUris: async () => new Map() }
+			projects: { byUris: async () => new Map() },
+			profiles: f.t.profiles,
+			accounts: f.t.accounts,
+			djListings: f.t.djListings
 		};
 
 		return nextNights({ app, log: silentLogger }, await f.t.viewer(DJ), threads, [f.project], sections, NOW);

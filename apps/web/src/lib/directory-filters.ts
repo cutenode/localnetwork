@@ -1,6 +1,6 @@
 import { FEE_TIERS, FORMATS, labelFor, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 
-/** The directory's filters as its page reads them from the address (routes/projects/+page.server.ts). */
+/** The directory's filters as its page reads them from the address (routes/djs/+page.server.ts). */
 export type DirectoryFilters = {
 	q: string;
 	place: string;
@@ -40,7 +40,7 @@ function without(search: Pick<URLSearchParams, 'toString'>, name: string, value?
 	if (name === 'place') ['lat', 'lng'].forEach((coordinate) => params.delete(coordinate));
 	const query = params.toString();
 
-	return query ? `/projects?${query}` : '/projects';
+	return query ? `/djs?${query}` : '/djs';
 }
 
 /** Every filter that's on, each removable on its own, in the order the form lists them. */

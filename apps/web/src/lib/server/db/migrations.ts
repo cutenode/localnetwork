@@ -552,7 +552,13 @@ export const migrations = {
 			await sql.raw('CREATE INDEX venue_block_venue_subject ON venue_block (venue, subject)').execute(db);
 		}
 	},
-	'018_parties': {
+	// Requests stopped naming a role the asker picked for themself; the access page shows their profile instead.
+	'018_epk_request_without_role': {
+		async up(db) {
+			await sql.raw('ALTER TABLE epk_request DROP COLUMN role').execute(db);
+		}
+	},
+	'019_parties': {
 		async up(db) {
 			await sql
 				.raw(

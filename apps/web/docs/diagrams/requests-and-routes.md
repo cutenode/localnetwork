@@ -157,7 +157,7 @@ The pages anyone can read. A performer that isn't active shows only to its manag
 flowchart LR
   Public["Public pages"]
   Public --> Home["/, /for-djs, /for-promoters,<br/>/about, /privacy"]
-  Public --> Find["/projects, /match"]
+  Public --> Find["/djs, /match"]
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]
   Public --> Shows["/shows"]

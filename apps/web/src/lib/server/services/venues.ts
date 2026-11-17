@@ -2,7 +2,7 @@ import { type Selectable, type SqlBool, sql } from 'kysely';
 import { COLLECTION } from '#lib/nsid.ts';
 import { labelFor, VENUE_APPROVALS } from '#lib/taxonomy/options.ts';
 import type { VenueApproval, VenueRecord, Viewer } from '#lib/types.ts';
-import type { VenueOption } from '#lib/venues.ts';
+import type { VenueOption, VenueRole } from '#lib/venues.ts';
 import { isValidRecord, validateRecord } from '../atproto/lexicons';
 import { rkeyOf } from '../atproto/spaces';
 import { type Core, NotFoundError, UserError } from '../core';
@@ -277,6 +277,24 @@ export class VenueService {
 			.executeTakeFirst();
 
 		return row ? toView(row) : null;
+	}
+
+	/** The venues each of `dids` is in, by DID, leaving out those where they chose to hide. */
+	async runBy(dids: string[]): Promise<Map<string, VenueRole[]>> {
+		const rows = await this.core.db
+			.selectFrom('spacePerson')
+			.innerJoin('venue', 'venue.spaceUri', 'spacePerson.spaceUri')
+			.select(['spacePerson.did', 'spacePerson.role', 'venue.name', 'venue.locality'])
+			.where('spacePerson.did', 'in', dids)
+			.where('spacePerson.hidden', '=', 0)
+			.orderBy('venue.name')
+			.execute();
+
+		const found = new Map<string, VenueRole[]>();
+
+		for (const { did, ...venue } of rows) found.set(did, [...(found.get(did) ?? []), venue]);
+
+		return found;
 	}
 
 	private async first(column: 'skey' | 'fsqPlaceId' | 'spaceUri', value: string): Promise<VenueView | null> {

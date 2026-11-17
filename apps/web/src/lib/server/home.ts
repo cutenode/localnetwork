@@ -5,11 +5,10 @@ import type { NeedsRow, NightRow } from '#lib/home.ts';
 import type { BookingThreadView, PlannerShowView, ProjectView, RequestView, Viewer } from '#lib/types.ts';
 import { unlessOffline } from './happyview/offline';
 import type { Logger } from './logger';
-import { loadPlanner } from './planner-page';
+import { loadPlanner, type PlannerApp } from './planner-page';
 import type { BookingService } from './services/bookings';
 import type { EpkService } from './services/epk';
 import type { PlannerService } from './services/planner';
-import type { ProjectService } from './services/projects';
 import type { RequestService } from './services/requests';
 import type { ShowService } from './services/shows';
 
@@ -210,8 +209,7 @@ export async function nextNights(
 		app: {
 			shows: Pick<ShowService, 'forProject'>;
 			planner: Pick<PlannerService, 'saves' | 'shows'>;
-			projects: Pick<ProjectService, 'byUris'>;
-		};
+		} & PlannerApp;
 		log: Log;
 	},
 	viewer: Viewer,

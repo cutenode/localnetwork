@@ -17,18 +17,20 @@ type Extras = {
 	follow?: Promise<FollowState | null>;
 	pronouns?: string | null;
 	bookable?: boolean;
+	saved?: boolean | null;
 };
 
 /**
  * The page's data for `profile` (null for an account without one, shown as `name`), as `viewer`, with their pronouns
  * and what streams in: their DJ records, the projects they play in, and their followers when they can be followed.
- * `bookable` is a DJ Find DJs lists.
+ * `bookable` is a DJ Find DJs lists, and `saved` whether they're in the viewer's planner (null when the viewer can't
+ * save them).
  */
 const pageData = (
 	profile: ProfileView | null,
 	viewer: Viewer | null = null,
 	name = profile?.record.basics.name ?? '',
-	{ dj = [], playsIn = [NEON_CREW], follow, pronouns = null, bookable = false }: Extras = {}
+	{ dj = [], playsIn = [NEON_CREW], follow, pronouns = null, bookable = false, saved = null }: Extras = {}
 ) => ({
 	viewer,
 	pendingRequests: 0,
@@ -41,7 +43,8 @@ const pageData = (
 	dj: Promise.resolve(dj),
 	sets: undefined,
 	playsIn: Promise.resolve(playsIn),
-	follow
+	follow,
+	saved
 });
 
 /** Renders the page with pageData's arguments, and the result of a form posted to it. */
@@ -87,7 +90,7 @@ it("shows a DJ's details, with the projects they play in a tab away", async () =
 	// The pronouns the loader picked (see personName), not the ones the profile kept before.
 	await expect.element(page.getByText('she/her')).toBeInTheDocument();
 	await expect.element(page.getByText('they/them')).not.toBeInTheDocument();
-	await expect.element(page.getByRole('link', { name: 'techno' })).toHaveAttribute('href', '/projects?genres=techno');
+	await expect.element(page.getByRole('link', { name: 'techno' })).toHaveAttribute('href', '/djs?genres=techno');
 	await expect.element(page.getByText('Closing')).toBeInTheDocument();
 	await expect.element(page.getByText('Leipzig, DE')).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Website' })).toHaveAttribute('href', 'https://neon.example/');
@@ -227,6 +230,24 @@ it('offers an inquiry to a listed DJ, or sign-in to send one, but not on their o
 	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeInTheDocument();
 	await expect.element(inquiry).not.toBeInTheDocument();
 	await expect.element(signIn).not.toBeInTheDocument();
+});
+
+it('offers Save to a planner on a DJ it can be saved to, and says when it already is', async () => {
+	const dj = view({ performer: { genres: ['techno'] } });
+	const save = page.getByRole('button', { name: 'Save' });
+	const saved = page.getByRole('button', { name: 'Saved' });
+
+	let shown = await open(dj, fan, undefined, { saved: false });
+	await expect.element(save).toBeInTheDocument();
+	await shown.unmount();
+
+	shown = await open(dj, fan, undefined, { saved: true });
+	await expect.element(saved).toBeInTheDocument();
+	await shown.unmount();
+
+	await open(dj, fan);
+	await expect.element(save).not.toBeInTheDocument();
+	await expect.element(saved).not.toBeInTheDocument();
 });
 
 it('shows the follower count, and links to sign-in to follow when signed out', async () => {

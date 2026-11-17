@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import type { EpkView } from '#lib/epk.ts';
-import { CODJ, DJ, FRIEND, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
+import { ADMIN, CODJ, DJ, FRIEND, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import type { PageServerData } from './$types';
 import { actions, load } from './+page.server.ts';
@@ -46,10 +46,7 @@ const submit = async (
 
 /** PROMOTER's request to see `epk`, waiting for a manager. */
 async function requested(epk: EpkView) {
-	await f.t.epks.request(await f.t.viewer(PROMOTER), f.kit(epk), {
-		role: 'promoter',
-		message: 'For our winter series'
-	});
+	await f.t.epks.request(await f.t.viewer(PROMOTER), f.kit(epk), { message: 'For our winter series' });
 	const [request] = await f.t.epks.requests(epk);
 
 	return request;
@@ -67,8 +64,69 @@ it("lists the press kit's requests and the people let in", async () => {
 	const data = await open(CODJ, epk.rkey);
 
 	expect(data).toMatchObject({ epk: { rkey: epk.rkey }, legacyMaker: null });
-	expect(data.requests).toMatchObject([{ requester: { did: PROMOTER }, status: 'pending', role: 'promoter' }]);
+	expect(data.requests).toMatchObject([{ requester: { did: PROMOTER }, status: 'pending' }]);
 	expect(data.grants).toMatchObject([{ subject: { did: FRIEND }, via: 'invited' }]);
+});
+
+it("shows a requester's promoter section from their own profile", async () => {
+	const epk = await f.publish(DJ);
+	await f.t.profiles.save(await f.t.viewer(PROMOTER), {
+		basics: { name: 'Pat' },
+		promoter: { cities: [{ city: 'Brooklyn', region: 'New York', country: 'US' }] },
+		avatar: 'keep',
+		swap: (await f.t.profiles.get(PROMOTER))?.cid ?? null
+	});
+	await requested(epk);
+
+	const data = await open(CODJ, epk.rkey);
+
+	expect(data.requests[0].about).toEqual({
+		promoter: { cities: [{ city: 'Brooklyn', region: 'New York', country: 'US' }] },
+		performer: null,
+		venues: []
+	});
+});
+
+it('shows the venues a requester runs', async () => {
+	const epk = await f.publish(DJ);
+	const admin = await f.t.viewer(ADMIN);
+	const venue = await f.t.venues.add(admin, { name: 'Elsewhere', address: { country: 'US', locality: 'Brooklyn' } });
+	await f.t.sharedSpaces.addPerson(admin, venue.space, { did: PROMOTER, role: 'owner' });
+	await requested(epk);
+
+	const data = await open(CODJ, epk.rkey);
+
+	expect(data.requests[0].about.venues).toEqual([{ name: 'Elsewhere', locality: 'Brooklyn', role: 'owner' }]);
+});
+
+it('leaves out a venue where the requester chose to hide', async () => {
+	const epk = await f.publish(DJ);
+	const admin = await f.t.viewer(ADMIN);
+	const venue = await f.t.venues.add(admin, { name: 'Elsewhere', address: { country: 'US', locality: 'Brooklyn' } });
+	await f.t.sharedSpaces.addPerson(admin, venue.space, { did: PROMOTER, role: 'owner' });
+	await f.t.sharedSpaces.setHidden(await f.t.viewer(PROMOTER), venue.space, PROMOTER, true);
+	await requested(epk);
+
+	const data = await open(CODJ, epk.rkey);
+
+	expect(data.requests[0].about.venues).toEqual([]);
+});
+
+it('loads a press kit nobody has asked for yet', async () => {
+	const epk = await f.publish(DJ);
+
+	const data = await open(CODJ, epk.rkey);
+
+	expect(data.requests).toEqual([]);
+});
+
+it('says nothing about a requester with no profile sections or venues', async () => {
+	const epk = await f.publish(DJ);
+	await requested(epk);
+
+	const data = await open(CODJ, epk.rkey);
+
+	expect(data.requests[0].about).toEqual({ promoter: null, performer: null, venues: [] });
 });
 
 it("refuses someone who doesn't manage the project", async () => {
