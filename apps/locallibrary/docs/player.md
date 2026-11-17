@@ -295,9 +295,10 @@ needs.
   from it stops first). Beside the list are **Snapshots** (`3`), the store's snapshots, where `enter`
   brings a playlist back from the selected one onto the drive open in the library, and **History**
   (`4`), what players recorded on the drive open in the library, where `enter` opens a list there.
-- **localnetwork** (`g n`): your [DJ profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
-  in the public document or takes it out (only Sets, Energy, Genres, Artists, Era and Collection can
-  go in; the rest stay on this computer), `m`/`h`/`H` pin and hide tracks and artists, `D` shows the
+- **localnetwork** (`g n`): your [DJ profile](sets.md#dj-profile): an overview of your collection
+  (tracks, genres, artists, release years, and how many sets), then the sections that can be
+  published (Sets, Energy, Genres, Artists, Era and Collection), with what each would reveal. `i`
+  puts a section in the public document or takes it out, `h` hides an artist, `D` shows the
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, history list or all tracks shown as
@@ -486,11 +487,9 @@ localnetwork:
 | `e` | these actions, for the section selected |
 | `i` | put the section in the document, or take it out |
 | `tab  enter` | move between sections and their lists (esc goes back) |
-| `m` | pin a track first among signature tracks |
-| `h  H` | never name a track / its artist (still counted) |
+| `h` | never name an artist under Artists (still counted) |
 | `D` | show the document a public profile would get |
 | `w` | write the document as JSON in the store folder |
-| `a` | every drive and the store, or just the open drive |
 | `#` | rounded or exact numbers in the document |
 | `L` | sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, press twice to sign out |
 

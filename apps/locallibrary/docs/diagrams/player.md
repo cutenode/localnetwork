@@ -30,7 +30,7 @@ flowchart TD
     prepare["Prepare<br/>the jobs that get a drive ready"]
     drives["Drives<br/>libraries, drives, snapshots, what players recorded"]
     recordings["Recordings<br/>recorded sets and their tracks"]
-    publish["localnetwork<br/>DJ profile, Atmosphere account"]
+    publish["localnetwork<br/>the DJ profile's sections that can be published,<br/>Atmosphere account"]
     drives -->|"enter opens a drive, or a<br/>list players recorded"| library
     drives -.->|"enter on a snapshot: a playlist back<br/>onto the open drive, staying here"| library
     prepare -.->|"enter: a job on the open<br/>drive, staying here"| library
