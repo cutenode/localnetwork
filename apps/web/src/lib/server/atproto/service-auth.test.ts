@@ -220,5 +220,12 @@ describe('verifyServiceJwt', () => {
 				})
 			);
 		});
+
+		// The property's counterexample at seed -567532388: @atproto/crypto skips its alg check for an empty alg.
+		it('rejects a token the issuer signed with an empty alg', async () => {
+			const signed = await serviceJwt(key, { iss: 'did:plc:a', aud: audience, lxm, exp: NOW + 60 }, { alg: '' });
+
+			await expect(verifyServiceJwt(signed, opts())).rejects.toBeInstanceOf(ServiceAuthError);
+		});
 	});
 });
