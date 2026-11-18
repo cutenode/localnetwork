@@ -96,7 +96,8 @@ pub(super) fn ask(plugins: &Plugins, remembered: &[Access], input: &mut impl Buf
 /// The scopes `x`'s plugin gets back: those it can do without that are chosen from `input`
 /// (besides those it needs), else those it had when it can do without none.
 fn scopes(plugins: &Plugins, x: &Access, input: &mut impl BufRead) -> Result<Vec<String>> {
-    let need = plugins.manifest(&x.plugin).ok().and_then(|m| m.accounts.iter().find(|n| n.name == x.kind));
+    let Ok(plugin) = plugins.manifest(&x.plugin) else { return Ok(x.scopes.clone()) };
+    let need = plugin.accounts.iter().find(|n| n.name == x.kind);
     let optional: Vec<&String> = need.iter().flat_map(|n| n.optional.iter().flat_map(|o| &o.scopes)).collect();
     if optional.is_empty() {
         return Ok(x.scopes.clone());
@@ -107,7 +108,9 @@ fn scopes(plugins: &Plugins, x: &Access, input: &mut impl BufRead) -> Result<Vec
         let label = titles(t, std::slice::from_ref(*s)).join("");
         ChoiceItem { label, detail: had, value: json!(s) }
     });
-    let title = format!("Which may {} do besides what it needs?", x.plugin);
+    // Named from its manifest: what the question prints comes from the plugin, none of it from
+    // the sign-in's answer.
+    let title = format!("Which may {} do besides what it needs?", plugin.id);
     let choice = Choice { title, param: "scopes".into(), multi: true, items: items.collect(), more: Vec::new() };
     Ok(answer(&choice, "", input)?.iter().filter_map(Value::as_str).map(String::from).collect())
 }
