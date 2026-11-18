@@ -25,6 +25,38 @@ fn phrases_are_placed_with_the_beat_grid() {
     assert_eq!((spans[1].start_ms, spans[1].end_ms, spans[1].bars), (16_000.0, 40_000.0, 16));
 }
 
+/// rekordbox phrased some fast tracks at half tempo: these phrases (a 180 BPM track's, as its
+/// analysis has them) end at beat 242 of 488. Placed at half tempo they run to the end of the track
+/// rather than halfway, with bars twice as long.
+#[test]
+fn phrases_counted_at_half_tempo_run_the_whole_track() {
+    let beats: Vec<Beat> = (0..488u32)
+        .map(|i| Beat { beat_number: (i % 4 + 1) as u16, bpm: 180.0, time_ms: 138 + i * 1000 / 3 })
+        .collect();
+    let last = f64::from(beats[487].time_ms);
+    let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+    let analysis = TrackAnalysis {
+        beats,
+        structure: Some(SongStructure {
+            mood: Mood::High,
+            phrases: vec![
+                phrase(PhraseKind::Intro, 2, 17),
+                phrase(PhraseKind::Chorus, 17, 53),
+                phrase(PhraseKind::Chorus, 53, 117),
+                phrase(PhraseKind::Down, 117, 149),
+                phrase(PhraseKind::Down, 149, 177),
+                phrase(PhraseKind::Outro, 177, 242),
+            ],
+        }),
+        ..Default::default()
+    };
+    let spans = phrase_spans(&analysis, Duration::from_secs(162));
+    let outro = spans.last().unwrap();
+    assert!(outro.end_ms > 0.98 * last, "the outro ends at {} of {last}", outro.end_ms);
+    assert_eq!(spans[2].bars, 32);
+    assert!(spans.windows(2).all(|w| w[0].end_ms == w[1].start_ms));
+}
+
 fn titles(app: &App) -> Vec<String> {
     let l = app.loaded.as_ref().unwrap();
     app.visible.iter().map(|&i| l.library.tracks[i].title.clone()).collect()
