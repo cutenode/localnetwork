@@ -76,11 +76,14 @@ const data = (
 	threads,
 	acts: new Set(threads.map(({ skey }) => skey)).size,
 	names: named(threads),
-	filter: null,
 	...overrides
 });
 
-const list = (props: PageProps['data']) => render(Page, { params: {}, form: null, data: props });
+/** The page's address, filtered to an act when one's given. */
+const at = (project?: string) =>
+	new URL(`https://localnetwork.test/dashboard/bookings${project ? `?project=${project}` : ''}`);
+
+const list = (props: PageProps['data'], url = at()) => render(Page, { params: {}, form: null, data: props, url });
 
 const region = (name: string) => page.getByRole('region', { name: new RegExp(`^${name}`) });
 
@@ -203,14 +206,14 @@ it('renders every thread while the directory is slow, and fills the act in when 
 it('filters by the act in the address, and says when it has nothing', async () => {
 	const threads = [thread('a', 'open', NEON), thread('b', 'open', NEON)];
 
-	const filter = 'harbour-lights';
-	const { rerender } = await list(data(PAT, threads, { filter, names: named(threads, ['b']) }));
+	const url = at('harbour-lights');
+	const { rerender } = await list(data(PAT, threads, { names: named(threads, ['b']) }), url);
 
 	await expect.element(page.getByText('Show b')).toBeVisible();
 	await expect.element(page.getByText('Show a')).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Harbour Lights' })).toHaveAttribute('aria-current', 'page');
 
-	await rerender({ data: data(PAT, threads, { filter }) });
+	await rerender({ data: data(PAT, threads), url });
 	await expect.element(page.getByText('No bookings with this act')).toBeVisible();
 	await expect.element(page.getByRole('link', { name: 'Show all' })).toHaveAttribute('href', '/dashboard/bookings');
 });
@@ -218,7 +221,7 @@ it('filters by the act in the address, and says when it has nothing', async () =
 it('holds the filter until the directory can say which threads match', async () => {
 	const threads = [thread('a', 'open', NEON)];
 
-	await list(data(PAT, threads, { acts: 2, filter: 'neon-tide', names: new Promise<never>(() => {}) }));
+	await list(data(PAT, threads, { acts: 2, names: new Promise<never>(() => {}) }), at('neon-tide'));
 
 	await expect.element(page.getByRole('status', { name: 'Loading acts' })).toBeInTheDocument();
 	await expect.element(page.getByRole('status', { name: 'Loading bookings' })).toBeInTheDocument();
@@ -226,10 +229,13 @@ it('holds the filter until the directory can say which threads match', async () 
 });
 
 it('shows every booking when it has no names to filter by, and says so', async () => {
-	await list(data(PAT, [thread('a', 'open', NEON)], { filter: 'neon-tide', names: null }));
+	await list(data(PAT, [thread('a', 'open', NEON)], { names: null }), at('neon-tide'));
 
 	await expect.element(page.getByText('Show a')).toBeVisible();
 	await expect.element(page.getByText(/so this shows every booking/)).toBeVisible();
+	await expect
+		.element(page.getByRole('link', { name: 'Try again' }))
+		.toHaveAttribute('href', '/dashboard/bookings?project=neon-tide');
 });
 
 it('works without act names, and says so', async () => {
@@ -291,7 +297,7 @@ it('filters threads with a listed DJ by their handle, beside an act', async () =
 		.element(filter.getByRole('link', { name: 'Mara' }))
 		.toHaveAttribute('href', '/dashboard/bookings?project=@mara.test');
 
-	await rerender({ data: data(PAT, threads, { names, filter: '@mara.test' }) });
+	await rerender({ data: data(PAT, threads, { names }), url: at('@mara.test') });
 	await expect.element(page.getByText('Show b')).toBeVisible();
 	await expect.element(page.getByText('Show a')).not.toBeInTheDocument();
 });
