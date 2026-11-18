@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { atVenue, venueTime } from './venue-time';
+import { atVenue, isTimeZone, venueTime, zoneOf } from './venue-time';
 
-const BERLIN = { latE6: 52_520_000, lngE6: 13_405_000 };
+const BERLIN = zoneOf({ latE6: 52_520_000, lngE6: 13_405_000 });
 
-const NEW_YORK = { latE6: 40_712_800, lngE6: -74_006_000 };
+const NEW_YORK = zoneOf({ latE6: 40_712_800, lngE6: -74_006_000 });
 
-const KOLKATA = { latE6: 22_572_600, lngE6: 88_363_900 };
+const KOLKATA = zoneOf({ latE6: 22_572_600, lngE6: 88_363_900 });
 
 describe('venueTime', () => {
 	afterEach(() => vi.unstubAllEnvs());
@@ -19,7 +19,7 @@ describe('venueTime', () => {
 	});
 
 	it('uses the new offset just after a clock change, and Z for UTC itself', () => {
-		expect(venueTime('2026-11-07', '23:00', { latE6: 51_480_000, lngE6: 0 })).toBe('2026-11-07T23:00:00Z');
+		expect(venueTime('2026-11-07', '23:00', zoneOf({ latE6: 51_480_000, lngE6: 0 }))).toBe('2026-11-07T23:00:00Z');
 		// Berlin's clocks go forward at 02:00 on 29 March 2026.
 		expect(venueTime('2026-03-29', '03:30', BERLIN)).toBe('2026-03-29T03:30:00+02:00');
 		expect(venueTime('2026-03-29', '01:30', BERLIN)).toBe('2026-03-29T01:30:00+01:00');
@@ -35,6 +35,18 @@ describe('atVenue', () => {
 	it("reads any datetime on the venue's clock", () => {
 		expect(atVenue('2026-11-07T22:00:00.000Z', BERLIN)).toBe('2026-11-07T23:00:00+01:00');
 		expect(atVenue('2026-11-08T05:00:00+01:00', NEW_YORK)).toBe('2026-11-07T23:00:00-05:00');
-		expect(atVenue('2026-11-07T22:00:00+01:00', { latE6: 51_480_000, lngE6: 0 })).toBe('2026-11-07T21:00:00Z');
+		expect(atVenue('2026-11-07T22:00:00+01:00', zoneOf({ latE6: 51_480_000, lngE6: 0 }))).toBe('2026-11-07T21:00:00Z');
+	});
+});
+
+describe('time zones', () => {
+	it("finds a place's time zone from its coordinates", () => {
+		expect([BERLIN, NEW_YORK, KOLKATA]).toEqual(['Europe/Berlin', 'America/New_York', 'Asia/Kolkata']);
+	});
+
+	it('knows an IANA time zone from anything else', () => {
+		expect(isTimeZone('Europe/Berlin')).toBe(true);
+		expect(isTimeZone('UTC')).toBe(true);
+		expect(isTimeZone('Mars/Olympus')).toBe(false);
 	});
 });

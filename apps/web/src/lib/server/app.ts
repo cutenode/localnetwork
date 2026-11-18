@@ -44,6 +44,7 @@ import { PartyService } from './services/parties';
 import { venueListingSource } from './services/venue-index';
 import { VenueService } from './services/venues';
 import { VenueRules } from './services/venue-rules';
+import { EventService } from './services/events';
 import { PerformerService } from './services/performer-registry';
 import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
@@ -302,6 +303,7 @@ export async function createApp(options: CreateAppOptions) {
 	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, limits.write);
 	const venueRules = new VenueRules(core);
+	const events = new EventService(core, sharedSpaces, venues, venueRules, performerRegistry, parties, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
@@ -420,6 +422,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectMigration,
 		venues,
 		venueRules,
+		events,
 		parties,
 		recordings,
 		supports,

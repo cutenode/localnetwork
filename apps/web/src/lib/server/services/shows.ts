@@ -12,7 +12,7 @@ import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { DirectoryShow, HappyViewClient } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, type IndexedRepo, reindex } from '../happyview/indexed';
-import { atVenue, venueTime } from '../venue-time';
+import { atVenue, venueEnd, venueTime, zoneOf } from '../venue-time';
 import { writeOwn } from './own-repo';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
@@ -54,8 +54,6 @@ const CHANGED = 'This show changed since you opened it. Reload and try again.';
 const ADDRESS = 'community.lexicon.location.address';
 
 const GEO = 'community.lexicon.location.geo';
-
-const DAY_MS = 86_400_000;
 
 /** What the announce form reads back from a calendar event, which another app may have written or changed. */
 const eventSchema = z.object({
@@ -107,9 +105,6 @@ function readEvent(value: JsonObject): EventRecord | null {
 	}
 }
 
-/** The day after `date` (YYYY-MM-DD). */
-const nextDay = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10);
-
 /** A calendar event as this app writes it, with the fields its show copies. */
 type CalendarEvent = JsonObject & { startsAt: string; endsAt?: string; status: string };
 
@@ -121,7 +116,7 @@ type CalendarEvent = JsonObject & { startsAt: string; endsAt?: string; status: s
 export function eventRecord(input: ShowInput, previous?: JsonObject | null, listed?: ShowRecord | null): CalendarEvent {
 	const { location } = input;
 	const before = previous ? readEvent(previous) : null;
-	const startsAt = venueTime(input.date, input.start, location);
+	const startsAt = venueTime(input.date, input.start, zoneOf(location));
 	const wasMoved = [before?.status, listed?.status].includes(EVENT_STATUS.rescheduled);
 	// Compared as instants: the same moment can be written with different offsets.
 	const moved = wasMoved || (!!listed && Date.parse(listed.startsAt) !== Date.parse(startsAt));
@@ -154,8 +149,7 @@ export function eventRecord(input: ShowInput, previous?: JsonObject | null, list
 	delete event.endsAt;
 	delete event.uris;
 
-	if (input.end)
-		event.endsAt = venueTime(input.end > input.start ? input.date : nextDay(input.date), input.end, location);
+	if (input.end) event.endsAt = venueEnd(input.date, input.start, input.end, zoneOf(location));
 
 	if (input.tickets) event.uris = [{ uri: input.tickets, name: 'Tickets' }];
 
@@ -204,8 +198,11 @@ function formValues(show: ShowRecord, event: EventRecord | null): Omit<ShowFormV
 		Object.assign(location, { latE6: toE6(lat), lngE6: toE6(lng) });
 	else Object.assign(location, { latE6: show.location.latE6, lngE6: show.location.lngE6 });
 	const { latE6, lngE6 } = location;
+
 	// Without coordinates there's no clock to read times on; the form then asks for the city again anyway.
-	const local = (time: string) => (latE6 === undefined || lngE6 === undefined ? time : atVenue(time, { latE6, lngE6 }));
+	const local = (time: string) =>
+		latE6 === undefined || lngE6 === undefined ? time : atVenue(time, zoneOf({ latE6, lngE6 }));
+
 	const startsAt = local(event?.startsAt ?? show.startsAt);
 	const endsAt = event ? event.endsAt : show.endsAt;
 

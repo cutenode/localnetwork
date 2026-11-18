@@ -178,7 +178,7 @@ flowchart LR
   Sync -- "booking.inquiry, message, status,<br/>participants and the root" --> A6["booking_thread, booking_event,<br/>inbox items"]
   Sync -- "epk.request, and epk.grant<br/>from the authority only" --> A7["epk_request, epk_grant"]
   Sync -- "epk.draft in a backstage" --> A8["epk_draft"]
-  Sync -- "people.*, listing.status,<br/>performer, venue,<br/>party, root only" --> A9["shared space tables,<br/>performer, venue or party,<br/>then its listing"]
+  Sync -- "people.*, listing.status,<br/>performer, venue,<br/>venue.approval, party, event,<br/>root only" --> A9["shared space tables,<br/>performer, venue or party,<br/>then its listing"]
   Sync -- "staff.flag, staff.group,<br/>root only" --> A10["feature_flag, flag_group"]
 ```
 
