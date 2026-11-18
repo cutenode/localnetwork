@@ -38,9 +38,6 @@
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
 				"!src/lib/og/cards/CardPreview.svelte!",
-				// The venue picker ships dark: the event editor will be the first form to use it, and until then
-				// only its stories and tests reach it. Drop this line when a page imports it.
-				"!src/lib/components/VenuePicker.svelte!",
 				// Edit mode's story and test helpers.
 				"!src/lib/components/edit/EditBarFrame.svelte!",
 				"!src/lib/components/edit/EditPageHarness.svelte!"

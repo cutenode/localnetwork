@@ -99,7 +99,7 @@ export class ZoneChangeError extends UserError {
 }
 
 /** The venue's time zone, from its coordinates, or null when it has none yet. */
-const venueZone = ({ geo }: VenueView) =>
+export const venueZone = ({ geo }: VenueView) =>
 	geo ? zoneOf({ latE6: toE6(Number(geo.latitude)), lngE6: toE6(Number(geo.longitude)) }) : null;
 
 /** A location's time zone, or null when it has no coordinates (typed by hand, not picked from the city search). */
@@ -474,7 +474,7 @@ export class EventService {
 	}
 
 	/** The time zone a new venue-less draft starts on: its party's area's, else its creator's profile's, else UTC. */
-	private async homeZone(party: string, creator: string): Promise<string> {
+	async homeZone(party: string, creator: string): Promise<string> {
 		const area = locationZone((await this.parties.bySpace(party))?.basics.location);
 
 		if (area) return area;

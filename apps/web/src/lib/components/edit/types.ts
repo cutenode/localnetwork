@@ -9,8 +9,11 @@ export type EditPhase = 'view' | 'edit' | 'visitor';
  */
 export type EditActivity = 'idle' | 'opening' | 'open-failed' | 'saving' | 'conflict' | 'reauth' | 'failed';
 
-/** Where the page stands with visitors: a draft only its people see, a page staff haven't listed yet, or a listed one. */
-export type PageStatus = 'draft' | 'unlisted' | 'listed';
+/**
+ * Where the page stands with visitors: a draft only its people see, a page staff haven't listed yet, a listed one, or a
+ * private event, which opens for anyone with its link.
+ */
+export type PageStatus = 'draft' | 'unlisted' | 'listed' | 'private';
 
 /** Who is looking: one of the page's people, staff who are also one of them, or staff on someone else's page. */
 export type EditRole = 'owner' | 'owner-staff' | 'staff';
@@ -37,7 +40,12 @@ export type EditRefusal = {
 	reauth: boolean;
 	field?: { name: string; row: number };
 	conflict?: { version: string; values: FieldValues };
+	/** A choice the save needs before it can go through: the page asks `question`, and a resave sends `name` as picked. */
+	choice?: EditChoice;
 };
+
+/** What a refused save asks the editor to pick between, each option a button that saves again with `name` set to it. */
+export type EditChoice = { name: string; question: string; options: { value: string; label: string }[] };
 
 /** The owner part of the bar's menu: where the page's people, its inbox and its dashboard page are, when it has them. */
 export type EditMenuLinks = {
@@ -63,4 +71,6 @@ export type EditView = {
 	value: (name: string, saved: string) => string;
 	/** Why the server refused a field, under it. */
 	error: (name: string) => string | undefined;
+	/** What the last save asked the editor to pick, when it was refused for want of a choice. */
+	choice: EditChoice | undefined;
 };
