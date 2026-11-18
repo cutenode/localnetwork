@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { SharedSpaceSummary } from '#lib/types.ts';
 	import SharedSpaceTable from './SharedSpaceTable.svelte';
 
@@ -24,7 +25,7 @@
 
 <Story name="Acts, parties and venues" args={{ spaces }} />
 
-<Story name="Acts, parties and venues on a phone" args={{ spaces }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Acts, parties and venues on a phone" args={{ spaces }} globals={phone} />
 
 <Story name="Loading" args={{ spaces: new Promise<SharedSpaceSummary[]>(() => {}) }} />
 

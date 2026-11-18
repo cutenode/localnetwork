@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { ACCESS_PRESETS, type EpkConflictView, type EpkDashboard, type EpkDraftView, type EpkView, epkFormDefaults } from '#lib/epk.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import DraftStatus from './DraftStatus.svelte';
 	import EpkConflicts from './EpkConflicts.svelte';
 	import EpkEditor from './EpkEditor.svelte';
@@ -64,8 +65,6 @@
 
 		return promise;
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const list = { slug: 'neon-tide', viewerDid: me.did };
 

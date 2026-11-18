@@ -35,7 +35,7 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | ----------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Profile                 | `/@<handle>`, tabs as `?tab=`                                        | yes, without tabs                                                                                                                                                                                          |
 | Act                     | `/act/<key>/<name>`                                                  | as `/projects/<slug>`                                                                                                                                                                                      |
-| Party                   | `/party/<key>/<name>`                                                | no ([apps/web/README.md:37](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/README.md#L37))                                                                |
+| Party                   | `/party/<key>/<name>`                                                | yes, behind `spacePages` ([routes/party/[key]/[...rest]](../apps/web/src/routes/party/%5Bkey%5D/%5B...rest%5D/%2Bpage.svelte)) |
 | Venue                   | `/venue/<key>/<name>`                                                | no                                                                                                                                                                                                         |
 | Event                   | `/party/<slug>/<event>`, or `/@<handle>/events/<rkey>` with no party | no: shows are rows in `/shows` and on act pages                                                                                                                                                            |
 | Set (and mix)           | `/@<handle>/sets/<rkey>`; `/mixes` lists                             | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>`                                                                                                                    |
@@ -89,7 +89,7 @@ Wherever a handle shows, it links to that profile. That's on main through `profi
 | Links to                               | When                    | On main  |
 | -------------------------------------- | ----------------------- | -------- |
 | Its events, upcoming and past          | it has events           | new page |
-| Hosts' and cohosts' profiles           | they aren't hidden      | new page |
+| Hosts' and cohosts' profiles           | they aren't hidden      | on main  |
 | Venues it runs nights at               | its events name them    | new page |
 | Performers who played it               | its events have lineups | new page |
 | Community photos' submitters' profiles | a photo was approved    | new page |

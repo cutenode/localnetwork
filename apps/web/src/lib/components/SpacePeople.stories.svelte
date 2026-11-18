@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { SpacePerson } from '#lib/types.ts';
 	import SpacePeople from './SpacePeople.svelte';
 
@@ -46,7 +47,7 @@
 
 <Story name="People and who's waiting" args={{ people, pending, roles }} />
 
-<Story name="People and who's waiting on a phone" args={{ people, pending, roles }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="People and who's waiting on a phone" args={{ people, pending, roles }} globals={phone} />
 
 <Story name="A venue's people" args={venue} />
 

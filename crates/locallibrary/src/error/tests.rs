@@ -224,7 +224,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));
     // (the error, its code, whether its message (or path) comes through)
-    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(7)) {
+    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(8)) {
         0 => (mixid(kind).into(), mixid_code(kind), kind < 3),
         1 => {
             let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -268,6 +268,10 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
         4 => (loclib_progress::Cancelled.into(), "cancelled", false),
         5 => (loclib_equipment::UnknownModels(vec![message.clone()]).into(), "invalid", true),
         6 => (rekordbox_pdb::PdbError::UnknownField(message.clone()).into(), "pdb", true),
+        7 => match tc.draw(gs::booleans()) {
+            true => (loclib_anlz::Error::Malformed(message.clone()).into(), "parse", true),
+            false => (loclib_anlz::Error::Invalid(message.clone()).into(), "invalid", true),
+        },
         _ => (Error::Io { path: path.clone(), source: io() }, "io", true),
     };
     let detailed = e.to_string();

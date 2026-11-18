@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { BookingEventView, BookingShowLinks, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+	import { phone, tablet } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** A booking: the conversation, with the terms and the status moves beside it, or above it on smaller screens. */
@@ -74,10 +75,6 @@
 	});
 
 	const params = { skey: '3k1' };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
-
-	const tablet = { viewport: { value: 'tablet', isRotated: false } };
 
 	const pressButton =
 		(name: string) =>

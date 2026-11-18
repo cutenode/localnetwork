@@ -169,7 +169,7 @@ have it check the result (`tests/support/sqlcipher.rs`); without it they skip th
 Publishing is tested against a pretend data server on 127.0.0.1
 (`crates/locallibrary/tests/support/mock_pds.rs`, shared with the CLI's tests): it keeps records,
 checks each write's DPoP proof and hands out a DPoP nonce, and refuses on cue. It stands in for
-Local Network's directory (HappyView's `getRecords`) and website (`requestIndex`) too, so the
+Local Network's directory (HappyView's `getRecords`) and website (`requestIndex`, `getFlags`) too, so the
 library's tests point both at it (`locallibrary::testing::directory_on_this_thread`) and the CLI's
 (`Env::with_directory`); otherwise the CLI's tests find them at an address nothing answers at. The tests write the
 session as files, or to an in-memory keychain, so none of them signs in to a real account,
@@ -226,8 +226,9 @@ Crates with work that grows with a library or a recording have
 of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
 `loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget),
-`loclib-sqlcipher` (decrypting a database, with and without a WAL) and `loclib-analysis`.
-`loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
+`loclib-sqlcipher` (decrypting a database, with and without a WAL), `loclib-anlz` (reading every
+section of a track's analysis files, and writing its waveforms, cues and grid) and
+`loclib-analysis`. `loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 

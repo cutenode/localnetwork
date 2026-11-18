@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { BookingListThread, ProjectView, ThreadProjects, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** Every booking the viewer is in, by whose turn it is. It renders from the site's own data, whatever the directory does. */
@@ -99,8 +100,6 @@
 	const waiting = new Promise<never>(() => {});
 
 	const slow = { names: waiting, acts: 2 };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const openSettled = async ({ canvasElement }: { canvasElement: HTMLElement }) => canvasElement.querySelector('summary')?.click();
 </script>

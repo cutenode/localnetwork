@@ -218,6 +218,15 @@ export type PerformerRecord = {
 	updatedAt: string;
 };
 
+/** A named night or series (`computer.localnetwork.party`), as the root wrote it into the party's space. */
+export type PartyRecord = {
+	basics: BasicsSection;
+	/** Absent while it's a draft. */
+	publishedAt?: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
 /** How a venue takes events that name it (`computer.localnetwork.venue#approval`'s knownValues). */
 export type VenueApproval = 'open' | 'approval';
 

@@ -23,6 +23,7 @@ import type { ListingWriter } from './listings';
 import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
 import { slugify } from './projects';
 import { savedChanges } from './diff';
+import { indexParty, PARTY_KEY } from './party-index';
 import { indexVenue, VENUE_KEY } from './venue-index';
 import { actorRole } from './requests';
 import { reconcileMembers } from './space-members';
@@ -130,7 +131,20 @@ export type PageInput = {
 	swap: string;
 };
 
-const STALE_PAGE = 'The page changed since you opened it. Reload to see the latest, then save again.';
+export const STALE_PAGE = 'The page changed since you opened it. Reload to see the latest, then save again.';
+
+/** The avatar a saved page keeps: none, the one it had, or a new upload the root now holds. */
+export async function pageAvatar(
+	root: RootRepoClient,
+	avatar: PageInput['avatar'],
+	current: BasicsSection['avatar']
+): Promise<BasicsSection['avatar']> {
+	if (avatar === 'remove') return undefined;
+
+	if (avatar === 'keep') return current;
+
+	return root.uploadBlob(avatar.upload.bytes, avatar.upload.mimeType);
+}
 
 export const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined, capability: Capability) =>
 	!!person && capabilitiesIn(kind, person.capabilities).includes(capability);
@@ -273,12 +287,7 @@ export class SharedSpaces {
 
 			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE, 409);
 
-			const avatar =
-				input.avatar === 'remove'
-					? undefined
-					: input.avatar === 'keep'
-						? current.subject.basics.avatar
-						: await live.root.uploadBlob(input.avatar.upload.bytes, input.avatar.upload.mimeType);
+			const avatar = await pageAvatar(live.root, input.avatar, current.subject.basics.avatar);
 
 			const record = validateRecord(COLLECTION.performer, {
 				...current,
@@ -703,6 +712,9 @@ export class SharedSpaces {
 			case COLLECTION.venue:
 				return kind === 'venue' && rkey === VENUE_KEY && indexVenue(db, space, value);
 
+			case COLLECTION.party:
+				return kind === 'party' && rkey === PARTY_KEY && indexParty(db, space, value);
+
 			default:
 				return false;
 		}
@@ -727,6 +739,8 @@ export class SharedSpaces {
 			await db.deleteFrom('performer').where('spaceUri', '=', space).execute();
 		else if (collection === COLLECTION.venue && rkey === VENUE_KEY)
 			await db.deleteFrom('venue').where('spaceUri', '=', space).execute();
+		else if (collection === COLLECTION.party && rkey === PARTY_KEY)
+			await db.deleteFrom('party').where('spaceUri', '=', space).execute();
 	}
 
 	/** Forgets a space that's gone, and takes down its listing. */
@@ -738,6 +752,7 @@ export class SharedSpaces {
 			'spaceJoinRequest',
 			'performer',
 			'venue',
+			'party',
 			'sharedSpace'
 		] as const)
 			await this.core.db.deleteFrom(table).where('spaceUri', '=', space).execute();

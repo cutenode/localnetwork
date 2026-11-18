@@ -7,8 +7,8 @@ import { serviceJwt } from '../testing/service-jwt';
 import { ServiceAuthError, verifyServiceJwt } from './service-auth';
 
 describe('verifyServiceJwt', () => {
-	const audience = 'did:web:localnetwork.computer#localnetwork_syncer';
-	const lxm = 'com.atproto.space.notifyWrite';
+	const audience = 'did:web:localnetwork.computer';
+	const lxm = 'computer.localnetwork.flags.getFlags';
 	const now = Math.floor(Date.now() / 1000);
 
 	it('accepts a valid token and strips the issuer fragment', async () => {
@@ -152,7 +152,7 @@ describe('verifyServiceJwt', () => {
 			typ: fc.constantFrom('at+jwt', 'refresh+jwt', 'dpop+jwt', 'jwt', MISSING),
 			iss: fc.oneof(fc.constantFrom('did:plc:a#atproto_pds', 'not-a-did', ''), fc.string()),
 			aud: fc.oneof(fc.constantFrom('did:web:other', MISSING), fc.jsonValue()),
-			lxm: fc.oneof(fc.constantFrom('com.atproto.space.notifySpaceDeleted', MISSING), fc.jsonValue()),
+			lxm: fc.oneof(fc.constantFrom('com.atproto.space.notifyRepoUpdate', MISSING), fc.jsonValue()),
 			exp: fc.oneof(
 				fc.integer({ min: NOW - 3600, max: NOW + 3600 }),
 				fc.constantFrom(MISSING, null, 'tomorrow', `${NOW + 60}`),
@@ -219,6 +219,13 @@ describe('verifyServiceJwt', () => {
 					expect(verified).toEqual(valid ? { iss: 'did:plc:a', aud, lxm, exp } : 'ServiceAuthError');
 				})
 			);
+		});
+
+		// The property's counterexample at seed -567532388: @atproto/crypto skips its alg check for an empty alg.
+		it('rejects a token the issuer signed with an empty alg', async () => {
+			const signed = await serviceJwt(key, { iss: 'did:plc:a', aud: audience, lxm, exp: NOW + 60 }, { alg: '' });
+
+			await expect(verifyServiceJwt(signed, opts())).rejects.toBeInstanceOf(ServiceAuthError);
 		});
 	});
 });

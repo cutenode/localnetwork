@@ -2240,6 +2240,7 @@ dependencies = [
  "keyring-core",
  "libc",
  "loclib-analysis",
+ "loclib-anlz",
  "loclib-audio",
  "loclib-capacity",
  "loclib-equipment",
@@ -2303,6 +2304,7 @@ dependencies = [
  "libfuzzer-sys",
  "locallibrary",
  "locallibrary-plugin-interop",
+ "loclib-anlz",
  "loclib-audio",
  "loclib-interop",
  "loclib-mysettings",
@@ -2335,6 +2337,16 @@ dependencies = [
  "schemars",
  "serde",
  "stratum-dsp",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-anlz"
+version = "0.1.0"
+dependencies = [
+ "loclib-model",
+ "schemars",
+ "serde",
  "thiserror 2.0.21",
 ]
 

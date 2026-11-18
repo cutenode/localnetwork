@@ -429,14 +429,14 @@ test.describe('public pages', () => {
 		}
 	});
 
-	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
+	test('serves OAuth client metadata and the DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
 		const { scope } = await metadata.json();
 		expect(scope).toContain('include:computer.localnetwork.permissions');
 		// Asked for only when someone first sends a bug report, but the PDS refuses any scope not listed here.
 		expect(scope).toContain('repo:app.userinput.discussion?action=create');
 		const did = await (await request.get('/.well-known/did.json')).json();
-		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
+		expect(did).toEqual({ '@context': ['https://www.w3.org/ns/did/v1'], id: 'did:web:localhost%3A5199' });
 	});
 });
 
