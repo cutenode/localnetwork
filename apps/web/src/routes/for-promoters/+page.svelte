@@ -57,7 +57,7 @@
 <Section tone="grid" labelledby="hero-title">
 	<div class="flex flex-col items-center gap-8 sm:gap-10">
 		<SectionHeader id="hero-title" level={1} size="display" align="center" title="Find DJs who fit the night." lede="Search by sound, distance and budget, or describe your show and get a shortlist. Every booking is a private thread." />
-		<form action="/projects" method="GET" role="search" aria-label="Find DJs" class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
+		<form action="/djs" method="GET" role="search" aria-label="Find DJs" class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
 			<div>
 				<label for="hero-q" class="label">Sound or name</label>
 				<input id="hero-q" name="q" class="input" placeholder="disco, jungle, a name" />
@@ -75,10 +75,10 @@
 <Section labelledby="find-title">
 	<div class="flex flex-col gap-10 sm:gap-14">
 		<SectionHeader id="find-title" align="split" title="Search the way you book." lede="Find DJs reads what promoters book on. Every DJ in it was reviewed by staff before it went up.">
-			{#snippet actions()}<Button variant="secondary" href="/projects">Open Find DJs</Button>{/snippet}
+			{#snippet actions()}<Button variant="secondary" href="/djs">Open Find DJs</Button>{/snippet}
 		</SectionHeader>
 		<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
-			<Screen path="/projects">
+			<Screen path="/djs">
 				<!-- The height a card takes, so the listing arriving doesn't move the list beside it. -->
 				<div class="min-h-37">
 					{#await data.directory}
@@ -249,7 +249,7 @@
 	<SectionHeader id="closing-title" align="center" title="Put on shows? Turn on promoting." lede="Sign in with your Atmosphere account and tick “I put on shows” on your profile.">
 		{#snippet actions()}
 			{#if data.viewer}<Button size="lg" href="/dashboard/profile#section-promoter">Turn on promoting</Button>{:else}<Button size="lg" href={signIn}>Sign in</Button>{/if}
-			<Button size="lg" variant="secondary" href="/projects">Find DJs</Button>
+			<Button size="lg" variant="secondary" href="/djs">Find DJs</Button>
 		{/snippet}
 	</SectionHeader>
 {/snippet}

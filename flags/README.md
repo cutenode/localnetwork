@@ -1,10 +1,10 @@
 # Feature flags
 
-The website's feature flags, kept here so locallibrary can use the same ones. Each one is a file in `catalog/`, named for its key, which `flag.schema.json` checks. To add a flag, add a file. To remove one, delete its file, and the website stops compiling wherever it's still used.
+The flags the website and locallibrary share. Each one is a file in `catalog/`, named for its key, which `flag.schema.json` checks. To add a flag, add a file. To remove one, delete its file, and the website and locallibrary stop compiling wherever it's still used.
 
-Every flag has a `type`. `release` and `experiment` flags are meant to go, so they need a `removeBy` date (`YYYY-MM-DD`): once it passes, the website's tests fail until the flag is deleted or the date moves. `ops` and `permission` flags stay, and can't have one.
+Every flag has a `type`, `release` or `ops`. A `release` flag is meant to go, so it needs a `removeBy` date (`YYYY-MM-DD`): once it passes, the website's tests fail until the flag is deleted or the date moves. An `ops` flag stays, and can't have one.
 
-A flag nobody has saved reads as off, so name a flag for the state you can switch it to. A switch for something that already works is named for the paused state, like `pauseRecordingStream`, and is `ops`: the deploy that adds it changes nothing, and turning it on stops the feature. Something that's dark today and should stay switchable after it ships, like inbox email, is named for the on state and is `ops` too, so it has no `removeBy`. Use `release` or `experiment` only for flags that go once the rollout is done.
+A flag nobody has saved reads as off, so name a flag for the state you can switch it to. A kill switch, for something that already works, is named for the paused state, like `pauseRecordingStream`, and is `ops`: the deploy that adds it changes nothing, and turning it on stops the feature. Something that's dark today and should stay switchable after it ships, like inbox email, is named for the on state and is `ops` too, so it has no `removeBy`. Use `release` only for flags that go once the rollout is done.
 
 Who a flag is on for lives in the staff space and is set at `/admin/flags`, not here. Every flag starts off. The list there marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
 
@@ -20,6 +20,8 @@ Who a flag is on for lives in the staff space and is set at `/admin/flags`, not 
 
 Check a flag on the website with `locals.flags.newPlanner` on the server or `data.flags?.newPlanner` in a page. An xrpc route gets the flags a signed-out visitor does, since the website never reads the sign-in cookie there: a flag on or off for everyone works, and targeting and percentages don't. A route that has checked a service token can call `app.flags.evaluate(did)` with that token's DID to get them.
 
+In locallibrary, use `locallibrary::flags::check(root, flags::keys::NEW_PLANNER)`. A flag in locallibrary is for rolling something out. Anything that has to be enforced belongs on the server, since anyone can change what's on their own computer.
+
 ## How a flag is decided
 
 ```text
@@ -27,9 +29,9 @@ bucket(key, did) = the first 4 bytes of sha256(key + did), big-endian, mod 100
 on = enabled && (everyone || targeted || (did is known && bucket(key, did) < percentage))
 ```
 
-`enabled` is false once someone turns the flag off for everyone, which keeps the other gates for when it's back on. A record that doesn't say is enabled. `targeted` means the account is one of the flag's accounts or in one of its groups. Only the website can know that, since those lists are private; it says so through `computer.localnetwork.flags.getFlags`, for clients that can't read them. Raising a percentage only adds accounts. Signed-out visitors have no DID, so they only get flags on for everyone.
+`enabled` is false once someone turns the flag off for everyone, which keeps the other gates for when it's back on. A record that doesn't say is enabled. `targeted` means the account is one of the flag's accounts or in one of its groups. Only the website can know that, since those lists are private; it says so through `computer.localnetwork.flags.getFlags`. Raising a percentage only adds accounts. Signed-out visitors have no DID, so they only get flags on for everyone.
 
-`vectors.json` holds computed answers. The website's tests run them, and anything else that decides a flag has to give the same answers. A case without `enabled` is enabled. If a case has to change, the rule changed, and accounts will move in or out of every rollout.
+`vectors.json` holds computed answers. The website's and locallibrary's tests both run them, so the two can't come to disagree. A case without `enabled` is enabled. If a case has to change, the rule changed, and accounts will move in or out of every rollout.
 
 ## Trying a flag
 

@@ -1,4 +1,5 @@
 import type { Selectable } from 'kysely';
+import type { BookingRole } from '#lib/bookings.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
@@ -38,6 +39,9 @@ export interface Database {
 	performer: PerformerTable;
 	venue: VenueTable;
 	venueBlock: VenueBlockTable;
+	party: PartyTable;
+	venueApproval: VenueApprovalTable;
+	event: EventTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -202,6 +206,8 @@ export interface SpaceWatchTable {
 	skey: string;
 	spaceRev: string | null;
 	registrationExpiresAt: string | null;
+	/** Names this app's registration for the space's updates, and proves a host's notice comes from the host. */
+	notifyToken: string;
 	lastSyncedAt: string | null;
 	lastError: string | null;
 	createdAt: string;
@@ -262,7 +268,7 @@ export interface BookingThreadTable {
 export interface BookingParticipantTable {
 	spaceUri: string;
 	did: string;
-	role: 'promoter' | 'manager';
+	role: BookingRole;
 }
 
 export interface BookingEventTable {
@@ -280,14 +286,13 @@ export interface EpkRequestTable {
 	spaceUri: string;
 	epkUri: string;
 	requesterDid: string;
-	role: string | null;
 	message: string | null;
 	/** What the press kit's rules said when the request came in: auto, review or none. */
 	rule: string;
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
-	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without its message. */
 	deletedAt: string | null;
 }
 
@@ -390,6 +395,47 @@ export interface VenueBlockTable {
 	/** The blocked profile's record, or the act's or party's listing URI. */
 	subject: string;
 	createdAt: string;
+}
+
+/** A venue's approval of an event, from the root's approval record in the venue's space. */
+export interface VenueApprovalTable {
+	spaceUri: string;
+	rkey: string;
+	eventUri: string;
+	approvedBy: string;
+	createdAt: string;
+}
+
+/** A party's event, from the root's event record in the party's space. */
+export interface EventTable {
+	uri: string;
+	/** The party's space. */
+	spaceUri: string;
+	rkey: string;
+	/** Null only on a draft, like startsAt. */
+	venueSpace: string | null;
+	startsAt: string | null;
+	status: string;
+	audience: string;
+	/** Null while it's a draft. */
+	publishedAt: string | null;
+	/** The whole record, as JSON. */
+	record: string;
+	cid: string;
+	updatedAt: string;
+}
+
+/** A party, from the root's party record in its space. */
+export interface PartyTable {
+	spaceUri: string;
+	skey: string;
+	name: string;
+	/** Null while it's a draft. */
+	publishedAt: string | null;
+	/** The whole record, as JSON. */
+	record: string;
+	cid: string;
+	updatedAt: string;
 }
 
 export interface SpaceInviteTable {

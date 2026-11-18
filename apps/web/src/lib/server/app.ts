@@ -33,14 +33,18 @@ import { type ChannelSender, Outbox } from './notifications/outbox';
 import { PlyrClient } from './plyr';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
+import { BookingPerformers } from './services/booking-performers';
 import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
+import { partyListingSource } from './services/party-index';
+import { PartyService } from './services/parties';
 import { venueListingSource } from './services/venue-index';
 import { VenueService } from './services/venues';
 import { VenueRules } from './services/venue-rules';
+import { EventService } from './services/events';
 import { PerformerService } from './services/performer-registry';
 import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
@@ -79,6 +83,11 @@ export type CreateAppOptions = {
 	background?: boolean;
 	/** What each kind's listing shows, over the acts' own. Parties and venues have no public page yet. */
 	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
+	/**
+	 * Where space hosts send updates, in place of PUBLIC_URL (tests: a host won't call an IP address, and a loopback
+	 * PUBLIC_URL has to be one for the OAuth client).
+	 */
+	notifyEndpoint?: string;
 };
 
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
@@ -171,7 +180,9 @@ export async function createApp(options: CreateAppOptions) {
 	const credentials = new SpaceCredentialManager({
 		source: async () => rootClient,
 		identity,
-		logger: logger.child({ component: 'credentials' })
+		logger: logger.child({ component: 'credentials' }),
+		// Only watched spaces register, so a host's notice names a space the syncer has a token for.
+		notify: (space) => syncer.registration(space)
 	});
 
 	const core: Core = {
@@ -239,7 +250,6 @@ export async function createApp(options: CreateAppOptions) {
 
 	if (Object.keys(config.flagOverrides).length > 0)
 		logger.warn('flags forced by FLAG_OVERRIDES', { flags: config.flagOverrides });
-	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
@@ -247,6 +257,7 @@ export async function createApp(options: CreateAppOptions) {
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const bookings = new BookingService(core, new BookingPerformers(core, projects, profiles, djListings));
 	const performers = new PerformerSearch(core, happyView, projects, profiles);
 
 	const recordings = new RecordingService(
@@ -268,6 +279,7 @@ export async function createApp(options: CreateAppOptions) {
 	const listings = new ListingWriter(core, flags, {
 		performer: performerListingSource(db),
 		venue: venueListingSource(db),
+		party: partyListingSource(db),
 		...options.listingSources
 	});
 
@@ -288,8 +300,10 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, limits.write);
 	const venueRules = new VenueRules(core);
+	const events = new EventService(core, sharedSpaces, venues, venueRules, performerRegistry, parties, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
@@ -302,7 +316,7 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'bug-reports' })
 	});
 
-	const syncer = new SpaceSyncer({
+	const syncer: SpaceSyncer = new SpaceSyncer({
 		db,
 		logger: logger.child({ component: 'sync' }),
 		identity,
@@ -323,7 +337,7 @@ export async function createApp(options: CreateAppOptions) {
 			await bookings.forget(space);
 			await sharedSpaces.forget(space);
 		},
-		notifyService: config.syncNotify ? config.syncService : null
+		notifyEndpoint: config.syncNotify ? (options.notifyEndpoint ?? config.publicUrl) : null
 	});
 
 	const sessions = new WebSessions(db, config.sessionDays);
@@ -408,6 +422,8 @@ export async function createApp(options: CreateAppOptions) {
 		projectMigration,
 		venues,
 		venueRules,
+		events,
+		parties,
 		recordings,
 		supports,
 		epks,

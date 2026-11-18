@@ -42,16 +42,15 @@ impl OpPlanned {
     pub fn plan(self) -> Result<Planned<EditPlan>> {
         match self {
             OpPlanned::Plan(plan) => Ok(plan),
-            OpPlanned::Choose { choose } => {
-                let params: Vec<String> = choose.questions().map(|q| format!("`{}`", q.param)).collect();
-                Err(Error::invalid(format!(
-                    "{}: it asks which first, as {} in its params",
-                    choose.title,
-                    params.join(", ")
-                )))
-            }
+            OpPlanned::Choose { choose } => Err(unasked(&choose)),
         }
     }
+}
+
+/// A plugin's question, refused by a caller that can't ask it, saying how to answer it instead.
+pub(super) fn unasked(choose: &Choice) -> Error {
+    let params: Vec<String> = choose.questions().map(|q| format!("`{}`", q.param)).collect();
+    Error::invalid(format!("{}: it asks which first, as {} in its params", choose.title, params.join(", ")))
 }
 
 impl Plugins {

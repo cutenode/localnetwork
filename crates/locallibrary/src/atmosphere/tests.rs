@@ -27,6 +27,50 @@ fn loopback_clients_carry_their_redirect_and_scopes() {
     assert!(id.contains("scope=atproto"), "{id}");
 }
 
+/// jacquard has to keep writing the scope this way (see [`FLAGS_SCOPE`]): an upgrade that doesn't
+/// fails here, before a release asks servers for something they can't read.
+#[test]
+fn the_flags_scope_is_spelled_as_servers_read_it() {
+    let written = scopes(&[]).unwrap().to_normalized_string();
+    assert_eq!(written.as_str(), format!("atproto {FLAGS_SCOPE}"));
+    assert_eq!(
+        FLAGS_SCOPE,
+        "rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags"
+    );
+    // One method alone loses its audience, which is why there are two.
+    let one = scopes(&["atproto".into(), "rpc:computer.localnetwork.flags.getFlags?aud=*".into()]).unwrap();
+    assert_eq!(one.to_normalized_string().as_str(), "atproto rpc:computer.localnetwork.flags.getFlags");
+}
+
+/// What a server grants back, in its own order, reads and allows each method; `atproto` alone
+/// doesn't.
+#[test]
+fn the_servers_spelling_of_the_flags_scope_grants_both_methods() {
+    let from_server =
+        "rpc?lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags&aud=*";
+    let granted = Scopes::new(SmolStr::new(format!("atproto {from_server}"))).unwrap();
+    assert_eq!(granted.to_normalized_string().as_str(), format!("atproto {FLAGS_SCOPE}"));
+    let plain = Scopes::new(SmolStr::new("atproto")).unwrap();
+    for method in [directory::REQUEST_INDEX, flags::GET_FLAGS] {
+        assert!(granted.grants(&Scope::rpc(method).unwrap()), "{method}");
+        assert!(!plain.grants(&Scope::rpc(method).unwrap()), "{method}");
+    }
+    assert!(!granted.grants(&Scope::rpc("com.atproto.server.createAccount").unwrap()));
+    assert!(flags::may_ask(&signed_in_with(&["atproto", from_server])));
+    assert!(flags::may_ask(&signed_in_with(&["atproto", "transition:generic"])));
+    assert!(!flags::may_ask(&signed_in_with(&["atproto"])));
+}
+
+/// A loopback client's ID holds the scopes it asks for, with the flags scope's `?`, `=` and `&`
+/// encoded, so servers read it back whole.
+#[test]
+fn a_loopback_client_id_carries_the_flags_scope() {
+    let c = client_config(&Client::Loopback, "http://127.0.0.1:53111/callback", scopes(&[]).unwrap()).unwrap();
+    let (_, query) = c.client_id.as_str().split_once('?').unwrap();
+    let scope = form_urlencoded::parse(query.as_bytes()).find(|(k, _)| k == "scope").unwrap().1;
+    assert_eq!(scope, format!("atproto {FLAGS_SCOPE}"));
+}
+
 #[test]
 fn hosted_clients_need_https() {
     let hosted = |id: &str| Client::Hosted { client_id: id.into() };
@@ -83,7 +127,8 @@ fn hosted_metadata_is_a_native_public_client() {
     assert_eq!(
         m["scope"],
         "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
-         repo:app.userinput.discussion?action=create"
+         repo:app.userinput.discussion?action=create \
+         rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags"
     );
     assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());
 }
@@ -102,11 +147,13 @@ fn the_published_document_allows_publishing() {
     publish.push(format!("rpc:{}", directory::REQUEST_INDEX));
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
     // The server grants the permission set's scopes in its place: these, each one jacquard
-    // understands, written the way it writes them back (the `rpc` one without its `aud=*`).
+    // understands, written the way it writes them back. Its `rpc` one goes, as jacquard drops a
+    // scope another one covers and `FLAGS_SCOPE` covers it.
     let granted = mock_pds::granted(&publish_scopes());
     assert!(granted.contains(&"rpc:computer.localnetwork.directory.requestIndex?aud=*".to_string()), "{granted:?}");
     let mut written: Vec<String> = scopes(&granted).unwrap().iter().map(|s| s.to_string()).collect();
-    let mut want = [&PUBLISH_SCOPES[..], &["atproto", UPLOAD_SCOPE]].concat();
+    let mut want = [&PUBLISH_SCOPES[..], &DEFAULT_SCOPES, &[UPLOAD_SCOPE]].concat();
+    want.retain(|s| !s.starts_with("rpc:"));
     written.sort();
     want.sort();
     assert_eq!(written, want);
@@ -714,7 +761,7 @@ fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
     let asked: Vec<String> = list.iter().map(|(s, _)| s.to_string()).collect();
     match scopes(&asked) {
         Ok(read) => {
-            let mut want: Vec<String> = if asked.is_empty() { vec!["atproto".into()] } else { asked.clone() };
+            let mut want = if asked.is_empty() { DEFAULT_SCOPES.map(String::from).to_vec() } else { asked.clone() };
             want.sort();
             want.dedup();
             let mut got: Vec<String> = read.to_normalized_string().split(' ').map(String::from).collect();
@@ -1126,14 +1173,15 @@ fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
 #[test]
 fn signing_in_again_keeps_what_the_session_may_do() {
     let report = || REPORT_SCOPE.to_string();
-    assert_eq!(kept_scopes(&signed_in_with(&["atproto"])), ["atproto"]);
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto"])), DEFAULT_SCOPES);
     let publishing = mock_pds::granted(&publish_scopes());
     let publishing: Vec<&str> = publishing.iter().map(String::as_str).collect();
     assert_eq!(kept_scopes(&signed_in_with(&publishing)), publish_scopes());
     // Granted before the set covered recordings, it still publishes.
     let older: Vec<&str> = publishing.iter().copied().filter(|s| !s.contains(lexicon::RECORDING)).collect();
     assert_eq!(kept_scopes(&signed_in_with(&older)), publish_scopes());
-    assert_eq!(kept_scopes(&signed_in_with(&["atproto", REPORT_SCOPE])), ["atproto".to_string(), report()]);
+    let kept = [&DEFAULT_SCOPES[..], &[REPORT_SCOPE]].concat();
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto", REPORT_SCOPE])), kept);
     let both = [&publishing[..], &[REPORT_SCOPE]].concat();
     assert_eq!(kept_scopes(&signed_in_with(&both)), [publish_scopes(), vec![report()]].concat());
     // locallibrary's document allows a sign-in that keeps them all.

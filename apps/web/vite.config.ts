@@ -7,6 +7,7 @@ import { playwright } from '@vitest/browser-playwright';
 import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { stubPlayers } from './.storybook/stub-players.ts';
+import { phone } from './src/lib/testing/viewports.ts';
 
 // Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
 // matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
@@ -24,6 +25,22 @@ const BROWSER_TEST_SERVER = { strictPort: false };
 // A media element's clock follows the audio output, and on a Mac that has stopped, a recording sitting at 0:00 while
 // its player says it's playing. Without audio output, Chromium keeps the time itself.
 const browserTests = () => playwright({ launchOptions: { args: ['--disable-audio-output'] } });
+
+const storybookProject = (name: string, options: Parameters<typeof storybookTest>[0] = {}) => ({
+	extends: './vite.config.ts',
+	plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook`, ...options })],
+	server: BROWSER_TEST_SERVER,
+	test: {
+		name,
+		setupFiles: ['./.storybook/vitest.setup.ts'],
+		browser: {
+			enabled: true,
+			provider: browserTests(),
+			instances: [{ browser: 'chromium' as const, headless: true }],
+			commands: { stubPlayers }
+		}
+	}
+});
 
 // The most a module in the client build's shared group (below) may weigh, and our modules, which
 // the group takes with Lucide's icons.
@@ -75,9 +92,10 @@ const isShared = (id: string, ctx: Rolldown.ChunkingContext) => {
 
 // Not the Tools pages' own components, the follow button, the mix player, the staff console's table, the booking rules
 // the dashboard's booking pages share, the suggestion lists only the place and handle fields use, or the drafts only
-// long forms keep: only those pages load them, and every page loads the shared file.
+// long forms keep: only those pages load them, and every page loads the shared file. Nor edit mode, which only people
+// who can edit a page use.
 const SHARED =
-	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
+	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|edit[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
 
 export default defineConfig({
 	plugins: [
@@ -206,7 +224,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 99.6, functions: 99.5, statements: 99.3, branches: 94.6 }
+			thresholds: { lines: 99.7, functions: 99.6, statements: 99.3, branches: 94.6 }
 		},
 		projects: [
 			{
@@ -257,22 +275,11 @@ export default defineConfig({
 				// of the other runs.
 				test: { name: 'docker', environment: 'node', include: ['tests/docker.test.ts'] }
 			},
-			{
-				extends: './vite.config.ts',
-				// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
-				plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook` })],
-				server: BROWSER_TEST_SERVER,
-				test: {
-					name: 'storybook',
-					setupFiles: ['./.storybook/vitest.setup.ts'],
-					browser: {
-						enabled: true,
-						provider: browserTests(),
-						instances: [{ browser: 'chromium', headless: true }],
-						commands: { stubPlayers }
-					}
-				}
-			}
+			// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
+			storybookProject('storybook'),
+			// Every story again at a phone's width, unless it's tagged `desktop-only` (with why beside it). A story
+			// that pins its own width keeps it.
+			storybookProject('storybook-phone', { initialGlobals: phone, tags: { exclude: ['desktop-only'] } })
 		]
 	}
 });

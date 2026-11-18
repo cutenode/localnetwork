@@ -83,7 +83,7 @@
 				</form>
 			{/if}
 			<Card as="section" class="text-small">
-				<h2 class="section-title">Requests</h2>
+				<h2 class="section-title">Review requests</h2>
 				<ul class="mt-1 divide-y divide-line">
 					{#each data.requests as request (request.uri)}
 						<li class="flex items-center justify-between gap-2 py-2.5"><a class="min-w-0 text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{REQUEST_KIND_LABEL[request.kind]} · <Handle account={request.requester} link={false} /></a><StatusPill status={request.status} /></li>

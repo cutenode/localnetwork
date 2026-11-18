@@ -13,7 +13,7 @@ export function accountLabel(account: AccountView | null | undefined): string {
 	return account.handle ? `@${account.handle}` : shortDid(account.did);
 }
 
-/** What each kind of request to staff is called in lists. */
+/** What each kind of review request is called in lists. */
 export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
 	create: 'New project',
 	claim: 'Claim',
@@ -96,6 +96,9 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 
 	return formatDate(iso, options);
 }
+
+/** A datetime written with its venue's UTC offset as a show date: the venue's clock, kept as UTC. */
+export const asShowDate = (iso: string): string => `${iso.slice(0, 19)}Z`;
 
 /** A night the way lists lead with it, like "Sat 14 Nov", from a show date, which is in UTC. */
 export const nightLabel = (iso: string): string =>

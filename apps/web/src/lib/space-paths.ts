@@ -15,13 +15,24 @@ export function nameSlug(input: string): string {
 }
 
 /**
- * An act's, party's or venue's page: `/<kind>/<key>/<name>`. Names repeat, so the key is what finds it and the name
- * is only there to read (ADR 0016). A name with nothing to keep leaves just the key. Only tests call it until the
- * first link to one of these pages lands.
- * @internal
+ * `path` with `name` after it, only there to read. A name with nothing to keep leaves `path` alone, and so does one
+ * that reads `new`, since `/party/<key>/new` is where a party's next event is made.
  */
-export function spacePagePath(kind: SpacePageKind, key: string, name: string): string {
+function named(path: string, name: string): string {
 	const slug = nameSlug(name);
 
-	return slug ? `/${kind}/${key}/${slug}` : `/${kind}/${key}`;
+	return slug && slug !== 'new' ? `${path}/${slug}` : path;
+}
+
+/**
+ * An act's, party's or venue's page: `/<kind>/<key>/<name>`. Names repeat, so the key is what finds it and the name
+ * is only there to read (ADR 0016).
+ */
+export function spacePagePath(kind: SpacePageKind, key: string, name: string): string {
+	return named(`/${kind}/${key}`, name);
+}
+
+/** An event's page, under its party's: `/party/<key>/<event>/<name>`, where the event's record key finds it. */
+export function eventPagePath(partyKey: string, rkey: string, name: string): string {
+	return named(`/party/${partyKey}/${rkey}`, name);
 }

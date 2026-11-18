@@ -9,6 +9,7 @@ import { silentLogger } from '../logger';
 import { Notifier } from '../notifications/notifier';
 import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
+import { BookingPerformers } from '../services/booking-performers';
 import { BookingService } from '../services/bookings';
 import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
@@ -16,9 +17,12 @@ import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
 import { HeldRecords } from '../services/held-records';
 import { performerListingSource } from '../services/performer-index';
+import { partyListingSource } from '../services/party-index';
+import { PartyService } from '../services/parties';
 import { venueListingSource } from '../services/venue-index';
 import { VenueService } from '../services/venues';
 import { VenueRules } from '../services/venue-rules';
+import { EventService } from '../services/events';
 import { PerformerService } from '../services/performer-registry';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
@@ -118,7 +122,6 @@ export async function createTestServices(
 	const projects = new ProjectService(core, directory);
 	const staff = new StaffService(core);
 	const flags = new FlagService(core, staff, options.flagOverrides);
-	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
@@ -136,6 +139,7 @@ export async function createTestServices(
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const bookings = new BookingService(core, new BookingPerformers(core, projects, profiles, djListings));
 	const performers = new PerformerSearch(core, directory, projects, profiles);
 	const follows = new FollowService(core, directory, 0);
 
@@ -149,6 +153,7 @@ export async function createTestServices(
 	const listings = new ListingWriter(core, flags, {
 		performer: performerListingSource(db),
 		venue: venueListingSource(db),
+		party: partyListingSource(db),
 		...options.listingSources
 	});
 
@@ -156,8 +161,10 @@ export async function createTestServices(
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
+	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const venueRules = new VenueRules(core);
+	const events = new EventService(core, sharedSpaces, venues, venueRules, performerRegistry, parties, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
@@ -213,6 +220,8 @@ export async function createTestServices(
 		projectMigration,
 		venues,
 		venueRules,
+		events,
+		parties,
 		viewer,
 		capable,
 		spaces

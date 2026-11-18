@@ -10,7 +10,7 @@ mod shell;
 mod strip;
 
 pub(super) use chrome::*;
-use deck::{beat_spans, draw_deck, end_style};
+use deck::{draw_deck, end_style};
 use drives::*;
 pub(super) use library::*;
 pub(super) use overlays::*;
@@ -106,6 +106,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     draw_chord(f, app, over);
     app.transitions.follow(shown(app), shell.body.union(shell.strip));
+    // The overview's where this frame drew it, the deck's or the strip's: none, none washed.
+    app.transitions.follow_warning(end_style(app).is_some(), app.areas.overview);
     app.transitions.draw(f.buffer_mut());
     if icons::ascii() {
         icons::fold(f.buffer_mut());

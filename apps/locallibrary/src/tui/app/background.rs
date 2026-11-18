@@ -73,8 +73,6 @@ pub enum Msg {
     TrackInfo(u64, Box<TrackInfo>),
     /// A cover made for the size it's shown at.
     Cover(Box<crate::tui::art::Cover>),
-    /// A cover's two main colours, by the drive it's on and its artwork id.
-    Chip(PathBuf, u32, Option<[loclib_waveform::Rgb; 2]>),
     Details(Box<Details>),
     /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
     /// place among its panels.
@@ -226,7 +224,8 @@ impl App {
         if !self.volumes_in_flight && self.last_volume_poll.elapsed() > Duration::from_secs(1) {
             self.last_volume_poll = Instant::now();
             self.volumes_in_flight = true;
-            let open = self.loaded.as_ref().map(|l| l.root().to_path_buf());
+            // rekordbox's collection is on this computer: it can't be unplugged.
+            let open = self.loaded.as_ref().filter(|l| !l.is_collection()).map(|l| l.root().to_path_buf());
             let watcher = self.watcher.clone();
             let job = move || {
                 let present = open.map(|r| {
@@ -251,11 +250,11 @@ impl App {
             self.flush_search();
         }
         self.autosave();
+        self.watch_collection();
         self.watch_output();
         self.follow_queue();
         self.want_details();
         self.want_panels();
-        self.want_chips();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -283,6 +282,13 @@ impl App {
         crate::tui::deck::reach_active_loop(self, prev, pos_ms);
         self.hear(prev, pos_ms);
         self.last_pos_ms = pos_ms;
+    }
+
+    /// Open the drive at `root` the drive list found, selecting it.
+    fn open_found(&mut self, root: PathBuf) {
+        self.preferred_root = None;
+        self.drive_state.select(self.drives.iter().position(|x| x.root == root));
+        self.load_library(root);
     }
 
     /// A track counts as played once it's been heard for a while, so looking through a crate
@@ -344,28 +350,38 @@ impl App {
                 if changed && self.status.is_some() {
                     self.refresh_status();
                 }
-                // Open a library while none is (on startup, or when the first drive is plugged in):
-                // the drive open last time when it's here, else the first library (its lead
+                self.find_collection_copies();
+                // Open a library while none is (on startup, or when the first drive is plugged in).
+                // rekordbox's collection, when it's on this computer, unless a drive was open last
+                // time and is here (not one holding a copy of the collection: that's the
+                // collection as it was, and the collection itself reads as it is now). Without
+                // the collection: the drive open last time, else the first library (its lead
                 // clone), else the first drive with an export.
                 if self.loaded.is_none() && self.loading.is_none() {
+                    let collection = self.collection_db.is_some();
+                    let collection_last = collection
+                        && self.preferred_root.as_deref() == Some(super::drives::collection_root().as_path());
                     let with_export = |r: &PathBuf| self.drives.iter().any(|d| d.has_export && d.root == *r);
-                    let last = self.preferred_root.clone().filter(with_export);
+                    let last = (self.preferred_root.clone())
+                        .filter(with_export)
+                        .filter(|r| !self.collection_copies.contains_key(r));
                     let library = self.drive_rows().into_iter().find_map(|r| match r {
                         DriveRow::Library(id) => Some(id),
                         _ => None,
                     });
                     let first = self.drives.iter().find(|d| d.has_export).map(|d| d.root.clone());
-                    match (last, library, first) {
-                        (Some(root), ..) | (None, None, Some(root)) => {
-                            self.preferred_root = None;
-                            self.drive_state.select(self.drives.iter().position(|x| x.root == root));
-                            self.load_library(root);
-                        }
-                        (None, Some(id), _) => {
-                            self.preferred_root = None;
-                            self.open_library(id);
-                        }
-                        (None, None, None) => {}
+                    if collection_last {
+                        self.preferred_root = None;
+                        self.load_collection();
+                    } else if let Some(root) = last {
+                        self.open_found(root);
+                    } else if collection {
+                        self.load_collection();
+                    } else if let Some(id) = library {
+                        self.preferred_root = None;
+                        self.open_library(id);
+                    } else if let Some(root) = first {
+                        self.open_found(root);
                     }
                 }
                 if first {
@@ -478,7 +494,6 @@ impl App {
                 }
             }
             Msg::Cover(cover) => self.covers.cover = Some(*cover),
-            Msg::Chip(root, id, chip) => self.chip_read(&root, id, chip),
             Msg::Details(d) => {
                 if self.details_asked == Some((d.generation, d.index)) {
                     self.details_asked = None;

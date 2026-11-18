@@ -2,6 +2,7 @@ import type { FlagKey } from '#lib/flags/keys.generated.ts';
 /** View models shared between server and browser code. */
 
 import type { BlobRef } from '@atproto/lex-data';
+import type { BookingRole } from './bookings.ts';
 import type { Capability, SpaceKind } from './capabilities.ts';
 import type { localnetwork } from './lexicons/computer.ts';
 
@@ -180,6 +181,8 @@ export type ProfileRecord = LexiconRead<
 		basics: BasicsSection;
 		performer?: PerformerSection;
 		promoter?: PromoterSection;
+		/** Whether the DJ takes booking inquiries here, which they turn on themself. */
+		takesInquiries?: boolean;
 		createdAt: string;
 		updatedAt: string;
 	},
@@ -211,6 +214,43 @@ export type PerformerRecord = {
 		| ({ $type: 'computer.localnetwork.performer#act' } & ActSubject)
 		| { $type: 'computer.localnetwork.performer#dj'; did: string };
 	formerly?: string[];
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A named night or series (`computer.localnetwork.party`), as the root wrote it into the party's space. */
+export type PartyRecord = {
+	basics: BasicsSection;
+	/** Absent while it's a draft. */
+	publishedAt?: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A performer on an event's lineup (`computer.localnetwork.event#credit`), by their profile's or act's listing URI. */
+export type EventCredit = { performer: string; startsAt?: string; endsAt?: string };
+
+/** A night a party puts on (`computer.localnetwork.event`), as the root wrote it into the party's space. */
+export type EventRecord = {
+	name: string;
+	description?: string;
+	/** With the venue's UTC offset, or the draft's time zone's. Only a draft can be without it, or without a venue. */
+	startsAt?: string;
+	endsAt?: string;
+	/** The IANA time zone a draft keeps its times on while it has no venue. */
+	timeZone?: string;
+	/** The venue's space. */
+	venue?: string;
+	tickets?: string;
+	/** A `community.lexicon.calendar.event#status` value. */
+	status: string;
+	/** `public` or `private`, or a value a newer app added, which reads as private. */
+	audience: string;
+	linkToken?: string;
+	/** Absent while it's a draft. */
+	publishedAt?: string;
+	lineup?: EventCredit[];
+	createdBy: string;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -278,6 +318,8 @@ export type ProjectFormValues = ProjectDetails & {
 	travelRadiusKm?: number | string;
 	international?: boolean;
 	travelNotes?: string;
+	/** The profile form's "Take inquiries" box. */
+	takesInquiries?: boolean;
 	formats?: string[];
 	setTypes?: string[];
 	setMin?: number | string;
@@ -546,9 +588,10 @@ export type BookingThreadView = {
 	status: string;
 	title: string | null;
 	showDate: string | null;
-	project: { uri: string; slug: string; name: string } | null;
+	/** Who the inquiry went to: an act (with its project's `slug`) or a listed DJ (no slug), with their public page. */
+	project: { uri: string; slug: string | null; name: string; href: string } | null;
 	promoter: AccountView;
-	participants: (AccountView & { role: 'promoter' | 'manager' })[];
+	participants: (AccountView & { role: BookingRole })[];
 	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */
 	lastAuthor: string | null;
 	lastActivityAt: string;

@@ -150,7 +150,7 @@ describe('HeldRecords', () => {
 		await expect(f.t.heldRecords.delete(viewer, request.uri)).rejects.toBeInstanceOf(NotFoundError);
 	});
 
-	it('keeps a declined press kit request declined, without its role or message', async () => {
+	it('keeps a declined press kit request declined, without its message', async () => {
 		const { viewer, epk } = await fileEverything();
 		await f.setManagers([DJ]);
 		const [asked] = await f.t.epks.requests(epk);
@@ -160,9 +160,7 @@ describe('HeldRecords', () => {
 
 		expect(stored(asked.uri)).toBe(false);
 		expect(await f.t.epks.accessState(f.kit(epk), viewer)).toEqual({ kind: 'declined' });
-		expect(await f.t.epks.requests(epk)).toMatchObject([
-			{ uri: asked.uri, status: 'declined', role: null, message: null }
-		]);
+		expect(await f.t.epks.requests(epk)).toMatchObject([{ uri: asked.uri, status: 'declined', message: null }]);
 		expect((await f.t.heldRecords.list(viewer)).map((record) => record.kind)).not.toContain('epkRequest');
 	});
 
