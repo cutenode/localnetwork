@@ -151,7 +151,7 @@ Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/serv
 
 ## Public pages
 
-The pages anyone can read. A performer that isn't active shows only to its managers and staff; everyone else gets a 404.
+The pages anyone can read. A performer that isn't active shows only to its managers and staff; everyone else gets a 404. So does an event never confirmed, to anyone outside its party.
 
 ```mermaid
 flowchart LR
@@ -163,6 +163,7 @@ flowchart LR
   Public --> Shows["/shows"]
   Public --> Party["/party/[key]/[...rest] (spacePages),<br/>drafts for its people and staff;<br/>/party/new signed in"]
   Party --> Event["/party/[key]/[event]/[name],<br/>drafts for the party's people and staff,<br/>private ones from their link's ?t=;<br/>/party/[key]/new for events.manage"]
+  Public --> Venue["/venue/[key]/[[name]] (spacePages)"]
   Public --> Music["/charts, /artists,<br/>/artists/[id], /artists/name/[[name]]"]
   Public --> Tools["/tools, /tools/[tool],<br/>/tools/[tool]/docs/[page]"]
   Public --> Preview["/mixes/preview"]
@@ -171,7 +172,7 @@ flowchart LR
   Public --> Report["/report, which sends signed-out<br/>visitors to GitHub"]
 ```
 
-Source: [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/party-page.ts`](../../src/lib/server/party-page.ts), [`src/lib/server/event-page.ts`](../../src/lib/server/event-page.ts)
+Source: [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/party-page.ts`](../../src/lib/server/party-page.ts), [`src/lib/server/event-page.ts`](../../src/lib/server/event-page.ts), [`src/routes/venue/[key]/[[name]]/+page.server.ts`](../../src/routes/venue/[key]/[[name]]/+page.server.ts)
 
 ## Dashboard routes
 

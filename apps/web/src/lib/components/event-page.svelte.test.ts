@@ -27,6 +27,7 @@ const event: EventPageView = {
 	venue: tresor,
 	timeZone: 'Europe/Berlin',
 	confirmed: false,
+	neverConfirmed: false,
 	lineup: [
 		{ name: 'Crew', href: null, value: '/act/3crew/crew', start: '23:00', end: '02:00' },
 		{ name: '@dj.test', href: '/@dj.test', value: 'dj.test' }
@@ -117,6 +118,7 @@ describe('EventPage', () => {
 		await expect.element(page.getByText('Dec 5, 2026')).toBeInTheDocument();
 		await expect.element(page.getByText('23:00 to 06:00')).toBeInTheDocument();
 		await expect.element(page.getByText('Tresor, Berlin')).toBeInTheDocument();
+		await expect.element(page.getByRole('link', { name: 'Tresor' })).toHaveAttribute('href', '/venue/3tresor/tresor');
 		await expect.element(page.getByText('Waiting for the venue')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'Tickets' }))
@@ -143,6 +145,13 @@ describe('EventPage', () => {
 		await expect.element(page.getByText('New date')).toBeInTheDocument();
 		expect(page.getByText('Waiting for the venue').elements()).toHaveLength(0);
 		expect(page.getByRole('heading', { level: 2 }).elements()).toHaveLength(0);
+	});
+
+	it('tells its people an event whose night ended while it waited for the venue was never confirmed', async () => {
+		await render(EventPage, { ...host, event: { ...event, neverConfirmed: true }, status: 'listed' });
+
+		await expect.element(page.getByText('Never confirmed')).toBeInTheDocument();
+		expect(page.getByText('Waiting for the venue').elements()).toHaveLength(0);
 	});
 
 	it('marks a cancelled event, with no tickets, standing or way to cancel it again', async () => {

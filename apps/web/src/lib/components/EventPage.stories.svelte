@@ -44,6 +44,7 @@
 		venue: { space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor', skey: '3tresor', name: 'Tresor', locality: 'Berlin', country: 'DE' },
 		timeZone: 'Europe/Berlin',
 		confirmed: false,
+		neverConfirmed: false,
 		lineup: [
 			{ name: 'Crew', href: null, value: '/act/3crew/crew', start: '23:00', end: '02:00' },
 			{ name: '@neon.test', href: '/@neon.test', value: 'neon.test', start: '02:00', end: '04:00' },
@@ -61,6 +62,9 @@
 	const waiting = { ...harness, event, status: 'listed' as const };
 
 	const confirmed = { ...harness, event: { ...event, confirmed: true }, status: 'listed' as const };
+
+	/** Its night ended while it waited for the venue, as its people see it. */
+	const never = { ...owner, event: { ...event, startsAt: '2026-11-07T23:00:00+01:00', endsAt: '2026-11-08T06:00:00+01:00', neverConfirmed: true }, status: 'listed' as const };
 
 	const cancelled = { ...harness, event: { ...event, status: EVENT_STATUS.cancelled }, status: 'listed' as const };
 
@@ -109,6 +113,10 @@
 <Story name="Confirmed" args={confirmed} globals={desktop} play={shows('Confirmed')} />
 
 <Story name="Confirmed, phone, light" args={confirmed} globals={phone} beforeEach={light} play={shows('Confirmed')} />
+
+<Story name="Never confirmed" args={never} globals={desktop} play={shows('Never confirmed')} />
+
+<Story name="Never confirmed, phone, light" args={never} globals={phone} beforeEach={light} play={shows('Never confirmed')} />
 
 <Story name="Cancelled" args={cancelled} globals={desktop} play={shows('Cancelled')} />
 

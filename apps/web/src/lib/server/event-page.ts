@@ -82,7 +82,10 @@ async function lineupEntry(app: Locals['app'], credit: EventCredit): Promise<Lin
 }
 
 /** The event as its page draws it, without its link token. */
-async function eventView(app: Locals['app'], { record, venue, standing }: EventView): Promise<EventPageView> {
+async function eventView(
+	app: Locals['app'],
+	{ record, venue, standing, neverConfirmed }: EventView
+): Promise<EventPageView> {
 	const { name, description, startsAt, endsAt, tickets, status } = record;
 
 	return {
@@ -96,6 +99,7 @@ async function eventView(app: Locals['app'], { record, venue, standing }: EventV
 		venue: venue && venueOption(venue),
 		timeZone: (venue ? venueZone(venue) : record.timeZone) ?? null,
 		confirmed: standing.confirmed,
+		neverConfirmed,
 		lineup: await Promise.all((record.lineup ?? []).map((credit) => lineupEntry(app, credit)))
 	};
 }

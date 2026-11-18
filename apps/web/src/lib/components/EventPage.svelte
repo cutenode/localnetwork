@@ -5,6 +5,7 @@
 	import type { EventPageView } from '#lib/events.ts';
 	import { asShowDate, formatShowDate } from '#lib/format.ts';
 	import { EVENT_STATUS, showHours, venueClock, venueDay } from '#lib/shows.ts';
+	import { spacePagePath } from '#lib/space-paths.ts';
 	import { webHref } from '#lib/web-url.ts';
 	import FormMessage from './FormMessage.svelte';
 	import VenuePicker from './VenuePicker.svelte';
@@ -14,11 +15,11 @@
 
 	/**
 	 * An event's page, built in place like its party's: its name, night, venue, party, lineup, tickets and what it's
-	 * about, and whether the venue has confirmed it. In edit mode the same layout has each part as its field. Times are
-	 * on the venue's clock, or until there's a venue, on a time zone picked with them; a save that would move them onto
-	 * another clock comes back asking whether to keep them as entered or at the same moments (`view.choice`). An event
-	 * being made has no `event` yet and draws every field empty. Its people with events.manage also get, outside edit
-	 * mode, a private event's `link` to share or reset, and a way to cancel it.
+	 * about, and whether the venue has confirmed it (or never did, for its people). In edit mode the same layout has each
+	 * part as its field. Times are on the venue's clock, or until there's a venue, on a time zone picked with them; a
+	 * save that would move them onto another clock comes back asking whether to keep them as entered or at the same
+	 * moments (`view.choice`). An event being made has no `event` yet and draws every field empty. Its people with
+	 * events.manage also get, outside edit mode, a private event's `link` to share or reset, and a way to cancel it.
 	 */
 	let {
 		event = null,
@@ -119,14 +120,14 @@
 							</p>
 						{/if}
 						{#if event.venue}
-							<p class="m-0 inline-flex items-center gap-1.5 text-small text-fg-muted"><MapPin aria-hidden="true" class="size-4" />{[event.venue.name, event.venue.locality ?? event.venue.country].join(', ')}</p>
+							<p class="m-0 inline-flex items-center gap-1.5 text-small text-fg-muted"><MapPin aria-hidden="true" class="size-4" /><span><a class="entity-link" href={spacePagePath('venue', event.venue.skey, event.venue.name)}>{event.venue.name}</a>, {event.venue.locality ?? event.venue.country}</span></p>
 						{/if}
 						<p class="m-0 flex flex-wrap gap-2">
 							{#if isCancelled}
 								<span class="pill bg-raised text-critical">Cancelled</span>
 							{:else}
 								{#if event.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
-								{#if event.venue && isPublished}<span class={['pill', event.confirmed ? 'bg-raised text-good' : 'bg-well text-fg-muted']}>{event.confirmed ? 'Confirmed' : 'Waiting for the venue'}</span>{/if}
+								{#if event.venue && isPublished}<span class={['pill', event.confirmed ? 'bg-raised text-good' : 'bg-well text-fg-muted']}>{event.neverConfirmed ? 'Never confirmed' : event.confirmed ? 'Confirmed' : 'Waiting for the venue'}</span>{/if}
 							{/if}
 							{#if event.audience === 'private' && !view.visitor}<span class="pill bg-well text-fg-muted">Private</span>{/if}
 						</p>

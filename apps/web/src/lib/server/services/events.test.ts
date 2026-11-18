@@ -539,5 +539,73 @@ describe('EventService', () => {
 
 			expect((await t.events.waiting(venue.space)).map((event) => event.uri)).toEqual([next, later]);
 		});
+
+		it('calls an event still waiting for the venue at 6:00 after its night never confirmed, off every list and closed to visitors', async () => {
+			const waiting = await t.events.create(host, party, input({ date: '2026-11-13', end: undefined }));
+			// Starting at 2:00, it's still the evening before's night, which ends the same morning.
+			const late = await t.events.create(host, party, input({ date: '2026-11-14', start: '02:00', end: undefined }));
+			const confirmed = await t.events.create(host, party, input({ date: '2026-11-13', end: undefined }));
+			await t.events.approve(await t.viewer(OWNER), confirmed);
+			const uris = async (events: Promise<{ uri: string }[]>) => (await events).map((event) => event.uri).toSorted();
+
+			// 5:59 in Berlin.
+			vi.setSystemTime(new Date('2026-11-14T04:59:00Z'));
+			expect(await uris(t.events.waiting(venue.space))).toEqual([waiting, late].toSorted());
+			expect(await uris(t.events.listed())).toEqual([waiting, late, confirmed].toSorted());
+			expect(await t.events.get(waiting)).toMatchObject({ over: false, neverConfirmed: false });
+
+			vi.setSystemTime(new Date('2026-11-14T05:00:00Z'));
+
+			for (const uri of [waiting, late]) {
+				expect(await t.events.get(uri)).toMatchObject({
+					over: true,
+					neverConfirmed: true,
+					standing: { listed: false, confirmed: false }
+				});
+				expect(await t.events.open(uri, null)).toBeNull();
+			}
+
+			expect(await t.events.waiting(venue.space)).toEqual([]);
+			expect(await t.events.listed()).toEqual([]);
+			// Confirmed, it's just a past event, which still opens.
+			expect(await t.events.open(confirmed, null)).toMatchObject({ over: true, neverConfirmed: false });
+		});
+
+		it("ends a venue-less draft's night on its own time zone's clock, and never calls a draft never confirmed", async () => {
+			const zoned = (date: string) => ({ ...bare, date, start: '23:00', timeZone: 'America/New_York' });
+			const past = await t.events.create(host, party, zoned('2026-11-12'));
+			const tonight = await t.events.create(host, party, zoned('2026-11-13'));
+
+			// 6:00 on 13 November in New York is 11:00 UTC, an hour before now; tonight's ends on the 14th.
+			expect(await t.events.get(past)).toMatchObject({ over: true, neverConfirmed: false });
+			expect(await t.events.get(tonight)).toMatchObject({ over: false, neverConfirmed: false });
+		});
+
+		it('lists published public events soonest first by the instant they start, at a venue or anywhere', async () => {
+			const admin = await t.viewer(ADMIN);
+
+			const elsewhere = await t.venues.add(admin, {
+				name: 'Nowadays',
+				address: { country: 'US', locality: 'New York' },
+				geo: { latitude: '40.7128', longitude: '-74.006' }
+			});
+
+			const owner = await t.viewer(OWNER);
+			await t.sharedSpaces.addPerson(admin, elsewhere.space, { did: OWNER, role: 'owner' });
+			await t.venues.setApproval(owner, elsewhere.space, 'approval');
+			// 20:00 in New York is 2:00 in Berlin, after Tresor's 23:00, though it sorts first as text.
+			const newYork = await t.events.create(host, party, input({ venue: elsewhere.space, start: '20:00' }));
+			const berlin = await t.events.create(host, party, input());
+			const cancelled = await t.events.create(host, party, input({ date: '2026-12-12' }));
+			await t.events.cancel(host, cancelled, stored(cancelled).cid);
+			await t.events.create(host, party, input({ audience: 'private' }));
+			await t.events.create(host, party, input({ publish: false }));
+			// Under Venue approves, waiting for the venue isn't listed.
+			await t.events.create(host, party, input({ venue: elsewhere.space, date: '2026-12-06' }));
+			await t.events.approve(owner, newYork);
+
+			expect((await t.events.listed()).map((event) => event.uri)).toEqual([berlin, newYork, cancelled]);
+			expect((await t.events.listed(venue.space)).map((event) => event.uri)).toEqual([berlin, cancelled]);
+		});
 	});
 });
