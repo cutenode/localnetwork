@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { EVENT_STATUS, showFormDefaults } from '#lib/shows.ts';
 	import { light } from '#lib/testing/light.ts';
+	import { listedEvent } from '#lib/testing/listed-events.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectView, ShowView } from '#lib/types.ts';
 	import FollowButton from './FollowButton.svelte';
@@ -57,6 +58,17 @@
 		show('d', { name: 'Closing party', startsAt: '2026-11-28T23:00:00+01:00', status: EVENT_STATUS.cancelled }, { distanceKm: 2.4 })
 	];
 
+	/** The shows with parties' events between them, as the Events list merges them: waiting for the venue, Confirmed, and cancelled. */
+	const withEvents = [
+		shows[0],
+		listedEvent('3mwinter', { startsAt: '2026-11-08T23:00:00+01:00', endsAt: undefined, tickets: 'https://tickets.example/winter', distanceKm: 1.5 }),
+		shows[1],
+		listedEvent('3mnew', { name: 'New Year Warm-up', startsAt: '2026-11-15T23:00:00+01:00', status: EVENT_STATUS.rescheduled, confirmed: true, distanceKm: 1.5 }),
+		shows[2],
+		listedEvent('3mgone', { name: 'Called Off', startsAt: '2026-11-22T23:00:00+01:00', status: EVENT_STATUS.cancelled, distanceKm: 1.5 }),
+		shows[3]
+	];
+
 	const empty = { title: 'Nothing on near Berlin yet', body: 'Try a wider radius, or look everywhere.' };
 
 	const values = {
@@ -80,6 +92,10 @@
 <Story name="Near a city, light" args={{ shows, empty }} beforeEach={light} />
 
 <Story name="Near a city on a phone" args={{ shows, empty }} globals={phone} />
+
+<Story name="With parties' events" args={{ shows: withEvents, empty }} />
+
+<Story name="With parties' events on a phone" args={{ shows: withEvents, empty }} globals={phone} />
 
 <Story name="On a project's page, for its manager" asChild>
 	<ShowList shows={shows.slice(0, 2)} project={tide.uri} editable={(entry) => (entry.did === 'did:plc:neon' ? `/projects/neon-tide/shows/${entry.rkey}` : null)} edited={[shows[0].uri]} {empty} />

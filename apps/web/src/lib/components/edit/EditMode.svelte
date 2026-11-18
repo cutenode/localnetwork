@@ -118,7 +118,8 @@
 		visitor,
 		busy: activity === 'saving',
 		value: (field, saved) => shown?.values?.[field] ?? saved,
-		error: (field) => (shown?.field?.name === field ? shown.error : undefined)
+		error: (field) => (shown?.field?.name === field ? shown.error : undefined),
+		choice: shown?.choice
 	});
 
 	const loadEditor = () =>

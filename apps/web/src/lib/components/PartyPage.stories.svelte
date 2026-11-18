@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import { capabilitiesFor } from '#lib/capabilities.ts';
+	import { EVENT_STATUS } from '#lib/shows.ts';
 	import { light } from '#lib/testing/light.ts';
 	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import PartyPage from './PartyPage.svelte';
@@ -49,23 +50,32 @@
 		...harness,
 		subject: { kind: 'party' as const, uri: 'at://did:plc:root/space/party' },
 		can: capabilitiesFor('party', 'host'),
-		role: 'owner' as const
+		role: 'owner' as const,
+		newEventHref: '/party/3lzparty/new'
 	};
 
-	const view = { ...owner, party, people, status: 'listed' as const };
+	/** Its next nights as its people see them: one never confirmed, a public one, a private one and a draft without a date yet. */
+	const events = [
+		{ href: '/party/3lzparty/3mautumn/autumn-closing', name: 'Autumn Closing', startsAt: '2026-11-07T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: false, neverConfirmed: true },
+		{ href: '/party/3lzparty/3mwinter/winter-opening', name: 'Winter Opening', startsAt: '2026-12-05T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: false, neverConfirmed: false },
+		{ href: '/party/3lzparty/3mback/back-room', name: 'Back Room', startsAt: '2026-12-12T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: true, neverConfirmed: false },
+		{ href: '/party/3lzparty/3mspring/spring', name: 'Spring Opening', status: EVENT_STATUS.scheduled, venue: null, draft: true, private: false, neverConfirmed: false }
+	];
+
+	const view = { ...owner, party, people, events, status: 'listed' as const };
 
 	const empty = { ...harness, party: { basics: { name: 'Night Shift' }, avatarUrl: null }, status: 'unlisted' as const };
 
 	const editing = { ...view, editing: true };
 
-	const started = { ...owner, editing: true, status: 'draft' as const, version: '' };
+	const started = { ...owner, newEventHref: null, editing: true, status: 'draft' as const, version: '' };
 
 	const shows = (text: string) => async ({ canvasElement }: { canvasElement: HTMLElement }) => {
 		await expect(within(canvasElement).getByText(text)).toBeInTheDocument();
 	};
 </script>
 
-<Story name="View" args={view} globals={desktop} play={shows('Hosted by')} />
+<Story name="View" args={view} globals={desktop} play={shows('Winter Opening')} />
 
 <Story name="View, phone, light" args={view} globals={phone} beforeEach={light} play={shows('Hosted by')} />
 

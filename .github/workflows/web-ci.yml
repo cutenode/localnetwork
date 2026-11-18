@@ -33,21 +33,35 @@ permissions:
 defaults:
   run:
     working-directory: apps/web
+    # Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+    shell: bash
 
 # Actions are pinned to commits, as in locallibrary-ci.yml. Firefox, WebKit and the phone viewports
 # run weekly in web-scheduled.yml; pull requests run the e2e tests in Chromium only.
 jobs:
-  # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
-  # JavaScript every page loads and each page's own within their budgets.
+  # `pnpm test:build` builds the app and checks what ships to the browser, and then the JavaScript
+  # every page loads, the largest page's own and the CSS are held to benchmarks/budgets/web.json (see
+  # benchmarks/README.md): a pull request to how much it grows them over the commit its merge commit
+  # sits on, a merge queue group to how much its pull requests grow them together.
   verify:
     name: Format, lint, types, unit tests, stories, build
     if: inputs.verify
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A base's build, when no run measured it.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      # The base's sizes, from its run's artifact.
+      actions: read
+      # The pull request's body, for budget-raise lines from before trailers.
+      pull-requests: read
     steps:
+      # The base and a group's pull requests' merge commits, and enough of main before them for the
+      # baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 30
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -95,6 +109,66 @@ jobs:
       - run: pnpm build-storybook
         working-directory: apps/web
       - run: pnpm test:build
+      - run: node scripts/bundle-sizes.ts . "$GITHUB_WORKSPACE/target/budgets"
+      # The base as in locallibrary-ci.yml's release-budgets job: a group's base, how many pull
+      # requests it holds, and their Budget-Raise trailers and bodies, or a pull request's.
+      - id: base
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          if [ "$EVENT" = merge_group ]; then base=$GROUP_BASE; else base=$(git rev-parse HEAD^1); fi
+          git log --format='%(trailers:key=Budget-Raise)' "$base..HEAD" > "$RUNNER_TEMP/raises.md"
+          if [ "$EVENT" = merge_group ]; then
+            numbers=$(git log --first-parent --merges --format=%s "$base..HEAD" | sed -n 's/^Merge pull request #\([0-9]*\) .*/\1/p')
+            for number in $numbers; do gh api "repos/$GH_REPO/pulls/$number" --jq '.body // ""' >> "$RUNNER_TEMP/raises.md"; done
+            entries=$(git rev-list --first-parent --merges --count "$base..HEAD")
+          else
+            if [ "$EVENT" = pull_request ]; then gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' >> "$RUNNER_TEMP/raises.md"; fi
+            entries=1
+          fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+          echo "entries=$entries" >> "$GITHUB_OUTPUT"
+      # A push to main only measures, for pull requests to compare with.
+      - if: github.event_name != 'push'
+        id: baseline
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ steps.base.outputs.sha }}
+        run: node tools/budgets/cli.ts baseline "$BASE" web web-budgets target/budgets-base >> "$GITHUB_OUTPUT"
+      # In a checkout of its own, measured with this commit's script.
+      - if: github.event_name != 'push' && steps.baseline.outputs.found != 'true'
+        working-directory: .
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          echo "::notice::No run measured ${BASE:0:9} or a commit before it that changed none of what this measures, so this job builds it too"
+          git worktree add "$RUNNER_TEMP/base" "$BASE"
+          cd "$RUNNER_TEMP/base"
+          pnpm install --frozen-lockfile
+          (cd apps/web && pnpm build)
+          node "$GITHUB_WORKSPACE/apps/web/scripts/bundle-sizes.ts" apps/web "$GITHUB_WORKSPACE/target/budgets-base"
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - if: github.event_name != 'push'
+        shell: bash
+        working-directory: .
+        env:
+          ENTRIES: ${{ steps.base.outputs.entries }}
+        run: node tools/budgets/cli.ts check web target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Under the run's own commit: for a group or a push to main, main's measurement.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-budgets
+          path: target/budgets
+          if-no-files-found: ignore
+          retention-days: 14
       # What the browser downloads, for the report job; main's runs keep theirs for pull requests
       # to compare with. adapter-node writes a brotli copy beside each file (precompress), which is
       # what the server sends a browser that takes it.

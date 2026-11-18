@@ -1,7 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { TID } from '@atproto/common-web';
 import type { Selectable } from 'kysely';
-import { toE6 } from '#lib/geo.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { EventCredit, EventRecord, Location, Viewer } from '#lib/types.ts';
@@ -13,7 +12,17 @@ import { parsePerformerUri } from '../performer-uri';
 import { type Core, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { EventTable } from '../db/schema';
-import { atVenue, isTimeZone, nextDay, venueEnd, venueTime, zoneOf } from '../venue-time';
+import {
+	atVenue,
+	isTimeZone,
+	nextDay,
+	nightEnd,
+	nightsSince,
+	venueEnd,
+	venuePlace,
+	venueTime,
+	zoneOf
+} from '../venue-time';
 import { savedChanges } from './diff';
 import type { PartyService } from './parties';
 import type { PerformerService } from './performer-registry';
@@ -71,10 +80,17 @@ export type EventView = {
 	venue: VenueView | null;
 	approved: boolean;
 	/**
-	 * How the venue shows it: listed or not, and Confirmed or waiting for the venue. A draft or a private event is never
-	 * listed.
+	 * How the venue shows it: listed or not, and Confirmed or waiting for the venue. A draft, a private event or one that
+	 * was never confirmed is never listed.
 	 */
 	standing: EventStanding;
+	/** Whether its night is over, as of when it was read: 6:00 the next morning on the venue's clock (nightEnd). */
+	over: boolean;
+	/**
+	 * Published and still waiting for the venue when its night ended. It leaves listings, and only its party's people
+	 * and staff can open it.
+	 */
+	neverConfirmed: boolean;
 };
 
 /** What an event's form fills in, which every save rebuilds. */
@@ -99,8 +115,7 @@ export class ZoneChangeError extends UserError {
 }
 
 /** The venue's time zone, from its coordinates, or null when it has none yet. */
-const venueZone = ({ geo }: VenueView) =>
-	geo ? zoneOf({ latE6: toE6(Number(geo.latitude)), lngE6: toE6(Number(geo.longitude)) }) : null;
+export const venueZone = ({ geo }: VenueView) => (geo ? zoneOf(venuePlace(geo)) : null);
 
 /** A location's time zone, or null when it has no coordinates (typed by hand, not picked from the city search). */
 const locationZone = (location: Location | undefined) =>
@@ -144,6 +159,17 @@ const moments = ({ startsAt, endsAt, lineup }: Times) =>
 	[startsAt, endsAt, ...lineup.flatMap((credit) => [credit.startsAt, credit.endsAt])].map(instant).join();
 
 const isPrivate = (record: Pick<EventRecord, 'audience'>) => record.audience !== 'public';
+
+/**
+ * Events by when they start, as instants, since stored starts carry their venue's offset and so don't sort as text,
+ * then by URI, compared as code units the way a page's cursor compares them (upcomingListings).
+ */
+const soonestFirst = (events: EventView[]) =>
+	events.toSorted(
+		(a, b) =>
+			Date.parse(a.record.startsAt ?? '') - Date.parse(b.record.startsAt ?? '') ||
+			Number(a.uri > b.uri) - Number(a.uri < b.uri)
+	);
 
 /** Whether `token` is the one a private event's link carries, compared in constant time. */
 function sameToken(stored: string | undefined, token: string | null | undefined): boolean {
@@ -295,12 +321,13 @@ export class EventService {
 
 	/**
 	 * The event as a visitor opens it from a link, signed in or not: a published public one for anyone, a published
-	 * private one only with its link's token (ADR 0015). Anything else is as if it weren't there.
+	 * private one only with its link's token (ADR 0015). Anything else, or one never confirmed, is as if it weren't
+	 * there.
 	 */
 	async open(uri: string, token: string | null): Promise<EventView | null> {
 		const event = await this.get(uri);
 
-		if (!event?.record.publishedAt) return null;
+		if (!event?.record.publishedAt || event.neverConfirmed) return null;
 
 		if (isPrivate(event.record) && !sameToken(event.record.linkToken, token)) return null;
 
@@ -321,8 +348,8 @@ export class EventService {
 	}
 
 	/**
-	 * The upcoming published events naming the venue that are waiting for the venue, soonest first, for the people who
-	 * approve them.
+	 * The published events naming the venue that are waiting for the venue and whose night isn't over, soonest first,
+	 * for the people who approve them.
 	 */
 	async waiting(venue: string): Promise<EventView[]> {
 		const rows = await this.core.db
@@ -331,16 +358,33 @@ export class EventService {
 			.where('venueSpace', '=', venue)
 			.where('publishedAt', 'is not', null)
 			.where('status', '!=', EVENT_STATUS.cancelled)
-			.where('startsAt', '>=', nowIso())
+			.where('startsAt', '>=', nightsSince(Date.now()))
 			.where((eb) =>
 				eb.not(
 					eb.exists(eb.selectFrom('venueApproval').select('rkey').whereRef('venueApproval.eventUri', '=', 'event.uri'))
 				)
 			)
-			.orderBy('startsAt')
 			.execute();
 
-		return Promise.all(rows.map((row) => this.toView(row)));
+		return soonestFirst(await Promise.all(rows.map((row) => this.toView(row)))).filter((event) => !event.over);
+	}
+
+	/**
+	 * The events listed now, at `venue` or anywhere, soonest first: published, public, listed under their venue's rules,
+	 * cancelled ones too, until their night is over. Waiting for the venue or Confirmed is in each one's standing.
+	 */
+	async listed(venue?: string): Promise<EventView[]> {
+		let query = this.core.db
+			.selectFrom('event')
+			.selectAll()
+			.where('publishedAt', 'is not', null)
+			.where('audience', '=', 'public')
+			.where('startsAt', '>=', nightsSince(Date.now()));
+
+		if (venue) query = query.where('venueSpace', '=', venue);
+		const views = await Promise.all((await query.execute()).map((row) => this.toView(row)));
+
+		return soonestFirst(views).filter((event) => event.standing.listed && !event.over);
 	}
 
 	/**
@@ -474,7 +518,7 @@ export class EventService {
 	}
 
 	/** The time zone a new venue-less draft starts on: its party's area's, else its creator's profile's, else UTC. */
-	private async homeZone(party: string, creator: string): Promise<string> {
+	async homeZone(party: string, creator: string): Promise<string> {
 		const area = locationZone((await this.parties.bySpace(party))?.basics.location);
 
 		if (area) return area;
@@ -513,10 +557,17 @@ export class EventService {
 			...(record.lineup ?? []).map((credit) => credit.performer)
 		];
 
-		const venue = row.venueSpace;
-		const approved = venue !== null && (await this.approved(venue, row.uri));
-		const rules = venue === null ? null : await this.rules.event(venue, subjects, approved);
-		const listed = !!rules?.listed && row.publishedAt !== null && !isPrivate(record);
+		const space = row.venueSpace;
+		const venue = space === null ? null : await this.venues.bySpace(space);
+		const approved = space !== null && (await this.approved(space, row.uri));
+		const rules = space === null ? null : await this.rules.event(space, subjects, approved);
+		const confirmed = !!rules?.confirmed;
+		// On the clock its times are on: its venue's, or a venue-less draft's own.
+		const zone = venue ? venueZone(venue) : record.timeZone;
+		const ends = record.startsAt && zone && nightEnd(record.startsAt, zone);
+		const over = !!ends && Date.parse(ends) <= Date.now();
+		const neverConfirmed = over && row.publishedAt !== null && !confirmed;
+		const listed = !!rules?.listed && row.publishedAt !== null && !isPrivate(record) && !neverConfirmed;
 
 		return {
 			uri: row.uri,
@@ -524,9 +575,11 @@ export class EventService {
 			rkey: row.rkey,
 			record,
 			cid: row.cid,
-			venue: venue === null ? null : await this.venues.bySpace(venue),
+			venue,
 			approved,
-			standing: { listed, confirmed: !!rules?.confirmed }
+			standing: { listed, confirmed },
+			over,
+			neverConfirmed
 		};
 	}
 }

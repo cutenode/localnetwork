@@ -86,6 +86,8 @@ it('shows a published party to anyone, with its hosts and cohosts who show', asy
 		version: cid(),
 		status: 'unlisted',
 		party: { basics: expect.objectContaining({ name: 'Night Shift' }), avatarUrl: null },
+		events: [],
+		newEventHref: null,
 		people: [{ did: HOST, handle: null, role: 'host' }],
 		geocoder: false,
 		meta: expect.objectContaining({ title: 'Night Shift', description: 'Techno on Thursdays.', noindex: false })

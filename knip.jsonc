@@ -14,6 +14,8 @@
 			"ignoreBinaries": ["fuzz", "playwright", "tsx"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
+			// tools/policy.sh runs it, and the workflows that run the other tools/*/cli.ts don't.
+			"entry": ["tools/reads/cli.ts"],
 			// The repo's own tooling: nothing here ships.
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
@@ -38,9 +40,6 @@
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
 				"!src/lib/og/cards/CardPreview.svelte!",
-				// The venue picker ships dark: the event editor will be the first form to use it, and until then
-				// only its stories and tests reach it. Drop this line when a page imports it.
-				"!src/lib/components/VenuePicker.svelte!",
 				// Edit mode's story and test helpers.
 				"!src/lib/components/edit/EditBarFrame.svelte!",
 				"!src/lib/components/edit/EditPageHarness.svelte!"

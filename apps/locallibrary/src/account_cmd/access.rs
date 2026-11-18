@@ -174,24 +174,28 @@ fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Outp
     };
     let t = account_type(plugins, &a.account.plugin, &a.kind);
     let account = named(plugins, &a.kind, &a.account.plugin, &a.name);
-    let question = match &u {
+    // What's asked about is said on stdout, naming the account; the question, on stderr, doesn't.
+    let said = match &u {
         Unready::Ungiven(_, scopes) => {
-            if out.confirm(&format!(
-                "{name} needs to {} with the {account}. Give it access?",
-                titles(t, scopes).join(", ")
-            )) {
+            if !out.json {
+                say!("{name} needs to {} with the {account}.", titles(t, scopes).join(", "));
+            }
+            if out.confirm("Give it access?") {
                 plugins.give_access(plugin, &a.account, &[], store)?;
                 ok(format!("{name} has access to the {account}"));
             }
             return Ok(());
         }
         Unready::Ungranted(_, scopes) => {
-            format!("The {account} doesn't allow {name} to {}. Sign in again?", titles(t, scopes).join(", "))
+            format!("The {account} doesn't allow {name} to {}.", titles(t, scopes).join(", "))
         }
-        Unready::Expiring(_) => format!("The {account} won't stay signed in long enough for {name}. Sign in again?"),
-        _ => format!("The {account}, which {name} uses, is signed out. Sign in again?"),
+        Unready::Expiring(_) => format!("The {account} won't stay signed in long enough for {name}."),
+        _ => format!("The {account}, which {name} uses, is signed out."),
     };
-    if !out.confirm(&question) {
+    if !out.json {
+        say!("{said}");
+    }
+    if !out.confirm("Sign in again?") {
         return Ok(());
     }
     let start = plugins.begin_account_sign_in(
