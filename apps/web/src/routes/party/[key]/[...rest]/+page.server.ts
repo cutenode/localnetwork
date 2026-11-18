@@ -2,7 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { isListedRole } from '#lib/capabilities.ts';
 import type { PageStatus } from '#lib/components/edit/types.ts';
 import { openEditor, pageContext, savePage } from '#lib/server/edit-mode.ts';
-import { changeEvent, eventPage, findEvent, LINK_TOKEN, saveEvent } from '#lib/server/event-page.ts';
+import { answerEvent, changeEvent, eventPage, findEvent, LINK_TOKEN, saveEvent } from '#lib/server/event-page.ts';
 import { parsePartyForm, partyValues } from '#lib/server/forms/party.ts';
 import { cacheBriefly, requireViewer, text } from '#lib/server/http.ts';
 import { pageMeta } from '#lib/server/meta.ts';
@@ -91,6 +91,14 @@ export const actions: Actions = {
 		return changeEvent(event, (viewer, form) =>
 			event.locals.app.events.cancel(viewer, shown.uri, text(form, 'cid', 200))
 		);
+	},
+	/** Going, Interested, or neither, for the signed-in viewer. */
+	rsvp: async (event) => {
+		const { shown } = await find(event);
+
+		if (!shown) error(404, 'Not found');
+
+		return answerEvent(event, shown);
 	},
 	/** Gives a private event a new link, so the old one stops opening it. */
 	resetLink: async (event) => {

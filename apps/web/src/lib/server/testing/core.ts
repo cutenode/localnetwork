@@ -27,6 +27,7 @@ import { PerformerService } from '../services/performer-registry';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
 import { ProfileService } from '../services/profiles';
+import { RsvpService } from '../services/rsvps';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectMigration } from '../services/project-migration';
 import { ProjectService } from '../services/projects';
@@ -46,6 +47,9 @@ import { FakeNetwork } from './fakes';
 import { FakeHappyView } from './happyview';
 
 export const ROOT = 'did:plc:root';
+
+/** The site's address, as the route tests' config has it. */
+export const PUBLIC_URL = 'https://localnetwork.test';
 
 /** A fully wired set of services over an in-memory database, a fake PDS network, and a stand-in HappyView. */
 export async function createTestServices(
@@ -164,7 +168,19 @@ export async function createTestServices(
 	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const venueRules = new VenueRules(core);
-	const events = new EventService(core, sharedSpaces, venues, venueRules, performerRegistry, parties, profiles);
+
+	const events = new EventService(
+		core,
+		sharedSpaces,
+		venues,
+		venueRules,
+		performerRegistry,
+		parties,
+		profiles,
+		PUBLIC_URL
+	);
+
+	const rsvps = new RsvpService(core, directory, PUBLIC_URL, 0);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
@@ -221,6 +237,7 @@ export async function createTestServices(
 		venues,
 		venueRules,
 		events,
+		rsvps,
 		parties,
 		viewer,
 		capable,

@@ -11,6 +11,7 @@ The other folders hold other authorities' lexicons that ours refer to or that ou
 | `community.lexicon.location.fsq`     | `did:plc:mtr7qrqtcyseedx3jyr5o7db` | `bafyreigqx7wxb4cmz3aex6pcjs6vwqwaqldzn3xvrml3yrpq623u6cnjpe` | 2026-10-24 |
 | `community.lexicon.location.hthree`  | `did:plc:mtr7qrqtcyseedx3jyr5o7db` | `bafyreic6xmiv4ycbcfvcvj5uu537ytl7hnjazcxf7hhd7g6o6s7p6tonky` | 2026-10-24 |
 | `community.lexicon.calendar.event`   | `did:plc:mtr7qrqtcyseedx3jyr5o7db` | `bafyreigv256whv46vep4xb2iqn6ag7z5abhvebd46ohuqvopxl56ptobbi` | 2026-10-24 |
+| `community.lexicon.calendar.rsvp`    | `did:plc:mtr7qrqtcyseedx3jyr5o7db` | `bafyreiarei3vsjaj36yhc2thobrgzkcsdh6m5pmwy6reik24papzl32qcu` | 2026-11-16 |
 | `com.atproto.repo.strongRef`         | `did:plc:6msi3pj7krzih5qxqtryxlzw` | `bafyreifrkdbnkvfjujntdaeigolnrjj3srrs53tfixjhmacclps72qlov4` | 2026-10-24 |
 | `app.userinput.discussion`           | `did:plc:uyixj57k6nmxrdj7pjs2ss5s` | `bafyreia3pm5ywlis5lzl2lokic57wbsr4cez4tkrc7xicf6i76a72j7ey4` | 2026-10-24 |
 | `app.userinput.space`                | `did:plc:uyixj57k6nmxrdj7pjs2ss5s` | `bafyreifzxvmlucnnqfxkbxq72ledmrjhdvt5ry3fqlpkacl7nmi6fnaohy` | 2026-10-24 |

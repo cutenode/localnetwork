@@ -106,13 +106,16 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/routes/{venue,party,events}/**"
           - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
-          - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index}.*"
+          - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index,rsvps,calendar-event}.*"
           - "apps/web/src/lib/server/{venue-blocks,events-list,party-page,event-page}.*"
           - "apps/web/src/lib/server/forms/{party,event}.*"
-          - "apps/web/src/lib/components/{Venue,Party,Event}*"
+          - "apps/web/src/lib/components/{Venue,Party,Event,Rsvp}*"
           - "lexicons/computer/localnetwork/{venue,party,event}.json"
           - "lexicons/computer/localnetwork/venue/**"
           - "lexicons/computer/localnetwork/space/{venue,party}.json"
+          - "lexicons/computer/localnetwork/directory/getRsvpStatus.json"
+          - "apps/web/lua/community/lexicon/calendar/rsvp.lua"
+          - "apps/web/lua/computer/localnetwork/directory/getRsvpStatus.lua"
 
 "web: staff":
   - changed-files:

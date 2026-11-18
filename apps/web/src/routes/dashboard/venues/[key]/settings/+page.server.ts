@@ -48,6 +48,8 @@ export const actions: Actions = {
 
 			if (!isOneOf(VENUE_APPROVALS, approval)) throw new UserError('Choose how events show');
 			await locals.app.venues.setApproval(viewer, venue.space, approval);
+			// Which of its events are listed changes with how events show, and their calendar copies with them.
+			await locals.app.events.reconcileCalendarCopies(venue.space);
 
 			return { success: `Saved: ${labelFor(VENUE_APPROVALS, approval)}.` };
 		});
@@ -61,6 +63,8 @@ export const actions: Actions = {
 		return act(async () => {
 			if (!isOneOf(BLOCK_KINDS, values.kind)) throw new UserError('Choose who to block');
 			await locals.app.venues.block(viewer, venue.space, await blockSubject(locals.app, values.kind, values.name));
+			// A block keeps the venue from confirming an event, which can take it off the list, and its calendar copy.
+			await locals.app.events.reconcileCalendarCopies(venue.space);
 
 			return { success: 'Blocked.' };
 		}, values);
@@ -72,6 +76,7 @@ export const actions: Actions = {
 
 		return act(async () => {
 			await locals.app.venues.unblock(viewer, venue.space, text(form, 'rkey', 32));
+			await locals.app.events.reconcileCalendarCopies(venue.space);
 
 			return { success: 'Block taken away.' };
 		});
