@@ -427,6 +427,31 @@ export const DEMO_DJS = [
 	}
 ];
 
+/**
+ * A DJ staff list in Find DJs under their own name, with no project: their page is their profile, and promoters can
+ * send them inquiries and save them to a planner.
+ */
+export const DEMO_LISTED_DJ = {
+	handle: 'kestrel.test',
+	password: 'kestrel-pass',
+	displayName: 'Kestrel',
+	profile: {
+		basics: {
+			name: 'Kestrel',
+			bio: 'Jungle and footwork from Leeds, mostly on a Thursday.',
+			location: { city: 'Leeds', country: 'GB', ...at(53.8, -1.549) }
+		},
+		performer: {
+			tagline: 'Rollers for small rooms',
+			genres: ['jungle', 'footwork'],
+			formats: ['cdj'],
+			setTypes: ['peak'],
+			fees: [{ tier: 'emerging', currency: 'GBP', minAmount: 150, maxAmount: 300 }]
+		},
+		takesInquiries: true
+	} satisfies Omit<ProfileRecord, 'createdAt' | 'updatedAt'>
+};
+
 /** People who manage demo projects and play no sets of their own, with the display name on their Bluesky profile. */
 export const DEMO_MANAGERS = [
 	{ handle: 'velvet.test', password: 'velvet-pass', displayName: 'Velvet Static' },

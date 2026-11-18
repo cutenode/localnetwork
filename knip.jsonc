@@ -10,8 +10,8 @@
 	"workspaces": {
 		".": {
 			// The workflows set their folder with `defaults.run.working-directory`, which knip's GitHub
-			// Actions plugin doesn't read, so it looks for apps/web's binaries in the root package.
-			"ignoreBinaries": ["playwright", "tsx"],
+			// Actions plugin doesn't read, so it looks for apps/web's binaries and scripts in the root package.
+			"ignoreBinaries": ["fuzz", "playwright", "tsx"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
 			// The repo's own tooling: nothing here ships.
@@ -22,14 +22,16 @@
 			// elsewhere.
 			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
 			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
+			// scripts/fuzz.ts loads the fuzz targets by name.
 			"entry": [
 				"src/lib/server/atproto/lexicon-files.ts!",
 				"src/lib/server/notifications/kind-files.ts!",
-				"scripts/db-backup.ts!"
+				"scripts/db-backup.ts!",
+				"fuzz/*.fuzz.ts"
 			],
 			"project": [
 				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,mdx,svelte,css}!",
-				"!{scripts,tests,.storybook}/**!",
+				"!{scripts,tests,fuzz,.storybook}/**!",
 				"!lighthouserc.cjs!",
 				// Test and story helpers.
 				"!src/lib/{testing,server/testing}/**!",
@@ -44,12 +46,13 @@
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]
 		},
 		"apps/localtoolbox": {
-			// The content scripts and the popup's classic scripts, and content.css, which ships as written
-			// (vite.config.ts). vitest.config.ts passes svelte.config.ts by path, and stryker.config.mjs
-			// names vitest.stryker.config.ts.
+			// The content scripts, the main-world script that feeds content.ts, the popup's classic scripts,
+			// and content.css, which ships as written (vite.config.ts). vitest.config.ts passes
+			// svelte.config.ts by path, and stryker.config.mjs names vitest.stryker.config.ts.
 			"entry": [
 				"content.ts!",
 				"gate-page.ts!",
+				"page-data.ts!",
 				"downloaded-store.ts!",
 				"state-transfer.ts!",
 				"theme-prepaint.ts!",

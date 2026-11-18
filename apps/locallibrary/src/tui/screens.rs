@@ -231,8 +231,8 @@ fn profile() {
     let Fixture { _dir, mut app, .. } = fixture();
     press(&mut app, "gn");
     assert_eq!(app.view, View::Profile);
-    let first = locallibrary::profile::Section::ALL[0].title();
-    check(&mut app, "the profile", &[first, "i in/out of document"], &[]);
+    let first = super::profile::SECTIONS[0].title();
+    check(&mut app, "the profile", &[first, "2 tracks", "i in/out of document"], &[]);
 }
 
 #[test]

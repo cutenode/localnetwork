@@ -26,8 +26,8 @@
   any use for them.
 
   One section is not a setting at all. Everything the extension has saved (the
-  marks, the looked-up details, the Manager's list, the artists list, the
-  session queue and three panel options) goes out to one file there and reads
+  marks, the Manager's list, the artists list, the session queue, the search
+  sites and three panel options) goes out to one file there and reads
   back in (StateTransfer.svelte). It is here rather than in the Manager panel's
   footer because the file carries other tools' state too, and a backup is
   something you take before opening a playlist rather than while looking at

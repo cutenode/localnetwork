@@ -3109,6 +3109,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "sets:read",
         "account:status",
         "collection:read",
+        "collection:files",
         "library:plan",
         "library:delete",
         "library:delete-unbacked",

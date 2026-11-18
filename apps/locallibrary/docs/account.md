@@ -8,14 +8,17 @@ locallibrary account login dj.example.com    # sign in in the browser
 locallibrary account                         # who's signed in, and until when (then the accounts plugins use)
 locallibrary account status --check          # ask the account's server (refreshes the session)
 locallibrary account logout                  # revoke the session and remove it from this computer
+locallibrary account flags                   # which feature flags are on for you
 ```
 
 Your Atmosphere account is the one you use for Bluesky and other AT Protocol apps, hosted by
 Bluesky or any other server. Signing in happens in your browser, on your account's server:
 locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
-one). Signing in only asks to know who you are: locallibrary can't post or change anything.
-[Publishing](#publishing) asks for more the first time, by signing in again: permission to create
+one). Signing in asks to know who you are, and for tokens for two of Local Network's website's
+methods: one says which [feature flags](#feature-flags) are on for you, the other has its directory
+read your records again ([below](#where-records-are-read)). locallibrary can't post or change
+anything. [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
 and replace the four record types it publishes, to delete sets and their recordings (`sets
 delete` takes them off the account), to upload audio files (a set's recording), and to ask Local
 Network's directory to read them again, and nothing else in the account. `account login
@@ -25,6 +28,8 @@ writes records needs permission for each type it writes, which `account login --
 'repo:NSID?action=create&action=update'` asks for, and the plugin's error says which (see
 [Plugins](plugins.md#atmosphere-records)).
 
+- **Those two tokens are one scope**, `rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags`.
+  A session from before it still works, without it: see [Feature flags](#feature-flags).
 - **Publishing's permission is a permission set**, the Lexicon
   [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):
   sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
@@ -156,8 +161,9 @@ Everything locallibrary reads from the network comes from Local Network's direct
 account's data server or Bluesky's: what's published in a record's place before a publish, My
 Settings for `settings import --from-handle` and `--from-account`, and the space bug reports go
 to. Writes still go to your account's data server, which is otherwise only asked to sign you in
-(found from your handle or DID), to check the session, and for the token that has the website
-re-read your records (below). A handle is found from its own DNS record or
+(found from your handle or DID), to check the session, and for the tokens that have the website
+re-read your records (below) or say which [feature flags](#feature-flags) are on for you. A handle
+is found from its own DNS record or
 `https://<handle>/.well-known/atproto-did`, never by asking Bluesky.
 
 The directory hears of each record as it's written, a moment later. Publishing replaces only the
@@ -171,6 +177,30 @@ before publishing's permission set allowed it), the plan says so and the next on
 Someone else's settings the directory doesn't have can't be imported until they publish from locallibrary again.
 `LOCALLIBRARY_HAPPYVIEW_URL` and `LOCALLIBRARY_WEBSITE_URL` name another directory and website
 (for development).
+
+## Feature flags
+
+```bash
+locallibrary account flags              # which flags are on for you, and since when
+locallibrary account flags --refresh    # ask now
+```
+
+Local Network turns new things on for some accounts first, with the same flags on the website and
+here. A flag is on when it's on for everyone, when it names your account or a group you're in, or
+when your DID falls inside its percentage, the sum the website does (`flags/README.md` in the repo).
+Signed out, only flags on for everyone are on. A flag staff turned off is off for everyone.
+
+Only a command that depends on a flag asks, and nothing else goes to the network because of them.
+The website's answer is kept in `flags.json` in the store folder for an hour, or until the next
+check after you sign in, which asks again as your account. Between attempts it waits 15 minutes,
+and offline the last answer holds for two weeks. After that, or with no answer at all, every flag
+is off. Signing out removes the file.
+
+The website says which flags name you in answer to a token your account's server signs. A session
+signed in before locallibrary asked for that token sees flags on for everyone and percentages, and
+`account flags` says so until you sign in again; the session keeps working either way. Builds
+without the account have every flag off, and don't read the file. `LOCALLIBRARY_WEBSITE_URL` names another website (for
+development).
 
 ## Reporting a bug
 

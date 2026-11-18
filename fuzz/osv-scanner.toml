@@ -6,6 +6,13 @@
 
 [[PackageOverrides]]
 ecosystem = "crates.io"
+name = "chrono"
+version = "0.4.45"
+vulnerability.ignore = true
+reason = "unmaintained, no vulnerability, and no fixed release; through locallibrary and jacquard-common, and LOC-714 moves the workspace to jiff"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
 name = "paste"
 version = "1.0.15"
 vulnerability.ignore = true

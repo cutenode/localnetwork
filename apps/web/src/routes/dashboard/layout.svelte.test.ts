@@ -57,7 +57,7 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		await expect.element(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
 	}
 
-	for (const name of ['Submissions', 'Activity', 'Your data']) {
+	for (const name of ['Review requests', 'Activity', 'Your data']) {
 		await expect.element(nav.getByRole('link', { name })).not.toBeInTheDocument();
 	}
 

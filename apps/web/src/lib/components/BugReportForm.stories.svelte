@@ -1,5 +1,8 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect, userEvent, within } from 'storybook/test';
+	import { submit } from '#lib/testing/submits.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import BugReportForm from './BugReportForm.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Bug report', component: BugReportForm, tags: ['autodocs'] });
@@ -9,8 +12,6 @@
 	const facts = { page: '/match', browser: 'Chrome 141, macOS' };
 
 	const values = { title: "The map doesn't load on a show", body: 'I added a venue to a show and the map stayed grey. Reloading the page did nothing.' };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Approve posting" args={{ step: { kind: 'consent' }, github, facts }} />
@@ -34,3 +35,15 @@
 <Story name="Phone, could not post" args={{ step: { kind: 'form' }, github, facts, values, error: "We couldn't post your report." }} globals={phone} />
 
 <Story name="Phone, posted" args={{ step: { kind: 'sent', url: 'https://userinput.app/d/did:plc:abc/3mabc' }, github, facts }} globals={phone} />
+
+<Story
+	name="Writing a report"
+	args={{ step: { kind: 'form' }, github, facts }}
+	play={async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.type(canvas.getByLabelText('Title'), values.title);
+		await userEvent.type(canvas.getByLabelText('What happened?'), values.body);
+		await expect(await submit(canvasElement, 'Post report', 'title', 'body')).toEqual({ title: [values.title], body: [values.body] });
+	}}
+/>

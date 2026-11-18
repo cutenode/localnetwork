@@ -12,14 +12,14 @@ const open = (requests: PageProps['data']['requests']) =>
 it('says who has each request', async () => {
 	await open([request('create')]);
 
-	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Requests to staff');
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Review requests');
 	await expect.element(page.getByText(/With staff since .*\. Nothing needed from you\./)).toBeVisible();
 });
 
 it('holds their room while they load', async () => {
 	await open(new Promise(() => {}));
 
-	await expect.element(page.getByRole('status', { name: 'Loading your requests' })).toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading your review requests' })).toBeInTheDocument();
 });
 
 it('offers to try again when they fail', async () => {
@@ -28,7 +28,7 @@ it('offers to try again when they fail', async () => {
 	failed.catch(() => {});
 	await open(failed);
 
-	await expect.element(page.getByText("Couldn't load your requests")).toBeVisible();
+	await expect.element(page.getByText("Couldn't load your review requests")).toBeVisible();
 	await expect
 		.element(page.getByRole('link', { name: 'Try again' }))
 		.toHaveAttribute('href', '/dashboard/account/requests');

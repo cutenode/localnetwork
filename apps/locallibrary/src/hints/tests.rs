@@ -26,6 +26,21 @@ fn actions_become_commands_and_flags() {
     assert!(hints(&admin)[0].contains("run it again"), "{:?}", hints(&admin));
 }
 
+/// Signing in again for one more scope names only that one: what every sign-in asks for, it asks
+/// for anyway.
+#[cfg(feature = "account")]
+#[test]
+fn signing_in_again_names_only_the_scope_it_adds() {
+    let mut scopes = locallibrary::atmosphere::DEFAULT_SCOPES.to_vec();
+    scopes.push("repo:app.example.thing?action=create");
+    let again = Action::call("account.login.begin", json!({ "scopes": scopes }), "Sign in again");
+    let e = locallibrary::Error::Conflict("x".into()).action(again);
+    assert_eq!(
+        hints(&e),
+        ["Sign in again: locallibrary account login --scope \"repo:app.example.thing?action=create\""]
+    );
+}
+
 #[test]
 fn a_switch_is_a_flag_without_a_value() {
     let e = locallibrary::Error::Account("the system keychain isn't available".into())

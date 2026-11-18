@@ -27,6 +27,7 @@ const here = import.meta.dirname;
 const LOGIC = [
 	'content.ts',
 	'gate-page.ts',
+	'page-data.ts',
 	'downloaded-store.ts',
 	'state-transfer.ts',
 	'theme-prepaint.ts',
@@ -43,7 +44,7 @@ const LOGIC = [
 // soundcloud.com, every token on the same line and column. The comments stay:
 // the `v8 ignore` hints inside expressions, which that transform drops, are
 // comments coverage has to read.
-const PAGE_SCRIPTS = /\/(content|gate-page|downloaded-store|state-transfer|theme-prepaint)\.ts$/;
+const PAGE_SCRIPTS = /\/(content|gate-page|page-data|downloaded-store|state-transfer|theme-prepaint)\.ts$/;
 
 // The shared classic scripts and the global each defines.
 const CLASSIC_GLOBALS = {
@@ -164,7 +165,7 @@ export default defineConfig({
 				branches: 50,
 				functions: 100,
 				lines: 100,
-				'{content.ts,gate-page.ts,downloaded-store.ts,state-transfer.ts,theme-prepaint.ts,src/**/*.ts,scripts/page-script.mts}':
+				'{content.ts,gate-page.ts,page-data.ts,downloaded-store.ts,state-transfer.ts,theme-prepaint.ts,src/**/*.ts,scripts/page-script.mts}':
 					{
 						perFile: true,
 						statements: 100,

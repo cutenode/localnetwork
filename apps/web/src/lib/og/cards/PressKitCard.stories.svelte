@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import CardPreview from './CardPreview.svelte';
 	import { longName, performer, photo } from './fixtures.ts';
 	import PressKitCard from './PressKitCard.svelte';
@@ -8,8 +9,6 @@
 	const { Story } = defineMeta({ title: 'Link previews/Press kit', component: PressKitCard, tags: ['autodocs'] });
 
 	const headline = 'Rolling techno for late rooms, from warm-up to close';
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="With a press photo" asChild>

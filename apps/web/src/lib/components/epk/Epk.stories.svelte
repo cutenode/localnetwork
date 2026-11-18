@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { ACCESS_PRESETS, epkFormDefaults } from '#lib/epk.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import AccessMatrix from './AccessMatrix.svelte';
 	import EpkAccessCard from './EpkAccessCard.svelte';
 	import EpkForm from './EpkForm.svelte';
@@ -36,6 +37,8 @@
 <Story name="Can ask, straight in" args={{ ...card, access: { kind: 'canAsk', rule: 'auto' } }} />
 
 <Story name="Asking, on the dashboard" args={{ name: card.name, access: { kind: 'canAsk', rule: 'review' } }} />
+
+<Story name="Asking, on a phone" args={{ name: card.name, access: { kind: 'canAsk', rule: 'review' } }} globals={phone} />
 
 <Story name="Asking, straight in" args={{ name: card.name, access: { kind: 'canAsk', rule: 'auto' } }} />
 

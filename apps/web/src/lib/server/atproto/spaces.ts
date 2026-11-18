@@ -20,7 +20,7 @@ export function spaceUri(authority: string, type: string, skey: string): string 
 export function parseSpaceUri(uri: string): SpaceRefParts | null {
 	const parts = atUriParts(uri);
 
-	if (!parts?.isSpace || parts.author) return null;
+	if (!parts?.isSpace || parts.authorDid) return null;
 
 	return { authority: parts.authority, type: parts.spaceType, skey: parts.skey };
 }
@@ -32,13 +32,13 @@ export function spaceRecordUri(space: string, author: string, collection: string
 export function parseSpaceRecordUri(uri: string): SpaceRecordParts | null {
 	const parts = atUriParts(uri);
 
-	if (!parts?.isSpace || !parts.author || !parts.rkey) return null;
+	if (!parts?.isSpace || !parts.authorDid || !parts.rkey) return null;
 
 	return {
 		authority: parts.authority,
 		type: parts.spaceType,
 		skey: parts.skey,
-		author: parts.author,
+		author: parts.authorDid,
 		collection: parts.collection,
 		rkey: parts.rkey
 	};

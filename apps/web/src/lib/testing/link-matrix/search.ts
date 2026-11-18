@@ -1,10 +1,10 @@
 import { render } from 'vitest-browser-svelte';
 import { DEMO_PROFILE } from '../../../../scripts/seed-data.ts';
-import Page from '../../../routes/projects/+page.svelte';
+import Page from '../../../routes/djs/+page.svelte';
 import { NEON, NEON_TIDE, type LinkChecks } from '#lib/testing/link-matrix.ts';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 
-// Search isn't on main: Find DJs (/projects) searches acts and listed DJs.
+// Search isn't on main: Find DJs (/djs) searches acts and listed DJs.
 export default {
 	pageType: 'Search',
 	render: () =>

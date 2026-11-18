@@ -6,7 +6,7 @@
 //! published before HappyView kept their collection aren't there until it reads the account's
 //! repository again, which only Local Network's website can have it do: [`request_index`] asks it
 //! to, once per account, with a token the account's server signs for that one method (atproto
-//! inter-service auth, which [`super::PUBLISH_SET`] allows).
+//! inter-service auth, which [`super::FLAGS_SCOPE`] and [`super::PUBLISH_SET`] allow).
 
 use std::cell::RefCell;
 use std::path::Path;
@@ -21,7 +21,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::store::{self, AccountFile};
+use super::store::{self, AccountFile, AccountLock};
 use super::{AccountInfo, block_on, grants, net, restore};
 use crate::atmosphere::repo::at_uri;
 use crate::error::Reason;
@@ -63,7 +63,7 @@ fn happyview() -> String {
     url(HAPPYVIEW_ENV, HAPPYVIEW_URL)
 }
 
-fn website() -> String {
+pub(super) fn website() -> String {
     url(WEBSITE_ENV, WEBSITE_URL)
 }
 
@@ -124,7 +124,7 @@ pub fn get_record(did: &str, collection: &str, rkey: &str) -> Result<Option<Fetc
 
 /// The did:web the website at `url` goes by (`did:web:localnetwork.computer`), which service
 /// tokens for it name as their audience.
-fn service_did(url: &str) -> Option<String> {
+pub(super) fn service_did(url: &str) -> Option<String> {
     let url = reqwest::Url::parse(url).ok()?;
     let host = url.host_str()?;
     Some(match url.port() {
@@ -150,7 +150,8 @@ pub fn request_index(root: &Path, info: &AccountInfo) -> Result<Option<String>> 
     if !grants(info, [Scope::rpc(REQUEST_INDEX)]) {
         return note("the session doesn't allow it: sign in again, allowing publishing");
     }
-    let token = match service_token(root, &aud) {
+    let token = store::lock(root).and_then(|lock| service_token(&lock, root, &aud, REQUEST_INDEX));
+    let token = match token {
         Ok(token) => token,
         Err(e) if e.reason() == Some(Reason::SessionEnded) => return Err(e),
         Err(e) => return note(&e.to_string()),
@@ -169,11 +170,11 @@ pub fn request_index(root: &Path, info: &AccountInfo) -> Result<Option<String>> 
     Ok(None)
 }
 
-/// A token from the signed-in account's server for [`REQUEST_INDEX`] at the service `aud`.
-fn service_token(root: &Path, aud: &str) -> Result<String> {
-    let _lock = store::lock(root)?;
+/// A token from the signed-in account's server for the method `lxm` at the service `aud`. Taking
+/// the account's lock is the caller's: restoring the session may refresh it.
+pub(super) fn service_token(_lock: &AccountLock, root: &Path, aud: &str, lxm: &'static str) -> Result<String> {
     let session = restore(root)?;
-    let lxm = Nsid::new_static(REQUEST_INDEX).expect("REQUEST_INDEX is an NSID");
+    let lxm = Nsid::new_static(lxm).expect("a method's name is an NSID");
     let request = GetServiceAuth { aud: SmolStr::new(aud), exp: None, lxm: Some(lxm) };
     let refused = |e: &dyn std::fmt::Display| Error::Account(one_line(&format!("the account's server: {e}")));
     let response = block_on(session.send(request)).map_err(|e| refused(&e))?;

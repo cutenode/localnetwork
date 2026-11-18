@@ -120,7 +120,7 @@ it('sends a manager with changes waiting to their request, and holds shows for a
 	});
 
 	await expect
-		.element(page.getByRole('link', { name: 'View request' }))
+		.element(page.getByRole('link', { name: 'View review request' }))
 		.toHaveAttribute('href', '/dashboard/account/requests/3kreq');
 	await expect.element(page.getByRole('link', { name: 'Propose changes' })).not.toBeInTheDocument();
 	await expect.element(page.getByText('Not public yet. Only its managers and staff can see it.')).toBeInTheDocument();

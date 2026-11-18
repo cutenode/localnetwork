@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { toolCards } from '#lib/tools/index.ts';
 	import type { HomeArea } from '#lib/home-events.ts';
@@ -99,8 +100,6 @@
 	const loading = { ...directory, shows: new Promise<null>(() => {}), tracks: new Promise<null>(() => {}) };
 
 	const member: Viewer = { did: 'did:plc:neon', handle: 'neon.test', roles: [], isAdmin: false, isStaff: false, spacesCapable: true };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const berlin = { place: 'Berlin', lat: 52.52, lng: 13.405, radiusKm: 50 };
 

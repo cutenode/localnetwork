@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { ComponentProps } from 'svelte';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { claimTerms } from '#lib/requests.ts';
 	import ClaimFields from './ClaimFields.svelte';
 
@@ -9,8 +10,6 @@
 	const claimant = { did: 'did:plc:ewvi7nxzyoun6zhxrhs64oiz', handle: 'neontide.bsky.social' };
 
 	const values = { relationship: 'self', evidence: 'I added it to our SoundCloud bio.', links: 'https://soundcloud.com/neontide' };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** A venue's claim, which only an owner makes, so it doesn't ask how they're connected. */
 	const venue = claimTerms({ space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor' });

@@ -19,7 +19,7 @@ const FAN = 'did:plc:fan';
 let t: Awaited<ReturnType<typeof createTestServices>>;
 
 beforeEach(async () => {
-	t = await createTestServices({ capable: [FAN] });
+	t = await createTestServices({ capable: [FAN, MARA] });
 
 	// Mara has a profile here; Oskar has only his account.
 	await t.net.client(MARA).putRecord({
@@ -230,4 +230,47 @@ it('refuses to let someone follow themselves', async () => {
 		status: 400,
 		data: { error: "You can't follow yourself" }
 	});
+});
+
+/** Turns on Mara's DJ section, which makes her page one a promoter can save. */
+async function maraDjs() {
+	await t.net.client(MARA).putRecord({
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: {
+			$type: COLLECTION.profile,
+			basics: { name: 'Mara Lind', location: { city: 'Leipzig', country: 'DE' } },
+			performer: { genres: ['electro'] },
+			createdAt: '2026-10-30T00:00:00.000Z',
+			updatedAt: '2026-10-31T00:00:00.000Z'
+		}
+	});
+}
+
+it("offers Save on a DJ's page, but not on someone who doesn't DJ or on the DJ's own page", async () => {
+	const loadAs = async (viewer: Viewer | null) =>
+		(
+			await routeEvent({
+				app: app(),
+				viewer,
+				params: { handle: 'mara.test' },
+				url: '/@mara.test'
+			}).loadData<PageServerData>(load)
+		).saved;
+
+	expect(await loadAs(await t.viewer(FAN))).toBeNull();
+	await maraDjs();
+	expect(await loadAs(await t.viewer(FAN))).toBe(false);
+	expect(await loadAs(await t.viewer(MARA))).toBeNull();
+});
+
+it('saves a DJ to the planner, and removes them again', async () => {
+	await maraDjs();
+	const fan = await t.viewer(FAN);
+	const saved = async () => (await t.planner.saves(fan)).map((save) => save.project);
+
+	expect(await post('save', fan)).toEqual({ success: 'Saved to your planner' });
+	expect(await saved()).toEqual([`at://${MARA}/${COLLECTION.profile}/self`]);
+	expect(await post('unsave', fan)).toEqual({ success: 'Removed from your planner' });
+	expect(await saved()).toEqual([]);
 });

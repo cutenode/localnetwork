@@ -1,0 +1,34 @@
+# A story picks its width from the toolbar's list (VIEWPORTS in apps/web/src/lib/testing/viewports.ts).
+# One that names a width by hand keeps rendering at the default width when that list changes, with no
+# error: PictureField's and LinkFields' phone stories asked for 'mobile2' after it was gone. The
+# helpers name only widths the list has, so a story takes its `globals` from them.
+id: story-viewport-helper
+language: TypeScript
+severity: error
+message: This story names its viewport by hand.
+note: Use `phone`, `tablet` or `desktop` from '#lib/testing/viewports.ts', like `globals={phone}`.
+files:
+  - 'apps/web/**/*.stories.svelte'
+rule:
+  kind: pair
+  all:
+    - has: { field: key, regex: '^viewport$' }
+    - has:
+        field: value
+        kind: object
+        has:
+          any:
+            - { kind: pair, has: { field: key, regex: '^value$' } }
+            - { kind: shorthand_property_identifier, regex: '^value$' }
+---
+# The same, written inline in a story's `globals={{ ... }}`, which Svelte's markup holds outside the script.
+id: story-viewport-helper-markup
+language: Html
+severity: error
+message: This story names its viewport by hand.
+note: Use `phone`, `tablet` or `desktop` from '#lib/testing/viewports.ts', like `globals={phone}`.
+files:
+  - 'apps/web/**/*.stories.svelte'
+rule:
+  any: [{ kind: start_tag }, { kind: self_closing_tag }]
+  regex: 'viewport:\s*\{\s*value:'

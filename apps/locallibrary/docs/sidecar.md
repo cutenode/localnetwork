@@ -269,7 +269,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),
-  `account.status`, `account.check`, `account.logout`, `account.client_metadata`, `collection.info`,
+  `account.status`, `account.check`, `account.flags` (optional `refresh`: each flag on or off, how
+  fresh the website's answer is, and `needs_sign_in`), `account.logout`,
+  `account.client_metadata`, `collection.info`,
   `collection.library` and `collection.diff` (rekordbox's `master.db`: optional `db` and `key`, and
   `drive` for the diff). Signing in takes two calls: `account.login.begin` (`handle`, optional
   `client_id`, `dev_client`, `session_file`, `scopes`, and `publish: true` to allow publishing)
@@ -368,22 +370,28 @@ the access they're given (see [plugins.md](plugins.md#accounts)). No answer hold
 `accounts.list` answers `{accounts, accesses}`: each account kept (`{type, plugin, subject, name,
 scopes, expires?, refreshes, signs_out?, signed_in}`, `plugin` the account plugin it was signed in
 through, `signs_out` when it signs itself out: as `expires` when it isn't refreshed, else as its
-refresh token runs out when the service said), then each one signed out that a plugin still has
-access to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
+refresh token runs out when the service said), then each one signed out that a plugin had access
+to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
 name, scopes, default, declined?}`, `declined` the scopes the user declined when the plugin asked
 for them, or the service didn't grant at a sign-in for that plugin, until they're given again).
+With any, `remembered` lists the accesses signing out (or a session ending) removed, until they're
+restored or reset, and `restore_automatically` the Automatically Restore Access settings
+(`{account?, on}`, without `account` for every account without one of its own).
 
-`accounts.sign_in.begin {type, with?, for?, account?, scopes?}` starts a sign-in through the
-account plugin `with` (the only one providing the type when it's left out), for the plugin `for`
-when it's given, again as the account `account` (a subject, of one kept or one signed out that a
-plugin still has access to) when it's given, asking for the type's `scopes` besides; signing in
-again asks for what every access to the account needs too. It answers `{id, type, plugin, url,
+`accounts.sign_in.begin {type, with?, for?, account?, scopes?, restore?}` starts a sign-in through
+the account plugin `with` (the only one providing the type when it's left out), for the plugin
+`for` when it's given, again as the account `account` (a subject, of one kept or one signed out
+that a plugin had access to) when it's given, asking for the type's `scopes` besides; signing in
+again asks for what every access to the account needs too. `restore` says what signing in does
+with the access remembered of the account: `restore` gives it all back, `reset` forgets it.
+Without it, Automatically Restore Access decides, else only `for` gets its own back. It answers `{id, type, plugin, url,
 redirect_uri}`. Open `url` in the browser, then `accounts.sign_in.finish {id, timeout_secs?}`
 waits for it to come back (300 seconds unless it says, an hour at most) and answers the account,
 with `instead_of` when the browser signed in to another than `account` (the plugin it was for
 isn't given access then), `access` when it was for a plugin: the access that plugin was given, and
 `declined`: the scopes asked for that plugin that the service didn't grant. The plugin gets those
-it needs all the same, and goes without the others.
+it needs all the same, and goes without the others. `restored` lists the access the sign-in gave
+back, and `remembered` what's still waiting, for the front end to ask about.
 A type signed in to with keys answers `{id, type, plugin, url, keys, named?}` instead: `url` is
 where the user gets them, `keys` what each is called by name, and `named` is true when the user
 names the account. `accounts.sign_in.finish {id, keys, name?}` finishes it at once with what the
@@ -391,20 +399,31 @@ user entered for each key, by name, and the account's `name` when `named`. The h
 and never answers them.
 `accounts.sign_in.paste {id, url}` finishes with the address the browser ended up on, and
 `accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
-subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
+subject}}` answers the account as it was, with `revoked`, and removes every plugin's access to it,
+remembering it.
 
 `accounts.access.list {plugin?}` answers the accesses, `accounts.access.give {plugin, account,
 scopes?}` gives a plugin access to an account (the scopes it needs, and those of `scopes` it can do
 without, which aren't declined any more), `accounts.access.set_default {plugin, account}` makes
 one the plugin's default for its type (giving the access first when it has none), and
-`accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's `account`
+`accounts.access.take_away {plugin, account}` answers the access taken away. Giving access to an
+account signed out, or making it a default, fails as `account` (`not_signed_in`).
+`accounts.access.restore {account, plugins?}` gives back what was remembered of the account,
+answering the accesses: all of it, or with `plugins` (`[{plugin, scopes}]`) those plugins with
+those scopes, forgetting the rest (`[]` resets it, signed out too). The account has to be signed
+in to get any back. `accounts.restore_automatically {account?, on}` turns Automatically Restore
+Access on or off for the account, or for every account without a setting of its own. A plugin's `account`
 error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions calling
 `accounts.sign_in.begin` (again as the account of the plugin's access, for the scopes it's missing,
 when that can help) and `accounts.access.set_default`.
 
 ## Plugins
 
-What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
+What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. A plugin you're writing
+runs in the sidecar as in any command, given as it starts (`locallibrary --dev-plugin
+MANIFEST:PROGRAM rpc`, or `LOCALLIBRARY_DEV_PLUGINS`, see [Writing one](plugins.md#writing-one)):
+it's listed after the plugins locallibrary ships, the sidecar warns on stderr that it's loaded, and
+one that can't run keeps the sidecar from starting, saying why. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, account_types,
 commands, destinations, events, operations, panels, analyzers, checks, exporters, importers,
 providers, services, sources, themes, settings, running, left_out}`, `means` saying in plain words

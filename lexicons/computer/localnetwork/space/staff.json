@@ -6,7 +6,7 @@
 			"type": "space",
 			"description": "Staff roles, feature flags and flag groups.",
 			"key": "literal:main",
-			"name": "Local Network staff",
+			"title": "Local Network staff",
 			"collections": [
 				"computer.localnetwork.staff.role",
 				"computer.localnetwork.staff.flag",

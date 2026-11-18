@@ -40,6 +40,7 @@ import {
 	DEMO_DJS,
 	DEMO_EPKS,
 	DEMO_FOLLOWS,
+	DEMO_LISTED_DJ,
 	DEMO_MANAGERS,
 	DEMO_PROJECTS,
 	DEMO_SHOWS,
@@ -92,7 +93,13 @@ const ACCOUNTS = [
 		displayName: managed(dj.handle),
 		note: `DJ; manages ${managed(dj.handle)}, has ${dj.sets.length} sets`
 	})),
-	...DEMO_MANAGERS.map((manager) => ({ ...manager, note: `manages ${managed(manager.handle)}` }))
+	...DEMO_MANAGERS.map((manager) => ({ ...manager, note: `manages ${managed(manager.handle)}` })),
+	{
+		handle: DEMO_LISTED_DJ.handle,
+		password: DEMO_LISTED_DJ.password,
+		displayName: DEMO_LISTED_DJ.displayName,
+		note: 'DJ listed in Find DJs under their own name, with no project; takes inquiries'
+	}
 ];
 
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
@@ -198,6 +205,22 @@ async function main() {
 		collection: COLLECTION.profile,
 		rkey: 'self',
 		record: validateRecord(COLLECTION.profile, { ...DEMO_PROFILE, createdAt: profiled, updatedAt: profiled })
+	});
+
+	// kestrel.test's profile, and the root's listing of them in Find DJs, as staff would list them.
+	const kestrel = new AtpAgent({ service: pds.url });
+	await kestrel.login({ identifier: DEMO_LISTED_DJ.handle, password: DEMO_LISTED_DJ.password });
+	await kestrel.com.atproto.repo.putRecord({
+		repo: dids[DEMO_LISTED_DJ.handle],
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: validateRecord(COLLECTION.profile, { ...DEMO_LISTED_DJ.profile, createdAt: profiled, updatedAt: profiled })
+	});
+	await rootAgent.com.atproto.repo.putRecord({
+		repo: root.did,
+		collection: COLLECTION.listingProfile,
+		rkey: dids[DEMO_LISTED_DJ.handle],
+		record: validateRecord(COLLECTION.listingProfile, { subject: dids[DEMO_LISTED_DJ.handle], createdAt: profiled })
 	});
 
 	// HappyView isn't running yet, so it reads these sets through backfillSeeds below, and again when the app first
@@ -400,6 +423,8 @@ async function main() {
 	void backfillSeeds(new HappyViewClient(happyView), projectUris, [
 		{ collection: COLLECTION.djProfile, did: dids['neon.test'] },
 		{ collection: COLLECTION.profile, did: dids['neon.test'] },
+		{ collection: COLLECTION.profile, did: dids[DEMO_LISTED_DJ.handle] },
+		{ collection: COLLECTION.listingProfile, did: root.did },
 		...djs.map(({ handle }) => ({ collection: COLLECTION.djSet, did: dids[handle] })),
 		{ collection: COLLECTION.epk, did: root.did },
 		{ collection: COLLECTION.epk, did: dids['neon.test'] },

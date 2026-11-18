@@ -13,8 +13,11 @@ takes the screen. From any other tab `f` opens player mode too, and closing it (
 back there. The footer's hints are buttons: click one for its key. `Q` quits (`ctrl-q` and `ctrl-c`
 quit too).
 
-With no drive open, and rekordbox on this computer, the library opens rekordbox's collection
-(below). Without it, the library says what to do: plug one in (it opens as soon as it's here), or
+With rekordbox on this computer, the library opens rekordbox's collection (below) unless a drive
+was open at the last quit and is plugged in. A drive holding a copy of the whole collection (from
+`collection export`) never opens in its place: the collection itself is read as it is now. Without
+rekordbox, the drive open last time opens, else a library's lead clone, else the first drive. With
+none, the library says what to do: plug one in (it opens as soon as it's here), or
 take a next step, at most three of open a folder, browse snapshots and sign in. The first library
 each version opens names `enter`, `e`, `:` and `?` in the footer until a key or a click. Nothing says
 there's no drive until the first read of the drives has answered.
@@ -45,8 +48,11 @@ needs.
   reads it: its playlists, folders and history lists, with each track played from where it is on
   this computer and rekordbox's own waveforms, beat grids, cues, phrases and covers. It's
   read-only: edits, My Tags and drive actions say so, and `collection export` puts it on a drive
-  to edit there. Intelligent playlists show empty. `r` reads it again after rekordbox changed it.
-  Choosing a drive in the same pane goes back to the drive.
+  to edit there. Intelligent playlists show empty. While it's open the player watches `master.db`
+  (and its WAL): a couple of seconds after rekordbox saves, it reads the collection again and keeps
+  your place, and `r` reads it again at once. A drive holding a copy of the whole collection says
+  `copy, <date>` in place of its track count. Choosing a drive in the same pane goes back to the
+  drive.
 - **Search and sort**: `/` searches as you type the way `tracks --filter` does (plain words look in
   title, artist, album, genre, label, key, comment, remixer, mix name and file path), and takes the
   whole [filter language](editing.md#filters) (`bpm:120-128 key:8A~ rating:>=4 -genre:house
@@ -152,7 +158,9 @@ needs.
   while the player does.
 - **Accounts**: "sign in to a Google account…" in the palette signs in in the browser, in the
   background (for a service that gives you keys, a form says where to get them and takes them
-  unseen), and "sign out of NAME" signs out. "access for PLUGIN…" opens a form with the
+  unseen), and "sign out of NAME" signs out, removing every plugin's access to it. Signing in
+  again to it opens a form: `enter` restores that access, or pick Choose (typing each plugin's
+  scopes) or Reset. "access for PLUGIN…" opens a form with the
   account of each type the plugin uses, what it needs it for, and signing in to another; `enter`
   makes the ones chosen its defaults (see [Accounts](plugins.md#accounts)).
 - **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
@@ -195,7 +203,8 @@ needs.
     left is a small line by the tempo. Under the waveforms a line has the time gone and the track's
     length, how many bars and beats it is to the next cue and phrase, as bars.beats, and how the
     deck's set, on two rows under 78 columns. Near the end of a track the time left turns red and
-    blinks, and END shows; with `LOCALLIBRARY_REDUCED_MOTION` it doesn't blink.
+    blinks, and END shows. As the warning starts, the overview washes red twice (in fewer than
+    24-bit colours it snaps to red); with `LOCALLIBRARY_REDUCED_MOTION` nothing blinks or washes.
   - `w` goes round rekordbox's waveform colours: BLUE, RGB, 3Band, and as the drive's My Settings
     say. A drive with no `DEVSETTING.DAT` gets 3Band, and a track with no waveform of that kind (older
     analysis has only blue) the nearest it has. The mode drawn is named in the line under the
@@ -221,8 +230,10 @@ needs.
 - **Cover art**: the terminal's own graphics where it has them (kitty, iTerm2 or sixel), in half
   blocks everywhere else, and a record for a track with none. A cover fills its space: a big one
   is shrunk smoothly, and a small one grown in whole pixels, so it stays sharp. There's no art
-  with 16 colours or ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the
-  graphics to use (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
+  with 16 colours or ASCII icons, or inside tmux beyond half blocks. When what's worked out is
+  wrong, "cover art in half blocks" in the palette keeps it in half blocks from then on (kept for
+  the next run), and `LOCALLIBRARY_ART` names the graphics to use (`kitty`, `iterm2`, `sixel`,
+  `halfblocks`) for one run, over the setting.
 - **Hot cue pads**: in player mode the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
   a key is let go, so there's no previewing while it's held). `'` turns the pads on in every view,
@@ -290,9 +301,10 @@ needs.
   from it stops first). Beside the list are **Snapshots** (`3`), the store's snapshots, where `enter`
   brings a playlist back from the selected one onto the drive open in the library, and **History**
   (`4`), what players recorded on the drive open in the library, where `enter` opens a list there.
-- **localnetwork** (`g n`): your [DJ profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
-  in the public document or takes it out (only Sets, Energy, Genres, Artists, Era and Collection can
-  go in; the rest stay on this computer), `m`/`h`/`H` pin and hide tracks and artists, `D` shows the
+- **localnetwork** (`g n`): your [DJ profile](sets.md#dj-profile): an overview of your collection
+  (tracks, genres, artists, release years, and how many sets), then the sections that can be
+  published (Sets, Energy, Genres, Artists, Era and Collection), with what each would reveal. `i`
+  puts a section in the public document or takes it out, `h` hides an artist, `D` shows the
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, history list or all tracks shown as
@@ -481,11 +493,9 @@ localnetwork:
 | `e` | these actions, for the section selected |
 | `i` | put the section in the document, or take it out |
 | `tab  enter` | move between sections and their lists (esc goes back) |
-| `m` | pin a track first among signature tracks |
-| `h  H` | never name a track / its artist (still counted) |
+| `h` | never name an artist under Artists (still counted) |
 | `D` | show the document a public profile would get |
 | `w` | write the document as JSON in the store folder |
-| `a` | every drive and the store, or just the open drive |
 | `#` | rounded or exact numbers in the document |
 | `L` | sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, press twice to sign out |
 
