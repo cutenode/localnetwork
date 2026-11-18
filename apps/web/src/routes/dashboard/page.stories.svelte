@@ -3,6 +3,8 @@
 	import type { LocallibraryStatus } from '#lib/dj.ts';
 	import type { NeedsRow, NightRow } from '#lib/home.ts';
 	import type { OnboardingData } from '#lib/onboarding/checklist.ts';
+	import { light } from '#lib/testing/light.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
@@ -19,7 +21,7 @@
 	const needs = [
 		need('1', 'Neon Tide', 'Reply to Rooftop Rave', 'Sat 14 Nov · New inquiry from @pat.test · 2 hours ago'),
 		need('2', 'Saffron Social', 'Reply to Walkthrough Night', 'No date yet · From @jonas.test · 3 hours ago'),
-		need('3', 'Second Act', 'Update your request for Second Act', 'Staff asked for changes · yesterday', 'Update')
+		need('3', 'Second Act', 'Update your review request for Second Act', 'Staff asked for changes · yesterday', 'Update')
 	];
 
 	const access = [need('4', 'Neon Tide', 'Let @lena.test see Clubs?', 'Asked yesterday', 'Review')];
@@ -65,8 +67,6 @@
 
 	const fresh = { ...quiet, summary: { others: null, hasBookings: false }, projects: Promise.resolve([]), nights: { nights: [], more: 0, failed: false }, locallibrary: nothingPublished };
 
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
-
 	const newAccount = (hasAvatar: boolean): OnboardingData => ({ profile: null, prefill: { name: 'Pat', hasAvatar }, listing: false, follows: false });
 
 	const partly: OnboardingData = {
@@ -78,6 +78,10 @@
 </script>
 
 <Story name="Busy" asChild>
+	<Page params={{}} form={null} data={base} />
+</Story>
+
+<Story name="Busy, light" asChild beforeEach={light}>
 	<Page params={{}} form={null} data={base} />
 </Story>
 

@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import VenueSettings from './VenueSettings.svelte';
 
 	/** A venue's settings: how events naming it show, and who it blocks. */
@@ -12,8 +13,6 @@
 		{ rkey: '3b', kind: 'profile', name: '@dj.test' },
 		{ rkey: '3c', kind: 'act', name: 'Crew' }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Owner, nobody blocked" args={{ approval: 'open', can: owner, blocks: [] }} />

@@ -64,7 +64,7 @@ flowchart TD
     hub --> history["Library history<br/>store.json, objects/, snapshots/, libraries.json, labels.json, pruned.json"]
     hub --> yours["What you set<br/>settings.json, players.json, smart.json, sets.json, profile.json, mix.json"]
     hub --> registry["The registry<br/>drives.json"]
-    hub --> worked["Worked out, kept to save time<br/>cache/, reports/, profile-document.json"]
+    hub --> worked["Worked out, kept to save time<br/>cache/, reports/, profile-document.json, flags.json"]
     hub --> player["The player<br/>tui.json"]
     hub --> art["art embed's copies<br/>embed-backups/"]
     hub --> plugins["Plugins<br/>plugins/ID/work/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
@@ -81,7 +81,7 @@ flowchart TD
     accounts ~~~ views
 ```
 
-Source: [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/accounts/kept.rs`](../../../../crates/locallibrary/src/plugin/accounts/kept.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/audio_cache.rs`](../../../../crates/locallibrary/src/audio_cache.rs), [`crates/locallibrary/src/offsite.rs`](../../../../crates/locallibrary/src/offsite.rs), [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs)
+Source: [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/accounts/kept.rs`](../../../../crates/locallibrary/src/plugin/accounts/kept.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/flags.rs`](../../../../crates/locallibrary/src/flags.rs), [`crates/locallibrary/src/audio_cache.rs`](../../../../crates/locallibrary/src/audio_cache.rs), [`crates/locallibrary/src/offsite.rs`](../../../../crates/locallibrary/src/offsite.rs), [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs)
 
 ## Inside a drive
 

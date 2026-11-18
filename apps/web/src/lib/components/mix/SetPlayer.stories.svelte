@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { waitFor } from 'storybook/test';
 	import type { PlayerSource } from '#lib/mix/source.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import SetPlayer from './SetPlayer.svelte';
 	import { silence, sources, tracks } from './player-fixtures.ts';
 
@@ -12,8 +13,6 @@
 	const found = (source: PlayerSource) => () => Promise.resolve(source);
 
 	const base = { id: 'player', title: 'Tidal Hours closing set', artist: 'Neon Tide', tracks };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Plays the recording once it loads, muted, since browsers only start sound someone asked for. */
 	const press = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

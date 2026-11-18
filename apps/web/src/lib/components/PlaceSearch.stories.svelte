@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { Place, PlacesResponse } from '#lib/places.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import NearInput from './NearInput.svelte';
 	import PlacePicker from './PlacePicker.svelte';
 
@@ -24,8 +25,6 @@
 			};
 		}
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Types "Berl" into the first combobox and moves to the second place, the way someone picking with the keyboard would. */
 	const typeAndPick = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

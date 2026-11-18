@@ -3,6 +3,7 @@
 	import { expect, within } from 'storybook/test';
 	import { djSetSchema } from '#lib/dj-schema.ts';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { DEMO_DJ_SETS } from '../../../../../scripts/seed-data.ts';
 	import Layout from '../../../+layout.svelte';
 	import Page from './+page.svelte';
@@ -48,8 +49,6 @@
 
 	/** A set with nothing but its day: no title, place or tracks. The directory didn't answer about mixes. */
 	const bare = { ...club, set: { ...djSetSchema.parse({ date: '2026-10-02', tracks: [] }), uri: `at://${DID}/computer.localnetwork.dj.set/3kbare` }, mixes: Promise.resolve(null) };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet page(data: typeof club | typeof mix | typeof waiting | typeof bare)}

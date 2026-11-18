@@ -19,45 +19,45 @@ allowBuilds:
   sharp: false
 # Atproto Spaces alpha: pin every @atproto package to the same alpha build.
 overrides:
-  '@atproto/api': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/aws': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/bsky': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/bsync': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/car': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/common': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/common-web': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/crypto': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/dev-env': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/did': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/identity': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-builder': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-cbor': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-client': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-data': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-document': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-installer': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-json': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-password-session': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-resolver': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lex-schema': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/lexicon': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-client': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-client-node': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-provider': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-provider-api': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-provider-ui': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-scopes': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/oauth-types': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/ozone': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/pds': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/repo': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/space': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/star': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/sync': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/syntax': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/xrpc': 0.0.0-spaces-alpha-20261105160032
-  '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/api': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/aws': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/bsky': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/bsync': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/car': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/common': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/common-web': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/crypto': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/dev-env': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/did': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/identity': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-builder': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-cbor': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-client': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-data': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-document': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-installer': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-json': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-password-session': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-resolver': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lex-schema': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/lexicon': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-client': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-client-node': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-provider': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-provider-api': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-provider-ui': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-scopes': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/oauth-types': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/ozone': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/pds': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/repo': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/space': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/star': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/sync': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/syntax': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/xrpc': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261113224550
   # Dev-only paths whose own ranges keep a version with known advisories.
   # connect-node 1.7.0 (atproto dev network) only takes Headers from undici, and only on Node < 18.
   '@connectrpc/connect-node>undici': ^6.29.1
@@ -86,6 +86,12 @@ patchedDependencies:
 auditConfig:
   ignoreGhsas:
     - GHSA-mrhx-c7xc-m3w5
+    # picomatch (<=4.0.7, no fixed release) reaches only dev and build tooling: vite, vitest, knip,
+    # tinyglobby, fdir, unplugin, @rollup/pluginutils, @stylistic/eslint-plugin, micromatch (through
+    # @lavamoat/harden) and tools/budgets/baseline.ts, which glob our own config patterns, never input
+    # from users. evlog only loads vite from its evlog/vite entry, which the server doesn't import.
+    # Drop this once a fixed picomatch ships.
+    - GHSA-fc5q-39xc-vjpf
 # Avoid installing packages published in last 3 days (in minutes).
 minimumReleaseAge: 4320
 # Disable exotic subdeps in older pnpm versions.

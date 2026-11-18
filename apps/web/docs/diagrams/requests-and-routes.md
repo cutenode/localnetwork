@@ -143,11 +143,11 @@ flowchart LR
   Routes -- "moderators and admins" --> Console["/admin"]
   Routes -- "admins only" --> Edit["/admin/staff, /admin/system,<br/>/admin/verifications,<br/>performer edits"]
   Routes -- "moderators an admin gave<br/>a grant, and admins" --> Flags["/admin/flags"]
-  Routes -- "PDSes and locallibrary" --> Xrpc["/xrpc/*, with service auth,<br/>getFlags without it too"]
+  Routes -- "PDSes, space hosts<br/>and locallibrary" --> Xrpc["/xrpc/*, with service auth<br/>or a space's notify token,<br/>getFlags without either too"]
   Routes -- "anyone, for locallibrary's<br/>loopback sign-ins" --> Exchange["/api/token-exchange/[service]"]
 ```
 
-Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/manage.ts`](../../src/lib/server/manage.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/forms/flags.ts`](../../src/lib/server/forms/flags.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
+Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/manage.ts`](../../src/lib/server/manage.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/forms/flags.ts`](../../src/lib/server/forms/flags.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts)
 
 ## Public pages
 
@@ -157,7 +157,7 @@ The pages anyone can read. A performer that isn't active shows only to its manag
 flowchart LR
   Public["Public pages"]
   Public --> Home["/, /for-djs, /for-promoters,<br/>/about, /privacy"]
-  Public --> Find["/projects, /match"]
+  Public --> Find["/djs, /match"]
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]
   Public --> Shows["/shows"]
@@ -237,11 +237,11 @@ flowchart LR
   Ep --> Api["/api/actors, /api/places,<br/>/api/venues (spacePages),<br/>/api/token-exchange/[service]"]
   Ep --> Docs["/oauth-client-metadata.json<br/>/.well-known/did.json"]
   Ep --> Session["/oauth/callback,<br/>POST /logout"]
-  Ep --> Xrpc["/xrpc: notifyWrite,<br/>notifySpaceDeleted,<br/>directory.requestIndex,<br/>flags.getFlags"]
+  Ep --> Xrpc["/xrpc: notifySpaceUpdate,<br/>confirmRegistration,<br/>directory.requestIndex,<br/>flags.getFlags"]
   Ep --> Signed["Viewer checked: dashboard<br/>photos, request avatars,<br/>/admin/audit/export"]
 ```
 
-Source: [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/routes/media/audio/[did]/[cid]/+server.ts`](../../src/routes/media/audio/[did]/[cid]/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/routes/og/site.png/+server.ts`](../../src/routes/og/site.png/+server.ts), [`src/routes/api/actors/+server.ts`](../../src/routes/api/actors/+server.ts), [`src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts`](../../src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts), [`src/routes/epk/[did]/[rkey]/+server.ts`](../../src/routes/epk/[did]/[rkey]/+server.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/.well-known/did.json/+server.ts`](../../src/routes/.well-known/did.json/+server.ts)
+Source: [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/routes/media/audio/[did]/[cid]/+server.ts`](../../src/routes/media/audio/[did]/[cid]/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/routes/og/site.png/+server.ts`](../../src/routes/og/site.png/+server.ts), [`src/routes/api/actors/+server.ts`](../../src/routes/api/actors/+server.ts), [`src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts`](../../src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts), [`src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.ts`](../../src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts), [`src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts`](../../src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts), [`src/routes/epk/[did]/[rkey]/+server.ts`](../../src/routes/epk/[did]/[rkey]/+server.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/.well-known/did.json/+server.ts`](../../src/routes/.well-known/did.json/+server.ts)
 
 ## Smaller pages and endpoints
 
@@ -256,7 +256,7 @@ flowchart LR
   Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
   Small -- "/api/actors" --> E["Bluesky's typeahead, kept<br/>10 minutes in memory"]
   Small -- "/healthz" --> F["200, with HappyView<br/>and backup status"]
-  Small -- "/for-djs" --> G["Streams an example listing and<br/>the directory's totals"]
+  Small -- "/for-djs" --> G["An example listing with the directory's<br/>totals, the next shows and the<br/>month's charts, streamed"]
 ```
 
 Source: [`src/routes/dashboard/account/activity/+page.server.ts`](../../src/routes/dashboard/account/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)

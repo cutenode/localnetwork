@@ -1,5 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { submit } from '#lib/testing/submits.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { FlagPreview } from '#lib/types.ts';
 	import FlagPreviewBanner from './FlagPreviewBanner.svelte';
 
@@ -14,4 +16,12 @@
 
 <Story name="Two flags" args={{ preview: two }} />
 
-<Story name="One flag, on a phone" args={{ preview: { parityCanary: false } }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="One flag, on a phone" args={{ preview: { parityCanary: false } }} globals={phone} />
+
+<Story
+	name="Cleared"
+	args={{ preview: { parityCanary: true } }}
+	play={async ({ canvasElement }) => {
+		await submit(canvasElement, 'Clear');
+	}}
+/>

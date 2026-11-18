@@ -1,5 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { light } from '#lib/testing/light.ts';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import WaitingEvents from './WaitingEvents.svelte';
 
 	/**
@@ -9,26 +11,8 @@
 	const { Story } = defineMeta({
 		title: 'Patterns/Waiting for the venue',
 		component: WaitingEvents,
-		tags: ['autodocs'],
-		parameters: {
-			viewport: {
-				options: {
-					phone: { name: 'Phone', styles: { width: '390px', height: '844px' }, type: 'mobile' },
-					desktop: { name: 'Desktop', styles: { width: '1280px', height: '800px' }, type: 'desktop' }
-				}
-			}
-		}
+		tags: ['autodocs']
 	});
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'phone', isRotated: false } };
-
-	const light = () => {
-		document.documentElement.classList.add('light');
-
-		return () => document.documentElement.classList.remove('light');
-	};
 
 	const event = (rkey: string, name: string, startsAt: string, party: string | null, lineup: number) => ({
 		uri: `at://did:plc:root/computer.localnetwork.space.party/3party/did:plc:root/computer.localnetwork.event/${rkey}`,

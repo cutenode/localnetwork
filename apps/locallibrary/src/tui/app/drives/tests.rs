@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::tui::app::background::Msg;
 use crate::tui::app::testing::*;
@@ -90,9 +91,16 @@ fn the_sources_go_from_the_collection_to_a_drive_and_back() {
     let info = drive_info(&drive);
     let drive = info.root.clone();
     app.handle_msg(Msg::Drives(vec![info]));
-    // A drive with an export is there: it opens first, as before.
+    // A drive with an export is there, and still the collection opens first.
+    wait(&mut app, showing_collection);
+    assert_eq!((app.source_rows(), app.source_row()), (2, Some(0)));
+
+    app.focus = Focus::Drives;
+    app.move_selection(1);
+    assert_eq!((app.collection_row, app.drive_state.selected()), (false, Some(0)));
+    app.activate();
     wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
-    assert_eq!((app.source_rows(), app.source_row()), (2, Some(1)));
+    assert!(!app.loaded.as_ref().unwrap().is_collection());
 
     app.focus = Focus::Drives;
     app.move_selection(-1);
@@ -104,13 +112,97 @@ fn the_sources_go_from_the_collection_to_a_drive_and_back() {
     // `r` reads the collection again, not a drive at `/`.
     app.refresh();
     wait(&mut app, showing_collection);
+}
 
-    app.focus = Focus::Drives;
-    app.move_selection(1);
-    assert_eq!((app.collection_row, app.drive_state.selected()), (false, Some(0)));
-    app.activate();
+#[test]
+fn a_drive_open_at_the_last_quit_opens_again_over_the_collection() {
+    let (mut app, dir) = blank(View::Library);
+    app.collection_db = Some(master_db(dir.path()));
+    let (_drive_dir, drive) = demo_drive();
+    let info = drive_info(&drive);
+    let drive = info.root.clone();
+    app.preferred_root = Some(drive.clone());
+    app.handle_msg(Msg::Drives(vec![info]));
     wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
-    assert!(!app.loaded.as_ref().unwrap().is_collection());
+    assert_eq!(app.source_row(), Some(1));
+}
+
+/// Mark the drive at `drive` as holding a copy of the collection at `db` (`collection export`),
+/// of the playlists named (none: all of it), made on November 13.
+fn copied_to(drive: &Path, db: &Path, playlists: &[&str]) {
+    let state = Device::open(drive).unwrap().state_dir();
+    std::fs::create_dir_all(&state).unwrap();
+    let rec = serde_json::json!({ "collection": db, "playlists": playlists, "at": "2026-11-13T15:00:00Z" });
+    std::fs::write(state.join("collection.json"), rec.to_string()).unwrap();
+}
+
+#[test]
+fn a_copy_of_the_collection_open_at_the_last_quit_gives_way_to_the_collection_and_says_its_a_copy() {
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    let (_drive_dir, drive) = demo_drive();
+    copied_to(&drive, &db, &[]);
+    let info = drive_info(&drive);
+    let root = info.root.clone();
+    app.preferred_root = Some(root.clone());
+    app.handle_msg(Msg::Drives(vec![info.clone()]));
+    wait(&mut app, showing_collection);
+    assert!(app.collection_copies.contains_key(&root));
+    app.focus = Focus::Drives;
+    let s = crate::tui::ui::screen(&mut app, 120, 30);
+    let row = s.lines().find(|l| l.contains(&info.volume_name)).unwrap_or_else(|| panic!("no drive in:\n{s}"));
+    assert!(row.contains("copy, Nov 13"), "{row}");
+
+    // A copy of some playlists is a drive of its own: open last time, it opens again.
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    copied_to(&drive, &db, &["Shows/Friday"]);
+    app.preferred_root = Some(root.clone());
+    app.handle_msg(Msg::Drives(vec![info]));
+    wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == root));
+    assert!(app.collection_copies.is_empty());
+}
+
+#[test]
+fn the_open_collection_is_read_again_once_rekordbox_has_saved() {
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+    assert_eq!(app.loaded.as_ref().unwrap().library.tracks.len(), 2);
+    let a_while_ago = || Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
+
+    // Nothing changed: nothing's read.
+    app.last_collection_poll = a_while_ago();
+    app.watch_collection();
+    assert!(app.loading.is_none() && app.collection_change.is_none());
+
+    // rekordbox saves: the change is seen, and left alone until it's settled.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO djmdContent (ID, FolderPath, FileNameL, Title, ArtistID, BPM, Length, FileSize, AnalysisDataPath)
+             VALUES ('3', '/nowhere/New.mp3', 'New.mp3', 'New', '1', 13000, 240, 3, '');",
+        )
+        .unwrap();
+    app.last_collection_poll = a_while_ago();
+    app.watch_collection();
+    assert!(app.loading.is_none() && app.collection_change.is_some());
+    app.last_collection_poll = a_while_ago();
+    app.watch_collection();
+    assert!(app.loading.is_none(), "not settled yet");
+
+    // Settled: read again, with the new track.
+    app.collection_change.as_mut().unwrap().1 = a_while_ago();
+    app.last_collection_poll = a_while_ago();
+    app.watch_collection();
+    assert!(app.loading.is_some());
+    wait(&mut app, showing_collection);
+    assert_eq!(app.loaded.as_ref().unwrap().library.tracks.len(), 3);
+    assert!(app.collection_change.is_none());
 }
 
 #[test]
@@ -145,6 +237,8 @@ fn the_sources_pane_draws_the_collection_above_the_drives_and_a_double_click_ope
     let (_drive_dir, drive) = demo_drive();
     let info = drive_info(&drive);
     let drive = info.root.clone();
+    // The drive was open at the last quit: it opens again, and the collection isn't read yet.
+    app.preferred_root = Some(drive.clone());
     app.handle_msg(Msg::Drives(vec![info]));
     wait(&mut app, |a| a.loading.is_none() && a.loaded.as_ref().is_some_and(|l| l.root() == drive));
 

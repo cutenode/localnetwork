@@ -1,10 +1,9 @@
 //! A plugin wanting more of an account it has access to (`accounts/ensure`), asked about in the
 //! terminal a command runs in, with its progress bar out of the way: allowing it, or signing in
-//! again to, in the browser or with keys read as `account TYPE sign-in` reads them, when the
-//! account wasn't granted what it asks. And a plugin writing a record in the Atmosphere account
+//! again to in the browser, when the account wasn't granted what it asks. And a plugin writing a record in the Atmosphere account
 //! (`atmosphere/put_record`): the record is shown, then the user asked (`--yes` answers).
 
-use locallibrary::plugin::{AccessQuestion, AccountSignIn, AskAccess, EnteredKeys, RecordWrite};
+use locallibrary::plugin::{AccessQuestion, AskAccess, RecordWrite};
 
 use crate::browser;
 use crate::output::{Drawing, Output, dim};
@@ -33,10 +32,6 @@ impl AskAccess for Terminal {
             browser::open(url, true);
             eprintln!("{}", dim("Waiting for you to approve (Ctrl-C stops)…"));
         });
-    }
-
-    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
-        self.drawing.suspend(|| super::accounts::read_keys(start).ok())
     }
 
     fn write_record(&self, write: &RecordWrite) -> Option<bool> {

@@ -3,6 +3,7 @@
 	import type { ComponentProps } from 'svelte';
 	import { accountLayout } from '#lib/testing/account.ts';
 	import type { BookingEventView, BookingShowLinks } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** A booking thread page, with the shows it links to: the planner show it started from and the one announced from it. */
@@ -10,8 +11,6 @@
 		title: 'Dashboard/Booking thread',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard/bookings/3kbooking') } } } }
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const SPACE = 'at://did:plc:root/space/computer.localnetwork.space.booking/3kbooking';
 

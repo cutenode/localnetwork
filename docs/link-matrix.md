@@ -43,7 +43,7 @@ On main an act's page is still `/projects/<slug>`, from before acts, so its link
 | Artist                  | `/artists/<id>`                                                            | yes                                                                                                                                                                                                        |
 | Track                   | not set yet, behind a flag                                                 | no                                                                                                                                                                                                         |
 | Area                    | `/events/<country>/<city>`                                                 | no: `/shows` lists shows and parties' events near a city                                                                                                                                                   |
-| Search                  | `/search?q=&type=`                                                         | no: Find DJs (`/projects`) searches acts and listed DJs                                                                                                                                                    |
+| Search                  | `/search?q=&type=`                                                         | no: Find DJs (`/djs`) searches acts and listed DJs                                                                                                                                                         |
 | Followers and Following | on every profile, act, party and venue                                     | no ([routes/shows/+page.svelte:16-17](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/shows/%2Bpage.svelte#L16-L17) is the only use of follows) |
 | Home                    | `/`                                                                        | yes                                                                                                                                                                                                        |
 | For promoters           | `/for-promoters`                                                           | yes                                                                                                                                                                                                        |
@@ -188,7 +188,7 @@ One tab per kind. Each result links its page.
 | Parties, venues, events, sets, mixes | new page |                                                                                                                                                                                                                                                                                                                     |
 | Artists                              | missing  | artist search is its own page, `/artists`, reached from one button on Charts [routes/charts/+page.svelte:16](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/charts/%2Bpage.svelte#L16)                                                                  |
 | Tracks                               | new page |                                                                                                                                                                                                                                                                                                                     |
-| locallibrary                         | on main  | "Get locallibrary" under the Find DJs header [routes/projects/+page.svelte](../apps/web/src/routes/projects/+page.svelte)                                                                                                                                                                                           |
+| locallibrary                         | on main  | "Get locallibrary" under the Find DJs header [routes/djs/+page.svelte](../apps/web/src/routes/djs/+page.svelte)                                                                                                                                                                                                     |
 
 ## Followers and Following
 
@@ -264,7 +264,7 @@ flowchart LR
     mix["Mix tracklist /projects/slug/mixes/n"]
     shows["Shows /shows"]
     artist["Artist /artists/id"]
-    find["Find DJs /projects"]
+    find["Find DJs /djs"]
     promoters["For promoters /for-promoters"]
     party["Party /party/key/name"]
     event["Event /party/key/event/name"]

@@ -265,7 +265,7 @@ export class AgentRepoClient implements RepoClient {
 	async createSpace(input: { spaceType: string; skey: string; policy: MemberSpacePolicy }) {
 		const { data } = await this.agent.com.atproto.space.createSpace(input);
 
-		return data.uri;
+		return data.space;
 	}
 
 	async getSpace(space: string) {
@@ -326,11 +326,12 @@ export class AgentRepoClient implements RepoClient {
 	}
 
 	async putMember(input: { space: string; did: string; read: boolean; write: boolean }) {
-		await this.agent.com.atproto.memberspace.putMember(input);
+		const { space, ...member } = input;
+		await this.agent.com.atproto.memberspace.putMembers({ space, members: [member] });
 	}
 
 	async removeMember(input: { space: string; did: string }) {
-		await this.agent.com.atproto.memberspace.removeMember(input);
+		await this.agent.com.atproto.memberspace.removeMembers({ space: input.space, dids: [input.did] });
 	}
 
 	async listMembers(space: string) {
@@ -386,8 +387,14 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 		let cursor: string | undefined;
 
 		do {
-			const { data } = await this.agent.com.atproto.space.listSpaces({ spaceType, did: this.did, limit: 100, cursor });
-			spaces.push(...data.spaces.map((space) => space.uri));
+			const { data } = await this.agent.com.atproto.space.listSpaces({
+				spaceType,
+				spaceDid: this.did,
+				limit: 100,
+				cursor
+			});
+
+			spaces.push(...data.spaces.map(({ space }) => space));
 			cursor = data.cursor;
 		} while (cursor);
 

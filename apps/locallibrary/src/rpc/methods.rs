@@ -726,6 +726,7 @@ fn build() -> Registry {
     {
         r.read("account.status", |c, _: NoParams| Ok(api::account_status(c.root)?)).quick();
         r.read("account.check", |c, _: NoParams| Ok(api::account_check(c.root, c.ctx)?)).long();
+        r.read("account.flags", |c, req| Ok(api::account_flags(c.root, &req))).long();
         r.immediate("account.login.begin", |c, req| Ok(api::account_login_begin(c.root, &req)?)).keeps_cache();
         r.immediate("account.login.finish", |c, req| Ok(api::account_login_finish(&req, c.ctx)?)).long().keeps_cache();
         r.immediate("account.login.paste", |_, req| Ok(api::account_login_paste(&req)?)).keeps_cache();
