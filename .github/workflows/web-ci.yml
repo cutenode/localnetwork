@@ -237,8 +237,10 @@ jobs:
 
   # Lighthouse on the production build, with the e2e tests' network and seeded projects behind it,
   # against the floors and budgets in lighthouserc.cjs, when something the pages are built from
-  # changed (ci.yml's web_lighthouse paths). The scores and any failed assertion go to the
-  # run's summary and the reports to its artifacts, not to a Lighthouse server.
+  # changed (ci.yml's web_lighthouse paths). A merge queue group checks only the assertions that
+  # don't depend on the runner's speed, so a regression one pull request got past by luck can't
+  # reach main. The scores and any failed assertion go to the run's summary and the reports to its
+  # artifacts, not to a Lighthouse server.
   lighthouse:
     name: Lighthouse
     if: inputs.lighthouse
@@ -262,6 +264,8 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:lighthouse
+        env:
+          LIGHTHOUSE_TIMING: ${{ github.event_name != 'merge_group' }}
       # Each page's scores from the run lhci reports as representative (its median), then each
       # assertion that failed: lhci writes both even when one does.
       - name: Scores to the run's summary
