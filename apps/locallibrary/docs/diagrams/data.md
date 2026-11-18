@@ -82,6 +82,7 @@ flowchart TD
     read --> diff["collection diff:<br/>what a drive lacks"]
     read --> export["collection export"]
     read --> player["The player: every file as a full path on this<br/>computer, cloud tracks in Dropbox or Google Drive"]
+    master -.->|"rekordbox saves: the open<br/>collection is read again"| player
     export --> write["Copy what differs, build both databases,<br/>swap them in"]
     write --> target["A drive, or a folder laid out like one"]
     target -->|"pull"| store[("Store")]

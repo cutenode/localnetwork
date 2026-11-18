@@ -252,6 +252,7 @@ impl App {
             self.flush_search();
         }
         self.autosave();
+        self.watch_collection();
         self.watch_output();
         self.follow_queue();
         self.want_details();
@@ -284,6 +285,13 @@ impl App {
         crate::tui::deck::reach_active_loop(self, prev, pos_ms);
         self.hear(prev, pos_ms);
         self.last_pos_ms = pos_ms;
+    }
+
+    /// Open the drive at `root` the drive list found, selecting it.
+    fn open_found(&mut self, root: PathBuf) {
+        self.preferred_root = None;
+        self.drive_state.select(self.drives.iter().position(|x| x.root == root));
+        self.load_library(root);
     }
 
     /// A track counts as played once it's been heard for a while, so looking through a crate
@@ -345,35 +353,38 @@ impl App {
                 if changed && self.status.is_some() {
                     self.refresh_status();
                 }
-                // Open a library while none is (on startup, or when the first drive is plugged in):
-                // the drive open last time when it's here, else the first library (its lead
+                self.find_collection_copies();
+                // Open a library while none is (on startup, or when the first drive is plugged in).
+                // rekordbox's collection, when it's on this computer, unless a drive was open last
+                // time and is here (not one holding a copy of the collection: that's the
+                // collection as it was, and the collection itself reads as it is now). Without
+                // the collection: the drive open last time, else the first library (its lead
                 // clone), else the first drive with an export.
-                let collection_last = self.collection_db.is_some()
-                    && self.preferred_root.as_deref() == Some(super::drives::collection_root().as_path());
-                if self.loaded.is_none() && self.loading.is_none() && collection_last {
-                    self.preferred_root = None;
-                    self.load_collection();
-                } else if self.loaded.is_none() && self.loading.is_none() {
+                if self.loaded.is_none() && self.loading.is_none() {
+                    let collection = self.collection_db.is_some();
+                    let collection_last = collection
+                        && self.preferred_root.as_deref() == Some(super::drives::collection_root().as_path());
                     let with_export = |r: &PathBuf| self.drives.iter().any(|d| d.has_export && d.root == *r);
-                    let last = self.preferred_root.clone().filter(with_export);
+                    let last = (self.preferred_root.clone())
+                        .filter(with_export)
+                        .filter(|r| !self.collection_copies.contains_key(r));
                     let library = self.drive_rows().into_iter().find_map(|r| match r {
                         DriveRow::Library(id) => Some(id),
                         _ => None,
                     });
                     let first = self.drives.iter().find(|d| d.has_export).map(|d| d.root.clone());
-                    match (last, library, first) {
-                        (Some(root), ..) | (None, None, Some(root)) => {
-                            self.preferred_root = None;
-                            self.drive_state.select(self.drives.iter().position(|x| x.root == root));
-                            self.load_library(root);
-                        }
-                        (None, Some(id), _) => {
-                            self.preferred_root = None;
-                            self.open_library(id);
-                        }
-                        // No drive to show: rekordbox's collection, when it's on this computer.
-                        (None, None, None) if self.collection_db.is_some() => self.load_collection(),
-                        (None, None, None) => {}
+                    if collection_last {
+                        self.preferred_root = None;
+                        self.load_collection();
+                    } else if let Some(root) = last {
+                        self.open_found(root);
+                    } else if collection {
+                        self.load_collection();
+                    } else if let Some(id) = library {
+                        self.preferred_root = None;
+                        self.open_library(id);
+                    } else if let Some(root) = first {
+                        self.open_found(root);
                     }
                 }
                 if first {
