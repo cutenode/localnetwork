@@ -10,6 +10,7 @@ use loclib_progress::{Event, Phase, Steps};
 use serde_json::json;
 
 use super::*;
+use crate::test_util::absolute;
 use crate::{
     Analysis, AnalyzeTrack, Blob, Candidate, Candidates, CheckFinding, DestinationKind, Exported, ExportedFile,
     FieldValue, Finding, Findings, Fix, GetBlob, GetManifest, Got, GotManifest, HasBlobs, ImportAnswer, Imported,
@@ -339,7 +340,7 @@ fn a_destination_answers_for_its_kind() {
     let missing: Missing =
         s.host.request(method::BLOBS_HAS, &json!({ "destination": "folder", "hashes": [hash] })).unwrap();
     assert_eq!(missing.missing, std::slice::from_ref(&hash));
-    let recording = if cfg!(windows) { "C:\\set.wav" } else { "/set.wav" };
+    let recording = absolute("set.wav");
     let set = json!({ "id": "3m4n", "date": "2026-10-03" });
     let publish = |dry_run: bool| {
         let req = json!({ "destination": "nowhere", "set": set, "recording": recording, "tracklist": [{}, {}], "dry_run": dry_run });
@@ -867,7 +868,7 @@ fn declared_names(c: &Contributions) -> [Vec<String>; 15] {
 fn hook_request(tc: &TestCase, hook: usize, name: &str) -> (Value, Value) {
     let id = tc.draw(gs::integers::<u32>());
     let echoed = json!({ "n": tc.draw(gs::integers::<i32>()) });
-    let output = if cfg!(windows) { "C:\\out" } else { "/out" };
+    let output = absolute("out");
     match hook {
         0 => (run(name, echoed.clone(), None), json!({ "command": name, "params": echoed })),
         1 => {
@@ -948,7 +949,7 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 tc.draw(gs::from_regex("[a-z]{1,6}").filter(|n: &String| !declared.iter().flatten().any(|d| d == n)))
             }
         };
-        let output = if cfg!(windows) { "C:\\out" } else { "/out" };
+        let output = absolute("out");
         let (params, answer) = hook_request(&tc, hook, &name);
         // Params that don't read, and where `invalid_params` says they're wrong.
         let (params, path) = match tc.draw(gs::weighted_booleans(0.25)) {
