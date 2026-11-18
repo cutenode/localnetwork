@@ -54,12 +54,18 @@ fn music(f: &Fixture) -> Vec<(String, String, PathBuf)> {
     ]
 }
 
+/// The root `DIRECTORY_ARRAY` gives the fixture's music, in a temporary folder in none of the
+/// user's own: its drive on Windows (`E:`), else `/`.
+fn music_root(f: &Fixture) -> String {
+    let music = f.path("music").to_string_lossy().into_owned();
+    if cfg!(windows) { music[..2].to_string() } else { "/".into() }
+}
+
 /// The `contents.xml` a backup of the fixture has, with `roots` copied from an earlier one and
 /// the `music` it copied.
-fn contents(roots: Vec<(String, String)>, music: &[(String, String, PathBuf)]) -> Vec<u8> {
+fn contents(f: &Fixture, roots: Vec<(String, String)>, music: &[(String, String, PathBuf)]) -> Vec<u8> {
     let folders = Folders::here().unwrap();
-    // The fixture's music is in a temporary folder, in none of the user's own.
-    let directories = vec!["/".to_string()];
+    let directories = vec![music_root(f)];
     let tracks = music.iter().map(|(hex, name, _)| (hex.clone(), name.clone())).collect();
     let c = Contents { roots, tracks, db_id: DB_ID.into(), content_num: 5, rb_version: 70214, directories, folders };
     c.to_xml()
@@ -127,9 +133,11 @@ fn a_backup_is_laid_out_as_rekordboxs() {
     stamped();
     let f = fixture();
     let host = host(&f);
-    // An earlier backup of the library, whose number for the root `/` is copied.
+    // An earlier backup of the library, whose number for the music's root is copied.
     let earlier = f.dest.join("rekordbox_bak_20200101.zip");
-    let values = [("/", "-1193679842"), ("DB_ID", DB_ID), ("CONTENT_NUM", "1")].map(|(n, v)| (n.into(), v.into()));
+    let root = music_root(&f);
+    let values =
+        [(root.as_str(), "-1193679842"), ("DB_ID", DB_ID), ("CONTENT_NUM", "1")].map(|(n, v)| (n.into(), v.into()));
     let made = Entry { name: "contents.xml".into(), body: Body::Made(contents::write(&values)) };
     write::write(&[made], &earlier, &loclib_progress::Ctx::silent()).unwrap();
 
@@ -143,10 +151,10 @@ fn a_backup_is_laid_out_as_rekordboxs() {
     }
     assert_eq!(entry(&zip, "master.db"), MASTER_DB);
     assert_eq!(entry(&zip, "rekordbox3.settings"), SETTINGS_XML.as_bytes());
-    let roots = vec![("/".to_string(), "-1193679842".to_string())];
+    let roots = vec![(root, "-1193679842".to_string())];
     assert_eq!(
         String::from_utf8(entry(&zip, "contents.xml")).unwrap(),
-        String::from_utf8(contents(roots, &music(&f))).unwrap()
+        String::from_utf8(contents(&f, roots, &music(&f))).unwrap()
     );
     #[cfg(unix)]
     {

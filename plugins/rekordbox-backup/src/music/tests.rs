@@ -97,7 +97,7 @@ fn copies_that_cant_be_made_are_said() {
     copies[2].from = f.path("music/TikTok");
     let done = copy_all(&copies, &root, &Ctx::silent()).unwrap();
     assert_eq!((done.copied, done.kept), (0, 0));
-    let first = root.join("OliverTree/UnknownAlbum");
+    let first = root.join("OliverTree").join("UnknownAlbum");
     let said = [("026EE51D", first.as_path()), ("00000002", taken.as_path()), ("00000006", copies[2].from.as_path())];
     assert_eq!(done.failed.len(), said.len(), "{done:?}");
     for ((hex, why), (want, path)) in done.failed.iter().zip(said) {
@@ -106,7 +106,7 @@ fn copies_that_cant_be_made_are_said() {
     }
     assert_eq!(std::fs::read(taken.join("inside")).unwrap(), b"mine");
     assert!(staged(taken.parent().unwrap()).is_empty());
-    assert!(staged(&root.join("UnknownArtist/UnknownAlbum")).is_empty());
+    assert!(staged(&root.join("UnknownArtist").join("UnknownAlbum")).is_empty());
 }
 
 /// A copy whose source has no time it could read is made again each time: nothing says the one

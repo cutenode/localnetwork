@@ -62,8 +62,10 @@ pub(crate) struct Fixture {
 }
 
 impl Fixture {
+    /// `rel` (`/`-separated) in the fixture, joined a part at a time as the plugin joins paths:
+    /// one joined whole keeps its `/`s on Windows, and reads differently from the plugin's.
     pub(crate) fn path(&self, rel: &str) -> PathBuf {
-        self.dir.path().join(rel)
+        rel.split('/').fold(self.dir.path().to_path_buf(), |p, part| p.join(part))
     }
 
     /// The zip a backup made here today has.

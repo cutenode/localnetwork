@@ -72,6 +72,8 @@ fn a_zip_holds_the_entries_in_order_with_their_files_times() {
                 assert_eq!(e.unix_mode().unwrap() & 0o777, 0o700);
             }
             "d.xml" => assert_eq!(bytes, b"<d/>"),
+            // On Windows the zip crate marks an entry as made on DOS, whose mode a reader makes up.
+            #[cfg(unix)]
             "contents.xml" => assert_eq!(e.unix_mode().unwrap() & 0o777, MADE_MODE),
             _ => {}
         }
