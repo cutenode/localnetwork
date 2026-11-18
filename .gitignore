@@ -20,3 +20,5 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+# Other authorities' lexicons, installed from the network as lexicons/network.json pins them (`pnpm lexicons:install`).
+/lexicons/.network/

@@ -59,10 +59,11 @@ export function schemaRecord(doc: LexiconDoc, rootDid: string): JsonObject {
 }
 
 /**
- * Other authorities' lexicons that ours reference, this app writes, or HappyView keeps for it (calendar events and
- * the locations they can hold, strongRef, Bluesky's verifications, profiles and follows and the label defs profiles
- * refer to, and userinput.app's spaces and the bug reports posted to them), copied into lexicons/ as they publish
- * them. They're validated against and offered to HappyView, never published.
+ * Other authorities' lexicons that ours reference, this app writes, or HappyView keeps for it (calendar events, RSVPs
+ * and the locations they can hold, strongRef, Bluesky's verifications, profiles and follows and the label defs profiles
+ * refer to, and userinput.app's spaces and the bug reports posted to them), installed from the network as
+ * lexicons/network.json pins them. They're validated against, and HappyView tracks them from the network; we never
+ * publish them.
  */
 export const REFERENCED_DOCS = DOCS.filter((doc) => !isOurs(doc));
 

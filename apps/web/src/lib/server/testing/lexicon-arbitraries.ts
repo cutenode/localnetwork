@@ -58,10 +58,6 @@ function asObject(def: ValueDef, uri: string): LexObject {
 
 	if (def.nullable?.length) throw unsupported(`nullable properties (${uri})`);
 
-	// A missing required string with a default reads as its default, so leaving it out would break nothing.
-	if (def.required?.some((key) => def.properties[key]?.type === 'string' && 'default' in def.properties[key]))
-		throw unsupported(`required properties with defaults (${uri})`);
-
 	return def;
 }
 
@@ -359,7 +355,8 @@ function brokenUnion(def: LexRefUnion, depth: number): fc.Arbitrary<Broken> {
 
 /** An object of `def` with one thing wrong: a required property missing, or one property broken. */
 function brokenObject(def: LexObject, depth: number): fc.Arbitrary<BrokenObject> {
-	const droppable = def.required ?? [];
+	// A missing required property with a default reads as its default, so dropping one breaks nothing.
+	const droppable = (def.required ?? []).filter((key) => !('default' in (def.properties[key] ?? {})));
 
 	const options = Object.entries(def.properties).map(([key, property]) =>
 		fc

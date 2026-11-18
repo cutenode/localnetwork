@@ -87,6 +87,9 @@ type QueryParams = Record<string, string | number | boolean | string[] | undefin
 
 const storedLexicon = z.object({ lexicon_json: z.json() });
 
+/** A lexicon HappyView tracks from the network, as GET /admin/network-lexicons lists it. */
+const networkLexicon = z.object({ nsid: z.string(), indexed: z.boolean() });
+
 const storedScripts = z.array(z.object({ id: z.string(), body: z.string() }));
 
 const backfillJob = z.object({ id: z.string(), status: z.string() });
@@ -237,6 +240,22 @@ export class HappyViewClient {
 	async putLexicon(doc: LexiconDoc): Promise<void> {
 		// No backfill on upload: HappyView would crawl every repo on the network, and only the root's records count.
 		await this.request('/admin/lexicons', { admin: true, body: { lexicon_json: doc, backfill: false } });
+	}
+
+	/** The other authorities' lexicons HappyView tracks from the network, and whether it ingests each one's records. */
+	async networkLexicons(): Promise<z.infer<typeof networkLexicon>[]> {
+		const response = await this.request('/admin/network-lexicons', { admin: true });
+
+		return z.array(networkLexicon).parse(await response.json());
+	}
+
+	/**
+	 * Has HappyView track `nsid` from the network, resolving it from its authority, and ingest its records when
+	 * `indexed`. It replaces a lexicon of that id uploaded by hand. No backfill: HappyView would crawl every repo on the
+	 * network, and the app has it re-read only the accounts it needs.
+	 */
+	async trackNetworkLexicon(nsid: string, indexed: boolean): Promise<void> {
+		await this.request('/admin/network-lexicons', { admin: true, body: { nsid, indexed, backfill: false } });
 	}
 
 	async scripts(): Promise<HappyViewScript[]> {

@@ -6,7 +6,7 @@ import { chunk, happyViewBundle } from './bundle';
 
 describe('happyViewBundle', () => {
 	it('ships the records and queries lua/ has a script for, and the defs they use', () => {
-		const { lexicons, scripts } = happyViewBundle('did:plc:root');
+		const { lexicons, network, scripts } = happyViewBundle('did:plc:root');
 
 		const records = [
 			COLLECTION.project,
@@ -27,18 +27,28 @@ describe('happyViewBundle', () => {
 			USERINPUT.space
 		];
 
-		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
+		const others = new Set<string>([CALENDAR_EVENT, VERIFICATION, BSKY_PROFILE, BSKY_FOLLOW, USERINPUT.space]);
+
+		// The other authorities' lexicons are HappyView's to track from the network, ingesting those a script handles.
+		expect(network.toSorted((a, b) => a.nsid.localeCompare(b.nsid))).toEqual(
 			[
 				'com.atproto.repo.strongRef',
 				'com.atproto.label.defs',
 				...['address', 'fsq', 'geo', 'hthree'].map((name) => `community.lexicon.location.${name}`),
+				...others
+			]
+				.toSorted()
+				.map((nsid) => ({ nsid, indexed: others.has(nsid) }))
+		);
+		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
+			[
 				`${NS}.defs`,
 				`${NS}.section.defs`,
 				`${NS}.people.defs`,
 				`${NS}.dj.defs`,
 				`${NS}.epk.defs`,
 				`${NS}.directory.defs`,
-				...records,
+				...records.filter((nsid) => !others.has(nsid)),
 				...Object.values(DIRECTORY)
 			].sort()
 		);
@@ -80,7 +90,9 @@ describe('happyViewBundle', () => {
 	});
 
 	it("puts each lexicon after the ones it refers to, since HappyView stores them in the bundle's order", () => {
-		const { lexicons } = happyViewBundle('did:plc:root');
+		const { lexicons, network } = happyViewBundle('did:plc:root');
+		// The sync has HappyView track the network lexicons before it uploads ours.
+		const tracked = network.map(({ nsid }) => nsid);
 
 		for (const [index, doc] of lexicons.entries()) {
 			const refs = [...JSON.stringify(doc).matchAll(/"((?:com|community|computer)\.[\w.]+?)(?:#\w+)?"/g)].map(
@@ -88,7 +100,7 @@ describe('happyViewBundle', () => {
 			);
 
 			for (const ref of refs.filter((nsid) => nsid !== doc.id))
-				expect(lexicons.slice(0, index).map((earlier) => earlier.id)).toContain(ref);
+				expect([...tracked, ...lexicons.slice(0, index).map((earlier) => earlier.id)]).toContain(ref);
 		}
 	});
 

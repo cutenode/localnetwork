@@ -21,6 +21,9 @@ COPY flags flags/
 COPY packages/tokens packages/tokens/
 # apps/web, and the tools' READMEs and docs for their pages (.dockerignore sends only those).
 COPY apps apps/
+# The other authorities' lexicons, from the network as lexicons/network.json pins them; the build bundles them in.
+# hadolint ignore=DL3059
+RUN pnpm --filter localnetwork lexicons:install
 RUN pnpm --filter localnetwork build
 # Its own step, so a failure's log is its own; the build stage's layers never ship.
 # hadolint ignore=DL3059

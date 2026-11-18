@@ -7,8 +7,11 @@ import { LEXICON_DOCS, REFERENCED_DOCS } from '../atproto/lexicons';
 /** A HappyView script, keyed by its trigger, e.g. `xrpc.query:computer.localnetwork.directory.searchProjects`. */
 export type HappyViewScript = { id: string; body: string };
 
-/** Everything the app uploads to HappyView. */
-export type HappyViewBundle = { lexicons: LexiconDoc[]; scripts: HappyViewScript[] };
+/** Another authority's lexicon HappyView tracks from the network: `indexed` when a record script here handles it. */
+export type NetworkLexicon = { nsid: string; indexed: boolean };
+
+/** What the app gives HappyView: its own lexicons and scripts, and the other authorities' lexicons to track. */
+export type HappyViewBundle = { lexicons: LexiconDoc[]; network: NetworkLexicon[]; scripts: HappyViewScript[] };
 
 const LIBRARY = '/lua/lib/';
 
@@ -101,7 +104,9 @@ function withRefs(docs: LexiconDoc[], available: Map<string, LexiconDoc>): Lexic
 /**
  * The lexicons and Lua scripts that make HappyView the directory for `rootDid`'s projects and what their managers and
  * fans publish. Every script outside `lua/lib` is picked up: a record script has HappyView index that collection, and a
- * query script has it serve that query. The bundle holds their lexicons and the ones those refer to, and no others.
+ * query script has it serve that query. The bundle holds their lexicons and the ones those refer to, and no others:
+ * ours to upload, and the other authorities' for HappyView to track from the network, ingesting the records of those a
+ * record script handles.
  * Each script is one chunk that starts with the modules its files require, then defines the root DID. Queries then get
  * the genre and fee taxonomies (from the TypeScript, so they can't drift, written out as a Lua table so loading needs
  * no module: HappyView loads a script on upload with stand-ins for every module) and every `lua/lib` file before their
@@ -131,11 +136,20 @@ export function happyViewBundle(rootDid: string, userinputSpace?: string): Happy
 			return { doc, id: `${type === 'record' ? 'record.index' : 'xrpc.query'}:${nsid}`, body };
 		});
 
+	const ours = new Set(LEXICON_DOCS.map((doc) => doc.id));
+
+	const needed = withRefs(
+		handlers.map(({ doc }) => doc),
+		available
+	);
+
+	const indexed = new Set(
+		handlers.flatMap(({ id }) => (id.startsWith('record.') ? [id.slice(id.indexOf(':') + 1)] : []))
+	);
+
 	return {
-		lexicons: withRefs(
-			handlers.map(({ doc }) => doc),
-			available
-		),
+		lexicons: needed.filter((doc) => ours.has(doc.id)),
+		network: needed.flatMap((doc) => (ours.has(doc.id) ? [] : [{ nsid: doc.id, indexed: indexed.has(doc.id) }])),
 		scripts: handlers.map(({ id, body }) => ({
 			id,
 			body: chunk([...(id.startsWith('record.') ? recordPrelude : queryPrelude), body])

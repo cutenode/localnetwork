@@ -117,6 +117,7 @@ repo := [
 	{"path": "lexicons/computer/localnetwork/toolPublishing.json", "contents": {"id": "computer.localnetwork.toolPublishing"}},
 	{"path": "lexicons/computer/localnetwork/dj/set.json", "contents": {"id": "computer.localnetwork.dj.set"}},
 	{"path": "lexicons/community/lexicon/location/address.json", "contents": {"id": "community.lexicon.location.address"}},
+	{"path": "lexicons/network.json", "contents": {"version": 2, "lexicons": ["community.lexicon.calendar.event"]}},
 	{"path": "/scratch/embedded-files.json", "contents": {"files": ["lexicons/computer/localnetwork/dj/set.json", "plugins/p/locallibrary-plugin.toml"]}},
 	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "apps/site/package-lock.json", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]

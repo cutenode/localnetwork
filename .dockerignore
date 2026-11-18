@@ -13,6 +13,7 @@
 !apps/web
 !apps/*/README.md
 !apps/*/docs/*.md
+lexicons/.network
 apps/web/node_modules
 apps/web/.svelte-kit
 apps/web/build

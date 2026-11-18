@@ -62,7 +62,8 @@ What `syncDirectory` does with `HAPPYVIEW_API_KEY` set, at boot and from the Sys
 ```mermaid
 flowchart TD
   Compare["Compare scripts and lexicons<br/>with what HappyView stores"] --> Scripts["Upload changed scripts first,<br/>so the gate is in place"]
-  Scripts --> Lexicons["Upload changed lexicons,<br/>one at a time"]
+  Scripts --> Network["Have HappyView track other authorities'<br/>lexicons from the network"]
+  Network --> Lexicons["Upload our changed lexicons,<br/>one at a time"]
   Lexicons --> Root["Re-read the root's performers,<br/>wait up to 30 s"]
   Root --> Shows["Every manager's shows,<br/>one batch, in the background"]
   Root --> Refresh["refreshRecords: older records,<br/>once per script version"]
