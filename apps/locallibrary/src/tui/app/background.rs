@@ -73,8 +73,6 @@ pub enum Msg {
     TrackInfo(u64, Box<TrackInfo>),
     /// A cover made for the size it's shown at.
     Cover(Box<crate::tui::art::Cover>),
-    /// A cover's two main colours, by the drive it's on and its artwork id.
-    Chip(PathBuf, u32, Option<[loclib_waveform::Rgb; 2]>),
     Details(Box<Details>),
     /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
     /// place among its panels.
@@ -257,7 +255,6 @@ impl App {
         self.follow_queue();
         self.want_details();
         self.want_panels();
-        self.want_chips();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -497,7 +494,6 @@ impl App {
                 }
             }
             Msg::Cover(cover) => self.covers.cover = Some(*cover),
-            Msg::Chip(root, id, chip) => self.chip_read(&root, id, chip),
             Msg::Details(d) => {
                 if self.details_asked == Some((d.generation, d.index)) {
                     self.details_asked = None;

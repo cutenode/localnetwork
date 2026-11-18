@@ -15,8 +15,8 @@
   and a ΔBPM column says how far each track's tempo is from it.
 - A large tempo and time left, bar countdowns to the next cue and phrase, and a warning before a track
   ends, at 30 seconds unless you change it. Under `LOCALLIBRARY_REDUCED_MOTION` it doesn't blink.
-- Cover art in the terminal's own graphics (kitty, iTerm2, sixel) where it has them, and a colour chip
-  on each track row from its cover. `LOCALLIBRARY_ART` names the graphics to use.
+- Cover art in the terminal's own graphics (kitty, iTerm2, sixel) where it has them.
+  `LOCALLIBRARY_ART` names the graphics to use.
 - Tracks heard this session are dimmed in the track list, and `U` brings them back.
 - Short fades as a track loads and a panel opens, with 24-bit colour and without
   `LOCALLIBRARY_REDUCED_MOTION`.
