@@ -96,9 +96,13 @@ fn command(a: &Action) -> Option<String> {
         }
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
         "account.login.begin" => {
-            // `atproto` left out: signing in asks for it anyway.
+            // What every sign-in asks for left out: signing in asks for it anyway.
+            #[cfg(feature = "account")]
+            let anyway = &locallibrary::atmosphere::DEFAULT_SCOPES[..];
+            #[cfg(not(feature = "account"))]
+            let anyway = &["atproto"][..];
             let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
-            let scopes = scopes.filter_map(Value::as_str).filter(|s| *s != "atproto");
+            let scopes = scopes.filter_map(Value::as_str).filter(|s| !anyway.contains(s));
             format!(
                 "locallibrary account login{}",
                 scopes.map(|s| format!(" --scope {}", quote(s))).collect::<String>()

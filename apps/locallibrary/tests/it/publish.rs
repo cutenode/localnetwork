@@ -200,7 +200,8 @@ fn sets_publish_upload_from_the_command_line() {
     let (code, out, err) = run(&bin, &[], &[], Some("y\n"));
     assert_eq!(code, 0, "{out}\n{err}");
     assert_eq!(err.matches("[y/N]").count(), 1, "{err}");
-    assert!(err.contains("Upload the recording and publish this set as @dj.example.com?"), "{err}");
+    assert!(out.contains("Upload this set's recording as @dj.example.com"), "{out}");
+    assert!(err.contains("? Upload the recording and publish this set? Anyone can read them [y/N]"), "{err}");
     assert!(out.contains("uploaded the recording") && out.contains("published this set"), "{out}");
     let uri = format!("at://{DID}/computer.localnetwork.dj.recording/{id}");
     let ffmpeg: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(String::from).collect();

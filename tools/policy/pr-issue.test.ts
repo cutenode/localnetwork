@@ -14,7 +14,7 @@ const script: string = workflow.jobs.issue.steps[0].run;
 
 // Runs the workflow's own step as the runner does, for a pull request with this description and branch.
 const passes = (BODY: string, BRANCH = 'bnb/some-feature'): boolean =>
-	spawnSync('bash', ['-e', '-c', script], {
+	spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
 		env: { PATH: process.env.PATH, BODY, BRANCH, REPO: 'cutenode/localnetwork' },
 		stdio: 'ignore'
 	}).status === 0;

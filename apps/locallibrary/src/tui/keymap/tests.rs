@@ -257,6 +257,7 @@ fn reached(act: Act) -> Reached {
         | Act::KeyPalette(_)
         | Act::EndWarning(_)
         | Act::Art(_)
+        | Act::ArtHalfblocks(_)
         | Act::Theme(_)
         | Act::Colours(_)
         | Act::Icons(_)
@@ -342,12 +343,9 @@ fn reached(act: Act) -> Reached {
         | Act::Snapshots
         | Act::SignIn
         | Act::ProfileInclude
-        | Act::ProfilePin
-        | Act::ProfileHide
         | Act::ProfileHideArtist
         | Act::ProfileDocument
         | Act::ProfileWrite
-        | Act::ProfileScope
         | Act::ProfileRounding
         | Act::ProfileAccount
         | Act::MixOpen

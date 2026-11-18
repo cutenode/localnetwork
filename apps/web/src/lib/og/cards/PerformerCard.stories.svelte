@@ -1,13 +1,12 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import CardPreview from './CardPreview.svelte';
 	import { longName, performer } from './fixtures.ts';
 	import PerformerCard from './PerformerCard.svelte';
 
 	/** The link preview of a performer's pages, drawn at 1200×630 and shown here scaled to fit. */
 	const { Story } = defineMeta({ title: 'Link previews/Performer', component: PerformerCard, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="With a picture" asChild>

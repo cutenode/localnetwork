@@ -1575,8 +1575,8 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     assert!(!says(" beats · ") && !says(" memory") && !says("steady tempo"), "{s}");
     if let Some((i, _, _)) = now.phrase_at(pos as f64) {
         let next = match now.phrases.get(i + 1) {
-            Some(p) => format!("phrase  {} ", p.kind.name()),
-            None => "phrase last".into(),
+            Some(p) => format!(" till  {} ", p.kind.name()),
+            None => "last phrase".into(),
         };
         assert!(says(&next), "{next}\n{s}");
         assert!(says(&format!("{mood:?} mood").to_lowercase()), "{s}");

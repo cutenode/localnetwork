@@ -42,7 +42,7 @@
 				<EmptyState title="No booking threads yet" body="When a promoter sends an inquiry to you or one of your projects, the thread starts here." />
 			{:else}
 				<EmptyState title="No booking threads yet" body="Find a project and send an inquiry with your show details.">
-					<Button href="/projects">Find DJs</Button>
+					<Button href="/djs">Find DJs</Button>
 				</EmptyState>
 			{/if}
 		{/await}

@@ -21,10 +21,8 @@ const stored = () => JSON.parse(localStorage.getItem(KEY) ?? 'null');
 
 const notice = () => page.getByRole('status').filter({ hasText: 'unsent changes' });
 
-// Browser test files share one localStorage, and other pages' tests leave their own drafts in it.
+// The browser's storage outlives each test file, and other files leave their own drafts in it.
 beforeEach(() => localStorage.clear());
-
-afterEach(() => localStorage.removeItem(KEY));
 
 describe('ProjectForm drafts', () => {
 	it('keeps unsent changes, rows removed included, and brings them back on the next visit', async () => {

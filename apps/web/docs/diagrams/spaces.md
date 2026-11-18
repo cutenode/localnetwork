@@ -50,12 +50,12 @@ sequenceDiagram
   A->>R: getDelegationToken with the root's session
   R-->>A: Delegation token
   A->>A: New P-256 key, kept in memory
-  A->>H: getSpaceCredential with the token and key id
+  A->>H: authorizeSpaceSync with the token and the key's did:key
   H-->>A: Credential bound to that key
-  A->>H: listRepos, signed with the key
-  H-->>A: Writers and their revs
+  A->>H: listWriters, signed with the key
+  H-->>A: Writers and their revs, and removed writers
   A->>W: listRepoOps, signed, with a one-time KEM share
-  W-->>A: Ops and a commit with a MAC
+  W-->>A: Ops and the commit, with a MAC, on each page
   A->>A: Check the MAC and the LtHash
   alt MAC fails
     A->>A: Refresh the writer's DID document, read once more
@@ -89,7 +89,8 @@ One pass over one space. A second request while it runs queues one more pass.
 
 ```mermaid
 flowchart TD
-  Trigger["Poll, notifyWrite, or watchSpace"] --> List["registerNotify if it's due, then listRepos<br/>from spaceRev, 500 a page, 100 pages a pass"]
+  Trigger["Poll, notifySpaceUpdate, or watchSpace"] --> List["listWriters from spaceRev,<br/>500 a page, 100 pages a pass"]
+  List -- "a repo left<br/>the writer set" --> Keep["Read past it, keep<br/>its synced records"]
   List -- "authority says<br/>it's gone" --> Drop["Drop the local copy<br/>and what came from it"]
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
   List -- "never synced" --> Star["getRepo: verified STAR archive"]
@@ -106,7 +107,7 @@ Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts)
 
 ## Repo sync lifecycle
 
-One writer's repo in one space. A failure stays in `sync_repo_retry`, since `listRepos` won't list that repo again until it changes.
+One writer's repo in one space. A failure stays in `sync_repo_retry`, since `listWriters` won't list that repo again until it changes.
 
 ```mermaid
 stateDiagram-v2
@@ -126,33 +127,41 @@ Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts), 
 
 ## Write notifications
 
-How a write reaches the app without waiting for the poll, with `SYNC_NOTIFY` on. Without it, or if registering fails, writes wait for the poll.
+How a write reaches the app without waiting for the poll, with `SYNC_NOTIFY` on. Without it, or if the host can't confirm the app's endpoint, writes wait for the poll.
 
 ```mermaid
 sequenceDiagram
   participant W as Writer's PDS
   participant H as Space host
   participant A as App
-  A->>H: registerNotify with the space credential
-  W->>H: notifyWrite, service auth from the writer
-  H->>A: GET /.well-known/did.json to find the syncer
-  H->>A: POST notifyWrite, service auth from the authority
-  A->>A: Check audience, method and issuer
-  alt Bad space
-    A-->>H: 400
-  else Check fails
+  A->>H: authorizeSpaceSync, notify at PUBLIC_URL with the space's token
+  H->>A: POST confirmRegistration with the token and a challenge
+  alt The token is the one kept for that watched space
+    A-->>H: The challenge
+    H-->>A: Credential, registered for as long as it lasts
+  else Any other token
     A-->>H: 401
-  else Space isn't watched
-    A-->>H: 404
-  else Watched
+    H-->>A: RegistrationNotConfirmed
+    A->>H: authorizeSpaceSync without notify, then poll
+  end
+  W->>H: notifyRepoUpdate
+  H->>A: POST notifySpaceUpdate with the token and the update
+  alt Bad body
+    A-->>H: 400
+  else Not the space's token
+    A-->>H: 401
+  else repoWrite or repoRemoved
     A-->>H: 200
     A->>A: Sync the space in the background
+  else spaceDeleted or registrationExpired
+    A-->>H: 200
+    A->>A: Drop the credential, sync in the background
+    A->>H: authorizeSpaceSync for a fresh credential
+    H-->>A: SpaceDeleted if the space is gone, and the app drops its copy
   end
-  H->>A: POST notifySpaceDeleted when a space goes
-  A->>A: Drop the local copy
 ```
 
-Source: [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceDeleted/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifySpaceDeleted/+server.ts), [`src/routes/.well-known/did.json/+server.ts`](../../src/routes/.well-known/did.json/+server.ts), [`src/lib/server/atproto/service-auth.ts`](../../src/lib/server/atproto/service-auth.ts)
+Source: [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts), [`src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts`](../../src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts), [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](../../src/lib/server/atproto/credentials.ts)
 
 ## Record projections
 

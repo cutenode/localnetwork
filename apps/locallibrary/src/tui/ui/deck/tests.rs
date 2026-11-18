@@ -18,8 +18,8 @@ use crate::tui::ui::{draw, screen};
 
 use super::*;
 
-/// The frame round the tempo, which only the deck has.
-const FRAME: &str = "╭ BPM";
+/// The title over the tempo, which only the deck has.
+const FRAME: &str = "BPM ──";
 
 fn drawn(app: &mut App, w: u16, h: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -136,18 +136,17 @@ fn the_tempo_is_large() {
 /// The zoomed view's cue rows go when a track has no cues, and the waveform has them.
 #[test]
 fn cues_rows_only_show_for_cues() {
-    assert_eq!(Rows::of(21, 78, true).zoom_cues, 1);
-    assert_eq!(Rows::of(21, 78, false).zoom_cues, 0);
-    assert_eq!(Rows::of(41, 158, true).zoom_cues, 2);
+    assert_eq!(Rows::of(21, true).zoom_cues, 1);
+    assert_eq!(Rows::of(21, false).zoom_cues, 0);
+    assert_eq!(Rows::of(41, true).zoom_cues, 2);
 }
 
 /// At every height the rows fit, and a mirrored waveform has an even number of them.
 #[hegel::test(test_cases = 60)]
 fn prop_the_rows_add_up(tc: hegel::TestCase) {
     let height = tc.draw(gs::integers::<u16>().min_value(17).max_value(120));
-    let width = tc.draw(gs::integers::<u16>().min_value(58).max_value(240));
     let has_cues = tc.draw(gs::booleans());
-    let r = Rows::of(height, width, has_cues);
+    let r = Rows::of(height, has_cues);
     assert_eq!(r.head + r.zoom + r.overview + r.panels + r.readout, height, "{height}");
     assert_eq!((r.zoom - 1 - r.zoom_cues) % 2, 0, "{height}");
     assert!(r.zoom >= 4, "room for a waveform at {height}");
@@ -158,7 +157,7 @@ fn prop_the_rows_add_up(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 fn prop_height_goes_to_the_zoomed_view_first(tc: hegel::TestCase) {
     let height = tc.draw(gs::integers::<u16>().min_value(17).max_value(120));
-    let r = Rows::of(height, 158, true);
+    let r = Rows::of(height, true);
     let overview_wave = r.overview - r.overview_cues - 1;
     let filled = r.zoom + 1 >= ZOOM_MOST;
     assert!(filled || overview_wave <= 6, "{height}: {} rows of zoom, {overview_wave} of overview", r.zoom);
@@ -264,16 +263,16 @@ fn the_readout_keeps_its_columns() {
     let phrase_at = |app: &mut App, secs| {
         app.resume = Some(Duration::from_secs(secs));
         let s = screen(app, 120, 40);
-        let row = s.lines().find(|l| l.contains("phrase ")).map(str::to_string).unwrap();
-        row.chars().position(|c| c == 'p').unwrap()
+        let row = s.lines().find(|l| l.contains("till cue")).map(str::to_string).unwrap();
+        row.find(" Chorus ").map(|b| row[..b].chars().count()).unwrap()
     };
     assert_eq!(phrase_at(&mut app, 20), phrase_at(&mut app, 2), "6.0 bars or 15.0, the phrase stays");
 }
 
-/// The readout says only what's on, on one row as on two, however narrow: no time (it's large
-/// by the tempo), no waveform colours (`w` says them), no volume at full and no mode that's off.
+/// The status line says only what's on, however narrow: no time (it's large by the tempo), no
+/// waveform colours (`w` says them), no volume at full and no mode that's off.
 #[test]
-fn the_readout_says_only_whats_on() {
+fn the_status_line_says_only_whats_on() {
     let (mut app, _dir) = on_deck();
     app.deck_layout = true;
     let off = [format!("{} off", icons::REPEAT.get()), format!("{} off", icons::MIX.get()), "Q off".into()];
@@ -286,8 +285,7 @@ fn the_readout_says_only_whats_on() {
         for unsaid in ["0:20 / 5:00", "3Band", &off[0], &off[1]] {
             assert!(!s.contains(unsaid), "{unsaid} at {w}x{h}\n{s}");
         }
-        let (cue, vol) = (row_of(&s, " A "), row_of(&s, "vol 80%"));
-        assert_eq!(cue, vol.map(|v| if w < 76 { v - 1 } else { v }), "{w}x{h}\n{s}");
+        assert_eq!(row_of(&s, "vol 80%"), row_of(&s, " PLAYER "), "on the status line at {w}x{h}\n{s}");
     }
     (app.volume, app.deck.quantize) = (1.0, false);
     let s = screen(&mut app, 120, 40);
@@ -538,14 +536,14 @@ fn the_deck_counts_down_in_bars() {
     ];
     // 12 s to the cue is 24 beats; 10.5 s to the chorus 21.
     let s = screen(&mut app, 120, 40);
-    assert!(s.contains("cue  A  6.0 bars"), "{s}");
-    assert!(s.contains("phrase  Chorus  5.1 bars"), "{s}");
+    assert!(s.contains("6.0 bars till cue  A "), "{s}");
+    assert!(s.contains("5.1 bars till  Chorus "), "{s}");
     // With no grid there it's the time.
     let n = app.now.as_mut().unwrap();
     assert_eq!(n.bars_to(20_000.0, 32_000.0), Some((6, 0)));
     assert_eq!(n.bars_to(-1.0, 32_000.0), None);
     n.analysis.beats.clear();
-    assert!(screen(&mut app, 120, 40).contains("cue  A  0:12"));
+    assert!(screen(&mut app, 120, 40).contains(" 0:12      till cue  A "));
 }
 
 /// Near the end of a track the time left turns red, says END, and blinks; with less motion it

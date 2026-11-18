@@ -66,7 +66,7 @@ const stepUp = (rootDid: string) =>
 		.filter((permission) =>
 			permission instanceof RepoPermission
 				? permission.collection.includes(COLLECTION.djSet)
-				: permission instanceof SpacePermission && permission.type === SPACE_TYPE.performer
+				: permission instanceof SpacePermission && permission.spaceType === SPACE_TYPE.performer
 		)
 		.map(String);
 

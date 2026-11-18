@@ -237,7 +237,7 @@ export class FakeRootClient implements RootRepoClient {
 
 		if (!found || !space.startsWith(`at://${this.did}/`)) return null;
 
-		return { uri: found.uri, policy: structuredClone(found.policy) };
+		return { space: found.uri, policy: structuredClone(found.policy) };
 	}
 
 	/** Replaces the whole policy, as a PDS does. */

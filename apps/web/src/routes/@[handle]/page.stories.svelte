@@ -4,6 +4,7 @@
 	import { NEON, NEON_CREW, neonProfile } from '#lib/testing/profiles.ts';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import type { FollowState, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Layout from '../+layout.svelte';
 	import Page from './+page.svelte';
 
@@ -24,25 +25,26 @@
 
 	/**
 	 * Neon's page as `viewer` sees it, with `follow` streaming in (undefined when there's no Follow), and `bookable` when
-	 * staff list them in Find DJs and they take inquiries.
+	 * staff list them in Find DJs and they take inquiries. `saved` is whether they're in the viewer's planner, null when
+	 * the viewer can't save them.
 	 */
-	const data = (viewer: Viewer | null, follow?: Promise<FollowState | null>, bookable = false) => ({
+	const data = (viewer: Viewer | null, follow?: Promise<FollowState | null>, bookable = false, saved: boolean | null = null) => ({
 		viewer,
 		pendingRequests: 0,
 		profile,
 		name: 'Neon Tide',
+		pronouns: 'they/them',
 		account: { did: NEON, handle: 'neon.test' },
 		bookable,
 		meta: PAGE_META,
 		dj: Promise.resolve([]),
 		sets: undefined,
 		playsIn: Promise.resolve([NEON_CREW]),
-		follow
+		follow,
+		saved
 	});
 
 	const followState = (followers: number, following = false) => Promise.resolve({ followers, following });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet page(pageData: ReturnType<typeof data>, form: { error: string; values: undefined; reauth: boolean } | null = null)}
@@ -93,6 +95,10 @@
 </Story>
 
 <Story name="Listed DJ on a phone" asChild globals={phone}>{@render page(data(fan, followState(13), true))}</Story>
+
+<Story name="Listed DJ, saved to the planner" asChild>{@render page(data(fan, followState(13), true, true))}</Story>
+
+<Story name="Listed DJ, saved, on a phone" asChild globals={phone}>{@render page(data(fan, followState(13), true, true))}</Story>
 
 <Story
 	name="Listed DJ, signed out"

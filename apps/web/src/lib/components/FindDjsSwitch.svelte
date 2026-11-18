@@ -3,10 +3,10 @@
 	 * The two ways to find DJs, at the top of both: a filtered search of the directory, or one show
 	 * scored against every listed DJ. `current` is the page it sits on.
 	 */
-	let { current }: { current: '/projects' | '/match' } = $props();
+	let { current }: { current: '/djs' | '/match' } = $props();
 
 	const modes = [
-		{ href: '/projects', label: 'Search' },
+		{ href: '/djs', label: 'Search' },
 		{ href: '/match', label: 'Match a show' }
 	];
 </script>

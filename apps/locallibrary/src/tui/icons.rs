@@ -151,7 +151,7 @@ icons! {
     PAUSE: "\u{f04c}" "‖" "=",
     /// Stopped, and a colour's swatch in a legend.
     SQUARE: "\u{f04d}" "■" "#",
-    /// A key of the deck strip that's off.
+    /// A beat of the bar that isn't playing.
     HOLLOW: "\u{f096}" "□" ".",
     CHECK: "\u{f00c}" "✓" "+",
     CROSS: "\u{f00d}" "✖" "x",
@@ -167,8 +167,6 @@ icons! {
     /// A message that wants an answer, a memory cue.
     DIAMOND: "\u{f219}" "◆" "*",
     STAR: "\u{f005}" "★" "*",
-    /// A track kept out.
-    BLOCKED: "\u{f05e}" "⊘" "/",
     /// Almost: a track with copies.
     NEAR: "≈" "≈" "~",
     /// Keys that mix; shuffle.

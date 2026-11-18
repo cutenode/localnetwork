@@ -1,5 +1,5 @@
 //! A track's analysis as players show it: the beat grid, cues, waveforms and phrases, decoded from
-//! wherever they're stored (locallibrary reads them from rekordbox's ANLZ files), and rekordbox's
+//! wherever they're stored (loclib-anlz reads them from rekordbox's ANLZ files), and rekordbox's
 //! hot cue palette.
 
 use serde::{Deserialize, Serialize};

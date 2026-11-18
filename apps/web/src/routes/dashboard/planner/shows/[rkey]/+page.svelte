@@ -13,7 +13,7 @@
 
 	let { data, form }: PageProps = $props();
 
-	const projects = $derived(data.projects);
+	const performers = $derived(data.performers);
 
 	const details = $derived(data.show?.details);
 
@@ -80,16 +80,16 @@
 			{#if lineup.length}
 				<ol class="m-0 flex list-none flex-col gap-2 p-0">
 					{#each lineup as slot, index (slot.project)}
-						{@const project = projects[slot.project]}
-						{@const name = project?.profile.name ?? 'Removed project'}
+						{@const performer = performers[slot.project]}
+						{@const name = performer?.name ?? 'No longer listed'}
 						<!-- A saved show's details go into an inquiry to anyone on it who can be contacted. -->
-						{@const inquire = data.show && project?.managers.length ? `/dashboard/bookings/new?project=${project.slug}&show=${data.show.rkey}` : null}
+						{@const inquire = data.show && performer?.inquiry ? `/dashboard/bookings/new?${performer.inquiry}&show=${data.show.rkey}` : null}
 						{@const booking = data.bookings[slot.project]}
 						<li class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2.5 sm:grid sm:grid-cols-[minmax(0,1fr)_9rem_10rem_auto]">
 							<input type="hidden" name="slotProject" value={slot.project} />
 							<div class="flex min-w-0 basis-[calc(100%-7rem)] items-center gap-2.5">
 								<Monogram {name} size="sm" />
-								<a class="truncate text-fg no-underline hover:text-link" href="/projects/{project?.slug}">{name}</a>
+								{#if performer}<a class="truncate text-fg no-underline hover:text-link" href={performer.href}>{name}</a>{:else}<span class="truncate text-fg-muted">{name}</span>{/if}
 							</div>
 							<div class="ml-auto flex sm:order-last">
 								{#if booking}<a class="btn-ghost px-2.5" href="/dashboard/bookings/{booking}" aria-label="Booking with {name}" title="Booking"><MessagesSquare class="size-4" /></a>
@@ -104,13 +104,13 @@
 					{/each}
 				</ol>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">Add projects from your saved list.</p>
+				<p class="m-0 text-small text-fg-muted">Add DJs from your saved list.</p>
 			{/if}
 			{#if addable.length}
 				<div class="flex gap-2">
-					<select class="input min-w-0 flex-1" bind:value={adding} aria-label="Add a saved project">
-						<option value="">Add a saved project…</option>
-						{#each addable as save (save.rkey)}<option value={save.project}>{projects[save.project]?.profile.name ?? save.project}</option>{/each}
+					<select class="input min-w-0 flex-1" bind:value={adding} aria-label="Add a saved DJ">
+						<option value="">Add a saved DJ…</option>
+						{#each addable as save (save.rkey)}<option value={save.project}>{performers[save.project]?.name ?? save.project}</option>{/each}
 					</select>
 					<button type="button" class="btn-secondary" disabled={!adding} onclick={() => { if (adding) lineup.push({ project: adding, status: 'considering' }); adding = ''; }}><Plus class="size-4" />Add</button>
 				</div>

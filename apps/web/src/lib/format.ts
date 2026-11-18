@@ -13,7 +13,7 @@ export function accountLabel(account: AccountView | null | undefined): string {
 	return account.handle ? `@${account.handle}` : shortDid(account.did);
 }
 
-/** What each kind of request to staff is called in lists. */
+/** What each kind of review request is called in lists. */
 export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
 	create: 'New project',
 	claim: 'Claim',

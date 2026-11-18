@@ -139,13 +139,14 @@ impl Account {
                 Line::styled(format!(" {} Signing out…", icons::BUSY.get()), fg(theme::current().info))
             }
             (None, Some(a)) => {
+                // When to sign in again, only once it's close.
                 let again = if a.expired() {
-                    Span::styled(" · the session has likely ended; L signs in again", fg(theme::current().warning))
-                } else {
+                    Some(" · the session has likely ended; L signs in again".to_string())
+                } else if a.due_soon() {
                     let by = local_time(a.sign_in_again_by, "%Y-%m-%d");
-                    let said = format!(" · sign in again by {by} ({} days)", a.days_left());
-                    // A warning in its last days.
-                    Span::styled(said, if a.due_soon() { fg(theme::current().warning) } else { dim() })
+                    Some(format!(" · sign in again by {by} ({} days)", a.days_left()))
+                } else {
+                    None
                 };
                 let mut spans = vec![
                     Span::styled(icons::DOT.padded(), fg(theme::current().good)),
@@ -155,7 +156,10 @@ impl Account {
                 if a.client == Client::Loopback {
                     spans.push(Span::styled(" as the development client", dim()));
                 }
-                spans.extend([again, key("L"), Span::styled("sign out", dim())]);
+                if let Some(again) = again {
+                    spans.push(Span::styled(again, fg(theme::current().warning)));
+                }
+                spans.extend([key("L"), Span::styled("sign out", dim())]);
                 Line::from(spans)
             }
             (None, None) => Line::from(vec![

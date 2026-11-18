@@ -217,6 +217,10 @@ pub enum HostAction {
     /// Run one of its analyzers on a drive's tracks (`locallibrary analyze`).
     #[serde(rename = "analyze")]
     Analyze(AnalyzeAction),
+    /// Run one of its commands with these params, as from a menu where the user is: one planned
+    /// first (`plan = true`) is planned and confirmed as any.
+    #[serde(rename = "command")]
+    Command(CommandAction),
     /// Save a drive in the store as a snapshot (`locallibrary pull`).
     #[serde(rename = "pull")]
     Pull(DriveAction),
@@ -282,6 +286,17 @@ pub struct AnalyzeAction {
     pub tracks: Vec<u32>,
 }
 
+/// `command`'s params.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CommandAction {
+    /// One of the plugin's commands.
+    pub command: String,
+    /// As the command's `params` schema says.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub params: Map<String, Value>,
+}
+
 impl ExportAction {
     /// What it writes out: the set it names, the mix it names, else the drive's library. None when
     /// it names both a set and a mix.
@@ -301,7 +316,11 @@ impl HostAction {
         match self {
             HostAction::ArtFetch(f) => Some((ProviderKind::Artwork, f)),
             HostAction::TrackFetch(f) => Some((ProviderKind::Metadata, f)),
-            HostAction::Export(_) | HostAction::Analyze(_) | HostAction::Pull(_) | HostAction::Sync(_) => None,
+            HostAction::Export(_)
+            | HostAction::Analyze(_)
+            | HostAction::Command(_)
+            | HostAction::Pull(_)
+            | HostAction::Sync(_) => None,
         }
     }
 
@@ -311,6 +330,7 @@ impl HostAction {
             HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => Some(&f.drive),
             HostAction::Export(e) => e.drive.as_deref(),
             HostAction::Analyze(a) => Some(&a.drive),
+            HostAction::Command(_) => None,
             HostAction::Pull(d) | HostAction::Sync(d) => Some(&d.drive),
         }
     }
@@ -322,6 +342,7 @@ impl HostAction {
             HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => (Some(&mut f.drive), Some(&mut f.tracks)),
             HostAction::Export(e) => (e.drive.as_mut(), None),
             HostAction::Analyze(a) => (Some(&mut a.drive), Some(&mut a.tracks)),
+            HostAction::Command(_) => (None, None),
             HostAction::Pull(d) | HostAction::Sync(d) => (Some(&mut d.drive), None),
         }
     }
@@ -364,6 +385,13 @@ impl HostAction {
             }
             HostAction::Analyze(a) if !c.analyzers.iter().any(|x| x.name == a.analyzer) => {
                 Err(format!("no analyzer {:?}", a.analyzer))
+            }
+            HostAction::Command(x) => {
+                let Some(command) = c.commands.iter().find(|y| y.name == x.command) else {
+                    return Err(format!("no command {:?}", x.command));
+                };
+                let params = Value::Object(x.params.clone());
+                check_params(command.params.as_ref(), &params).map_err(|e| format!("params: {}", e.message))
             }
             _ => Ok(()),
         }

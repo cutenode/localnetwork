@@ -1,12 +1,11 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { ada, neon, neonTide, request } from '#lib/testing/requests.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import ReviewPage from './+page.svelte';
 
 	/** The staff review of a change request whose avatar is a type the site won't show, which approval refuses. */
 	const { Story } = defineMeta({ title: 'Patterns/Request review' });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const data = {
 		viewer: ada,

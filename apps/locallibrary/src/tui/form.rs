@@ -65,6 +65,9 @@ pub enum For {
     /// The keys a sign-in takes (their titles, by name) and the account's name, going back on
     /// this (see [`super::plugins::keys`]): closed, they're never entered.
     Keys(indexmap::IndexMap<String, String>, std::sync::mpsc::Sender<locallibrary::plugin::EnteredKeys>),
+    /// What to do with the access plugins had to this account before it was signed out (see
+    /// [`super::plugins::restoring`]): closed, it stays off.
+    Restore(locallibrary::plugin::AccountId),
 }
 
 pub struct Field {
@@ -223,6 +226,7 @@ impl App {
                         For::Access(plugin, choices) => self.save_access(plugin, choices, params),
                         For::AskAccess(reply) => super::plugins::access::answer(&reply, &params),
                         For::Keys(keys, reply) => super::plugins::keys::answer(&keys, &reply, &params),
+                        For::Restore(account) => self.restore_access(account, params),
                     };
                 }
                 Err((i, why)) => (f.selected, f.error) = (i, Some(why)),
