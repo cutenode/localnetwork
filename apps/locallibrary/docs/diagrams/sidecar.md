@@ -155,7 +155,7 @@ flowchart TD
     hub --> store["Store<br/>store.info, store.history, store.verify, store.copies, store.serve, library.list, snapshot.library, undo.list, edits.list, smart.list"]
     hub --> plays["Plays and sets<br/>plays.history, plays.archive, plays.stats, sessions.list, sets.list, sets.get, sets.played, sets.suggest, mix.reports.list, mix.reports.get, profile.build, profile.document, profile.prefs"]
     hub --> settings["Settings and players<br/>settings.schema, settings.profile, settings.show, settings.export, players.models, players.show, player.show, recordings.list"]
-    hub --> other["Others<br/>collection.info, collection.library, collection.diff, analysis.bench, account.status, account.check, account.client_metadata, accounts.list, accounts.access.list"]
+    hub --> other["Others<br/>collection.info, collection.library, collection.diff, analysis.bench, account.status, account.check, account.flags, account.client_metadata, accounts.list, accounts.access.list"]
     hub --> plugins["Plugins<br/>plugins.list, plugins.describe, plugins.settings, plugins.run, plugins.panel, plugins.checks, plugins.provide, plugins.providers, plugins.roles, plugins.store.verify"]
     control ~~~ plays
     fleet ~~~ settings

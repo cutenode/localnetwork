@@ -1,4 +1,5 @@
-import { AuthRequiredError, verifyJwt } from '@atproto/xrpc-server';
+import { P256_JWT_ALG, SECP256K1_JWT_ALG } from '@atproto/crypto';
+import { AuthRequiredError, cryptoVerifySignatureWithKey, verifyJwt } from '@atproto/xrpc-server';
 
 export class ServiceAuthError extends Error {
 	constructor(message: string) {
@@ -7,13 +8,16 @@ export class ServiceAuthError extends Error {
 	}
 }
 
+/** The algs atproto keys sign with. */
+const SIGNING_ALGS = new Set([P256_JWT_ALG, SECP256K1_JWT_ALG]);
+
 type VerifiedJwt = Awaited<ReturnType<typeof verifyJwt>>;
 
 export type ServiceJwtPayload = Omit<VerifiedJwt, 'iss'> & { iss: string };
 
 /**
  * Verifies an inbound atproto inter-service JWT (the `Authorization: Bearer`
- * a space host sends with `notifyWrite`) with the reference implementation
+ * a caller's PDS signs for `getFlags` or `requestIndex`) with the reference implementation
  * from @atproto/xrpc-server: audience, method binding (`lxm`, which has to be
  * there), expiry, and the signature against the issuer's atproto key,
  * refreshing the key once in case it rotated. The issuer comes back without
@@ -35,8 +39,17 @@ export async function verifyServiceJwt(
 	let payload: VerifiedJwt;
 
 	try {
-		payload = await verifyJwt(token, options.audience, options.lxm, (iss, forceRefresh) =>
-			options.getSigningKey(issuerDid(iss), forceRefresh)
+		payload = await verifyJwt(
+			token,
+			options.audience,
+			options.lxm,
+			(iss, forceRefresh) => options.getSigningKey(issuerDid(iss), forceRefresh),
+			async (key, msgBytes, sigBytes, alg) => {
+				// @atproto/crypto only checks alg against the key when alg is truthy, so "" would verify with any key's alg.
+				if (!SIGNING_ALGS.has(alg)) throw new Error(`Unsupported jwt alg "${alg}"`);
+
+				return cryptoVerifySignatureWithKey(key, msgBytes, sigBytes, alg);
+			}
 		);
 	} catch (error) {
 		// A part that isn't base64url JSON throws JSON.parse's error, not one of verifyJwt's.

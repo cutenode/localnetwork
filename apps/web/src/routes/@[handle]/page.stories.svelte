@@ -4,6 +4,7 @@
 	import { NEON, NEON_CREW, neonProfile } from '#lib/testing/profiles.ts';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import type { FollowState, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Layout from '../+layout.svelte';
 	import Page from './+page.svelte';
 
@@ -44,8 +45,6 @@
 	});
 
 	const followState = (followers: number, following = false) => Promise.resolve({ followers, following });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet page(pageData: ReturnType<typeof data>, form: { error: string; values: undefined; reauth: boolean } | null = null)}

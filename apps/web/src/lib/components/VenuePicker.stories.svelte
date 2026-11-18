@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { Place, PlacesResponse } from '#lib/places.ts';
 	import type { AddVenueResponse, VenueOption, VenuesResponse } from '#lib/venues.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import VenuePicker from './VenuePicker.svelte';
 
 	const venues: VenueOption[] = [
@@ -38,8 +39,6 @@
 			};
 		}
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Types `text` into the field named `label`, then waits out the search's pause. */
 	const typeInto = async (canvasElement: HTMLElement, label: string, text: string) => {

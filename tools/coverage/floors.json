@@ -16,6 +16,11 @@
 			"functions": 98.3,
 			"regions": 98.3
 		},
+		"crates/loclib-anlz": {
+			"lines": 98.4,
+			"functions": 95.7,
+			"regions": 97
+		},
 		"crates/loclib-audio": {
 			"lines": 98.7,
 			"functions": 97.9,

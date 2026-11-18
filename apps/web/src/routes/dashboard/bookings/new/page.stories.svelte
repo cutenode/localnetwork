@@ -3,6 +3,7 @@
 	import { expect, within } from 'storybook/test';
 	import { inquiryDefaults } from '#lib/shows.ts';
 	import type { Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** The booking inquiry form, to an act's managers or to a DJ Find DJs lists, who answers for themself. */
@@ -32,8 +33,6 @@
 
 	/** The act Neon Tide, whose managers answer. */
 	const act = { ...dj, to: { uri: 'at://did:plc:root/computer.localnetwork.project/2', name: 'Neon Tide', avatarUrl: null, place: 'Berlin, DE', href: '/projects/neon-tide', dj: false }, asks: [] };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story

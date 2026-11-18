@@ -1,0 +1,57 @@
+# Values the ANLZ readers and writers branch on (crates/locallibrary/src/anlz*), for libFuzzer's -dict.
+# Integers are big-endian, as the files have them.
+
+# Section tags
+"PMAI"
+"PPTH"
+"PVBR"
+"PQTZ"
+"PQT2"
+"PCOB"
+"PCO2"
+"PCPT"
+"PCP2"
+"PWAV"
+"PWV2"
+"PWV3"
+"PWV4"
+"PWV5"
+"PWV6"
+"PWV7"
+"PWVC"
+"PSSI"
+
+# Header lengths: PMAI's, a section's smallest, PPTH's, PQTZ's, PSSI's
+"\x00\x00\x00\x1c"
+"\x00\x00\x00\x0c"
+"\x00\x00\x00\x10"
+"\x00\x00\x00\x18"
+"\x00\x00\x00\x20"
+
+# A section with a header and nothing after it: header and total length 12
+"\x00\x00\x00\x0c\x00\x00\x00\x0c"
+
+# Waveform header fields as rekordbox 6 writes them, and the detail rate (150 columns a second)
+"\x00\x01\x00\x00"
+"\x00\x96"
+
+# PQTZ: its two unexplained u32s, and a beat (beat 1 of its bar, 120.00 BPM, at 0 ms)
+"\x00\x00\x00\x00\x00\x08\x00\x00"
+"\x00\x01\x2e\xe0\x00\x00\x00\x00"
+
+# PCOB list kinds (memory cues, hot cues), cue kinds (a point, a loop), an active loop's status
+"\x00\x00\x00\x00"
+"\x00\x00\x00\x01"
+"\x00\x00\x00\x02"
+"\x00\x00\x00\x04"
+
+# PSSI: entry length 24, moods 1-3 (low, mid, high), and the start of the XOR mask
+"\x00\x00\x00\x18"
+"\x00\x01"
+"\x00\x02"
+"\x00\x03"
+"\xcb\xe1\xee\xfa\xe5\xee\xad\xee\xe9\xd2"
+
+# An empty UTF-16BE string's terminator, and the start of /Contents/
+"\x00\x00"
+"\x00/\x00C\x00o\x00n\x00t\x00e\x00n\x00t\x00s\x00/"

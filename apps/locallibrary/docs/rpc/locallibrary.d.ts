@@ -1517,6 +1517,11 @@ export type FormatApply = {
   check_capacity?: boolean;
 };
 
+export type AccountFlagsRequest = {
+  /** Ask the website now, however recent its last answer or failure. */
+  refresh?: boolean;
+};
+
 export type AccountLoginRequest = {
   /**
    * A handle (`alice.bsky.social`), a DID, or the account's server (`https://bsky.social`).
@@ -1535,7 +1540,10 @@ export type AccountLoginRequest = {
    * `$LOCALLIBRARY_SESSION_STORE=file`.
    */
   session_file?: boolean | null;
-  /** Scopes to ask for (default: `atproto`, which identifies you and nothing more). */
+  /**
+   * Scopes to ask for (default: `atproto`, which identifies you, and
+   * [`atmosphere::FLAGS_SCOPE`], tokens for two methods of Local Network's website).
+   */
   scopes?: string[];
   /**
    * Also allow publishing: writing the My Settings, profile, set and recording records to the
@@ -6310,6 +6318,32 @@ export type Storage =
    */
   | "file";
 
+/** What `account flags` shows. */
+export type FlagReport = {
+  /** Every flag this version knows. */
+  flags: FlagState[];
+  freshness: Freshness;
+  /** When the website last answered, however long ago. */
+  fetched_at: string | null;
+  /** The session can't ask about flags that target an account or group: only a new sign-in can. */
+  needs_sign_in: boolean;
+};
+
+/** A flag in [`FlagReport`]. */
+export type FlagState = {
+  key: string;
+  on: boolean;
+};
+
+/** How much an answer can be gone by. */
+export type Freshness =
+  /** Younger than [`FRESH`]. */
+  | "fresh"
+  /** The website hasn't answered since, but it's younger than [`LAST_KNOWN_GOOD`]. */
+  | "stale"
+  /** No answer, or one older than that: every flag is off. */
+  | "none";
+
 /** A sign-in waiting for the browser. */
 export type LoginStart = {
   /** Pass to [`finish_login`] / [`finish_login_with_url`]. */
@@ -10323,6 +10357,8 @@ export interface Methods {
   "account.status": { params: NoParams; result: AccountStatus };
   /** read method; long running: sends `progress`, can be cancelled */
   "account.check": { params: NoParams; result: AccountInfo };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "account.flags": { params: AccountFlagsRequest; result: FlagReport };
   /** immediate method */
   "account.login.begin": { params: AccountLoginRequest & WriteOptions; result: LoginStart };
   /** immediate method; long running: sends `progress`, can be cancelled */

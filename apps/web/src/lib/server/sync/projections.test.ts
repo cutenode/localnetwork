@@ -493,6 +493,28 @@ describe('createProjections', () => {
 			expect(await rows()).toEqual([]);
 		});
 
+		it("indexes a party space's party record only from the root, at its key, and drops it when deleted", async () => {
+			const partySpace = sharedSpace(ROOT, 'party', '3party');
+			const party = { basics: { name: 'Night Shift' }, createdAt: now, updatedAt: now };
+			const rows = () => t.db.selectFrom('party').select(['spaceUri', 'skey', 'name']).execute();
+
+			await upsert(partySpace, ALICE, COLLECTION.party, 'self', party);
+			await upsert(sharedSpace(ALICE, 'party', '3party'), ROOT, COLLECTION.party, 'self', party);
+			await upsert(partySpace, ROOT, COLLECTION.party, 'other', party);
+			// Only a party's space holds a party.
+			await upsert(sharedSpace(ROOT, 'venue', '3venue'), ROOT, COLLECTION.party, 'self', party);
+			await upsert(partySpace, ROOT, COLLECTION.party, 'self', { ...party, basics: {} });
+			expect(await rows()).toEqual([]);
+
+			await upsert(partySpace, ROOT, COLLECTION.party, 'self', party);
+			expect(await rows()).toEqual([{ spaceUri: partySpace, skey: '3party', name: 'Night Shift' }]);
+
+			await remove(partySpace, ALICE, COLLECTION.party, 'self');
+			expect(await rows()).toHaveLength(1);
+			await remove(partySpace, ROOT, COLLECTION.party, 'self');
+			expect(await rows()).toEqual([]);
+		});
+
 		it('ignores records keyed by the wrong DID and listing statuses under any other key', async () => {
 			await upsert(space, ROOT, COLLECTION.invite, ALICE, {
 				subject: BOB,

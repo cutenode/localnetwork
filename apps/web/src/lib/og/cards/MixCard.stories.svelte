@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import CardPreview from './CardPreview.svelte';
 	import { avatar, longName, waveform } from './fixtures.ts';
 	import MixCard from './MixCard.svelte';
@@ -8,8 +9,6 @@
 	const { Story } = defineMeta({ title: 'Link previews/Mix', component: MixCard, tags: ['autodocs'] });
 
 	const mix = { title: 'Late Room', performer: 'Neon Tide', durationSecs: 3723, tracks: 31, cover: avatar, waveform };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="With a cover" asChild>

@@ -76,6 +76,84 @@ describe('space URIs', () => {
 		);
 	});
 
+	describe('on any string', () => {
+		const validUri = fc.oneof(
+			fc.tuple(did, nsid, key).map(([authority, type, skey]) => spaceUri(authority, type, skey)),
+			fc
+				.tuple(did, nsid, key, did, nsid, key)
+				.map(([authority, type, skey, author, collection, rkey]) =>
+					spaceRecordUri(spaceUri(authority, type, skey), author, collection, rkey)
+				),
+			fc.tuple(did, nsid, key).map(([author, collection, rkey]) => publicRecordUri(author, collection, rkey))
+		);
+
+		/** What URIs from other repos and XRPC bodies look like when they're off by a little: a valid one with one edit. */
+		const nearUri = fc
+			.tuple(
+				validUri,
+				fc.nat(),
+				fc.nat({ max: 3 }),
+				fc.oneof(
+					fc.constantFrom(
+						'/',
+						'//',
+						'?',
+						'?x=1',
+						'#',
+						'#/x',
+						'%2F',
+						'%',
+						' ',
+						'\n',
+						'.',
+						'..',
+						':',
+						'@',
+						'A',
+						'did:plc:'
+					),
+					fc.string({ maxLength: 4 })
+				)
+			)
+			.map(([uri, at, cut, insert]) => {
+				const index = at % (uri.length + 1);
+
+				return uri.slice(0, index) + insert + uri.slice(index + cut);
+			});
+
+		// A fragment the AT URI syntax allows, which an edit anywhere in the URI seldom makes.
+		const withFragment = validUri.map((uri) => `${uri}#/fragment`);
+
+		const anyUri = fc.oneof(nearUri, withFragment, fc.string(), fc.string({ unit: 'binary' }), fc.webUrl());
+
+		it('parses a URI only when its parts build it back exactly, and never throws', () => {
+			fc.assert(
+				fc.property(anyUri, (uri) => {
+					const space = parseSpaceUri(uri);
+					const record = parseSpaceRecordUri(uri);
+					const pub = parsePublicRecordUri(uri);
+
+					const rebuilt = [
+						space ? spaceUri(space.authority, space.type, space.skey) : null,
+						record
+							? spaceRecordUri(
+									spaceUri(record.authority, record.type, record.skey),
+									record.author,
+									record.collection,
+									record.rkey
+								)
+							: null,
+						pub ? publicRecordUri(pub.did, pub.collection, pub.rkey) : null
+					].filter((built) => built !== null);
+
+					expect(rebuilt).toEqual(rebuilt.map(() => uri));
+					// A URI is one kind or none.
+					expect(rebuilt.length).toBeLessThanOrEqual(1);
+				})
+			);
+		});
+	});
+
 	it('refuses URIs that are not valid record or space URIs', () => {
 		const space = `at://${ROOT}/space/computer.localnetwork.space.audit/main`;
 		const record = `${space}/did:plc:alice/computer.localnetwork.moderation.request/3abc`;

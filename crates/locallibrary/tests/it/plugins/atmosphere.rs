@@ -199,7 +199,9 @@ fn a_session_that_may_not_write_it_says_how_to_sign_in_again() {
     assert_eq!((error.code(), error.reason()), ("account", Some(Reason::MissingScope)), "{error}");
     let again = &error.detail().actions[0];
     assert_eq!(again.method.as_deref(), Some("account.login.begin"));
-    assert_eq!(again.params["scopes"], json!(["atproto", "repo:fm.plyr.track?action=create&action=update"]));
+    let asked =
+        json!(["atproto", locallibrary::atmosphere::FLAGS_SCOPE, "repo:fm.plyr.track?action=create&action=update"]);
+    assert_eq!(again.params["scopes"], asked);
     assert_eq!(again.label, "Sign in again, allowing fm.plyr.track records");
 
     let mut other = e.clone();

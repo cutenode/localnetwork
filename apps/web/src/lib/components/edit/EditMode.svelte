@@ -240,7 +240,7 @@
 {#if !role || !subject}
 	{@render children(view)}
 {:else if phase === 'edit'}
-	<form bind:this={formElement} method="POST" action="?/save" class="contents">
+	<form bind:this={formElement} method="POST" action="?/save" enctype="multipart/form-data" class="contents">
 		<input type="hidden" name="cid" value={version} />
 		{@render children(view)}
 		{@render bar()}

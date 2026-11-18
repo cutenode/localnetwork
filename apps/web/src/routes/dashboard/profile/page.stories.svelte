@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import type { ProfileView, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** The profile editor of a DJ Find DJs lists, with Take inquiries off and on. */
@@ -42,8 +43,6 @@
 	};
 
 	const on = { ...off, profile: { ...profile, record: { ...profile.record, takesInquiries: true } }, values: { ...off.values, takesInquiries: true } };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story

@@ -5,12 +5,13 @@
 	import { accountLayout, auditEntry } from '#lib/testing/account.ts';
 	import { request } from '#lib/testing/requests.ts';
 	import type { ChannelView, HeldRecordView } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Activity from './activity/+page.svelte';
 	import Data from './data/+page.svelte';
 	import Landing from './+page.svelte';
 	import Requests from './requests/+page.svelte';
 
-	/** The Account area: a landing list, then a page each for activity, what's held, and requests to staff. */
+	/** The Account area: a landing list, then a page each for activity, what's held, and review requests. */
 	const { Story } = defineMeta({
 		title: 'Patterns/Account',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard/account') } } } }
@@ -21,8 +22,6 @@
 	const failed = Promise.reject(new Error('disk gone'));
 
 	failed.catch(() => {});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
 
