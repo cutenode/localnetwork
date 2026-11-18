@@ -11,8 +11,10 @@
 //! go out, tracks to name or never name, rounding, genre spellings) are [`ProfilePrefs`], kept in
 //! the store.
 //!
-//! Genres, artists, era and energy describe the collection: every track in the libraries read
-//! (drives' and the store's latest snapshots), each once, however often it was played. The rest
+//! Genres, artists, era and energy describe the collection, each track once, however often it was
+//! played: rekordbox's own collection on this computer (`master.db`, see [`crate::masterdb`]) when
+//! the profile reads it, else every track in the libraries read (drives' and the store's latest
+//! snapshots), which are copies of it as it was when they were exported. The rest
 //! describe what was *played* (every appearance in a set counts). Until the DJ declares sets, the
 //! sessions players recorded stand in for them ([`Basis::Sessions`]): practice and track checks
 //! land in those too, so the report says so and the document never counts them. Without either,
@@ -112,6 +114,9 @@ pub struct Sources<'a> {
     pub store: Option<&'a Store>,
     /// Store libraries to read (`None`: all of them).
     pub libraries: Option<Vec<Uuid>>,
+    /// rekordbox's `master.db` on this computer. When it reads, it is the collection: the drives'
+    /// and snapshots' tracks still find the sets' and history lists' entries, but don't count.
+    pub collection: Option<std::path::PathBuf>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -192,7 +197,7 @@ pub struct Cached {
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SourceInfo {
-    /// `drive` or `store`.
+    /// `collection` (rekordbox's `master.db` on this computer), `drive` or `store`.
     pub kind: &'static str,
     pub name: String,
     /// History lists (sessions) read.
@@ -478,6 +483,9 @@ pub struct StyleValue {
 enum Origin {
     Drive(usize),
     Snapshot(usize),
+    /// rekordbox's collection on this computer: its files are full paths here
+    /// ([`crate::masterdb::Collection::library_from_root`]).
+    Collection,
 }
 
 struct Files<'a> {
@@ -519,6 +527,17 @@ impl<'a> Files<'a> {
                 let h = self.snapshots[i].get(&key.to_lowercase())?;
                 let store = self.store.expect("Origin::Snapshot is only made from a store");
                 Some((store.object_path(h), Some(h.to_hex())))
+            }
+            Origin::Collection => {
+                // A key has lost the path's leading `/`; on Windows it starts with the drive (`C:/`).
+                let path = match cfg!(windows) {
+                    true => std::path::PathBuf::from(key),
+                    false => std::path::Path::new("/").join(key),
+                };
+                let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file())?;
+                let mtime = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok());
+                let content = mtime.map(|m| format!("{}\u{1f}{}\u{1f}{}", path.display(), meta.len(), m.as_nanos()));
+                Some((path, content))
             }
         }
     }
@@ -796,6 +815,27 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
         warnings: Vec::new(),
     };
 
+    // rekordbox's collection on this computer first: when it reads, it's the collection, and its
+    // tracks' analysis is read from rekordbox's own folder.
+    let mut from_collection = false;
+    if let Some(path) = &sources.collection {
+        ctx.check()?;
+        match crate::masterdb::open(path, &crate::masterdb::resolve_key(None)) {
+            Ok(c) => {
+                let lib = c.library_from_root(&crate::masterdb::CloudFolders::this_computer());
+                b.add_collection(&lib, Origin::Collection);
+                b.sources.push(SourceInfo {
+                    kind: "collection",
+                    name: "rekordbox on this computer".into(),
+                    history_lists: 0,
+                    tracks: lib.tracks.len(),
+                });
+                from_collection = true;
+            }
+            Err(e) => b.warnings.push(format!("rekordbox's collection ({}): {e}", path.display())),
+        }
+    }
+
     let mut cached = Cached::default();
     // The store's history lists, and each drive's: the sessions, without declared sets.
     let mut archive = None;
@@ -817,7 +857,9 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
                 Ok(dbs) => {
                     let o = b.files.snapshot(&snap);
                     tracks += dbs.primary().tracks.len();
-                    b.add_collection(dbs.primary(), Origin::Snapshot(o));
+                    if !from_collection {
+                        b.add_collection(dbs.primary(), Origin::Snapshot(o));
+                    }
                 }
                 Err(e) => b.warnings.push(format!("library {}: {e}", lib.name)),
             }
@@ -861,7 +903,9 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
         if let Some(e) = &dbs.plus_error {
             b.warnings.push(format!("{}: {e}; only export.pdb was read", d.name()));
         }
-        b.add_collection(dbs.primary(), Origin::Drive(i));
+        if !from_collection {
+            b.add_collection(dbs.primary(), Origin::Drive(i));
+        }
         let history = DriveHistory::of(d, &dbs);
         b.sources.push(SourceInfo {
             kind: "drive",
@@ -876,7 +920,9 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
     }
 
     if b.sources.is_empty() {
-        return Err(Error::NotFound("nothing to build a profile from: no drive, and no library in the store".into()));
+        return Err(Error::NotFound(
+            "nothing to build a profile from: no drive, no library in the store and no rekordbox collection".into(),
+        ));
     }
 
     // The sets: the DJ's own, played in the range, newest first. Once there are any, sessions

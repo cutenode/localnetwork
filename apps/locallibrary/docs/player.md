@@ -302,7 +302,8 @@ needs.
   brings a playlist back from the selected one onto the drive open in the library, and **History**
   (`4`), what players recorded on the drive open in the library, where `enter` opens a list there.
 - **localnetwork** (`g n`): your [DJ profile](sets.md#dj-profile): an overview of your collection
-  (tracks, genres, artists, release years, and how many sets), then the sections that can be
+  (tracks, genres, artists, release years, and how many sets; rekordbox's own when it's on this
+  computer, built again when you come back to the tab after rekordbox saved), then the sections that can be
   published (Sets, Energy, Genres, Artists, Era and Collection), with what each would reveal. `i`
   puts a section in the public document or takes it out, `h` hides an artist, `D` shows the
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
