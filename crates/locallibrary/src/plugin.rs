@@ -85,7 +85,7 @@ pub use accounts::restore::{AutoRestore, Chosen, Restoring};
 pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
 pub use accounts::{REFRESH_BEFORE, WARN_DAYS, due_soon};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
-pub use analyzers::Analyzed;
+pub use analyzers::{Analyzed, Audio};
 pub use apply::ApplyFields;
 pub use atmosphere::RecordWrite;
 pub(crate) use blobs::abandoned as abandoned_scratch;
