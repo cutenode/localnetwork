@@ -2,8 +2,9 @@
 //! sample tables from the counts they claim (`Vec::with_capacity(count)`) and a `data` tag from
 //! its atom's size, before reading any of it: a file claiming 4 billion samples asks for 16 GiB,
 //! which aborts the process wherever memory isn't overcommitted (Windows, Linux with
-//! `vm.overcommit_memory=2`), and a tag claiming more asks for it anywhere. An abort can't be
-//! caught, so such a file is refused here.
+//! `vm.overcommit_memory=2`), and a tag claiming more asks for it anywhere. It reads each sample
+//! into a buffer of the size the file gives it, so one claiming 4 GiB asks for that for every
+//! packet. An abort can't be caught, so such a file is refused here.
 
 use std::fs::File;
 use std::io::{self, BufReader, ErrorKind, Read, Seek, SeekFrom};
@@ -21,6 +22,9 @@ const CONTAINERS: [&[u8; 4]; 12] =
 /// sample size before its count, and entries only when that is 0.
 const TABLES: [(&[u8; 4], u64); 5] = [(b"stsz", 4), (b"stco", 4), (b"co64", 8), (b"stts", 8), (b"stsc", 12)];
 
+const TOO_MANY: &str = "a sample table claims more entries than the file holds";
+const TOO_BIG: &str = "a sample is larger than the file";
+
 /// Deeper than any atom symphonia reads (`moov/udta/meta/ilst/<tag>/data` is 6).
 const DEPTH: u8 = 8;
 
@@ -28,7 +32,8 @@ const DEPTH: u8 = 8;
 const PROBE_LIMIT: u64 = 1 << 20;
 
 /// Refuse `path` when it's an MP4 whose atoms claim more than the file holds: a sample table
-/// whose count wouldn't fit in it, or an atom inside another running past it or the file's end.
+/// whose count wouldn't fit in it, a sample larger than the file, or an atom inside another
+/// running past it or the file's end.
 /// Anything else, MP4 or not, is left for the decoder to make sense of. So is what isn't a regular
 /// file (a FIFO): what this read of it took would be gone when the decoder opened it again, and
 /// its atoms can't be walked without seeking.
@@ -132,21 +137,76 @@ fn walk<R: Read + Seek>(r: &mut R, mut at: u64, end: u64, len: u64, level: Level
             if let Some(why) = walk(r, first, body_end, len, inner)? {
                 return Ok(Some(why));
             }
-        } else if let Some(&(_, entry)) = TABLES.iter().find(|(t, _)| **t == kind) {
-            // Past the version and flags.
-            r.seek(SeekFrom::Start(body + 4))?;
-            let sized = &kind == b"stsz";
-            if sized && read_u32(r)? != 0 {
-                at = atom_end;
-                continue;
-            }
-            let count = u64::from(read_u32(r)?);
-            let entries = body + 8 + if sized { 4 } else { 0 };
-            if count * entry > body_end.saturating_sub(entries) {
-                return Ok(Some("a sample table claims more entries than the file holds"));
-            }
+        } else if let Some(why) = table(r, &kind, body, body_end, len)? {
+            return Ok(Some(why));
         }
         at = atom_end;
+    }
+    Ok(None)
+}
+
+/// What's wrong with the atom `kind` whose body runs from `body` to `body_end` in a file of `len`
+/// bytes, if it's one symphonia reads a table or sample sizes from: a count of entries the atom
+/// doesn't hold, or a sample larger than the file. Sizes come from `stsz` (one for every sample,
+/// or each sample's), a fragmented MP4's defaults (`trex`, `tfhd`) and its runs (`trun`).
+fn table<R: Read + Seek>(
+    r: &mut R,
+    kind: &[u8; 4],
+    body: u64,
+    body_end: u64,
+    len: u64,
+) -> io::Result<Option<&'static str>> {
+    if !matches!(kind, b"trex" | b"tfhd" | b"trun") && !TABLES.iter().any(|(t, _)| *t == kind) {
+        return Ok(None);
+    }
+    r.seek(SeekFrom::Start(body))?;
+    let flags = read_u32(r)?;
+    let flagged = |bit: u32| if flags & bit == 0 { 0 } else { 4 };
+    let too_big = |size: u32| (u64::from(size) > len).then_some(TOO_BIG);
+    // Where the entries start, the bytes each takes, and where in one a sample's size is.
+    let (entries, entry, size_at) = match kind {
+        b"stsz" => match read_u32(r)? {
+            0 => (body + 12, 4, Some(0)),
+            size => return Ok(too_big(size)),
+        },
+        // Past the track id, and the default sample description and duration.
+        b"trex" => {
+            r.seek(SeekFrom::Start(body + 16))?;
+            return Ok(too_big(read_u32(r)?));
+        }
+        // Past the track id, then the base data offset (8 bytes), sample description and duration
+        // when the flags say they're there.
+        b"tfhd" if flags & 0x10 != 0 => {
+            r.seek(SeekFrom::Start(body + 8 + 2 * flagged(0x1) + flagged(0x2) + flagged(0x8)))?;
+            return Ok(too_big(read_u32(r)?));
+        }
+        // Past the count, data offset and first sample's flags, each sample's duration, size,
+        // flags and composition offset, as the flags say.
+        b"trun" => (
+            body + 8 + flagged(0x1) + flagged(0x4),
+            u64::from((flags & 0xf00).count_ones()) * 4,
+            (flags & 0x200 != 0).then_some(flagged(0x100) as usize),
+        ),
+        _ => match TABLES.iter().find(|(t, _)| *t == kind) {
+            Some(&(_, entry)) => (body + 8, entry, None),
+            // A `tfhd` without a default sample size.
+            None => return Ok(None),
+        },
+    };
+    let count = u64::from(read_u32(r)?);
+    if count * entry > body_end.saturating_sub(entries) {
+        return Ok(Some(TOO_MANY));
+    }
+    let Some(size_at) = size_at else { return Ok(None) };
+    r.seek(SeekFrom::Start(entries))?;
+    let mut read = [0; 16];
+    for _ in 0..count {
+        let read = &mut read[..entry as usize];
+        r.read_exact(read)?;
+        let size = u32::from_be_bytes(read[size_at..size_at + 4].try_into().expect("4 bytes"));
+        if let Some(why) = too_big(size) {
+            return Ok(Some(why));
+        }
     }
     Ok(None)
 }
