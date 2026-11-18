@@ -15,7 +15,7 @@ export type DjSet = LexiconRead<z.infer<typeof djSetSchema>, localnetwork.dj.set
 /** One account's records: what a project page and its press kit show for each of its DJs. */
 export type DjActivity = { did: string; handle: string | null; profile: DjProfile | null; sets: DjSet[] };
 
-/** What the dashboard home's locallibrary card says about the viewer's own records. */
+/** What Overview's locallibrary card says about the viewer's own records. */
 export type LocallibraryStatus = {
 	/** When their stats were last published, or null when they have none. */
 	statsAt: string | null;

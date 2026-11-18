@@ -598,6 +598,12 @@ export type BookingThreadView = {
 	createdAt: string;
 };
 
+/** A thread in the bookings list, where a closed one keeps why: `withdrawn` is a cancelled inquiry nobody confirmed. */
+export type BookingListThread = BookingThreadView & { withdrawn: boolean };
+
+/** What the directory adds to threads, by their space. */
+export type ThreadProjects = Map<string, NonNullable<BookingThreadView['project']>>;
+
 /** The shows a booking thread links to, which its page shows beside the details. */
 export type BookingShowLinks = {
 	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */

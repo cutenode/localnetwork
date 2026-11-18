@@ -44,7 +44,7 @@
 	];
 
 	const main = [
-		{ href: '/dashboard', label: 'Home', icon: House, exact: true },
+		{ href: '/dashboard', label: 'Overview', icon: House, exact: true },
 		{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, dot: true },
 		{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus }
 	];
