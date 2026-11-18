@@ -31,11 +31,11 @@ tracked_files := f.contents.files if {
 	regex.match(`(^|/)tracked-files\.json$`, f.path)
 }
 
-# The files the Rust code embeds from outside its own crate, which tools/policy.sh lists as
-# {"files": [...]} in embedded-files.json.
-embedded_files := f.contents.files if {
+# What each project's code reads from outside its own folder, which tools/reads/cli.ts lists as
+# {"reads": [{"from": ..., "path": ...}]} in reads.json: a file, or a folder as `<folder>/`.
+reads := f.contents.reads if {
 	some f in input
-	regex.match(`(^|/)embedded-files\.json$`, f.path)
+	regex.match(`(^|/)reads\.json$`, f.path)
 }
 
 # A value that may be one string or a list of them, as a set.

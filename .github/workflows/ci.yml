@@ -33,6 +33,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 jobs:
   # Each output says whether a tool's workflow, or one of its jobs, has something to do (the scope
@@ -97,8 +102,9 @@ jobs:
         uses: ./.github/actions/last-passed
       # Each tool's paths: the files its jobs read, and the shared ones they depend on (the
       # lockfile, `.node-version`, the lint and format configs, its workflow and the local actions
-      # it uses). tools/policy/workflows.rego checks that every project and every file the Rust code
-      # embeds is in one.
+      # it uses). tools/policy/workflows.rego checks that every project is in a filter of its own
+      # (not only a catch-all like repo_checks), and that each project's filter has every file its
+      # code reads from outside its folder (tools/reads/reads.ts finds them).
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -143,11 +149,23 @@ jobs:
               - '.github/actions/pr-comment/**'
               - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
+              # The budgets and coverage jobs run tools/*/cli.ts on this Node.
+              - '.node-version'
+              # What the tests read from other tools' folders: the bug report form, and the
+              # token-exchange services the account plugins name.
+              - '.github/ISSUE_TEMPLATE/locallibrary-bug.yml'
+              - 'apps/web/src/lib/server/token-exchange/services.json'
               - '!**/*.md'
               - '!apps/locallibrary/bombadil/**'
               - '!apps/locallibrary/assets/icon.svg'
             locallibrary_readmes:
               - 'crates/*/README.md'
+            # The Markdown the tests read, which locallibrary's `!**/*.md` leaves out: player.md's key
+            # tables are the keymap's, and plugins.md and how-it-works.md list every shipped plugin.
+            locallibrary_md:
+              - 'apps/locallibrary/docs/player.md'
+              - 'apps/locallibrary/docs/plugins.md'
+              - 'apps/locallibrary/docs/how-it-works.md'
             # What moves the release binary's size, a frame's instructions and the packages the CLI
             # links (release-budgets): the manifests and lockfile, and the Rust that ships, and the
             # tool that measures them. tools/budgets/baseline.ts reads this list too, for the
@@ -208,17 +226,23 @@ jobs:
               - '.cargo/**'
               - '.github/workflows/locallibrary-ci.yml'
             # The web app, and what its Docker image copies in from outside apps/web: the shared
-            # tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
+            # tokens, and the tools' READMEs, docs and changelogs for their pages (see .dockerignore).
+            # Its tests also read its bug report form and docs/link-matrix.md, and `pnpm check`
+            # type-checks the root's tools/ (its tsconfig includes them).
             web: &web
               - 'apps/web/**'
               - 'tools/budgets/**'
               - 'benchmarks/budgets/web.json'
               - 'apps/*/README.md'
               - 'apps/*/docs/*.md'
+              - 'apps/*/CHANGELOG.md'
               - 'README.md'
               - '.github/CONTRIBUTING.md'
               - '.github/SECURITY.md'
               - '.github/labels.yml'
+              - '.github/ISSUE_TEMPLATE/web-bug.yml'
+              - 'docs/link-matrix.md'
+              - 'tools/**/*.ts'
               - 'packages/tokens/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -237,19 +261,21 @@ jobs:
               - '.github/actions/pr-comment/**'
             # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
             # of the above but the Markdown and labels that the tool pages and
-            # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs,
-            # which verify reads, and what only the e2e tests, Lighthouse and the Docker image use.
+            # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs and
+            # the root's tools, which only verify reads, and what only the e2e tests, Lighthouse and
+            # the Docker image use.
             web_integration:
               - *web
               - '!apps/*/README.md'
               - '!apps/*/docs/*.md'
+              - '!apps/*/CHANGELOG.md'
               - '!README.md'
               - '!.github/CONTRIBUTING.md'
               - '!.github/SECURITY.md'
               - '!.github/labels.yml'
               - '!.oxlintrc.json'
               - '!.oxfmtrc.json'
-              - '!tools/oxlint/**'
+              - '!tools/**'
               - '!.dockerignore'
               - '!apps/web/Dockerfile'
               - '!apps/web/tests/docker.test.ts'
@@ -288,6 +314,7 @@ jobs:
               - 'apps/web/**'
               - 'apps/*/README.md'
               - 'apps/*/docs/*.md'
+              - 'apps/*/CHANGELOG.md'
               - 'packages/tokens/**'
               - 'lexicons/**'
               - 'flags/**'
@@ -343,6 +370,7 @@ jobs:
               - '!apps/web/src/lib/mix/fixtures/**'
             localtoolbox:
               - 'apps/localtoolbox/**'
+              - '.github/ISSUE_TEMPLATE/localtoolbox-bug.yml'
               - 'packages/tokens/**'
               - '.oxlintrc.json'
               - '.oxfmtrc.json'
@@ -374,11 +402,15 @@ jobs:
               - '.github/workflows/atstore-ci.yml'
             # The mix report's writer and its reader in the web app. The writer is locallibrary's
             # CLI, built from the workspace (scripts/mix-fixture.ts runs it on rekordcrate's demo
-            # tracks), so it's every Rust crate the CLI builds from.
+            # tracks), so it's every Rust crate the CLI builds from: the plugins it links and the
+            # vendored PDB reader too.
             mix_report:
               - 'apps/locallibrary/src/**'
               - 'apps/locallibrary/Cargo.toml'
               - 'crates/**'
+              - 'plugins/**'
+              - 'vendor/**'
+              - '.github/actions/apt-packages/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -403,12 +435,21 @@ jobs:
               - '.github/zizmor.yml'
               - '.github/dependabot.yml'
             # The policies read config from all over and the list of every file, and ast-grep reads
-            # the code, so only a change to Markdown alone that adds or deletes nothing skips them.
+            # the code, so only a change to Markdown alone that adds, deletes or moves nothing skips
+            # them (dorny/paths-filter reports a moved file as renamed).
             repo_checks:
               - '**'
               - '!**/*.md'
             repo_checks_files:
-              - added|deleted: '**'
+              - added|deleted|renamed: '**'
+            # The Markdown the tools' tests check: the diagrams and Mermaid in the apps' READMEs and
+            # diagram pages, the crate READMEs that are their crates' docs, and the pull request
+            # template the PR issue check has to pass.
+            repo_checks_md:
+              - 'apps/*/README.md'
+              - 'apps/*/docs/diagrams/*.md'
+              - 'crates/*/README.md'
+              - '.github/pull_request_template.md'
             repo_checks_lexicons:
               - 'lexicons/**'
               - 'tools/lexicons.sh'
@@ -493,7 +534,7 @@ jobs:
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
-            set_if locallibrary_linux changed locallibrary
+            if changed locallibrary || changed locallibrary_md; then out[locallibrary_linux]=true; fi
             set_if locallibrary_docs changed locallibrary_readmes
             set_if locallibrary_deny changed locallibrary_deny
             set_if locallibrary_release changed locallibrary_release
@@ -510,7 +551,7 @@ jobs:
             set_if mix_report changed mix_report
             set_if npm_advisories changed npm_advisories
             set_if workflow_lint changed workflow_lint
-            if changed repo_checks || changed repo_checks_files; then out[repo_checks_policy]=true; fi
+            if changed repo_checks || changed repo_checks_files || changed repo_checks_md; then out[repo_checks_policy]=true; fi
             set_if repo_checks_lexicons changed repo_checks_lexicons
             set_if repo_checks_bombadil changed repo_checks_bombadil
             set_if dependency_review changed dependency_review
@@ -532,7 +573,7 @@ jobs:
             set_if localtoolbox changed localtoolbox
             set_if atstore changed atstore
             set_if workflow_lint changed workflow_lint
-            if changed repo_checks || changed repo_checks_files; then out[repo_checks_policy]=true; fi
+            if changed repo_checks || changed repo_checks_files || changed repo_checks_md; then out[repo_checks_policy]=true; fi
             set_if repo_checks_bombadil changed repo_checks_bombadil
             out[repo_checks_text]=true
           fi
@@ -552,7 +593,7 @@ jobs:
           fi
           # Not `all`: a change to this workflow tests its wiring on Linux, and macOS and Windows
           # run only what changed for them.
-          if [ "$other_os" = true ]; then set_if locallibrary_other_os matched locallibrary; fi
+          if [ "$other_os" = true ] && { matched locallibrary || matched locallibrary_md; }; then out[locallibrary_other_os]=true; fi
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
@@ -609,7 +650,8 @@ jobs:
             | select(.event == "merge_group" and .status != "completed") | "\(.id) \(.head_branch)"' |
           while read -r id branch; do
             if [ "$id" = "$RUN_ID" ]; then continue; fi
-            if gh api "repos/$GH_REPO/git/ref/heads/$branch" --silent 2>&1 | grep -q 'HTTP 404'; then
+            # gh exits 1 on the 404 it looks for, so its output is checked rather than piped.
+            if ! response=$(gh api "repos/$GH_REPO/git/ref/heads/$branch" --silent 2>&1) && [[ $response == *'HTTP 404'* ]]; then
               echo "Cancelling run $id: $branch is gone"
               gh run cancel "$id" || true
             fi
