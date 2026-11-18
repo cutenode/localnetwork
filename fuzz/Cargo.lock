@@ -2258,6 +2258,7 @@ name = "localnetwork-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
+ "chrono",
  "indexmap",
  "libfuzzer-sys",
  "locallibrary",
