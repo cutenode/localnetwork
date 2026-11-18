@@ -152,7 +152,7 @@ Short and quiet; nothing on the page itself moves.
 
 ## Loading only for editors
 
-The first-load budget is 181 KiB of uncompressed JavaScript ([tests/build.test.ts](../tests/build.test.ts)), with about 169 KiB used, so about 12 KiB is left for everything every visitor downloads. Edit mode spends almost none of it.
+What every visitor downloads, about 173 KiB of uncompressed JavaScript, may grow by 1 KiB in a pull request ([benchmarks/budgets/web.json](../../../benchmarks/budgets/web.json), measured by [scripts/bundle-sizes.ts](../scripts/bundle-sizes.ts)). Edit mode spends almost none of it.
 
 - **In the first load**: nothing. The bar is server-rendered HTML.
 - **In each page's own chunk**: `EditMode`, `EditBar`, `InlineText` and `AddSlot`, which the server draws the bar and a `?edit` form with, and the dynamic import call.
