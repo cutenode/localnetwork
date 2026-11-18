@@ -26,7 +26,7 @@ describe('/for', () => {
 		const music = page.getByRole('navigation', { name: 'Just here for the music' });
 		await expect.element(music.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows');
 		await expect.element(music.getByRole('link', { name: 'Charts' })).toHaveAttribute('href', '/charts');
-		await expect.element(music.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+		await expect.element(music.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/djs');
 	});
 
 	it('leaves the totals out while the directory is offline or empty', async () => {

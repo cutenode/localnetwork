@@ -143,7 +143,7 @@ flowchart LR
   Pages["Pages and services"]
   Pages -- "home, /for, /for/djs, /for/promoters,<br/>staff overview" --> Q1["getStats"]
   Pages -- "home, /for/djs, /for/promoters,<br/>dashboard sidebar, staff's performers" --> Q10["searchProjects"]
-  Pages -- "/projects" --> Q2["searchPerformers"]
+  Pages -- "/djs" --> Q2["searchPerformers"]
   Pages -- "/match, /for/promoters" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
   Pages -- "home, /shows, /for/djs, performer pages" --> Q5["listShows"]

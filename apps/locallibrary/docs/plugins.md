@@ -9,8 +9,9 @@ library through locallibrary, within what its capabilities allow, and an operati
 locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
 and journaled.
 
-For now only plugins built into locallibrary run. There's no way to install another yet. Those
-are:
+There's no way to install a plugin yet: those built into locallibrary run, and one you're writing
+runs for as long as one command, the player or the sidecar does (see [Writing one](#writing-one)).
+The built-in ones are:
 
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
@@ -37,6 +38,11 @@ are:
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).
+- **discogs**: finds front covers on Discogs for `locallibrary art fetch`, and an album's title,
+  year, record label and style for `locallibrary track fetch` (see [Providers](#providers)).
+  Discogs answers searches only for a signed-in account: make a personal access token at
+  discogs.com/settings/developers and sign in with `locallibrary account discogs sign-in --for
+  discogs`. Until then it finds nothing and says so.
 - **musicbrainz**: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
   (`musicbrainz.recording`, `musicbrainz.release`, `musicbrainz.artists`, with the ISRC as
   `musicbrainz.isrc` and the names the artists' go with as `musicbrainz.credits`). The recording
@@ -158,6 +164,9 @@ are:
   `archive` account type, signed in to with the pair of S3 keys from
   archive.org/account/s3.php. The Archive doesn't say whose keys they are, so you name the
   account. Its scope `upload` uploads items to the Internet Archive.
+- **discogs-account**: an account plugin, the `discogs` account type, signed in to with a
+  personal access token from discogs.com/settings/developers. Its scope `database` searches the
+  Discogs database.
 - **google-account**: an account plugin, the `google` account type, signed in to through Local
   Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
@@ -168,10 +177,11 @@ are:
   the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
   reading from SoundCloud as you.
 
-coverart, musicbrainz, plyr, archive, youtube, mixcloud and soundcloud are the only ones that go
-online, and
+coverart, musicbrainz, discogs, plyr, archive, youtube, mixcloud and soundcloud are the only ones
+that go online, and
 only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
-between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to
+between the first two and to Discogs' API from the third, as each asks: `art fetch` and `track
+fetch`; `sets publish` when it's about to
 publish (signed in, with `--yes` or a terminal to ask in), for the tracks it names without IDs,
 unless `--no-lookup` (or `plugin roles recording --none`, for good); `analyze --plugin
 musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video`,
@@ -193,9 +203,11 @@ clashing with each other are both left out.
 ## Where they show up
 
 On the command line, what a plugin adds runs as commands of its own or of locallibrary's
-(`analyze`, `export --format`, `import`, `art fetch`). In the player (`locallibrary tui`) it's in the
-palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks or a
-playlist, with a form for what it takes, a param the plugin fills from what's selected (the
+(`analyze`, `export --format`, `import`, `art fetch`), and `locallibrary collection --help` lists
+the commands about rekordbox's collection on this computer. In the player (`locallibrary tui`) it's
+in the palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks
+or a playlist (one about the collection is in the palette alone, and needs no drive open), with a
+form for what it takes, a param the plugin fills from what's selected (the
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)).
 
@@ -207,13 +219,14 @@ signed in, and the scopes a plugin may be given, each with the requests it cover
 code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
 locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
-google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
-take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
+google-account, mixcloud-account and soundcloud-account do, and archive-account, discogs-account
+and plyr-account take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
 info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
 youtube asks for a google account to upload videos with; archive, mixcloud, plyr and soundcloud
-each for an account of their own type to upload with.
+each for an account of their own type to upload with; discogs for a discogs account to search
+with.
 
 ## Accounts
 
@@ -233,11 +246,20 @@ that you left out, and the sign-in says which. `locallibrary account TYPE:NAME s
 again as that account, also once it's signed out, asking for what every plugin's access to it
 needs; when the browser signs in to someone else, that account is kept too, but the plugin it was
 for gets no access to it.
-`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
-plugins keep their access, unused until it's signed in again.
+`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can.
+Signing out, or the account's session ending (the service won't refresh it, or says its token is
+no good), removes every plugin's access to it, and a plugin that used it as its default has none
+until you pick one. This computer remembers that access, never in a copy of the store. Signing in
+again asks what to do with it: Restore (enter) gives it all back, Choose picks the plugins and
+their scopes, and Reset forgets it. The plugin you sign in for gets its own back either way.
+`--restore` or `--reset` answers without asking; with neither and no terminal, the access stays
+off and the sign-in prints `locallibrary account TYPE:NAME restore`, which gives it back later.
+`locallibrary account TYPE:NAME --restore-automatically on` (or with no account, for every account
+without a setting of its own) restores it as you sign in without asking, saying in a line what came
+back. `account` lists what's waiting as "access to restore".
 
 `locallibrary plugin access PLUGIN` lists a plugin's access, `--give ACCOUNT` gives it access to
-an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
+an account signed in (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
 the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
 request fails because its account is signed out or wasn't granted a scope, the error offers to
 sign in again as that account, allowing what's missing. A plugin's destination (and publishing
@@ -251,12 +273,14 @@ and in the sidecar, nothing is asked: it fails and says how to resolve it.
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
-uses, saying what for, or signing in to another. Signing in with keys there opens a form saying
+uses, saying what for, or signing in to another. Signing in again to an account plugins had
+access to opens a form with Restore picked (enter gives it all back), Choose taking the scopes
+typed for each plugin (none leaves it off), and Reset. Signing in with keys there opens a form saying
 where to get them, each typed unseen, then the account's name when the service doesn't say.
 
 A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
 player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
-allowing it signs in again in the browser, or asks for the account's keys. A no is remembered: it isn't asked again until
+allowing it signs in again in the browser. A no is remembered: it isn't asked again until
 `locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
 `--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
 how to give it the scope.
@@ -386,7 +410,14 @@ shows what it answers as a list or a table (its rows as they come, when the plug
 labelled values, a tree, a chart (as a table of its points), a picture (said in words) or
 sections of those, or as text or JSON when it answers a plain value (`--json`: as it is, a
 picture as a PNG `data:` URL); an operation shows its plan
-and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back.
+and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back. A
+command the plugin plans first (one that writes files, like a backup) does too: it says what it
+would do and which files it would write (those there already marked, since it replaces them), asks,
+and only then runs (`--dry-run` stops at the plan, `--yes` doesn't ask, and without a terminal or
+with `--json` it doesn't run unless `--yes`); once a file it would write changes, it's planned
+again. One about rekordbox's collection takes no drive. A command that takes a while shows its
+progress and stops on Ctrl-C (esc in the player), and gets a minute to tidy up before it's stopped
+for it.
 Either may ask you something first (which track an entry is, say), or several things at once
 (which track each of a tracklist's entries is): in a terminal you pick from a numbered list for
 each; otherwise, or with `--json`, it stops and says how to answer each with `--choose
@@ -441,10 +472,12 @@ is dropped, and its log says so), so a slow plugin never holds up the player, th
 A plugin may tell you something back, from an event or a service, and suggest one of its own
 operations, or one of locallibrary's own flows on what it contributes: fetching cover art or track
 details from its providers (`art.fetch`, `track.fetch`), exporting in one of its formats
-(`export`) or running one of its analyzers (`analyze`), on a drive known here it names (never a
+(`export`), running one of its analyzers (`analyze`) or one of its commands (`command`), on a
+drive known here it names (never a
 path: one locallibrary doesn't know, the suggestion is left out) and the tracks of it that drive
 has. The player shows it as a message, and "review: ..." in the palette plans the operation,
-shown and asked about as any is, or opens the flow as if you'd started it, filled in: the fetch
+shown and asked about as any is, runs one of its commands as from the palette (`command`: one it
+plans first is shown and asked about), or opens the flow as if you'd started it, filled in: the fetch
 form only from its providers to start with, saying which drive and how many tracks; the export
 form with its options and a set's own name for the file (where it goes is yours to pick, as
 always); or a question before analyzing. The player doesn't export mixes, so it says so for a
@@ -549,6 +582,20 @@ album's details alone. A track without an album is looked up by its title, and g
 from a single of that name, never from an album it's the title track of. One release group found
 by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
+The discogs plugin has one of each too, and searches Discogs once for each album: by its name,
+artist and record label when one of its tracks has a label (read from the library), then by its
+name and artist when that finds nothing, as tags spell labels many ways. A track without an album
+is looked up by its title and artist, as the releases it's on. Only releases titled as the album
+is count, and an album's editions (a master's releases) are one. `discogs.covers` offers the
+front cover of each, and `discogs.tags` its title, the earliest year of its editions, its first
+label and its first style (else its genre); each candidate shows its label and catalogue number.
+One release found by its label scores 0.95, by name 0.9, by a track's title 0.6, and one of
+several 0.5. Searches go a second apart. When Discogs says the account is over its limit (60
+requests a minute), a search waits as long as Discogs asks (else a minute) and goes again, a few
+times at most, and an album it would wait over two minutes for is left out, saying so. Without a
+signed-in Discogs account, or with a token Discogs refuses, it finds nothing and says how to sign
+in.
+
 ## Roles
 
 An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
@@ -567,7 +614,9 @@ plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another th
 the same recording (their values are equal), and the musicbrainz plugin answers it with the
 recording's ID. `doctor --analyze` runs those analyzers first on the tracks they haven't
 worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
-[Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
+[Publishing](account.md#publishing)); the check and ordering a set read what they kept. `analysis
+bench` scores the key and bpm ones against annotated datasets, keeping nothing (see [Checking the
+analysis](drives.md#checking-the-analysis)). A
 recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
 is a UUID and there's one for each name. What an analyzer keeps goes with the audio file, which a
 library can retag without changing, so a track takes the IDs only when they were looked up by its
@@ -633,12 +682,37 @@ kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online, `host.put_record(..)` to write an [Atmosphere
 record](#atmosphere-records) and `host.partial_rows(..)` to send a view's rows as they're ready. A command or an operation may answer a question for you (`Choice`) instead, or several
-at once (`Choice::together`), and is run again with your answers as its params. A view (a
+at once (`Choice::together`), and is run again with your answers as its params. A command with
+`plan = true` answers its plan (`CommandPlan`: a summary, warnings and the files it would write)
+when it's asked for a dry run, and is run with the same request once you confirm; one with
+`long_running = true` is shown with its progress. `where = ["collection"]` puts a command with
+rekordbox's collection rather than on a drive, and `context.data_dir` is the plugin's own folder
+for what it keeps (`plugins/ID/data/` in the store). A view (a
 command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
 that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
 handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
 you something. Each family of hooks is an optional feature of the protocol, so a newer
 locallibrary adds kinds of hooks without breaking older plugins.
+
+To run one you're writing, give locallibrary its manifest and the program that serves it, for that
+run only: `locallibrary --dev-plugin locallibrary-plugin.toml:target/debug/my-plugin plugin list`
+(`;` between the two on Windows). `LOCALLIBRARY_DEV_PLUGINS` does the same when there's no
+`--dev-plugin`, several plugins one after another as `PATH` lists folders. It works for every
+command, the player (`locallibrary --dev-plugin ... tui`) and the sidecar (`locallibrary
+--dev-plugin ... rpc`). Nothing is installed, though what you set for it (its settings, its access
+to your accounts) is kept under its id like any plugin's. It's held to the rules for a plugin
+locallibrary doesn't ship: no place of its own on the command line (`cli`), no
+`library:delete-unbacked`, no token exchange for its account types, and an id none of
+locallibrary's plugins has, so it can't take their settings or access. Every run warns that it's
+loaded, naming its capabilities, and one that breaks a rule or clashes with locallibrary's
+commands or plugins fails the run, saying why.
+
+`locallibrary plugin check MANIFEST -- PROGRAM [ARGS...]` tries one first. It checks the manifest
+by those rules, then starts the program, refusing anything it calls back for (a read, `net/fetch`,
+an account): it must answer `hello` and `describe` exactly as its manifest says, and have the
+features its contributions need. It lists
+the features it and locallibrary both have, or what's wrong, with exit status 4 (`--json`: `{id,
+version, features, problems, outcome}`).
 
 ## Safety
 
@@ -654,7 +728,8 @@ rekordbox and Dropbox sign-in tokens. locallibrary still never writes to rekordb
 the copy of rekordbox's database it makes for the plugin leaves the cloud agent's sign-in out
 unless the plugin asks for it. An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
-root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
+root, and each runs in a folder of its own in the store (`plugins/ID/work/`), keeping what it
+needs between runs in another (`plugins/ID/data/`), which locallibrary makes and never removes. One that stops
 answering is stopped, and started again the next time it's needed. What a plugin says (its
 manifest, its answers, its errors and what it tells you) is shown without control characters or
 terminal escape sequences, a newline or a tab as a space (but in a text view, or a command's
@@ -683,4 +758,5 @@ only when it's in a folder you granted for that build, its links resolved (see
 [Library sources](#library-sources)).
 
 A plugin runs as you and isn't sandboxed. The limits above are locallibrary's own, and your
-system doesn't enforce them: a plugin could still read any file you can.
+system doesn't enforce them: a plugin could still read any file you can. That holds for one given
+with `--dev-plugin` too, so only give it programs you trust.

@@ -56,14 +56,14 @@ async function redirectOf(running: Promise<unknown>) {
 	return null;
 }
 
-it('opens a new show with the saved projects to pick from', async () => {
+it('opens a new show with the saved performers to pick from', async () => {
 	const data = await opened('new');
 
 	expect(data).toMatchObject({ show: null, isNew: true, saves: [{ project: saved.uri }] });
-	expect(Object.keys(data.projects)).toEqual([saved.uri]);
+	expect(Object.keys(data.performers)).toEqual([saved.uri]);
 });
 
-it("opens a planned show with its lineup's projects as well as the saved ones", async () => {
+it("opens a planned show with its lineup's performers as well as the saved ones", async () => {
 	const rkey = await f.t.planner.saveShow(await f.t.viewer(PROMOTER), {
 		details: { title: 'Rooftop Rave' },
 		lineup: [{ project: f.project.uri, status: 'contacted' }]
@@ -72,7 +72,7 @@ it("opens a planned show with its lineup's projects as well as the saved ones", 
 	const data = await opened(rkey);
 
 	expect(data).toMatchObject({ isNew: false, show: { rkey, details: { title: 'Rooftop Rave' } }, bookings: {} });
-	expect(Object.keys(data.projects).sort()).toEqual([saved.uri, f.project.uri].sort());
+	expect(Object.keys(data.performers).sort()).toEqual([saved.uri, f.project.uri].sort());
 });
 
 it('names the booking each lineup project was asked through from this show', async () => {

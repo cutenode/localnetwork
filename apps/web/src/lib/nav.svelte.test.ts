@@ -36,7 +36,7 @@ describe('the site header', () => {
 				.elements()
 				.map((link) => [link.textContent, link.getAttribute('href')])
 		).toEqual([
-			['Find DJs', '/projects'],
+			['Find DJs', '/djs'],
 			['Shows', '/shows'],
 			['Charts', '/charts'],
 			['Tools', '/tools']
@@ -84,7 +84,7 @@ describe('the site header', () => {
 	});
 
 	it.each([
-		['/projects', 'Find DJs'],
+		['/djs', 'Find DJs'],
 		['/projects/neon-tide', 'Find DJs'],
 		['/match', 'Find DJs'],
 		['/shows', 'Shows'],

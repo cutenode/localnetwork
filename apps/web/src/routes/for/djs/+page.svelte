@@ -58,7 +58,7 @@
 
 {#snippet calls()}
 	<Button size="lg" href="/dashboard/profile#section-performer">Get listed</Button>
-	<Button size="lg" variant="secondary" href="/projects?unclaimed=1">Find and claim yours</Button>
+	<Button size="lg" variant="secondary" href="/djs?unclaimed=1">Find and claim yours</Button>
 {/snippet}
 
 <Section tone="grid" labelledby="hero-title">
@@ -77,7 +77,7 @@
 	<div class="flex flex-col gap-10 sm:gap-14">
 		<SectionHeader id="features-title" title="Built around how promoters book." />
 		<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
-			<Screen path="/projects">
+			<Screen path="/djs">
 				<!-- The height a card takes, so the listing arriving doesn't move the list beside it. -->
 				<div class="min-h-37">
 					{#await data.directory}
@@ -99,7 +99,7 @@
 					{#await data.directory}
 						A listing from the directory, as promoters see it in search.
 					{:then directory}
-						{#if directory?.djs}A listing from the directory, as promoters see it. {pluralize(directory.djs, 'DJ')} in {pluralize(directory.cities, 'city', 'cities')} so far{#if directory.unclaimed}, <a class="link" href="/projects?unclaimed=1">{directory.unclaimed} waiting to be claimed</a>{/if}.{:else}A listing from the directory, as promoters see it in search.{/if}
+						{#if directory?.djs}A listing from the directory, as promoters see it. {pluralize(directory.djs, 'DJ')} in {pluralize(directory.cities, 'city', 'cities')} so far{#if directory.unclaimed}, <a class="link" href="/djs?unclaimed=1">{directory.unclaimed} waiting to be claimed</a>{/if}.{:else}A listing from the directory, as promoters see it in search.{/if}
 					{/await}
 				{/snippet}
 			</Screen>

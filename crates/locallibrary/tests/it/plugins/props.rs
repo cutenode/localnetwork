@@ -827,9 +827,10 @@ struct Offered {
 }
 
 /// For any plugins offered, the host takes them all, in order, or refuses the first that can't
-/// be hosted: one locallibrary doesn't ship, one whose place on the command line another plugin
-/// has, or a second with one id. A secret setting is no reason to refuse one. Taken, each place finds its plugin's
-/// command or operation, and every analyzer's fields are named by plugin, in order.
+/// be hosted: one locallibrary doesn't ship with a place of its own on the command line (a third
+/// party's manifest has none), one whose place another plugin has, or a second with one id. A
+/// secret setting is no reason to refuse one. Taken, each place finds its plugin's command or
+/// operation, and every analyzer's fields are named by plugin, in order.
 #[hegel::test(test_cases = 100, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -868,8 +869,12 @@ fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
     let mut places: Vec<&str> = Vec::new();
     let mut ids: Vec<&str> = Vec::new();
     let refused = offered.iter().find_map(|o| {
-        if !o.built_in {
-            return Some(format!("{}: third-party plugins aren't supported yet", o.id));
+        let first = [("commands", o.command), ("operations", o.operation)].into_iter().find(|(_, p)| p.is_some());
+        if let (false, Some((at, _))) = (o.built_in, first) {
+            return Some(format!(
+                "the {} plugin's manifest: contributes.{at}[0].cli: only plugins locallibrary ships add CLI commands",
+                o.id
+            ));
         }
         if let Some(place) = [o.command, o.operation].into_iter().flatten().find(|p| places.contains(p)) {
             return Some(format!("the {} plugin's command {place:?} is another plugin's too", o.id));
@@ -1273,18 +1278,18 @@ fn prop_a_plugin_that_cant_start_or_answer_fails_saying_why_case(tc: &TestCase, 
     }
 }
 
-/// For any plugins the app gives the host, it hosts them only when each is one locallibrary
-/// ships, with a manifest that reads and is valid, an id of its own and command line places of
-/// its own: otherwise it says which and why.
+/// For any plugins the app gives the host, it hosts them only when each has a manifest that reads
+/// and is valid by the rules for whoever made it, an id of its own and command line places of its
+/// own: otherwise it says which and why.
 #[hegel::test(test_cases = 1)]
-fn prop_only_valid_plugins_locallibrary_ships_are_hosted(tc: TestCase) {
+fn prop_only_valid_plugins_are_hosted(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let name: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
     let echo = spec(dir.path(), ECHO, &[]);
     let new = |specs: Vec<PluginSpec>| Plugins::new(specs, Arc::new(NoReads), Options::default()).err();
     assert!(new(vec![echo.clone()]).is_none());
     let third = PluginSpec { built_in: false, ..echo.clone() };
-    assert_eq!(new(vec![third]).unwrap().to_string(), "echo: third-party plugins aren't supported yet");
+    assert!(new(vec![third]).is_none());
     assert_eq!(new(vec![echo.clone(), echo.clone()]).unwrap().to_string(), "two plugins are called \"echo\"");
     let placed = |id: &str| {
         let toml = ECHO
@@ -1294,6 +1299,9 @@ fn prop_only_valid_plugins_locallibrary_ships_are_hosted(tc: TestCase) {
     };
     let e = new(vec![placed("one"), placed("two")]).unwrap();
     assert_eq!(e.to_string(), format!("the two plugin's command \"{name}\" is another plugin's too"));
+    let e = new(vec![PluginSpec { built_in: false, ..placed("one") }]).unwrap();
+    let why = "contributes.commands[0].cli: only plugins locallibrary ships add CLI commands";
+    assert_eq!(e.to_string(), format!("the one plugin's manifest: {why}"));
     let mut invalid = echo;
     invalid.manifest.name = " ".into();
     assert_eq!(new(vec![invalid]).unwrap().to_string(), "the echo plugin's manifest: name: is empty");

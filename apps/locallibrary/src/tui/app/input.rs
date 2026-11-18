@@ -460,12 +460,9 @@ impl App {
             | Act::Replay
             | Act::Eject => self.drive_key(act),
             Act::ProfileInclude
-            | Act::ProfilePin
-            | Act::ProfileHide
             | Act::ProfileHideArtist
             | Act::ProfileDocument
             | Act::ProfileWrite
-            | Act::ProfileScope
             | Act::ProfileRounding
             | Act::ProfileAccount => profile::perform(self, act),
             Act::MixOpen | Act::MixZoom | Act::MixExport | Act::MixReport => mix::perform(self, act),

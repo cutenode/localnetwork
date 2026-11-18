@@ -21,7 +21,7 @@
 			<ActivityList {entries} />
 			{#if older}<Button variant="secondary" href="?before={older}" class="self-start">Older</Button>{/if}
 		{:else}
-			<EmptyState title="Nothing yet" body="Bookings, requests and changes you make show up here." />
+			<EmptyState title="Nothing yet" body="Bookings, review requests and changes you make show up here." />
 		{/if}
 	{:catch}
 		<EmptyState title="Couldn't load your activity" body="Something went wrong on our side. Try again in a minute.">

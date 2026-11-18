@@ -4067,6 +4067,7 @@ dependencies = [
  "libc",
  "locallibrary-plugin-demos",
  "loclib-analysis",
+ "loclib-anlz",
  "loclib-audio",
  "loclib-capacity",
  "loclib-equipment",
@@ -4138,6 +4139,7 @@ dependencies = [
  "locallibrary-plugin-archive",
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-demos",
+ "locallibrary-plugin-discogs",
  "locallibrary-plugin-interop",
  "locallibrary-plugin-mixcloud",
  "locallibrary-plugin-musicbrainz",
@@ -4218,6 +4220,22 @@ dependencies = [
  "loclib-plugin",
  "rustc-hash",
  "serde_json",
+]
+
+[[package]]
+name = "locallibrary-plugin-discogs"
+version = "0.1.0"
+dependencies = [
+ "form_urlencoded",
+ "hegeltest",
+ "image",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -4365,6 +4383,20 @@ dependencies = [
  "serde_json",
  "stratum-dsp",
  "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-anlz"
+version = "0.1.0"
+dependencies = [
+ "binrw",
+ "codspeed-criterion-compat",
+ "hegeltest",
+ "loclib-model",
+ "rekordcrate",
+ "schemars",
+ "serde",
  "thiserror 2.0.21",
 ]
 

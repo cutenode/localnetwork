@@ -256,8 +256,8 @@ it("doesn't read the session cookie on an xrpc call, or rate limit it", async ()
 	const { handle } = hooksWith(async () => s.app);
 
 	const { response, locals } = await handledWithLocals(handle, {
-		url: '/xrpc/com.atproto.space.notifyWrite',
-		request: new Request('https://localnetwork.test/xrpc/com.atproto.space.notifyWrite', { method: 'POST' }),
+		url: '/xrpc/com.atproto.space.notifySpaceUpdate',
+		request: new Request('https://localnetwork.test/xrpc/com.atproto.space.notifySpaceUpdate', { method: 'POST' }),
 		cookies: { [SESSION_COOKIE]: token }
 	});
 
@@ -355,7 +355,9 @@ it.each([
 	['/dashboard/requests/3k/avatar?size=64', '/dashboard/account/requests/3k/avatar?size=64'],
 	['/dashboard/inbox/settings?email=declined', '/dashboard/account/notifications?email=declined'],
 	['/for-djs', '/for/djs'],
-	['/for-promoters?utm_source=email', '/for/promoters?utm_source=email']
+	['/for-promoters?utm_source=email', '/for/promoters?utm_source=email'],
+	['/projects', '/djs'],
+	['/projects?genres=house&sort=recent', '/djs?genres=house&sort=recent']
 ])('sends %s on to where it moved, whatever the method', async (from, to) => {
 	const { handle } = hooksWith(async () => {
 		throw new Error('a moved page needs nothing from the app');
@@ -372,7 +374,7 @@ it.each([
 	}
 });
 
-it.each(['/dashboard/inbox', '/dashboard/requests-archive', '/dashboard/account/data'])(
+it.each(['/dashboard/inbox', '/dashboard/requests-archive', '/dashboard/account/data', '/projects/neon-tide'])(
 	'leaves %s where it is',
 	async (url) => {
 		const s = await services();

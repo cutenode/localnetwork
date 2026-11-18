@@ -12,7 +12,9 @@
 // as locallibrary sends it. A service that only compares the redirect_uri with the authorize
 // request's (Mixcloud, without PKCE) would otherwise trade a code that a link with Local Network's
 // client sent to someone else's site, giving them that account's token.
+import type { JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
+import { isTooDeep } from '../atproto/lexicons';
 import { parseJson } from '../db';
 import type { Logger } from '../logger';
 import type { Flags } from '#lib/types.ts';
@@ -162,10 +164,12 @@ export async function exchangeToken(id: string, request: Request, options: Excha
 		return refuse(502, 'temporarily_unavailable', `${service.title} isn't answering`);
 	}
 
-	const tokens = answerSchema.safeParse(parseJson<unknown>(await readCapped(answer), undefined));
+	const answered = parseJson<JsonValue | undefined>(await readCapped(answer), undefined);
+	const tokens = answerSchema.safeParse(answered);
 	log.info('token exchange', { ...at, status: answer.status, ms: Math.round(performance.now() - started) });
 
-	if (!tokens.success)
+	// Answering it stringifies it by recursion, which an answer nested thousands of levels deep would overflow.
+	if (!tokens.success || isTooDeep(answered))
 		return refuse(502, 'temporarily_unavailable', `${service.title} answered something that isn't a token response`);
 
 	// OAuth clients need a token_type, which Mixcloud doesn't document sending.

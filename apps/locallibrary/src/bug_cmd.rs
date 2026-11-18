@@ -234,7 +234,9 @@ fn post(args: &BugArgs, root: &Path, report: &mut Report, out: Output, ctx: &Ctx
         me = again;
     }
     let plan = json!({ "account": me.did, "space": space.uri(), "title": title, "body": body });
-    if let Some(o) = out.decide(false, &format!("Post it as {}? Anyone can read it", me.name())) {
+    // The heading named the account, and signing in again says who it's as: the question, on
+    // stderr, holds nothing from the account.
+    if let Some(o) = out.decide(false, "Post it? Anyone can read it") {
         if !out.json {
             hint(format!("Or report it on GitHub: {}", report.github_url()));
         }

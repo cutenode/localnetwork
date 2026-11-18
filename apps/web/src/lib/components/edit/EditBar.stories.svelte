@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import EditBarFrame from './EditBarFrame.svelte';
 
 	/**
@@ -11,19 +12,9 @@
 		title: 'Patterns/Edit mode',
 		component: EditBarFrame,
 		parameters: {
-			layout: 'fullscreen',
-			viewport: {
-				options: {
-					phone: { name: 'Phone', styles: { width: '390px', height: '844px' }, type: 'mobile' },
-					desktop: { name: 'Desktop', styles: { width: '1280px', height: '800px' }, type: 'desktop' }
-				}
-			}
+			layout: 'fullscreen'
 		}
 	});
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'phone', isRotated: false } };
 
 	/** Presses `name` and checks the frame is still drawn: the frame's buttons do nothing, so only the press is the test. */
 	const press =

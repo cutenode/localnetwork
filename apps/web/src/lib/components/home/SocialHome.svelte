@@ -134,7 +134,7 @@
 		{#if area?.djs?.length}
 			<Section labelledby="djs-title" space="md">
 				<div class="flex flex-col gap-6">
-					<div class="flex flex-wrap items-end justify-between gap-2"><h2 id="djs-title" class="m-0 text-title font-semibold">Who's playing near {area.place.place}</h2><a class="link text-small" href="/projects">All DJs</a></div>
+					<div class="flex flex-wrap items-end justify-between gap-2"><h2 id="djs-title" class="m-0 text-title font-semibold">Who's playing near {area.place.place}</h2><a class="link text-small" href="/djs">All DJs</a></div>
 					<!-- A row to swipe on a phone, like the events above, and relative for the same reason. -->
 					<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3 p-0 relative max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">
 						{#each area.djs as { project, follow } (project.uri)}
@@ -193,7 +193,7 @@
 				{#if !shows}
 					{@render offline()}
 				{:else if !shows.length}
-					{@render note('Follow DJs and acts to see their shows here', "Their next nights land on this page, soonest first.", '/projects', 'Find DJs')}
+					{@render note('Follow DJs and acts to see their shows here', "Their next nights land on this page, soonest first.", '/djs', 'Find DJs')}
 				{:else}
 					<ol class="m-0 flex list-none flex-col gap-6 p-0">
 						{#each eventsOf(shows) as event (event.uri)}

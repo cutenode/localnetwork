@@ -23,11 +23,9 @@ it('lists the area and marks where you are, on the pages under one too', async (
 		['Notifications', '/dashboard/account/notifications'],
 		['Activity', '/dashboard/account/activity'],
 		['Your data', '/dashboard/account/data'],
-		['Requests to staff', '/dashboard/account/requests']
+		['Review requests', '/dashboard/account/requests']
 	]);
-	await expect
-		.element(pages().getByRole('link', { name: 'Requests to staff' }))
-		.toHaveAttribute('aria-current', 'page');
+	await expect.element(pages().getByRole('link', { name: 'Review requests' })).toHaveAttribute('aria-current', 'page');
 });
 
 it('leaves the landing page to its own list', async () => {

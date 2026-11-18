@@ -19,6 +19,6 @@ export default {
 	links: {
 		'For promoters': [{ name: 'I put on shows.', href: '/for/promoters' }],
 		'For DJs': [{ name: 'I play out.', href: '/for/djs' }],
-		'Find DJs': [{ name: 'Find DJs', href: '/projects' }]
+		'Find DJs': [{ name: 'Find DJs', href: '/djs' }]
 	}
 } satisfies LinkChecks;

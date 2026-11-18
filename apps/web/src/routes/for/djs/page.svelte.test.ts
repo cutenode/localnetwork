@@ -52,7 +52,7 @@ describe('/for/djs', () => {
 		await expect.element(page.getByText(/12 DJs in 10 cities so far/)).toBeVisible();
 		await expect
 			.element(page.getByRole('link', { name: '7 waiting to be claimed' }))
-			.toHaveAttribute('href', '/projects?unclaimed=1');
+			.toHaveAttribute('href', '/djs?unclaimed=1');
 		await expect.element(page.getByText(/within 50 km of their venue/)).toBeVisible();
 	});
 
@@ -73,7 +73,7 @@ describe('/for/djs', () => {
 			.toHaveAttribute('href', '/dashboard/profile#section-performer');
 		await expect
 			.element(hero.getByRole('link', { name: 'Find and claim yours' }))
-			.toHaveAttribute('href', '/projects?unclaimed=1');
+			.toHaveAttribute('href', '/djs?unclaimed=1');
 		await expect.element(region('How listing works.').getByText('Ask to be listed')).toBeVisible();
 	});
 

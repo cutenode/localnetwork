@@ -186,7 +186,7 @@ describe('/ with the social home', () => {
 	it("says how to fill in a new account's home", async () => {
 		await home({ viewer: fan, network: Promise.resolve([]), area: Promise.resolve(null) });
 
-		await expect.element(page.getByRole('link', { name: 'Find DJs' }).last()).toHaveAttribute('href', '/projects');
+		await expect.element(page.getByRole('link', { name: 'Find DJs' }).last()).toHaveAttribute('href', '/djs');
 		await expect.element(page.getByText('Follow DJs and acts to see their shows here')).toBeVisible();
 		await expect
 			.element(page.getByRole('link', { name: 'Set your home city' }))

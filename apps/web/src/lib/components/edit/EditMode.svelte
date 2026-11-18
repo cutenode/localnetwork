@@ -118,7 +118,8 @@
 		visitor,
 		busy: activity === 'saving',
 		value: (field, saved) => shown?.values?.[field] ?? saved,
-		error: (field) => (shown?.field?.name === field ? shown.error : undefined)
+		error: (field) => (shown?.field?.name === field ? shown.error : undefined),
+		choice: shown?.choice
 	});
 
 	const loadEditor = () =>
@@ -240,7 +241,7 @@
 {#if !role || !subject}
 	{@render children(view)}
 {:else if phase === 'edit'}
-	<form bind:this={formElement} method="POST" action="?/save" class="contents">
+	<form bind:this={formElement} method="POST" action="?/save" enctype="multipart/form-data" class="contents">
 		<input type="hidden" name="cid" value={version} />
 		{@render children(view)}
 		{@render bar()}

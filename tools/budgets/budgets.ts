@@ -5,11 +5,16 @@
 //
 //   node tools/budgets/cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]
 //       fails on a metric that grew past its allowance (times `entries`, the pull requests a merge
-//       queue group holds) and no `budget-raise:` line in <raises-file> covers
+//       queue group holds) and the raises <raises-file> declares for it
 //   node tools/budgets/cli.ts baseline <sha> <filter> <artifact> <dir>
 //       see baseline.ts
-//   node tools/budgets/cli.ts raises <base-ref> <body-file>
-//       fails on an allowance widened or a metric dropped without a `budget-raise:` line
+//   node tools/budgets/cli.ts raises <base-ref> <raises-file>
+//       fails on an allowance widened or a metric dropped that no raise names
+//
+// A raise is a commit's `Budget-Raise: <area>/<metric> +<amount>: <why>` trailer, which <raises-file>
+// holds as `git log --format='%(trailers:key=Budget-Raise)'` prints it: in a commit, review covers it
+// and the merge queue can read it. The pull request body's `budget-raise: <metric>: <why>` line, which
+// allows any growth, is still read until 2026-11-30, for pull requests opened before trailers.
 //
 // <dir>/<area>.json holds `{ "<metric>": <number or list of names> }`, and each area's file says which
 // job measures it, so a new area adds a file and nothing else. See benchmarks/README.md.
@@ -67,25 +72,45 @@ export function compared(area: string, budget: Budget, base: Measured | undefine
 	});
 }
 
-/** What fails in `rows`: growth past each allowance times `entries`, unless `raised` names the metric. */
-export function problems(rows: Row[], entries: number, raised: string[]): string[] {
+/** What fails in `rows`: growth past each allowance times `entries`, plus what `raised` declares for the metric. */
+export function problems(rows: Row[], entries: number, raised: Map<string, number>): string[] {
 	return rows.flatMap(({ metric, unit, head, growth, added, allowance }) => {
 		if (head === undefined) return [`${metric}: not measured`];
 
-		const room = allowance * entries;
+		const room = allowance * entries + (raised.get(metric) ?? 0);
 
-		if (growth === undefined || growth <= room || raised.includes(metric)) return [];
+		if (growth === undefined || growth <= room) return [];
 		const what = added.length > 0 ? `${added.join(', ')} added` : `${growth} ${unit} more than its base`;
+		const trailer = `Budget-Raise: ${metric} +${growth - room}: <why>`;
 
-		return [`${metric}: ${what}, over its allowance of ${room}: add \`budget-raise: ${metric}: <why>\` if it's meant`];
+		return [
+			`${metric}: ${what}, ${growth - room} over what's allowed: if it's meant, add a commit with the trailer \`${trailer}\``
+		];
 	});
 }
 
-/** The metrics a pull request's body declares a raise for, one `budget-raise: <metric>: <why>` line each. */
-export function declared(body: string): string[] {
-	const lines = body.split(/\r?\n/).map((line) => line.trim());
+// Until this date, a pull request body's `budget-raise:` line still allows any growth.
+const BODY_LINES_UNTIL = '2026-11-30';
 
-	return lines.flatMap((line) => /^budget-raise: (\S+): \S/.exec(line)?.[1] ?? []);
+/**
+ * How much each metric may grow on top of its allowance: the sum of its `Budget-Raise:` trailers in
+ * `text`, or any amount for a `budget-raise:` body line until BODY_LINES_UNTIL.
+ */
+export function declared(text: string, today = new Date().toISOString().slice(0, 10)): Map<string, number> {
+	const raised = new Map<string, number>();
+	const lines = text.split(/\r?\n/).map((line) => line.trim());
+
+	for (const line of lines) {
+		// git prints a trailer's key as the commit spelled it.
+		const trailer = /^budget-raise: (\S+) \+(\d+): \S/i.exec(line);
+		const body = today <= BODY_LINES_UNTIL ? /^budget-raise: (\S+): \S/.exec(line) : null;
+
+		if (trailer?.[1] !== undefined) raised.set(trailer[1], (raised.get(trailer[1]) ?? 0) + Number(trailer[2]));
+
+		if (body?.[1] !== undefined) raised.set(body[1], Infinity);
+	}
+
+	return raised;
 }
 
 const shown = (value: Value | undefined) => {
@@ -156,7 +181,7 @@ function check(job: string, baseDir: string, headDir: string, raisesFile: string
 	return { lines: [...table(rows), '', ...found], ok: found.length === 0 };
 }
 
-function raises(base: string, bodyFile: string): Outcome {
+function raises(base: string, raisesFile: string): Outcome {
 	const listed = execFileSync('git', ['ls-tree', '--name-only', base, `${BUDGETS}/`], { encoding: 'utf8' });
 	const here = new Set(readdirSync(BUDGETS));
 
@@ -172,11 +197,14 @@ function raises(base: string, bodyFile: string): Outcome {
 			return loosened(file.replace(/\.json$/, ''), before, after);
 		});
 
-	const covered = declared(readFileSync(bodyFile, 'utf8'));
+	const covered = declared(readFileSync(raisesFile, 'utf8'));
 
 	const found = widened
-		.filter((metric) => !covered.includes(metric))
-		.map((metric) => `${metric}: loosened: add a line \`budget-raise: ${metric}: <why>\` to the pull request's body`);
+		.filter((metric) => !covered.has(metric))
+		.map(
+			(metric) =>
+				`${metric}: loosened: if it's meant, add a commit with the trailer \`Budget-Raise: ${metric} +0: <why>\``
+		);
 
 	return { lines: found, ok: found.length === 0 };
 }
@@ -196,15 +224,15 @@ export function run([command, ...args]: string[]): Outcome {
 
 	if (command === 'raises' && args.length === 2) {
 		// SAFETY: the length is checked just above.
-		const [base, bodyFile] = args as [string, string];
+		const [base, raisesFile] = args as [string, string];
 
-		return raises(base, bodyFile);
+		return raises(base, raisesFile);
 	}
 
 	return {
 		lines: [
 			'usage: cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]',
-			'       cli.ts raises <base-ref> <body-file>'
+			'       cli.ts raises <base-ref> <raises-file>'
 		],
 		ok: false
 	};

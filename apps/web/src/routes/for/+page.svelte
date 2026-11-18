@@ -38,7 +38,7 @@
 	const listening = [
 		{ href: '/shows', label: 'Shows' },
 		{ href: '/charts', label: 'Charts' },
-		{ href: '/projects', label: 'Find DJs' }
+		{ href: '/djs', label: 'Find DJs' }
 	];
 </script>
 

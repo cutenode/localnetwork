@@ -1,8 +1,10 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { describe, expect, it, vi } from 'vitest';
+import * as fc from 'fast-check';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { IdentityResolver } from '../atproto/identity';
 import { silentLogger } from '../logger';
+import { rebindToLoopback } from '../testing/rebind';
 import { type AudioRequest, parseRange, recordingAudio } from './audio';
 
 const DJ = 'did:plc:dj';
@@ -118,6 +120,61 @@ describe('parseRange', () => {
 	});
 });
 
+describe('parseRange on any header', () => {
+	// A recording record declares at least a byte (recordingSchema in services/recordings.ts).
+	const size = fc.integer({ min: 1, max: 2 ** 32 });
+
+	// Positions near a size, past it, and too long to be a safe integer; mostly small, so a start past the end is common.
+	const position = fc.oneof(
+		fc.constant(''),
+		{ arbitrary: fc.nat({ max: 300 }).map(String), weight: 4 },
+		fc.nat().map(String),
+		fc.stringMatching(/^\d{16,40}$/)
+	);
+
+	const header = fc.oneof(fc.constant(null), fc.string(), {
+		arbitrary: fc
+			.tuple(
+				fc.constantFrom('bytes=', 'bytes=', 'bytes= ', 'Bytes=', 'items='),
+				position,
+				position,
+				fc.constantFrom('', '', ' ', ',0-1')
+			)
+			.map(([unit, start, end, after]) => `${unit}${start}-${end}${after}`),
+		weight: 4
+	});
+
+	it('only gives ranges inside the file, start first', () => {
+		fc.assert(
+			fc.property(header, size, (value, bytes) => {
+				const parsed = parseRange(value, bytes);
+
+				if (parsed === null || parsed === 'unsatisfiable') return;
+				expect(Number.isInteger(parsed.start) && Number.isInteger(parsed.end)).toBe(true);
+				expect(0 <= parsed.start && parsed.start <= parsed.end && parsed.end < bytes, JSON.stringify(parsed)).toBe(
+					true
+				);
+			})
+		);
+	});
+
+	it('gives back any range inside the file as asked, any suffix as the file’s last bytes, and a longer one as all of it', () => {
+		fc.assert(
+			fc.property(
+				size.chain((bytes) => fc.tuple(fc.constant(bytes), fc.nat({ max: bytes - 1 }), fc.nat({ max: bytes - 1 }))),
+				fc.nat(),
+				([bytes, a, b], extra) => {
+					const [start, end] = a <= b ? [a, b] : [b, a];
+
+					expect(parseRange(`bytes=${start}-${end}`, bytes)).toEqual({ start, end });
+					expect(parseRange(`bytes=-${end + 1}`, bytes)).toEqual({ start: bytes - end - 1, end: bytes - 1 });
+					expect(parseRange(`bytes=-${bytes + extra + 1}`, bytes)).toEqual({ start: 0, end: bytes - 1 });
+				}
+			)
+		);
+	});
+});
+
 describe('recordingAudio', () => {
 	it('sends the whole recording as its record declares it, with headers for immutable, locked-down audio', async () => {
 		const response = await ask(null);
@@ -225,20 +282,42 @@ describe('recordingAudio', () => {
 		expect(unreachable.status).toBe(502);
 	});
 
-	it('refuses a recording whose DID points at a private address or plain HTTP, without asking it', async () => {
-		for (const endpoint of [
-			'https://127.0.0.1',
-			'https://10.0.0.1',
-			'https://169.254.169.254',
-			'https://[::1]',
-			'http://pds.example'
-		]) {
-			const upstream = pds();
-			const response = await ask(null, { endpoint, fetch: upstream.fetch, allowPrivateNetwork: false });
+	it('refuses a recording whose DID points at plain HTTP, without asking it', async () => {
+		const upstream = pds();
+
+		const response = await ask(null, {
+			endpoint: 'http://pds.example',
+			fetch: upstream.fetch,
+			allowPrivateNetwork: false
+		});
+
+		expect(response.status).toBe(502);
+		expect(upstream.requests).toHaveLength(0);
+	});
+
+	// The guard vets addresses in the dispatcher it hands fetch, which a stand-in fetch never uses, so these go through
+	// the real one. It refuses before connecting.
+	it('refuses a recording whose DID points at a private address', async () => {
+		for (const endpoint of ['https://127.0.0.1', 'https://10.0.0.1', 'https://169.254.169.254', 'https://[::1]']) {
+			const response = await ask(null, { endpoint, fetch: globalThis.fetch, allowPrivateNetwork: false });
 
 			expect(response.status).toBe(502);
-			expect(upstream.requests).toHaveLength(0);
 		}
+	});
+
+	it('never connects to a PDS whose host name resolves to a private address', async () => {
+		const host = 'pds.rebind.localnetwork.computer';
+		const loopback = await rebindToLoopback([host]);
+		onTestFinished(() => loopback.close());
+
+		const response = await ask(null, {
+			endpoint: `https://${host}:${loopback.port}`,
+			fetch: globalThis.fetch,
+			allowPrivateNetwork: false
+		});
+
+		expect(response.status).toBe(502);
+		expect(loopback.connections()).toBe(0);
 	});
 
 	it('still serves ranges from a public PDS', async () => {

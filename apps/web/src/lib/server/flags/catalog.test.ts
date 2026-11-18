@@ -57,15 +57,19 @@ const parseFlag = (fields: { type?: string; removeBy?: string }) =>
 
 it('refuses a flag without a type it knows', () => {
 	expect(() => parseFlag({})).toThrow('Invalid discriminator value');
-	expect(() => parseFlag({ type: 'killSwitch' })).toThrow('Invalid discriminator value');
+
+	for (const type of ['killSwitch', 'experiment', 'permission']) {
+		expect(() => parseFlag({ type, removeBy: '2026-12-01' }), type).toThrow('Invalid discriminator value');
+		expect(() => parseFlag({ type }), type).toThrow('Invalid discriminator value');
+	}
 });
 
-it('wants a removeBy on release and experiment flags only', () => {
+it('wants a removeBy on release flags only', () => {
 	expect(parseFlag({ type: 'release', removeBy: '2026-12-01' })).toEqual([
 		{ key: 'a', description: 'x', type: 'release', removeBy: '2026-12-01' }
 	]);
-	expect(parseFlag({ type: 'permission' })).toEqual([{ key: 'a', description: 'x', type: 'permission' }]);
-	expect(() => parseFlag({ type: 'experiment' })).toThrow('expected string, received undefined');
+	expect(parseFlag({ type: 'ops' })).toEqual([{ key: 'a', description: 'x', type: 'ops' }]);
+	expect(() => parseFlag({ type: 'release' })).toThrow('expected string, received undefined');
 	expect(() => parseFlag({ type: 'ops', removeBy: '2026-12-01' })).toThrow(/Unrecognized key.*removeBy/);
 });
 
@@ -80,7 +84,7 @@ it('finds the flags past their removeBy, and not one due today', () => {
 			'/flags/catalog/newPlanner.json',
 			{ key: 'newPlanner', description: 'x', type: 'release', removeBy: '2026-12-01' }
 		],
-		['/flags/catalog/zines.json', { key: 'zines', description: 'x', type: 'experiment', removeBy: '2026-12-02' }],
+		['/flags/catalog/zines.json', { key: 'zines', description: 'x', type: 'release', removeBy: '2026-12-02' }],
 		['/flags/catalog/readOnly.json', { key: 'readOnly', description: 'x', type: 'ops' }]
 	]);
 

@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
+	import { phone, tablet } from '#lib/testing/viewports.ts';
 	import Layout from '../+layout.svelte';
 	import ForLayout from './+layout.svelte';
 	import type { PageData } from './$types';
@@ -13,10 +14,6 @@
 	});
 
 	const live: PageData['stats'] = Promise.resolve({ djs: 12, cities: 10, unclaimed: 7 });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
-
-	const tablet = { viewport: { value: 'tablet', isRotated: false } };
 </script>
 
 {#snippet landing(stats: PageData['stats'])}

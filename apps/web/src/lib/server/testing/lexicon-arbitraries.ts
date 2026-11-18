@@ -58,9 +58,16 @@ function asObject(def: ValueDef, uri: string): LexObject {
 
 	if (def.nullable?.length) throw unsupported(`nullable properties (${uri})`);
 
-	// A missing required string with a default reads as its default, so leaving it out would break nothing.
-	if (def.required?.some((key) => def.properties[key]?.type === 'string' && 'default' in def.properties[key]))
-		throw unsupported(`required properties with defaults (${uri})`);
+	// A missing required string with a default reads as its default, so leaving it out would break nothing. A ref to
+	// such a string (like a calendar event's status) reads the same way.
+	const hasDefault = (key: string) => {
+		const property = def.properties[key];
+		const value = property?.type === 'ref' ? defOf(property.ref) : property;
+
+		return value?.type === 'string' && 'default' in value;
+	};
+
+	if (def.required?.some(hasDefault)) throw unsupported(`required properties with defaults (${uri})`);
 
 	return def;
 }

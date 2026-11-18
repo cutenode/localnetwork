@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import HotCues, { lookOf } from '#lib/components/tools/HotCues.svelte';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { cuePoints } from '#lib/tools/cues.ts';
 	import { demoTrack, findTool, tools } from '#lib/tools/index.ts';
 	import Layout from '../+layout.svelte';
@@ -20,8 +21,6 @@
 	});
 
 	const layout = { viewer: null, pendingRequests: 0, meta: PAGE_META };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	// As the page's load places them: every tool's cues along the demo track.
 	const deckTrack = { ...demoTrack, cues: cuePoints(tools.flatMap((tool) => tool.cues).length, demoTrack.durationSecs, demoTrack.phrases) };

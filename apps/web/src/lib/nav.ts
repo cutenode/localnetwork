@@ -10,7 +10,7 @@ export type NavLink = { key: string; href: string; label: string; also?: string[
  */
 export function siteNav(viewer: Viewer | null, pendingRequests: number) {
 	const links: NavLink[] = [
-		{ key: 'F', href: '/projects', label: 'Find DJs', also: ['/match'] },
+		{ key: 'F', href: '/djs', label: 'Find DJs', also: ['/match', '/projects'] },
 		{ key: 'W', href: '/shows', label: 'Shows' },
 		{ key: 'R', href: '/charts', label: 'Charts', also: ['/artists'] },
 		{ key: 'O', href: '/tools', label: 'Tools' }
