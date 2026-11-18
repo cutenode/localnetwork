@@ -8,7 +8,7 @@ const lexicons = join(import.meta.dirname, '../../../../lexicons');
  * network, pinned by lexicons/network.json. The few files left beside ours that locallibrary still compiles in aren't
  * read, so the app always has the installed versions.
  */
-export const LEXICON_ROOTS = [join(lexicons, 'computer'), join(lexicons, '.network')];
+export const LEXICON_ROOTS = [join(lexicons, 'computer'), join(lexicons, 'network')];
 
 /**
  * Every JSON document in LEXICON_ROOTS, read from disk. This is what `#lexicon-files` resolves to outside Vite (the

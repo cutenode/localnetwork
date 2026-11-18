@@ -1284,7 +1284,7 @@ export class FakeHappyView {
 
 	/**
 	 * `GET` and `POST /admin/network-lexicons`: the network lexicons it tracks, or one more to track. The network is the
-	 * installed set (lexicons/.network/): an NSID outside it fails, as one HappyView can't resolve does.
+	 * installed set (lexicons/network/): an NSID outside it fails, as one HappyView can't resolve does.
 	 */
 	private async networkLexicons(request: Request): Promise<Response> {
 		if (request.method === 'GET')
