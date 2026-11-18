@@ -28,14 +28,16 @@
 </svg>
 
 <style>
-	/* One keyframe each: it plays once as the page opens, and keeps going while what the mark sits in is hovered. */
+	/* One keyframe each: it plays once as the page opens, and keeps going while what the mark sits in is hovered. The
+	   curve is CSS's ease in and out written as numbers: Tailwind reads the keyword in this file as its class of the same
+	   name and adds a rule for it to every page's CSS. */
 	.bar {
 		transform-box: fill-box;
 		transform-origin: bottom;
-		animation: level 260ms ease-in-out 2 alternate;
+		animation: level 260ms cubic-bezier(0.42, 0, 0.58, 1) 2 alternate;
 	}
 	.slot {
-		animation: slot 600ms ease-in-out;
+		animation: slot 600ms cubic-bezier(0.42, 0, 0.58, 1);
 	}
 	:global(.group:is(:hover, :focus-within)) :is(.bar, .slot) {
 		animation-iteration-count: infinite;
