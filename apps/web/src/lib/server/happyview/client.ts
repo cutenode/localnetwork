@@ -6,6 +6,7 @@ import type { MatchBreakdown, MatchNote } from '#lib/matching.ts';
 import { DIRECTORY } from '#lib/nsid.ts';
 import type { Charts, DirectoryDj, DirectoryPlace, DjSetView, SupportedArtist, TrackPlays } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
+import type { Config } from '../config';
 import type { HappyViewScript } from './bundle';
 
 /** The longest search text the directory's queries take, in UTF-8 bytes (their lexicons' maxLength). */
@@ -92,16 +93,73 @@ const backfillJob = z.object({ id: z.string(), status: z.string() });
 
 const BACKFILL_POLL_MS = 250;
 
-const BACKFILL_DONE = new Set(['completed', 'failed', 'cancelled']);
+/** The most accounts one backfill job takes (`dids` in POST /admin/backfill). */
+const BACKFILL_DIDS = 500;
 
-/** The admin permissions `syncHappyView` and the re-reads (Backfills, reindex) use, so HAPPYVIEW_API_KEY needs exactly these. @internal */
+/**
+ * Backfill statuses that end a job without all its work done. HappyView 3 pauses a job that ran out of retries with
+ * repos still queued, until someone resumes it.
+ */
+export const BACKFILL_FAILED = new Set(['failed', 'cancelled', 'paused']);
+
+const BACKFILL_DONE = new Set(['completed', ...BACKFILL_FAILED]);
+
+/** How far behind HappyView's Jetstream consumer is (GET /admin/jetstream/status). */
+export type JetstreamStatus = { connected: boolean; lagMs: number | null };
+
+/** How one script trigger ran over a window: runs, the ones that ended any way but `ok`, and p95 wall time. */
+export type ScriptHealth = { trigger: string; runs: number; failures: number; p95Ms: number };
+
+/** Script health over a window (GET /admin/metrics/scripts), busiest trigger first. Empty while metrics are off. */
+export type ScriptMetrics = { enabled: boolean; scripts: ScriptHealth[] };
+
+const jetstreamStatus = z
+	.object({ connected: z.boolean(), lag_ms: z.number().nullable() })
+	.transform(({ connected, lag_ms }): JetstreamStatus => ({ connected, lagMs: lag_ms }));
+
+const deadLetterCount = z.object({ count: z.number().int().nonnegative() });
+
+const scriptMetrics = z
+	.object({
+		enabled: z.boolean(),
+		scripts: z
+			.array(
+				z.object({
+					trigger: z.string(),
+					runs: z.number().int().nonnegative(),
+					// `ok`, `trap`, `no_interpreter`, `error`, timeouts and instruction limits: anything but `ok` failed.
+					outcomes: z.record(z.string(), z.number().int().nonnegative()),
+					wall_ms: z.object({ p95: z.number() })
+				})
+			)
+			.default([])
+	})
+	.transform(({ enabled, scripts }): ScriptMetrics => ({
+		enabled,
+		scripts: scripts
+			.map(({ trigger, runs, outcomes, wall_ms }) => ({
+				trigger,
+				runs,
+				failures: Object.entries(outcomes).reduce((sum, [outcome, count]) => sum + (outcome === 'ok' ? 0 : count), 0),
+				p95Ms: wall_ms.p95
+			}))
+			.toSorted((a, b) => b.runs - a.runs)
+	}));
+
+/**
+ * The admin permissions `syncHappyView`, the re-reads (Backfills, reindex) and the System page's health numbers use, so
+ * HAPPYVIEW_API_KEY needs exactly these. @internal
+ */
 export const HAPPYVIEW_PERMISSIONS = [
 	'lexicons:read',
 	'lexicons:create',
 	'scripts:read',
 	'scripts:manage',
 	'backfill:create',
-	'backfill:read'
+	'backfill:read',
+	'stats:read',
+	'dead-letters:read',
+	'metrics:read'
 ] as const;
 
 const TIMEOUT_MS = 10_000;
@@ -124,11 +182,14 @@ export class HappyViewError extends Error {
 export class HappyViewClient {
 	readonly url: string;
 	private readonly apiKey?: string;
+	/** The API client directory queries identify themselves as. A server proves it with the secret. */
+	private readonly client: Config['happyView']['client'];
 	private readonly fetch: typeof globalThis.fetch;
 
-	constructor(options: { url: string; apiKey?: string; fetch?: typeof globalThis.fetch }) {
+	constructor(options: Config['happyView'] & { fetch?: typeof globalThis.fetch }) {
 		this.url = options.url;
 		this.apiKey = options.apiKey;
+		this.client = options.client;
 		this.fetch = options.fetch ?? globalThis.fetch;
 	}
 
@@ -188,11 +249,20 @@ export class HappyViewClient {
 		await this.request('/admin/scripts', { admin: true, body: { ...script, script_type: 'lua' } });
 	}
 
-	/** Has HappyView re-read one repo's records of `collection` from its PDS, through the record script. Returns the job id. */
-	async backfill(collection: string, did: string): Promise<string> {
-		const response = await this.request('/admin/backfill', { admin: true, body: { collection, did } });
+	/**
+	 * Has HappyView re-read the records of `collection` in each repo `dids` lists from its PDS, through the record script.
+	 * HappyView takes 500 accounts per job, so a longer list starts a job per 500, one after another. Returns the job ids.
+	 */
+	async backfill(collection: string, dids: string[]): Promise<string[]> {
+		const jobs: string[] = [];
 
-		return backfillJob.parse(await response.json()).id;
+		for (let start = 0; start < dids.length; start += BACKFILL_DIDS) {
+			const body = { collection, dids: dids.slice(start, start + BACKFILL_DIDS) };
+			const response = await this.request('/admin/backfill', { admin: true, body });
+			jobs.push(backfillJob.parse(await response.json()).id);
+		}
+
+		return jobs;
 	}
 
 	/** A backfill job's status (`running`, `completed`, `failed`, ...), or null when HappyView doesn't know it. */
@@ -223,6 +293,27 @@ export class HappyViewClient {
 		return status;
 	}
 
+	/** Whether HappyView's Jetstream consumer is connected, and how far behind it is (`stats:read`). */
+	async jetstreamStatus(): Promise<JetstreamStatus> {
+		const response = await this.request('/admin/jetstream/status', { admin: true });
+
+		return jetstreamStatus.parse(await response.json());
+	}
+
+	/** How many events HappyView couldn't index and set aside (`dead-letters:read`). */
+	async deadLetterCount(): Promise<number> {
+		const response = await this.request('/admin/dead-letters/count', { admin: true });
+
+		return deadLetterCount.parse(await response.json()).count;
+	}
+
+	/** How each script trigger ran over the last `period` (`24h`, ...), busiest first (`metrics:read`). */
+	async scriptMetrics(period: string): Promise<ScriptMetrics> {
+		const response = await this.request(`/admin/metrics/scripts?window=${encodeURIComponent(period)}`, { admin: true });
+
+		return scriptMetrics.parse(await response.json());
+	}
+
 	private async request(path: string, options: { admin?: boolean; body?: object } = {}) {
 		const url = new URL(`${this.url}${path}`);
 		const headers = new Headers();
@@ -230,6 +321,9 @@ export class HappyViewClient {
 		if (options.admin) {
 			if (!this.apiKey) throw new Error('HappyView admin calls need HAPPYVIEW_API_KEY');
 			headers.set('authorization', `Bearer ${this.apiKey}`);
+		} else if (this.client) {
+			headers.set('x-client-key', this.client.key);
+			headers.set('x-client-secret', this.client.secret);
 		}
 
 		if (options.body) headers.set('content-type', 'application/json');

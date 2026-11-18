@@ -107,6 +107,15 @@ describe('loadConfig', () => {
 		});
 	});
 
+	it('takes a HappyView API client as its key and secret together', () => {
+		expect(loadConfig(base).happyView.client).toBeUndefined();
+		expect(
+			loadConfig({ ...base, HAPPYVIEW_CLIENT_KEY: 'hvc_key', HAPPYVIEW_CLIENT_SECRET: 'hvs_secret' }).happyView.client
+		).toEqual({ key: 'hvc_key', secret: 'hvs_secret' });
+		expect(() => loadConfig({ ...base, HAPPYVIEW_CLIENT_KEY: 'hvc_key' })).toThrow(/HAPPYVIEW_CLIENT_SECRET/);
+		expect(() => loadConfig({ ...base, HAPPYVIEW_CLIENT_SECRET: 'hvs_secret' })).toThrow(/HAPPYVIEW_CLIENT_SECRET/);
+	});
+
 	it('takes a userinput.app space URI, treating an empty one as unset', () => {
 		const space = 'at://did:plc:d42l64gsczg6qh2vo243xv5l/app.userinput.space/3mabc2xyz';
 

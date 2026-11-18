@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { HappyViewBundle } from './bundle';
-import type { HappyViewClient } from './client';
+import { BACKFILL_FAILED, type HappyViewClient } from './client';
 
 /** How long a sync waits for HappyView to finish re-reading the root's projects. */
 const BACKFILL_WAIT_MS = 30_000;
@@ -31,9 +31,10 @@ export async function syncHappyView(client: HappyViewClient, bundle: HappyViewBu
 	// One at a time, in bundle order, so the shared defs are stored before the queries that use them.
 	for (const doc of lexicons) await client.putLexicon(doc);
 
-	const status = await client.awaitBackfill(await client.backfill(COLLECTION.project, rootDid), BACKFILL_WAIT_MS);
+	const [job] = await client.backfill(COLLECTION.project, [rootDid]);
+	const status = await client.awaitBackfill(job, BACKFILL_WAIT_MS);
 
-	if (status === 'failed' || status === 'cancelled') throw new Error(`HappyView's backfill of ${rootDid} ${status}`);
+	if (BACKFILL_FAILED.has(status ?? '')) throw new Error(`HappyView's backfill of ${rootDid} ${status}`);
 
 	return { lexicons: lexicons.map((doc) => doc.id), scripts: scripts.map((script) => script.id) };
 }

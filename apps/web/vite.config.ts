@@ -172,12 +172,13 @@ export default defineConfig({
 			}
 		}
 	},
-	// Under Vite, `#lexicon-files` and `#notification-kinds` bundle their folders in. Node (the tsx scripts) resolves
+	// Under Vite, `#lexicon-files`, `#notification-kinds` and `#lua-files` bundle their folders in. Node (the tsx scripts) resolves
 	// them through package.json to loaders that read the same files from disk, since tsx has no `import.meta.glob`.
 	resolve: {
 		alias: {
 			'#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts`,
-			'#notification-kinds': `${import.meta.dirname}/src/lib/server/notifications/kind-files.ts`
+			'#notification-kinds': `${import.meta.dirname}/src/lib/server/notifications/kind-files.ts`,
+			'#lua-files': `${import.meta.dirname}/src/lib/server/happyview/lua-files.ts`
 		}
 	},
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },

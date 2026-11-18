@@ -6,7 +6,27 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	requireAdmin(locals, url);
-	const { app } = locals;
+	const { app, log } = locals;
+
+	/** One of HappyView's admin reads, or null when it fails or the key lacks its permission, without failing the rest. */
+	const unlessUnavailable = async <T>(what: string, read: () => Promise<T>) => {
+		try {
+			return await read();
+		} catch (error) {
+			log.warn(`couldn't read HappyView's ${what}`, { err: error });
+
+			return null;
+		}
+	};
+
+	// Streamed, so a slow HappyView doesn't hold up the page.
+	const stats = app.happyView.admin
+		? {
+				jetstream: unlessUnavailable('Jetstream status', () => app.happyView.jetstreamStatus()),
+				deadLetters: unlessUnavailable('dead letter count', () => app.happyView.deadLetterCount()),
+				scripts: unlessUnavailable('script metrics', () => app.happyView.scriptMetrics('24h'))
+			}
+		: null;
 
 	const [sync, audit, failed, reachable] = await Promise.all([
 		app.syncer.status(),
@@ -29,7 +49,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		sync,
 		audit,
 		failed,
-		happyView: { url: app.happyView.url, reachable, sync: app.directorySync },
+		happyView: { url: app.happyView.url, reachable, sync: app.directorySync, stats },
 		backups: app.backupStatus,
 		config: {
 			publicUrl: app.config.publicUrl,

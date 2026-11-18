@@ -140,7 +140,7 @@ describe('shows and follows', () => {
 			t.net.onRecord = async () => {};
 
 			await new FollowService(t.core, directory, 0).follow(await t.viewer(FAN), project);
-			expect(backfills).toEqual([{ collection: COLLECTION.follow, did: FAN }]);
+			expect(backfills).toEqual([{ collection: COLLECTION.follow, dids: [FAN] }]);
 		});
 
 		it("says the account's server can't, rather than asking again, when a fresh sign-in didn't get the scope", async () => {
@@ -254,16 +254,16 @@ describe('shows and follows', () => {
 
 			const shows = new ShowService(t.core, t.projects, directory, new IndexedRepo(directory, silentLogger, 0), 0);
 			await shows.save(await t.viewer(DJ), project, input());
-			const reread = [COLLECTION.show, CALENDAR_EVENT].map((collection) => ({ collection, did: DJ }));
+			const reread = [COLLECTION.show, CALENDAR_EVENT].map((collection) => ({ collection, dids: [DJ] }));
 			expect(backfills).toEqual(expect.arrayContaining(reread));
 			expect(backfills).toHaveLength(2);
 		});
 
-		it("has HappyView re-read each manager's shows, one account at a time", async () => {
+		it("has HappyView re-read every manager's shows in one job", async () => {
 			const { directory, backfills } = adminDirectory();
 
 			await new ShowService(t.core, t.projects, directory, t.indexedRepo, 0).reindexManagers();
-			expect(backfills).toEqual([DJ, LAPSED].map((did) => ({ collection: COLLECTION.show, did })));
+			expect(backfills).toEqual([{ collection: COLLECTION.show, dids: [DJ, LAPSED] }]);
 		});
 
 		it('lets only managers announce, for listed projects', async () => {
@@ -396,7 +396,7 @@ describe('shows and follows', () => {
 			});
 			expect(record(DJ, CALENDAR_EVENT, ref.uri)).toEqual(changed);
 			expect(t.net.records.get(`${DJ}|${COLLECTION.show}|${rkey}`)).toEqual(show);
-			const reread = [COLLECTION.show, CALENDAR_EVENT].map((collection) => ({ collection, did: DJ }));
+			const reread = [COLLECTION.show, CALENDAR_EVENT].map((collection) => ({ collection, dids: [DJ] }));
 			expect(backfills).toEqual(expect.arrayContaining(reread));
 			expect(backfills).toHaveLength(2);
 
@@ -530,7 +530,7 @@ describe('shows and follows', () => {
 			// A show the directory holds that its lexicon doesn't allow is neither listed nor opened.
 			const broken = { ...record(DJ, COLLECTION.show, ref.uri), name: '' };
 			const cid = await recordCid(broken);
-			t.happyView.seed([{ did: DJ, collection: COLLECTION.show, rkey: 'broken', cid, record: broken }]);
+			await t.happyView.seed([{ did: DJ, collection: COLLECTION.show, rkey: 'broken', cid, record: broken }]);
 			expect((await t.shows.forProject(project)).map((show) => show.uri)).toEqual([ref.uri]);
 			expect(await t.shows.values(dj, project, 'broken')).toBeNull();
 		});
@@ -549,7 +549,7 @@ describe('shows and follows', () => {
 
 			const cid = await recordCid(show);
 
-			t.happyView.seed([{ did: DJ, collection: COLLECTION.show, rkey: 'bare', cid, record: show }]);
+			await t.happyView.seed([{ did: DJ, collection: COLLECTION.show, rkey: 'bare', cid, record: show }]);
 			expect(await t.shows.values(await t.viewer(DJ), project, 'bare')).toEqual({
 				name: 'Tidal Hours',
 				date: `${YEAR}-11-07`,

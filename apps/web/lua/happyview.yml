@@ -1,6 +1,6 @@
 ---
-# What a script sees in HappyView 2.16: Lua 5.4 (mlua) with HappyView's sandbox and globals, plus what the bundle
-# (src/lib/server/happyview/bundle.ts) puts in front of each script. src/lib/server/testing/happyview.ts sets up
+# What a script sees in HappyView 3.0.0-beta.14: Lua 5.4 (mlua) with HappyView's sandbox, `require` for its modules,
+# and handle(input, ctx), plus what the bundle (src/lib/server/happyview/bundle.ts) puts in front of each script. src/lib/server/testing/happyview.ts sets up
 # the same runtime for the tests. selene has no Lua 5.4 library, so this builds on 5.3's (5.4 only adds warn and
 # coroutine.close, which the scripts don't use). Its release builds also parse Lua 5.1 syntax only (hence the
 # "lua52 ... feature for it is not enabled" line it prints), so `//`, bitwise operators, goto and <const> fail as
@@ -29,7 +29,6 @@ globals:
 
   # HappyView's sandbox leaves os with only time, date, difftime and clock, and removes the rest of these. selene
   # removes a library one field at a time.
-  require: *removed
   dofile: *removed
   loadfile: *removed
   load: *removed
@@ -87,50 +86,16 @@ globals:
   package.searchpath: *removed
   package.seeall: *removed
 
-  # HappyView's APIs.
-  db.raw:
-    args:
-      - type: string
-      - type: table
-        required: false
-  json.encode:
-    args:
-      - type: any
-  json.decode:
-    args:
-      - type: string
-  toarray:
-    args:
-      - type: table
-  log:
+  # HappyView's own modules (internal.json, internal.logging) and its libraries (happyview.sql), each bound to a
+  # local. A v2 global like db, json or log isn't here, so selene flags a script that still reads one, as HappyView
+  # would refuse it.
+  require:
     args:
       - type: string
 
-  # Every script defines handle(), which HappyView calls.
+  # Every script defines handle(input, ctx), which HappyView calls.
   handle:
     property: full-write
-
-  # Record scripts get the event.
-  action:
-    property: read-only
-  uri:
-    property: read-only
-  did:
-    property: read-only
-  collection:
-    property: read-only
-  rkey:
-    property: read-only
-  record:
-    any: true
-
-  # Query scripts get the call.
-  method:
-    property: read-only
-  params:
-    any: true
-  env:
-    any: true
 
   # The bundle's prelude: ROOT_DID for every script, USERINPUT_SPACE (nil without one) for record scripts, TAXONOMY
   # for queries.
@@ -172,15 +137,17 @@ globals:
     property: read-only
   MIN_DJS_TO_CHART:
     property: read-only
-  DJS:
-    property: read-only
-  PLAYS:
-    property: read-only
-  list: &helper
+  fetchThrough: &helper
     args:
       - type: '...'
         required: false
+  listThrough: *helper
+  atUris: *helper
   contains: *helper
+  query: *helper
+  append: *helper
+  managers: *helper
+  number: *helper
   text: *helper
   integer: *helper
   pageSize: *helper
@@ -198,7 +165,7 @@ globals:
   showView: *helper
   normalize: *helper
   mbid: *helper
-  playsArgs: *helper
+  queryPlays: *helper
   rankArtists: *helper
   artistView: *helper
   trackView: *helper

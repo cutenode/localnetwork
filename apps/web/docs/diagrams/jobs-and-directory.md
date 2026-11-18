@@ -64,7 +64,7 @@ flowchart TD
   Compare["Compare scripts and lexicons<br/>with what HappyView stores"] --> Scripts["Upload changed scripts first,<br/>so the gate is in place"]
   Scripts --> Lexicons["Upload changed lexicons,<br/>one at a time"]
   Lexicons --> Root["Re-read the root's performers,<br/>wait up to 30 s"]
-  Root --> Shows["Each manager's shows,<br/>one repo at a time, in the background"]
+  Root --> Shows["Every manager's shows,<br/>one batch, in the background"]
   Root --> Refresh["refreshRecords: older records,<br/>once per script version"]
   Refresh --> Kv["Version kept in kv<br/>once every re-read has started"]
 ```
@@ -73,12 +73,12 @@ Source: [`src/lib/server/happyview/sync.ts`](../../src/lib/server/happyview/sync
 
 ## HappyView re-reads
 
-What makes the app ask HappyView to read a repo again through `/admin/backfill`. Jetstream only brings new writes, so these fill the gaps.
+What makes the app ask HappyView to read repos again through `/admin/backfill`, up to 500 accounts a job. Jetstream only brings new writes, so these fill the gaps; on the hosted instance's shared Network store, they run the record script over what the store holds.
 
 ```mermaid
 flowchart LR
   Backfill["/admin/backfill"]
-  Backfill -- "new record script" --> R1["That collection, per<br/>manager and root"]
+  Backfill -- "new record script" --> R1["That collection, for the<br/>managers and root"]
   Backfill -- "new record script" --> R2["Follows press kits read,<br/>root's verifications, DJ listings<br/>and listings, bug report space"]
   Backfill -- "a performer gains a manager,<br/>once HappyView serves it" --> R3["Their records and follows"]
   Backfill -- "boot" --> R4["The root's performers,<br/>each manager's shows"]
@@ -117,11 +117,11 @@ Source: [`src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.t
 
 ## HappyView record gates
 
-What each record script keeps of what Jetstream sends. Anyone can write these collections, so the gates decide what the directory holds.
+What each record script keeps of what Jetstream, or on the hosted instance the shared Network store, sends. Anyone can write these collections, so the gates decide what the directory holds. On the store a gate hides what it skips, and only from records it has run over.
 
 ```mermaid
 flowchart LR
-  Jet["Jetstream"]
+  Jet["Jetstream or<br/>the Network store"]
   Jet -- "the root's only" --> Root["project, listing, listing.profile,<br/>verification"]
   Jet -- "every account's" --> All["profile, dj.set, dj.recording,<br/>dj.profile, locallibrary.settings"]
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]

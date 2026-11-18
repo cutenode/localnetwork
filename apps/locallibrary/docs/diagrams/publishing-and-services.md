@@ -131,7 +131,7 @@ flowchart LR
     core["Core library"] --> pds["The account's server:<br/>sign-in, records, blobs"]
     core --> handle["A handle's DNS or web<br/>address: finding its DID"]
     core --> plc["plc.directory: a did:plc<br/>account's server"]
-    core --> happyview["happyview.localnetwork.computer:<br/>the directory"]
+    core --> happyview["localnetwork.hpy.at:<br/>the directory"]
     core --> website["localnetwork.computer:<br/>requestIndex, getFlags"]
     core --> client["locallibrary.localnetwork.computer:<br/>client document"]
     core --> iroh["iroh and n0's relays:<br/>store serve, store fetch"]

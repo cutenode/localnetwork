@@ -2,9 +2,11 @@
 -- box, and a substring prefilter per search word); Lua applies genres, formats, set types, exact distance, and
 -- word-prefix matching, then ranks and pages.
 
-local BY_NAME = " ORDER BY lower(json_extract(record, '$.profile.name')), json_extract(record, '$.profile.name'), uri"
+local NAME = "(record::jsonb #>> '{profile,name}')"
 
-function handle()
+local BY_NAME = ' ORDER BY lower(' .. NAME .. ' COLLATE "C"), ' .. NAME .. ' COLLATE "C", uri COLLATE "C"'
+
+function handle(input)
 	local where, args = {}, {}
 	local function filter(clause, values)
 		where[#where + 1] = ' AND ' .. clause
@@ -13,34 +15,40 @@ function handle()
 		end
 	end
 
-	local status = text(params.status)
+	local status = text(input.status)
 	if status then
-		filter("json_extract(record, '$.status') = ?", { status })
-	elseif params.includeInactive ~= true then
-		filter("json_extract(record, '$.status') = 'active'")
+		filter("record::jsonb ->> 'status' = ?", { status })
+	elseif input.includeInactive ~= true then
+		filter("record::jsonb ->> 'status' = 'active'")
 	end
-	local country = text(params.country)
-	if country then filter("upper(json_extract(record, '$.profile.location.country')) = upper(?)", { country }) end
-	local kinds, tiers = list(params.kinds, 10), list(params.feeTiers, 10)
-	if #kinds > 0 then filter("json_extract(record, '$.profile.kind') IN (" .. marks(#kinds) .. ')', kinds) end
-	if #tiers > 0 then filter(inFeeTiers('record', '$.profile.fees', tiers, '$.profile.fee')) end
-	if params.unclaimed == true then filter("json_array_length(record, '$.managers') = 0") end
-	local manager = text(params.manager)
-	if manager then filter("EXISTS (SELECT 1 FROM json_each(record, '$.managers') WHERE value = ?)", { manager }) end
+	local country = text(input.country)
+	if country then
+		filter(
+			'upper((record::jsonb #>> \'{profile,location,country}\') COLLATE "C") = upper(?::text COLLATE "C")',
+			{ country }
+		)
+	end
+	local kinds, tiers = input.kinds or {}, input.feeTiers or {}
+	if #kinds > 0 then filter("record::jsonb #>> '{profile,kind}' IN (" .. marks(#kinds) .. ')', kinds) end
+	if #tiers > 0 then filter(inFeeTiers('record', 'profile,fees', tiers, 'profile,fee')) end
+	if input.unclaimed == true then filter("record::jsonb -> 'managers' = '[]'") end
+	local manager = text(input.manager)
+	if manager then filter("record::jsonb -> 'managers' @> jsonb_build_array(?::text)", { manager }) end
 
 	local needles = {}
-	for _, term in ipairs(terms(text(params.q) or '')) do
+	for _, term in ipairs(terms(text(input.q) or '')) do
 		needles[#needles + 1] = ' ' .. term
-		-- Every word appears somewhere in the record's JSON, a superset of the word-prefix match below.
-		filter('record LIKE ?', { '%' .. term .. '%' })
+		-- Every word appears somewhere in the record's JSON, a superset of the word-prefix match below. ILIKE under "C"
+		-- ignores ASCII case only, as terms() lowers.
+		filter('record COLLATE "C" ILIKE ?', { '%' .. term .. '%' })
 	end
 
-	local near = point(params.latE6, params.lngE6)
-	local radius = integer(params.radiusKm) or 50
-	if near then filter(withinBox(near, radius, 'record', '$.profile.location')) end
+	local near = point(input.latE6, input.lngE6)
+	local radius = integer(input.radiusKm) or 50
+	if near then filter(withinBox(near, radius, 'record', 'profile,location')) end
 
-	local wanted = performerFilter(params)
-	local sort = searchSort(params, needles, near)
+	local wanted = performerFilter(input)
+	local sort = searchSort(input, needles, near)
 
 	-- SQL sorts by name or newest first; searchPage keeps that order for ties.
 	local items = {}
@@ -56,6 +64,6 @@ function handle()
 		end
 	end
 
-	local page, total, cursor = searchPage(items, sort, params, needles)
+	local page, total, cursor = searchPage(items, sort, input, needles)
 	return { projects = page, total = total, cursor = cursor }
 end

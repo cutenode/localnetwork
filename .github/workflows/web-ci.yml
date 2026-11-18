@@ -126,8 +126,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install chromium
-      - name: Pull the HappyView image (scripts/lib/happyview.ts)
-        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - name: Pull the HappyView and Postgres images (scripts/lib/happyview.ts)
+        run: |
+          docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
+          docker pull postgres:17.11-alpine
       - run: pnpm test:coverage
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -152,8 +154,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install chromium
-      - name: Pull the HappyView image (scripts/lib/happyview.ts)
-        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - name: Pull the HappyView and Postgres images (scripts/lib/happyview.ts)
+        run: |
+          docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
+          docker pull postgres:17.11-alpine
       - run: pnpm test:e2e --project chromium
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
@@ -185,8 +189,10 @@ jobs:
       # keeps programs without a profile of their own from creating the user namespaces the sandbox
       # runs in. Lifted here rather than running Chromium without its sandbox.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Pull the HappyView image (scripts/lib/happyview.ts)
-        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - name: Pull the HappyView and Postgres images (scripts/lib/happyview.ts)
+        run: |
+          docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
+          docker pull postgres:17.11-alpine
       - run: pnpm test:lighthouse
       # Each page's scores from the run lhci reports as representative (its median), then each
       # assertion that failed: lhci writes both even when one does.
@@ -242,8 +248,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm # zizmor: ignore[cache-poisoning]
       - run: pnpm install --frozen-lockfile
-      - name: Pull the HappyView image (scripts/lib/happyview.ts)
-        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - name: Pull the HappyView and Postgres images (scripts/lib/happyview.ts)
+        run: |
+          docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
+          docker pull postgres:17.11-alpine
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

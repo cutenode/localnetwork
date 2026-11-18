@@ -6,6 +6,8 @@
 -- A recording without an audio blob isn't kept at all. HappyView keeps the event's CID either way.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
+local log = require('internal.logging')
+
 local function blob(value)
 	if type(value) ~= 'table' or value['$type'] ~= 'blob' or type(value.ref) ~= 'table' then return nil end
 	local size = value.size
@@ -14,24 +16,24 @@ local function blob(value)
 	return value
 end
 
-local function gate()
-	if action == 'delete' then return true end
-	local audio = blob(record.audio)
+local function gate(input)
+	if input.action == 'delete' then return true end
+	local audio = blob(input.record.audio)
 	if not audio then
-		log('skipped ' .. uri .. ': no audio blob')
+		log.info('skipped ' .. input.uri .. ': no audio blob')
 		return nil
 	end
-	local seconds = record.durationSeconds
+	local seconds = input.record.durationSeconds
 	return {
 		audio = audio,
 		durationSeconds = math.type(seconds) == 'integer' and seconds > 0 and seconds or nil,
-		createdAt = type(record.createdAt) == 'string' and record.createdAt or nil,
+		createdAt = type(input.record.createdAt) == 'string' and input.record.createdAt or nil,
 	}
 end
 
-function handle()
-	local ok, result = pcall(gate)
+function handle(input)
+	local ok, result = pcall(gate, input)
 	if ok then return result end
-	log('skipped ' .. uri .. ': ' .. tostring(result))
+	log.info('skipped ' .. input.uri .. ': ' .. tostring(result))
 	return nil
 end

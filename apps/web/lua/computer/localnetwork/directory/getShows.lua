@@ -1,9 +1,12 @@
 -- Shows by URI, past ones too, in the order asked for, each once. Ones the directory doesn't list are left out.
 
-function handle()
-	local uris = list(params.uris, 25)
+local json = require('internal.json')
+
+function handle(input)
+	local uris = input.uris
+	local where, values = atUris(uris, 's.')
 	local byUri = {}
-	for _, row in ipairs(showRows(' AND s.uri IN (' .. marks(#uris) .. ')', uris, '')) do
+	for _, row in ipairs(showRows(' AND ' .. where, values, '')) do
 		byUri[row.uri] = row
 	end
 	local out = {}
@@ -13,5 +16,5 @@ function handle()
 			byUri[uri] = nil
 		end
 	end
-	return { shows = toarray(out) }
+	return { shows = json.to_array(out) }
 end

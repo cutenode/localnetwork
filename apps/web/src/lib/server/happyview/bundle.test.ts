@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY, NS, VERIFICATION } from '#lib/nsid.ts';
 import { FakeHappyView } from '../testing/happyview';
-import { happyViewBundle } from './bundle';
+import { chunk, happyViewBundle } from './bundle';
 
 describe('happyViewBundle', () => {
 	it('ships the records and queries lua/ has a script for, and the defs they use', () => {
@@ -51,8 +51,32 @@ describe('happyViewBundle', () => {
 
 		// The record gates carry nothing but the root DID and the bug report space, so no shared code can break them.
 		for (const gate of scripts.filter((script) => script.id.startsWith('record.')))
-			expect(gate.body).not.toMatch(/TAXONOMY|local function list/);
-		expect(scripts.find((script) => script.id.startsWith('xrpc.'))?.body).toMatch(/TAXONOMY[^]*local function list/);
+			expect(gate.body).not.toMatch(/TAXONOMY|local function atUris/);
+		expect(scripts.find((script) => script.id.startsWith('xrpc.'))?.body).toMatch(/TAXONOMY[^]*local function atUris/);
+	});
+
+	it('starts each script with the modules its files require, once each', () => {
+		const { scripts } = happyViewBundle('did:plc:root');
+		const body = (nsid: string) => scripts.find((script) => script.id.endsWith(`:${nsid}`))?.body ?? '';
+
+		const query = body(DIRECTORY.getRecords);
+		expect(query).toMatch(
+			/^local json = require\('internal.json'\)\nlocal sql = require\('happyview.sql'\)\nlocal ROOT_DID/
+		);
+		expect(query.match(/require\(/g)).toHaveLength(2);
+		// A gate requires the SQL library inside its pcall, so a missing one is a skip rather than a stored record.
+		const gate = body(COLLECTION.show);
+		expect(gate).toMatch(
+			/^local json = require\('internal.json'\)\nlocal log = require\('internal.logging'\)\nlocal ROOT_DID/
+		);
+		expect(gate).toContain("\tlocal sql = require('happyview.sql')");
+
+		expect(chunk(["local a = require('x')\nlocal b = 1", 'local a = require("x")\nlocal c = 2'])).toBe(
+			"local a = require('x')\nlocal b = 1\nlocal c = 2"
+		);
+		expect(() => chunk(["local a = require('x')\n", "local a = require('y')\n"])).toThrow(
+			'Two Lua files bind a to different modules'
+		);
 	});
 
 	it("puts each lexicon after the ones it refers to, since HappyView stores them in the bundle's order", () => {
