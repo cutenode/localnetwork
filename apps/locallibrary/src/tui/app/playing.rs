@@ -70,7 +70,7 @@ pub struct PhraseSpan {
 /// Phrases with times: a phrase's beats are 1-based indexes into the grid; one that runs past the
 /// grid ends with the track. One that doesn't end after it starts isn't drawn (the reader drops
 /// those, but made-up data can hold them).
-pub(super) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<PhraseSpan> {
+pub(in crate::tui) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<PhraseSpan> {
     let Some(st) = &analysis.structure else { return Vec::new() };
     let at = |beat: u16| analysis.beats.get(beat as usize - 1).map(|b| b.time_ms as f64);
     let end_of_track = duration.as_secs_f64() * 1000.0;

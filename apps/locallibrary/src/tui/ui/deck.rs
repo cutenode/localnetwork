@@ -201,12 +201,9 @@ fn draw_brief(f: &mut Frame, app: &App, area: Rect) {
         Line::styled(t.artist.clone(), bold(theme::current().accent)),
     ];
     let mut beat = beat_spans(now, pos_ms);
-    if let Some((_, p, bar)) = now.phrase_at(pos_ms) {
-        beat.extend([
-            Span::raw(" "),
-            chip(p.kind.name().to_uppercase(), theme::current().phrase(p.kind)),
-            Span::styled(format!(" {bar}/{}", p.bars), dim()),
-        ]);
+    if let Some(phrase) = phrase_chip(now, pos_ms) {
+        beat.push(Span::raw(" "));
+        beat.extend(phrase);
     }
     lines.push(Line::from(beat));
     f.render_widget(Paragraph::new(lines), area);

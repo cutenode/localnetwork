@@ -12,11 +12,12 @@ extend-exclude = [
     # Test fixtures: real exports and recorded API responses
     "**/fixtures/**",
     "!crates/locallibrary/tests/fixtures/README.md",
-    # Generated: vitest snapshots, the RPC docs emitted from Rust, screenshot captures
+    # Generated: vitest snapshots, the RPC docs emitted from Rust, screenshot and terminal captures
     "*.snap",
     "apps/locallibrary/docs/rpc/",
     "apps/locallibrary/docs/player/*.svg",
     "apps/web/src/lib/tools/captures/",
+    "apps/web/src/lib/tui/captures/",
 ]
 
 [default]

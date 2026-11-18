@@ -14,6 +14,7 @@ use ratatui::buffer::{Buffer, Cell};
 use ratatui::style::{Color, Modifier};
 use uuid::Uuid;
 
+use super::super::app::testing::holds;
 use super::super::app::{App, View};
 use super::super::keymap::{HelpSection, help};
 use super::super::screens::{Fixture, fixture};
@@ -33,16 +34,6 @@ const BASELINE: usize = 14;
 /// What the theme leaves to the terminal, as a dark terminal draws it.
 const BACKGROUND: &str = "#101014";
 const FOREGROUND: &str = "#e6e6e6";
-
-/// `path` holds `made`, or with `LOCALLIBRARY_BLESS=1` now does.
-fn holds(path: &Path, made: &str) {
-    if std::env::var_os("LOCALLIBRARY_BLESS").is_some_and(|v| v == "1") {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        return std::fs::write(path, made).unwrap();
-    }
-    let on_disk = std::fs::read_to_string(path).unwrap_or_default();
-    assert!(on_disk == made, "{} isn't what the player makes: update it with\n  {RERUN}", path.display());
-}
 
 fn table((title, rows): &HelpSection) -> String {
     let cell = |s: &str| s.replace('|', "\\|");
@@ -65,7 +56,7 @@ fn the_key_tables_are_the_keymap() {
     let doc = std::fs::read_to_string(&path).unwrap();
     let start = doc.find(KEYS_START).expect("the start of the key tables");
     let end = doc.find(KEYS_END).expect("the end of the key tables") + KEYS_END.len();
-    holds(&path, &format!("{}{}{}", &doc[..start], key_tables(), &doc[end..]));
+    holds(&path, &format!("{}{}{}", &doc[..start], key_tables(), &doc[end..]), RERUN);
 }
 
 fn colour(c: Color, unset: &str) -> String {
@@ -181,7 +172,7 @@ fn the_screenshots_are_the_screens() {
         app.view = view;
         for size in SIZES {
             let name = format!("{}-{}x{}.svg", view.title().to_lowercase(), size.0, size.1);
-            holds(&Path::new(DOCS).join("player").join(name), &svg(&drawn(&mut app, size)));
+            holds(&Path::new(DOCS).join("player").join(name), &svg(&drawn(&mut app, size)), RERUN);
         }
     }
 }

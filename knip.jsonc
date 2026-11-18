@@ -38,6 +38,8 @@
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
 				"!src/lib/og/cards/CardPreview.svelte!",
+				// locallibrary's terminal widgets, which only their stories show.
+				"!src/lib/tui/**!",
 				// The venue picker ships dark: the event editor will be the first form to use it, and until then
 				// only its stories and tests reach it. Drop this line when a page imports it.
 				"!src/lib/components/VenuePicker.svelte!",

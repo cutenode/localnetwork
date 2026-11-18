@@ -1,0 +1,136 @@
+{
+  "pages": {
+    "dark": {
+      "fg": "#e2e2ec",
+      "bg": "#09090b",
+      "palette": "#000000:#cd0000:#00cd00:#cdcd00:#0000ee:#cd00cd:#00cdcd:#e5e5e5"
+    },
+    "light": {
+      "fg": "#09090b",
+      "bg": "#ffffff",
+      "palette": "#000000:#cd0000:#00cd00:#cdcd00:#0000ee:#cd00cd:#00cdcd:#e5e5e5"
+    }
+  },
+  "stories": {
+    "overview/start": {
+      "widget": "Overview",
+      "cols": 80,
+      "rows": 4,
+      "moves": false
+    },
+    "overview/bridge": {
+      "widget": "Overview",
+      "cols": 80,
+      "rows": 4,
+      "moves": false
+    },
+    "wave-overview/three-band": {
+      "widget": "WaveOverview",
+      "cols": 80,
+      "rows": 5,
+      "moves": false
+    },
+    "detail/on-a-cue": {
+      "widget": "Detail",
+      "cols": 80,
+      "rows": 8,
+      "moves": false
+    },
+    "detail/in-a-loop": {
+      "widget": "Detail",
+      "cols": 80,
+      "rows": 8,
+      "moves": false
+    },
+    "cue-lane/bridge": {
+      "widget": "CueLane",
+      "cols": 80,
+      "rows": 2,
+      "moves": false
+    },
+    "phrase-strip/intro": {
+      "widget": "PhraseStrip",
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "phrase-strip/bridge": {
+      "widget": "PhraseStrip",
+      "cols": 80,
+      "rows": 1,
+      "moves": false
+    },
+    "phrase-strip/into-the-verse": {
+      "widget": "PhraseStrip",
+      "cols": 80,
+      "rows": 1,
+      "moves": true
+    },
+    "spectrum/bars": {
+      "widget": "Spectrum",
+      "cols": 40,
+      "rows": 8,
+      "moves": false
+    },
+    "spectrum/mirrored": {
+      "widget": "Spectrum",
+      "cols": 40,
+      "rows": 8,
+      "moves": false
+    },
+    "scope/tone": {
+      "widget": "Scope",
+      "cols": 40,
+      "rows": 6,
+      "moves": false
+    },
+    "pixels/gradient": {
+      "widget": "Pixels",
+      "cols": 16,
+      "rows": 8,
+      "moves": false
+    },
+    "beat/one": {
+      "widget": "beat_spans",
+      "cols": 10,
+      "rows": 1,
+      "moves": false
+    },
+    "beat/two": {
+      "widget": "beat_spans",
+      "cols": 10,
+      "rows": 1,
+      "moves": false
+    },
+    "beat/three": {
+      "widget": "beat_spans",
+      "cols": 10,
+      "rows": 1,
+      "moves": false
+    },
+    "beat/four": {
+      "widget": "beat_spans",
+      "cols": 10,
+      "rows": 1,
+      "moves": false
+    },
+    "beat/two-bars": {
+      "widget": "beat_spans",
+      "cols": 10,
+      "rows": 1,
+      "moves": true
+    },
+    "phrase/intro": {
+      "widget": "phrase_chip",
+      "cols": 16,
+      "rows": 1,
+      "moves": false
+    },
+    "phrase/bridge": {
+      "widget": "phrase_chip",
+      "cols": 16,
+      "rows": 1,
+      "moves": false
+    }
+  }
+}

@@ -51,6 +51,15 @@ pub(super) fn chip(s: String, c: [u8; 3]) -> Span<'static> {
     Span::styled(format!(" {s} "), theme::chip(c))
 }
 
+/// The phrase playing at `pos_ms`, as a chip, and its bar of its bars.
+pub(super) fn phrase_chip(now: &NowPlaying, pos_ms: f64) -> Option<[Span<'static>; 2]> {
+    let (_, p, bar) = now.phrase_at(pos_ms)?;
+    Some([
+        chip(p.kind.name().to_uppercase(), theme::current().phrase(p.kind)),
+        Span::styled(format!(" {bar}/{}", p.bars), dim()),
+    ])
+}
+
 /// The loop playing, as a chip.
 pub(super) fn loop_chip(app: &App) -> Option<Span<'static>> {
     let (_, beats) = app.loop_playing()?;
@@ -120,10 +129,9 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     if let Some(c) = loop_chip(app) {
         chips.extend([Span::raw("  "), c]);
     }
-    if let Some((_, p, bar)) = now.phrase_at(pos_ms) {
+    if let Some(phrase) = phrase_chip(now, pos_ms) {
         chips.push(Span::raw("  "));
-        chips.push(chip(p.kind.name().to_uppercase(), theme::current().phrase(p.kind)));
-        chips.push(Span::styled(format!(" {bar}/{}", p.bars), dim()));
+        chips.extend(phrase);
         if let Some(st) = &now.analysis.structure {
             chips.push(Span::styled(format!("  {:?} mood", st.mood).to_lowercase(), faint()));
         }
