@@ -1,13 +1,14 @@
 //! Drives and libraries: finding what's mounted, reading a drive, and showing what's read.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::PoisonError;
+use std::time::{Duration, Instant, SystemTime};
 
-use locallibrary::api;
 use locallibrary::masterdb::{self, CloudFolders};
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::VolumeWatcher;
 use locallibrary::{Ctx, Device, Store, paths};
+use locallibrary::{api, collection_export};
 use ratatui::widgets::TableState;
 
 use crate::tui::browse::{self, Category, NodeId, Problems, SavedNode};
@@ -29,6 +30,34 @@ pub struct ReplayOffer {
 /// collection reads as the library of a drive at `/`.
 pub(in crate::tui) fn collection_root() -> PathBuf {
     PathBuf::from("/")
+}
+
+/// How often the open collection's `master.db` is looked at for changes.
+const COLLECTION_POLL: Duration = Duration::from_secs(1);
+/// How long a change to `master.db` is left alone before it's read: a save in rekordbox is
+/// several writes, to the database and its WAL.
+const COLLECTION_SETTLE: Duration = Duration::from_secs(2);
+
+/// What a change to rekordbox's collection shows in: `master.db`'s and its WAL's modification
+/// times and sizes (rekordbox writes the WAL, and the database only as it checkpoints).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::tui) struct CollectionStamp([Option<(SystemTime, u64)>; 2]);
+
+impl CollectionStamp {
+    pub(in crate::tui) fn of(db: &Path) -> Self {
+        let stat = |p: &Path| std::fs::metadata(p).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
+        CollectionStamp([stat(db), stat(&PathBuf::from(format!("{}-wal", db.display())))])
+    }
+}
+
+/// A drive holds a copy of the whole of the collection at `db` (written by `collection export`),
+/// made when this says.
+fn copy_of_collection(root: &Path, db: &Path) -> Option<chrono::DateTime<chrono::Utc>> {
+    let rec = collection_export::record(&Device::open(root).ok()?).ok()??;
+    let same = |a: &Path, b: &Path| {
+        a == b || std::fs::canonicalize(a).is_ok_and(|a| std::fs::canonicalize(b).is_ok_and(|b| a == b))
+    };
+    (rec.source.is_none() && rec.playlists.is_empty() && same(&rec.collection, db)).then_some(rec.at)
 }
 
 /// The view to come back to when the open drive is read again (after an edit, say).
@@ -175,6 +204,9 @@ impl App {
             return;
         };
         self.collection_row = true;
+        // Taken before the read: a save while it reads shows as a change, and is read next.
+        self.collection_seen = Some(CollectionStamp::of(&db));
+        self.collection_change = None;
         self.loading = Some("Reading rekordbox's collection…".into());
         self.load += 1;
         let load = self.load;
@@ -194,6 +226,41 @@ impl App {
             Msg::Library(load, root, r)
         };
         self.spawn_or(job, move |e| Msg::Library(load, failed, Err(e)));
+    }
+
+    /// rekordbox saves `master.db` as you work in it: the open collection is read again once a
+    /// change has been left alone for [`COLLECTION_SETTLE`], keeping the view, so what the
+    /// player shows is the collection as it is now. Called every tick; looks once a second.
+    pub(in crate::tui) fn watch_collection(&mut self) {
+        if self.last_collection_poll.elapsed() < COLLECTION_POLL {
+            return;
+        }
+        self.last_collection_poll = Instant::now();
+        let Some(db) = self.loaded.as_ref().and_then(|l| l.collection.clone()) else { return };
+        if self.loading.is_some() {
+            return;
+        }
+        let now = CollectionStamp::of(&db);
+        match self.collection_change {
+            _ if self.collection_seen == Some(now) => self.collection_change = None,
+            Some((seen, since)) if seen == now => {
+                if since.elapsed() >= COLLECTION_SETTLE {
+                    self.load_collection();
+                }
+            }
+            _ => self.collection_change = Some((now, Instant::now())),
+        }
+    }
+
+    /// The drives in the list holding a copy of the whole collection that's on this computer.
+    pub(in crate::tui) fn find_collection_copies(&mut self) {
+        let Some(db) = self.collection_db.clone() else {
+            self.collection_copies.clear();
+            return;
+        };
+        self.collection_copies = (self.drives.iter().filter(|d| d.has_export))
+            .filter_map(|d| Some((d.root.clone(), copy_of_collection(&d.root, &db)?)))
+            .collect();
     }
 
     /// Read `name` in the background from the drive `pick` answers (`first` when picking fails),

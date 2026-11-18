@@ -27,8 +27,11 @@ describe('SpaceSyncer', () => {
 	afterEach(() => db.destroy());
 
 	// Every pass resolves the space authority first, so `passes` counts passes. `listWritersError`
-	// makes the space host's listWriters fail; otherwise it reports no repos.
-	const syncer = (listWritersError?: Error | string, options: { logger?: Logger } = {}) => {
+	// makes the space host's listWriters fail; otherwise it reports no repos, or what `options.listWriters` answers.
+	const syncer = (
+		listWritersError?: Error | string,
+		options: { logger?: Logger; listWriters?: () => Promise<object> } = {}
+	) => {
 		const identity = new IdentityResolver({
 			plcUrl: 'https://plc.test',
 			allowPrivateNetwork: false,
@@ -56,6 +59,7 @@ describe('SpaceSyncer', () => {
 		const listWriters = vi.spyOn(credentials, 'query');
 
 		if (listWritersError) listWriters.mockRejectedValue(listWritersError);
+		else if (options.listWriters) listWriters.mockImplementation(options.listWriters);
 		else listWriters.mockResolvedValue({ repos: [] });
 
 		return new SpaceSyncer({
@@ -162,6 +166,24 @@ describe('SpaceSyncer', () => {
 			['debug', 'space sync still failing', SPACE]
 		]);
 	});
+
+	it('reads 100 pages of a repo list a pass unless told otherwise', async () => {
+		const { logger, lines } = writtenLog();
+		let pages = 0;
+		// Every page lists a repo the host has removed, which a pass reads past, and points at the next.
+		const removed = { $type: 'com.atproto.space.defs#repoRemoved', repo: 'did:plc:gone', spaceRev: '0' };
+		const s = syncer(undefined, { logger, listWriters: async () => ({ repos: [removed], cursor: String(++pages) }) });
+		await s.watch(SPACE);
+
+		await s.sync(SPACE);
+		expect(pages).toBe(100);
+		// The pass is a job, so its warning is a note on the job's line.
+		const notes = lines.flatMap(({ notes = [] }) => notes).filter(({ level }) => level === 'warn');
+		expect(notes.map(({ message, pages }) => [message, pages])).toEqual([
+			['repo list ran past the page limit; reading on next pass', 100]
+		]);
+		expect((await watchRow())?.spaceRev).toBe('100');
+	});
 });
 
 describe('SpaceSyncer against a repo host', () => {
@@ -184,7 +206,8 @@ describe('SpaceSyncer against a repo host', () => {
 
 	const syncer = async (
 		onChange: ChangeHandler = async (change) => void changes.push(change),
-		notifyEndpoint: string | null = null
+		notifyEndpoint: string | null = null,
+		maxPages?: number
 	) => {
 		const credentials = new SpaceCredentialManager({
 			source: async () => ({ getDelegationToken: async () => 'token' }),
@@ -200,7 +223,8 @@ describe('SpaceSyncer against a repo host', () => {
 			onChange,
 			onSpaceDropped: async (space) => void dropped.push(space),
 			identity: host.identity,
-			credentials
+			credentials,
+			maxPages
 		});
 
 		await s.watch(SPACE);
@@ -650,15 +674,16 @@ describe('SpaceSyncer against a repo host', () => {
 			});
 		};
 
-		it('downloads the repo in full once its oplog runs past 100 pages', async () => {
-			const s = await syncer();
+		// A cap of 3 keeps these to a few round trips to the host; 'reads 100 pages of a repo list a pass' pins the default.
+		it('downloads the repo in full once its oplog runs past the page cap', async () => {
+			const s = await syncer(undefined, null, 3);
 			await host.put(DJ, NOTE, 'a', note('one'));
 			await s.sync(SPACE);
 			await host.put(DJ, NOTE, 'b', note('two'));
 			endless('listRepoOps');
 
 			await s.sync(SPACE);
-			expect(calls('listRepoOps')).toHaveLength(100);
+			expect(calls('listRepoOps')).toHaveLength(3);
 			expect(calls('getRepo')).toHaveLength(2);
 			expect(await records()).toEqual([
 				['a', 'one'],
@@ -667,16 +692,16 @@ describe('SpaceSyncer against a repo host', () => {
 			expect((await repoRow())?.lastError).toBeNull();
 		});
 
-		it('reads 100 pages of its repo list a pass, keeping its place for the next', async () => {
-			const s = await syncer();
+		it('reads its repo list up to the page cap a pass, keeping its place for the next', async () => {
+			const s = await syncer(undefined, null, 3);
 			await host.put(DJ, NOTE, 'a', note('one'));
 			await s.sync(SPACE);
 			endless('listWriters');
 
 			await s.sync(SPACE);
-			expect(calls('listWriters')).toHaveLength(101);
+			expect(calls('listWriters')).toHaveLength(4);
 			expect(await db.selectFrom('spaceWatch').selectAll().executeTakeFirst()).toMatchObject({
-				spaceRev: '100',
+				spaceRev: '3',
 				lastError: null
 			});
 		});

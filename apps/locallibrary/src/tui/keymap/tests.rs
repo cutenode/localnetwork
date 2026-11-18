@@ -343,12 +343,9 @@ fn reached(act: Act) -> Reached {
         | Act::Snapshots
         | Act::SignIn
         | Act::ProfileInclude
-        | Act::ProfilePin
-        | Act::ProfileHide
         | Act::ProfileHideArtist
         | Act::ProfileDocument
         | Act::ProfileWrite
-        | Act::ProfileScope
         | Act::ProfileRounding
         | Act::ProfileAccount
         | Act::MixOpen

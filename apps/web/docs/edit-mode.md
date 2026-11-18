@@ -26,7 +26,7 @@ A page that shows one thing has three ways of being drawn for someone who may ch
 | Edit    | The same layout, each section's text swapped for a field in the same box                                 | What's unsaved, Discard, Save (a draft: Save draft and Publish) |
 | Visitor | The page with the viewer's rights set aside: no private sections, no notices                             | One pill, Back to editing                                       |
 
-Edit is a mode, never a separate page. Its URL is the page's own with `?edit`, so a reload, a link from onboarding (`/@me?edit#bio`) or a no-script visit lands in it. Everything in edit mode is one form that posts to the page's own `?/save` action, which calls the service the dashboard calls today (`profiles.save`, `sharedSpaces.updatePage`, `parties.updatePage`, and later `events.update`). Without scripts the form still saves; scripts add the bar's states, the toast and keeping a draft.
+Edit is a mode, never a separate page. Its URL is the page's own with `?edit`, so a reload, a link from onboarding (`/@me?edit#bio`) or a no-script visit lands in it. Everything in edit mode is one form that posts to the page's own `?/save` action, which calls the service the dashboard calls today (`profiles.save`, `sharedSpaces.updatePage`, `parties.updatePage`, `events.update`). Without scripts the form still saves; scripts add the bar's states, the toast and keeping a draft.
 
 There's one Save. Nothing writes as you type: an autosave would trip the stale-write check every time two people edit, and it would mean a toast or spinner on every field.
 
@@ -79,9 +79,9 @@ Failures never toast. A toast goes away by itself; an error has to stay until it
 
 ## Creating as an empty page
 
-`/party/new`, and later `/act/new` and `/party/<key>/new` for an event, draw the real page layout with nothing in it, straight into edit mode. Every section is in its place: text fields show placeholder copy, cards with nothing in them become `AddSlot`s, the picture is a dashed square with a camera button. A notice at the top says it's a draft only you can see.
+`/party/new` and `/party/<key>/new` for an event, and later `/act/new`, draw the real page layout with nothing in it, straight into edit mode. Every section is in its place: text fields show placeholder copy, cards with nothing in them become `AddSlot`s, the picture is a dashed square with a camera button. A notice at the top says it's a draft only you can see.
 
-Saving a draft creates the thing (`createAct`, `parties.start`, `events.create`) with a draft status, and from then on the URL is the real one. Publish needs the required fields (a name; for an event a date and a place) and moves it on: an act to unlisted, waiting for staff, and a party or event to public. The draft status is new data on act and party records. It lands as its own small change before acts move to edit mode, so the page work only reads it.
+Saving a draft creates the thing (`createAct`, `parties.start`, `events.create`) with a draft status, and from then on the URL is the real one. Publish needs the required fields (a name; for an event a venue and a date, which the bar lists as what the draft still needs) and moves it on: an act to unlisted, waiting for staff, and a party or event to public. The draft status is new data on act and party records. It lands as its own small change before acts move to edit mode, so the page work only reads it.
 
 ## The edit bar
 
@@ -94,7 +94,7 @@ One bar for everyone who can change the page they're on, drawn by the server whe
 
 ### Owner part
 
-1. **Shows to**: draft (its people), unlisted (its people and staff, with "Ask to list it"), or everyone.
+1. **Shows to**: draft (its people), unlisted (its people and staff, with "Ask to list it"), everyone, or for a private event anyone with its link.
 2. **People**: the first few, and Manage, which opens the people panel.
 3. **Inbox**: what's waiting about this page, linking to the inbox filtered to it.
 4. **Dashboard**: bookings, press kits and settings for this thing.
@@ -187,9 +187,9 @@ const context = pageContext(locals, 'party', uri, can);
 return { ...context, editing: await openEditor(locals, url, context, name), ... };
 ```
 
-`can` comes from the space's person record for acts, parties, venues and events (`capabilitiesIn` on the viewer's person record), and is everything the space offers for staff. The page draws Edit when `can` includes `page.edit`. `openEditor` says whether the page opens in edit mode (`?edit`, and `page.edit`) and logs staff opening it.
+`can` comes from the space's person record for acts, parties, venues and events (`capabilitiesIn` on the viewer's person record), and is everything the space offers for staff. The page draws Edit when `can` includes `page.edit`; on an event that's whoever holds the party's `events.manage`, since editing an event is running the party's events. `openEditor` says whether the page opens in edit mode (`?edit`, and `page.edit`) and logs staff opening it.
 
-The page's one action is `save`, through `savePage(event, form, save, latest)`: `save(version)` calls the page's service with the hidden `cid` the form opened on, `latest()` reads the page's current values and version for a conflict. A saved page redirects back to itself without `?edit`; a refused one returns an `EditRefusal` (the field, a sign-in, or the conflict's latest values). Services throw a stale write as a `UserError` with status 409.
+The page's one action is `save`, through `savePage(event, form, save, latest)`: `save(version)` calls the page's service with the hidden `cid` the form opened on, `latest()` reads the page's current values and version for a conflict. A saved page redirects back to itself without `?edit`; a refused one returns an `EditRefusal` (the field, a sign-in, the conflict's latest values, or a `choice` the save needs, which the page asks as buttons that save again with the answer, so it works without scripts too; an event asks it when its times would move onto another clock). Services throw a stale write as a `UserError` with status 409.
 
 ## Order of pages
 

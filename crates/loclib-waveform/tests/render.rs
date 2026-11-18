@@ -42,20 +42,15 @@ fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>, comment: &str) -> Cu
 fn spectrum_fills_from_the_bottom() {
     let area = Rect::new(0, 0, 10, 4);
     let mut buf = Buffer::empty(area);
-    Spectrum {
-        bands: &[1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        peaks: &[],
-        mirror: false,
-        tint: None,
-        palette: Palette::default(),
-    }
-    .render(area, &mut buf);
-    // Full bar in column 0, half bar in column 1.
+    Spectrum { bands: &[1.0, 0.5, 0.0, 0.0, 0.0], peaks: &[], mirror: false, tint: None, palette: Palette::default() }
+        .render(area, &mut buf);
+    // Full bar in column 0, a gap, half bar in column 2.
     assert_eq!(buf[(0, 0)].symbol(), "█");
     assert_eq!(buf[(0, 3)].symbol(), "█");
-    assert_eq!(buf[(1, 0)].symbol(), " ");
-    assert_eq!(buf[(1, 3)].symbol(), "█");
-    assert_eq!(buf[(2, 3)].symbol(), " ");
+    assert_eq!(buf[(1, 3)].symbol(), " ", "a gap between bars");
+    assert_eq!(buf[(2, 0)].symbol(), " ");
+    assert_eq!(buf[(2, 3)].symbol(), "█");
+    assert_eq!(buf[(4, 3)].symbol(), " ");
 }
 
 #[test]

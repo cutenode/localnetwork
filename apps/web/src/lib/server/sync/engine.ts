@@ -198,6 +198,8 @@ export class SpaceSyncer {
 			onSpaceDropped: (space: string) => Promise<void>;
 			/** The base URL a space host sends this app its spaces' updates at, or null to rely on polling. */
 			notifyEndpoint: string | null;
+			/** The most pages of a listing one pass reads, MAX_PAGES unless a test needs a host's endless listing short. */
+			maxPages?: number;
 		}
 	) {}
 
@@ -352,7 +354,7 @@ export class SpaceSyncer {
 				if (!page.cursor) break;
 
 				// The cursor is kept, so the next pass reads on from here.
-				if (pages === MAX_PAGES) {
+				if (pages === (this.deps.maxPages ?? MAX_PAGES)) {
 					logger.warn('repo list ran past the page limit; reading on next pass', { pages });
 					break;
 				}
@@ -532,11 +534,12 @@ export class SpaceSyncer {
 		const changes: SyncedChange[] = [];
 		let cursor: string | undefined;
 		let commit: SpaceCommit;
+		const maxPages = this.deps.maxPages ?? MAX_PAGES;
 		let pages = 0;
 
 		do {
 			// A full download replaces an oplog this long in one request, so syncRepo falls back to one.
-			if (++pages > MAX_PAGES) throw new Error(`Oplog ran past ${MAX_PAGES} pages`);
+			if (++pages > maxPages) throw new Error(`Oplog ran past ${maxPages} pages`);
 
 			const { response, mac } = await this.deps.credentials.macRequest({
 				space,

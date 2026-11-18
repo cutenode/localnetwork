@@ -24,6 +24,7 @@ pub(super) mod importers;
 pub(super) mod keys;
 pub(super) mod panels;
 pub(super) mod providers;
+pub(super) mod restoring;
 mod sources;
 mod themes;
 

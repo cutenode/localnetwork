@@ -6,6 +6,7 @@ use url::Url;
 
 use super::*;
 use crate::hooks::account_types::{AUTHORIZE_PARAMS, METHODS};
+use crate::test_util::absolute;
 use crate::{
     AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
     ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, Key,
@@ -202,11 +203,10 @@ fn paths_are_strings_and_absolute() {
         "files": { "type": "array", "items": { "type": "string" }, "x-path": true },
         "name": { "type": "string" },
     } });
-    let absolute = if cfg!(windows) { "C:\\list.txt" } else { "/list.txt" };
-    let fine = json!({ "file": absolute, "files": [absolute], "name": "list.txt" });
+    let list = absolute("list.txt");
+    let fine = json!({ "file": list, "files": [list], "name": "list.txt" });
     assert_eq!(check_params(Some(&schema), &fine), Ok(()));
-    for (params, at) in [(json!({ "file": "list.txt" }), "/file"), (json!({ "files": [absolute, "b.txt"] }), "/files")]
-    {
+    for (params, at) in [(json!({ "file": "list.txt" }), "/file"), (json!({ "files": [list, "b.txt"] }), "/files")] {
         let e = check_params(Some(&schema), &params).unwrap_err();
         assert!(e.message.ends_with("isn't an absolute path"), "{e}");
         assert_eq!((e.code, e.data.unwrap().fields["path"].clone()), (crate::code::INVALID_PARAMS, json!(at)));
@@ -2852,11 +2852,6 @@ fn refused_saying_where(tc: &TestCase, mistake: &str) {
         true => assert!(problem.starts_with(&said), "{problem:?} doesn't start with {said:?}"),
         false => assert_eq!(problem, said),
     }
-}
-
-/// An absolute path on this computer, ending in `name`.
-fn absolute(name: &str) -> String {
-    if cfg!(windows) { format!("C:\\{name}") } else { format!("/{name}") }
 }
 
 #[hegel::test_helper]

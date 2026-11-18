@@ -6,6 +6,7 @@ mod accounts;
 mod analysis;
 #[cfg(feature = "account")]
 mod atmosphere;
+mod bench;
 mod blobs;
 mod callbacks;
 mod checks;
@@ -25,6 +26,7 @@ mod plans;
 mod printable;
 mod props;
 mod providers;
+mod restoring;
 mod roles;
 mod services;
 mod shared_accounts;

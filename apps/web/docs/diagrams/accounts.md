@@ -223,7 +223,7 @@ Source: [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff
 
 ## Capabilities by role
 
-The starting capabilities of each role in a performer, party or venue space. `page.edit`, `presskits.manage`, `shows.manage` and `events.manage` also make someone a writing member. Only the staff console, a venue's claim and settings pages and a party's page use these roles so far: the party page shows its hosts and cohosts, and lets those with page.edit edit it. The venue's `booker` reads Booking manager wherever the site shows it.
+The starting capabilities of each role in a performer, party or venue space. `page.edit`, `presskits.manage`, `shows.manage` and `events.manage` also make someone a writing member. Only the staff console, a venue's claim, settings and events pages, a party's page and its events use these roles so far: the party page shows its hosts and cohosts and lets those with page.edit edit it, events.manage makes and changes the party's events, and venue.approve confirms the events naming a venue. The venue's `booker` reads Booking manager wherever the site shows it.
 
 ```mermaid
 flowchart LR

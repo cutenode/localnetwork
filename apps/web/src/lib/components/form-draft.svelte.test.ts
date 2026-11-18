@@ -1,6 +1,6 @@
 import { page } from 'vitest/browser';
 import { tick } from 'svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { draftKey, FormDraft, hasDraft } from '#lib/form-draft.svelte.ts';
 import { clearSignedOutDrafts, SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
@@ -21,7 +21,8 @@ const stored = () => JSON.parse(localStorage.getItem(KEY) ?? 'null');
 
 const notice = () => page.getByRole('status').filter({ hasText: 'unsent changes' });
 
-afterEach(() => localStorage.removeItem(KEY));
+// The browser's storage outlives each test file, and other files leave their own drafts in it.
+beforeEach(() => localStorage.clear());
 
 describe('ProjectForm drafts', () => {
 	it('keeps unsent changes, rows removed included, and brings them back on the next visit', async () => {
