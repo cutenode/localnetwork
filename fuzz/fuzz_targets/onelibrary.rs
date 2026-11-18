@@ -3,8 +3,10 @@
 //!
 //! An input is a database file, followed by its WAL from the first page boundary holding a WAL's
 //! magic number (`cat exportLibrary.db exportLibrary.db-wal`). Fuzzed encrypted pages never pass
-//! their HMAC, so an input that is plain SQLite instead is encrypted here under one fixed salt
-//! before it is read: SQLite and the code reading rows into a library see fuzzed pages too.
+//! their HMAC, so an input that is plain SQLite instead is encrypted here, under one salt drawn
+//! for the process, before it is read: SQLite and the code reading rows into a library see fuzzed
+//! pages too. Reading decrypts back to the same plain pages under any salt, and each page's IV is
+//! random anyway, so a crash doesn't depend on the salt.
 //! Reading takes a file on disk, as every `OneLibrary` is a working copy in a temporary folder,
 //! which keeps this target to hundreds of runs a second.
 
@@ -13,11 +15,12 @@
 use std::sync::LazyLock;
 
 use libfuzzer_sys::fuzz_target;
-use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, PASSPHRASE, SALT_LEN, SQLITE_MAGIC};
+use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, SQLITE_MAGIC};
 use locallibrary::onelibrary::{self, OneLibrary, wal};
 
-/// Deriving a salt's keys takes 256,000 rounds of PBKDF2, so plain inputs all get this one.
-static CODEC: LazyLock<Codec> = LazyLock::new(|| Codec::with_key(PASSPHRASE.as_bytes(), [0; SALT_LEN]));
+/// Deriving a salt's keys takes 256,000 rounds of PBKDF2, so plain inputs all get this one random
+/// salt (as a new file does), and reading them back finds its keys already derived.
+static CODEC: LazyLock<Codec> = LazyLock::new(|| cipher::random().expect("the OS gives randomness"));
 
 fuzz_target!(|data: &[u8]| {
     let _ = cipher::check_plain_header(data);
