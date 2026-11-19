@@ -157,3 +157,38 @@ fn beats_and_cues_read_back() {
     older.as_object_mut().unwrap().remove("active_loop");
     assert_eq!(serde_json::from_value::<Cue>(older).unwrap(), Cue { active_loop: false, ..cue });
 }
+
+fn ending_at(end_beat: u16) -> SongStructure {
+    let phrase = Phrase { kind: PhraseKind::Intro, start_beat: 1, end_beat, fill_beat: None };
+    SongStructure { mood: Mood::High, phrases: vec![phrase] }
+}
+
+/// A 180 BPM track rekordbox phrased at half tempo: its phrases end at beat 242 of a 488-beat grid,
+/// so each of their beats is two of the grid's, and their bars twice as long.
+#[test]
+fn phrases_counted_at_half_tempo_are_found() {
+    let half = ending_at(242);
+    assert_eq!(half.beat_scale(488), 2);
+    assert_eq!(SongStructure::grid_index(242, 2), 482);
+    let chorus = Phrase { kind: PhraseKind::Chorus, start_beat: 53, end_beat: 117, fill_beat: None };
+    assert_eq!(SongStructure::bars(&chorus, 2), 32);
+    assert_eq!(SongStructure::bars(&chorus, 1), 16);
+    assert_eq!(ending_at(482).beat_scale(488), 1, "ending with the grid");
+    assert_eq!(ending_at(489).beat_scale(488), 1, "running a beat past it");
+    assert_eq!(SongStructure { mood: Mood::Low, phrases: Vec::new() }.beat_scale(488), 1, "no phrases");
+    assert_eq!(ending_at(242).beat_scale(0), 1, "no grid");
+}
+
+/// For any grid: phrases that end with it are its own beats, and phrases that end with it once
+/// doubled are at half tempo. A grid's index for a phrase's beat is never past where the doubled
+/// beat lands.
+#[hegel::test(test_cases = 200)]
+fn prop_the_phrases_beat_scale_is_what_makes_them_end_with_the_grid(tc: TestCase) {
+    let grid = tc.draw(gs::integers::<usize>().min_value(40).max_value(4000));
+    let short = tc.draw(gs::integers::<usize>().max_value(grid / 20));
+    let full = (grid + 1 - short) as u16;
+    assert_eq!(ending_at(full).beat_scale(grid), 1, "{full} of {grid}");
+    let half = ((grid + 2) / 2 - short / 2) as u16;
+    assert_eq!(ending_at(half).beat_scale(grid), 2, "{half} of {grid}");
+    assert!(SongStructure::grid_index(half, 2) <= grid, "{half} of {grid}");
+}

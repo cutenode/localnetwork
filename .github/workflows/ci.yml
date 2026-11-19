@@ -151,6 +151,7 @@ jobs:
               - '.github/actions/pr-comment/**'
               - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
+              - '.github/actions/patch-coverage/**'
               # The budgets and coverage jobs run tools/*/cli.ts on this Node.
               - '.node-version'
               # What the tests read from other tools' folders: the bug report form, and the
@@ -261,11 +262,13 @@ jobs:
               - '.github/actions/main-artifact/**'
               - '.github/actions/size-report/**'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
             # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
             # of the above but the Markdown and labels that the tool pages and
             # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs and
-            # the root's tools, which only verify reads, and what only the e2e tests, Lighthouse and
-            # the Docker image use.
+            # the root's tools, which only verify reads (patch.json stays, for the patch coverage),
+            # and what only the e2e tests, Lighthouse and the Docker image use.
             web_integration:
               - *web
               - '!apps/*/README.md'
@@ -277,7 +280,9 @@ jobs:
               - '!.github/labels.yml'
               - '!.oxlintrc.json'
               - '!.oxfmtrc.json'
-              - '!tools/**'
+              - '!tools/budgets/**'
+              - '!tools/oxlint/**'
+              - '!tools/**/*.ts'
               - '!.dockerignore'
               - '!apps/web/Dockerfile'
               - '!apps/web/tests/docker.test.ts'
@@ -390,8 +395,12 @@ jobs:
               - '.github/actions/main-artifact/**'
               - '.github/actions/size-report/**'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
             atstore:
               - 'packages/atstore/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
               - 'apps/locallibrary/assets/icon.svg'
               - 'apps/locallibrary/bombadil/lib.mjs'
               # The playlist page's markup, which the marks capture draws from.

@@ -103,8 +103,8 @@
 					<button class="btn-primary">Show what's on</button>
 				</form>
 				<p class="m-0 flex flex-wrap gap-x-5 gap-y-2 text-small text-fg-muted">
-					<span>Play out? <a class="link" href="/for-djs">Local Network for DJs</a></span>
-					<span>Book DJs? <a class="link" href="/for-promoters">Local Network for promoters</a></span>
+					<span>Play out? <a class="link" href="/for/djs">Local Network for DJs</a></span>
+					<span>Book DJs? <a class="link" href="/for/promoters">Local Network for promoters</a></span>
 				</p>
 			</div>
 			<div class="min-w-0">

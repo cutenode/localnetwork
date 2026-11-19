@@ -25,6 +25,54 @@ fn phrases_are_placed_with_the_beat_grid() {
     assert_eq!((spans[1].start_ms, spans[1].end_ms, spans[1].bars), (16_000.0, 40_000.0, 16));
 }
 
+/// rekordbox phrased some fast tracks at half tempo: these phrases (a 180 BPM track's, as its
+/// analysis has them) end at beat 242 of 488. Placed at half tempo they run to the end of the track
+/// rather than halfway, with bars twice as long.
+#[test]
+fn phrases_counted_at_half_tempo_run_the_whole_track() {
+    let beats: Vec<Beat> = (0..488u32)
+        .map(|i| Beat { beat_number: (i % 4 + 1) as u16, bpm: 180.0, time_ms: 138 + i * 1000 / 3 })
+        .collect();
+    let last = f64::from(beats[487].time_ms);
+    let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+    let analysis = TrackAnalysis {
+        beats,
+        structure: Some(SongStructure {
+            mood: Mood::High,
+            phrases: vec![
+                phrase(PhraseKind::Intro, 2, 17),
+                phrase(PhraseKind::Chorus, 17, 53),
+                phrase(PhraseKind::Chorus, 53, 117),
+                phrase(PhraseKind::Down, 117, 149),
+                phrase(PhraseKind::Down, 149, 177),
+                phrase(PhraseKind::Outro, 177, 242),
+            ],
+        }),
+        ..Default::default()
+    };
+    let spans = phrase_spans(&analysis, Duration::from_secs(162));
+    let outro = spans.last().unwrap();
+    assert!(outro.end_ms > 0.98 * last, "the outro ends at {} of {last}", outro.end_ms);
+    assert_eq!(spans[2].bars, 32);
+    assert!(spans.windows(2).all(|w| w[0].end_ms == w[1].start_ms));
+}
+
+/// Phrases out of order (a plugin's can be) are placed on their own beats: the latest end, not the
+/// last phrase's, says whether they count the grid at half tempo. The deck's property found these
+/// on a two-beat grid, where the one that can't be drawn coming last put the other off the grid.
+#[test]
+fn phrases_out_of_order_are_placed_on_their_beats() {
+    let phrase = |start_beat, end_beat| Phrase { kind: PhraseKind::Intro, start_beat, end_beat, fill_beat: None };
+    let analysis = TrackAnalysis {
+        beats: grid(0, 90.0, 2),
+        structure: Some(SongStructure { mood: Mood::Mid, phrases: vec![phrase(2, 3), phrase(0, 2)] }),
+        ..Default::default()
+    };
+    let spans = phrase_spans(&analysis, Duration::from_secs(10));
+    assert_eq!(spans.len(), 1);
+    assert_eq!((spans[0].start_ms, spans[0].bars), (f64::from(analysis.beats[1].time_ms), 1));
+}
+
 fn titles(app: &App) -> Vec<String> {
     let l = app.loaded.as_ref().unwrap();
     app.visible.iter().map(|&i| l.library.tracks[i].title.clone()).collect()
@@ -3125,9 +3173,9 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
 
 /// A track with any analysis (a beat grid, hot and memory cues and loops anywhere, phrases
 /// that may run past the grid, waveforms) plays on the deck: its phrases start on their
-/// beats and end after, a hot cue pad goes to just where the cue is (a loop's plays it), and
-/// the deck draws at any size in every visualiser, full screen or not, as its keys jump,
-/// loop and zoom about.
+/// beats (at half tempo where they count it so) and end after, a hot cue pad goes to just
+/// where the cue is (a loop's plays it), and the deck draws at any size in every visualiser,
+/// full screen or not, as its keys jump, loop and zoom about.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     use super::super::ui::screen;
@@ -3177,13 +3225,16 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
         now.waves.kinds.blue_detail = Some(wave(3_000));
         now.waves.kinds.rgb_preview = Some(wave(400));
     }
-    // Only those that start on the grid and end after they start are drawn.
+    // Only those that start on the grid (at half tempo where they count it so) and end after they
+    // start are drawn.
+    let scale = analysis.structure.as_ref().map_or(1, |s| s.beat_scale(n as usize));
+    let on_grid = |beat: u16| SongStructure::grid_index(beat, scale) < n as usize;
     let placed: Vec<&Phrase> = (analysis.structure.iter().flat_map(|s| &s.phrases))
-        .filter(|p| p.start_beat > 0 && (p.start_beat as usize) <= n as usize && p.end_beat > p.start_beat)
+        .filter(|p| p.start_beat > 0 && on_grid(p.start_beat) && p.end_beat > p.start_beat)
         .collect();
     assert_eq!(now.phrases.len(), placed.len(), "{:?}", analysis.structure);
     for (p, span) in placed.iter().zip(&now.phrases) {
-        assert_eq!(span.start_ms, analysis.beats[p.start_beat as usize - 1].time_ms as f64);
+        assert_eq!(span.start_ms, analysis.beats[SongStructure::grid_index(p.start_beat, scale)].time_ms as f64);
         assert!(span.start_ms < span.end_ms, "{p:?} at {} to {}", span.start_ms, span.end_ms);
     }
     now.opening = tc.draw(gs::booleans());

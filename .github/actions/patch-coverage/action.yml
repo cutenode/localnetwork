@@ -1,0 +1,40 @@
+name: Patch coverage
+description: >-
+  Fails a pull request whose tests cover less of the lines it adds or changes than
+  tools/coverage/patch.json says, with diff-cover over an lcov report and the diff against the base
+  its merge commit sits on (HEAD^1, so the checkout needs `fetch-depth: 2`). Lines the report doesn't
+  count, such as tests, configs and code compiled only for another platform, are left out, and so are
+  the files patch.json's `exclude` lists. Writes the changed files' coverage to the run's summary. A
+  project's own thresholds still hold its total.
+
+inputs:
+  report:
+    description: The lcov report, relative to `root`.
+    required: true
+  root:
+    description: The folder the report's relative paths start from, the project's own.
+    default: .
+  name:
+    description: The project, for the summary's heading.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # diff-cover only matches a report's paths to the diff's when they're absolute, or relative to
+    # the folder it runs in, the repository's root.
+    - shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+        REPORT: ${{ inputs.report }}
+        NAME: ${{ inputs.name }}
+      run: |
+        sed "s|^SF:\([^/]\)|SF:$PWD/$ROOT/\1|" "$ROOT/$REPORT" > "$RUNNER_TEMP/patch-lcov.info"
+        threshold=$(jq .lines_percent tools/coverage/patch.json)
+        excludes=()
+        while IFS= read -r glob; do excludes+=(--exclude "$glob"); done < <(jq -r '.exclude[]' tools/coverage/patch.json)
+        status=0
+        pipx run --spec diff-cover==11.0.0 diff-cover "$RUNNER_TEMP/patch-lcov.info" --compare-branch=HEAD^1 \
+          --fail-under="$threshold" "${excludes[@]}" --format "markdown:$RUNNER_TEMP/patch.md" || status=$?
+        { echo "## Patch coverage: $NAME"; echo; cat "$RUNNER_TEMP/patch.md"; } >> "$GITHUB_STEP_SUMMARY"
+        exit "$status"
