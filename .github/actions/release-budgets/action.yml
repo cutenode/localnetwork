@@ -20,19 +20,31 @@ runs:
     - uses: ./.github/actions/apt-packages
       with:
         packages: libasound2-dev valgrind
+    # The CLI's package, by its manifest: a base measured in its own checkout may be from before
+    # it was named `locallibrary` (it was `locallibrary-cli`), and this action is the head's.
+    - id: cli
+      shell: bash
+      working-directory: ${{ inputs.root }}
+      run: |
+        cli=$(cargo metadata --no-deps --format-version 1 --locked |
+          jq -r '.packages[] | select(.manifest_path | endswith("/apps/locallibrary/Cargo.toml")) | .name')
+        echo "package=$cli" >> "$GITHUB_OUTPUT"
     # By name, whatever the version, so a new crate shows and a version bump doesn't. Without
     # colour: CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
     - shell: bash
       working-directory: ${{ inputs.root }}
       env:
         OUT: ${{ inputs.out }}
+        CLI_PACKAGE: ${{ steps.cli.outputs.package }}
       run: |
         mkdir -p "$OUT"
-        cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary --prefix none |
+        cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p "$CLI_PACKAGE" --prefix none |
           sed 's/ .*//' | sort -u | jq -R -s '{"locallibrary": split("\n")[:-1]}' > "$OUT/deps.json"
     - shell: bash
       working-directory: ${{ inputs.root }}
-      run: cargo build --profile dist -p locallibrary --locked
+      env:
+        CLI_PACKAGE: ${{ steps.cli.outputs.package }}
+      run: cargo build --profile dist -p "$CLI_PACKAGE" --locked
     # CARGO_TARGET_DIR: a base measured in its own checkout builds into the job's target, which the
     # cache restored.
     - shell: bash
@@ -78,7 +90,8 @@ runs:
       working-directory: ${{ inputs.root }}
       env:
         OUT: ${{ inputs.out }}
+        CLI_PACKAGE: ${{ steps.cli.outputs.package }}
       run: |
-        unit=$(cargo test --release -p locallibrary --test unit --locked --no-run --message-format=json-render-diagnostics |
+        unit=$(cargo test --release -p "$CLI_PACKAGE" --test unit --locked --no-run --message-format=json-render-diagnostics |
           jq -r 'select(.executable != null and .target.name == "unit") | .executable')
         "$GITHUB_WORKSPACE/tools/budgets/frame-instructions.sh" "$unit" 600 tui-instructions "$OUT"
