@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { soon } from '#lib/server/home.ts';
 import { act, optionalText, requireViewer, text } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -15,7 +16,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const space = await spaceFor(locals, params.skey);
 
 	try {
-		return await locals.app.bookings.thread(viewer, space);
+		const { project, ...opened } = await locals.app.bookings.openThread(viewer, space);
+
+		// The directory only adds the act's name, which streams if it's slow.
+		const named = await soon(
+			project.catch((cause) => {
+				locals.log.warn("couldn't read a booking thread's act", { err: cause, space });
+
+				return null;
+			})
+		);
+
+		return { ...opened, project: named.value };
 	} catch {
 		error(404, 'Booking thread not found');
 	}

@@ -36,8 +36,12 @@ pub struct AnalyzeTrack {
 /// The track an analyzer looks at.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Track {
+    /// 0 for an audio file on no drive (one a user hands in to score an analyzer, as `locallibrary
+    /// analysis bench --audio` does): the context then names no drive, and reads of a library are
+    /// refused while the plugin has it.
     pub id: u32,
-    /// Its path on the drive, from the drive's root (`/Contents/...`).
+    /// Its path on the drive, from the drive's root (`/Contents/...`); the file's name for one on
+    /// no drive.
     pub file_path: String,
     /// Its audio file, absolute. Read it; never write to it.
     pub audio_path: PathBuf,

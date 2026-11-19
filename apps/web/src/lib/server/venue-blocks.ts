@@ -17,8 +17,8 @@ function pageKey(kind: 'act' | 'party', input: string): string {
 }
 
 /**
- * The URI a block names for `input`: a handle (or DID) for a person, and for an act or party its page link, its key, or
- * a party's space URI.
+ * The URI a block, or an event's lineup, names for `input`: a handle (or DID) for a person, and for an act or party its
+ * page link, its key, or a party's space URI.
  */
 export async function blockSubject(app: Lookups, kind: BlockKind, input: string): Promise<string> {
 	const wanted = input.trim().replace(/^@/, '');

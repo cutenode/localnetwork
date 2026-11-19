@@ -25,15 +25,15 @@ The list of which other public pages each kind of public page links to whenever 
 _Avoid_: sitemap, related links
 
 **Dashboard**:
-Your hub once signed in: the inbox, bookings, plans, settings, onboarding, and lists of what's yours. There's one per account, and editing a page happens on the page. Its sections follow who the switcher says you're acting as, and its home starts with the onboarding checklist until that's done.
-_Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
+Your hub once signed in: the inbox, bookings, plans, settings, onboarding, and lists of what's yours. There's one per account, and editing a page happens on the page. Its sections follow who the switcher says you're acting as. Its first page is **Overview**, which starts with the onboarding checklist until that's done. **Account** is about your sign-in account itself, not who the switcher says you're acting as.
+_Avoid_: app, account area, my page, DJ dashboard, promoter dashboard, home (Home is the signed-in home page with the Feed)
 
 **Switcher**:
 Choosing who you're acting as: yourself, or an act, party or venue you have capabilities for. It's the same on every page, the header always shows the choice, and the dashboard follows it.
 _Avoid_: account switcher (the account doesn't change), context, workspace
 
 **Onboarding**:
-A short flow on first sign-in, then a checklist on the dashboard home with one step per piece of data and what filling it in gets you. A feature that turns on for someone adds its own steps to the checklist, marked new.
+A short flow on first sign-in, then a checklist on the dashboard's Overview with one step per piece of data and what filling it in gets you. A feature that turns on for someone adds its own steps to the checklist, marked new.
 _Avoid_: setup wizard, tour, getting started
 
 **Feed**:
@@ -163,7 +163,7 @@ A real place events happen, shared by everyone who links to it. There's one venu
 _Avoid_: club, location (when meaning the place itself), booker, unconfirmed, pending
 
 **Inbox**:
-Where the site tells someone about guests, bookings, waitlist spots and new events, and asks them to decide things: claim and listing decisions, press kit access requests, lineup credits to confirm and community photos to approve. Every item opens what it's about. Inquiries and messages from strangers wait under its Requests tab. Each person can also opt into getting these by email or Bluesky DM.
+Where the site tells someone about guests, bookings, waitlist spots and new events, and asks them to decide things: claim and listing decisions, press kit access requests, lineup credits to confirm and community photos to approve. Every item opens what it's about. Inquiries and messages from strangers wait under its Requests tab. Each person can also opt into getting these by email or Bluesky DM, chosen per kind of item.
 _Avoid_: notifications page, feed
 
 **Event**:
@@ -195,8 +195,12 @@ Where a promoter works out shows before they're public, privately in their own s
 _Avoid_: draft show, plan (a plan is what someone's going to)
 
 **Booking**:
-The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
+The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled, or confirmed and its night has passed, it's settled, and nothing reopens it.
 _Avoid_: gig, inquiry (the inquiry is what opens one)
+
+**Turn**:
+In a live booking, the side whose move it is: whoever didn't send the last message or status change.
+_Avoid_: needs reply, waiting (on its own)
 
 **Review request**:
 Asking staff to list a DJ, act or party in the directory, to confirm someone owns a venue, or to confirm a claim: that a performer is you, or that you manage them. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.

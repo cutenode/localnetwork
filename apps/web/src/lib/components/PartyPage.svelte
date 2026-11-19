@@ -2,7 +2,9 @@
 	import type { ComponentProps } from 'svelte';
 	import { ExternalLink, MapPin } from '@lucide/svelte';
 	import { roleLabel } from '#lib/capabilities.ts';
-	import { accountLabel, placeLabel, profileHref } from '#lib/format.ts';
+	import type { EventSummary } from '#lib/events.ts';
+	import { accountLabel, asShowDate, nightLabel, placeLabel, profileHref } from '#lib/format.ts';
+	import { EVENT_STATUS, showHours } from '#lib/shows.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import type { AccountView, BasicsSection } from '#lib/types.ts';
 	import { webHref } from '#lib/web-url.ts';
@@ -17,15 +19,20 @@
 	/**
 	 * A party's page, built in place: its name, picture, bio, area, links and the people who run it, and in edit mode the
 	 * same layout with each part as its field. A party being started has no `party` yet and draws every field empty.
-	 * Its upcoming events have a slot in edit mode until they can be added.
+	 * Its upcoming events are listed, its drafts, private ones and ones never confirmed marked for its people, and in edit
+	 * mode those who can add one get a slot that goes to where it's made (`newEventHref`).
 	 */
 	let {
 		party = null,
+		events = [],
+		newEventHref = null,
 		people = [],
 		geocoder = true,
 		...edit
 	}: Omit<ComponentProps<typeof EditMode>, 'children' | 'name' | 'labels' | 'missing'> & {
 		party?: { basics: Omit<BasicsSection, 'avatar'>; avatarUrl: string | null } | null;
+		events?: EventSummary[];
+		newEventHref?: string | null;
 		/** Its hosts and cohosts who show to everyone. */
 		people?: (AccountView & { role: string })[];
 		geocoder?: boolean;
@@ -40,8 +47,35 @@
 	const labels = { name: 'Name', bio: 'Bio', city: 'City', region: 'Region', country: 'Country' };
 </script>
 
+{#snippet eventList(shown: EventSummary[])}
+	<ul class="m-0 flex list-none flex-col gap-2.5 p-0">
+		{#each shown as item (item.href)}
+			{@const isCancelled = item.status === EVENT_STATUS.cancelled}
+			<li class="card flex items-start gap-4 p-4">
+				<div class="flex min-w-0 flex-1 flex-col gap-1">
+					<p class="m-0 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+						<a class={['entity-link text-emphasis font-semibold break-words', isCancelled && 'text-fg-muted line-through']} href={item.href}>{item.name}</a>
+						{#if item.draft}<span class="pill bg-well text-fg-muted">Draft</span>{/if}
+						{#if item.private}<span class="pill bg-well text-fg-muted">Private</span>{/if}
+						{#if item.neverConfirmed}<span class="pill bg-well text-fg-muted">Never confirmed</span>{/if}
+						{#if isCancelled}<span class="pill bg-raised text-critical">Cancelled</span>{:else if item.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
+					</p>
+					{#if item.startsAt || item.venue}
+						<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
+							{#if item.startsAt}<span>{nightLabel(asShowDate(item.startsAt))}</span><span class="font-mono">{showHours({ startsAt: item.startsAt })}</span>{/if}
+							{#if item.startsAt && item.venue}<span aria-hidden="true">·</span>{/if}
+							{#if item.venue}<span>{item.venue}</span>{/if}
+						</p>
+					{/if}
+				</div>
+			</li>
+		{/each}
+	</ul>
+{/snippet}
+
 <EditMode {...edit} {name} {labels} missing={party ? [] : ['a name']}>
 	{#snippet children(view)}
+		{@const shownEvents = view.visitor ? events.filter((item) => !item.draft && !item.private && !item.neverConfirmed) : events}
 		{#if edit.status === 'draft' && !view.visitor}<div class="container-page pt-6"><p class="m-0 notice notice-info">This is a draft. Only its people can see it.</p></div>{/if}
 		<div class="border-b border-line">
 			<div class="container-page flex flex-col gap-5 py-10 sm:flex-row sm:items-end sm:py-14">
@@ -63,10 +97,13 @@
 			<div class="flex min-w-0 flex-[999_1_34rem] flex-col gap-8">
 				{#if view.editing}
 					<InlineText name="bio" label="Bio" multiline placeholder="What the night is about" value={view.value('bio', basics?.bio ?? '')} error={view.error('bio')} readonly={view.busy} class="text-body text-fg-soft" />
-					<section aria-labelledby="events" class="flex flex-col gap-3">
-						<h2 id="events" class="m-0 eyebrow text-fg-subtle">Upcoming events</h2>
-						<AddSlot label="Add an event" hint="Each event you add shows here" />
-					</section>
+					{#if shownEvents.length || newEventHref}
+						<section aria-labelledby="events" class="flex flex-col gap-3">
+							<h2 id="events" class="m-0 eyebrow text-fg-subtle">Upcoming events</h2>
+							{#if shownEvents.length}{@render eventList(shownEvents)}{/if}
+							{#if newEventHref}<AddSlot label="Add an event" hint="Each event you add shows here" href={newEventHref} />{/if}
+						</section>
+					{/if}
 					<section aria-labelledby="area" class="card flex flex-col gap-3 p-5">
 						<h2 id="area" class="m-0 eyebrow text-fg-subtle">Area</h2>
 						<PlacePicker values={basics?.location} {geocoder} required={false} missing="Pick a city from the search so people nearby find it." />
@@ -75,8 +112,14 @@
 						<h2 id="links" class="m-0 eyebrow text-fg-subtle">Links</h2>
 						<LinkFields saved={basics?.links} blank="website" />
 					</section>
-				{:else if basics?.bio}
-					<p class="m-0 text-body whitespace-pre-line text-fg-soft">{basics.bio}</p>
+				{:else}
+					{#if basics?.bio}<p class="m-0 text-body whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
+					{#if shownEvents.length}
+						<section aria-labelledby="events" class="flex flex-col gap-3">
+							<h2 id="events" class="m-0 eyebrow text-fg-subtle">Upcoming events</h2>
+							{@render eventList(shownEvents)}
+						</section>
+					{/if}
 				{/if}
 			</div>
 

@@ -45,6 +45,11 @@ on:
 permissions:
   contents: read
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # Every pull request but one that only edits Markdown, and manual runs. Not weekly: the policies
   # and ast-grep read only the repo, which every push to it already checked.

@@ -37,7 +37,11 @@ impl AskAccess for Terminal {
     fn write_record(&self, write: &RecordWrite) -> Option<bool> {
         Some(self.drawing.suspend(|| {
             eprintln!("{}", write.shown());
-            self.out.confirm(&format!("{}. Write it?", write.summary()))
+            // On stdout, as it names the account; the question on stderr doesn't.
+            if !self.out.json {
+                say!("{}.", write.summary());
+            }
+            self.out.confirm("Write it?")
         }))
     }
 }

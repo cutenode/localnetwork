@@ -227,6 +227,34 @@ export type PartyRecord = {
 	updatedAt: string;
 };
 
+/** A performer on an event's lineup (`computer.localnetwork.event#credit`), by their profile's or act's listing URI. */
+export type EventCredit = { performer: string; startsAt?: string; endsAt?: string };
+
+/** A night a party puts on (`computer.localnetwork.event`), as the root wrote it into the party's space. */
+export type EventRecord = {
+	name: string;
+	description?: string;
+	/** With the venue's UTC offset, or the draft's time zone's. Only a draft can be without it, or without a venue. */
+	startsAt?: string;
+	endsAt?: string;
+	/** The IANA time zone a draft keeps its times on while it has no venue. */
+	timeZone?: string;
+	/** The venue's space. */
+	venue?: string;
+	tickets?: string;
+	/** A `community.lexicon.calendar.event#status` value. */
+	status: string;
+	/** `public` or `private`, or a value a newer app added, which reads as private. */
+	audience: string;
+	linkToken?: string;
+	/** Absent while it's a draft. */
+	publishedAt?: string;
+	lineup?: EventCredit[];
+	createdBy: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
 /** How a venue takes events that name it (`computer.localnetwork.venue#approval`'s knownValues). */
 export type VenueApproval = 'open' | 'approval';
 
@@ -569,6 +597,12 @@ export type BookingThreadView = {
 	lastActivityAt: string;
 	createdAt: string;
 };
+
+/** A thread in the bookings list, where a closed one keeps why: `withdrawn` is a cancelled inquiry nobody confirmed. */
+export type BookingListThread = BookingThreadView & { withdrawn: boolean };
+
+/** What the directory adds to threads, by their space. */
+export type ThreadProjects = Map<string, NonNullable<BookingThreadView['project']>>;
 
 /** The shows a booking thread links to, which its page shows beside the details. */
 export type BookingShowLinks = {

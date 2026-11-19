@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectLink } from '#lib/types.ts';
 	import LinkFields from './LinkFields.svelte';
 
@@ -14,8 +15,6 @@
 
 	/** The 12 links the basics hold. */
 	const full: ProjectLink[] = Array.from({ length: 12 }, (_, index) => ({ kind: 'website', url: `https://neontide.test/${index + 1}` }));
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** With nothing saved, one empty row of the `blank` type. */
 	const oneBlank =

@@ -3,7 +3,7 @@ import { setHref } from '#lib/format.ts';
 import type { AccountView } from '#lib/types.ts';
 
 /**
- * What the dashboard home's locallibrary card says about `account`: when their stats and sets were last published, and
+ * What Overview's locallibrary card says about `account`: when their stats and sets were last published, and
  * their newest set by the day it was played. Read from the records locallibrary publishes, as DjService keeps them.
  */
 export async function locallibraryStatus(
