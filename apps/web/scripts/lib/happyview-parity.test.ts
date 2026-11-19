@@ -1,12 +1,12 @@
 import { cidForLex } from '@atproto/lex-cbor';
 import { jsonToLex } from '@atproto/lex-json';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { JsonRecord } from '../../src/lib/server/atproto/repo-client.ts';
 import { happyViewBundle } from '../../src/lib/server/happyview/bundle.ts';
 import { HappyViewClient } from '../../src/lib/server/happyview/client.ts';
 import { FakeHappyView, type RecordEvent } from '../../src/lib/server/testing/happyview.ts';
-import { compare, parityCases, syncLikeTheApp } from './happyview-parity.ts';
+import { compare, type ParityCase, parityCases, syncLikeTheApp } from './happyview-parity.ts';
 
 const ROOT = 'did:plc:root';
 
@@ -75,10 +75,16 @@ function client(hv: FakeHappyView): HappyViewClient {
 }
 
 describe('happyview parity', () => {
-	it('asks about every project, manager and record the old instance knows, and finds no difference in a copy', async () => {
-		const old = client(await indexed());
-		const cases = await parityCases(old, ROOT, collections);
+	/** The old instance and what to ask it, which no test changes, so they're made once for every test. */
+	let old: HappyViewClient;
+	let cases: ParityCase[];
 
+	beforeAll(async () => {
+		old = client(await indexed());
+		cases = await parityCases(old, ROOT, collections);
+	});
+
+	it('asks about every project, manager and record the old instance knows, and finds no difference in a copy', async () => {
 		expect(cases).toEqual(
 			expect.arrayContaining([
 				{ name: 'getStats', params: {} },
@@ -91,14 +97,12 @@ describe('happyview parity', () => {
 	});
 
 	it('reports what a new instance lacks until it syncs the way the app does', async () => {
-		const old = client(await indexed());
 		const fresh = new FakeHappyView(ROOT, bundle);
 
 		fresh.repo = (did, collection) =>
 			records.filter((record) => record.did === did && record.collection === collection);
 
 		const next = client(fresh);
-		const cases = await parityCases(old, ROOT, collections);
 
 		const before = await compare(cases, old, next);
 		expect(before.map(({ name }) => name)).toEqual(expect.arrayContaining(['getStats', 'getProject', 'listRecords']));
@@ -122,7 +126,7 @@ describe('happyview parity', () => {
 		expect(Object.keys(statuses).some((status) => status.startsWith('error: '))).toBe(true);
 
 		const down = new HappyViewClient({ url: 'http://down.test', fetch: async () => new Response('', { status: 502 }) });
-		const [mismatch] = await compare([{ name: 'getStats', params: {} }], client(await indexed()), down);
+		const [mismatch] = await compare([{ name: 'getStats', params: {} }], old, down);
 		expect(mismatch.diff).toContain('HTTP 502');
 	});
 });
