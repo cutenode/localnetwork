@@ -104,7 +104,7 @@ fn exports_the_collection_to_a_folder_players_read() {
     let lib = target.library().unwrap();
     let t = lib.tracks.iter().find(|t| t.title == "One More Time").unwrap();
     // Where rekordbox puts it, which is where an XDJ-RX3 looks.
-    assert_eq!(t.analyze_path, format!("/{}/ANLZ0000.DAT", anlz::analysis_folder(&t.file_path)));
+    assert_eq!(t.analyze_path, format!("/{}/ANLZ0000.DAT", anlz::AnalysisFolder::of(&t.file_path)));
     let dat = std::fs::read(target.path(&paths::key(&t.analyze_path))).unwrap();
     assert_eq!(anlz::read_path(&dat).unwrap().as_deref(), Some(t.file_path.as_str()));
     for ext in ["EXT", "2EX"] {

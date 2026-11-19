@@ -13,7 +13,7 @@
 //! which are only their tracks as they are now. One whose rules can't be read stays behind. Audio goes in
 //! `Contents/<artist>/<album>/`, and each track's analysis files (`.DAT`, `.EXT`, `.2EX`) are
 //! rekordbox's own from its `share` folder, in the `PIONEER/USBANLZ` folder rekordbox gives that
-//! audio path ([`crate::anlz::analysis_folder`]), with the path written into them. Artwork keeps
+//! audio path ([`crate::anlz::AnalysisFolder`]), with the path written into them. Artwork keeps
 //! rekordbox's export layout (`PIONEER/Artwork/00001/a1.jpg`, with its `_m` copy), shared by both
 //! databases.
 //!
@@ -43,7 +43,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis_edit::{self, NewAnalysis};
-use crate::anlz::{Bands, Beat, CuePoint, PathSlot};
+use crate::anlz::{AnalysisFolder, Bands, Beat, CuePoint, PathSlot};
 use crate::artwork::{image_key, medium_variant};
 use crate::device::{Device, LineageEntry, LineageOp};
 use crate::error::IoContext;
@@ -615,8 +615,10 @@ struct Layout {
     /// The exported tracks, their paths the target's.
     tracks: Vec<Track>,
     files: IndexMap<String, Source>,
-    /// Keys (lower-cased) taken on the target.
+    /// Audio keys (lower-cased) taken on the target.
     taken: FxHashSet<String>,
+    /// The places tracks' analysis files went.
+    stems: FxHashSet<paths::AnalysisStem>,
     /// Artwork key on the target by image path in the `share` folder (lower-cased): the last
     /// export's, then new ones.
     artwork: IndexMap<String, String>,
@@ -670,8 +672,8 @@ impl Layout {
 
     /// Where the analysis files of the track at `device_path` go, without their extension:
     /// rekordbox's place for them, one no other track's files have ([`paths::analysis_stem`]).
-    fn analysis_stem(&self, device_path: &str) -> String {
-        paths::analysis_stem(device_path, |stem| self.taken.contains(&format!("{stem}.dat").to_lowercase()))
+    fn analysis_stem(&self, device_path: &str) -> paths::AnalysisStem {
+        paths::analysis_stem(AnalysisFolder::of(device_path), |s| self.stems.contains(&s))
     }
 
     /// `t` as it goes on the target, its audio at `device_path`: no analysis or artwork yet.
@@ -706,7 +708,7 @@ impl Layout {
                     continue;
                 };
                 let source = Source::analysed(path, mtime(&meta), &device_path, slot);
-                self.taken.insert(to.to_lowercase());
+                self.stems.insert(to_stem);
                 self.files.insert(to.clone(), source);
                 if ext == "DAT" {
                     track.analyze_path = format!("/{to}");
@@ -743,7 +745,7 @@ impl Layout {
                     for (ext, bytes) in ["DAT", "EXT"].into_iter().zip(made) {
                         let to = format!("{stem}.{ext}");
                         let source = self.made(&to, &bytes, target)?;
-                        self.taken.insert(to.to_lowercase());
+                        self.stems.insert(stem);
                         self.files.insert(to, source);
                     }
                     track.analyze_path = format!("/{stem}.DAT");

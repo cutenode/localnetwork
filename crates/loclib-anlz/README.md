@@ -40,11 +40,12 @@ std::fs::write("ANLZ0000.EXT", write_cue_points(&ext, CueFile::Ext, &cues)?)?;
 
 ## Where the files go
 
-`analysis_folder` gives the folder rekordbox puts a track's files in, from the track's path as
-`export.pdb` stores it: `analysis_folder("/Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3")` is
-`PIONEER/USBANLZ/P016/0000875E`. It's a hash of the path's UTF-16 code units, and it places every
-analysed track of the rekordbox exports it was checked on. An XDJ-RX3 only looks there, so files
-written anywhere else show no waveforms or beat grid on it. When two paths hash alike, rekordbox
+`AnalysisFolder` is the folder rekordbox puts a track's files in, from the track's path as
+`export.pdb` stores it: `AnalysisFolder::of("/Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3")`
+writes as `PIONEER/USBANLZ/P016/0000875E`. It's a hash of the path's UTF-16 code units, and it
+places every analysed track of the rekordbox exports it was checked on. It stays two numbers until
+it's written out, and `of_parts` hashes a path from its parts without joining them. An XDJ-RX3 only
+looks there, so files written anywhere else show no waveforms or beat grid on it. When two paths hash alike, rekordbox
 puts the second track's files in the same folder as `ANLZ0001.*`, and so on.
 
 ## How it writes

@@ -59,19 +59,28 @@ pub fn device_path(key: &str) -> String {
     format!("/{key}")
 }
 
-/// Where the analysis files of the audio file at `device_path` go, without their extension: the
-/// first `ANLZ0000`, `ANLZ0001`... in rekordbox's folder for it ([`crate::anlz::analysis_folder`])
-/// that `taken` says no other track has. rekordbox numbers them so when two paths hash alike.
-pub fn analysis_stem(device_path: &str, taken: impl Fn(&str) -> bool) -> String {
-    let folder = crate::anlz::analysis_folder(device_path);
-    let mut n = 0u32;
-    loop {
-        let stem = format!("{folder}/ANLZ{n:04}");
-        if !taken(&stem) {
-            return stem;
-        }
-        n += 1;
+/// Where a track's analysis files go, without their extension: `ANLZ{number:04}` in rekordbox's
+/// folder for the track's path. [`std::fmt::Display`] writes it as a key
+/// (`PIONEER/USBANLZ/P016/0000875E/ANLZ0000`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AnalysisStem {
+    pub folder: crate::anlz::AnalysisFolder,
+    pub number: u16,
+}
+
+impl std::fmt::Display for AnalysisStem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/ANLZ{:04}", self.folder, self.number)
     }
+}
+
+/// The first `ANLZ0000`, `ANLZ0001`... in `folder` that `taken` says no other track has.
+/// rekordbox numbers a track's files so when its path hashes like another's.
+pub fn analysis_stem(folder: crate::anlz::AnalysisFolder, mut taken: impl FnMut(AnalysisStem) -> bool) -> AnalysisStem {
+    (0..=u16::MAX)
+        .map(|number| AnalysisStem { folder, number })
+        .find(|&stem| !taken(stem))
+        .expect("a folder with fewer than 65,536 tracks' analysis")
 }
 
 /// Whether a key (typically a path read from a drive's database) is a plain relative path that
