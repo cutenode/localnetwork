@@ -1,5 +1,6 @@
 use super::*;
 
+use loclib_testkit::audio::{be, mp4_atom, mp4_full};
 pub use loclib_testkit::audio::{wav, wav_of};
 
 #[test]
@@ -90,6 +91,25 @@ fn an_m4a_cut_short_is_truncated() {
         assert!(matches!(health(&junk, 20.0, bytes), Some(AudioProblem::Unreadable { .. })));
     }
     assert_eq!(mp4_len(&junk), None);
+}
+
+/// Regression: an M4A `vet_container` refuses, smaller than the database's size, was handed to
+/// symphonia unvetted to see whether it was cut short, and a tag claiming 16 TiB aborted the
+/// process. It's a file that won't open.
+#[test]
+fn a_refused_m4a_smaller_than_it_should_be_is_unreadable() {
+    let data = [be(&[1]), b"data".to_vec(), (1u64 << 44).to_be_bytes().to_vec(), be(&[1, 0])].concat();
+    let moov =
+        mp4_atom(b"moov", &mp4_atom(b"udta", &mp4_full(b"meta", &mp4_atom(b"ilst", &mp4_atom(b"\xa9nam", &data)))));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, [&b"\0\0\0\x14ftypM4A \0\0\0\0M4A "[..], &moov].concat()).unwrap();
+    match health(&path, 20.0, 1000) {
+        Some(AudioProblem::Unreadable { error }) => {
+            assert!(error.ends_with("an atom runs past the one holding it"), "{error}")
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 /// A WAV cut short in its header doesn't open: it's truncated when it's smaller than the

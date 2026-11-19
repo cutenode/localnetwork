@@ -21,7 +21,7 @@ use locallibrary::sets::{Recording, Set, SetBook, SetEntry};
 use locallibrary::sync::{self, PullOptions};
 use loclib_plugin::StrongRef;
 
-use super::shared_accounts::{WITH, asking, mock_for, who};
+use super::shared_accounts::{Losing, WITH, asking, mock_for, who};
 use super::*;
 
 impl Fixture {
@@ -700,6 +700,8 @@ enum Lasting {
 enum Mistake {
     /// The account is signed out.
     SignedOut,
+    /// The account's session ended: its token expired, and the service wouldn't refresh it.
+    SessionEnded,
     /// The account's tokens are lost.
     Lost,
     /// The access lacks a scope echo needs now.
@@ -708,15 +710,16 @@ enum Mistake {
 
 /// For echo needing any of the mock type's `read` and `write`, an account signed in for it or not,
 /// the service granting any of what they ask, its tokens refreshed or lasting two hours, half an
-/// hour or until they're revoked, and the account then signed out, its tokens lost or echo's access
-/// lacking a scope it needs, or none of these: echo's store destination, and publishing a set with
-/// a recording small or a gigabyte big (which takes over two hours to send at the slowest), start
-/// only when echo has a default access to an account signed in, with every scope it needs, each
-/// granted what it asks, and staying signed in for an hour besides sending the recording when it
-/// isn't refreshed; otherwise each fails as `account` (`no_access`, `not_signed_in`,
-/// `missing_scope`), offering to sign in again as the account once echo has access, and echo is
-/// never asked. Publishing checks again before it's applied: a plan whose account was signed out
-/// since is refused, and echo isn't asked to publish.
+/// hour or until they're revoked, and the account then signed out, its session ended, its tokens
+/// lost or echo's access lacking a scope it needs, or none of these: echo's store destination, and
+/// publishing a set with a recording small or a gigabyte big (which takes over two hours to send
+/// at the slowest), start only when echo has a default access to an account signed in, with every
+/// scope it needs, each granted what it asks, and staying signed in for an hour besides sending
+/// the recording when it isn't refreshed; otherwise each fails as `account` (`no_access`, which
+/// losing the account leaves echo with, `not_signed_in`, `missing_scope`), offering to sign in
+/// again as the account while echo has access, and echo is never asked. Publishing checks again
+/// before it's applied: a plan whose account was signed out or whose session ended since is
+/// refused, and echo isn't asked to publish.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(
     needs = vec!["read"],
@@ -726,7 +729,7 @@ enum Mistake {
     mistake = Option::<Mistake>::None,
     publishing = true,
     big = false,
-    later = true
+    later = Some(Losing::SignOut)
 )]
 fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     let some = vec![vec![], vec!["read"], vec!["write"], vec!["read", "write"]];
@@ -748,11 +751,12 @@ fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     }
     let given = tc.draw(gs::booleans());
     m.sign_in_for(given.then_some("echo"), who(json!("a"), None), None, &[]).0.unwrap();
-    let mistake =
-        tc.draw(gs::sampled_from(vec![None, Some(Mistake::SignedOut), Some(Mistake::Lost), Some(Mistake::Ungiven)]));
+    let mistakes = [Mistake::SignedOut, Mistake::SessionEnded, Mistake::Lost, Mistake::Ungiven];
+    let mistake = tc.draw(gs::sampled_from([None].into_iter().chain(mistakes.map(Some)).collect::<Vec<_>>()));
     let store = &m.f.store;
     match mistake {
-        Some(Mistake::SignedOut) => drop(m.f.plugins.sign_out_account(WITH, "a", store).unwrap()),
+        Some(Mistake::SignedOut) => m.lose("a", Losing::SignOut),
+        Some(Mistake::SessionEnded) => m.lose("a", Losing::SessionEnds),
         Some(Mistake::Lost) => std::fs::remove_file(store.root().join("secrets/accounts.json")).unwrap(),
         Some(Mistake::Ungiven) if given => {
             let file = store.root().join("accounts.json");
@@ -788,7 +792,8 @@ fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     };
     let expected = match mistake {
         _ if !given => Some(Reason::NoAccess),
-        Some(Mistake::SignedOut | Mistake::Lost) => Some(Reason::NotSignedIn),
+        Some(Mistake::SignedOut | Mistake::SessionEnded) => Some(Reason::NoAccess),
+        Some(Mistake::Lost) => Some(Reason::NotSignedIn),
         Some(Mistake::Ungiven) => Some(Reason::MissingScope),
         None if !granted => Some(Reason::MissingScope),
         None if !lasts => Some(Reason::NotSignedIn),
@@ -803,14 +808,14 @@ fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     let Some(reason) = expected else {
         let Some(plan) = started.unwrap() else { return };
         assert_eq!(asked().lines().count(), 1, "{said}: the dry run");
-        let later = tc.draw(gs::booleans());
-        if later {
-            m.f.plugins.sign_out_account(WITH, "a", store).unwrap();
+        let later = tc.draw(gs::sampled_from(vec![None, Some(Losing::SignOut), Some(Losing::SessionEnds)]));
+        if let Some(how) = later {
+            m.lose("a", how);
         }
         let done = plan.apply(Some(store), &Ctx::silent());
-        assert_eq!(done.is_ok(), !later, "{said}");
-        if later {
-            assert_eq!(done.unwrap_err().reason(), Some(Reason::NotSignedIn), "{said}");
+        assert_eq!(done.is_ok(), later.is_none(), "{said}");
+        if later.is_some() {
+            assert_eq!(done.unwrap_err().reason(), Some(Reason::NoAccess), "{said}");
             assert_eq!(asked().lines().count(), 1, "{said}: asked to publish");
         }
         return;
@@ -823,7 +828,8 @@ fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     let actions = e.detail().actions;
     let first = actions.first().and_then(|a| Some((a.method.clone()?, a.params.get("account")?.clone())));
     let givable = matches!(mistake, Some(Mistake::Ungiven)) && asks(needs[0]).iter().all(|a| grants.contains(a));
-    let resolving = given.then(|| match givable {
+    let has_access = given && !matches!(mistake, Some(Mistake::SignedOut | Mistake::SessionEnded));
+    let resolving = has_access.then(|| match givable {
         true => ("accounts.access.give".to_string(), json!({ "plugin": WITH, "subject": "a" })),
         false => ("accounts.sign_in.begin".to_string(), json!("a")),
     });

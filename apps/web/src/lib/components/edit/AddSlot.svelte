@@ -3,15 +3,24 @@
 
 	/**
 	 * Where a section would be in edit mode while it has nothing in it yet, so an empty page still has the real page's
-	 * layout and every section can be found. `hint` says what it's for, in a line.
+	 * layout and every section can be found. `hint` says what it's for, in a line. With `href` it's a link to where that
+	 * thing is made, like a party's next event.
 	 */
-	let { label, hint, onclick }: { label: string; hint?: string; onclick?: () => void } = $props();
+	let { label, hint, href, onclick }: { label: string; hint?: string; href?: string; onclick?: () => void } = $props();
+
+	const slot = 'flex w-full items-start gap-3 rounded-xl border border-dashed border-line-strong p-5 text-left text-fg-muted no-underline transition-colors hover:border-fg-subtle hover:text-fg';
 </script>
 
-<button type="button" {onclick} class="flex w-full items-start gap-3 rounded-xl border border-dashed border-line-strong p-5 text-left text-fg-muted transition-colors hover:border-fg-subtle hover:text-fg">
+{#snippet content()}
 	<Plus aria-hidden="true" class="mt-0.5 size-4 shrink-0" />
 	<span class="flex min-w-0 flex-col gap-1">
 		<span class="text-small font-medium text-fg">{label}</span>
 		{#if hint}<span class="text-label text-fg-subtle">{hint}</span>{/if}
 	</span>
-</button>
+{/snippet}
+
+{#if href}
+	<a {href} class={slot}>{@render content()}</a>
+{:else}
+	<button type="button" {onclick} class={slot}>{@render content()}</button>
+{/if}

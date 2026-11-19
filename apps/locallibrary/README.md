@@ -159,7 +159,7 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 - [Drives](docs/drives.md): your library's drives, roles, health, space, formatting, the doctor's
   report
 - [Atmosphere account](docs/account.md) (alpha): signing in, publishing sets, settings and your
-  profile, and reporting bugs
+  profile, feature flags, and reporting bugs
 - [rekordbox and other DJ software](docs/other-software.md): rekordbox's own collection, Traktor,
   Serato and Engine DJ
 - [Plugins](docs/plugins.md): what plugins add, and where it shows up
@@ -183,6 +183,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   players load from a drive
 - [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
   (rekordbox's OneLibrary and collection) in pure Rust, with their write-ahead log replayed
+- [loclib-anlz](../../crates/loclib-anlz): reading and writing rekordbox's analysis files: beat
+  grids, cues, waveforms, phrases and the audio path
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
   tracklists, and finding their tracks in a library
 - [loclib-audio](../../crates/loclib-audio): decoding tracks and recordings without trusting their
@@ -292,12 +294,13 @@ flowchart LR
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
     core --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
+    core --> anlz["loclib-anlz<br/>analysis files"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> cap["loclib-capacity<br/>fake-capacity probe"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
-    core --> sound["loclib-analysis<br/>tempo, key, loudness"]
+    core -->|scoring only| sound["loclib-analysis<br/>tempo, key, loudness"]
     core --> trans["loclib-transcode<br/>copies for players"]
     core --> model["loclib-model<br/>loclib-progress"]
     plugins --> sdk
@@ -371,7 +374,7 @@ flowchart TD
     hub --> plays["Plays and players<br/>plays, sets, mix, profile, players"]
     hub --> other["Other<br/>account, plugin, bug, completions, help,<br/>analysis, import"]
     hub --> hidden["Not in the help<br/>rpc and man"]
-    hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other"]
+    hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other;<br/>those about the collection in collection --help too"]
     everyday ~~~ plays
     drives ~~~ other
     library ~~~ hidden
@@ -439,7 +442,7 @@ flowchart TD
     hub --> library["library<br/>ls, rename, log, push, prune"]
     hub --> store["store<br/>info, gc, verify, index-limit, copy-on-write, label, unlabel, prune, copy, copies,<br/>browse, views, unbrowse, restore, serve, fetch"]
     hub --> diff["diff<br/>entries between two drives or snapshots"]
-    hub --> collection["collection<br/>info, tracks, playlists, export, diff"]
+    hub --> collection["collection<br/>info, tracks, playlists, export, diff,<br/>and the rekordbox-backup plugin's backup, backups, verify"]
     hub --> export["export<br/>M3U8, CSV, text or a plugin's format"]
     hub --> xml["xml<br/>rekordbox XML"]
     hub --> analyze["analyze<br/>run plugins' analyzers"]
@@ -449,7 +452,7 @@ flowchart TD
     diff ~~~ analyze
 ```
 
-Source: [`src/main.rs`](src/main.rs), [`src/library_cmd.rs`](src/library_cmd.rs), [`src/store_cmd.rs`](src/store_cmd.rs), [`src/diff_cmd.rs`](src/diff_cmd.rs), [`src/collection_cmd.rs`](src/collection_cmd.rs), [`src/export_cmd.rs`](src/export_cmd.rs), [`src/plugin_cmd/analyze.rs`](src/plugin_cmd/analyze.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/library_cmd.rs`](src/library_cmd.rs), [`src/store_cmd.rs`](src/store_cmd.rs), [`src/diff_cmd.rs`](src/diff_cmd.rs), [`src/collection_cmd.rs`](src/collection_cmd.rs), [`src/export_cmd.rs`](src/export_cmd.rs), [`src/plugin_cmd/analyze.rs`](src/plugin_cmd/analyze.rs), [`plugins/rekordbox-backup/locallibrary-plugin.toml`](../../plugins/rekordbox-backup/locallibrary-plugin.toml)
 
 ### Editing commands
 
@@ -503,7 +506,7 @@ The rest of the command tree, with the commands the help leaves out.
 ```mermaid
 flowchart TD
     hub["Other"]
-    hub --> account["account<br/>status, login, logout, TARGET status, TARGET sign-in, TARGET sign-out"]
+    hub --> account["account<br/>status, login, logout, flags, TARGET status, TARGET sign-in, TARGET sign-out, TARGET restore"]
     hub --> plugin["plugin<br/>list, info, settings, access, roles, checks, providers, check"]
     hub --> misc["bug, completions, help"]
     hub --> more["import, analysis bench"]

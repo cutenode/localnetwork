@@ -41,7 +41,8 @@
 	const standing: Record<PageStatus, string> = {
 		draft: 'Only its people, until you publish',
 		unlisted: 'Its people and staff, until staff list it',
-		listed: 'Everyone'
+		listed: 'Everyone',
+		private: 'Anyone with its link'
 	};
 
 	const people = $derived(links.people ?? []);

@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { INQUIRIES, promoterPage } from './fixtures.ts';
 	import Page from './+page.svelte';
 
@@ -8,8 +9,6 @@
 		title: 'Patterns/Dashboard Book DJs',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard/promoter') } } } }
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const loading = new Promise<never>(() => {});
 </script>

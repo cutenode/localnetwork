@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { ActorSuggestion } from '#lib/actors.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import HandleInput from './HandleInput.svelte';
 
 	const accounts: ActorSuggestion[] = [
@@ -14,8 +15,6 @@
 	const search = async (query: string) => accounts.filter((actor) => actor.handle.startsWith(query) || actor.displayName?.toLowerCase().startsWith(query));
 
 	const { Story } = defineMeta({ title: 'Patterns/Handle input', component: HandleInput, tags: ['autodocs'], args: { search } });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Types "ne" and moves to the second suggestion, the way someone picking with the keyboard would. */
 	const typeAndPick = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

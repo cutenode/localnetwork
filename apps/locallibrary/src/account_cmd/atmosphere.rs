@@ -30,6 +30,12 @@ pub(super) enum AccountCommand {
     Login(LoginArgs),
     /// Sign out: revoke the session and remove it from this computer
     Logout,
+    /// Which feature flags are on for you
+    Flags {
+        /// Ask the website now, however recent its last answer
+        #[arg(long)]
+        refresh: bool,
+    },
     /// Write the client metadata document servers fetch to learn who's signing in (Local
     /// Network's web app serves locallibrary's, from apps/web/src/lib/tools/locallibrary/). For
     /// locallibrary's developers: not in `--help`.
@@ -114,6 +120,9 @@ pub(super) fn run(command: AccountCommand, store: &Option<PathBuf>, out: Output,
                     ));
                 }
             });
+        }
+        AccountCommand::Flags { refresh } => {
+            out.emit(&api::account_flags(&root, &api::AccountFlagsRequest { refresh }), render_flags);
         }
         AccountCommand::ClientMetadata { client_id, scopes, output, replace } => {
             let doc =
@@ -280,6 +289,26 @@ pub(super) fn render_status(s: &AccountStatus) {
     }
 }
 
+fn render_flags(r: &api::FlagReport) {
+    heading("Feature flags");
+    let width = r.flags.iter().map(|f| f.key.len()).max().unwrap_or(0);
+    for f in &r.flags {
+        say!("  {:width$}  {}", f.key, if f.on { "on" } else { "off" });
+    }
+    let fetched = r.fetched_at.map(|at| local_time(at, "%Y-%m-%d %H:%M").to_string());
+    say!(
+        "  {}",
+        dim(match (r.freshness, fetched) {
+            (api::Freshness::Fresh, Some(at)) => format!("fetched {at}"),
+            (api::Freshness::Stale, Some(at)) => format!("fetched {at}; the website hasn't answered since"),
+            _ => "no recent answer from the website, so every flag is off".to_string(),
+        })
+    );
+    if r.needs_sign_in {
+        say!("  {}", dim("flags for your account need a new sign-in: `locallibrary account login`"));
+    }
+}
+
 fn render_account(a: &AccountInfo) {
     heading(&format!("Atmosphere account {}", a.name()));
     render_details(a);
@@ -308,9 +337,13 @@ fn render_details(a: &AccountInfo) {
     let publishes = a.scopes.iter().any(|s| atmosphere::PUBLISH_SCOPES.contains(&s.as_str()));
     let reports = a.scopes.iter().any(|s| s == atmosphere::REPORT_SCOPE);
     let known = |s: &String| {
-        [&["atproto", atmosphere::REPORT_SCOPE, atmosphere::UPLOAD_SCOPE][..], &atmosphere::PUBLISH_SCOPES]
-            .concat()
-            .contains(&s.as_str())
+        [
+            &atmosphere::DEFAULT_SCOPES[..],
+            &[atmosphere::REPORT_SCOPE, atmosphere::UPLOAD_SCOPE],
+            &atmosphere::PUBLISH_SCOPES,
+        ]
+        .concat()
+        .contains(&s.as_str())
     };
     let can = match (a.scopes.iter().all(known), publishes, reports) {
         (false, ..) => format!("allowed: {}", a.scopes.join(" ")),

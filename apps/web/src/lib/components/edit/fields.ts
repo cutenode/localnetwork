@@ -1,18 +1,26 @@
 import type { ConflictField, FieldValues } from './types.ts';
 
-/** A form's text values in order, repeated names included, as FormData has them. */
+/** A form's text values in order, repeated names included, as FormData has them. A picked file is its name. */
 export type FieldEntries = [name: string, value: string][];
 
 export const readFields = (form: HTMLFormElement): FieldEntries =>
-	[...new FormData(form)].flatMap(([name, value]): FieldEntries => (value instanceof File ? [] : [[name, value]]));
+	[...new FormData(form)].flatMap(([name, value]): FieldEntries => {
+		if (!(value instanceof File)) return [[name, value]];
+
+		// No file picked is an empty one with no name.
+		return value.name ? [[name, value.name]] : [];
+	});
 
 /** One value per name, the last of a repeated one, as a save's refusal echoes them (stringValues). */
 export const fieldValues = (entries: FieldEntries): FieldValues => Object.fromEntries(entries);
 
 type Control = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
+/** A control a value can be put into: a file input only ever takes what's picked in it. */
 const isControl = (element: Element): element is Control =>
-	element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement;
+	(element instanceof HTMLInputElement && element.type !== 'file') ||
+	element instanceof HTMLTextAreaElement ||
+	element instanceof HTMLSelectElement;
 
 /**
  * Puts `entries` into the form's controls, as typing would: each control whose name they hold, or every named one when

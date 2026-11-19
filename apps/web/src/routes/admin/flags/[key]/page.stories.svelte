@@ -2,13 +2,12 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import { ada } from '#lib/testing/requests.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { FlagGroupView, FlagView } from '#lib/types.ts';
 	import FlagPage from './+page.svelte';
 
 	/** One flag's page: who it's on for, the switch that turns it off for everyone, and a preview for this browser. */
 	const { Story } = defineMeta({ title: 'Staff/Flag' });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const flag: FlagView = {
 		key: 'parityCanary',

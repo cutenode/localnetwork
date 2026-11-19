@@ -2,7 +2,7 @@
 //! to [`serve`].
 
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use loclib_progress::{CancelToken, Coalesced, Ctx, Flusher, Report, Scope};
@@ -29,6 +29,12 @@ pub trait Hook: DeserializeOwned + 'static {
     type Answer: Serialize;
     /// Whether `contributes` declares the contribution it's for: `invalid_params` if not.
     fn declared(&self, contributes: &Contributions) -> Result<(), RpcError>;
+
+    /// Whether it may run for a host with the features `host_has` says it has (in `hello`): a
+    /// hook that needs the host to do something first refuses a host that doesn't.
+    fn allowed(&self, _contributes: &Contributions, _host_has: &dyn Fn(&str) -> bool) -> Result<(), RpcError> {
+        Ok(())
+    }
 }
 
 /// `name` is one of the manifest's contributions of this kind (`what`).
@@ -73,6 +79,7 @@ impl Hooks {
         let run = move |args: Value, contributes: &Contributions, host: &Host| {
             let req: H = params(args)?;
             req.declared(contributes)?;
+            req.allowed(contributes, &|feature| host.has(feature))?;
             ok(hook(req, host)?.into())
         };
         self.hooks.insert(H::METHOD, Box::new(run));
@@ -131,6 +138,11 @@ impl Host {
     /// The plugin's manifest, as [`serve`] read it.
     pub fn manifest(&self) -> &Manifest {
         &self.served.manifest
+    }
+
+    /// Whether the host said it has `feature` in its `hello`.
+    pub fn has(&self, feature: &str) -> bool {
+        self.served.host_features.get().is_some_and(|f| f.iter().any(|f| f == feature))
     }
 
     /// Calls a core read method (`tracks.query`, `drive.info`...) with the params and result the
@@ -192,10 +204,12 @@ impl Host {
     }
 }
 
-/// What [`serve`] serves: the manifest and the hooks.
+/// What [`serve`] serves: the manifest and the hooks, and the features the host has once it
+/// says them.
 struct Served {
     manifest: Manifest,
     hooks: Hooks,
+    host_features: OnceLock<Vec<String>>,
 }
 
 /// Serves `hooks` over `input` and `output` (stdin and stdout, for a real plugin) until `input`
@@ -210,7 +224,7 @@ pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, ou
     let manifest = Manifest::parse(manifest).expect("the plugin's manifest parses");
     let (peer, incoming) = Peer::new(input, output);
     let features = hooks.features();
-    let served = Arc::new(Served { manifest, hooks });
+    let served = Arc::new(Served { manifest, hooks, host_features: OnceLock::new() });
     let flusher = Arc::new(Flusher::new());
     let flushing = flusher.clone();
     let flushing = std::thread::spawn(move || flushing.run(PROGRESS_EVERY));
@@ -253,11 +267,13 @@ pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, ou
             method::HELLO => params(req.params).and_then(|hello: Hello| {
                 check_protocol(&hello.protocol)?;
                 greeted = true;
+                let _ = served.host_features.set(hello.features);
                 let m = &served.manifest;
                 ok(HelloReply {
                     protocol: PROTOCOL_VERSION.into(),
                     plugin: PluginInfo { id: m.id.clone(), version: m.version.clone() },
-                    // The host's are ignored: what it lacks, it never calls.
+                    // Whatever the host's: what it lacks, it never calls (a hook that needs
+                    // the host to do something first checks, see `Hook::allowed`).
                     features: features.clone(),
                 })
             }),

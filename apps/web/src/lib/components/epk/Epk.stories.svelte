@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { ACCESS_PRESETS, epkFormDefaults } from '#lib/epk.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import AccessMatrix from './AccessMatrix.svelte';
 	import EpkAccessCard from './EpkAccessCard.svelte';
 	import EpkForm from './EpkForm.svelte';
@@ -9,8 +10,6 @@
 	const { Story } = defineMeta({ title: 'Press kits/Press kit', component: EpkAccessCard, tags: ['autodocs'] });
 
 	const card = { name: 'Neon Tide', askHref: '/dashboard/access/did:plc:neon/3k' };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const mixes = [
 		{ title: 'Tidal Hours 004', url: 'https://soundcloud.com/example-neon-tide/tidal-hours-004', durationMinutes: 62, year: 2026 },

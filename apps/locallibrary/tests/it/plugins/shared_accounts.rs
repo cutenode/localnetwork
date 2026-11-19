@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use locallibrary::plugin::Restoring;
 use serde_json::{Value, json};
 
 use crate::mock_oauth::{Server, Service, WITH, account_plugin, holds_token, keys_account_plugin, service};
@@ -137,9 +138,9 @@ fn account(subject: &str) -> Value {
 }
 
 /// The sidecar signs in to an account for the echo plugin (giving it access, its default) and
-/// lists it with that access; signs out of it, which leaves the access, the account listed as
-/// signed out; and takes the access away, after which neither is listed. Nothing answered holds a
-/// token.
+/// lists it with that access; signs out of it, which removes the access and remembers it, the
+/// account listed as signed out; and resets what's remembered, after which neither is listed.
+/// Nothing answered holds a token.
 #[test]
 fn the_sidecar_signs_in_for_a_plugin_and_lists_its_access() {
     let m = Mock::new();
@@ -174,13 +175,15 @@ fn the_sidecar_signs_in_for_a_plugin_and_lists_its_access() {
     let listed = s.call(8, "accounts.list", json!({}));
     let expected = json!({ "type": "mock", "plugin": WITH, "subject": "a", "name": "a@mock.example", "scopes": [], "refreshes": false, "signed_in": false });
     assert_eq!(listed["result"]["accounts"], json!([expected]), "signed out, listed for its access");
-    let again = s.call(9, "accounts.sign_out", json!({ "account": account("a") }));
+    assert_eq!((&listed["result"]["accesses"], &listed["result"]["remembered"]), (&json!([]), &json!([access])));
+    assert_eq!(s.call(9, "accounts.access.list", json!({ "plugin": "echo" }))["result"], json!([]));
+    let again = s.call(10, "accounts.sign_out", json!({ "account": account("a") }));
     assert_eq!(again["error"]["data"]["kind"], "not_found", "{again}");
 
-    let taken = s.call(10, "accounts.access.take_away", json!({ "plugin": "echo", "account": account("a") }));
-    assert_eq!(taken["result"], *access);
-    assert_eq!(s.call(11, "accounts.list", json!({}))["result"], json!({ "accounts": [], "accesses": [] }));
-    let answers = [begun.to_string(), listed.to_string(), out.to_string(), taken.to_string()].concat();
+    let reset = s.call(11, "accounts.access.restore", json!({ "account": account("a"), "plugins": [] }));
+    assert_eq!(reset["result"], json!([]), "{reset}");
+    assert_eq!(s.call(12, "accounts.list", json!({}))["result"], json!({ "accounts": [], "accesses": [] }));
+    let answers = [begun.to_string(), listed.to_string(), out.to_string(), reset.to_string()].concat();
     assert!(!m.leaked(&answers), "an answer holds a token");
 }
 
@@ -242,7 +245,8 @@ fn a_sign_in_the_sidecar_cant_begin_says_why() {
 
 /// An access error the echo plugin passes on carries actions: each names a method the sidecar
 /// has, with parameters its contract takes, and calling it does what its label says. Given more
-/// scopes, then signed out, echo's access offers first to sign in again as its account.
+/// scopes, then signed out, echo has no access: its error offers to sign in for it, and signing
+/// in again as its account asks for what echo had and gives it back.
 #[test]
 fn the_actions_of_an_access_error_are_methods_the_sidecar_has() {
     let m = Mock::new();
@@ -274,15 +278,80 @@ fn the_actions_of_an_access_error_are_methods_the_sidecar_has() {
         json!({ "fail": "access", "message": "it can't", "reason": "signed_out", "fields": { "type": "mock" } });
     let e = s.call(23, "plugins.run", json!({ "plugin": "echo", "command": "echo", "params": failing }));
     let again = &e["error"]["data"]["actions"][0];
-    let label = "Sign in again as a@mock.example, allowing read, write";
+    let label = "Sign in to a mock account";
     assert_eq!((&again["method"], &again["label"]), (&json!("accounts.sign_in.begin"), &json!(label)), "{e}");
+    assert_eq!(again["params"], json!({ "type": "mock", "for": "echo" }), "{e}");
     let described = contract()["methods"].as_array().unwrap().iter().find(|m| m["name"] == again["method"]).unwrap();
     assert_eq!(violation(&again["params"], &format!("{}/params", at(described))), None, "{again}");
-    let begun = s.call(24, "accounts.sign_in.begin", again["params"].clone());
+    // Signed in to again by its subject, it's asked for what echo had, and echo gets that back.
+    let begin = json!({ "type": "mock", "for": "echo", "account": "a" });
+    assert_eq!(violation(&begin, &format!("{}/params", at(described))), None, "{begin}");
+    let begun = s.call(24, "accounts.sign_in.begin", begin);
     let (_, query) = begun["result"]["url"].as_str().unwrap().split_once('?').unwrap();
     let query: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
     let at = |key: &str| query.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
     assert_eq!((at("login_hint"), at("scope")), (Some("a"), Some("openid read write")), "{begun}");
+    let url = m.approved(&begun["result"], &who("a"));
+    let done = s.call(25, "accounts.sign_in.paste", json!({ "id": begun["result"]["id"], "url": url }));
+    let back = &done["result"]["restored"][0];
+    assert_eq!((&back["scopes"], &back["default"]), (&json!(["read", "write"]), &json!(true)), "{done}");
+    assert_eq!(done["result"]["access"]["scopes"], json!(["read", "write"]), "{done}");
+}
+
+/// The sidecar gives echo back the access signing out took as it's asked, with params its
+/// contract takes: `accounts.access.restore` is refused while the account is signed out
+/// (`not_signed_in`); Automatically Restore Access on for the account restores it all as it's
+/// signed in again, as it was, and off leaves it answered as `remembered`; restoring echo with no
+/// scopes chosen gives it what it needs; and signing in with `restore: "reset"` forgets it.
+#[test]
+fn the_sidecar_restores_access_as_asked() {
+    let m = Mock::new();
+    let mut s = Rpc::start(m.command());
+    let mut id = 0;
+    let mut call = |method: &str, params: Value| {
+        let described = contract()["methods"].as_array().unwrap().iter().find(|m| m["name"] == method);
+        let described = described.unwrap_or_else(|| panic!("{method} isn't in the contract"));
+        assert_eq!(violation(&params, &format!("{}/params", at(described))), None, "{method}: {params}");
+        id += 1;
+        s.call(id, method, params)
+    };
+    let sign_in = |call: &mut dyn FnMut(&str, Value) -> Value, params: Value| {
+        let begun = call("accounts.sign_in.begin", params);
+        let url = m.approved(&begun["result"], &who("a"));
+        call("accounts.sign_in.paste", json!({ "id": begun["result"]["id"], "url": url }))["result"].clone()
+    };
+    let had = sign_in(&mut call, json!({ "type": "mock", "for": "echo", "scopes": ["write"] }))["access"].clone();
+    assert_eq!((&had["scopes"], &had["default"]), (&json!(["read", "write"]), &json!(true)), "{had}");
+    let a = json!({ "account": account("a") });
+    call("accounts.sign_out", a.clone());
+
+    let refused = call("accounts.access.restore", a.clone());
+    let why = "the mock account a@mock.example is signed out: sign in to it first";
+    assert_eq!(
+        (&refused["error"]["message"], &refused["error"]["data"]["reason"]),
+        (&json!(why), &json!("not_signed_in"))
+    );
+    let on = json!({ "account": account("a"), "on": true });
+    assert_eq!(call("accounts.restore_automatically", on.clone())["result"], on);
+    assert_eq!(call("accounts.list", json!({}))["result"]["restore_automatically"], json!([on]));
+    let again = json!({ "type": "mock", "account": "a" });
+    let done = sign_in(&mut call, again.clone());
+    assert_eq!((&done["restored"], &done["remembered"]), (&json!([had]), &Value::Null), "{done}");
+
+    let off = json!({ "account": account("a"), "on": false });
+    call("accounts.restore_automatically", off);
+    call("accounts.sign_out", a.clone());
+    let done = sign_in(&mut call, again);
+    assert_eq!((&done["restored"], &done["remembered"]), (&Value::Null, &json!([had])), "{done}");
+    let chosen = json!({ "account": account("a"), "plugins": [{ "plugin": "echo", "scopes": [] }] });
+    let back = call("accounts.access.restore", chosen)["result"].clone();
+    assert_eq!((&back[0]["id"], &back[0]["scopes"]), (&had["id"], &json!(["read"])), "{back}");
+
+    call("accounts.sign_out", a);
+    let done = sign_in(&mut call, json!({ "type": "mock", "account": "a", "restore": "reset" }));
+    assert_eq!((&done["restored"], &done["remembered"]), (&Value::Null, &Value::Null), "{done}");
+    let listed = call("accounts.list", json!({}))["result"].clone();
+    assert_eq!((&listed["accesses"], &listed["remembered"]), (&json!([]), &Value::Null), "{listed}");
 }
 
 /// Who the steps of the property tests here are about, by subject.
@@ -294,9 +363,14 @@ pub(super) struct Model {
     /// Subjects signed in, in the order they were first signed in since they were last signed
     /// out of.
     kept: Vec<&'static str>,
-    /// The echo plugin's accesses, by subject, in the order they were given, and whether each is
-    /// its default.
+    /// The echo plugin's accesses, by subject, in the order they were given or restored, and
+    /// whether each is its default. Only to accounts kept: signing out removes it.
     accesses: Vec<(&'static str, bool)>,
+    /// Echo's accesses to accounts signed out, as they were, in the order they were signed out
+    /// of, until they're restored or reset.
+    remembered: Vec<(&'static str, bool)>,
+    /// Automatically Restore Access: for one subject, or for all (none), on or off.
+    restores: Vec<(Option<&'static str>, bool)>,
 }
 
 impl Model {
@@ -308,19 +382,97 @@ impl Model {
         self.accesses.iter().any(|(a, _)| *a == subject)
     }
 
-    /// `subject` signed in, for the echo plugin or not: given access when it's for echo and it
-    /// has none, its default when it's its first.
-    pub(super) fn signed_in(&mut self, subject: &'static str, for_echo: bool) {
+    /// Whether echo's access to `subject` is remembered, waiting to be restored.
+    pub(super) fn remembers(&self, subject: &str) -> bool {
+        self.remembered.iter().any(|(a, _)| *a == subject)
+    }
+
+    /// Whether `subject` is listed: kept, or signed out with echo's access remembered.
+    pub(super) fn known(&self, subject: &str) -> bool {
+        self.kept(subject) || self.remembers(subject)
+    }
+
+    /// Why echo's access to `subject` can't be given or restored, as the sidecar's error `kind`
+    /// (`account` with reason `not_signed_in`) says: signed out with its access remembered, else
+    /// not there at all.
+    pub(super) fn refusal(&self, subject: &str) -> &'static str {
+        if self.remembers(subject) { "not_signed_in" } else { "not_found" }
+    }
+
+    /// `subject` signed in, for the echo plugin or not, restoring nothing it isn't set to (see
+    /// [`Model::signed_in_restoring`]).
+    pub(super) fn signed_in(&mut self, subject: &'static str, for_echo: bool) -> bool {
+        self.signed_in_restoring(subject, for_echo, None)
+    }
+
+    /// `subject` signed in, for the echo plugin or not: echo's remembered access to it restored
+    /// as `restoring` says, else when Automatically Restore Access is on for it, and always when
+    /// it's for echo (unless reset); then given access when it's for echo and it has none, its
+    /// default when it's its first. Whether echo's access was restored.
+    pub(super) fn signed_in_restoring(
+        &mut self,
+        subject: &'static str,
+        for_echo: bool,
+        restoring: Option<Restoring>,
+    ) -> bool {
         if !self.kept(subject) {
             self.kept.push(subject);
         }
+        let restores = match restoring {
+            Some(Restoring::Reset) => {
+                self.remembered.retain(|(a, _)| *a != subject);
+                false
+            }
+            Some(Restoring::Restore) => true,
+            None => for_echo || self.restores_automatically(subject),
+        };
+        let restored = restores && self.restore(subject);
         if for_echo {
             self.given(subject);
         }
+        restored
+    }
+
+    /// Whether `subject`'s access is restored as it's signed in: its own setting, else the one
+    /// for all, else not.
+    fn restores_automatically(&self, subject: &str) -> bool {
+        let setting = |of: Option<&str>| self.restores.iter().find(|(s, _)| *s == of).map(|(_, on)| *on);
+        setting(Some(subject)).or_else(|| setting(None)).unwrap_or(false)
+    }
+
+    /// Automatically Restore Access turned on or off for `subject`, or for all.
+    pub(super) fn restore_automatically(&mut self, subject: Option<&'static str>, on: bool) {
+        self.restores.retain(|(s, _)| *s != subject);
+        self.restores.push((subject, on));
+    }
+
+    /// Echo's remembered access to `subject` put back, if there is one: joined to the access it
+    /// has to it if it has one, else last, its default when it was and echo has no default
+    /// since, or when it's its only access. Whether there was one.
+    fn restore(&mut self, subject: &str) -> bool {
+        let Some(at) = self.remembered.iter().position(|(a, _)| *a == subject) else { return false };
+        let (subject, was_default) = self.remembered.remove(at);
+        if !self.has_access(subject) {
+            let default = !self.accesses.iter().any(|(_, d)| *d) && (was_default || self.accesses.is_empty());
+            self.accesses.push((subject, default));
+        }
+        true
+    }
+
+    /// `restore` (`account TYPE:NAME restore`, `accounts.access.restore`) for `subject`: echo's
+    /// remembered access put back when `keeps`, else forgotten. Whether it could be: putting back
+    /// needs the account signed in, forgetting doesn't.
+    pub(super) fn restored(&mut self, subject: &str, keeps: bool) -> bool {
+        match keeps {
+            true if !self.kept(subject) => return false,
+            true => drop(self.restore(subject)),
+            false => self.remembered.retain(|(a, _)| *a != subject),
+        }
+        true
     }
 
     /// Echo given access to `subject`, its default when it's its first: whether it could be (it's
-    /// kept: an access to one signed out gets more by signing in again, not by being given it).
+    /// kept: one signed out gets its access back by signing in again, not by being given it).
     pub(super) fn given(&mut self, subject: &'static str) -> bool {
         if !self.kept(subject) {
             return false;
@@ -332,17 +484,22 @@ impl Model {
         true
     }
 
-    /// `subject` signed out of: whether it was kept.
-    pub(super) fn signed_out(&mut self, subject: &str) -> bool {
+    /// `subject` signed out of: whether it was kept. Echo's access to it is removed and
+    /// remembered, and when it was its default, no other access becomes it.
+    pub(super) fn signed_out(&mut self, subject: &'static str) -> bool {
         let was = self.kept(subject);
         self.kept.retain(|k| *k != subject);
+        if let Some(at) = self.accesses.iter().position(|(a, _)| *a == subject) {
+            let gone = self.accesses.remove(at);
+            self.remembered.retain(|(a, _)| *a != subject);
+            self.remembered.push(gone);
+        }
         was
     }
 
-    /// `subject` made echo's default, given access first: whether it could be (it's kept, or
-    /// echo has access to it).
+    /// `subject` made echo's default, given access first: whether it could be (it's kept).
     pub(super) fn made_default(&mut self, subject: &'static str) -> bool {
-        if !self.has_access(subject) && !self.kept(subject) {
+        if !self.kept(subject) {
             return false;
         }
         if !self.has_access(subject) {
@@ -363,14 +520,14 @@ impl Model {
         true
     }
 
-    /// The accounts listed (by subject, and whether each is signed in) and the accesses (by
-    /// subject, and whether each is the default), as `accounts.list` answers them.
+    /// The accounts listed (by subject, and whether each is signed in), the accesses and those
+    /// remembered (by subject, and whether each is the default), as `accounts.list` answers them.
     pub(super) fn listed(&self) -> Value {
-        let signed_out = self.accesses.iter().map(|(a, _)| *a).filter(|a| !self.kept(a));
+        let signed_out = self.remembered.iter().map(|(a, _)| *a).filter(|a| !self.kept(a));
         let accounts: Vec<Value> =
             self.kept.iter().map(|k| json!([k, true])).chain(signed_out.map(|a| json!([a, false]))).collect();
-        let accesses: Vec<Value> = self.accesses.iter().map(|(a, d)| json!([a, d])).collect();
-        json!({ "accounts": accounts, "accesses": accesses })
+        let pairs = |of: &[(&str, bool)]| -> Vec<Value> { of.iter().map(|(a, d)| json!([a, d])).collect() };
+        json!({ "accounts": accounts, "accesses": pairs(&self.accesses), "remembered": pairs(&self.remembered) })
     }
 }
 
@@ -384,62 +541,137 @@ pub(super) fn shape(listed: &Value) -> Value {
     json!({
         "accounts": pairs("accounts", "/subject", "/signed_in"),
         "accesses": pairs("accesses", "/account/subject", "/default"),
+        "remembered": pairs("remembered", "/account/subject", "/default"),
     })
+}
+
+/// Asserts the sidecar's `answer` failed as `why` ([`Model::refusal`]) says.
+fn refused(answer: &Value, why: &str, step: usize) {
+    let data = &answer["error"]["data"];
+    match why {
+        "not_signed_in" => {
+            assert_eq!((&data["kind"], &data["reason"]), (&json!("account"), &json!(why)), "step {step}: {answer}")
+        }
+        _ => assert_eq!(data["kind"], why, "step {step}: {answer}"),
+    }
+}
+
+/// How [`Step::Restore`] restores what's remembered of an account signed out.
+#[derive(Debug, Clone, Copy)]
+enum Restore {
+    /// Every plugin's access, as it was.
+    All,
+    /// Echo's, with `write` chosen besides what it needs or not.
+    Echo { write: bool },
+    /// None: what's remembered is forgotten.
+    Reset,
 }
 
 /// A step of [`accounts_and_accesses_are_as_the_calls_made_them`], naming people by their place
 /// in [`PEOPLE`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
-    /// Signing in, for the echo plugin or not, again as the account when it's kept, the browser
-    /// coming back to this computer or the address it ended up on pasted.
+    /// Signing in, for the echo plugin or not, again as the account when it's listed, the browser
+    /// coming back to this computer or the address it ended up on pasted, restoring or resetting
+    /// what echo had of it or neither.
     SignIn {
         who: usize,
         for_echo: bool,
         pasted: bool,
+        restoring: Option<Restoring>,
     },
     /// Begun, then cancelled.
     Cancelled,
     SignOut(usize),
     SetDefault(usize),
     TakeAway(usize),
+    /// `accounts.access.restore`.
+    Restore {
+        who: usize,
+        how: Restore,
+    },
+    /// Automatically Restore Access for one person, or (none) for all.
+    RestoreAutomatically {
+        who: Option<usize>,
+        on: bool,
+    },
 }
 
 /// For any sequence of sidecar calls signing in (for the echo plugin or not, coming back or
-/// pasted), cancelling, signing out, making an access the default and taking it away: the
-/// accounts and accesses `accounts.list` answers are those the model keeps, the echo plugin has
-/// one default while it has any access, a call about what isn't there is `not_found`, and no
-/// answer holds a token.
+/// pasted, restoring echo's access, resetting it or neither), cancelling, signing out, making an
+/// access the default, taking it away, restoring what's remembered (all of it, echo's with the
+/// scopes chosen, or none) and turning Automatically Restore Access on or off: the accounts,
+/// accesses and remembered accesses `accounts.list` answers are those the model keeps, a sign-in
+/// answers what it restored and what's still remembered, a call about what isn't there is
+/// `not_found` and one giving or restoring access to an account signed out is `not_signed_in`,
+/// and no answer holds a token.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());
     let mut model = Model::default();
     let mut answers = String::new();
-    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(8));
+    // Half the time, echo's access to a starts out remembered: a signed in to for it, then out of.
+    let remembered = [Step::SignIn { who: 0, for_echo: true, pasted: true, restoring: None }, Step::SignOut(0)];
+    let start = if tc.draw(gs::booleans()) { &remembered[..] } else { &[] };
+    let n = start.len() + tc.draw(gs::integers::<usize>().min_value(2).max_value(10));
     for i in 0..n {
-        let person = tc.draw(gs::integers::<usize>().max_value(1));
-        let step = match tc.draw(gs::integers::<u8>().max_value(5)) {
-            0 | 1 => Step::SignIn { who: person, for_echo: tc.draw(gs::booleans()), pasted: tc.draw(gs::booleans()) },
-            2 => Step::Cancelled,
-            3 => Step::SignOut(person),
-            4 => Step::SetDefault(person),
-            _ => Step::TakeAway(person),
+        let step = match start.get(i) {
+            Some(step) => *step,
+            None => {
+                let person = tc.draw(gs::integers::<usize>().max_value(1));
+                match tc.draw(gs::integers::<u8>().max_value(7)) {
+                    0 | 1 => Step::SignIn {
+                        who: person,
+                        for_echo: tc.draw(gs::booleans()),
+                        pasted: tc.draw(gs::booleans()),
+                        restoring: tc.draw(gs::sampled_from(vec![
+                            None,
+                            Some(Restoring::Restore),
+                            Some(Restoring::Reset),
+                        ])),
+                    },
+                    2 => Step::Cancelled,
+                    3 => Step::SignOut(person),
+                    4 => Step::SetDefault(person),
+                    5 => Step::TakeAway(person),
+                    6 => {
+                        let how = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                            0 => Restore::All,
+                            1 => Restore::Echo { write: tc.draw(gs::booleans()) },
+                            _ => Restore::Reset,
+                        };
+                        Step::Restore { who: person, how }
+                    }
+                    _ => Step::RestoreAutomatically {
+                        who: tc.draw(gs::booleans()).then_some(person),
+                        on: tc.draw(gs::booleans()),
+                    },
+                }
+            }
         };
         let id = i as i64 * 10;
         let subject = match step {
-            Step::SignIn { who, .. } | Step::SignOut(who) | Step::SetDefault(who) | Step::TakeAway(who) => PEOPLE[who],
-            Step::Cancelled => "",
+            Step::SignIn { who, .. }
+            | Step::SignOut(who)
+            | Step::SetDefault(who)
+            | Step::TakeAway(who)
+            | Step::Restore { who, .. }
+            | Step::RestoreAutomatically { who: Some(who), .. } => PEOPLE[who],
+            Step::Cancelled | Step::RestoreAutomatically { who: None, .. } => "",
         };
         let not_found = |answer: &Value| assert_eq!(answer["error"]["data"]["kind"], "not_found", "step {i}: {answer}");
         let answer = match step {
-            Step::SignIn { for_echo, pasted, .. } => {
+            Step::SignIn { for_echo, pasted, restoring, .. } => {
                 let mut params = json!({ "type": "mock" });
                 if for_echo {
                     params["for"] = json!("echo");
                 }
-                if model.kept(subject) {
+                if model.known(subject) {
                     params["account"] = json!(subject);
+                }
+                if let Some(restoring) = restoring {
+                    params["restore"] = json!(restoring);
                 }
                 let begun = s.call(id, "accounts.sign_in.begin", params);
                 let url = m.approved(&begun["result"], &who(subject));
@@ -458,7 +690,10 @@ fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
                 let r = &done["result"];
                 assert_eq!((&r["subject"], &r["signed_in"]), (&json!(subject), &json!(true)), "step {i}: {done}");
                 assert_eq!(r["access"].is_object(), for_echo, "step {i}: {done}");
-                model.signed_in(subject, for_echo);
+                let restored = model.signed_in_restoring(subject, for_echo, restoring);
+                let count = |key: &str| r[key].as_array().map_or(0, Vec::len);
+                assert_eq!(count("restored"), usize::from(restored), "step {i}: {done}");
+                assert_eq!(count("remembered"), usize::from(model.remembers(subject)), "step {i}: {done}");
                 done
             }
             Step::Cancelled => {
@@ -476,11 +711,12 @@ fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
                 out
             }
             Step::SetDefault(_) => {
+                let why = model.refusal(subject);
                 let set =
                     s.call(id, "accounts.access.set_default", json!({ "plugin": "echo", "account": account(subject) }));
                 match model.made_default(subject) {
                     true => assert_eq!(set["result"]["default"], true, "step {i}: {set}"),
-                    false => not_found(&set),
+                    false => refused(&set, why, i),
                 }
                 set
             }
@@ -491,6 +727,43 @@ fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
                     not_found(&taken);
                 }
                 taken
+            }
+            Step::Restore { how, .. } => {
+                let mut params = json!({ "account": account(subject) });
+                match how {
+                    Restore::All => {}
+                    Restore::Echo { write } => {
+                        let scopes = if write { json!(["write"]) } else { json!([]) };
+                        params["plugins"] = json!([{ "plugin": "echo", "scopes": scopes }]);
+                    }
+                    Restore::Reset => params["plugins"] = json!([]),
+                }
+                let (had, why) = (model.remembers(subject), model.refusal(subject));
+                let keeps = !matches!(how, Restore::Reset);
+                let r = s.call(id, "accounts.access.restore", params);
+                match model.restored(subject, keeps) {
+                    true => {
+                        let back = r["result"].as_array().unwrap();
+                        assert_eq!(back.len(), usize::from(had && keeps), "step {i}: {r}");
+                        if let (Restore::Echo { write }, [back]) = (how, back.as_slice()) {
+                            let scopes = if write { json!(["read", "write"]) } else { json!(["read"]) };
+                            assert_eq!(back["scopes"], scopes, "step {i}: what it needs, and what's chosen: {r}");
+                        }
+                    }
+                    false => refused(&r, why, i),
+                }
+                r
+            }
+            Step::RestoreAutomatically { on, .. } => {
+                let named = (!subject.is_empty()).then_some(subject);
+                let mut params = json!({ "on": on });
+                if let Some(subject) = named {
+                    params["account"] = account(subject);
+                }
+                let set = s.call(id, "accounts.restore_automatically", params.clone());
+                assert_eq!(set["result"], params, "step {i}: {set}");
+                model.restore_automatically(named, on);
+                set
             }
         };
         answers.push_str(&answer.to_string());

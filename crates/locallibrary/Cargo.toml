@@ -108,6 +108,7 @@ rayon = "1.12.0"
 memchr = "2.8.3"
 # Whether rekordbox is running, and where its app is (`collection.status`).
 sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
+loclib-anlz = { workspace = true, features = ["schemars"] }
 loclib-audio.workspace = true
 loclib-capacity = { workspace = true, features = ["schemars"] }
 loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }

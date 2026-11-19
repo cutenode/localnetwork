@@ -1,14 +1,16 @@
 //! `locallibrary account`: the accounts the store keeps. With no arguments, the DJ account (an
 //! Atmosphere account, see [`atmosphere`]) then every other; `account TYPE sign-in` signs in to
-//! one through an account plugin, and `account TYPE:NAME status|sign-out` shows one or signs out
-//! of it (see [`accounts`]). [`access`] gives plugins access to them, and [`asking`] asks in the
-//! terminal when a plugin wants more of one.
+//! one through an account plugin, and `account TYPE:NAME status|sign-out|restore` shows one, signs
+//! out of it or gives plugins back their access to it (see [`accounts`], [`restoring`]).
+//! [`access`] gives plugins access to them, and [`asking`] asks in the terminal when a plugin
+//! wants more of one.
 
 pub mod access;
 mod accounts;
 pub mod asking;
 #[cfg(feature = "account")]
 mod atmosphere;
+mod restoring;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -43,6 +45,10 @@ pub struct AccountArgs {
     action: Option<accounts::Action>,
     #[command(flatten)]
     sign_in: accounts::SignInArgs,
+    /// Automatically Restore Access: signing in to the account (TARGET, as TYPE:NAME), or to any
+    /// without a setting of its own, gives plugins back their access to it without asking
+    #[arg(long, value_name = "on|off", conflicts_with = "action", value_parser = clap::builder::BoolishValueParser::new())]
+    restore_automatically: Option<bool>,
 }
 
 /// What `account` lists: the DJ account as `account status` says it, then the others.
@@ -59,6 +65,9 @@ pub fn run(args: AccountArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
     #[cfg(feature = "account")]
     if let Some(command) = args.command {
         return atmosphere::run(command, store, out, ctx);
+    }
+    if let Some(on) = args.restore_automatically {
+        return accounts::restore_automatically(args.target.as_deref(), on, store, out);
     }
     if let Some(target) = args.target {
         let action = args.action.unwrap_or(accounts::Action::Status);

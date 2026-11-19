@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import type { ProfileView, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/**
@@ -61,8 +62,6 @@
 		sectionsOn: { performer: false, promoter: true },
 		listing: null
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const at = (search: string) => ({ sveltekit_experimental: { state: { page: { url: new URL(`https://localnetwork.computer/dashboard/profile${search}`) } } } });
 </script>

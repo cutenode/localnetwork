@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import RootLayout from '../+layout.svelte';
 	import Layout from './+layout.svelte';
 	import { promoterPage } from './promoter/fixtures.ts';
@@ -10,8 +11,6 @@
 		title: 'Patterns/Dashboard sidebar',
 		parameters: { layout: 'fullscreen', sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard/promoter') } } } }
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const promoting = promoterPage();
 

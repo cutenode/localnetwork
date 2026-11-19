@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import type { StrongRef } from '#lib/types.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { ShowService } from '#lib/server/services/shows.ts';
-import { DJ, FRIEND, pressKitServices } from '#lib/server/testing/press-kits.ts';
+import { ADMIN, DJ, FRIEND, pressKitServices } from '#lib/server/testing/press-kits.ts';
 import { loadRoute, routeEvent } from '#lib/testing/route-event.ts';
 import type { PageServerData } from './$types';
 import { load } from './+page.server.ts';
@@ -96,6 +96,37 @@ it('lists the shows of the DJs a viewer follows, nearest first once a place is r
 	expect(await listed(before.shows)).toEqual([]);
 	expect(await listed(after.shows)).toEqual([hamburg.uri, berlin.uri]);
 	expect(await listed(near.shows)).toEqual([berlin.uri, hamburg.uri]);
+});
+
+it("lists parties' published events beside the shows once party pages are on, but not under Following", async () => {
+	const admin = await f.t.viewer(ADMIN);
+	const fan = await f.t.viewer(FRIEND);
+	const party = await f.t.parties.start(admin, { basics: { name: 'Night Shift' }, avatar: 'keep', publish: true });
+
+	const venue = await f.t.venues.add(admin, {
+		name: 'Tresor',
+		address: { country: 'DE', locality: 'Berlin' },
+		geo: { latitude: '52.51', longitude: '13.42' }
+	});
+
+	const event = await f.t.events.create(admin, party, {
+		name: 'Winter Opening',
+		date: `${YEAR}-11-06`,
+		start: '22:00',
+		venue: venue.space,
+		audience: 'public',
+		publish: true
+	});
+
+	await f.t.follows.follow(fan, f.project);
+
+	const opened = (url: string, flags = { spacePages: true }) =>
+		loadRoute<PageServerData>(load, { app: app(), viewer: fan, url, flags });
+
+	expect(await listed((await opened('/shows')).shows)).toEqual([event, hamburg.uri, berlin.uri]);
+	expect(await listed((await opened(`/shows?${BERLIN}&radius=25`)).shows)).toEqual([event, berlin.uri]);
+	expect(await listed((await opened('/shows', { spacePages: false })).shows)).toEqual([hamburg.uri, berlin.uri]);
+	expect(await listed((await opened('/shows?view=following')).shows)).toEqual([hamburg.uri, berlin.uri]);
 });
 
 it("shows no one's shows on the Following tab while signed out, without asking the directory", async () => {

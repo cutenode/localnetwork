@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { FlagView } from '#lib/types.ts';
 	import FlagTable from './FlagTable.svelte';
 
@@ -30,6 +31,6 @@
 
 <Story name="Flags" args={{ flags }} />
 
-<Story name="Flags on a phone" args={{ flags }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Flags on a phone" args={{ flags }} globals={phone} />
 
 <Story name="No flags" args={{ flags: [] }} />

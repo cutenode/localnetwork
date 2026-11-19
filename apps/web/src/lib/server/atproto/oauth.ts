@@ -32,6 +32,9 @@ const permissions = new IncludeScope(PERMISSIONS);
  */
 const CALENDAR_EVENTS = 'repo:community.lexicon.calendar.event?action=create&action=update&action=delete';
 
+/** A guest's Going or Interested on a party event, another authority's lexicon too, so asked for the same way. */
+const CALENDAR_RSVPS = 'repo:community.lexicon.calendar.rsvp?action=create&action=update&action=delete';
+
 /** Avatars, and the JSON mix reports DJs attach to their mixes as tracklists. */
 const BLOBS = 'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json';
 
@@ -40,14 +43,15 @@ const PROFILE_WRITES = 'repo:computer.localnetwork.profile?action=create&action=
 
 /**
  * The records the app writes to an account's public repo for any account, spaces or not: profiles, shows with their
- * calendar events, and follows. A grant without them still counts as one with spaces, so adding them didn't send
- * everyone back through sign-in; the writes that need them ask for a fresh sign-in themselves.
+ * calendar events, follows, and RSVPs. A grant without them still counts as one with spaces, so adding them didn't
+ * send everyone back through sign-in; the writes that need them ask for a fresh sign-in themselves.
  */
 const PUBLIC_RECORDS = [
 	PROFILE_WRITES,
 	'repo:computer.localnetwork.show?action=create&action=update&action=delete',
 	'repo:computer.localnetwork.follow?action=create&action=delete',
-	CALENDAR_EVENTS
+	CALENDAR_EVENTS,
+	CALENDAR_RSVPS
 ].join(' ');
 
 /**
@@ -62,7 +66,7 @@ const stepUp = (rootDid: string) =>
 		.filter((permission) =>
 			permission instanceof RepoPermission
 				? permission.collection.includes(COLLECTION.djSet)
-				: permission instanceof SpacePermission && permission.type === SPACE_TYPE.performer
+				: permission instanceof SpacePermission && permission.spaceType === SPACE_TYPE.performer
 		)
 		.map(String);
 
@@ -72,17 +76,17 @@ const stepUp = (rootDid: string) =>
  * spaces, a personal planner space under the user's own DID, and the records it writes to the user's
  * public repo (their profile, press kits, shows, follows, and edits to their sets). The shared spaces are
  * the root's: each network's root publishes the set with its own DID as their authority, so the PDS
- * expands it to that network's spaces only. Blob uploads and calendar events stay explicit: a
+ * expands it to that network's spaces only. Blob uploads, calendar events and RSVPs stay explicit: a
  * permission set can only hold repo, rpc, and space permissions, and only for its own namespace. Nothing
  * grants reading other users' data; the app reads shared spaces with credentials issued to the root
  * authority. The base fallback, for a PDS without spaces, asks for the public records anyone can write
- * (profiles, follows, and shows with their events) and the uploads a profile needs; the root account
+ * (profiles, follows, RSVPs, and shows with their events) and the uploads a profile needs; the root account
  * writes and uploads everything else on the user's behalf. The rest are OPTIONAL_SCOPES, asked for only
  * when someone opts in to what needs them, so they stay out of `full` and never send anyone back
  * through sign-in.
  */
 export const SCOPES = {
-	full: ['atproto', BLOBS, CALENDAR_EVENTS, permissions.toString()].join(' '),
+	full: ['atproto', BLOBS, CALENDAR_EVENTS, CALENDAR_RSVPS, permissions.toString()].join(' '),
 	base: `atproto ${PUBLIC_RECORDS} ${BLOBS}`,
 	/** For a PDS that refuses even the base scopes' granular permissions. */
 	minimal: 'atproto',
@@ -194,7 +198,7 @@ export function grantsProfile(granted: string | undefined | null, did: string, r
 	return grantsAll(granted, `${PROFILE_WRITES} ${BLOBS}`, did, rootDid);
 }
 
-/** Whether a grant lets the app write profiles, shows, calendar events, and follows to the account's public repo. */
+/** Whether a grant lets the app write profiles, shows, calendar events, follows and RSVPs to the account's public repo. */
 export function grantsPublicRecords(granted: string | undefined | null, did: string, rootDid: string): boolean {
 	return grantsAll(granted, PUBLIC_RECORDS, did, rootDid);
 }
