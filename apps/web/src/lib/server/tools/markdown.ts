@@ -74,9 +74,9 @@ export function renderMarkdown(markdown: string, tool: Tool, from: string): stri
 
 /**
  * A tool page's sections as HTML, their links resolved like the overview's, which `loadDocs` puts first. A link to
- * `/@me` goes to `me`, the reader's own profile, or to /for-djs for someone signed out.
+ * `/@me` goes to `me`, the reader's own profile, or to /for/djs for someone signed out.
  */
-export const renderSections = (tool: Tool, me = '/for-djs') =>
+export const renderSections = (tool: Tool, me = '/for/djs') =>
 	(tool.sections ?? []).map((section) => ({
 		title: section.title,
 		html: renderMarkdown(section.markdown, tool, tool.docs[0].path).replaceAll(

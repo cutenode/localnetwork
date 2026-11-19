@@ -40,8 +40,9 @@
 		a: '/about',
 		p: '/privacy',
 		m: '/match',
-		d: '/for-djs',
-		k: '/for-promoters',
+		d: '/for/djs',
+		k: '/for/promoters',
+		i: '/for',
 		b: '/dashboard/bookings',
 		n: '/dashboard/projects/new',
 		c: '/djs?unclaimed=on',
@@ -92,6 +93,7 @@
 <footer class={['border-t border-line print:hidden', page.url.pathname.startsWith('/dashboard') && 'max-lg:pb-[calc(3.5rem+env(safe-area-inset-bottom))]']}>
 	<div class="container-page flex flex-wrap items-center gap-x-6 gap-y-3 py-8 text-small">
 		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>How it works</a>
+		<a class="menu-link" href="/for" aria-keyshortcuts={shortcut('I')}>Who it's for</a>
 		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>Privacy</a>
 		<a class="menu-link" href="/tools">Tools</a>
 		<!-- Signed out, /report sends people on to GitHub, so the link says so. -->

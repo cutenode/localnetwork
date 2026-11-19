@@ -138,10 +138,10 @@ describe('/ with the social home', () => {
 		await home();
 
 		await expect.element(page.getByRole('link', { name: 'Sign in' }).last()).toHaveAttribute('href', '/login?next=%2F');
-		await expect.element(page.getByRole('link', { name: 'Local Network for DJs' })).toHaveAttribute('href', '/for-djs');
+		await expect.element(page.getByRole('link', { name: 'Local Network for DJs' })).toHaveAttribute('href', '/for/djs');
 		await expect
 			.element(page.getByRole('link', { name: 'Local Network for promoters' }))
-			.toHaveAttribute('href', '/for-promoters');
+			.toHaveAttribute('href', '/for/promoters');
 	});
 
 	it('asks a first visitor to pick a city, and leaves out the sections that need one', async () => {

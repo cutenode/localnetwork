@@ -219,7 +219,7 @@
 				{#await data.shows}
 					<ShowList shows={undefined} rows={3} empty={{ title: '' }} />
 				{:then shows}
-					<ShowList shows={shows?.slice(0, 3) ?? null} retryHref="/for-djs" empty={{ title: 'No shows announced yet', body: 'DJs announce theirs from their dashboard.' }} />
+					<ShowList shows={shows?.slice(0, 3) ?? null} retryHref="/for/djs" empty={{ title: 'No shows announced yet', body: 'DJs announce theirs from their dashboard.' }} />
 				{/await}
 				{#snippet caption()}The next shows DJs here announced.{/snippet}
 			</Screen>

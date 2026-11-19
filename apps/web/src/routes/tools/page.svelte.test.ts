@@ -328,7 +328,7 @@ describe('/tools/[tool]', () => {
 		const targets: (string | null)[] = [];
 
 		const shortcuts = (event: KeyboardEvent) =>
-			targets.push(hotkeyTarget(event, { b: '/dashboard/bookings', c: '/djs', f: '/for-djs' }));
+			targets.push(hotkeyTarget(event, { b: '/dashboard/bookings', c: '/djs', f: '/for/djs' }));
 
 		await tab('A Sync').click();
 		window.addEventListener('keydown', shortcuts);
