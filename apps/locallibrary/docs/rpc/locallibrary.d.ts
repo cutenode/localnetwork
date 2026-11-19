@@ -1606,6 +1606,12 @@ export type ProfileRequest = {
   top?: number | null;
   /** Skip analysis files: no phrase mood or cue statistics, but much faster. */
   no_analysis?: boolean;
+  /**
+   * Leave out rekordbox's collection on this computer (`master.db`). It's read only when no
+   * drive or library is named: then it's the collection the profile describes, as rekordbox
+   * shows it now, rather than the copies on drives and in the store.
+   */
+  no_collection?: boolean;
 };
 
 /** Changes to [`ProfilePrefs`], applied in field order after `reset`. */
@@ -6495,7 +6501,7 @@ export type Basis =
   | "collection";
 
 export type SourceInfo = {
-  /** `drive` or `store`. */
+  /** `collection` (rekordbox's `master.db` on this computer), `drive` or `store`. */
   kind: string;
   name: string;
   /** History lists (sessions) read. */
