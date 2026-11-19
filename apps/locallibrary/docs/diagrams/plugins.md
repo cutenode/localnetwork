@@ -59,7 +59,7 @@ The built-in plugins that read and change libraries, what each adds, and the ser
 
 ```mermaid
 flowchart LR
-    sound["sound"] --> soundadds["Analyzer tempo-key-loudness<br/>events: suggests analysing new tracks"]
+    sound["sound"] --> soundadds["Analyzer tempo-key-loudness: tempo, key,<br/>loudness, beat grid, waveform<br/>events: suggests analysing new tracks"]
     musicbrainz["musicbrainz"] --> mbadds["Analyzer ids<br/>musicbrainz.org"]
     coverart["coverart"] --> coveradds["Providers covers, tags<br/>events: suggests fetching covers<br/>musicbrainz.org, coverartarchive.org,<br/>archive.org, *.archive.org"]
     discogs["discogs"] --> discogsadds["Providers covers, tags<br/>discogs account: a personal access token<br/>api.discogs.com, i.discogs.com"]
