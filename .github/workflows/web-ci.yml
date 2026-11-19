@@ -190,9 +190,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # With the base the merge commit sits on, for the patch coverage.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -203,6 +205,13 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:coverage
+      # The lines the pull request changed (tools/coverage/patch.json).
+      - if: github.event_name == 'pull_request'
+        uses: ./.github/actions/patch-coverage
+        with:
+          name: web
+          report: coverage/lcov.info
+          root: apps/web
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -237,8 +246,10 @@ jobs:
 
   # Lighthouse on the production build, with the e2e tests' network and seeded projects behind it,
   # against the floors and budgets in lighthouserc.cjs, when something the pages are built from
-  # changed (ci.yml's web_lighthouse paths). The scores and any failed assertion go to the
-  # run's summary and the reports to its artifacts, not to a Lighthouse server.
+  # changed (ci.yml's web_lighthouse paths). A merge queue group checks only the assertions that
+  # don't depend on the runner's speed, so a regression one pull request got past by luck can't
+  # reach main. The scores and any failed assertion go to the run's summary and the reports to its
+  # artifacts, not to a Lighthouse server.
   lighthouse:
     name: Lighthouse
     if: inputs.lighthouse
@@ -262,6 +273,8 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:lighthouse
+        env:
+          LIGHTHOUSE_TIMING: ${{ github.event_name != 'merge_group' }}
       # Each page's scores from the run lhci reports as representative (its median), then each
       # assertion that failed: lhci writes both even when one does.
       - name: Scores to the run's summary

@@ -221,8 +221,11 @@ pub fn extras(drive: Drive<'_>, play: &Play, i: usize, page: bool) -> PlayExtras
         }
         BASE64_STANDARD.encode(&bytes)
     });
-    let beat_secs =
-        |beat: u16| analysis.beats.get((beat as usize).saturating_sub(1)).map(|b| b.time_ms as f64 / 1000.0);
+    // At half tempo where rekordbox counted the phrases so.
+    let scale = analysis.structure.as_ref().map_or(1, |s| s.beat_scale(analysis.beats.len()));
+    let beat_secs = |beat: u16| {
+        analysis.beats.get(crate::anlz::SongStructure::grid_index(beat, scale)).map(|b| b.time_ms as f64 / 1000.0)
+    };
     let phrases = analysis
         .structure
         .iter()

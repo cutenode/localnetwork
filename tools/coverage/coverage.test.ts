@@ -16,6 +16,18 @@ const report = (...files: [string, number, number][]): Report => ({
 
 const all = (value: number): Percents => ({ lines: value, functions: value, regions: value });
 
+describe('the cargo aliases', () => {
+	it('leave out the same files from both reports', () => {
+		const config = readFileSync(join(import.meta.dirname, '../../.cargo/config.toml'), 'utf8');
+
+		const ignored = (alias: string) =>
+			new RegExp(`^${alias} = ".*--ignore-filename-regex (\\S+)"$`, 'm').exec(config)?.[1];
+
+		expect(ignored('coverage')).toMatch(/tests/);
+		expect(ignored('coverage-report')).toBe(ignored('coverage'));
+	});
+});
+
 describe('crateOf', () => {
 	it.each([
 		['/home/runner/work/localnetwork/localnetwork/crates/loclib-model/src/lib.rs', 'crates/loclib-model'],
@@ -110,14 +122,21 @@ describe('the commands', () => {
 		rmSync(dir, { recursive: true });
 	});
 
-	it('check passes a run over every floor', () => {
+	it('report says nothing of a run over every floor', () => {
 		floors({ 'crates/a': all(90) });
-		expect(run(['check', 'coverage.json'])).toEqual({ lines: [], ok: true });
+		expect(run(['report', 'coverage.json'])).toEqual({ lines: [], ok: true });
 	});
 
-	it('check fails a run under a floor', () => {
+	it('report warns of a run under a floor, and still passes', () => {
 		floors({ 'crates/a': all(95) });
-		expect(run(['check', 'coverage.json']).ok).toBe(false);
+		expect(run(['report', 'coverage.json'])).toEqual({
+			lines: [
+				'::warning title=Coverage floor::crates/a: lines 90.00% is under its floor of 95%',
+				'::warning title=Coverage floor::crates/a: functions 90.00% is under its floor of 95%',
+				'::warning title=Coverage floor::crates/a: regions 90.00% is under its floor of 95%'
+			],
+			ok: true
+		});
 	});
 
 	it('ratchet writes the raised floors', () => {
@@ -129,10 +148,10 @@ describe('the commands', () => {
 		});
 	});
 
-	it.each([[[]], [['check']], [['other', 'coverage.json']], [['check', 'coverage.json', 'extra']]])(
+	it.each([[[]], [['report']], [['check', 'coverage.json']], [['report', 'coverage.json', 'extra']]])(
 		'%j prints how to use it',
 		(args) => {
-			expect(run(args)).toEqual({ lines: ['usage: cli.ts check|ratchet <coverage.json>'], ok: false });
+			expect(run(args)).toEqual({ lines: ['usage: cli.ts report|ratchet <coverage.json>'], ok: false });
 		}
 	);
 });

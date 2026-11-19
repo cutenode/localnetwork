@@ -195,7 +195,7 @@ atstore:
           - "apps/web/src/lib/server/og/**"
           - "apps/web/src/lib/server/{home,landing,social-home}.*"
           - "apps/web/src/routes/{+layout,+error,layout,error,heads,link-matrix,listings,stored-images,social-home}.*"
-          - "apps/web/src/routes/{about,for-djs,for-promoters,privacy,og}/**"
+          - "apps/web/src/routes/{about,for,privacy,og}/**"
           - "apps/web/src/{app,error}.html"
           - "apps/web/{.storybook,static}/**"
           - "packages/tokens/**"

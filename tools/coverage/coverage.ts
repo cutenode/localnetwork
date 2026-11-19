@@ -1,7 +1,9 @@
 // Per-crate coverage floors for the Rust workspace, beside the workspace-wide thresholds in
 // .cargo/config.toml: a small crate can lose most of its coverage while the workspace's total holds.
+// They're a report, not a gate: main's merges move them, so a pull request is held to the coverage
+// of the lines it changes instead (.github/actions/patch-coverage, tools/coverage/patch.json).
 //
-//   node tools/coverage/cli.ts check <coverage.json>    fails on a crate under its floor
+//   node tools/coverage/cli.ts report <coverage.json>   warns of a crate under its floor, or with none
 //   node tools/coverage/cli.ts ratchet <coverage.json>  raises each floor to just under the run's
 //
 // <coverage.json> is cargo-llvm-cov's JSON summary (`cargo coverage --json --summary-only`), which
@@ -115,8 +117,8 @@ export type Outcome = { lines: string[]; ok: boolean };
 
 /** Runs a command and gives the lines to print and whether it passed. */
 export function run([command, report, ...extra]: string[]): Outcome {
-	if (report === undefined || extra.length > 0 || (command !== 'check' && command !== 'ratchet')) {
-		return { lines: ['usage: cli.ts check|ratchet <coverage.json>'], ok: false };
+	if (report === undefined || extra.length > 0 || (command !== 'report' && command !== 'ratchet')) {
+		return { lines: ['usage: cli.ts report|ratchet <coverage.json>'], ok: false };
 	}
 
 	const measured = byCrate(readJson<Report>(report));
@@ -128,7 +130,5 @@ export function run([command, report, ...extra]: string[]): Outcome {
 		return { lines: [`wrote ${FLOORS}`], ok: true };
 	}
 
-	const found = problems(measured, floors.floors);
-
-	return { lines: found, ok: found.length === 0 };
+	return { lines: problems(measured, floors.floors).map((problem) => `::warning title=Coverage floor::${problem}`), ok: true };
 }

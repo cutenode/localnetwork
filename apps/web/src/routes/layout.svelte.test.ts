@@ -1,5 +1,6 @@
 import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, expect, it } from 'vitest';
+import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
 import { draftKey } from '#lib/form-draft.svelte.ts';
 import { SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
@@ -46,4 +47,12 @@ it('keeps drafts when nobody signed out, like a session that needs signing in ag
 	await render(Layout, { params: {}, data: { viewer: null, pendingRequests: 0 }, children });
 
 	expect([localStorage.getItem(mine), localStorage.getItem(theirs)]).not.toContain(null);
+});
+
+it('links /for from the footer on every page, since the header leaves it out', async () => {
+	await render(Layout, { params: {}, data: { viewer: null, pendingRequests: 0 }, children });
+
+	await expect
+		.element(page.getByRole('contentinfo').getByRole('link', { name: "Who it's for" }))
+		.toHaveAttribute('href', '/for');
 });
