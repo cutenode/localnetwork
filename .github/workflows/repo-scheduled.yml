@@ -16,6 +16,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # Loopback and private addresses are the local network's own (pnpm dev). The lychee cache keeps
   # a week's answers, so a re-run asks only about links that failed.

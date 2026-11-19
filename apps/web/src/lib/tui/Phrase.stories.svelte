@@ -7,6 +7,6 @@
 	const { Story } = defineMeta({ title: 'Terminal/Phrase', component: TuiStory });
 </script>
 
-<Story name="In the intro" args={{ id: 'phrase/intro' }} play={drawn('INTRO', '3/8')} />
+<Story name="In the intro" args={{ id: 'phrase/intro' }} play={drawn('Intro', '3/8')} />
 
-<Story name="In the bridge" args={{ id: 'phrase/bridge' }} play={drawn('BRIDGE')} />
+<Story name="In the bridge" args={{ id: 'phrase/bridge' }} play={drawn('Bridge', '5/8')} />

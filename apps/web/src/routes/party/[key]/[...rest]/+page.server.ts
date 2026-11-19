@@ -2,40 +2,31 @@ import { error, redirect } from '@sveltejs/kit';
 import { isListedRole } from '#lib/capabilities.ts';
 import type { PageStatus } from '#lib/components/edit/types.ts';
 import { openEditor, pageContext, savePage } from '#lib/server/edit-mode.ts';
+import { answerEvent, changeEvent, eventPage, findEvent, LINK_TOKEN, saveEvent } from '#lib/server/event-page.ts';
 import { parsePartyForm, partyValues } from '#lib/server/forms/party.ts';
-import { cacheBriefly, requireFlag, requireViewer } from '#lib/server/http.ts';
+import { cacheBriefly, requireViewer, text } from '#lib/server/http.ts';
 import { pageMeta } from '#lib/server/meta.ts';
+import { findParty, upcomingEvents } from '#lib/server/party-page.ts';
 import { spacePagePath } from '#lib/space-paths.ts';
-import type { Actions, PageServerLoad } from './$types';
+import type { Actions, PageServerLoad, RequestEvent } from './$types';
 
-/**
- * The party with this key, its people as the viewer may see them, and what the viewer can do on it. A draft is only
- * there for its people and staff; to anyone else it's not found, the same as a party that doesn't exist.
- */
-async function findParty(locals: App.Locals, key: string) {
-	requireFlag(locals, 'spacePages');
-	const { app, viewer } = locals;
-	const party = await app.parties.bySkey(key);
+/** The party, and the event under it when what follows its key starts with one of its events' keys. */
+async function find({ locals, params, url }: RequestEvent) {
+	const found = await findParty(locals, params.key);
 
-	if (!party) error(404, 'Not found');
-	const people = await app.sharedSpaces.people(party.space, viewer);
-	const person = people.find((someone) => someone.did === viewer?.did);
-	const isHiddenDraft = !party.publishedAt && !person && !viewer?.isStaff;
-
-	// A draft is only its people's and staff's to see.
-	if (isHiddenDraft) error(404, 'Not found');
-
-	return { party, people, can: person?.capabilities ?? [] };
+	return { found, shown: await findEvent(locals, found, params.rest, url.searchParams.get(LINK_TOKEN)) };
 }
 
 /**
  * `/party/<key>/<name>`: the key finds the party and the name is only there to read (ADR 0016), so any other name, or
- * none, is sent on to the current one. Everything after the key is `rest`, so a later segment can name something
- * under the party.
+ * none, is sent on to the current one. `/party/<key>/<event>/<name>` is one of its events (eventPage).
  */
 export const load: PageServerLoad = async (event) => {
-	const { locals, params, url } = event;
-	const { party, people, can } = await findParty(locals, params.key);
+	const { locals, url } = event;
+	const { found, shown } = await find(event);
+
+	if (shown) return eventPage(event, found, shown);
+	const { party, people, can, inside } = found;
 	const { name, bio } = party.basics;
 	const path = spacePagePath('party', party.skey, name);
 
@@ -52,6 +43,8 @@ export const load: PageServerLoad = async (event) => {
 		version: party.cid,
 		status,
 		party: { basics: party.basics, avatarUrl: party.avatarUrl },
+		events: await upcomingEvents(locals.app, party, inside),
+		newEventHref: can.includes('events.manage') ? `/party/${party.skey}/new` : null,
 		people: people
 			.filter((person) => isListedRole('party', person.role) && !person.hidden)
 			.map(({ did, handle, role }) => ({ did, handle, role })),
@@ -68,9 +61,12 @@ export const load: PageServerLoad = async (event) => {
 
 export const actions: Actions = {
 	save: async (event) => {
-		const { locals, params, request, url } = event;
+		const { locals, request, url } = event;
+		const { found, shown } = await find(event);
+
+		if (shown) return saveEvent(event, shown);
 		const viewer = requireViewer(locals, url);
-		const { party } = await findParty(locals, params.key);
+		const { party } = found;
 		const form = await request.formData();
 
 		return savePage(
@@ -85,5 +81,31 @@ export const actions: Actions = {
 				return { version: latest.cid, values: partyValues(latest.basics) };
 			}
 		);
+	},
+	/** Cancels the event, over the version its page shows. */
+	cancel: async (event) => {
+		const { shown } = await find(event);
+
+		if (!shown) error(404, 'Not found');
+
+		return changeEvent(event, (viewer, form) =>
+			event.locals.app.events.cancel(viewer, shown.uri, text(form, 'cid', 200))
+		);
+	},
+	/** Going, Interested, or neither, for the signed-in viewer. */
+	rsvp: async (event) => {
+		const { shown } = await find(event);
+
+		if (!shown) error(404, 'Not found');
+
+		return answerEvent(event, shown);
+	},
+	/** Gives a private event a new link, so the old one stops opening it. */
+	resetLink: async (event) => {
+		const { shown } = await find(event);
+
+		if (!shown) error(404, 'Not found');
+
+		return changeEvent(event, (viewer) => event.locals.app.events.resetLink(viewer, shown.uri));
 	}
 };

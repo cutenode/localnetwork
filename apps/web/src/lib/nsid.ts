@@ -58,12 +58,22 @@ export const COLLECTION = {
 	venue: `${NS}.venue`,
 	/** Someone a venue doesn't take events, relationships or inquiries from, written by the root into its own public repo. */
 	venueBlock: `${NS}.venue.block`,
+	/** That a venue confirms an event naming it, written by the root into the venue's space. */
+	venueApproval: `${NS}.venue.approval`,
+	/** A night a party puts on, written by the root into the party's space. */
+	event: `${NS}.event`,
 	/** A named night or series and what its page shows, written by the root at the key `self` in the party's space. */
 	party: `${NS}.party`
 } as const;
 
-/** The lexicon-community calendar event a show is, so other calendar apps can read it. */
+/**
+ * The lexicon-community calendar event a show is, and a published public party event's copy in the root's repo, so
+ * other calendar apps can read them.
+ */
 export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
+
+/** The lexicon-community RSVP a guest answers a calendar event with, in their own repo. */
+export const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp' as const;
 
 /** Bluesky's verification, which the root account issues to vouch that an account is who it says it is. */
 export const VERIFICATION = 'app.bsky.graph.verification' as const;
@@ -76,7 +86,7 @@ export const BSKY_FOLLOW = 'app.bsky.graph.follow' as const;
 
 /**
  * Queries served by the directory, the HappyView AppView that indexes published projects, their managers' DJ records,
- * press kits and shows, and follows.
+ * press kits and shows, follows, and RSVPs to party events.
  */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
@@ -90,6 +100,7 @@ export const DIRECTORY = {
 	listShows: `${NS}.directory.listShows`,
 	getShows: `${NS}.directory.getShows`,
 	getFollowStatus: `${NS}.directory.getFollowStatus`,
+	getRsvpStatus: `${NS}.directory.getRsvpStatus`,
 	getCharts: `${NS}.directory.getCharts`,
 	getArtist: `${NS}.directory.getArtist`,
 	searchArtists: `${NS}.directory.searchArtists`,

@@ -20,30 +20,17 @@ while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm
   deny.toml about.toml dist-workspace.toml .cargo/config.toml \
   ':(glob)apps/*/package.json' ':(glob)apps/*/Cargo.toml' ':(glob)apps/*/Dockerfile' ':(glob)packages/*/package.json' \
   ':(glob)crates/*/Cargo.toml' ':(glob)plugins/*/Cargo.toml' ':(glob)vendor/*/Cargo.toml' \
-  ':(glob).github/workflows/*.yml' .github/dependabot.yml .github/labels.yml .github/labeler.yml ':(glob).github/ISSUE_TEMPLATE/*.yml' \
+  ':(glob).github/workflows/*.yml' ':(glob).github/actions/*/action.yml' \
+  .github/dependabot.yml .github/labels.yml .github/labeler.yml ':(glob).github/ISSUE_TEMPLATE/*.yml' \
   ':(glob).github/rulesets/*.json' ':(glob)lexicons/**/*.json')
 
 # Every file, for the policy that each one gets a label.
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 list | jq -R -s '{files: split("\n")[:-1]}' > "$scratch/tracked-files.json"
-# The files the Rust code embeds from outside its own crate, for the policy that the locallibrary
-# paths filter in ci.yml has them: the paths in include_str! and include_bytes!, from the file
-# they're in.
-# shellcheck disable=SC2016 # Node's program, with its own template literals.
-git grep --untracked -I -o -E 'include_(str|bytes)!\(\s*"[^"]+"' -- ':(glob)**/*.rs' |
-  node --input-type=module -e '
-    import { posix } from "node:path";
-    const lines = (await new Response(process.stdin).text()).split("\n").filter(Boolean);
-    const files = new Set();
-    for (const line of lines) {
-      const [, file, target] = /^([^:]+):.*"([^"]+)"$/.exec(line);
-      const path = posix.normalize(posix.join(posix.dirname(file), target));
-      const krate = file.split("/").slice(0, 2).join("/");
-      if (!path.startsWith(`${krate}/`)) files.add(path);
-    }
-    process.stdout.write(JSON.stringify({ files: [...files].sort() }));
-  ' > "$scratch/embedded-files.json"
+# What each project's code reads from outside its own folder, for the policy that the project's
+# paths filter in ci.yml has it.
+node tools/reads/cli.ts > "$scratch/reads.json"
 # Cargo.lock under a name conftest parses as TOML, for the policy that the dev profile keeps its
 # entries for the crates still in it.
 cp Cargo.lock "$scratch/Cargo.lock.toml"
@@ -84,4 +71,4 @@ if [ -n "$uncovered" ]; then
   echo "$uncovered"
   exit 1
 fi
-run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/embedded-files.json /scratch/Cargo.lock.toml /scratch/railway-project.json
+run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/reads.json /scratch/Cargo.lock.toml /scratch/railway-project.json

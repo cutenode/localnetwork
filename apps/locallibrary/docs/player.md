@@ -13,8 +13,11 @@ takes the screen. From any other tab `f` opens player mode too, and closing it (
 back there. The footer's hints are buttons: click one for its key. `Q` quits (`ctrl-q` and `ctrl-c`
 quit too).
 
-With no drive open, and rekordbox on this computer, the library opens rekordbox's collection
-(below). Without it, the library says what to do: plug one in (it opens as soon as it's here), or
+With rekordbox on this computer, the library opens rekordbox's collection (below) unless a drive
+was open at the last quit and is plugged in. A drive holding a copy of the whole collection (from
+`collection export`) never opens in its place: the collection itself is read as it is now. Without
+rekordbox, the drive open last time opens, else a library's lead clone, else the first drive. With
+none, the library says what to do: plug one in (it opens as soon as it's here), or
 take a next step, at most three of open a folder, browse snapshots and sign in. The first library
 each version opens names `enter`, `e`, `:` and `?` in the footer until a key or a click. Nothing says
 there's no drive until the first read of the drives has answered.
@@ -45,8 +48,11 @@ needs.
   reads it: its playlists, folders and history lists, with each track played from where it is on
   this computer and rekordbox's own waveforms, beat grids, cues, phrases and covers. It's
   read-only: edits, My Tags and drive actions say so, and `collection export` puts it on a drive
-  to edit there. Intelligent playlists show empty. `r` reads it again after rekordbox changed it.
-  Choosing a drive in the same pane goes back to the drive.
+  to edit there. Intelligent playlists show empty. While it's open the player watches `master.db`
+  (and its WAL): a couple of seconds after rekordbox saves, it reads the collection again and keeps
+  your place, and `r` reads it again at once. A drive holding a copy of the whole collection says
+  `copy, <date>` in place of its track count. Choosing a drive in the same pane goes back to the
+  drive.
 - **Search and sort**: `/` searches as you type the way `tracks --filter` does (plain words look in
   title, artist, album, genre, label, key, comment, remixer, mix name and file path), and takes the
   whole [filter language](editing.md#filters) (`bpm:120-128 key:8A~ rating:>=4 -genre:house
@@ -183,7 +189,7 @@ needs.
   output there is then.
 - **Player mode** (`f`, from any tab): the track's waveforms and numbers on the whole screen, as
   on a CDJ's display, and only what a set needs: the file, tags and counts are in the info panel
-  (`i`), and the readout under the waveforms names only the modes that are on. `b` opens Browse
+  (`i`), and the status line names only the modes that are on. `b` opens Browse
   over it, as a CDJ's BROWSE button does: the panes and the strip, until a
   track's loaded or `esc`. The layout's kept between runs.
   - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
@@ -193,10 +199,11 @@ needs.
     wouldn't fit whole.
   - Hot cues are lettered in their own colours, in a row over each waveform, with a second row where
     two would share a cell or sit side by side, and loops are a tint.
-  - The tempo and time left are large, with the key a block beside them. Under 78 columns the time
-    left is a small line by the tempo. Under the waveforms a line has the time gone and the track's
-    length, how many bars and beats it is to the next cue and phrase, as bars.beats, and how the
-    deck's set, on two rows under 78 columns. Near the end of a track the time left turns red and
+  - The tempo and time left are large under a BPM title, with the key beside them. Under 78 columns
+    the time left is a small line by the tempo. A line under the track's names (under the waveforms
+    below 34 rows) says playing or paused and how many bars and beats it is to the next cue and
+    phrase, as bars.beats; the volume and the modes that are on are at the right of the status
+    line. The art, the visualiser and the tempo are the same height. Near the end of a track the time left turns red and
     blinks, and END shows. As the warning starts, the overview washes red twice (in fewer than
     24-bit colours it snaps to red); with `LOCALLIBRARY_REDUCED_MOTION` nothing blinks or washes.
   - `w` goes round rekordbox's waveform colours: BLUE, RGB, 3Band, and as the drive's My Settings

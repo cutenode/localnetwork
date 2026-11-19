@@ -28,7 +28,8 @@ use crate::tui::app::{NowPlaying, phrase_spans};
 use crate::tui::icons::{self, IconSet};
 use crate::tui::theme::{self, Mode, Tier};
 
-use super::super::{beat_spans, phrase_chip};
+use super::super::deck::beat_squares;
+use super::super::phrase_chip;
 
 const CAPTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/tui/captures");
 const WIDGETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/loclib-waveform/src");
@@ -213,9 +214,10 @@ fn stories(t: &Track) -> Vec<Story<'_>> {
             f.area(),
         );
     };
-    let beat = |f: &mut Frame, ms| f.render_widget(Line::from(beat_spans(now, ms)), f.area());
+    let beat = |f: &mut Frame, ms| f.render_widget(Line::from(beat_squares(now, ms)), f.area());
     let phrase = |f: &mut Frame, ms| {
-        f.render_widget(Line::from(phrase_chip(now, ms).map(Vec::from).unwrap_or_default()), f.area())
+        let chip = now.phrase_at(ms).map(|(_, p, bar)| Vec::from(phrase_chip(p, bar)));
+        f.render_widget(Line::from(chip.unwrap_or_default()), f.area())
     };
     vec![
         Story::still("overview/start", "Overview", (80, 4), move |f| f.render_widget(overview(0.0), f.area())),
@@ -255,12 +257,12 @@ fn stories(t: &Track) -> Vec<Story<'_>> {
             let pixels = picture((16, 8));
             f.render_widget(Pixels { width: 16, pixels: &pixels, palette: theme::palette() }, f.area());
         }),
-        Story::still("beat/one", "beat_spans", (10, 1), move |f| beat(f, t.beat(33))),
-        Story::still("beat/two", "beat_spans", (10, 1), move |f| beat(f, t.beat(34))),
-        Story::still("beat/three", "beat_spans", (10, 1), move |f| beat(f, t.beat(35))),
-        Story::still("beat/four", "beat_spans", (10, 1), move |f| beat(f, t.beat(36))),
+        Story::still("beat/one", "beat_squares", (10, 1), move |f| beat(f, t.beat(33))),
+        Story::still("beat/two", "beat_squares", (10, 1), move |f| beat(f, t.beat(34))),
+        Story::still("beat/three", "beat_squares", (10, 1), move |f| beat(f, t.beat(35))),
+        Story::still("beat/four", "beat_squares", (10, 1), move |f| beat(f, t.beat(36))),
         // Two bars at the track's tempo.
-        Story::moving("beat/two-bars", "beat_spans", (10, 1), (8, 0.5), move |f, i| beat(f, t.beat(33 + i))),
+        Story::moving("beat/two-bars", "beat_squares", (10, 1), (8, 0.5), move |f, i| beat(f, t.beat(33 + i))),
         Story::still("phrase/intro", "phrase_chip", (16, 1), move |f| phrase(f, intro)),
         Story::still("phrase/bridge", "phrase_chip", (16, 1), move |f| phrase(f, bridge)),
     ]

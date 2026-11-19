@@ -91,31 +91,31 @@
       "moves": false
     },
     "beat/one": {
-      "widget": "beat_spans",
+      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/two": {
-      "widget": "beat_spans",
+      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/three": {
-      "widget": "beat_spans",
+      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/four": {
-      "widget": "beat_spans",
+      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": false
     },
     "beat/two-bars": {
-      "widget": "beat_spans",
+      "widget": "beat_squares",
       "cols": 10,
       "rows": 1,
       "moves": true

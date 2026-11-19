@@ -14,12 +14,14 @@
 # * the workflow's name says it's locallibrary's, beside the repo's other workflows;
 # * timeouts on every job, a read-only token everywhere but `host` (the one job that writes: it
 #   creates the GitHub Release), the pinned Rust toolchain installed explicitly, and the tag
-#   passed to `gh` and to the bash steps' `dist` through the environment;
+#   passed to `gh` and `dist` through the environment;
+# * bash as every step's shell (the workflow's `defaults`), Windows' included, where dist leaves
+#   the build step in PowerShell;
 # * dist installed by .github/actions/install-dist, which checks the archive's checksum, in place
 #   of its installer script piped to a shell, and no container or rustup steps for the containers
 #   dist-workspace.toml doesn't define;
-# * `zizmor: ignore` comments (see workflow-lint.yml) where dist's own plan output, or the tag in
-#   a step that also runs in PowerShell, goes straight into a command.
+# * a `zizmor: ignore` comment (see workflow-lint.yml) where dist's own plan output goes straight
+#   into a command.
 #
 # dist names this file locallibrary-release.yml after `tag-namespace` in dist-workspace.toml.
 # After changing dist-workspace.toml, run `dist generate --mode=ci` with allow-dirty removed,
@@ -39,6 +41,11 @@ on:
   push:
     tags:
       - 'locallibrary**[0-9]+.[0-9]+.[0-9]+*'
+
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -162,7 +169,6 @@ jobs:
       # so they're only exported here, from the APPLE_* secrets, when those exist.
       - name: Set up macOS signing
         if: runner.os == 'macOS'
-        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -192,17 +198,18 @@ jobs:
             echo "CODESIGN_OPTIONS=runtime"
           } >> "$GITHUB_ENV"
       - name: Build artifacts
-        # dist plan's arguments and the tag go into the command as they are: this step also runs in
-        # PowerShell on Windows, where reading them from the environment takes other syntax.
-        run: | # zizmor: ignore[template-injection]
+        env:
+          TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
+          DIST_ARGS: ${{ matrix.dist_args }}
+        run: |
           # Actually do builds and make zips and whatnot
-          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          # shellcheck disable=SC2086 # the arguments are words
+          dist build $TAG_FLAG --print=linkage --output-format=json $DIST_ARGS > dist-manifest.json
           echo "dist ran successfully"
       # Apple checks a notarized binary online the first time it runs; a bare executable can't
       # have the ticket stapled to it. The archives aren't changed, so dist's checksums hold.
       - name: Notarize macOS binaries
         if: runner.os == 'macOS'
-        shell: bash
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}

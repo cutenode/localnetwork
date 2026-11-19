@@ -287,13 +287,16 @@ times), `mysettings` (the players' settings files), `tracklist`, `mp4` (MP4 and 
 `vet_container` walks them, then symphonia opening and decoding what it lets through, and the
 probe's format, health and length checks), `wav` (WAV headers of recordings, and the WAV and
 AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (Audacity projects:
-the binary XML, the project it builds and its mixdown) and `traktor` (Traktor's `collection.nml`,
-the beat grids it lays down and what an import makes of it). libFuzzer mutates the test fixtures
-(and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
-sequences from nothing) looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz`
-aliases also hand libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values
-the readers branch on), so it gets past a header without guessing four bytes at once. `fuzz/` is a
-workspace of its own and needs nightly:
+the binary XML, the project it builds and its mixdown), `traktor` (Traktor's `collection.nml`,
+the beat grids it lays down and what an import makes of it), `onelibrary` (`exportLibrary.db` and
+its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
+`master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules) and
+`rekordbox_sync` (`playlists3*.sync`). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for
+formats whose tests keep their examples inline; `pdb_edit` grows its edit sequences from nothing)
+looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
+libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values the readers branch
+on), so it gets past a header without guessing four bytes at once. `fuzz/` is a workspace of its
+own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -308,6 +311,16 @@ What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 (`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
 workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
 input of any crash.
+
+The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
+plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
+
+```bash
+sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
+sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
+  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
+```
 
 ## Exploring the TUI and the mix report
 
@@ -358,8 +371,9 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
    Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
    and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
    takes its notes from that section.
-2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
-   `Cargo.lock` follows, and commit.
+2. Bump `version` in `[workspace.package]` in the root `Cargo.toml` (the CLI's and the plugins'
+   version; the loclib crates have their own, see below), run `cargo check` so `Cargo.lock`
+   follows, and commit.
 3. Tag the commit with the CLI package's name and push the tag:
    `git tag locallibrary-cli-v0.2.0 && git push origin locallibrary-cli-v0.2.0`. Only tags that
    start with `locallibrary` release it (`tag-namespace` in `dist-workspace.toml`), so the
@@ -411,3 +425,27 @@ skipped):
   has run yet: check the first signed release's log for Apple's verdict.
 - Windows binaries aren't signed (SmartScreen warns about them); dist can sign them through
   Azure Artifact Signing if that's ever wanted.
+
+## Releasing crates
+
+The loclib crates go to crates.io, each with its own version, through
+[release-plz](https://release-plz.dev) (`release-plz.toml`) and
+`.github/workflows/loclib-release.yml`. The workflow publishes with crates.io's trusted
+publishing, so no crates.io token is stored anywhere.
+
+1. `release-plz update` (`cargo install release-plz`) bumps the version of each crate that
+   changed since its last release, from the conventional commits that touched it, and writes
+   them into the crate's `CHANGELOG.md`. While a crate is 0.x a breaking change moves the minor
+   version and anything else the patch; from 1.0 a `feat` moves the minor and a breaking change
+   the major. Open a pull request with what it changed.
+2. When it merges, the workflow publishes each crate whose version crates.io doesn't have yet,
+   dependencies first, and tags it `<crate>-v<version>`.
+
+crates.io takes a crate's first version only from a token, and only then lets it trust a
+workflow. So for a new crate, or for all of them the first time, run `tools/crates-io.sh` to see
+what's missing and `tools/crates-io.sh setup` to fix it. It sets up the `crates-io` environment
+(deploys from `main` only), publishes the crates crates.io doesn't have, has every crate trust
+the workflow, and turns on "require trusted publishing" so a token can't publish them again.
+Make the token it asks for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`,
+with the scopes `publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. The
+environment needs `gh` signed in as a repository admin.

@@ -2,6 +2,7 @@ import { page, userEvent } from 'vitest/browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { capabilitiesFor } from '#lib/capabilities.ts';
+import { EVENT_STATUS } from '#lib/shows.ts';
 import PartyPage from './PartyPage.svelte';
 import { readFields, writeFields } from './edit/fields.ts';
 
@@ -68,15 +69,85 @@ describe('PartyPage', () => {
 		expect(page.getByRole('heading', { level: 2 }).elements()).toHaveLength(0);
 	});
 
-	it('turns each part into its field in edit mode, with a slot for its upcoming events', async () => {
-		await render(PartyPage, { ...host, party, people, status: 'listed', editing: true });
+	it('lists its upcoming events, its drafts, private ones and ones never confirmed only to its people, marked', async () => {
+		const events = [
+			{
+				href: '/party/3lzparty/3mautumn/autumn-closing',
+				name: 'Autumn Closing',
+				startsAt: '2026-11-07T23:00:00+01:00',
+				status: EVENT_STATUS.scheduled,
+				venue: 'Tresor',
+				draft: false,
+				private: false,
+				neverConfirmed: true
+			},
+			{
+				href: '/party/3lzparty/3mwinter/winter-opening',
+				name: 'Winter Opening',
+				startsAt: '2026-12-05T23:00:00+01:00',
+				status: EVENT_STATUS.cancelled,
+				venue: 'Tresor',
+				draft: false,
+				private: false,
+				neverConfirmed: false
+			},
+			{
+				href: '/party/3lzparty/3mback/back-room',
+				name: 'Back Room',
+				startsAt: '2026-12-12T23:00:00+01:00',
+				status: EVENT_STATUS.rescheduled,
+				venue: null,
+				draft: false,
+				private: true,
+				neverConfirmed: false
+			},
+			{
+				href: '/party/3lzparty/3mspring/spring',
+				name: 'Spring',
+				status: EVENT_STATUS.scheduled,
+				venue: null,
+				draft: true,
+				private: false,
+				neverConfirmed: false
+			}
+		];
+
+		// `events` is also one of Svelte's own options, so the props go under `props`.
+		await render(PartyPage, { props: { ...host, party, people, events, status: 'listed' } });
+
+		const listed = page.getByRole('region', { name: 'Upcoming events' }).getByRole('listitem');
+		await expect.element(page.getByRole('link', { name: 'Winter Opening' })).toHaveAttribute('href', events[1].href);
+		await expect
+			.element(listed.filter({ hasText: 'Winter Opening' }))
+			.toMatchTextContent(/Cancelled\s*Sat 5 Dec\s*23:00\s*·\s*Tresor/);
+		await expect.element(listed.filter({ hasText: 'Back Room' })).toMatchTextContent(/Private\s*New date/);
+		await expect.element(listed.filter({ hasText: 'Spring' })).toMatchTextContent(/Spring\s*Draft/);
+		await expect
+			.element(listed.filter({ hasText: 'Autumn Closing' }))
+			.toMatchTextContent(/Autumn Closing\s*Never confirmed/);
+
+		await page.getByRole('button', { name: 'View as visitor' }).click();
+		expect(listed.elements()).toHaveLength(1);
+	});
+
+	it('turns each part into its field in edit mode, with a slot that adds an event', async () => {
+		await render(PartyPage, {
+			...host,
+			party,
+			people,
+			status: 'listed',
+			editing: true,
+			newEventHref: '/party/3lzparty/new'
+		});
 
 		await expect.element(page.getByRole('textbox', { name: 'Name (required)' })).toHaveValue('Night Shift');
 		await expect.element(page.getByRole('textbox', { name: 'Bio' })).toHaveValue('Techno on Thursdays.');
 		await expect.element(page.getByRole('textbox', { name: 'City' })).toHaveValue('Berlin');
 		await expect.element(page.getByRole('textbox', { name: 'Link URL' })).toHaveValue('https://nightshift.example');
 		await expect.element(page.getByRole('checkbox', { name: 'Remove' })).toBeInTheDocument();
-		await expect.element(page.getByRole('button', { name: /^Add an event/ })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('link', { name: /^Add an event/ }))
+			.toHaveAttribute('href', '/party/3lzparty/new');
 		expect(page.getByText('This is a draft. Only its people can see it.').elements()).toHaveLength(0);
 	});
 
