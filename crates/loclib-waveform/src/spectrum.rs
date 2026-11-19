@@ -8,9 +8,11 @@ use ratatui::widgets::canvas::{Canvas, Line as CanvasLine};
 use crate::color::{gradient, mix};
 use crate::{LOWER, Palette, Rgb};
 
-/// How many spectrum bands fit in `width` columns, and how wide each bar and gap is.
+/// How many spectrum bands fit in `width` columns, and how wide each bar and gap is. There's always
+/// a gap: bars side by side fill their lower rows solid, a block under the bars.
 pub fn bar_layout(width: u16, mirror: bool) -> (usize, u16, u16) {
-    let (bar, gap) = if width >= 48 { (2, 1) } else { (1, 0) };
+    let bar = if width >= 48 { 2 } else { 1 };
+    let gap = 1;
     let mut n = ((width + gap) / (bar + gap)) as usize;
     if mirror {
         n /= 2;

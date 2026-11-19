@@ -45,7 +45,7 @@ describe('rewriteHref', () => {
 
 	it('leaves anchors, site paths and web addresses alone, and drops other schemes', () => {
 		expect(rewriteHref('#publishing', tool, GUIDE)).toBe('#publishing');
-		expect(rewriteHref('/for-djs', tool, GUIDE)).toBe('/for-djs');
+		expect(rewriteHref('/for/djs', tool, GUIDE)).toBe('/for/djs');
 		expect(rewriteHref('https://no-color.org', tool, GUIDE)).toBe('https://no-color.org');
 		expect(rewriteHref('mailto:dj@example.com', tool, GUIDE)).toBe('mailto:dj@example.com');
 		expect(rewriteHref('javascript:alert(1)', tool, GUIDE)).toBeNull();

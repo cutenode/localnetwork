@@ -64,10 +64,10 @@ flowchart TD
     hub --> history["Library history<br/>store.json, objects/, snapshots/, libraries.json, labels.json, pruned.json"]
     hub --> yours["What you set<br/>settings.json, players.json, smart.json, sets.json, profile.json, mix.json"]
     hub --> registry["The registry<br/>drives.json"]
-    hub --> worked["Worked out, kept to save time<br/>cache/, reports/, profile-document.json"]
+    hub --> worked["Worked out, kept to save time<br/>cache/, reports/, profile-document.json, flags.json"]
     hub --> player["The player<br/>tui.json"]
     hub --> art["art embed's copies<br/>embed-backups/"]
-    hub --> plugins["Plugins<br/>plugins/ID/work/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
+    hub --> plugins["Plugins<br/>plugins/ID/work/, plugins/ID/data/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
     hub --> accounts["Accounts<br/>atmosphere.json, accounts.json, and without a keychain atmosphere-session.json, secrets/"]
     hub --> copies["Its copies<br/>copies.json, and copy.json in a copy"]
     hub --> locks["Locks<br/>lock, drives.lock, accounts.lock, atmosphere.lock, views.lock, accounts/, plugins/suggested.lock, each scratch folder's .lock"]
@@ -81,7 +81,7 @@ flowchart TD
     accounts ~~~ views
 ```
 
-Source: [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/accounts/kept.rs`](../../../../crates/locallibrary/src/plugin/accounts/kept.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/audio_cache.rs`](../../../../crates/locallibrary/src/audio_cache.rs), [`crates/locallibrary/src/offsite.rs`](../../../../crates/locallibrary/src/offsite.rs), [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs)
+Source: [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/accounts/kept.rs`](../../../../crates/locallibrary/src/plugin/accounts/kept.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/flags.rs`](../../../../crates/locallibrary/src/flags.rs), [`crates/locallibrary/src/audio_cache.rs`](../../../../crates/locallibrary/src/audio_cache.rs), [`crates/locallibrary/src/offsite.rs`](../../../../crates/locallibrary/src/offsite.rs), [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs)
 
 ## Inside a drive
 
@@ -183,7 +183,7 @@ flowchart TD
     dest -->|"drive verify --from --repair"| drive["A damaged drive"]
     order["Order of a copy: files, then snapshots<br/>with all their files, then libraries.json"] -.-> folder
     order -.-> dest
-    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, tui.json, embed-backups/, views.json,<br/>locks, caches, reports"] -.-> folder
+    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, store-prefs.json, tui.json,<br/>embed-backups/, views.json, locks, caches, reports"] -.-> folder
     leftout -.-> dest
 ```
 

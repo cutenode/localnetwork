@@ -66,15 +66,23 @@ const PHRASES: Record<
 	'listing.list': said,
 	'listing.unlist': said,
 	'page.update': said,
+	'page.editAsStaff': said,
+	'venue.block': said,
+	'venue.unblock': said,
+	'event.create': said,
+	'event.update': said,
+	'event.approve': said,
+	'event.resetLink': said,
 	'flag.update': said,
 	'flag.preview': said,
 	'flagGroup.create': said,
 	'flagGroup.update': said,
 	'flagGroup.delete': said,
-	// Entries written before these were called requests still say "a submission".
+	// Entries written before these were called review requests still say "a submission" or "a request to staff".
 	'record.delete': (summary) =>
 		said(summary)
-			.replace('a submission', 'a request to staff')
+			.replace('a submission', 'a review request')
+			.replace('a request to staff', 'a review request')
 			.replace('a press kit request', 'a press kit access request')
 };
 

@@ -1,79 +1,128 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Budget, type Measured, loosened, problems, ratcheted, run, undeclared } from './budgets.ts';
+import { type Budget, type Measured, compared, declared, loosened, problems, run, table } from './budgets.ts';
 
-const budget = (limit: number | null, tolerance_percent = 1): Budget => ({
+const budget = (allowance = 10): Budget => ({
 	$schema: '../budget.schema.json',
 	job: 'pull-request',
-	tolerance_percent,
-	metrics: { binary: { limit, unit: 'bytes', measures: 'The release binary.' } }
+	metrics: { binary: { allowance, unit: 'bytes', measures: 'The release binary.' } }
 });
+
+const names: Budget = {
+	$schema: '../budget.schema.json',
+	job: 'pull-request',
+	metrics: { cli: { allowance: 0, unit: 'packages', measures: 'Packages the CLI links.' } }
+};
+
+describe('compared', () => {
+	it('gives each metric its growth over the base', () => {
+		expect(compared('size', budget(), { binary: 1000 }, { binary: 1004 })).toEqual([
+			{ metric: 'size/binary', unit: 'bytes', base: 1000, head: 1004, growth: 4, added: [], allowance: 10 }
+		]);
+	});
+	it('counts the names a list gained, not the ones it lost', () => {
+		expect(compared('deps', names, { cli: ['a', 'b'] }, { cli: ['b', 'c', 'd'] })[0]?.growth).toBe(2);
+	});
+	it('gives no growth without a base, or between a count and a list', () => {
+		expect(compared('size', budget(), undefined, { binary: 5 })[0]?.growth).toBeUndefined();
+		expect(compared('size', budget(), {}, { binary: 5 })[0]?.growth).toBeUndefined();
+		expect(compared('size', budget(), { binary: ['a'] }, { binary: 5 })[0]?.growth).toBe(0);
+	});
+});
+
+const none = new Map<string, number>();
 
 describe('problems', () => {
-	it('passes a measurement within the tolerance of its limit, either way', () => {
-		expect(problems('size', budget(1000), { binary: 1010 })).toEqual([]);
-		expect(problems('size', budget(1000), { binary: 990 })).toEqual([]);
+	const rows = (base: Measured | undefined, head: Measured) => compared('size', budget(), base, head);
+
+	it('passes growth up to the allowance, and any shrinking', () => {
+		expect(problems(rows({ binary: 1000 }, { binary: 1010 }), 1, none)).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 10 }), 1, none)).toEqual([]);
 	});
-	it('fails one over the limit and its tolerance', () => {
-		expect(problems('size', budget(1000), { binary: 1011 })).toEqual([
-			'size/binary: 1011 bytes is over its limit of 1000'
+	it('fails one unit over the allowance', () => {
+		expect(problems(rows({ binary: 1000 }, { binary: 1011 }), 1, none)).toEqual([
+			"size/binary: 11 bytes more than its base, 1 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +1: <why>`"
 		]);
 	});
-	it('fails one that beats the limit by more than the tolerance, until the limit comes down', () => {
-		expect(problems('size', budget(1000), { binary: 989 })).toEqual([
-			'size/binary: 989 bytes beats its limit of 1000: run the ratchet and commit it'
+	it("allows each of a merge queue group's pull requests its allowance", () => {
+		expect(problems(rows({ binary: 1000 }, { binary: 1020 }), 2, none)).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 1021 }), 2, none)).toHaveLength(1);
+	});
+	it('allows a declared raise on top of the allowance, and asks for what it still lacks', () => {
+		const raised = new Map([['size/binary', 100]]);
+
+		expect(problems(rows({ binary: 1000 }, { binary: 1110 }), 1, raised)).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 1115 }), 1, raised)).toEqual([
+			"size/binary: 115 bytes more than its base, 5 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +5: <why>`"
 		]);
 	});
-	it('fails a metric nothing measured, and a measurement with no budget', () => {
-		expect(problems('size', budget(1000), { other: 1 })).toEqual([
-			'size/binary: not measured',
-			'size/other: measured, but has no budget'
-		]);
+	it('passes a metric with no base, and fails one nothing measured', () => {
+		expect(problems(rows(undefined, { binary: 9000 }), 1, none)).toEqual([]);
+		expect(problems(rows({ binary: 1 }, {}), 1, none)).toEqual(['size/binary: not measured']);
 	});
-	it('passes any number for a metric with no limit yet', () => {
-		expect(problems('size', budget(null), { binary: 5 })).toEqual([]);
+	it('names the packages a list gained', () => {
+		const grown = compared('deps', names, { cli: ['a'] }, { cli: ['a', 'b', 'c'] });
+		expect(problems(grown, 1, none)).toEqual([
+			"deps/cli: b, c added, 2 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: deps/cli +2: <why>`"
+		]);
 	});
 });
 
-describe('ratcheted', () => {
-	it('lowers a limit to the measurement', () => {
-		expect(ratcheted(budget(1000), { binary: 900 }).metrics.binary?.limit).toBe(900);
+describe('declared', () => {
+	it('sums the trailers of each metric, as git log prints them', () => {
+		const log =
+			'Budget-Raise: size/binary +100: a decoder\n\nbudget-raise: size/binary +20: its tables\r\nBudget-Raise: deps/cli +1: rustls\n';
+
+		expect(declared(log, '2026-12-01')).toEqual(
+			new Map([
+				['size/binary', 120],
+				['deps/cli', 1]
+			])
+		);
 	});
-	it('never raises one', () => {
-		expect(ratcheted(budget(1000), { binary: 1100 })).toEqual(budget(1000));
+	it('takes no trailer without an amount or a reason', () => {
+		expect(
+			declared('Budget-Raise: size/binary: a decoder\nBudget-Raise: size/binary +5:\nBudget-Raise: size/binary 5: x\n')
+		).toEqual(none);
 	});
-	it('sets a limit a metric lacked', () => {
-		expect(ratcheted(budget(null), { binary: 900 }).metrics.binary?.limit).toBe(900);
+	it('lets a body line allow any growth, until the date', () => {
+		const body = 'Text.\n\n budget-raise: size/binary: the new decoder needs it\r\nbudget-raise: size/other:\n';
+
+		expect(declared(body, '2026-11-30')).toEqual(new Map([['size/binary', Infinity]]));
+		expect(declared(body, '2026-12-01')).toEqual(none);
 	});
-	it('leaves a metric nothing measured alone', () => {
-		expect(ratcheted(budget(1000), {})).toEqual(budget(1000));
+});
+
+describe('table', () => {
+	it('shows counts, lists and a missing base', () => {
+		const rows = [
+			...compared('size', budget(), { binary: 1000 }, { binary: 1004 }),
+			...compared('size', budget(), { binary: 1000 }, { binary: 990 }),
+			...compared('deps', names, undefined, { cli: ['a', 'b'] })
+		];
+
+		expect(table(rows)).toEqual([
+			'| Metric | Base | Head | Growth | Allowance |',
+			'| --- | --- | --- | --- | --- |',
+			'| size/binary | 1000 | 1004 | +4 | 10 bytes |',
+			'| size/binary | 1000 | 990 | -10 | 10 bytes |',
+			'| deps/cli |  | 2 names | no base | 0 packages |'
+		]);
 	});
 });
 
 describe('loosened', () => {
-	it('names a raised limit, a limit dropped or removed, and a wider tolerance', () => {
-		expect(loosened('size', budget(1000), budget(1001))).toEqual(['size/binary']);
-		expect(loosened('size', budget(1000), budget(null))).toEqual(['size/binary']);
-		expect(loosened('size', budget(1000), { ...budget(1000), metrics: {} })).toEqual(['size/binary']);
-		expect(loosened('size', budget(1000), budget(1000, 2))).toEqual(['size/*']);
+	it('names a widened allowance, and a metric or area that went', () => {
+		expect(loosened('size', budget(10), budget(11))).toEqual(['size/binary']);
+		expect(loosened('size', budget(10), { ...budget(10), metrics: {} })).toEqual(['size/binary']);
+		expect(loosened('size', budget(10), undefined)).toEqual(['size/binary']);
 	});
-	it('names every metric of an area that went', () => {
-		expect(loosened('size', budget(1000), undefined)).toEqual(['size/binary']);
-	});
-	it('takes a lowered limit, a first limit and a narrower tolerance', () => {
-		expect(loosened('size', budget(1000), budget(999))).toEqual([]);
-		expect(loosened('size', budget(null), budget(5))).toEqual([]);
-		expect(loosened('size', budget(1000, 2), budget(1000, 1))).toEqual([]);
-	});
-});
-
-describe('undeclared', () => {
-	it('wants a line naming the metric and why', () => {
-		const body = 'Text.\n\nbudget-raise: size/binary: the new decoder needs it\r\nbudget-raise: size/other:\n';
-		expect(undeclared(['size/binary', 'size/other', 'size/third'], body)).toEqual(['size/other', 'size/third']);
+	it('takes a narrower or equal allowance', () => {
+		expect(loosened('size', budget(10), budget(9))).toEqual([]);
+		expect(loosened('size', budget(10), budget(10))).toEqual([]);
 	});
 });
 
@@ -82,82 +131,101 @@ describe('the commands', () => {
 	let dir: string;
 
 	const git = (...args: string[]) =>
-		execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+		execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+			encoding: 'utf8'
+		}).trim();
 
 	const write = (name: string, body: Budget | Measured) => writeFileSync(name, `${JSON.stringify(body, null, '\t')}\n`);
 
-	const commitBase = () => {
-		git('init', '-q');
+	const commit = (message: string) => {
 		git('add', '.');
-		git('commit', '-qm', 'base');
+		git('commit', '-qm', message);
+
+		return git('rev-parse', 'HEAD');
 	};
 
 	beforeEach(() => {
 		dir = mkdtempSync(join(tmpdir(), 'budgets-'));
 		process.chdir(dir);
 		mkdirSync('benchmarks/budgets', { recursive: true });
-		mkdirSync('measured');
-		write('benchmarks/budgets/size.json', budget(1000));
+		mkdirSync('base');
+		mkdirSync('head');
+		write('benchmarks/budgets/size.json', budget());
+		writeFileSync('raises.md', '');
 	});
 	afterEach(() => {
 		process.chdir(start);
 		rmSync(dir, { recursive: true });
 	});
 
-	it('check fails on a budget a measurement breaks', () => {
-		write('measured/size.json', { binary: 2000 });
-		expect(run(['check', 'measured', 'pull-request'])).toEqual({
-			lines: ['size/binary: 2000 bytes is over its limit of 1000'],
-			ok: false
+	describe('check', () => {
+		it('fails growth past the allowance, with the table above', () => {
+			write('base/size.json', { binary: 1000 });
+			write('head/size.json', { binary: 1011 });
+			const { lines, ok } = run(['check', 'pull-request', 'base', 'head', 'raises.md']);
+			expect(ok).toBe(false);
+			expect(lines.slice(2)).toEqual([
+				'| size/binary | 1000 | 1011 | +11 | 10 bytes |',
+				'',
+				"size/binary: 11 bytes more than its base, 1 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +1: <why>`"
+			]);
+		});
+		it('passes growth within the allowance times the entries, and a declared raise', () => {
+			write('base/size.json', { binary: 1000 });
+			write('head/size.json', { binary: 1020 });
+			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md', '2']).ok).toBe(true);
+			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md']).ok).toBe(false);
+			writeFileSync('raises.md', 'Budget-Raise: size/binary +10: a new decoder\n');
+			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md']).ok).toBe(true);
+		});
+		it('passes anything with no base measured', () => {
+			write('head/size.json', { binary: 9999 });
+			expect(run(['check', 'pull-request', 'none', 'head', 'raises.md']).ok).toBe(true);
+		});
+		it('fails an area nothing measured, and a metric with no budget', () => {
+			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md']).lines.at(-1)).toBe(
+				'size: nothing measured, no head/size.json'
+			);
+			write('head/size.json', { binary: 1, other: 2 });
+			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md']).lines.at(-1)).toBe(
+				'size/other: measured, but has no budget'
+			);
+		});
+		it('leaves the areas of other jobs alone', () => {
+			expect(run(['check', 'weekly', 'base', 'head', 'raises.md']).ok).toBe(true);
 		});
 	});
-	it('check passes what holds', () => {
-		write('measured/size.json', { binary: 1000 });
-		expect(run(['check', 'measured', 'pull-request'])).toEqual({ lines: [], ok: true });
-	});
-	it('check fails an area of the job that nothing measured', () => {
-		expect(run(['check', 'measured', 'pull-request'])).toEqual({
-			lines: ['size: nothing measured, no measured/size.json'],
-			ok: false
+
+	describe('raises', () => {
+		it('fails a widened allowance the body leaves out, and passes it declared', () => {
+			git('init', '-q');
+			commit('base');
+			write('benchmarks/budgets/size.json', budget(20));
+			expect(run(['raises', 'HEAD', 'raises.md'])).toEqual({
+				lines: [
+					"size/binary: loosened: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +0: <why>`"
+				],
+				ok: false
+			});
+			writeFileSync('raises.md', 'Budget-Raise: size/binary +0: a noisier metric\n');
+			expect(run(['raises', 'HEAD', 'raises.md'])).toEqual({ lines: [], ok: true });
+		});
+		it('counts a budget file taken away', () => {
+			git('init', '-q');
+			commit('base');
+			rmSync('benchmarks/budgets/size.json');
+			expect(run(['raises', 'HEAD', 'raises.md']).ok).toBe(false);
 		});
 	});
-	it('leaves the areas of other jobs alone', () => {
-		write('measured/size.json', { binary: 2000 });
-		expect(run(['check', 'measured', 'weekly'])).toEqual({ lines: [], ok: true });
-		expect(run(['ratchet', 'measured', 'weekly'])).toEqual({ lines: [], ok: true });
+
+	it.each([
+		[[]],
+		[['check', 'pull-request', 'base', 'head']],
+		[['check', 'pull-request', 'base', 'head', 'raises.md', '0']],
+		[['check', 'pull-request', 'base', 'head', 'raises.md', '1.5']],
+		[['raises', 'HEAD']],
+		[['other', 'a', 'b']]
+	])('%j prints how to use it', (args) => {
+		expect(run(args).ok).toBe(false);
 	});
-	it('ratchet skips an area nothing measured', () => {
-		expect(run(['ratchet', 'measured', 'pull-request'])).toEqual({ lines: [], ok: true });
-	});
-	it('ratchet writes what it lowers, and running it again changes nothing', () => {
-		write('measured/size.json', { binary: 900 });
-		expect(run(['ratchet', 'measured', 'pull-request']).lines).toEqual(['lowered benchmarks/budgets/size.json']);
-		const once = readFileSync('benchmarks/budgets/size.json', 'utf8');
-		expect(JSON.parse(once)).toEqual(budget(900));
-		expect(run(['ratchet', 'measured', 'pull-request'])).toEqual({ lines: [], ok: true });
-		expect(readFileSync('benchmarks/budgets/size.json', 'utf8')).toBe(once);
-	});
-	it('raises fails on a raise the body leaves out, and passes it declared', () => {
-		commitBase();
-		write('benchmarks/budgets/size.json', budget(2000));
-		writeFileSync('body.md', 'No mention.\n');
-		expect(run(['raises', 'HEAD', 'body.md'])).toEqual({
-			lines: ["size/binary: loosened: add a line `budget-raise: size/binary: <why>` to the pull request's body"],
-			ok: false
-		});
-		writeFileSync('body.md', 'budget-raise: size/binary: a new decoder\n');
-		expect(run(['raises', 'HEAD', 'body.md'])).toEqual({ lines: [], ok: true });
-	});
-	it('raises counts a budget file taken away', () => {
-		commitBase();
-		rmSync('benchmarks/budgets/size.json');
-		writeFileSync('body.md', '');
-		expect(run(['raises', 'HEAD', 'body.md']).ok).toBe(false);
-	});
-	it.each([[[]], [['check', 'measured']], [['ratchet', 'a', 'b', 'c']], [['raises', 'HEAD']], [['other', 'a', 'b']]])(
-		'%j prints how to use it',
-		(args) => {
-			expect(run(args).ok).toBe(false);
-		}
-	);
 });

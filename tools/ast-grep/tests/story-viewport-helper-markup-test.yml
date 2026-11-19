@@ -1,0 +1,11 @@
+id: story-viewport-helper-markup
+valid:
+  - |
+    <Story name="Phone" args={{ entries }} globals={phone} />
+  - |
+    <Story name="Phone, light" globals={phone} beforeEach={light}>{#snippet template(args)}<PartyPage {...args} />{/snippet}</Story>
+invalid:
+  - |
+    <Story name="Phone" args={{ entries }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+  - |
+    <Story name="Phone, light" globals={{ viewport: { value: 'phone', isRotated: false } }} beforeEach={light}>{#snippet template(args)}<PartyPage {...args} />{/snippet}</Story>

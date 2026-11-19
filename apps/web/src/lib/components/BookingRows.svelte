@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type BookingGroup, bookingMark } from '#lib/bookings.ts';
+	import { type BookingGroup, bookingMark, isBookedSide } from '#lib/bookings.ts';
 	import { accountLabel, timeAgo } from '#lib/format.ts';
 	import type { BookingListThread } from '#lib/types.ts';
 	import DateBlock from '#lib/ui/DateBlock.svelte';
@@ -20,7 +20,7 @@
 </script>
 
 {#snippet act(thread: BookingListThread, fallback = '')}
-	{#if thread.project}{thread.project.name}{:else if actsPending}<span class="inline-block h-3 w-20 rounded-md bg-well align-baseline motion-safe:animate-pulse"></span>{:else}{fallback}{/if}
+	{#if thread.project}{thread.project.name}{:else if actsPending}<span class="inline-block h-3 w-20 rounded-md bg-well motion-safe:animate-pulse"></span>{:else}{fallback}{/if}
 {/snippet}
 
 <ul class="card m-0 list-none divide-y divide-line overflow-hidden p-0" aria-busy={loading > 0 || undefined}>
@@ -32,7 +32,7 @@
 	{/each}
 	{#each threads as thread (thread.space)}
 		{@const role = thread.participants.find((person) => person.did === viewer)?.role}
-		{@const isManager = role === 'manager'}
+		{@const isBooked = isBookedSide(role)}
 		{@const hasAct = thread.project || actsPending}
 		{@const ago = timeAgo(thread.lastActivityAt)}
 		{@const said = thread.lastAuthor === viewer ? `you wrote ${ago}` : ago}
@@ -49,12 +49,12 @@
 			<a href="/dashboard/bookings/{thread.skey}" class={['self-end text-body font-medium text-fg no-underline after:absolute after:inset-0', !mark && 'col-[2/-1]']}>{thread.title ?? 'Booking inquiry'}</a>
 			{#if mark}<div class="self-end sm:row-span-2 sm:self-center"><StatusPill status={mark} /></div>{/if}
 			<p class="col-[2/-1] row-start-2 m-0 self-start text-label text-fg-muted first-letter:uppercase sm:col-[2/3]">
-				{#if group === 'active' && isManager}
+				{#if group === 'active' && isBooked}
 					Waiting on {accountLabel(thread.promoter)}{#if hasAct}{' · '}{@render act(thread)}{/if}{' · '}{said}
 				{:else if group === 'active'}
 					Waiting on {@render act(thread, 'the act')}{' · '}{said}
 				{:else}
-					{#if hasAct}{@render act(thread)}{' · '}{/if}{isManager ? `from ${accountLabel(thread.promoter)}` : 'you asked'}{' · '}{ago}
+					{#if hasAct}{@render act(thread)}{' · '}{/if}{isBooked ? `from ${accountLabel(thread.promoter)}` : 'you asked'}{' · '}{ago}
 				{/if}
 			</p>
 		</li>

@@ -67,6 +67,8 @@ pub(super) fn unopened(url: &str) -> Option<String> {
 /// Finishes the sign-in `start` began, off the UI thread: once the browser comes back from the
 /// service's sign-in page (opened, or its link shown with `show`), or with the keys entered in
 /// the form asked for over `tx` (see [`entered_keys`]). The form closed, the sign-in is over.
+/// Signed in, what plugins had of the account before it was signed out is asked about (see
+/// [`super::restoring`]).
 pub(super) fn finish_sign_in(
     plugins: &Plugins,
     start: &AccountSignIn,
@@ -74,15 +76,21 @@ pub(super) fn finish_sign_in(
     ctx: &Ctx<'_>,
     show: &dyn Fn(crate::tui::edits::Done),
 ) -> locallibrary::Result<AccountSignedIn> {
-    if start.keys.is_empty() {
-        open(&start.url, show);
-        return plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx);
-    }
-    let Some((keys, name)) = entered_keys(tx, start) else {
-        plugins.cancel_sign_in(&start.id);
-        return Err(locallibrary::Error::Cancelled);
+    let done = match start.keys.is_empty() {
+        true => {
+            open(&start.url, show);
+            plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx)?
+        }
+        false => {
+            let Some((keys, name)) = entered_keys(tx, start) else {
+                plugins.cancel_sign_in(&start.id);
+                return Err(locallibrary::Error::Cancelled);
+            };
+            plugins.finish_account_sign_in_with_keys(&start.id, &keys, name.as_deref())?
+        }
     };
-    plugins.finish_account_sign_in_with_keys(&start.id, &keys, name.as_deref())
+    super::restoring::after_sign_in(&done, show);
+    Ok(done)
 }
 
 impl App {
@@ -95,7 +103,7 @@ impl App {
         let (store_root, tx) = (self.store_root.clone(), self.sender());
         self.task_showing("Signing in".into(), move |ctx, show| {
             let store = Store::open_or_init(&store_root)?;
-            let start = plugins.begin_account_sign_in(kind, with, None, None, &[], &store)?;
+            let start = plugins.begin_account_sign_in(kind, with, None, None, &[], None, &store)?;
             let said = format!("{} signed in", finish_sign_in(plugins, &start, &tx, ctx, show)?.account.name);
             Ok(Box::new(move |app: &mut App| app.toast(said, Level::Info)))
         });
@@ -117,8 +125,8 @@ impl App {
     }
 
     /// Sign out of the account the palette marked `mark` in the background: it's forgotten here,
-    /// and its service is told to forget its tokens too when it has a way to be. Plugins keep
-    /// their access to it.
+    /// and its service is told to forget its tokens too when it has a way to be. Every plugin's
+    /// access to it is removed until signing in again restores it.
     pub(in crate::tui) fn account_sign_out(&mut self, marked: u64) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let store_root = self.store_root.clone();

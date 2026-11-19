@@ -1,4 +1,4 @@
-import { RepoCommit, WANT_MAC_HEADER } from '@atproto/space';
+import { RepoCommit } from '@atproto/space';
 import { SPACE_TYPE } from '#lib/nsid.ts';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { SpaceCredentialManager, XrpcResponseError } from '../atproto/credentials';
@@ -26,12 +26,11 @@ describe('SpaceSyncer', () => {
 	});
 	afterEach(() => db.destroy());
 
-	// Every pass resolves the space authority first, so `passes` counts passes. `listReposError`
-	// makes the space host's listRepos fail; otherwise it reports no repos. `register` answers registerNotify, which
-	// is only asked for when it's given.
+	// Every pass resolves the space authority first, so `passes` counts passes. `listWritersError`
+	// makes the space host's listWriters fail; otherwise it reports no repos, or what `options.listWriters` answers.
 	const syncer = (
-		listReposError?: Error | string,
-		options: { logger?: Logger; register?: () => Promise<{ expiresAt?: string }> } = {}
+		listWritersError?: Error | string,
+		options: { logger?: Logger; listWriters?: () => Promise<object> } = {}
 	) => {
 		const identity = new IdentityResolver({
 			plcUrl: 'https://plc.test',
@@ -57,17 +56,16 @@ describe('SpaceSyncer', () => {
 			logger: silentLogger
 		});
 
-		const listRepos = vi.spyOn(credentials, 'query');
+		const listWriters = vi.spyOn(credentials, 'query');
 
-		if (listReposError) listRepos.mockRejectedValue(listReposError);
-		else listRepos.mockResolvedValue({ repos: [] });
-
-		if (options.register) vi.spyOn(credentials, 'procedure').mockImplementation(options.register);
+		if (listWritersError) listWriters.mockRejectedValue(listWritersError);
+		else if (options.listWriters) listWriters.mockImplementation(options.listWriters);
+		else listWriters.mockResolvedValue({ repos: [] });
 
 		return new SpaceSyncer({
 			db,
 			logger: options.logger ?? silentLogger,
-			notifyService: options.register ? 'did:web:localnetwork.test#notify' : null,
+			notifyEndpoint: null,
 			onChange: async (change) => void changes.push(change),
 			onSpaceDropped: async (space) => void dropped.push(space),
 			identity,
@@ -94,7 +92,7 @@ describe('SpaceSyncer', () => {
 	});
 
 	it('drops the local copy when the host says the space is gone', async () => {
-		const s = syncer(new XrpcResponseError(400, 'SpaceNotFound', undefined, 'com.atproto.space.listRepos'));
+		const s = syncer(new XrpcResponseError(400, 'SpaceNotFound', undefined, 'com.atproto.space.listWriters'));
 
 		await s.watch(SPACE);
 		await db
@@ -169,33 +167,22 @@ describe('SpaceSyncer', () => {
 		]);
 	});
 
-	it('registers for write notifications, renewing only a registration close to running out', async () => {
-		const answers = [
-			async () => ({ expiresAt: new Date(Date.now() + 3_600_000).toISOString() }),
-			async () => ({}),
-			async () => Promise.reject(new Error('registerNotify is not supported'))
-		];
-
-		let registrations = 0;
-		const s = syncer(undefined, { register: () => answers[registrations++]() });
+	it('reads 100 pages of a repo list a pass unless told otherwise', async () => {
+		const { logger, lines } = writtenLog();
+		let pages = 0;
+		// Every page lists a repo the host has removed, which a pass reads past, and points at the next.
+		const removed = { $type: 'com.atproto.space.defs#repoRemoved', repo: 'did:plc:gone', spaceRev: '0' };
+		const s = syncer(undefined, { logger, listWriters: async () => ({ repos: [removed], cursor: String(++pages) }) });
 		await s.watch(SPACE);
 
 		await s.sync(SPACE);
-		expect(registrations).toBe(1);
-		expect((await watchRow())?.registrationExpiresAt).toBeTruthy();
-		await s.sync(SPACE);
-		expect(registrations).toBe(1);
-
-		const soon = new Date(Date.now() + 60_000).toISOString();
-		await db.updateTable('spaceWatch').set({ registrationExpiresAt: soon }).execute();
-		await s.sync(SPACE);
-		expect(registrations).toBe(2);
-		expect((await watchRow())?.registrationExpiresAt).toBeNull();
-
-		// A host that can't register is polled instead, and the pass still succeeds.
-		await s.sync(SPACE);
-		expect(registrations).toBe(3);
-		expect((await watchRow())?.lastError).toBeNull();
+		expect(pages).toBe(100);
+		// The pass is a job, so its warning is a note on the job's line.
+		const notes = lines.flatMap(({ notes = [] }) => notes).filter(({ level }) => level === 'warn');
+		expect(notes.map(({ message, pages }) => [message, pages])).toEqual([
+			['repo list ran past the page limit; reading on next pass', 100]
+		]);
+		expect((await watchRow())?.spaceRev).toBe('100');
 	});
 });
 
@@ -217,21 +204,27 @@ describe('SpaceSyncer against a repo host', () => {
 	});
 	afterEach(() => db.destroy());
 
-	const syncer = async (onChange: ChangeHandler = async (change) => void changes.push(change)) => {
+	const syncer = async (
+		onChange: ChangeHandler = async (change) => void changes.push(change),
+		notifyEndpoint: string | null = null,
+		maxPages?: number
+	) => {
 		const credentials = new SpaceCredentialManager({
 			source: async () => ({ getDelegationToken: async () => 'token' }),
 			identity: host.identity,
-			logger: silentLogger
+			logger: silentLogger,
+			notify: (space) => s.registration(space)
 		});
 
-		const s = new SpaceSyncer({
+		const s: SpaceSyncer = new SpaceSyncer({
 			db,
 			logger: silentLogger,
-			notifyService: null,
+			notifyEndpoint,
 			onChange,
 			onSpaceDropped: async (space) => void dropped.push(space),
 			identity: host.identity,
-			credentials
+			credentials,
+			maxPages
 		});
 
 		await s.watch(SPACE);
@@ -264,8 +257,8 @@ describe('SpaceSyncer against a repo host', () => {
 			['b', 'two']
 		]);
 		expect(calls('getRepo')).toHaveLength(1);
-		// One page per op, and a fresh key share on each, though only the last page carries the commit.
-		const shares = calls('listRepoOps').map((request) => request.headers.get(WANT_MAC_HEADER));
+		// One page per op, each with the commit and its MAC, and a fresh key share asked for on each.
+		const shares = calls('listRepoOps').map((request) => request.headers.get('accept-signature'));
 		expect(shares).toHaveLength(2);
 		expect(new Set(shares).size).toBe(2);
 		expect((await repoRow())?.lastError).toBeNull();
@@ -334,7 +327,7 @@ describe('SpaceSyncer against a repo host', () => {
 			]);
 		});
 
-		it('retries it after its backoff, though listRepos no longer lists it', async () => {
+		it('retries it after its backoff, though listWriters no longer lists it', async () => {
 			const s = await failOnce();
 			host.repoErrors.clear();
 
@@ -382,8 +375,9 @@ describe('SpaceSyncer against a repo host', () => {
 
 		it('forgets it when the space is deleted', async () => {
 			const s = await failOnce();
+			host.credentialError = 'SpaceDeleted';
 
-			await s.onSpaceDeleted(SPACE);
+			await s.reauthorize(SPACE);
 
 			expect(await retries()).toEqual([]);
 		});
@@ -425,9 +419,9 @@ describe('SpaceSyncer against a repo host', () => {
 		await s.sync(SPACE);
 		host.forgeMacs = true;
 		await host.put(DJ, NOTE, 'b', note('two'));
-		await expect(s.sync(SPACE)).rejects.toThrow('Commit does not match its MAC');
+		await expect(s.sync(SPACE)).rejects.toThrow('MAC does not match');
 		expect(await records()).toEqual([['a', 'one']]);
-		expect((await repoRow())?.lastError).toBe('Commit does not match its MAC');
+		expect((await repoRow())?.lastError).toBe('MAC does not match');
 		// Once more after refreshing the KEM key, then it gives up.
 		expect(host.identity.refreshed).toEqual([DJ]);
 	});
@@ -460,32 +454,89 @@ describe('SpaceSyncer against a repo host', () => {
 		expect(changes.at(-1)).toMatchObject({ kind: 'delete', rkey: 'a' });
 	});
 
-	it('purges a deleted space however often it hears, and starts over when the space is back', async () => {
+	it('drops a space only once its authority refuses a fresh credential, and starts over when the space is back', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));
 		await s.sync(SPACE);
-		await s.onSpaceDeleted(SPACE);
-		await s.onSpaceDeleted(SPACE);
+
+		// A notice that the space is gone, while its authority still has it, changes nothing.
+		await s.reauthorize(SPACE);
+		expect(host.issued).toHaveLength(2);
+		expect(await records()).toEqual([['a', 'one']]);
+
+		host.credentialError = 'SpaceDeleted';
+		await s.reauthorize(SPACE);
+		await s.reauthorize(SPACE);
 		expect(changes.filter((change) => change.kind === 'delete')).toHaveLength(1);
-		expect(dropped).toEqual([SPACE, SPACE]);
+		expect(dropped).toEqual([SPACE]);
 		expect(await records()).toEqual([]);
 		expect(await db.selectFrom('syncedRepo').selectAll().execute()).toEqual([]);
 		expect(await db.selectFrom('spaceWatch').selectAll().execute()).toEqual([]);
 
+		host.credentialError = null;
 		await s.watch(SPACE);
 		await s.sync(SPACE);
 		expect(calls('getRepo')).toHaveLength(2);
 		expect(await records()).toEqual([['a', 'one']]);
 	});
 
-	it('waits for a running pass before purging, so it cannot write the space back', async () => {
+	it('reads past a repo taken out of the writer set, keeping what it synced from it', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));
-		const running = s.sync(SPACE);
-		await s.onSpaceDeleted(SPACE);
-		await running;
-		expect(await records()).toEqual([]);
-		expect(await db.selectFrom('syncedRepo').selectAll().execute()).toEqual([]);
+		await s.sync(SPACE);
+		const downloads = calls('getRepo').length;
+
+		host.removeWriter(DJ);
+		await s.sync(SPACE);
+
+		expect(await records()).toEqual([['a', 'one']]);
+		expect(calls('getRepo')).toHaveLength(downloads);
+		expect(calls('listRepoOps')).toHaveLength(0);
+		expect((await db.selectFrom('spaceWatch').select('spaceRev').executeTakeFirst())?.spaceRev).toBe(
+			host.removed.get(DJ)
+		);
+	});
+
+	describe('with a notify endpoint', () => {
+		const ENDPOINT = 'https://localnetwork.test';
+		const watchRow = () => db.selectFrom('spaceWatch').selectAll().executeTakeFirstOrThrow();
+
+		it("registers a watched space for its updates with the space's own token, until the credential runs out", async () => {
+			const s = await syncer(undefined, ENDPOINT);
+			await s.sync(SPACE);
+			const { notifyToken, registrationExpiresAt } = await watchRow();
+			const [registration] = host.registrations;
+
+			expect(host.registrations).toEqual([{ endpoint: ENDPOINT, token: notifyToken, expiresAt: expect.any(Number) }]);
+			expect(registrationExpiresAt).toBe(new Date(registration.expiresAt).toISOString());
+		});
+
+		it('knows the token it registered a space with, and no other', async () => {
+			const s = await syncer(undefined, ENDPOINT);
+			const { notifyToken } = await watchRow();
+
+			expect(await s.isRegistered(SPACE, notifyToken)).toBe(true);
+			expect(await s.isRegistered(SPACE, `${notifyToken}x`)).toBe(false);
+			expect(await s.isRegistered(SPACE, notifyToken.slice(1))).toBe(false);
+			expect(await s.isRegistered(bookingSpace('did:plc:root', 'other'), notifyToken)).toBe(false);
+		});
+
+		it('keeps syncing, unregistered, when the host cannot confirm the endpoint', async () => {
+			const s = await syncer(undefined, ENDPOINT);
+			host.confirmsRegistration = false;
+			await host.put(DJ, NOTE, 'a', note('one'));
+
+			await s.sync(SPACE);
+
+			expect(await records()).toEqual([['a', 'one']]);
+			expect(await watchRow()).toMatchObject({ registrationExpiresAt: null, lastError: null });
+		});
+
+		it('asks nothing of a space it does not watch', async () => {
+			const s = await syncer(undefined, ENDPOINT);
+
+			expect(await s.registration(bookingSpace('did:plc:root', 'other'))).toBeNull();
+		});
 	});
 
 	it("keeps a space a writer's repo host says was deleted, since only the authority can say so", async () => {
@@ -576,7 +627,7 @@ describe('SpaceSyncer against a repo host', () => {
 		expect(calls('getRepo')).toHaveLength(1);
 	});
 
-	it('downloads the repo in full when the oplog ends without a commit', async () => {
+	it('downloads the repo in full when an oplog page comes without its commit', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));
 		await s.sync(SPACE);
@@ -606,17 +657,68 @@ describe('SpaceSyncer against a repo host', () => {
 		]);
 	});
 
-	it('leaves a repo alone when its host has no ops and no commit for it', async () => {
+	describe('a host whose listing never ends', () => {
+		/** Gives each `nsid` page a new cursor, keeping its MAC, then fails the 1,000th time so a test can't hang. */
+		const endless = (nsid: 'listWriters' | 'listRepoOps') => {
+			let answers = 0;
+			tamper([nsid], async (response) => {
+				if (++answers >= 1000) return Response.json({ error: 'TooManyPages' }, { status: 400 });
+				const page = await response.json();
+				// The writer listing would come back empty past the repo's own revision, which ends it.
+				const repos = [{ $type: 'com.atproto.space.defs#repoWrite', repo: DJ, repoRev: '0', spaceRev: '0' }];
+
+				return new Response(
+					JSON.stringify({ ...page, ...(nsid === 'listWriters' && { repos }), cursor: String(answers) }),
+					{ headers: response.headers }
+				);
+			});
+		};
+
+		// A cap of 3 keeps these to a few round trips to the host; 'reads 100 pages of a repo list a pass' pins the default.
+		it('downloads the repo in full once its oplog runs past the page cap', async () => {
+			const s = await syncer(undefined, null, 3);
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			await host.put(DJ, NOTE, 'b', note('two'));
+			endless('listRepoOps');
+
+			await s.sync(SPACE);
+			expect(calls('listRepoOps')).toHaveLength(3);
+			expect(calls('getRepo')).toHaveLength(2);
+			expect(await records()).toEqual([
+				['a', 'one'],
+				['b', 'two']
+			]);
+			expect((await repoRow())?.lastError).toBeNull();
+		});
+
+		it('reads its repo list up to the page cap a pass, keeping its place for the next', async () => {
+			const s = await syncer(undefined, null, 3);
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			endless('listWriters');
+
+			await s.sync(SPACE);
+			expect(calls('listWriters')).toHaveLength(4);
+			expect(await db.selectFrom('spaceWatch').selectAll().executeTakeFirst()).toMatchObject({
+				spaceRev: '3',
+				lastError: null
+			});
+		});
+	});
+
+	it('leaves a repo alone when its oplog has nothing new', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));
 		await s.sync(SPACE);
 		const synced = await repoRow();
-		editOps((page) => delete page.commit);
+		changes = [];
 
 		await s.syncRepo(SPACE, DJ);
+		expect(changes).toEqual([]);
 		expect(calls('listRepoOps')).toHaveLength(1);
 		expect(calls('getRepo')).toHaveLength(1);
-		expect(await repoRow()).toEqual(synced);
+		expect(await repoRow()).toEqual({ ...synced, lastSyncedAt: expect.any(String) });
 	});
 
 	it('fails a first download that comes back empty, with no repo row to put the error on', async () => {
@@ -680,7 +782,7 @@ describe('SpaceSyncer against a repo host', () => {
 		await host.put(DJ, NOTE, 'a', note('one'));
 		host.forgeMacs = true;
 
-		await expect(s.sync(SPACE)).rejects.toThrow('Commit does not match its MAC');
+		await expect(s.sync(SPACE)).rejects.toThrow('MAC does not match');
 		expect(host.identity.refreshed).toEqual([DJ]);
 		expect(calls('getRepo')).toHaveLength(2);
 		expect(await records()).toEqual([]);
@@ -722,7 +824,7 @@ describe('SpaceSyncer against a repo host', () => {
 			await host.put(DJ, NOTE, 'a', note('one'));
 			await (await syncer()).sync(SPACE);
 
-			host.overrides.set('com.atproto.space.listRepos', () => Response.json({ error }, { status: 400 }));
+			host.overrides.set('com.atproto.space.listWriters', () => Response.json({ error }, { status: 400 }));
 			await expect((await syncer()).sync(SPACE)).rejects.toThrow(error);
 			host.overrides.clear();
 			host.credentialError = error;
@@ -753,7 +855,8 @@ describe('SpaceSyncer against a repo host', () => {
 
 		await s.sync(SPACE);
 		expect(await records()).toEqual([['a', 'one']]);
-		await s.onSpaceDeleted(SPACE);
+		host.credentialError = 'SpaceDeleted';
+		await s.reauthorize(SPACE);
 		expect(await records()).toEqual([]);
 		expect(dropped).toEqual([SPACE]);
 	});
@@ -900,21 +1003,10 @@ describe('SpaceSyncer against a repo host', () => {
 			await s.sync(SPACE);
 
 			state.broken = false;
-			await s.onSpaceDeleted(SPACE);
+			host.credentialError = 'SpaceDeleted';
+			await s.reauthorize(SPACE);
 			expect(state.seen).toMatchObject([{ kind: 'delete', rkey: 'a' }]);
 			expect(await pending()).toEqual([]);
 		});
-	});
-
-	it('waits out a failing pass before purging', async () => {
-		const s = await syncer();
-		await host.put(DJ, NOTE, 'a', note('one'));
-		host.repoError = 'RepoNotFound';
-		const running = s.sync(SPACE);
-
-		await s.onSpaceDeleted(SPACE);
-		await expect(running).rejects.toThrow('RepoNotFound');
-		expect(dropped).toEqual([SPACE]);
-		expect(await db.selectFrom('spaceWatch').selectAll().execute()).toEqual([]);
 	});
 });

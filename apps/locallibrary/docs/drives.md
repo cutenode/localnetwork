@@ -25,8 +25,7 @@ the library's: most commands take the library's name and mean its lead clone (se
 - `drive rename <drive> <name> [--label]` (`--label` changes the volume label too; experimental on
   Linux and Windows, see [Platforms](install.md#platforms)), `drive forget <drive>`,
   `drive retire <drive> [--undo]`, `drive ls --known` (every registered drive).
-- **Roles:** `drive role <drive> primary|backup|set|archive` (`gig`, the old name for `set`, works
-  too). A library has one primary: a primary that joins a library which has one becomes a backup.
+- **Roles:** `drive role <drive> primary|backup|set|archive`. A library has one primary: a primary that joins a library which has one becomes a backup.
   Archive and retired drives are never written to (by a sync, an edit, a format or anything else)
   unless `--overwrite-archive` is given (`--force` also does for push); locallibrary still keeps
   its own notes in their `.locallibrary/` (the file index, what it last saw). `locallibrary sync`
@@ -160,7 +159,7 @@ locallibrary drive contact REKORDBOX "sam@example.com" --playlist
 
 ### Back from a set
 
-Players write to the drive: a history list every session, memory cues, and on the CDJ-3000X
+Players write to the drive: a history list each time it goes in, memory cues, and on the CDJ-3000X
 playlist edits and TAG LIST playlists. If the primary got a new export in the meantime, both
 drives changed since they were last in sync, and a plain sync has to refuse. `sync` looks at what
 each drive changed since the last state both held, which must be in the store (pull before
@@ -341,8 +340,10 @@ locallibrary analysis bench GIANTSTEPS --keys giantsteps-key-dataset/annotations
 locallibrary analysis bench --keys giantsteps-mtg-key-dataset/annotations/annotations.txt --audio audio/
 ```
 
-`analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analysis doctor runs
-on the same audio (or the files in `--audio`), analysed afresh every run, against the annotations
+`analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analyzers doctor runs
+for key and bpm (the sound plugin's unless another is chosen, see [Roles](plugins.md#roles)), each
+under its own name (`sound.tempo-key-loudness`), on the same audio (or the files in `--audio`),
+analysed afresh every run and kept nowhere, against the annotations
 of the [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
 [GiantSteps MTG Key](https://github.com/GiantSteps/giantsteps-mtg-key-dataset) (its tracks with one
 key at confidence 2) and [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset)
@@ -354,3 +355,5 @@ the parallel one) and the share of each mistake; tempos get Accuracy1 (within 4%
 (also double, half, triple or a third), and the share of each octave mistake. Fifths count in
 either direction, as MIREX has scored them since 2017; weighted scores published before then,
 such as the 2015 GiantSteps paper's, counted only a fifth above, so don't compare them directly.
+The files in `--audio` are on no drive, so an analyzer gets each with no library to read: one that
+reads the library as it analyses fails on them, and the file is listed with the error.

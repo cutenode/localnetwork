@@ -2,7 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
-import { CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
 import type { DjSetView, ProfileRecord, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -196,6 +196,24 @@ describe('getProject, getProjects, and getStats', () => {
 		});
 		expect(await query(hv, 'getProject', { slug: 'tide' })).not.toHaveProperty('pressKits');
 		expect(await query(hv, 'getProject', { slug: 'nope', counts: true })).toEqual({});
+	});
+
+	it('counts the managers with DJ stats or sets on file, once each', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { slug: 'duo', managers: ['did:plc:stats', 'did:plc:sets', 'did:plc:none'] });
+		await publish(hv, {}, { slug: 'quiet', managers: ['did:plc:none'] });
+		await publish(hv, {}, { slug: 'unclaimed', managers: [] });
+
+		const set = { date: '2026-01-01', tracks: [{ title: 'One', artist: 'A' }], createdAt: '2026-10-01T00:00:00.000Z' };
+		await ingest(hv, 'did:plc:stats', COLLECTION.djProfile, 'self', { generatedAt: '2026-10-01T00:00:00.000Z' });
+		await ingest(hv, 'did:plc:stats', COLLECTION.djSet, 'a', set);
+		await ingest(hv, 'did:plc:sets', COLLECTION.djSet, 'a', set);
+		await ingest(hv, 'did:plc:sets', COLLECTION.djSet, 'b', set);
+		await ingest(hv, 'did:plc:elsewhere', COLLECTION.djSet, 'a', set);
+
+		expect(await query(hv, 'getProject', { slug: 'duo', counts: true })).toMatchObject({ djs: 2 });
+		expect(await query(hv, 'getProject', { slug: 'quiet', counts: true })).toMatchObject({ djs: 0 });
+		expect(await query(hv, 'getProject', { slug: 'unclaimed', counts: true })).toMatchObject({ djs: 0 });
 	});
 
 	it('returns projects in the order asked for, once each, without unknown ones', async () => {
@@ -1594,6 +1612,29 @@ describe('calendar event record script', () => {
 	});
 });
 
+describe('RSVP record script and getRsvpStatus', () => {
+	it("keeps RSVPs to the root's calendar events, with just the event and the answer", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const subject = { uri: `at://${ROOT}/${CALENDAR_EVENT}/3mwinter`, cid: 'bafyreicopy' };
+		const going = `${CALENDAR_RSVP}#going`;
+		const elsewhere = { ...subject, uri: `at://did:plc:dj/${CALENDAR_EVENT}/3mwinter` };
+
+		const kept = await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'a', { subject, status: going, note: 'see you' });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'b', { subject: elsewhere, status: going });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'c', { subject: { uri: subject.uri }, status: going });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'd', { subject, status: 7 });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'e', { subject: subject.uri, status: going });
+
+		const listed = await query<Records>(hv, 'listRecords', { actor: 'did:plc:fan', collection: CALENDAR_RSVP });
+		expect(listed.records).toEqual([{ ...kept, value: { subject, status: going } }]);
+		expect(await query(hv, 'getRsvpStatus', { subject: subject.uri, actor: 'did:plc:fan' })).toEqual({
+			going: 1,
+			interested: 0,
+			rsvps: [{ uri: kept.uri, status: going }]
+		});
+	});
+});
+
 describe('follow record script and getFollowStatus', () => {
 	it("counts each account following one of the root's projects once, and finds an account's follows", async () => {
 		const hv = new FakeHappyView(ROOT);
@@ -1608,13 +1649,16 @@ describe('follow record script and getFollowStatus', () => {
 		await publishFollow(hv, 'did:plc:c', fake);
 		await publishFollow(hv, 'did:plc:d', project, { createdAt: 20261001 });
 
-		expect(await query(hv, 'getFollowStatus', { project })).toEqual({ followers: 2, follows: [] });
-		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:b' })).toEqual({
+		expect(await query(hv, 'getFollowStatus', { subject: project })).toEqual({ followers: 2, follows: [] });
+		expect(await query(hv, 'getFollowStatus', { subject: project, actor: 'did:plc:b' })).toEqual({
 			followers: 2,
 			follows: [first, second]
 		});
-		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:c' })).toEqual({ followers: 2, follows: [] });
-		expect(await query(hv, 'getFollowStatus', { project: fake, actor: 'did:plc:c' })).toEqual({
+		expect(await query(hv, 'getFollowStatus', { subject: project, actor: 'did:plc:c' })).toEqual({
+			followers: 2,
+			follows: []
+		});
+		expect(await query(hv, 'getFollowStatus', { subject: fake, actor: 'did:plc:c' })).toEqual({
 			followers: 0,
 			follows: []
 		});
@@ -1624,10 +1668,41 @@ describe('follow record script and getFollowStatus', () => {
 			['did:plc:b', first]
 		])
 			await hv.ingest({ did, collection: COLLECTION.follow, rkey: uri.split('/').at(-1)!, cid: '', record: null });
-		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:b' })).toEqual({
+		expect(await query(hv, 'getFollowStatus', { subject: project, actor: 'did:plc:b' })).toEqual({
 			followers: 1,
 			follows: [second]
 		});
+	});
+
+	it('keeps follows of profiles it keeps, apart from project follows, and not of your own', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:mara'] });
+		await ingest(hv, 'did:plc:mara', COLLECTION.profile, 'self', profileRecord('Mara'));
+		const mara = `at://did:plc:mara/${COLLECTION.profile}/self`;
+		await publishShow(hv, 'did:plc:mara', project, { name: 'Tonight' });
+
+		const fan = await publishFollow(hv, 'did:plc:fan', mara);
+		await publishFollow(hv, 'did:plc:mara', mara);
+		await publishFollow(hv, 'did:plc:fan', `at://did:plc:nobody/${COLLECTION.profile}/self`);
+		await publishFollow(hv, 'did:plc:fan', `at://did:plc:mara/${COLLECTION.profile}/other`);
+
+		expect(await query(hv, 'getFollowStatus', { subject: mara, actor: 'did:plc:fan' })).toEqual({
+			followers: 1,
+			follows: [fan]
+		});
+		expect(await query(hv, 'getFollowStatus', { subject: project, actor: 'did:plc:fan' })).toEqual({
+			followers: 0,
+			follows: []
+		});
+
+		const kept = async (actor: string) =>
+			(await query<Records>(hv, 'listRecords', { actor, collection: COLLECTION.follow })).records.map((row) => row.uri);
+
+		expect(await kept('did:plc:fan')).toEqual([fan]);
+		expect(await kept('did:plc:mara')).toEqual([]);
+
+		// Following Mara isn't following the project Mara plays in, so its shows stay out of the fan's.
+		expect(await query(hv, 'listShows', { follower: 'did:plc:fan' })).toEqual({ shows: [] });
 	});
 });
 

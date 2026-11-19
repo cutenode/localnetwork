@@ -60,6 +60,7 @@
           type="button"
           class="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-md text-fg-muted transition-colors hover:bg-well hover:text-fg"
           aria-label="clear the search"
+          title="clear the search"
           onclick={() => (filter.query = '')}
         >
           <X class="size-3" />

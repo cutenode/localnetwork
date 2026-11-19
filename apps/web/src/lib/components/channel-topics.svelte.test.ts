@@ -6,7 +6,7 @@ import ChannelTopics from './ChannelTopics.svelte';
 
 const on: ChannelView = { status: 'active', pausedReason: null, address: null, topics: ['bookings'] };
 
-it('lays topics against channels, each column saving to its own action', async () => {
+it('lays inbox sections against Email and Bluesky DM, each column saving to its own action', async () => {
 	await render(ChannelTopics, {
 		topics: ['bookings', 'events'],
 		channels: [
@@ -15,7 +15,6 @@ it('lays topics against channels, each column saving to its own action', async (
 		]
 	});
 
-	await expect.element(page.getByRole('checkbox', { name: 'Bookings on the site, always' })).toBeDisabled();
 	await expect.element(page.getByRole('checkbox', { name: 'Bookings by Email' })).toBeChecked();
 	await expect.element(page.getByRole('checkbox', { name: 'Events by Email' })).not.toBeChecked();
 	await expect.element(page.getByRole('checkbox', { name: 'Bookings by Bluesky DM' })).not.toBeChecked();
@@ -32,6 +31,24 @@ it('lays topics against channels, each column saving to its own action', async (
 		formOf('Events by Bluesky DM')?.getAttribute('action')
 	]).toEqual(['?/emailTopics', '?/dmTopics']);
 	expect(new FormData(formOf('Bookings by Email') ?? undefined).getAll('topic')).toEqual(['bookings']);
+});
+
+it('has a column each for Email and Bluesky DM, and none for the inbox', async () => {
+	await render(ChannelTopics, {
+		topics: ['bookings'],
+		channels: [
+			{ channel: 'email', view: on },
+			{ channel: 'dm', view: null }
+		]
+	});
+
+	const headers = page
+		.getByRole('columnheader')
+		.elements()
+		.map((header) => header.textContent.replace(/\s+/g, ' ').trim());
+
+	expect(headers).toEqual(['Inbox section', 'Email On', 'Bluesky DM Off']);
+	expect(page.getByRole('checkbox').elements()).toHaveLength(2);
 });
 
 it("can't tick a channel that's off", async () => {

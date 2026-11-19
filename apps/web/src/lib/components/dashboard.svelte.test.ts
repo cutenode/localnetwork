@@ -98,6 +98,7 @@ describe('RequestList', () => {
 		repoDid: 'did:plc:pat',
 		projectUri: null,
 		project: null,
+		venue: null,
 		record: { kind: 'claim', createdAt: '2026-10-01T00:00:00Z' },
 		createdAt: '2026-10-01T00:00:00Z',
 		updatedAt: '2026-10-01T00:00:00Z',
@@ -160,13 +161,13 @@ describe('RequestList', () => {
 		await render(RequestList, { loading: true });
 
 		await expect.element(page.getByRole('list')).toHaveAttribute('aria-busy', 'true');
-		await expect.element(page.getByText('No requests yet')).not.toBeInTheDocument();
+		await expect.element(page.getByText('No review requests yet')).not.toBeInTheDocument();
 	});
 
 	it('says when there are none', async () => {
 		await render(RequestList, { requests: [] });
 
-		await expect.element(page.getByText('No requests yet')).toBeInTheDocument();
+		await expect.element(page.getByText('No review requests yet')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'List a project' }))
 			.toHaveAttribute('href', '/dashboard/projects/new');
@@ -193,7 +194,7 @@ describe('OnboardingChecklist', () => {
 
 	const steps = collect({
 		'./steps/follow.ts': {
-			default: { order: 1, title: 'Follow a DJ', gets: 'Shows.', href: '/projects', done: () => false }
+			default: { order: 1, title: 'Follow a DJ', gets: 'Shows.', href: '/djs', done: () => false }
 		},
 		'./steps/mixes.ts': {
 			default: { order: 2, title: 'Add a mix', gets: 'Plays.', href: '/mixes', flag: 'parityCanary', done: () => false }

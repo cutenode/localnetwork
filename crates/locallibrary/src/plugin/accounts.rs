@@ -47,6 +47,7 @@ pub(super) mod ensure;
 mod kept;
 pub(super) mod keys;
 pub(super) mod ready;
+pub(super) mod restore;
 pub(super) mod shared;
 pub(super) mod token;
 mod whoami;

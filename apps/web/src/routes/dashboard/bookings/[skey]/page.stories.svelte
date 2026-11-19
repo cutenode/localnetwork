@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+	import type { BookingEventView, BookingShowLinks, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+	import { phone, tablet } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** A booking: the conversation, with the terms and the status moves beside it, or above it on smaller screens. */
@@ -17,7 +18,7 @@
 
 	const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 
-	const neonTide = { uri: 'at://did:plc:root/computer.localnetwork.project/2', slug: 'neon-tide', name: 'Neon Tide' };
+	const neonTide = { uri: 'at://did:plc:root/computer.localnetwork.project/2', slug: 'neon-tide', name: 'Neon Tide', href: '/projects/neon-tide' };
 
 	const thread = (status: string, lastAuthor = PAT, showDate: string | null = day(8)): BookingThreadView => ({
 		space: 'at://did:plc:root/computer.localnetwork.space.booking/3k1',
@@ -55,6 +56,8 @@
 
 	const confirmed = [...talk, moved(NEON, 'confirmed')];
 
+	const unlinked: BookingShowLinks = { plannerShow: null, announcedShow: null };
+
 	const data = (did: string, status: string, list = talk, overrides = {}) => ({
 		viewer: viewer(did),
 		pendingRequests: 0,
@@ -67,14 +70,11 @@
 		thread: thread(status),
 		project: neonTide,
 		events: list,
+		links: unlinked,
 		...overrides
 	});
 
 	const params = { skey: '3k1' };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
-
-	const tablet = { viewport: { value: 'tablet', isRotated: false } };
 
 	const pressButton =
 		(name: string) =>
@@ -82,6 +82,21 @@
 			[...canvasElement.querySelectorAll('button')].find((button) => button.textContent.trim() === name)?.click();
 
 	const answer = pressButton('Decline');
+
+	/** Started from the promoter's planner show and announced by the act's manager. */
+	const linked: BookingShowLinks = { plannerShow: '3kplanned', announcedShow: { did: NEON, rkey: '3kshow' } };
+
+	const MARA = 'did:plc:mara';
+
+	/** A thread with a DJ Find DJs lists, who answers for themself. */
+	const withDj = (status: string, lastAuthor = PAT) => ({
+		thread: { ...thread(status, lastAuthor), participants: [{ did: PAT, handle: 'pat.test', role: 'promoter' as const }, { did: MARA, handle: 'mara.test', role: 'performer' as const }] },
+		project: { uri: `at://${MARA}/computer.localnetwork.profile/self`, slug: null, name: 'Mara', href: '/@mara.test' }
+	});
+
+	const mara = { author: { did: MARA, handle: 'mara.test' } };
+
+	const confirmedByDj = [talk[0], event(MARA, 'message', 'Yes, I can do 2 hours from midnight.', mara), moved(PAT, 'confirmed')];
 </script>
 
 <Story name="Your turn" asChild>
@@ -123,6 +138,34 @@
 
 <Story name="Confirmed on a phone" asChild globals={phone}>
 	<Page {params} form={null} data={data(NEON, 'confirmed', confirmed)} />
+</Story>
+
+<!-- The thread links to the planner show it started from, for the promoter only, and to the show announced from it. -->
+<Story name="From a planner show and announced" asChild>
+	<Page {params} form={null} data={data(PAT, 'confirmed', confirmed, { links: linked })} />
+</Story>
+
+<Story name="From a planner show and announced on a phone" asChild globals={phone}>
+	<Page {params} form={null} data={data(PAT, 'confirmed', confirmed, { links: linked })} />
+</Story>
+
+<!-- Once it's announced, the manager edits that show and can't announce another. -->
+<Story name="Announced, for the manager" asChild>
+	<Page {params} form={null} data={data(NEON, 'confirmed', confirmed, { links: { ...linked, plannerShow: null } })} />
+</Story>
+
+<Story name="Announced, for the manager on a phone" asChild globals={phone}>
+	<Page {params} form={null} data={data(NEON, 'confirmed', confirmed, { links: { ...linked, plannerShow: null } })} />
+</Story>
+
+<!-- A listed DJ answers an inquiry to them the way an act's manager does. -->
+<Story name="New inquiry to a listed DJ" asChild>
+	<Page {params} form={null} data={data(MARA, 'open', talk.slice(0, 1), withDj('open'))} />
+</Story>
+
+<!-- Shows belong to projects, so a DJ's own confirmed booking has no announce step. -->
+<Story name="Confirmed with a listed DJ" asChild>
+	<Page {params} form={null} data={data(MARA, 'confirmed', confirmedByDj, withDj('confirmed'))} />
 </Story>
 
 <Story name="Date passed" asChild>

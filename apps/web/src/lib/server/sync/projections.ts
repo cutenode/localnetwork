@@ -22,7 +22,11 @@ const SHARED_SPACE_COLLECTIONS = new Set<string>([
 	COLLECTION.inviteLink,
 	COLLECTION.joinRequest,
 	COLLECTION.listingStatus,
-	COLLECTION.performer
+	COLLECTION.performer,
+	COLLECTION.venue,
+	COLLECTION.venueApproval,
+	COLLECTION.event,
+	COLLECTION.party
 ]);
 
 /**
@@ -221,6 +225,10 @@ export function createProjections(deps: {
 			case COLLECTION.joinRequest:
 			case COLLECTION.listingStatus:
 			case COLLECTION.performer:
+			case COLLECTION.venue:
+			case COLLECTION.venueApproval:
+			case COLLECTION.event:
+			case COLLECTION.party:
 				if (!governs) return;
 				await sharedSpaces.index({ ...change, value });
 				await listings.refresh(change.space);

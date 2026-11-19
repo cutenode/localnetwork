@@ -99,7 +99,7 @@ fn check(app: &mut App, what: &str, needles: &[&str], wide: &[&str]) {
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), h as usize);
         if !overlay(app) {
-            assert!(lines[0].contains("◉") && lines[0].contains("u Publish"), "{what} {w}x{h}: header\n{s}");
+            assert!(lines[0].contains("◉") && lines[0].contains("n localnetwork"), "{what} {w}x{h}: header\n{s}");
             assert!(!lines[h as usize - 1].trim().is_empty(), "{what} {w}x{h}: footer\n{s}");
         }
         let missing: Vec<&&str> =
@@ -131,7 +131,7 @@ fn library() {
     key(&mut app, KeyCode::Char('a'));
     key(&mut app, KeyCode::Char('i'));
     key(&mut app, KeyCode::Char('t'));
-    check(&mut app, "the library's side panels", &["Crate", "Track"], &["Loopmasters", "mixes into", "Playlists"]);
+    check(&mut app, "the library's side panels", &["Queue", "Track"], &["Loopmasters", "mixes into", "Playlists"]);
     app.focus = Focus::Playlists;
     app.toast = None;
     check(&mut app, "the playlist tree", &["Playlists", "▸ Browse", "enter open"], &[]);
@@ -229,10 +229,10 @@ fn snapshots() {
 #[test]
 fn profile() {
     let Fixture { _dir, mut app, .. } = fixture();
-    press(&mut app, "gu");
+    press(&mut app, "gn");
     assert_eq!(app.view, View::Profile);
-    let first = locallibrary::profile::Section::ALL[0].title();
-    check(&mut app, "the profile", &[first, "i in/out of document"], &[]);
+    let first = super::profile::SECTIONS[0].title();
+    check(&mut app, "the profile", &[first, "2 tracks", "i in/out of document"], &[]);
 }
 
 #[test]
@@ -254,7 +254,7 @@ fn help_and_messages() {
     key(&mut app, KeyCode::Char('?'));
     assert!(app.help);
     // The library's own keys first, then those for everywhere.
-    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter runs it"], &["MARKS AND THE CRATE"]);
+    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter runs it"], &["MARKS AND THE QUEUE"]);
     key(&mut app, KeyCode::Esc);
     app.toast("added 2 to the crate", super::app::Level::Info);
     // (Said just now, however long the screens below take to draw.)

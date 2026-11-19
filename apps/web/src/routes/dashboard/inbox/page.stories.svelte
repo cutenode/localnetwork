@@ -2,13 +2,12 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { accountLayout } from '#lib/testing/account.ts';
 	import { inboxRows } from '#lib/testing/inbox.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { PageProps } from './$types';
 	import Page from './+page.svelte';
 
 	/** The inbox: a row per booking or other subject, saying what happened since it was last read. */
 	const { Story } = defineMeta({ title: 'Patterns/Inbox' });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const loading = new Promise<never>(() => {});
 

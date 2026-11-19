@@ -9,7 +9,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use indexmap::IndexMap;
 use locallibrary::keychain::Storage;
-use locallibrary::plugin::{Account, AccountSignedIn};
+use locallibrary::plugin::{Account, AccountSignedIn, Restoring};
 
 use super::accounts::{Service, back, come_back_to, form, has, opened_at, service};
 use super::net::{Got, Reply, Server};
@@ -101,6 +101,44 @@ fn mock(expires_in: u64) -> Mock {
     mock_at(expires_in, "/userinfo", "")
 }
 
+/// How an account stops being signed in, which takes every plugin's access to it either way.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Losing {
+    /// Signed out of here.
+    SignOut,
+    /// Its session ends: its token expired, and the service won't refresh it any more.
+    SessionEnds,
+}
+
+impl Losing {
+    pub(super) const BOTH: [Losing; 2] = [Losing::SignOut, Losing::SessionEnds];
+}
+
+impl Mock {
+    /// Loses the account `subject` as `how` says. Its session ending gives one the service handed
+    /// no refresh token one first, which the service refuses all the same.
+    pub(super) fn lose(&self, subject: &str, how: Losing) {
+        if how == Losing::SignOut {
+            self.f.plugins.sign_out_account(WITH, subject, &self.f.store).unwrap();
+            return;
+        }
+        self.edit("accounts.json", |book| {
+            let kept = book["accounts"].as_array_mut().unwrap().iter_mut().find(|k| k["subject"] == subject);
+            kept.unwrap()["expires_at"] = json!(chrono::Utc::now());
+        });
+        self.edit("secrets/accounts.json", |secrets| {
+            let key = format!("account:{WITH}:{subject}");
+            let mut tokens: Value = serde_json::from_str(secrets[&key].as_str().unwrap()).unwrap();
+            tokens.as_object_mut().unwrap().entry("refresh_token").or_insert(json!("rt-0"));
+            secrets[&key] = json!(tokens.to_string());
+        });
+        let refused = self.state.lock().unwrap().refuses.replace(("invalid_grant".into(), "spent".into()));
+        let e = self.token(subject).unwrap_err();
+        self.state.lock().unwrap().refuses = refused;
+        assert_eq!(e.reason(), Some(locallibrary::error::Reason::SessionEnded), "{e}");
+    }
+}
+
 /// Whom the service says signed in, by subject (a string or an integer) and email.
 pub(super) fn who(subject: Value, email: Option<&str>) -> Value {
     match email {
@@ -129,8 +167,22 @@ impl Mock {
         again: Option<&str>,
         scopes: &[&str],
     ) -> (locallibrary::Result<AccountSignedIn>, IndexMap<String, String>) {
+        self.sign_in_restoring(plugin, who, again, scopes, None)
+    }
+
+    /// [`Mock::sign_in_for`], doing with the access plugins had to the account before it was lost
+    /// as `restoring` says.
+    pub(super) fn sign_in_restoring(
+        &self,
+        plugin: Option<&str>,
+        who: Value,
+        again: Option<&str>,
+        scopes: &[&str],
+        restoring: Option<Restoring>,
+    ) -> (locallibrary::Result<AccountSignedIn>, IndexMap<String, String>) {
         let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
-        let start = self.f.plugins.begin_account_sign_in("mock", WITH, plugin, again, &scopes, &self.f.store);
+        let (plugins, store) = (&self.f.plugins, &self.f.store);
+        let start = plugins.begin_account_sign_in("mock", WITH, plugin, again, &scopes, restoring, store);
         let start = match start {
             Ok(start) => start,
             Err(e) => return (Err(e), IndexMap::new()),
@@ -203,25 +255,27 @@ enum Step {
     /// Signing in again as the first, the browser signing in as the second.
     Again(usize, usize),
     SignOut(usize),
+    /// Its session ending: its token expired, and the service won't refresh it.
+    SessionEnds(usize),
     Refresh(usize),
 }
 
 /// For any order of signing in as one person or another (by a string or an integer subject), in
-/// again as an account kept or one signed out that the plugin it's for still has access to (the
-/// browser maybe signing in as another), out, and refreshing: the store keeps exactly the
-/// accounts signed in since they were last signed out, once each, in the order they were first
-/// signed in then, each changed in place; the browser is asked to sign in as the account signed in
-/// again, or to another when the account plugin has signed in any; signing in again as another
-/// says so and gives the plugin it was for no access to it; and no token gets into
-/// `accounts.json`, an error, a listing or a log.
+/// again as an account kept or one signed out that the plugin it's for had access to (the
+/// browser maybe signing in as another), out, its session ending, and refreshing: the store keeps
+/// exactly the accounts signed in since they were last signed out or their session ended, once
+/// each, in the order they were first signed in then, each changed in place; the browser is asked
+/// to sign in as the account signed in again, or to another when the account plugin has signed in
+/// any; signing in again as another says so and gives the plugin it was for no access to it; and
+/// no token gets into `accounts.json`, an error, a listing or a log.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
     let m = mock(30);
     let people = 0..WHO.len();
-    let each = people.clone().flat_map(|p| [Step::SignIn(p), Step::SignOut(p), Step::Refresh(p)]);
+    let each = people.clone().flat_map(|p| [Step::SignIn(p), Step::SignOut(p), Step::SessionEnds(p), Step::Refresh(p)]);
     let again = people.clone().flat_map(|of| people.clone().map(move |p| Step::Again(of, p)));
     let steps = tc.draw(gs::vecs(gs::sampled_from(each.chain(again).collect::<Vec<_>>())).max_size(6));
-    // The accounts kept: subject to name; and those echo has access to, which outlast signing out.
+    // The accounts kept: subject to name; and those echo had access to, remembered once signed out.
     let mut kept: IndexMap<String, String> = IndexMap::new();
     let mut accessed: Vec<String> = Vec::new();
     let mut answers = Vec::new();
@@ -271,6 +325,13 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
                         let e = m.f.plugins.sign_out_account(WITH, &subject, &m.f.store).unwrap_err();
                         assert_eq!(e.code(), "not_found", "step {i}");
                     }
+                }
+            }
+            Step::SessionEnds(p) => {
+                let subject = person(p).0;
+                match kept.shift_remove(&subject) {
+                    Some(_) => m.lose(&subject, Losing::SessionEnds),
+                    None => assert_eq!(m.token(&subject).unwrap_err().code(), "not_found", "step {i}"),
                 }
             }
             Step::Refresh(p) => {
@@ -394,7 +455,8 @@ fn a_service_that_doesnt_say_what_it_granted_granted_what_was_asked() {
     let (done, opened) = m.sign_in(who(json!("a"), None), Some("a"), &["write"]);
     assert_eq!(opened["scope"], "openid read write");
     assert_eq!(done.unwrap().account.scopes, ["openid", "read", "write"]);
-    let e = m.f.plugins.begin_account_sign_in("mock", WITH, None, None, &["nope".into()], &m.f.store).unwrap_err();
+    let e =
+        m.f.plugins.begin_account_sign_in("mock", WITH, None, None, &["nope".into()], None, &m.f.store).unwrap_err();
     assert_eq!(e.to_string(), "not found: the mock account type's scope \"nope\"");
 }
 
@@ -825,7 +887,7 @@ impl Mock {
         let (plugins, store) = (&self.f.plugins, &self.f.store);
         let a = super::accesses::account("a");
         let begun = (u == Use::SignIn).then(|| {
-            let start = plugins.begin_account_sign_in("mock", WITH, Some("echo"), Some("a"), &[], store).unwrap();
+            let start = plugins.begin_account_sign_in("mock", WITH, Some("echo"), Some("a"), &[], None, store).unwrap();
             let query = opened_at(&start.url);
             let mut s = self.state.lock().unwrap();
             (s.challenge, s.signing_in_as) = (query["code_challenge"].clone(), who(json!("a"), None));
@@ -833,7 +895,7 @@ impl Mock {
         });
         damage.to(store.root());
         let begin = |again: Option<&str>| {
-            let start = plugins.begin_account_sign_in("mock", WITH, None, again, &[], store);
+            let start = plugins.begin_account_sign_in("mock", WITH, None, again, &[], None, store);
             start.map(|s| assert!(plugins.cancel_sign_in(&s.id), "not waiting"))
         };
         let done = match u {
@@ -963,7 +1025,7 @@ fn prop_what_isnt_there_is_said_not_to_be(tc: TestCase) {
     let (plugins, store) = (&m.f.plugins, &m.f.store);
     let begin = |kind: &str, with: &str, plugin: Option<&str>, scopes: &[&str]| {
         let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
-        plugins.begin_account_sign_in(kind, with, plugin, None, &scopes, store).unwrap_err()
+        plugins.begin_account_sign_in(kind, with, plugin, None, &scopes, None, store).unwrap_err()
     };
     let said = [
         (begin("mock", "nope", None, &[]), "not_found"),

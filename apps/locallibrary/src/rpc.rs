@@ -37,7 +37,7 @@
 //!   `no_space`, `cancelled`, ...).
 //! * `initialize` returns the protocol version, the sidecar's version, its capabilities and its
 //!   methods; `version` the last two. `rpc.describe` (`{"method": ...}` for one) describes them:
-//!   kind, paired plan or apply, aliases, and the schemas of their parameters and results.
+//!   kind, paired plan or apply, and the schemas of their parameters and results.
 //! * `events.subscribe` (`{"kinds": [...]}`, default every kind) sends `event` notifications,
 //!   `{"method":"event","params":{"event":"drive.attached", ...}}`, for drives attached, detached
 //!   and changed and the store changing (polled cheaply, see [`locallibrary::watch`]), and for
@@ -213,8 +213,9 @@ impl Plans {
 /// `operation`, for `method`: the plan's own (the host's `plugins.*`, too), but a plugin's
 /// operation (`<plugin>.<operation>`) is `plugins.op`'s, its export (`<plugin>.export.<format>`)
 /// `plugins.export`'s, its import (`<plugin>.import.<format>`) `plugins.import`'s, a drive built
-/// from its library source (`<plugin>.source.<source>`) `plugins.source`'s and its set published
-/// (`<plugin>.publish.<destination>`) `plugins.publish`'s.
+/// from its library source (`<plugin>.source.<source>`) `plugins.source`'s, its set published
+/// (`<plugin>.publish.<destination>`) `plugins.publish`'s and its command planned first
+/// (`<plugin>.command.<name>`) `plugins.command`'s.
 fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
     if !method.starts_with(PLUGINS) {
         return operation;
@@ -225,6 +226,7 @@ fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
         [_, "import", _] => "plugins.import",
         [_, "source", _] => "plugins.source",
         [_, "publish", _] => "plugins.publish",
+        [_, "command", _] => "plugins.command",
         _ => "plugins.op",
     }
 }
@@ -941,6 +943,12 @@ impl Server {
 
 /// What the methods about plugins are named with: their plans are kept apart (see [`Plans`]).
 const PLUGINS: &str = "plugins.";
+
+/// Whether the sidecar answers `name`: the hints' tests check the methods errors name with it.
+#[cfg(test)]
+pub(crate) fn answers(name: &str) -> bool {
+    registry().get(name).is_some()
+}
 
 /// The namespaces of the sidecar's methods: `drive` for `drive.info`.
 pub fn namespaces() -> Vec<&'static str> {

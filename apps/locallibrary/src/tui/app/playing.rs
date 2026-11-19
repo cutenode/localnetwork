@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use locallibrary::anlz::Cue;
-use locallibrary::anlz::{PhraseKind, TrackAnalysis, TrackWaves};
+use locallibrary::anlz::{PhraseKind, SongStructure, TrackAnalysis, TrackWaves};
 use locallibrary::{Library, Track};
 use loclib_waveform::{Art, Wave};
 
@@ -67,12 +67,13 @@ pub struct PhraseSpan {
     pub bars: u16,
 }
 
-/// Phrases with times: a phrase's beats are 1-based indexes into the grid; one that runs past the
-/// grid ends with the track. One that doesn't end after it starts isn't drawn (the reader drops
-/// those, but made-up data can hold them).
+/// Phrases with times: a phrase's beats are 1-based indexes into the grid, or into it at half
+/// tempo ([`SongStructure::beat_scale`]); one that runs past the grid ends with the track. One that
+/// doesn't end after it starts isn't drawn (the reader drops those, but made-up data can hold them).
 pub(super) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<PhraseSpan> {
     let Some(st) = &analysis.structure else { return Vec::new() };
-    let at = |beat: u16| analysis.beats.get(beat as usize - 1).map(|b| b.time_ms as f64);
+    let scale = st.beat_scale(analysis.beats.len());
+    let at = |beat: u16| analysis.beats.get(SongStructure::grid_index(beat, scale)).map(|b| b.time_ms as f64);
     let end_of_track = duration.as_secs_f64() * 1000.0;
     st.phrases
         .iter()
@@ -82,7 +83,7 @@ pub(super) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<
                 kind: p.kind,
                 start_ms: at(p.start_beat)?,
                 end_ms: at(p.end_beat).unwrap_or(end_of_track),
-                bars: (p.end_beat - p.start_beat).div_ceil(4),
+                bars: SongStructure::bars(p, scale),
             })
         })
         .collect()
@@ -174,11 +175,14 @@ impl NowPlaying {
     }
 }
 
-/// What plays next: tracks of one library, by index, so queueing a list of thousands copies
-/// none of them.
+/// The list `enter` was pressed in, which plays on after the picks in the crate ("next from"):
+/// tracks of one library, by index, so queueing a list of thousands copies none of them.
+/// Shuffle and repeat are its own; the crate's picks play in their order.
 #[derive(Default)]
 pub struct Queue {
     pub library: Arc<Library>,
+    /// What the list is called (`House › Deep`), for the queue panel.
+    pub name: String,
     /// The tracks, as indexes into `library`, in the order of the list they came from.
     pub items: Vec<usize>,
     pub root: PathBuf,
@@ -204,11 +208,21 @@ impl Queue {
     }
 }
 
+/// What plays after the playing track: the first pick in the crate still to play, else the list's
+/// next.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Next {
+    /// The crate's entry for this file on the drive at this root.
+    Pick(PathBuf, String),
+    /// The list's track at `pos` in its play order, which is `item` of its tracks.
+    From { pos: usize, item: usize },
+}
+
 /// The track after the playing one, opened ahead so the player goes straight on to it.
 pub(super) struct Upcoming {
     pub(super) now: NowPlaying,
-    /// Its place in the queue's play order.
-    pub(super) pos: usize,
+    /// Which it is.
+    pub(super) next: Next,
     /// Queued behind the playing track (else it's opening, or wouldn't open).
     pub(super) queued: bool,
     /// Opened, but not to be queued (another sample rate): started as the playing one ends.

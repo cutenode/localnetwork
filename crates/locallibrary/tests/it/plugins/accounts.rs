@@ -64,7 +64,7 @@ pub(super) fn has(form: &IndexMap<String, String>, key: &str, value: &str) -> bo
 impl Mock {
     /// Starts a sign-in to a mock account, for no plugin.
     fn begin(&self) -> AccountSignIn {
-        self.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &self.f.store).unwrap()
+        self.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], None, &self.f.store).unwrap()
     }
 
     /// The service will check the code challenge `start` sent the browser with, and say `who`
@@ -207,7 +207,7 @@ fn an_account_type_is_only_reached_at_a_public_https_address_outside_tests() {
     let manifest = |server: &str| account_plugin(server, &format!("{server}/userinfo"), "");
     let outside = Options { secrets: Storage::File, ..Options::default() };
     let m = mock_with(3600, manifest, &asking(&["read"], &[]), outside);
-    let begin = |kind: &str| m.f.plugins.begin_account_sign_in(kind, WITH, None, None, &[], &m.f.store);
+    let begin = |kind: &str| m.f.plugins.begin_account_sign_in(kind, WITH, None, None, &[], None, &m.f.store);
     let e = begin("mock").unwrap_err().to_string();
     assert!(e.starts_with("the Mock accounts plugin failed: its Mock account's sign-in page can't be opened: "), "{e}");
     assert!(e.ends_with("isn't an https address"), "{e}");
@@ -584,7 +584,8 @@ fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
         vec![manifest, keys_plugin(server, "keyed-accounts", "keyed")]
     };
     let m = mock_among(3600, manifests, &asking(&["read"], &[]), options());
-    let keyed = m.f.plugins.begin_account_sign_in("keyed", "keyed-accounts", None, None, &[], &m.f.store).unwrap();
+    let keyed =
+        m.f.plugins.begin_account_sign_in("keyed", "keyed-accounts", None, None, &[], None, &m.f.store).unwrap();
     let waiting = m.begin();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
     assert_eq!((back(&waiting), opened_at(&waiting.url)["redirect_uri"].as_str()), (&*redirect_uri, &*redirect_uri));
@@ -594,7 +595,7 @@ fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
     assert!(m.f.plugins.cancel_sign_in(&keyed.id), "the sign-in waiting for keys gave way");
 
     let _held = TcpListener::bind(("127.0.0.1", port)).unwrap();
-    let e = m.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &m.f.store).unwrap_err().to_string();
+    let e = m.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], None, &m.f.store).unwrap_err().to_string();
     assert!(e.starts_with(&format!("can't listen for the browser on 127.0.0.1:{port}: ")), "{e}");
 }
 
@@ -606,7 +607,7 @@ fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
 fn prop_a_browser_coming_back_without_a_code_signs_nobody_in(tc: TestCase) {
     let plugin = tc.draw(gs::sampled_from(vec![None, Some("echo")]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
-    let begin = || m.f.plugins.begin_account_sign_in("mock", WITH, plugin, None, &[], &m.f.store).unwrap();
+    let begin = || m.f.plugins.begin_account_sign_in("mock", WITH, plugin, None, &[], None, &m.f.store).unwrap();
     let finish = |start: &AccountSignIn, wait: u64| {
         let done = m.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(wait), &Ctx::silent());
         done.unwrap_err().to_string()
@@ -644,7 +645,7 @@ fn prop_a_pasted_address_signs_in_only_when_its_this_sign_ins(tc: TestCase) {
     let manifest = |server: &str| account_plugin(server, &format!("{server}/userinfo"), "");
     let outside =
         mock_with(3600, manifest, &asking(&["read"], &[]), Options { secrets: Storage::File, ..Options::default() });
-    let e = outside.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &outside.f.store).unwrap_err();
+    let e = outside.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], None, &outside.f.store).unwrap_err();
     assert!(e.to_string().ends_with("isn't an https address"), "{e}");
 }
 

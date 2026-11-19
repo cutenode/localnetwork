@@ -2,25 +2,14 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { collect, type OnboardingData, STEPS } from '#lib/onboarding/checklist.ts';
 	import { flagsOff } from '#lib/testing/flags.ts';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import OnboardingChecklist from './OnboardingChecklist.svelte';
 
 	const { Story } = defineMeta({
 		title: 'Patterns/Onboarding checklist',
 		component: OnboardingChecklist,
-		tags: ['autodocs'],
-		parameters: {
-			viewport: {
-				options: {
-					phone: { name: 'Phone (390)', styles: { width: '390px', height: '844px' }, type: 'mobile' },
-					wide: { name: 'Wide (1280)', styles: { width: '1280px', height: '800px' }, type: 'desktop' }
-				}
-			}
-		}
+		tags: ['autodocs']
 	});
-
-	const phone = { viewport: { value: 'phone', isRotated: false } };
-
-	const wide = { viewport: { value: 'wide', isRotated: false } };
 
 	const fresh: OnboardingData = { profile: null, prefill: { name: 'Pat', hasAvatar: true }, listing: false, follows: false };
 
@@ -60,17 +49,17 @@
 	];
 </script>
 
-<Story name="New account" args={{ data: fresh, flags: undefined }} globals={wide} />
+<Story name="New account" args={{ data: fresh, flags: undefined }} globals={desktop} />
 
 <Story name="New account on a phone" args={{ data: fresh, flags: undefined }} globals={phone} />
 
-<Story name="Partly done" args={{ data: partly, flags: undefined }} globals={wide} />
+<Story name="Partly done" args={{ data: partly, flags: undefined }} globals={desktop} />
 
 <Story name="Partly done on a phone" args={{ data: partly, flags: undefined }} globals={phone} />
 
-<Story name="With a new feature's step" args={{ data: partly, flags: { ...flagsOff, parityCanary: true }, steps: withFeature }} globals={wide} />
+<Story name="With a new feature's step" args={{ data: partly, flags: { ...flagsOff, parityCanary: true }, steps: withFeature }} globals={desktop} />
 
 <Story name="With a new feature's step on a phone" args={{ data: partly, flags: { ...flagsOff, parityCanary: true }, steps: withFeature }} globals={phone} />
 
 <!-- Every step done: the checklist is gone. -->
-<Story name="All done" args={{ data: finished, flags: undefined }} globals={wide} />
+<Story name="All done" args={{ data: finished, flags: undefined }} globals={desktop} />

@@ -6,17 +6,20 @@ import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { DjService } from '#lib/server/services/dj.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { callRoute, routeEvent } from '#lib/testing/route-event.ts';
+import type { Viewer } from '#lib/types.ts';
 import type { PageServerData } from './$types';
-import { load } from './+page.server.ts';
+import { actions, load } from './+page.server.ts';
 
 const MARA = 'did:plc:mara';
 
 const OSKAR = 'did:plc:oskar';
 
+const FAN = 'did:plc:fan';
+
 let t: Awaited<ReturnType<typeof createTestServices>>;
 
 beforeEach(async () => {
-	t = await createTestServices();
+	t = await createTestServices({ capable: [FAN, MARA] });
 
 	// Mara has a profile here; Oskar has only his account.
 	await t.net.client(MARA).putRecord({
@@ -124,6 +127,39 @@ it('shows an account without a profile by its handle, without structured data', 
 	expect(locals).toMatchObject({ crawlerHead: expect.not.stringContaining('application/ld+json') });
 });
 
+it('offers an inquiry to a listed DJ only once they turn on Take inquiries', async () => {
+	const listing = {
+		uri: `at://did:plc:root/computer.localnetwork.listing.profile/${MARA}`,
+		cid: 'bafy',
+		createdAt: '2026-10-30T00:00:00.000Z'
+	};
+
+	const listed = { ...app(), djListings: { get: async () => listing } };
+
+	const profile = async (takesInquiries?: boolean) => {
+		await t.net.client(MARA).putRecord({
+			collection: COLLECTION.profile,
+			rkey: 'self',
+			record: {
+				$type: COLLECTION.profile,
+				basics: { name: 'Mara Lind' },
+				performer: {},
+				...(takesInquiries !== undefined && { takesInquiries }),
+				createdAt: '2026-10-30T00:00:00.000Z',
+				updatedAt: '2026-10-30T00:00:00.000Z'
+			}
+		});
+
+		return routeEvent({ app: listed, params: { handle: 'mara.test' }, url: '/@mara.test' }).loadData<PageServerData>(
+			load
+		);
+	};
+
+	expect(await profile()).toMatchObject({ bookable: false });
+	expect(await profile(false)).toMatchObject({ bookable: false });
+	expect(await profile(true)).toMatchObject({ bookable: true });
+});
+
 it('streams what the tabs show, except to a link that opens a tab, which gets it with the page', async () => {
 	const loadAt = (url: string) =>
 		routeEvent({ app: app(), params: { handle: 'mara.test' }, url }).loadData<PageServerData>(load);
@@ -154,4 +190,87 @@ it('is a 404 for an address that names no account, and a 429 once a visitor has 
 	await expect(
 		callRoute(load, { app: limited, params: { handle: 'mara.test' }, url: '/@mara.test' })
 	).rejects.toMatchObject({ status: 429 });
+});
+
+/** The action `name` on `handle`'s page, as `viewer` posts it. */
+const post = (name: keyof typeof actions, viewer: Viewer | null, handle = 'mara.test') =>
+	callRoute(actions[name], { app: app(), viewer, params: { handle }, url: `/@${handle}?/${name}`, form: {} });
+
+it("streams a profile's followers, and offers no Follow to its own account or to an account without a profile", async () => {
+	const loadAs = async (viewer: Viewer | null, handle = 'mara.test') =>
+		routeEvent({ app: app(), viewer, params: { handle }, url: `/@${handle}` }).loadData<PageServerData>(load);
+
+	expect(await (await loadAs(null)).follow).toEqual({ followers: 0, following: false });
+	expect((await loadAs(await t.viewer(MARA))).follow).toBeUndefined();
+	expect((await loadAs(null, 'oskar.test')).follow).toBeUndefined();
+});
+
+it('follows a person, and unfollows them again', async () => {
+	const fan = await t.viewer(FAN);
+	const mara = await t.profiles.get(MARA);
+
+	expect(await post('follow', fan)).toEqual({ followed: true });
+	expect(await t.follows.state(mara!, FAN)).toEqual({ followers: 1, following: true });
+	expect(await post('unfollow', fan)).toEqual({ followed: false });
+	expect(await t.follows.state(mara!, FAN)).toEqual({ followers: 0, following: false });
+});
+
+it('sends someone signed out to sign in before following, and is a 404 for an account without a profile', async () => {
+	for (const name of ['follow', 'unfollow'] as const) {
+		await expect(post(name, null)).rejects.toMatchObject({
+			status: 303,
+			location: `/login?next=${encodeURIComponent(`/@mara.test?/${name}`)}`
+		});
+		await expect(post(name, await t.viewer(FAN), 'oskar.test')).rejects.toMatchObject({ status: 404 });
+	}
+});
+
+it('refuses to let someone follow themselves', async () => {
+	expect(await post('follow', await t.viewer(MARA))).toMatchObject({
+		status: 400,
+		data: { error: "You can't follow yourself" }
+	});
+});
+
+/** Turns on Mara's DJ section, which makes her page one a promoter can save. */
+async function maraDjs() {
+	await t.net.client(MARA).putRecord({
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: {
+			$type: COLLECTION.profile,
+			basics: { name: 'Mara Lind', location: { city: 'Leipzig', country: 'DE' } },
+			performer: { genres: ['electro'] },
+			createdAt: '2026-10-30T00:00:00.000Z',
+			updatedAt: '2026-10-31T00:00:00.000Z'
+		}
+	});
+}
+
+it("offers Save on a DJ's page, but not on someone who doesn't DJ or on the DJ's own page", async () => {
+	const loadAs = async (viewer: Viewer | null) =>
+		(
+			await routeEvent({
+				app: app(),
+				viewer,
+				params: { handle: 'mara.test' },
+				url: '/@mara.test'
+			}).loadData<PageServerData>(load)
+		).saved;
+
+	expect(await loadAs(await t.viewer(FAN))).toBeNull();
+	await maraDjs();
+	expect(await loadAs(await t.viewer(FAN))).toBe(false);
+	expect(await loadAs(await t.viewer(MARA))).toBeNull();
+});
+
+it('saves a DJ to the planner, and removes them again', async () => {
+	await maraDjs();
+	const fan = await t.viewer(FAN);
+	const saved = async () => (await t.planner.saves(fan)).map((save) => save.project);
+
+	expect(await post('save', fan)).toEqual({ success: 'Saved to your planner' });
+	expect(await saved()).toEqual([`at://${MARA}/${COLLECTION.profile}/self`]);
+	expect(await post('unsave', fan)).toEqual({ success: 'Removed from your planner' });
+	expect(await saved()).toEqual([]);
 });

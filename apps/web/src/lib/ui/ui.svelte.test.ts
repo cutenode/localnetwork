@@ -30,8 +30,8 @@ describe('Button', () => {
 	});
 
 	it('is a link with an href', async () => {
-		await render(Button, { href: '/projects', variant: 'secondary', size: 'lg', children: text('Find DJs') });
-		await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+		await render(Button, { href: '/djs', variant: 'secondary', size: 'lg', children: text('Find DJs') });
+		await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/djs');
 	});
 
 	it('can be disabled', async () => {
@@ -57,7 +57,7 @@ describe('Tag', () => {
 	});
 
 	it('links with an href and is plain text otherwise', async () => {
-		await render(Tag, { href: '/projects?genres=disco', children: text('disco') });
+		await render(Tag, { href: '/djs?genres=disco', children: text('disco') });
 		await expect.element(page.getByRole('link', { name: 'disco' })).toBeInTheDocument();
 		await render(Tag, { variant: 'mono', children: text('radio') });
 		await expect.element(page.getByText('radio')).toBeInTheDocument();
@@ -232,12 +232,12 @@ describe('Waveform', () => {
 
 describe('SiteHeader', () => {
 	const links = [
-		{ href: '/projects', label: 'Find DJs', also: ['/match'] },
+		{ href: '/djs', label: 'Find DJs', also: ['/match'] },
 		{ href: '/shows', label: 'Shows' }
 	];
 
 	const signedOut = [
-		{ href: '/for-djs', label: 'For DJs' },
+		{ href: '/for/djs', label: 'For DJs' },
 		{ href: '/login', label: 'Sign in' }
 	];
 
@@ -264,7 +264,7 @@ describe('SiteHeader', () => {
 		const menu = page.getByRole('navigation', { name: 'Menu' });
 
 		await expect.element(menu.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
-		await expect.element(menu.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
+		await expect.element(menu.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for/djs');
 		await expect.element(menu.getByRole('link', { name: 'Shows' })).toHaveAttribute('aria-current', 'page');
 		await userEvent.keyboard('{Escape}');
 		await expect.element(menu).not.toBeInTheDocument();
@@ -291,7 +291,7 @@ describe('SiteHeader', () => {
 		await expect.element(nav.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('aria-current', 'page');
 		await expect.element(nav.getByRole('link', { name: 'Shows' })).not.toHaveAttribute('aria-current');
 
-		await rerender({ current: '/for-djs' });
+		await rerender({ current: '/for/djs' });
 		await expect.element(page.getByRole('link', { name: 'For DJs' })).toHaveAttribute('aria-current', 'page');
 		await expect.element(nav.getByRole('link', { name: 'Find DJs' })).not.toHaveAttribute('aria-current');
 	});

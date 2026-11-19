@@ -37,7 +37,7 @@ it('orders a group by night: soonest first, then no date, then gone by', () => {
 	expect(titles(bookingsByTurn(threads, 'neon', NOW))).toEqual({ reply: ['Soon', 'Later', 'Undated', 'Gone'] });
 });
 
-it('sends a confirmed booking to Closed once its night passed, and keeps Closed newest first', () => {
+it('settles a confirmed booking once its night passed, and keeps Settled newest first', () => {
 	const threads = [
 		thread('Newest', 'declined', '2026-01-01'),
 		thread('Played', 'confirmed', '2026-08-01'),
@@ -46,7 +46,7 @@ it('sends a confirmed booking to Closed once its night passed, and keeps Closed 
 
 	expect(titles(bookingsByTurn(threads, 'neon', NOW))).toEqual({
 		confirmed: ['Ahead'],
-		closed: ['Newest', 'Played']
+		settled: ['Newest', 'Played']
 	});
 });
 
@@ -71,8 +71,25 @@ it('marks only what the group leaves unsaid', () => {
 	expect(mark('negotiating', 'active')).toBe('negotiating');
 	expect(mark('confirmed', 'confirmed')).toBeNull();
 	expect(mark('negotiating', 'reply', '2026-08-01')).toBe('date_passed');
-	expect(mark('declined', 'closed')).toBe('declined');
-	expect(mark('cancelled', 'closed')).toBe('cancelled');
-	expect(mark('cancelled', 'closed', null, true)).toBe('withdrawn');
-	expect(mark('confirmed', 'closed', '2026-08-01')).toBe('date_passed');
+	expect(mark('declined', 'settled')).toBe('declined');
+	expect(mark('cancelled', 'settled')).toBe('cancelled');
+	expect(mark('cancelled', 'settled', null, true)).toBe('withdrawn');
+	expect(mark('confirmed', 'settled', '2026-08-01')).toBe('date_passed');
+});
+
+it('puts a listed DJ in the turn order and marks their new inquiries as an act manager would', () => {
+	const withDj = {
+		status: 'open',
+		showDate: null,
+		lastAuthor: 'pat',
+		participants: [
+			{ did: 'pat', role: 'promoter' },
+			{ did: 'mara', role: 'performer' }
+		]
+	};
+
+	expect(bookingGroup(withDj, 'mara')).toBe('reply');
+	expect(bookingGroup(withDj, 'pat')).toBe('active');
+	expect(bookingGroup({ ...withDj, lastAuthor: 'mara' }, 'pat')).toBe('reply');
+	expect(bookingMark({ ...withDj, withdrawn: false }, 'reply', 'performer', NOW)).toBe('new');
 });

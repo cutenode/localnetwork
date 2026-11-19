@@ -38,7 +38,15 @@ export class TestNetwork {
 
 	static async create(
 		names: string[],
-		options: { admins?: string[]; oauth?: string[]; listingSources?: CreateAppOptions['listingSources'] } = {}
+		options: {
+			admins?: string[];
+			oauth?: string[];
+			listingSources?: CreateAppOptions['listingSources'];
+			/** FLAG_OVERRIDES for the app, like `spacePages=on`. */
+			flags?: string;
+			/** Where the PDS reaches the app's own routes. Given, the app registers there for its spaces' updates. */
+			notifyEndpoint?: string;
+		} = {}
 	): Promise<TestNetwork> {
 		const plc = await TestPlc.create({});
 		const pds = await TestPds.create({ didPlcUrl: plc.url, inviteRequired: false });
@@ -87,11 +95,12 @@ export class TestNetwork {
 			HAPPYVIEW_URL: happyView.url,
 			HAPPYVIEW_API_KEY: happyView.apiKey,
 			ADMIN_DIDS: (options.admins ?? []).map((name) => users.get(name)!.did).join(','),
-			SYNC_NOTIFY: 'false',
+			SYNC_NOTIFY: String(options.notifyEndpoint !== undefined),
 			GEOCODER: 'none',
 			ACTOR_SEARCH: 'none',
 			AUDIT_MAX_ATTEMPTS: '3',
-			USERINPUT_SPACE: userinputSpace.uri
+			USERINPUT_SPACE: userinputSpace.uri,
+			FLAG_OVERRIDES: options.flags ?? ''
 		});
 
 		const app = await createApp({
@@ -99,7 +108,8 @@ export class TestNetwork {
 			logger: silentLogger,
 			userClient: async (did) => [...users.values()].find((user) => user.did === did)?.client ?? null,
 			background: false,
-			listingSources: options.listingSources
+			listingSources: options.listingSources,
+			notifyEndpoint: options.notifyEndpoint
 		});
 
 		const net = new TestNetwork(plc, pds, happyView, root.data.did, users, app);
@@ -249,7 +259,7 @@ async function authorizationScreen(
 		return JSON.parse(response);
 	};
 
-	await api('/sign-in', { locale: 'en', username: user.handle, password, remember: true });
+	await api('/sign-in', { locale: 'en', identifier: user.handle, password, remember: true });
 
 	return api;
 }

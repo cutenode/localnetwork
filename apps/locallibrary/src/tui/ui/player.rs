@@ -81,6 +81,32 @@ pub(super) fn pad_chips(app: &App, now: &NowPlaying, pos_ms: f64, quiet: bool) -
     spans
 }
 
+/// The artist, and the year after it where it's known.
+pub(super) fn artist_line(now: &NowPlaying) -> Line<'static> {
+    let t = &now.track;
+    let mut spans = vec![Span::styled(t.artist.clone(), bold(theme::current().accent))];
+    if t.year > 0 {
+        spans.push(Span::styled(format!("  {}", t.year), dim()));
+    }
+    Line::from(spans)
+}
+
+/// The release a track's from (album, remix, label) and the mood rekordbox heard in it, if there's
+/// any of that.
+pub(super) fn about_line(now: &NowPlaying) -> Option<Line<'static>> {
+    let t = &now.track;
+    let about: Vec<String> =
+        [&t.album, &t.remixer, &t.mix_name, &t.label].into_iter().filter(|s| !s.is_empty()).cloned().collect();
+    let mut spans = vec![Span::styled(about.join(" · "), dim())];
+    if let Some(st) = &now.analysis.structure {
+        let gap = if about.is_empty() { "" } else { "  " };
+        spans.push(Span::styled(format!("{gap}{:?} mood", st.mood).to_lowercase(), faint()));
+    }
+    (spans.iter().map(Span::width).sum::<usize>() > 0).then(|| Line::from(spans))
+}
+
+/// The playing track's names and what's known of it, set on the foot of `area`: in the deck's head, over
+/// its readout.
 pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let Some(now) = &app.now else {
         let mut lines = vec![Line::raw(""), Line::styled("Nothing playing", bold(theme::current().text))];
@@ -102,33 +128,11 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let t = &now.track;
     let mut lines = vec![
         Line::styled(if t.title.is_empty() { "Untitled".into() } else { t.title.clone() }, bold(theme::current().text)),
-        Line::styled(t.artist.clone(), bold(theme::current().accent)),
+        artist_line(now),
     ];
-    let mut about: Vec<String> =
-        [&t.album, &t.remixer, &t.mix_name].into_iter().filter(|s| !s.is_empty()).cloned().collect();
-    if !t.label.is_empty() {
-        about.push(t.label.clone());
-    }
-    if t.year > 0 {
-        about.push(t.year.to_string());
-    }
-    lines.push(Line::styled(about.join(" · "), dim()));
-
+    lines.extend(about_line(now));
+    // Playing or not, the phrase and the loop are the readout's, under these.
     let pos_ms = app.position().as_secs_f64() * 1000.0;
-    let mut chips = beat_spans(now, pos_ms);
-    // A loop playing before the phrase, which the strip under the overview shows too.
-    if let Some(c) = loop_chip(app) {
-        chips.extend([Span::raw("  "), c]);
-    }
-    if let Some((_, p, bar)) = now.phrase_at(pos_ms) {
-        chips.push(Span::raw("  "));
-        chips.push(chip(p.kind.name().to_uppercase(), theme::current().phrase(p.kind)));
-        chips.push(Span::styled(format!(" {bar}/{}", p.bars), dim()));
-        if let Some(st) = &now.analysis.structure {
-            chips.push(Span::styled(format!("  {:?} mood", st.mood).to_lowercase(), faint()));
-        }
-    }
-    lines.push(Line::from(chips));
 
     // What a plugin's analyzer worked out, drawn for what the drive lacks.
     if let Some(from) = &now.from_plugins {
@@ -146,11 +150,9 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     }
     // The file, the drive, the tags and the counts are the info panel's (`i`): while playing, the
     // deck keeps to what's counted and cued.
-    // A gap after the track's names, if it costs nothing else a line.
-    if lines.len() < area.height as usize {
-        lines.insert(3, Line::raw(""));
-    }
     let lines: Vec<Line> = lines.into_iter().take(area.height as usize).collect();
+    let n = lines.len() as u16;
+    let area = Rect { y: area.bottom() - n, height: n, ..area };
     f.render_widget(Paragraph::new(lines), area);
 }
 
@@ -175,9 +177,10 @@ pub(super) fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "nothing in a compatible key and tempo"
     };
-    // The queue's next track, marked when it's one of the matches.
-    let q = &app.queue;
-    let next = q.order.get(q.pos + 1).map(|&i| q.track(i).file_path.as_str());
+    // What plays next (a pick, else the list's next), marked when it's one of the matches.
+    let next = app.next_up(true);
+    let next = next.as_ref().and_then(|n| app.track_of(n)).map(|(t, _)| t.file_path.clone());
+    let next = next.as_deref();
     app.areas.matches = draw_matches(f, mixes, now.matches.as_ref(), next, why, &mut app.next_pick, true);
 
     if lists > 0 {

@@ -25,6 +25,54 @@ fn phrases_are_placed_with_the_beat_grid() {
     assert_eq!((spans[1].start_ms, spans[1].end_ms, spans[1].bars), (16_000.0, 40_000.0, 16));
 }
 
+/// rekordbox phrased some fast tracks at half tempo: these phrases (a 180 BPM track's, as its
+/// analysis has them) end at beat 242 of 488. Placed at half tempo they run to the end of the track
+/// rather than halfway, with bars twice as long.
+#[test]
+fn phrases_counted_at_half_tempo_run_the_whole_track() {
+    let beats: Vec<Beat> = (0..488u32)
+        .map(|i| Beat { beat_number: (i % 4 + 1) as u16, bpm: 180.0, time_ms: 138 + i * 1000 / 3 })
+        .collect();
+    let last = f64::from(beats[487].time_ms);
+    let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+    let analysis = TrackAnalysis {
+        beats,
+        structure: Some(SongStructure {
+            mood: Mood::High,
+            phrases: vec![
+                phrase(PhraseKind::Intro, 2, 17),
+                phrase(PhraseKind::Chorus, 17, 53),
+                phrase(PhraseKind::Chorus, 53, 117),
+                phrase(PhraseKind::Down, 117, 149),
+                phrase(PhraseKind::Down, 149, 177),
+                phrase(PhraseKind::Outro, 177, 242),
+            ],
+        }),
+        ..Default::default()
+    };
+    let spans = phrase_spans(&analysis, Duration::from_secs(162));
+    let outro = spans.last().unwrap();
+    assert!(outro.end_ms > 0.98 * last, "the outro ends at {} of {last}", outro.end_ms);
+    assert_eq!(spans[2].bars, 32);
+    assert!(spans.windows(2).all(|w| w[0].end_ms == w[1].start_ms));
+}
+
+/// Phrases out of order (a plugin's can be) are placed on their own beats: the latest end, not the
+/// last phrase's, says whether they count the grid at half tempo. The deck's property found these
+/// on a two-beat grid, where the one that can't be drawn coming last put the other off the grid.
+#[test]
+fn phrases_out_of_order_are_placed_on_their_beats() {
+    let phrase = |start_beat, end_beat| Phrase { kind: PhraseKind::Intro, start_beat, end_beat, fill_beat: None };
+    let analysis = TrackAnalysis {
+        beats: grid(0, 90.0, 2),
+        structure: Some(SongStructure { mood: Mood::Mid, phrases: vec![phrase(2, 3), phrase(0, 2)] }),
+        ..Default::default()
+    };
+    let spans = phrase_spans(&analysis, Duration::from_secs(10));
+    assert_eq!(spans.len(), 1);
+    assert_eq!((spans[0].start_ms, spans[0].bars), (f64::from(analysis.beats[1].time_ms), 1));
+}
+
 fn titles(app: &App) -> Vec<String> {
     let l = app.loaded.as_ref().unwrap();
     app.visible.iter().map(|&i| l.library.tracks[i].title.clone()).collect()
@@ -277,13 +325,13 @@ fn quitting_waits_for_a_write_to_finish() {
     };
     // Planning only reads the drive: quitting stops it.
     app.job = Some(job(false));
-    press(&mut app, "q");
+    press(&mut app, "Q");
     assert!(app.quit && app.job.is_none());
 
-    // Writing: q, ctrl-c and a signal all wait for the write.
+    // Writing: Q, ctrl-c and a signal all wait for the write.
     app.quit = false;
     app.job = Some(job(true));
-    press(&mut app, "q");
+    press(&mut app, "Q");
     app.on_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
     app.request_quit();
     assert!(!app.quit && app.quit_after_write);
@@ -292,7 +340,7 @@ fn quitting_waits_for_a_write_to_finish() {
     assert!(!app.quit_after_write && app.job.is_some(), "esc stays, and the write goes on");
 
     // The write ends while waiting at exit (the screen gone, say): then it quits.
-    press(&mut app, "q");
+    press(&mut app, "Q");
     let tx = app.sender();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(50));
@@ -631,7 +679,7 @@ fn packs_the_crate_onto_another_drive() {
 
     app.perform(Act::Pack, None);
     let Some(Modal::Pick(p)) = &app.modal else { panic!("no choice") };
-    let at = p.items.iter().position(|i| i.label.starts_with("the crate's 2 tracks")).expect("the crate");
+    let at = p.items.iter().position(|i| i.label.starts_with("the queue's 2 tracks")).expect("the crate");
     let Some(Modal::Pick(p)) = &mut app.modal else { panic!() };
     p.state.select(Some(at));
     press(&mut app, "\n");
@@ -942,6 +990,25 @@ fn exports_a_set() {
     assert!(!m3u8.contains("elsewhere"), "{m3u8}");
 }
 
+/// Regression: a failed sign-in's error stayed on screen after leaving the Publish view, over
+/// every other view until esc. Leaving a view puts its errors away (they're still in the log);
+/// showing the same view again, or an info message, doesn't.
+#[test]
+fn leaving_a_view_puts_its_errors_away() {
+    let (mut app, _dir) = app_with(library());
+    app.set_view(View::Profile);
+    app.toast("signing in: it broke", Level::Error);
+    app.toast("older error held", Level::Error);
+    app.set_view(View::Profile);
+    assert!(app.toast.is_some() && app.held.is_some(), "the same view again keeps them");
+    app.set_view(View::Library);
+    assert!(app.toast.is_none() && app.held.is_none());
+    assert!(app.log.iter().any(|(m, ..)| m == "signing in: it broke"), "still in the log");
+    app.toast("loaded", Level::Info);
+    app.set_view(View::Drives);
+    assert!(app.toast.is_some(), "an info message goes in its own time");
+}
+
 #[test]
 fn errors_stay_until_esc_and_every_message_is_kept() {
     let (mut app, _dir) = app_with(library());
@@ -1002,6 +1069,7 @@ fn remembers_the_crate_queue_view_and_modes() {
         drive: "TEST".into(),
         order: vec![2, 0, 1, 3],
         pos: 1,
+        name: String::new(),
     };
     app.resume = Some(Duration::from_secs(95));
     app.save_state();
@@ -1291,7 +1359,7 @@ fn plays_the_queue_without_gaps() {
     wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
     // Under 30 seconds from the end: the next one's opened, and queued.
     wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.queued && !u.now.loading));
-    assert_eq!(app.upcoming.as_ref().unwrap().pos, 1);
+    assert!(matches!(app.upcoming.as_ref().unwrap().next, Next::From { pos: 1, .. }));
     let played: Vec<f32> = (&mut out).take(4400).collect();
     let level = |s: f32| (s * 32768.0).round();
     assert_eq!((level(played[0]), level(played[3999]), level(played[4000])), (1000.0, 1000.0, 2000.0), "no gap");
@@ -1311,9 +1379,11 @@ fn plays_the_queue_without_gaps() {
     // again, queued.
     press(&mut app, "r");
     assert!(app.upcoming.is_none());
-    wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.pos == 0 && u.file.is_some()));
+    wait(&mut app, |a| {
+        a.upcoming.as_ref().is_some_and(|u| u.next == Next::From { pos: 0, item: 0 } && u.file.is_some())
+    });
     press(&mut app, "r");
-    wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.pos == 2 && u.queued));
+    wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.next == Next::From { pos: 2, item: 2 } && u.queued));
     // Skipping starts the next track afresh.
     press(&mut app, "n");
     assert!(app.upcoming.is_none() && app.now.as_ref().is_some_and(|n| n.opening));
@@ -1368,8 +1438,13 @@ fn full_screen_queues_a_match_to_play_next() {
     press(&mut app, "j\n");
     assert_eq!(last_message(&app), "next: DJ - Track 2");
     press(&mut app, "k\n");
-    let order: Vec<&str> = app.queue.order.iter().map(|&i| app.queue.track(i).title.as_str()).collect();
-    assert_eq!(order, ["Track 1", "Track 3", "Track 2", "Track 2", "Track 3"]);
+    // Into the queue, the last picked to play next first; the list stays as it was.
+    let up: Vec<&str> = app.crate_list.up_next().map(|t| t.track.title.as_str()).collect();
+    assert_eq!(up, ["Track 3", "Track 2"]);
+    assert_eq!(app.queue.len(), 3);
+    // q a puts the pick at the end.
+    press(&mut app, "qa");
+    assert_eq!(last_message(&app), "already up next");
     let screen = super::super::ui::screen(&mut app, 200, 50);
     assert!(screen.contains("Track 3 next"), "{screen}");
     let hints = super::super::keymap::hints(&app, 200);
@@ -1454,7 +1529,7 @@ fn the_first_play_opens_the_output_without_holding_up_the_player() {
     wait(&mut app, |a| a.waiting_file.is_some());
     assert!(app.now.as_ref().is_some_and(|n| n.opening) && app.audio.is_none());
     press(&mut app, "  ");
-    press(&mut app, "Q");
+    press(&mut app, "Z");
     assert!(!app.deck.quantize, "keys go on");
     let_open(&GATE);
     output_opened(&mut app);
@@ -1882,7 +1957,7 @@ fn u_after_packing_undoes_on_the_drive_packed_onto() {
     press(&mut app, "Ma");
     app.perform(Act::Pack, None);
     let Some(Modal::Pick(p)) = &mut app.modal else { panic!("no choice") };
-    let at = p.items.iter().position(|i| i.label.starts_with("the crate's")).expect("the crate");
+    let at = p.items.iter().position(|i| i.label.starts_with("the queue's")).expect("the crate");
     p.state.select(Some(at));
     press(&mut app, "\n\n");
     press(&mut app, "\n");
@@ -2052,7 +2127,7 @@ fn right_click_opens_the_menu_and_its_items_are_clicked() {
     point(&mut app, MouseEventKind::Down(MouseButton::Right), "Never Grow Old");
     let Some(Modal::Menu(m)) = &app.modal else { panic!("no menu") };
     assert_eq!(m.target.tracks, ["/Contents/2.mp3"]);
-    point(&mut app, LEFT, "add to the crate");
+    point(&mut app, LEFT, "add to the queue");
     assert!(app.modal.is_none());
     assert_eq!(app.crate_list.items.iter().map(|t| t.track.title.as_str()).collect::<Vec<_>>(), ["Never Grow Old"]);
 
@@ -2260,6 +2335,7 @@ fn queued(app: &mut App, pos: usize) {
         drive: "TEST".into(),
         order: (0..4).collect(),
         pos,
+        name: String::new(),
     };
 }
 
@@ -2344,8 +2420,8 @@ fn c_jumps_from_cue_to_cue() {
     assert_eq!(app.pending_seek, Some(Duration::from_secs(64)));
 }
 
-/// Enter in the crate plays it from the entry selected, only the entries on that entry's
-/// drive (saying so); enter in the details panel plays the matches.
+/// Enter in the queue plays the entry selected now, the others staying to play, wherever their
+/// drive; enter in the details panel plays the matches.
 #[test]
 fn plays_the_crate_and_the_matches() {
     let (mut app, _dir) = app_with(library());
@@ -2357,10 +2433,13 @@ fn plays_the_crate_and_the_matches() {
     app.focus = Focus::Crate;
     app.crate_state.select(Some(2));
     press(&mut app, "\n");
-    let queued: Vec<&str> = (0..app.queue.len()).map(|i| app.queue.track(i).title.as_str()).collect();
-    assert_eq!((queued, app.queue.pos), (vec!["Tell You No Lie", "Around the World"], 1));
-    let said = format!("playing the crate's tracks on {}", app.queue.drive);
-    assert!(app.log.iter().any(|(m, ..)| *m == said), "{:?}", app.log);
+    assert_eq!(app.now.as_ref().map(|n| n.track.title.as_str()), Some("Around the World"));
+    assert!(app.queue.is_empty() && app.playing_queue(), "a pick, not a list");
+    let up: Vec<&str> = app.crate_list.up_next().map(|t| t.track.title.as_str()).collect();
+    assert_eq!(up, ["Not Here", "Tell You No Lie"]);
+    // The screen: what's playing, the picks with the next marked, the played one greyed.
+    let s = super::super::ui::screen(&mut app, 160, 40);
+    assert!(s.contains("now Around the World") && s.contains("Not Here next"), "{s}");
 
     app.focus = Focus::Tracks;
     press(&mut app, "ki");
@@ -2634,7 +2713,7 @@ fn del_in_the_tree_and_saving_an_empty_crate() {
     press(&mut app, "t");
     app.focus = Focus::Crate;
     press(&mut app, "w");
-    assert_eq!(last_message(&app), "the crate has nothing from this drive");
+    assert_eq!(last_message(&app), "the queue has nothing from this drive");
 }
 
 /// `p` goes back a track, and on the first restarts it; `n` past the last stops, with repeat
@@ -2733,7 +2812,7 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("store");
     let mut app = App::blank(store.clone(), None);
-    press(&mut app, "vv*#itQSA");
+    press(&mut app, "vv*#itZSA");
     app.volume = 0.35;
     app.deck.output = Some("Phones".into());
     app.search_all = true;
@@ -2753,9 +2832,13 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     assert_eq!(shown(&next), (Vis::Scope, true, true, true, true, true, 0.35));
     let deck = |a: &App| (a.deck.quantize, a.deck.single, a.deck.auto_cue, a.deck.output.clone());
     assert_eq!(deck(&next), (false, true, true, Some("Phones".into())));
-    for (title, view) in
-        [("History", View::Drives), ("Snapshots", View::Drives), ("Mixes", View::Mixes), ("Profile", View::Profile)]
-    {
+    for (title, view) in [
+        ("History", View::Drives),
+        ("Snapshots", View::Drives),
+        ("Mixes", View::Mixes),
+        ("Profile", View::Profile),
+        ("Publish", View::Profile),
+    ] {
         assert_eq!(View::from_title(title), Some(view), "what {title} is now");
     }
 }
@@ -2806,6 +2889,7 @@ fn the_last_runs_queue_waits_for_its_drive() {
         tracks: tracks.into_iter().map(String::from).collect(),
         pos: 0,
         at_ms: 30_000,
+        ..Default::default()
     };
     app.restore_queue = Some(saved(vec!["/Contents/gone.mp3"]));
     app.restore_queue(&root);
@@ -2845,9 +2929,9 @@ fn marking_and_the_crate_at_their_edges() {
     press(&mut app, "a");
     press(&mut app, "kmm");
     press(&mut app, "a");
-    assert_eq!(last_message(&app), "added 1 to the crate (1 already there)");
+    assert_eq!(last_message(&app), "queued 1 track (1 already up next)");
     press(&mut app, "a");
-    assert_eq!(last_message(&app), "already in the crate");
+    assert_eq!(last_message(&app), "already up next");
     // In the crate: keys move through it; one taken out leaves the one after it selected.
     press(&mut app, "t");
     app.focus = Focus::Crate;
@@ -2909,7 +2993,7 @@ fn clicks_in_the_crate_on_borders_and_on_dialogs() {
 fn tabs_from_every_view_and_enter_on_the_drive_list() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, "gr");
-    point(&mut app, LEFT, "u Publish");
+    point(&mut app, LEFT, "n localnetwork");
     assert_eq!(app.view, View::Profile);
     point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
@@ -3061,7 +3145,7 @@ fn the_mixes_view_moves_through_its_recordings() {
 fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const KEYS: &[&str] =
-        &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Q", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
+        &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Z", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
     let (mut app, _dir) = app_with(library());
     // A store off the drive: nothing is saved inside the drive that was open.
     let home = tempfile::tempdir().unwrap();
@@ -3089,9 +3173,9 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
 
 /// A track with any analysis (a beat grid, hot and memory cues and loops anywhere, phrases
 /// that may run past the grid, waveforms) plays on the deck: its phrases start on their
-/// beats and end after, a hot cue pad goes to just where the cue is (a loop's plays it), and
-/// the deck draws at any size in every visualiser, full screen or not, as its keys jump,
-/// loop and zoom about.
+/// beats (at half tempo where they count it so) and end after, a hot cue pad goes to just
+/// where the cue is (a loop's plays it), and the deck draws at any size in every visualiser,
+/// full screen or not, as its keys jump, loop and zoom about.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     use super::super::ui::screen;
@@ -3141,19 +3225,22 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
         now.waves.kinds.blue_detail = Some(wave(3_000));
         now.waves.kinds.rgb_preview = Some(wave(400));
     }
-    // Only those that start on the grid and end after they start are drawn.
+    // Only those that start on the grid (at half tempo where they count it so) and end after they
+    // start are drawn.
+    let scale = analysis.structure.as_ref().map_or(1, |s| s.beat_scale(n as usize));
+    let on_grid = |beat: u16| SongStructure::grid_index(beat, scale) < n as usize;
     let placed: Vec<&Phrase> = (analysis.structure.iter().flat_map(|s| &s.phrases))
-        .filter(|p| p.start_beat > 0 && (p.start_beat as usize) <= n as usize && p.end_beat > p.start_beat)
+        .filter(|p| p.start_beat > 0 && on_grid(p.start_beat) && p.end_beat > p.start_beat)
         .collect();
     assert_eq!(now.phrases.len(), placed.len(), "{:?}", analysis.structure);
     for (p, span) in placed.iter().zip(&now.phrases) {
-        assert_eq!(span.start_ms, analysis.beats[p.start_beat as usize - 1].time_ms as f64);
+        assert_eq!(span.start_ms, analysis.beats[SongStructure::grid_index(p.start_beat, scale)].time_ms as f64);
         assert!(span.start_ms < span.end_ms, "{p:?} at {} to {}", span.start_ms, span.end_ms);
     }
     now.opening = tc.draw(gs::booleans());
     let end = now.duration - Duration::from_millis(250);
     const KEYS: &[&str] = &[
-        "1", "2", "3", "4", "5", "6", "7", "8", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "l", "(", ")", "Q",
+        "1", "2", "3", "4", "5", "6", "7", "8", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "l", "(", ")", "Z",
         "v", "f", "[", "]", "'", "b", "w",
     ];
     press(&mut app, "'");
@@ -3342,7 +3429,7 @@ fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     let titles = View::ALL
         .map(View::title)
         .into_iter()
-        .chain(["History", "Snapshots", "Mixes", "Profile", "Nowhere"])
+        .chain(["History", "Snapshots", "Mixes", "Profile", "Publish", "Nowhere"])
         .collect::<Vec<_>>();
     let saved = tc.draw(gs::sampled_from(titles));
     let dir = tempfile::tempdir().unwrap();
@@ -3351,7 +3438,7 @@ fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     let want = match saved {
         "History" | "Snapshots" => View::Drives,
         "Mixes" => View::Mixes,
-        "Profile" => View::Profile,
+        "Profile" | "Publish" => View::Profile,
         "Nowhere" => View::Library,
         title => View::ALL.into_iter().find(|v| v.title() == title).unwrap(),
     };
@@ -3648,8 +3735,8 @@ fn prop_a_selection_past_the_list_plays_nothing(tc: hegel::TestCase) {
     assert!(app.now.is_none() && app.queue.order.is_empty());
 }
 
-/// Queueing a match from a read of the drive newer than the queue's: the same track, by its id,
-/// wherever the queue's copy has it. One the queue's copy doesn't have stays out.
+/// Queueing a match from a read of the drive newer than the list's: that very track goes in the
+/// queue, to play next, and the list it plays on with stays as it was.
 #[hegel::test(test_cases = 20)]
 fn prop_a_match_from_a_newer_read_queues_the_same_track(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -3668,12 +3755,9 @@ fn prop_a_match_from_a_newer_read_queues_the_same_track(tc: hegel::TestCase) {
     app.deck_layout = true;
     press(&mut app, "\n");
     let queued: Vec<u32> = app.queue.order.iter().map(|&i| app.queue.track(i).id).collect();
-    if id == 99 {
-        assert_eq!(queued, [1, 2, 3]);
-    } else {
-        assert_eq!(queued[1], id, "{queued:?}");
-        assert_eq!(queued.len(), 4);
-    }
+    assert_eq!(queued, [1, 2, 3]);
+    assert_eq!(app.crate_list.up_next().map(|t| t.track.id).collect::<Vec<_>>(), [id]);
+    assert_eq!(app.next_up(true).and_then(|n| Some(app.track_of(&n)?.0.id)), Some(id), "plays next");
 }
 
 /// Opening the output panics (a driver that falls over): said, and waited for no longer.
@@ -3763,4 +3847,108 @@ fn a_tracks_playlists_keep_their_names_whole() {
         loaded::playlists_of(&lib, &track),
         ["current set 2021 reduced › CLOSING (END) SMALL › 1.2 BEATDOWN/acid", "current set 2021 reduced › acid 1"]
     );
+}
+
+/// `q` waits for what follows, as `g` does: `q q` shows and hides the queue (from another view,
+/// in the library), `q n` and `q a` queue, anything else ends it; `q` never quits, `Q` does.
+#[test]
+fn q_and_a_letter_works_the_queue() {
+    let (mut app, _dir) = app_with(library());
+    press(&mut app, "q");
+    assert!(app.chord.is_some() && app.chord_queue && !app.quit);
+    app.chord = Some(Instant::now() - CHORD_HINT);
+    let s = super::super::ui::screen(&mut app, 120, 40);
+    for said in ["Queue", "q n", "play next", "q a", "q q", " QUEUE "] {
+        assert!(s.contains(said), "{said}: {s}");
+    }
+    press(&mut app, "q");
+    assert!(app.show_crate && app.chord.is_none());
+    press(&mut app, "qq");
+    assert!(!app.show_crate);
+    press(&mut app, "\n");
+    press(&mut app, "qx");
+    assert!(app.chord.is_none() && app.now.is_some(), "x after q stops nothing");
+    app.view = View::Drives;
+    press(&mut app, "qq");
+    assert_eq!((app.view, app.show_crate, app.focus), (View::Library, true, Focus::Crate));
+    press(&mut app, "Q");
+    assert!(app.quit);
+}
+
+/// Back from a pick goes to the pick played before it, and the one it was on plays next again.
+#[test]
+fn previous_from_a_pick_steps_back_through_the_picks() {
+    let (mut app, _dir) = app_with(library());
+    app.focus = Focus::Tracks;
+    press(&mut app, "\n");
+    press(&mut app, "jqajqa");
+    press(&mut app, "nn");
+    let title = |app: &App| app.now.as_ref().map(|n| n.track.title.clone()).unwrap_or_default();
+    assert_eq!(title(&app), "Tell You No Lie");
+    press(&mut app, "p");
+    assert_eq!(title(&app), "Never Grow Old");
+    let up: Vec<&str> = app.crate_list.up_next().map(|t| t.track.title.as_str()).collect();
+    assert_eq!(up, ["Tell You No Lie"]);
+    press(&mut app, "p");
+    assert_eq!(title(&app), "Around the World", "back to the list's track");
+    assert!(app.crate_list.playing.is_none());
+}
+
+/// Fill, when it's on: with nothing queued after the playing track, its best match that hasn't
+/// played goes on the end of the queue, marked, and plays. Off, the queue stops.
+#[test]
+fn fill_plays_on_with_the_best_match() {
+    let (mut app, _dir) = app_with(library());
+    // The list's last track plays (a copy of the first, the first's matches its own).
+    app.track_state.select(Some(app.visible.len() - 1));
+    press(&mut app, "\n");
+    let id = app.now.as_ref().unwrap().id;
+    let l = app.loaded.as_ref().unwrap();
+    let mix = |index| Mix { index, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
+    // Its best match has played: the next best goes on.
+    app.played_tracks.insert(l.library.tracks[3].file_path.clone());
+    let (library, root) = (l.library.clone(), l.root().to_path_buf());
+    let info =
+        TrackInfo { matches: Some(Matches { library, root, items: vec![mix(3), mix(2)] }), ..Default::default() };
+    app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
+    assert!(app.next_up(true).is_none());
+    app.perform(Act::Fill, None);
+    assert!(app.fill && last_message(&app).starts_with("fill on"));
+    app.advance(true);
+    let t = app.crate_list.items.last().expect("filled");
+    assert!(t.filled && t.played && t.track.title == "Tell You No Lie");
+    assert_eq!(app.now.as_ref().map(|n| n.track.title.as_str()), Some("Tell You No Lie"));
+    assert!(super::super::ui::screen(&mut app, 160, 40).contains("fill"));
+    // Off, nothing's added: it stops.
+    app.perform(Act::Fill, None);
+    app.advance(true);
+    assert!(app.now.is_none() && app.crate_list.len() == 1);
+    // Kept between runs.
+    app.fill = true;
+    assert!(app.saved_state().fill);
+}
+
+/// The queue the last run had comes back: its picks in order, which have played, the pick it was
+/// on (ready for space, from where it was) and the list it plays on with.
+#[test]
+fn the_picks_and_whats_played_come_back_next_run() {
+    let (mut app, _dir) = app_with(library());
+    let store = tempfile::tempdir().unwrap();
+    app.store_root = store.path().join("store");
+    press(&mut app, "\n");
+    press(&mut app, "jqajqajqa");
+    press(&mut app, "n");
+    app.resume = Some(Duration::from_secs(40));
+    app.stop();
+    app.resume = Some(Duration::from_secs(40));
+    app.save_state();
+    let mut next = App::blank(app.store_root.clone(), None);
+    next.apply_saved(&state::load(&app.store_root).expect("the saved state"), true);
+    let picks = |a: &App| a.crate_list.items.iter().map(|t| (t.track.title.clone(), t.played)).collect::<Vec<_>>();
+    assert_eq!(picks(&next), picks(&app));
+    assert_eq!(picks(&next)[0], ("Never Grow Old".to_string(), true));
+    let (t, at) = next.resumable().expect("ready to carry on");
+    assert_eq!((t.title.as_str(), at), ("Never Grow Old", Duration::from_secs(30)));
+    let saved = state::load(&app.store_root).expect("the saved state").queue.expect("the list");
+    assert_eq!(saved.name, "All tracks");
 }

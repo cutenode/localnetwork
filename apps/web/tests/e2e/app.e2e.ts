@@ -99,13 +99,13 @@ test.describe('public pages', () => {
 		}
 
 		await page.getByRole('link', { name: 'Find DJs' }).first().click();
-		await expect(page).toHaveURL(/\/projects$/);
+		await expect(page).toHaveURL(/\/djs$/);
 		await expect(page.getByRole('heading', { name: 'Find DJs' })).toBeVisible();
 		await expectAccessible(page);
 	});
 
 	test('directory filters by genre family and opens a profile', async ({ page }) => {
-		await page.goto('/projects?genres=house');
+		await page.goto('/djs?genres=house');
 		await expect(page.getByRole('link', { name: 'Halflight' })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Coyote Cumbia Club' })).toHaveCount(0);
 		await expectAccessible(page);
@@ -120,7 +120,7 @@ test.describe('public pages', () => {
 	});
 
 	test('directory filters opened before the page hydrates stay open', async ({ page }) => {
-		await beforeHydration(page, '/projects', async () => {
+		await beforeHydration(page, '/djs', async () => {
 			// A phone folds the whole panel away first.
 			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
 
@@ -135,7 +135,7 @@ test.describe('public pages', () => {
 		const chip = page.getByRole('group', { name: 'Fee tier' }).getByRole('checkbox').first();
 		const sort = page.getByLabel('Sort by');
 
-		await beforeHydration(page, '/projects', async () => {
+		await beforeHydration(page, '/djs', async () => {
 			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
 
 			if (await panel.isVisible()) await panel.click();
@@ -151,7 +151,7 @@ test.describe('public pages', () => {
 		await page.getByRole('button', { name: 'Apply' }).click();
 		await expect(page).toHaveURL(/[?&]q=techno(&|$)/);
 		await page.getByRole('link', { name: 'Clear filters' }).first().click();
-		await expect(page).toHaveURL(/\/projects$/);
+		await expect(page).toHaveURL(/\/djs$/);
 		await expect(search).toHaveValue('');
 		await expect(chip).not.toBeChecked();
 	});
@@ -353,10 +353,12 @@ test.describe('public pages', () => {
 		for (const path of [
 			'/',
 			'/about',
-			'/for-djs',
+			'/for',
+			'/for/djs',
+			'/for/promoters',
 			'/privacy',
 			'/match',
-			'/projects',
+			'/djs',
 			'/shows',
 			'/artists',
 			'/charts',
@@ -428,14 +430,14 @@ test.describe('public pages', () => {
 		}
 	});
 
-	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
+	test('serves OAuth client metadata and the DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
 		const { scope } = await metadata.json();
 		expect(scope).toContain('include:computer.localnetwork.permissions');
 		// Asked for only when someone first sends a bug report, but the PDS refuses any scope not listed here.
 		expect(scope).toContain('repo:app.userinput.discussion?action=create');
 		const did = await (await request.get('/.well-known/did.json')).json();
-		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
+		expect(did).toEqual({ '@context': ['https://www.w3.org/ns/did/v1'], id: 'did:web:localhost%3A5199' });
 	});
 });
 
@@ -517,6 +519,10 @@ test.describe('signed in', () => {
 		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/profile');
 		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
 		await expectAccessible(page);
+		// Inquiries stay off until the DJ turns them on.
+		await page.getByRole('checkbox', { name: 'Take inquiries' }).check();
+		await page.getByRole('button', { name: 'Save profile' }).click();
+		await expect(page.getByText('Saved. Your profile shows the changes now.')).toBeVisible();
 		await page.getByRole('button', { name: 'Ask to be listed' }).click();
 		await expect(page.getByText('Sent to staff. Nothing needed from you.')).toBeVisible();
 		await signOut(page);
@@ -531,13 +537,28 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
 
-		await page.goto('/projects?q=neon');
+		await page.goto('/djs?q=neon');
 		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
 		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toHaveCount(0);
 		await expectAccessible(page);
+		await signOut(page);
+
+		// A promoter finds them in Find DJs and sends them an inquiry from their profile.
+		await signIn(page, 'pat.test', 'pat-pass', '/djs?q=neon');
+		await page.getByRole('link', { name: 'Neon', exact: true }).click();
+		await expect(page).toHaveURL('/@neon.test');
+		await page.getByRole('link', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Inquire with Neon', exact: true })).toBeVisible();
+		await expectAccessible(page);
+		await page.locator('#title').fill('Listed Night');
+		await page.locator('#message').fill('Would you play our listed night?');
+		await page.getByRole('button', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { name: 'Listed Night' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
+		await signOut(page);
 
 		// Staff's Manage link on the profile goes to the listing, which takes them out again for the next browser's run.
-		await page.goto('/@neon.test');
+		await signIn(page, 'ada.test', 'ada-pass', '/@neon.test');
 		await hydrated(page);
 		await page.getByRole('link', { name: 'Manage' }).click();
 		await expect(page.getByText(/Listed in Find DJs since/)).toBeVisible();
@@ -545,7 +566,7 @@ test.describe('signed in', () => {
 		page.once('dialog', (dialog) => dialog.accept());
 		await page.getByRole('button', { name: 'Take out of Find DJs' }).click();
 		await expect(page.getByText('Taken out of Find DJs')).toBeVisible();
-		await page.goto('/projects?q=neon');
+		await page.goto('/djs?q=neon');
 		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toBeVisible();
 	});
 
@@ -708,7 +729,6 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: 'Ask for access' }).click();
 		await expect(page).toHaveURL(`/dashboard/access/neon-tide/${rkey}`);
 		await expectAccessible(page);
-		await page.getByLabel("You're a").selectOption('press');
 		await page.getByLabel(/Message/).fill('Writing about Berlin residents');
 		await page.getByRole('button', { name: 'Ask for access' }).click();
 		await expect(page.getByText(/You asked on/)).toBeVisible();
@@ -758,6 +778,29 @@ test.describe('signed in', () => {
 		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
 	});
 
+	test('a fan follows a person from their profile, apart from the projects they play in', async ({ page }) => {
+		await page.goto('/@neon.test');
+		await expect(page.getByRole('link', { name: /^Follow \d/ })).toHaveAttribute(
+			'href',
+			'/login?next=%2F%40neon.test%23follow'
+		);
+
+		await signIn(page, 'milo.test', 'milo-pass', '/@neon.test');
+		await page.getByRole('button', { name: /^Follow \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Following \d/ })).toHaveAttribute('aria-pressed', 'true');
+		await expectAccessible(page);
+
+		// Following neon.test isn't following Saffron Social, which they manage.
+		await page.goto('/projects/saffron-social');
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+
+		// Each browser runs against the same network, so the fan unfollows again.
+		await page.goto('/@neon.test');
+		await hydrated(page);
+		await page.getByRole('button', { name: /^Following \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+	});
+
 	test('a DJ announces a show, cancels it, and deletes it', async ({ page }, testInfo) => {
 		const name = `Basement rave (${testInfo.project.name})`;
 		const date = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
@@ -797,6 +840,26 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Delete show' }).click();
 		await expect(page.getByRole('heading', { name: 'Upcoming shows' })).toBeVisible();
 		await expect(listed).toHaveCount(0);
+	});
+
+	test('a promoter finds a DJ with no project in Find DJs, and saves them to their planner', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass', '/djs?q=kestrel');
+		await page.getByRole('link', { name: 'Kestrel', exact: true }).click();
+		await expect(page).toHaveURL(/\/@kestrel\.test$/);
+		await hydrated(page);
+		await page.getByRole('button', { name: 'Save' }).click();
+		await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/dashboard/planner');
+		const saved = page.getByRole('region', { name: 'Saved DJs' });
+		await expect(saved.getByRole('link', { name: 'Kestrel', exact: true })).toHaveAttribute('href', '/@kestrel.test');
+		await expectAccessible(page);
+
+		// Each browser runs against the same network, so the save comes off again.
+		await hydrated(page);
+		await saved.getByRole('button', { name: 'Remove' }).click();
+		await expect(saved.getByRole('link', { name: 'Kestrel', exact: true })).toBeHidden();
 	});
 
 	test('a promoter sends a booking inquiry', async ({ page }) => {

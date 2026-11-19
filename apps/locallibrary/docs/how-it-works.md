@@ -18,8 +18,15 @@ crates/loclib-model/        the library model (tracks, playlists, the difference
 crates/loclib-equipment/    what each player, all-in-one system and mixer reads (databases, file systems, audio
                             formats, sample rates, bit depths), with the manual each value comes from;
                             equipment.json is the table for other languages
+crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct patterns written across a whole
+                            disk, highest first, read back from the device, and how much really keeps data
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
+crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
+                            exportLibrary.db and master.db are decrypted and written
+crates/loclib-anlz/         rekordbox's analysis files (ANLZ0000.DAT, .EXT, .2EX): path rewriting, beat grid,
+                            cues (read and write), waveforms, phrases, decoded into loclib-model's analysis
+                            types; the writers keep every section they don't change byte for byte
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
@@ -48,6 +55,8 @@ plugins/accounts/           the account plugins: a manifest each and no crate, w
                             and never starts
   archive-account/          the `archive` account type, signed in to with the account's S3 keys; its scope
                             `upload`
+  discogs-account/          the `discogs` account type, signed in to with a personal access token; its scope
+                            `database`
   google-account/           the `google` account type, signed in to through Local Network's token exchange;
                             its scope `youtube-upload`
   mixcloud-account/         the `mixcloud` account type, through the token exchange; its scope `upload`
@@ -61,6 +70,9 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
                             removed by `clean` as one `delete_unbacked` edit
+plugins/discogs/            the discogs plugin: front covers and track details for tracks lacking them (or all,
+                            asked to), each album searched on Discogs with the user's Discogs account,
+                            offered as candidates locallibrary plans the edits of
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
@@ -70,6 +82,9 @@ plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track'
                             and artist IDs, looked up by its ISRC and kept where they fit the track
 plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
                             in parts as a track, its tracklist the description, the track's page its link
+plugins/rekordbox-backup/   the rekordbox-backup plugin: backups of rekordbox's library on this computer as
+                            rekordbox's Backup Library writes them, listed and checked, made every few
+                            days by its service; built on the SDK alone, as a third party's would be
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
@@ -119,8 +134,8 @@ crates/locallibrary/src/    the library, built on the crates above
   upgrade.rs   pointing lossy tracks at lossless files of their recording, found by sound, cues and
                grid moved by the offset between them
   plays.rs     history lists on drives and in the store, play statistics
-  sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
-               sessions and recordings, editing, exports, Beat Link Trigger logs
+  sets/        the DJ's sets (sets.json): histories and their windows, suggestions, building a set from
+               histories and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't;
@@ -128,12 +143,13 @@ crates/locallibrary/src/    the library, built on the crates above
                files) are cached by their contents
   fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, analyzer
                and the analyzer's version
-  plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
+  plugin/      the plugin host: starting the plugins (those locallibrary ships, and one a developer
+               gives for a run, held to a third party's rules) and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
-  sound/       tempo, key and loudness as the analyzers chosen for those roles kept them: doctor's
-               analysis section, how sure each key is for the set planner and the check's loudness
-               item; and `analysis bench` (bench.rs), which runs loclib-analysis itself
+  sound/       tempo, key and loudness from the analyzers chosen for those roles: doctor's analysis
+               section, how sure each key is for the set planner, the check's loudness item, and
+               `analysis bench` (bench.rs, scored with loclib-analysis's benchmark, without its DSP)
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
                store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and
@@ -151,14 +167,14 @@ crates/locallibrary/src/    the library, built on the crates above
   settings.rs  My Settings on drives and in rekordbox's folder (the files' codec is loclib-mysettings),
                and the settings profile
   artwork.rs   drive artwork rows/thumbnails, audio tag embedding
-  anlz.rs      analysis files (anlz/write.rs writes them): path rewriting, beat grid, cues (read and write),
-               waveforms, phrases, decoded into loclib-model's analysis types
+  anlz.rs      a track's analysis files on a drive, read through loclib-anlz (which it re-exports)
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
-  onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
+  onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
+               cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
-               writer, fake-capacity probe
+               writer, running the fake-capacity probe (loclib-capacity) first
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
   fleet.rs     every drive you own: registry views, roles, logbook, recognising and re-identifying drives
   scrub.rs     re-reading a drive against known-good copies, and repairing it
@@ -183,7 +199,8 @@ apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs;
                             and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
                             linked in from the table build.rs writes, each run as `locallibrary plugin serve
                             <id>`, and the manifest of every account plugin in plugins/accounts/, which nothing
-                            runs; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            runs, and those --dev-plugin gives for a run; plugin_cmd/: what they add to the
+                            command line, and `plugin check`), and the player (tui/:
                             ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)
@@ -297,7 +314,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   that has no recent result, with scratch data in `.locallibrary/` that's removed after, keeps the
   result there, and says it did. A drive that had no `.locallibrary/` loses it again if you say no.
   A dry run never does any of this (see [Speed](drives.md#speed) and
-  [the decision](adr/0002-a-plan-may-time-its-drive.md)).
+  [the decision](adr/0004-a-plan-may-time-its-drive.md)).
 - **No silent overwrites.** `library push` refuses to overwrite a drive holding a library state the
   store has never seen (pull it first, or `--force`), `sync` refuses when it can't tell which side
   is newer (without lineage, holding more tracks isn't enough on its own, and a side with fewer

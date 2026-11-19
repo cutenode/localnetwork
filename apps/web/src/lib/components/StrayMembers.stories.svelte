@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { StrayMember } from '#lib/types.ts';
 	import StrayMembers from './StrayMembers.svelte';
 
@@ -13,7 +14,7 @@
 
 <Story name="Removals still going through" args={{ strays }} />
 
-<Story name="Removals on a phone" args={{ strays }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Removals on a phone" args={{ strays }} globals={phone} />
 
 <Story name="Nobody left over" args={{ strays: [] }} />
 

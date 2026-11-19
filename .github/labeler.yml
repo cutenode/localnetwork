@@ -101,11 +101,27 @@ atstore:
           - "apps/web/src/lib/server/services/planner.*"
           - "lexicons/computer/localnetwork/planner/**"
 
+"web: events":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/{venue,party,events}/**"
+          - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
+          - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index,rsvps,calendar-event}.*"
+          - "apps/web/src/lib/server/{venue-blocks,events-list,party-page,event-page}.*"
+          - "apps/web/src/lib/server/forms/{party,event}.*"
+          - "apps/web/src/lib/components/{Venue,Party,Event,Rsvp}*"
+          - "lexicons/computer/localnetwork/{venue,party,event}.json"
+          - "lexicons/computer/localnetwork/venue/**"
+          - "lexicons/computer/localnetwork/space/{venue,party}.json"
+          - "lexicons/computer/localnetwork/directory/getRsvpStatus.json"
+          - "apps/web/lua/community/lexicon/calendar/rsvp.lua"
+          - "apps/web/lua/computer/localnetwork/directory/getRsvpStatus.lua"
+
 "web: staff":
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/admin/**"
-          - "apps/web/src/routes/dashboard/requests/**"
+          - "apps/web/src/routes/dashboard/account/requests/**"
           - "apps/web/src/lib/server/services/{staff,flags,project-admin,requests,diff}.*"
           - "apps/web/src/lib/server/flags/**"
           - "flags/**"
@@ -134,7 +150,7 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/hooks.server.ts"
           - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing}/**"
-          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,http,logger,rate-limit}.*"
+          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,edit-mode,http,logger,rate-limit}.*"
           - "apps/web/src/routes/{xrpc,.well-known,media,healthz}/**"
           - "apps/web/lua/**"
           - "apps/web/scripts/**"
@@ -146,7 +162,7 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/lib/{ui,components,assets}/**"
           - "apps/web/src/routes/{+layout.svelte,+error.svelte,layout.css}"
-          - "apps/web/src/routes/{about,for-djs,privacy}/**"
+          - "apps/web/src/routes/{about,for,privacy}/**"
           - "apps/web/src/{app.html,error.html,lib/format.ts,lib/format.test.ts,lib/hotkeys.svelte.ts}"
           - "apps/web/{.storybook,static}/**"
           - "packages/tokens/**"
@@ -174,7 +190,8 @@ atstore:
 "locallibrary: core":
   - changed-files:
       - any-glob-to-any-file:
-          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit}/**"
+          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-capacity,loclib-sqlcipher,loclib-anlz}/**"
+          - "plugins/rekordbox-backup/**"
           - "vendor/**"
           - "fuzz/**"
 
@@ -306,7 +323,8 @@ tooling:
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,.railway,.regal,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,.npmrc,lefthook.yml,sgconfig.yml,knip.jsonc,.node-version}"
-          - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace,osv-scanner}.toml"
+          - "{rust-toolchain,rustfmt,clippy,deny,about,dist-workspace,osv-scanner,release-plz}.toml"
+          - "about.hbs"
           - "{.oxlintrc.json,.oxfmtrc.json,tsconfig.json,commitlint.config.js,_typos.toml,taplo.toml,.lycheeignore,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
           - "apps/*/{package.json,tsconfig*.json,*.config.{ts,cjs},components.json,lighthouserc.cjs}"
           - "apps/*/.oxlintrc.json"

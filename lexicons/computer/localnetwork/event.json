@@ -1,0 +1,67 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.event",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A night a party puts on, identified by its key in the party's space: two events can share a name. Written only by the Local Network root account, into the party's space, for its people with events.manage or for staff.",
+			"record": {
+				"type": "object",
+				"required": ["name", "audience", "createdBy", "createdAt", "updatedAt"],
+				"properties": {
+					"name": { "type": "string", "minLength": 1, "maxLength": 1200, "maxGraphemes": 120 },
+					"description": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+					"startsAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "With the venue's UTC offset, so the venue's clock reads from it, or a draft's timeZone's while it has no venue. Only a draft can be without it."
+					},
+					"endsAt": { "type": "string", "format": "datetime", "description": "Like startsAt." },
+					"timeZone": {
+						"type": "string",
+						"maxLength": 64,
+						"description": "The IANA time zone, like Europe/Berlin, that a draft without a venue keeps its times on. Once there's a venue, its clock takes over and this goes."
+					},
+					"venue": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The venue's space. Only a draft can be without it."
+					},
+					"tickets": { "type": "string", "format": "uri", "maxLength": 2000 },
+					"status": { "type": "ref", "ref": "community.lexicon.calendar.event#status" },
+					"audience": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["public", "private"],
+						"description": "public: anyone sees it. private: only someone with its link, and it's never listed."
+					},
+					"linkToken": {
+						"type": "string",
+						"maxLength": 128,
+						"description": "What a private event's link carries, so only someone given the link opens it. A new one stops the old link working."
+					},
+					"publishedAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "When it was published. Absent while it's a draft, which only its party's people and staff see."
+					},
+					"lineup": { "type": "array", "maxLength": 50, "items": { "type": "ref", "ref": "#credit" } },
+					"createdBy": { "type": "string", "format": "did" },
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"credit": {
+			"type": "object",
+			"description": "A performer on the lineup, with their set times when they're known.",
+			"required": ["performer"],
+			"properties": {
+				"performer": { "type": "string", "format": "at-uri", "description": "A DJ's profile or an act's listing." },
+				"startsAt": { "type": "string", "format": "datetime" },
+				"endsAt": { "type": "string", "format": "datetime" }
+			}
+		}
+	}
+}

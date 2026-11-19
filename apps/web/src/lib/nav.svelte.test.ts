@@ -26,7 +26,7 @@ beforeEach(() => page.viewport(1280, 800));
 afterEach(() => page.viewport(414, 896));
 
 describe('the site header', () => {
-	it('links the four destinations, For DJs and Sign in for someone signed out', async () => {
+	it('links the four destinations and Sign in for someone signed out, and leaves the /for pages to the footer', async () => {
 		await show('/', { viewer: null, pendingRequests: 0 });
 		const main = header().getByRole('navigation', { name: 'Main' });
 
@@ -36,13 +36,18 @@ describe('the site header', () => {
 				.elements()
 				.map((link) => [link.textContent, link.getAttribute('href')])
 		).toEqual([
-			['Find DJs', '/projects'],
+			['Find DJs', '/djs'],
 			['Shows', '/shows'],
 			['Charts', '/charts'],
 			['Tools', '/tools']
 		]);
-		await expect.element(header().getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
 		await expect.element(header().getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+		expect(
+			header()
+				.getByRole('link')
+				.elements()
+				.filter((link) => link.getAttribute('href')?.startsWith('/for'))
+		).toEqual([]);
 		await expect.element(header().getByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
 		await expect.element(header().getByRole('button', { name: /^Account/ })).not.toBeInTheDocument();
 	});
@@ -52,7 +57,6 @@ describe('the site header', () => {
 
 		await expect.element(header().getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
 		await expect.element(header().getByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
-		await expect.element(header().getByRole('link', { name: 'For DJs' })).not.toBeInTheDocument();
 		await expect.element(header().getByRole('link', { name: 'List your project' })).not.toBeInTheDocument();
 		await expect.element(header().getByRole('link', { name: 'Bookings' })).not.toBeInTheDocument();
 		await header().getByRole('button', { name: 'Account, @neon.test' }).click();
@@ -80,7 +84,7 @@ describe('the site header', () => {
 	});
 
 	it.each([
-		['/projects', 'Find DJs'],
+		['/djs', 'Find DJs'],
 		['/projects/neon-tide', 'Find DJs'],
 		['/match', 'Find DJs'],
 		['/shows', 'Shows'],

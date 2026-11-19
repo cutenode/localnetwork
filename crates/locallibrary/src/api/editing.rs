@@ -500,7 +500,11 @@ fn delete_history_edits(store: Option<&Store>, req: &DeleteHistoryRequest, ctx: 
             )
             .with("drive", &req.drive)
             .with("lists", &unsaved)
-            .action(Action::call("pull", serde_json::json!({ "drive": req.drive }), "Pull the drive into the store"))
+            .action(Action::call(
+                "pull.apply",
+                serde_json::json!({ "drive": req.drive }),
+                "Pull the drive into the store",
+            ))
             .action(Action::retry(serde_json::json!({ "force": true }), "Delete them anyway")));
         }
     }
@@ -694,9 +698,10 @@ impl AnalysisSummary {
             waveform: a.detail.is_some(),
             mood: a.structure.as_ref().map(|s| s.mood),
             phrases: a.structure.as_ref().map_or_else(Vec::new, |s| {
+                let scale = s.beat_scale(a.beats.len());
                 s.phrases
                     .iter()
-                    .map(|p| PhraseSummary { kind: p.kind.name(), bars: (p.end_beat - p.start_beat).div_ceil(4) })
+                    .map(|p| PhraseSummary { kind: p.kind.name(), bars: crate::anlz::SongStructure::bars(p, scale) })
                     .collect()
             }),
         }

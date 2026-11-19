@@ -641,11 +641,12 @@ fn player_mode_says_what_a_set_needs() {
     app.deck_layout = true;
     let s = screen(&mut app, 160, 45);
     for said in [
-        "INTRO",
+        " Intro ",
         "high mood",
-        "phrase  Chorus  1.0 bars",
-        "Delsin · 2016",
-        "cue  B  15.0 bars",
+        "1.0 bar  till  Chorus ",
+        "Daft Punk  2016",
+        "Delsin  high mood",
+        "15.0 bars till cue  B ",
         "open this drive to see suggestions",
         "+ 3 more",
     ] {
@@ -658,7 +659,7 @@ fn player_mode_says_what_a_set_needs() {
     }
     // In the last phrase there's no next one.
     app.resume = Some(std::time::Duration::from_secs(200));
-    assert!(screen(&mut app, 160, 45).contains("phrase last"));
+    assert!(screen(&mut app, 160, 45).contains("  last phrase"));
 }
 
 /// The hot cue the playhead last passed is underlined, and only that one: none before the first.
@@ -739,15 +740,15 @@ fn the_crate_says_how_to_fill_it() {
     let (mut app, _dir) = app_with(library());
     app.show_crate = true;
     app.focus = Focus::Crate;
-    assert!(screen(&mut app, 160, 30).contains("The crate is empty."));
+    assert!(screen(&mut app, 160, 30).contains("Nothing picked."));
     let track = track(9, "DJ", "Hm");
-    app.crate_list.items.push(super::super::crate_list::CrateTrack {
-        root: "/Volumes/BACKUP".into(),
-        drive: "BACKUP".into(),
+    app.crate_list.items.push(super::super::crate_list::CrateTrack::new(
+        std::path::Path::new("/Volumes/BACKUP"),
+        "BACKUP",
         track,
-    });
+    ));
     let s = screen(&mut app, 160, 30);
-    assert!(s.contains("Hm  DJ · BACKUP"), "{s}");
+    assert!(s.contains("Hm next  DJ · BACKUP"), "{s}");
 }
 
 /// The selected track's panel: nothing selected, then a track whose file is missing, with
@@ -764,6 +765,31 @@ fn the_track_panel_says_what_is_wrong_with_a_track() {
     wait(&mut app, |a| a.details_current() && a.loaded.as_ref().unwrap().problems.is_missing(0));
     let s = screen(&mut app, 160, 40);
     assert!(s.contains("✖ the audio file isn't on the drive"), "{s}");
+}
+
+/// The track panel shows a key that isn't on the wheel as it was typed, and counts each other
+/// copy of the recording past the first it names.
+#[test]
+fn the_track_panel_shows_a_key_as_typed_and_every_other_copy() {
+    let mut lib = library();
+    // The first track and its copy: a third copy, and a key no notation reads. Short paths, so
+    // the copies' line fits the panel.
+    lib.tracks[0].key = "unsure".into();
+    (lib.tracks[3].key, lib.tracks[3].file_path) = ("unsure".into(), "/b.mp3".into());
+    let mut third = lib.tracks[0].clone();
+    (third.id, third.file_path) = (5, "/c.mp3".into());
+    lib.tracks.push(third);
+    let (mut app, _dir) = app_with(lib);
+    app.show_details = true;
+    app.focus = Focus::Details;
+    let row = (0..5).find(|&r| {
+        app.track_state.select(Some(r));
+        app.selected_track() == Some(0)
+    });
+    assert!(row.is_some(), "the first track is listed");
+    wait(&mut app, |a| a.details_current());
+    let s = screen(&mut app, 160, 40);
+    assert!(s.contains("BPM  unsure  ") && s.contains("also at /b.mp3 (+1 more)"), "{s}");
 }
 
 /// A question waits for a yes or no; the rating picker opened by the pointer opens beside
@@ -1032,11 +1058,7 @@ fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
         1 => {
             let rows = named("Crated");
             app.crate_list.items = (rows.iter().zip(100..))
-                .map(|(title, id)| CrateTrack {
-                    root: dir.path().into(),
-                    drive: "TEST".into(),
-                    track: track(id, "DJ", title),
-                })
+                .map(|(title, id)| CrateTrack::new(dir.path(), "TEST", track(id, "DJ", title)))
                 .collect();
             (app.show_crate, app.show_details, app.focus) = (true, false, Focus::Crate);
             app.crate_state.select(Some(sel));
@@ -1454,8 +1476,15 @@ fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
     if !picking && tc.draw(gs::booleans()) {
         let l = app.loaded.as_ref().unwrap();
         let (library, root) = (l.library.clone(), l.root().to_path_buf());
-        app.queue =
-            super::super::app::Queue { library, items: vec![0], root, drive: "TEST".into(), order: vec![0], pos: 0 };
+        app.queue = super::super::app::Queue {
+            library,
+            items: vec![0],
+            root,
+            drive: "TEST".into(),
+            order: vec![0],
+            pos: 0,
+            ..Default::default()
+        };
         app.resume = Some(std::time::Duration::from_secs(95));
         // (Wrapped to the player's width.)
         want.extend(["space carries on with".to_string(), "1:35".into()]);

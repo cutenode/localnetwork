@@ -21,6 +21,7 @@
 		repoDid: 'did:plc:pat',
 		projectUri: null,
 		project: { slug: rkey, name },
+		venue: null,
 		record: { kind: 'claim', createdAt: '2026-10-01T00:00:00Z' },
 		createdAt: '2026-10-01T00:00:00Z',
 		updatedAt: '2026-10-01T00:00:00Z',
@@ -46,12 +47,12 @@
 	<PreviewBanner status="archived" />
 </Story>
 
-<Story name="Requests" asChild>
+<Story name="Review requests" asChild>
 	<div class="max-w-xl">
 		<RequestList requests={[request('halflight', 'pending', 'Halflight'), request('saffron', 'approved', 'Saffron Social'), request('neon', 'rejected', 'Neon Tide')]} />
 	</div>
 </Story>
 
-<Story name="Requests, none" asChild>
+<Story name="Review requests, none" asChild>
 	<div class="max-w-xl"><RequestList requests={[]} /></div>
 </Story>

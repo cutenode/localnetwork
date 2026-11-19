@@ -76,7 +76,7 @@ pub(super) fn entered(access: &str, secret: &str) -> IndexMap<String, String> {
 impl Keyed {
     /// Starts signing in to a mock account for the echo plugin.
     fn begin(&self) -> AccountSignIn {
-        self.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], &self.f.store).unwrap()
+        self.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], None, &self.f.store).unwrap()
     }
 
     /// Signs in to a mock account for the echo plugin with `keys`, named `name`.
@@ -186,8 +186,9 @@ enum Step {
 /// service saying who they're for or the user naming the account, out, and requests through the
 /// plugin's access to each: the store keeps exactly the accounts signed in since they were last
 /// signed out, once each by subject, in the order they were first signed in then, never refreshed
-/// or expiring; a request gets the keys last entered for its account, and fails as signed out once
-/// it's signed out; signing out revokes nothing; the store's secrets hold the keys last entered for
+/// or expiring; a request gets the keys last entered for its account, and fails as `access` once
+/// it's signed out, which takes echo's access with it till signing in again for echo gives it
+/// back, as it was; signing out revokes nothing; the store's secrets hold the keys last entered for
 /// each account kept and no others; and no key gets into `accounts.json`, an error, a listing or a
 /// log.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
@@ -218,7 +219,11 @@ fn a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCa
                     (person, name.as_str()),
                     "step {i}"
                 );
-                accesses.insert(person, done.access.as_ref().expect("given to echo").id.clone());
+                let id = &done.access.as_ref().expect("given to echo").id;
+                if let Some(had) = accesses.get(person) {
+                    assert_eq!(id, had, "step {i}: not its access back");
+                }
+                accesses.insert(person, id.clone());
                 answers.push(serde_json::to_value(&done).unwrap());
                 kept.insert(person, n);
             }
@@ -244,7 +249,8 @@ fn a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCa
                         assert_eq!(answer["result"]["body"], format!("/r/x LOW {access}:{secret}"), "step {i}");
                     }
                     None => {
-                        assert_eq!(answer["error"]["data"]["reason"], "signed_out", "step {i}: {answer}");
+                        let failed = &answer["error"]["data"];
+                        assert_eq!((&failed["kind"], &failed["reason"]), (&json!("access"), &Value::Null), "step {i}");
                         answers.push(answer);
                     }
                 }
@@ -379,7 +385,7 @@ fn prop_keys_missing_or_undeclared_or_short_keep_nothing(tc: TestCase) {
     assert!(k.listed().is_empty() && k.server.got().is_empty(), "something was kept or sent");
 
     let browser: Mock = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
-    let start = browser.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &browser.f.store).unwrap();
+    let start = browser.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], None, &browser.f.store).unwrap();
     assert!(!start.named, "the user names an account the browser signs in to");
     let e = browser.f.plugins.finish_account_sign_in_with_keys(&start.id, &entered(access, secret), Some("me"));
     assert_eq!(e.unwrap_err().to_string(), format!("sign-in {:?} finishes in the browser", start.id));
@@ -502,7 +508,7 @@ fn prop_whoami_sending_the_keys_elsewhere_signs_nobody_in(tc: TestCase) {
     let whoami = format!("{}/who", away.url);
     let m: Mock =
         mock_with(3600, |server| keys_account_plugin(server, Some(&whoami)), &asking(&["read"], &[]), options());
-    let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], &m.f.store).unwrap();
+    let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], None, &m.f.store).unwrap();
     let e = m.f.plugins.finish_account_sign_in_with_keys(&start.id, &entered(access, secret), None).unwrap_err();
     assert_eq!(
         e.to_string(),

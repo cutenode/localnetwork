@@ -11,15 +11,13 @@ const flagFields = {
 	description: z.string().min(1).max(300).describe('What the flag gates, for the staff console.')
 };
 
-/** Release and experiment flags are meant to go, so they carry a date; ops and permission flags stay and can't. */
+/** Release flags are meant to go, so they carry a date; ops flags stay and can't. */
 export const flagDefinition = z
 	.discriminatedUnion('type', [
 		z
 			.object({
 				...flagFields,
-				type: z
-					.enum(['release', 'experiment'])
-					.describe('release rolls a feature out, experiment tries one out. Both go once it is decided.'),
+				type: z.literal('release').describe('release rolls a feature out, and goes once it has.'),
 				removeBy: z.iso
 					.date()
 					.describe('When the flag and the code it gates should be gone, as YYYY-MM-DD. Tests fail after it.')
@@ -29,9 +27,9 @@ export const flagDefinition = z
 			.object({
 				...flagFields,
 				type: z
-					.enum(['ops', 'permission'])
+					.literal('ops')
 					.describe(
-						'ops changes how the site runs, permission says who can use something. Both stay. A kill switch is ops and named for its paused state, like pauseRecordingStream.'
+						'ops changes how the site runs, and stays. A kill switch is ops and named for its paused state, like pauseRecordingStream.'
 					)
 			})
 			.strict()
@@ -39,8 +37,8 @@ export const flagDefinition = z
 	.describe('A feature flag the website and locallibrary share. Who it is on for is set in the staff console.');
 
 export type FlagDefinition = { key: FlagKey; description: string } & (
-	| { type: 'release' | 'experiment'; removeBy: string }
-	| { type: 'ops' | 'permission'; removeBy?: undefined }
+	| { type: 'release'; removeBy: string }
+	| { type: 'ops'; removeBy?: undefined }
 );
 
 /** A flag's name from its path, which `key` has to match so a search for one finds the other. */

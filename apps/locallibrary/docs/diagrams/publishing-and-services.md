@@ -41,12 +41,12 @@ Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/s
 
 ## What each command publishes
 
-The record types locallibrary writes to the DJ account. Per-drive overrides, notes, paths and sessions stay on this computer.
+The record types locallibrary writes to the DJ account. Per-drive overrides, notes, paths and histories stay on this computer.
 
 ```mermaid
 flowchart LR
     settings["settings publish"] --> settingsrec["computer.localnetwork.locallibrary.settings<br/>key self: the profile's base values"]
-    profile["profile publish"] --> profilerec["computer.localnetwork.dj.profile<br/>key self: the profile document"]
+    profile["profile publish"] --> profilerec["computer.localnetwork.dj.profile<br/>key self: the profile document: sets,<br/>energy, genres, artists, era, collection"]
     sets["sets publish"] --> setrec["computer.localnetwork.dj.set<br/>keyed by the set's id or an older<br/>plays publish key, hidden tracks unnamed"]
     upload["sets publish --upload"] --> recording["computer.localnetwork.dj.recording<br/>the audio as a blob"]
     upload --> setrec
@@ -132,12 +132,12 @@ flowchart LR
     core --> handle["A handle's DNS or web<br/>address: finding its DID"]
     core --> plc["plc.directory: a did:plc<br/>account's server"]
     core --> happyview["happyview.localnetwork.computer:<br/>the directory"]
-    core --> website["localnetwork.computer:<br/>requestIndex"]
+    core --> website["localnetwork.computer:<br/>requestIndex, getFlags"]
     core --> client["locallibrary.localnetwork.computer:<br/>client document"]
     core --> iroh["iroh and n0's relays:<br/>store serve, store fetch"]
 ```
 
-Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/identity.rs`](../../../../crates/locallibrary/src/atmosphere/identity.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/peers/mod.rs`](../../../../crates/locallibrary/src/peers/mod.rs)
+Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/identity.rs`](../../../../crates/locallibrary/src/atmosphere/identity.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/flags.rs`](../../../../crates/locallibrary/src/atmosphere/flags.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/peers/mod.rs`](../../../../crates/locallibrary/src/peers/mod.rs)
 
 ## Online services of plugins and the browser
 
@@ -148,13 +148,13 @@ flowchart LR
     host["Plugin host"] --> exchange["localnetwork.computer:<br/>token exchange"]
     host --> oauth["Google, SoundCloud,<br/>Mixcloud: sign-in"]
     host --> upload["YouTube, SoundCloud, Mixcloud,<br/>plyr.fm, Internet Archive: uploads"]
-    host --> mb["MusicBrainz, Cover Art<br/>Archive: lookups"]
+    host --> mb["MusicBrainz, Cover Art<br/>Archive, Discogs: lookups"]
     browser["Your browser"] --> oauth
     browser --> pds["The account's server: sign-in"]
     browser --> github["GitHub's bug form"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`src/bug_cmd.rs`](../../src/bug_cmd.rs), [`plugins/accounts`](../../../../plugins/accounts)
+Source: [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`src/bug_cmd.rs`](../../src/bug_cmd.rs), [`plugins/accounts`](../../../../plugins/accounts), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml)
 
 ## Programs on this computer
 

@@ -18,9 +18,8 @@ fn every_plan_has_its_apply_and_every_name_one_method() {
         if let Some(instead) = m.deprecated {
             assert!(r.get(instead).is_some(), "{} points to {instead}", m.name);
         }
-        for name in std::iter::once(m.name).chain(m.aliases.iter().copied()) {
-            assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || "._$/".contains(c)));
-        }
+        let name = m.name;
+        assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || "._$/".contains(c)));
     }
     // Applies and plans of the same kind of plan agree on it.
     for m in r.methods().filter(|m| m.kind == Kind::Apply) {
@@ -461,8 +460,9 @@ fn clicks(bpm: f64, secs: f64) -> Vec<u8> {
 
 /// Scored against tempo annotations, rekordbox's stored tempos earn Accuracy1 for exactly the
 /// tracks annotated with their own tempo, and every annotated track is counted; with no
-/// annotations at all, there's nothing to score. The analysis scored beside it has a tempo for
-/// each annotated track whose audio it could read, and fails on the others, which have none.
+/// annotations at all, there's nothing to score. The sound plugin's analyzer, scored beside it, has
+/// a tempo for each annotated track whose audio it could read, and fails on the others, which have
+/// none.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
     let s = Sidecar::new();
@@ -495,7 +495,7 @@ fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
     assert_eq!(scored["tracks"], annotated, "{report}");
     assert_eq!(scored["score"].as_f64(), Some(right as f64 / annotated as f64), "{report}");
     assert_eq!(report["failed"].as_array().map(Vec::len), Some(unreadable), "{report}");
-    let analysed = &report["tempos"]["stratum-dsp"];
+    let analysed = &report["tempos"]["sound.tempo-key-loudness"];
     assert_eq!(analysed["tracks"], annotated, "{report}");
     assert_eq!(analysed["counts"]["missing"].as_u64().unwrap_or(0), unreadable as u64, "{report}");
 }

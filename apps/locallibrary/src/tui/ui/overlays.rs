@@ -28,12 +28,13 @@ pub(in crate::tui) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) 
     Rect { x, y, width: w, height: h }
 }
 
-/// After `g` and a pause, what can follow, in the corner over the deck.
+/// After `g` (or `q`) and a pause, what can follow, in the corner over the deck.
 pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     if app.chord.is_none_or(|at| at.elapsed() < CHORD_HINT) {
         return;
     }
-    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == Scope::Goto))
+    let (scope, heading) = if app.chord_queue { (Scope::Queue, "Queue") } else { (Scope::Goto, "Go to") };
+    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == scope))
         .map(|b| {
             let about = if b.name.is_empty() { b.help } else { b.name.trim_start_matches("go to ") };
             Line::from(vec![
@@ -46,7 +47,7 @@ pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     let (w, h) = (w.min(area.width), (lines.len() as u16 + 2).min(area.height));
     let r = Rect { x: area.right() - w, y: area.bottom() - h, width: w, height: h };
     f.render_widget(Clear, r);
-    f.render_widget(Paragraph::new(lines).block(block(title("Go to", true), true)), r);
+    f.render_widget(Paragraph::new(lines).block(block(title(heading, true), true)), r);
 }
 
 /// How many rows `lines` take wrapped to `width` (near enough: words may wrap a little earlier).
@@ -295,6 +296,7 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         | crate::tui::form::For::Access(..) => "save",
         crate::tui::form::For::AskAccess(_) => "answer",
         crate::tui::form::For::Keys(..) => "sign in",
+        crate::tui::form::For::Restore(_) => "restore",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
@@ -502,7 +504,6 @@ fn undo_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
 /// files (what each holds, and those there already, by their place in the output's folder), what
 /// the format can't hold, then problems with the library.
 fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
-    use crate::export_cmd::{FILES_SHOWN, about};
     let Some(p) = c.export() else { return };
     // The summary says where (`write 2 file(s) to ...`).
     for s in &p.summary {
@@ -512,17 +513,7 @@ fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) 
         ]));
     }
     let dir = p.plan.output.parent().unwrap_or(&p.plan.output);
-    for f in p.plan.files.iter().take(FILES_SHOWN) {
-        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
-        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
-        if f.exists {
-            spans.push(Span::styled(" (already there)", fg(theme::current().warning)));
-        }
-        lines.push(Line::from(spans));
-    }
-    if p.plan.files.len() > FILES_SHOWN {
-        lines.push(Line::styled(format!("  and {} more", p.plan.files.len() - FILES_SHOWN), dim()));
-    }
+    file_lines(&p.plan.files, dir, lines);
     for n in &p.plan.notes {
         lines.push(Line::styled(n.clone(), dim()));
     }
@@ -532,6 +523,23 @@ fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) 
     if p.destructive {
         lines.push(Line::raw(""));
         lines.push(Line::styled("This replaces files already there.", fg(theme::current().warning)));
+    }
+}
+
+/// The first of the files a plugin writes (what each holds, and those there already), each by its
+/// place in `dir`.
+fn file_lines(files: &[locallibrary::plugin::ExportFile], dir: &std::path::Path, lines: &mut Vec<Line<'static>>) {
+    use crate::export_cmd::{FILES_SHOWN, about};
+    for f in files.iter().take(FILES_SHOWN) {
+        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
+        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
+        if f.exists {
+            spans.push(Span::styled(" (already there)", fg(theme::current().warning)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if files.len() > FILES_SHOWN {
+        lines.push(Line::styled(format!("  and {} more", files.len() - FILES_SHOWN), dim()));
     }
 }
 
@@ -586,6 +594,10 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
                     Span::styled(icons::BULLET.spaced(), fg(theme::current().info)),
                     Span::styled(s.clone(), bold(theme::current().text)),
                 ]));
+            }
+            // A plugin's command planned first: the files it writes, each where it is.
+            if let Some(p) = c.command() {
+                file_lines(&p.plan.files, std::path::Path::new(""), &mut lines);
             }
             for w in plan.warnings() {
                 lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
@@ -681,13 +693,17 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let rows = keymap::help_rows(app, &app.help_query);
     app.help_row = app.help_row.min(rows.len().saturating_sub(1));
     let narrowed = !app.help_query.is_empty();
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    // The keys are here; everything else is in the palette, by name.
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(vec![Span::styled(":", theme::key()), Span::styled(" searches everything", dim())]),
+        Line::raw(""),
+    ];
     let mut section = "";
     let mut selected = 0..0;
     for (i, row) in rows.iter().enumerate() {
         if !narrowed && row.title != section {
             section = row.title;
-            if !lines.is_empty() {
+            if lines.len() > 2 {
                 lines.push(Line::raw(""));
             }
             lines.push(Line::styled(section.to_uppercase(), bold(theme::current().info)));
@@ -700,7 +716,7 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
     if rows.is_empty() {
-        lines.push(Line::styled("no key has those words", dim()));
+        lines.push(Line::styled("no key has those words: enter searches the commands (:) for them", dim()));
     }
     if !narrowed {
         lines.push(Line::raw(""));
