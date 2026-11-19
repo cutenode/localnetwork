@@ -41,6 +41,89 @@ fn finds_and_removes_clutter_only() {
     assert!(plan(&d, &TidyOptions { empty_trash: true }, &ctx).unwrap().is_noop());
 }
 
+/// What macOS adds beside each file a write makes on a FAT drive goes when the write finishes,
+/// but only in the library's folders, and only real AppleDouble files.
+#[test]
+fn finishing_a_write_removes_its_apple_double_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let w = |p: &str, b: &[u8]| {
+        let p = root.join(p);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b).unwrap();
+    };
+    let mut ad = APPLE_DOUBLE_MAGIC.to_vec();
+    ad.extend_from_slice(&[0; 60]);
+    let removed = [
+        "._PIONEER",
+        "._Contents",
+        "PIONEER/rekordbox/._export.pdb",
+        "PIONEER/USBANLZ/._P001",
+        "PIONEER/USBANLZ/P001/00000001/._ANLZ0000.DAT",
+        "Contents/A/._a.mp3",
+    ];
+    let kept = ["Contents/A/._not-apple-double", "Music/._b.mp3", "._Music"];
+    w("PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT", b"PMAI");
+    w("Contents/A/a.mp3", b"audio");
+    removed.iter().for_each(|p| w(p, &ad));
+    w(kept[0], b"real data");
+    kept[1..].iter().for_each(|p| w(p, &ad));
+
+    let mut d = Device::open(root).unwrap();
+    d.begin(crate::device::LineageOp::Sync, "sync", None).unwrap();
+    d.finish(None, &Ctx::silent()).unwrap();
+    for p in removed {
+        assert!(!root.join(p).exists(), "{p} is still there");
+    }
+    for p in kept.iter().chain(&["Contents/A/a.mp3", "PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT"]) {
+        assert!(root.join(p).is_file(), "{p} went");
+    }
+}
+
+/// A `._` file the write can't remove doesn't fail it: the first few say why, and one more
+/// warning says how many are left and what removes them.
+#[cfg(unix)]
+#[test]
+fn apple_double_files_a_write_cant_remove_are_counted_in_warnings() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut ad = APPLE_DOUBLE_MAGIC.to_vec();
+    ad.extend_from_slice(&[0; 60]);
+    let locked = root.join("Contents/A");
+    std::fs::create_dir_all(&locked).unwrap();
+    for n in 0..5 {
+        std::fs::write(locked.join(format!("._{n}.mp3")), &ad).unwrap();
+    }
+    std::fs::write(root.join("._PIONEER"), &ad).unwrap();
+    let mut d = Device::open(root).unwrap();
+    d.begin(crate::device::LineageOp::Sync, "sync", None).unwrap();
+    // A folder whose entries can't be removed (running as root could anyway).
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let removable = std::fs::write(locked.join("probe"), b"").is_ok();
+    let warnings = std::sync::Mutex::new(Vec::new());
+    let sink = |e: &Event| {
+        if let Event::Warning { message } = e {
+            warnings.lock().unwrap().push(message.clone());
+        }
+    };
+    let finished = d.finish(None, &Ctx::new(&sink, crate::progress::CancelToken::new()));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    finished.unwrap();
+    assert!(!root.join("._PIONEER").exists());
+    if removable {
+        return;
+    }
+    let warnings = warnings.into_inner().unwrap();
+    assert_eq!(warnings.len(), 4, "{warnings:?}");
+    assert!(
+        warnings[..3].iter().all(|w| w.starts_with("couldn't remove ") && w.contains("Contents/A/._")),
+        "{warnings:?}"
+    );
+    assert_eq!(warnings[3], "5 macOS ._ file(s) are left on the drive; `locallibrary drive tidy` removes them");
+    assert_eq!(std::fs::read_dir(&locked).unwrap().count(), 5);
+}
+
 #[test]
 fn finds_what_cut_off_writes_left() {
     let dir = tempfile::tempdir().unwrap();
