@@ -59,6 +59,21 @@ pub fn device_path(key: &str) -> String {
     format!("/{key}")
 }
 
+/// Where the analysis files of the audio file at `device_path` go, without their extension: the
+/// first `ANLZ0000`, `ANLZ0001`... in rekordbox's folder for it ([`crate::anlz::analysis_folder`])
+/// that `taken` says no other track has. rekordbox numbers them so when two paths hash alike.
+pub fn analysis_stem(device_path: &str, taken: impl Fn(&str) -> bool) -> String {
+    let folder = crate::anlz::analysis_folder(device_path);
+    let mut n = 0u32;
+    loop {
+        let stem = format!("{folder}/ANLZ{n:04}");
+        if !taken(&stem) {
+            return stem;
+        }
+        n += 1;
+    }
+}
+
 /// Whether a key (typically a path read from a drive's database) is a plain relative path that
 /// stays below the drive root and outside locallibrary's own directory. A crafted or corrupt
 /// `export.pdb` could otherwise name `../../somewhere`.

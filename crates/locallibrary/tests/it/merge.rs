@@ -58,6 +58,8 @@ fn merge_into_folder_copies_files_and_rewrites_analysis() {
     for t in lib.tracks.iter().filter(|t| t.artist == "Loopmasters") {
         let audio = dst.path(&paths::key(&t.file_path));
         assert!(audio.is_file(), "{} copied", t.file_path);
+        // Where rekordbox puts it, which is where an XDJ-RX3 looks.
+        assert_eq!(t.analyze_path, format!("/{}/ANLZ0000.DAT", anlz::analysis_folder(&t.file_path)));
         let dat = std::fs::read(dst.path(&paths::key(&t.analyze_path))).unwrap();
         assert_eq!(anlz::read_path(&dat).unwrap().as_deref(), Some(t.file_path.as_str()));
         // Real analysis data (beat grid) survived the copy.
@@ -120,6 +122,8 @@ fn merge_by_name_extends_existing_playlists_and_renames_collisions() {
     let bonus = lib.tracks.iter().find(|t| t.title == "Bonus").unwrap();
     assert_eq!(bonus.file_path, "/Contents/Extra/UnknownAlbum/Bonus (2).mp3");
     assert_eq!(std::fs::read(&clash).unwrap(), b"someone else's file");
+    // A renamed track's analysis follows it to rekordbox's folder for its new path.
+    assert_eq!(bonus.analyze_path, format!("/{}/ANLZ0000.DAT", anlz::analysis_folder(&bonus.file_path)));
     let dat = std::fs::read(dst.path(&paths::key(&bonus.analyze_path))).unwrap();
     assert_eq!(anlz::read_path(&dat).unwrap().as_deref(), Some(bonus.file_path.as_str()));
 }

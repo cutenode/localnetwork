@@ -733,8 +733,9 @@ pub(crate) fn unique_key(key: &str, taken: &mut FxHashSet<String>, on_disk: &dyn
     candidate
 }
 
-/// Analysis files for a track and where they go. Keeps the source directory name when free,
-/// otherwise derives a new `PIONEER/USBANLZ/Pxxx/xxxxxxxx` from the target audio path.
+/// Analysis files for a track and where they go: rekordbox's place for them on the target
+/// ([`paths::analysis_stem`] of the target audio path), the source's stem (`ANLZ0000`) swapped
+/// for the target's in each.
 fn plan_analysis(
     t: &Track,
     src_tree: &FileTree,
@@ -745,43 +746,25 @@ fn plan_analysis(
     if !paths::is_safe_key(&dat) || paths::classify(&dat) != Some(paths::FileClass::Analysis) {
         return (Vec::new(), String::new());
     }
-    let Some((dir, file)) = dat.rsplit_once('/') else { return (Vec::new(), String::new()) };
-    let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
+    let Some((stem, ext)) = dat.rsplit_once('.') else { return (Vec::new(), String::new()) };
     let found: Vec<&crate::tree::FileEntry> = src_tree
-        .with_prefix(&format!("{dir}/{stem}."))
+        .with_prefix(&format!("{stem}."))
         .into_iter()
         .filter(|e| e.class == paths::FileClass::Analysis)
         .collect();
     let Some(first) = found.first() else { return (Vec::new(), String::new()) };
-    // Use the on-disk spelling of the directory from here on.
-    let dir = first.path.rsplit_once('/').map_or(dir, |(d, _)| d).to_string();
-    let dir = dir.as_str();
+    // The on-disk spelling of the stem, which the siblings share.
+    let stem = first.path.rsplit_once('.').map_or(stem, |(s, _)| s).to_string();
     let siblings: Vec<&str> = found.iter().map(|e| e.path.as_str()).collect();
-    let dir_taken =
-        |d: &str, taken: &FxHashSet<String>| siblings.iter().any(|s| taken.contains(&fold(&s.replacen(dir, d, 1))));
-    let mut target_dir = dir.to_string();
-    let mut attempt = 0u32;
-    while dir_taken(&target_dir, taken) {
-        target_dir = analysis_dir(target_audio, attempt);
-        attempt += 1;
-    }
-    let pairs: Vec<(String, String)> =
-        siblings.iter().map(|s| (s.to_string(), s.replacen(dir, &target_dir, 1))).collect();
+    let moved = |s: &str, to: &str| format!("{to}{}", &s[stem.len()..]);
+    let target_stem = paths::analysis_stem(&paths::device_path(target_audio), |to| {
+        siblings.iter().any(|s| taken.contains(&fold(&moved(s, to))))
+    });
+    let pairs: Vec<(String, String)> = siblings.iter().map(|s| (s.to_string(), moved(s, &target_stem))).collect();
     for (_, d) in &pairs {
         taken.insert(fold(d));
     }
-    let analyze_path = format!("{target_dir}/{file}");
-    (pairs, analyze_path)
-}
-
-/// An analysis folder for the audio file `audio` (a key), as rekordbox lays them out
-/// (`PIONEER/USBANLZ/Pxxx/xxxxxxxx`): from a hash of its path, another for each `attempt`.
-pub(crate) fn analysis_dir(audio: &str, attempt: u32) -> String {
-    let h = Hash::of(format!("{audio}\0{attempt}").as_bytes());
-    let b = h.as_bytes();
-    let p = u16::from_be_bytes([b[0], b[1]]) & 0x0fff;
-    let q = u32::from_be_bytes([b[2], b[3], b[4], b[5]]);
-    format!("PIONEER/USBANLZ/P{p:03X}/{q:08X}")
+    (pairs, format!("{target_stem}.{ext}"))
 }
 
 /// Whether `dst` has a top-level folder `name` holding every one of `src`'s `selected` playlists
