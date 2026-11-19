@@ -100,7 +100,7 @@ fn describes_one_analyzer_and_hears_of_drives_changing() {
         ["bpm", "bpm_confidence", "clipped_runs", "integrated_lufs", "key", "key_confidence", "true_peak_dbtp"];
     assert_eq!(columns, expected);
     // Drawn, and written to analysis files when asked, not columns.
-    assert_eq!(structured, [("waveform", FieldType::Waveform)]);
+    assert_eq!(structured, [("waveform", FieldType::Waveform), ("beats", FieldType::Beats)]);
     // Every role of a track's sound: doctor reads them all.
     let roles: Vec<Role> = analyzer.roles.keys().copied().collect();
     let not_heard = [Role::Identity, Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
@@ -308,9 +308,16 @@ fn prop_fields_are_what_doctor_reports(tc: TestCase) {
     let a = analyze(&path, Want::ALL, &Ctx::silent()).unwrap();
     let l = a.loudness.unwrap();
     // Doctor's tempo findings leave out a tempo of 0 (`TempoRelation::between` has none for it).
+    // The grid's tempo is the tempo where there's a grid, with the estimate's confidence where
+    // they agree.
     let tempo = a.estimate.as_ref().filter(|e| e.bpm > 0.0);
-    assert_eq!(number("bpm"), tempo.map(|e| f64::from(e.bpm)), "{fields:?}");
-    assert_eq!(number("bpm_confidence"), tempo.map(|e| f64::from(e.bpm_confidence)));
+    let bpm = a.grid.map(|g| g.bpm).or(tempo.map(|e| f64::from(e.bpm)));
+    assert_eq!(number("bpm"), bpm, "{fields:?}");
+    let agree = tempo.filter(|e| bpm.is_some_and(|b| (f64::from(e.bpm) / b - 1.0).abs() < 0.02));
+    assert_eq!(number("bpm_confidence"), agree.map(|e| f64::from(e.bpm_confidence)));
+    // The grid's beats, to the end.
+    let beats = a.grid.map(|g| g.beats(a.duration_secs)).filter(|b| !b.is_empty());
+    assert_eq!(fields["beats"], beats.as_deref().map_or(FieldValue::Null, FieldValue::beats));
     assert_eq!(number("key_confidence"), a.estimate.as_ref().map(|e| f64::from(e.key_confidence)));
     // Keys that tie (confidence 0) are none: two analyses of one file hear the same.
     let key = a.estimate.as_ref().and_then(|e| e.key);

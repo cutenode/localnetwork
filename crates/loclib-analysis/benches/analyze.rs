@@ -35,9 +35,10 @@ fn bench(c: &mut Criterion) {
         let path = dir.path().join(format!("{rate}.wav"));
         std::fs::write(&path, wav_of(rate, 16, kick_track(rate).into_iter())).unwrap();
         let wants = [
-            ("estimate", Want { estimate: true, loudness: false, waveform: false }),
-            ("loudness", Want { estimate: false, loudness: true, waveform: false }),
-            ("waveform", Want { estimate: false, loudness: false, waveform: true }),
+            ("estimate", Want { estimate: true, loudness: false, waveform: false, grid: false }),
+            ("loudness", Want { estimate: false, loudness: true, waveform: false, grid: false }),
+            ("waveform", Want { estimate: false, loudness: false, waveform: true, grid: false }),
+            ("grid", Want { estimate: false, loudness: false, waveform: false, grid: true }),
             ("all", Want::ALL),
         ];
         for (name, want) in wants {

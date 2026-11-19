@@ -15,6 +15,8 @@ through [symphonia](https://github.com/pdeljanov/Symphonia).
   they stream, so an hour-long recording never sits in memory at full rate.
 - `Resampler` is the windowed-sinc resampler behind them, for other sources (an editor's project,
   a live input) to feed themselves.
+- `lame_frame_secs` says how long the frame holding an MP3's LAME tag is: decoders skip it, but
+  rekordbox counts it as audio, so its times in such a file are that much later.
 
 ```rust,no_run
 use loclib_audio::decode;
