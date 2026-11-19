@@ -204,11 +204,13 @@ impl SongStructure {
     /// How many beats of a grid `grid_beats` long each of the phrases' beats is: 1, or 2 where
     /// rekordbox counted the phrases at half tempo. It does on some fast tracks (seen from 141 BPM
     /// up) and says so nowhere: their phrases end halfway through the grid, and doubled they end
-    /// with it.
+    /// with it. The latest end of those that end after they start decides, in any order: rekordbox
+    /// keeps its phrases in order, but a plugin's needn't.
     pub fn beat_scale(&self, grid_beats: usize) -> usize {
-        let Some(end) = self.phrases.last().map(|p| usize::from(p.end_beat)) else { return 1 };
-        let doubled = (2 * end).saturating_sub(1);
-        if end > 0 && doubled <= grid_beats + 1 && doubled * 10 >= grid_beats * 9 { 2 } else { 1 }
+        let ends = self.phrases.iter().filter(|p| p.end_beat > p.start_beat).map(|p| usize::from(p.end_beat));
+        let Some(end) = ends.max() else { return 1 };
+        let doubled = 2 * end - 1;
+        if doubled <= grid_beats + 1 && doubled * 10 >= grid_beats * 9 { 2 } else { 1 }
     }
 
     /// A phrase's 1-based `beat` as an index into the grid, at `scale` ([`Self::beat_scale`]).
