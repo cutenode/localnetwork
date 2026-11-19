@@ -72,38 +72,50 @@ compatible and hasn't been withdrawn. Both go through the same guard as an insta
 
 ## Records
 
-The records are [software.release.*](https://release.software), not lexicons of our own. Tierney is
-one of its maintainers, and it was designed for this: "I want locallibrary plugins to be a leader
-in this space. If there are gaps, we should identify and improve software.release.* rather than
-adapting our own." The gaps we found are proposals to its maintainers, still under discussion and
-not part of it yet:
+Releases are [software.release.*](https://release.software) records. Tierney is one of its
+maintainers, and it was designed for this: "I want locallibrary plugins to be a leader in this
+space. If there are gaps, we should identify and improve software.release.* rather than adapting
+our own." We build on the state its authority has published (dot record keys), or on main's if
+main is published first.
 
-- requirements on the manifest, for the host, protocol and dependency ranges
-- libc and variant on a target
-- the release's permissions on the manifest, checked to agree with `locallibrary-plugin.toml`,
-  which stays the authority
-- `revoked`, `supersededBy`, `withdraws` and `subjectCid` on statuses, mapped to ECMA-428's event
-  types, and no reused version records
-- licence, readme, source and provenance on the manifest
-- generic project metadata back on `project`: publication, authors, security contact, source and
-  versioning scheme
-- `software.release.review`, for a third party's approval
-- `software.release.install`, kept in a personal space
-- publishing the current schemas, with a canonical SemVer scheme record
+It doesn't yet have everything a plugin release needs, and we've sent the other maintainers
+proposals for the gaps: requirements, permissions and per-release facts on the manifest, libc and
+variant on a target, more statuses, project metadata, review and install records, and publishing
+main's schemas. v1 doesn't depend on any of them. In Tierney's words: "Let's build for none of
+these features being added, and can improve the records later if they are." What v1 needs and
+software.release.* lacks goes in records of ours, each shaped like its proposal:
 
-We build on the lexicons' current main (colon record keys, a channel's `name`) once it's published.
+- The artifact type `computer.localnetwork.locallibrary.plugin` carries the plugin's
+  `locallibrary-plugin.toml`, whether it's a `program` or an `account` plugin, and the fields the
+  proposals would put on the manifest: requirements (the host and protocol ranges), permissions,
+  licence, readme, source and provenance. The permissions must agree with the TOML, which stays
+  the authority. Each release has exactly one.
+- `computer.localnetwork.locallibrary.review` is the root account's review of one release, with
+  where the approved bytes are mirrored and the proof of the publisher's commit.
+- `computer.localnetwork.locallibrary.install` is a person's install, pinning the exact release and
+  the capabilities they agreed to. It lives in a personal space rather than their public repo, so
+  what someone has installed isn't public.
+- `computer.localnetwork.locallibrary.about` is an optional sidecar for how a plugin is presented,
+  with the same record key as its project, pointing at a site.standard.publication. The registry
+  still indexes releases by the artifact type.
 
-What's ours is the artifact type `computer.localnetwork.locallibrary.plugin`. It carries the
-plugin's `locallibrary-plugin.toml` and whether it's a `program` or an `account` plugin. A program's
-binaries sit beside it as plain per-target blob artifacts, so any release viewer can list and check
-them. The registry indexes releases by that artifact type, with no sidecar record. locallibrary's
-own releases are published as software.release records from the root account, and a plugin's host
-requirement points at that project.
+software.release.status isn't published yet, so a release's status is a
+`computer.localnetwork.locallibrary.status` record, written by the publisher about their own
+releases. It has exactly the values main's status has (active, yanked, deprecated, archived and
+retracted) plus the proposed revoked and withdrawn, and main's fields plus the proposed
+`supersededBy`, `withdraws` and `subjectCid`. It moves to software.release.status once that's
+published. Local Network's "do not run" is a review whose decision is revoked, not a status, and
+locallibrary enforces it. Linux builds are
+glibc only, so no libc field is needed yet; a musl build later is told apart by its file name or a
+field on our artifact type.
 
-The root account's review records carry where the approved bytes are mirrored and the proof of the
-publisher's commit. A person's install records pin the exact release and the capabilities they
-agreed to, and live in a personal space rather than their public repo, so what someone has
-installed isn't public.
+A program's binaries sit beside the artifact type as plain per-target blob artifacts, so any
+release viewer can list and check them. locallibrary's own releases are published as
+software.release records from the root account, and a plugin's host requirement points at that
+project.
+
+If a proposal is accepted, locallibrary moves to the shared field or record: it reads both for a
+while, then writes only the shared one.
 
 ## Hosting
 
@@ -128,8 +140,11 @@ Paid plugins, donations and licence keys, for now. They may come later.
 - A separate registry service for proofs, mirroring and an append-only log: HappyView covers all of
   it but the log with small additions, and a service is one more thing to run.
 - Publishing into HappyProto's registry: it indexes only HappyView's own WASM plugins.
-- Our own `computer.localnetwork.plugin.*` records: a second set of records beside a shared one,
-  with the gaps fixed only for us.
+- Our own `computer.localnetwork.plugin.*` records for releases too: a second set of release
+  records beside a shared one.
+- Building on the proposals, or waiting until they're accepted: the registry would depend on other
+  maintainers' decisions and timing, and records written to a draft could stop validating when it
+  changes.
 - Review before publishing: a publisher can write any record to their own repo, so review decides
   what's listed instead.
 - No installs of unreviewed releases: a publisher couldn't try or share a release before review.
@@ -161,3 +176,4 @@ Paid plugins, donations and licence keys, for now. They may come later.
   down. That needs a legal review.
 - Whether v1 requires `did:plc`, since checking key rotation depends on the PLC audit log.
 - The root account's PDS blob limit.
+- Which of the software.release.* proposals are accepted, and when locallibrary moves to each.
