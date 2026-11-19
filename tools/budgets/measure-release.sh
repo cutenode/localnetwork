@@ -29,10 +29,19 @@ for drive in LARGE LARGE2; do
   cp crates/locallibrary/tests/fixtures/rekordcrate/large/export.pdb "$scratch/volumes/$drive/PIONEER/rekordbox/"
 done
 mkdir -p "$scratch/home"
-instructions() {
+counted() {
   LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" HOME="$scratch/home" \
-    valgrind --tool=cachegrind --cache-sim=no --cachegrind-out-file=/dev/null "$target/dist/locallibrary" "$@" 2>&1 >/dev/null |
+    valgrind --tool=cachegrind --cache-sim=no --cachegrind-out-file=/dev/null "$@" 2>&1 >/dev/null |
     sed -n 's/.*I *refs: *//p' | tr -d ,
+}
+# Each command's instructions less a run of /bin/true, which leaves out the loader's and libc's start.
+# libc's start looks up the CPU's features and caches, which takes some thousands more instructions on
+# some runners' CPUs than on others', so a base measured on one runner and a head on another differed by
+# that much with the same code (LOC-827). The CPU goes in the log, to tell runners apart.
+grep -m1 '^model name' /proc/cpuinfo || true
+start=$(counted /bin/true)
+instructions() {
+  echo $(($(counted "$target/dist/locallibrary" "$@") - start))
 }
 {
   echo "version $(instructions --version)"
