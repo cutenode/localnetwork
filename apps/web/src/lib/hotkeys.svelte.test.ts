@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from './hotkeys.svelte.ts';
 
-const map = { s: '/shows', p: '/projects' };
+const map = { s: '/shows', p: '/djs' };
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -65,7 +65,7 @@ describe('hotkeyTarget', () => {
 		const targets = [hotkeyTarget(keydown('s'), map), hotkeyTarget(keydown('P'), map)];
 
 		// Assert
-		expect(targets).toEqual(['/shows', '/projects']);
+		expect(targets).toEqual(['/shows', '/djs']);
 	});
 
 	it('leaves unmapped keys alone', () => {

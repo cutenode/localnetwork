@@ -63,6 +63,9 @@ fn count<T>(counts: &mut IndexMap<String, u64>, name: &str, f: impl FnOnce() -> 
 fn everyday_operations_allocate_what_their_budgets_say() {
     // The same pool whatever the machine: how work is split decides some of what it allocates.
     rayon::ThreadPoolBuilder::new().num_threads(2).build_global().unwrap();
+    // No disk tools: `check` would ask the system about the drives' disk, and on Linux `lsblk`
+    // answers with every disk the machine has, which isn't the same on every runner.
+    locallibrary::testing::volumes_on_this_thread(Some(Vec::new()));
     let bytes = build_pdb(0, 2_000);
     let path = Path::new("export.pdb");
     let lib = library(&bytes);

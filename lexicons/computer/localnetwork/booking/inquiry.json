@@ -12,7 +12,8 @@
 				"properties": {
 					"project": {
 						"type": "string",
-						"format": "at-uri"
+						"format": "at-uri",
+						"description": "Who the inquiry is for: an act's computer.localnetwork.project, or the computer.localnetwork.profile of a listed DJ, who answers for themself."
 					},
 					"show": {
 						"type": "ref",

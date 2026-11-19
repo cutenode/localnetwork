@@ -353,7 +353,7 @@ describe('a job', () => {
 	it('keeps its own line inside a request, and passes on what it throws', async () => {
 		const { logger, lines } = writtenLog('info');
 
-		await logger.request({ path: '/xrpc/notifyWrite' }, async (log) => {
+		await logger.request({ path: '/xrpc/com.atproto.space.notifySpaceUpdate' }, async (log) => {
 			await logger
 				.job('space-sync', async () => {
 					logger.warn('space sync failed');
@@ -366,7 +366,7 @@ describe('a job', () => {
 
 		expect(lines.map(({ message, job, path }) => [message, job, path])).toEqual([
 			['space sync failed', 'space-sync', undefined],
-			['notified sync failed', undefined, '/xrpc/notifyWrite']
+			['notified sync failed', undefined, '/xrpc/com.atproto.space.notifySpaceUpdate']
 		]);
 	});
 

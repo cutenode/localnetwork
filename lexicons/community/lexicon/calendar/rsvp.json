@@ -1,0 +1,45 @@
+{
+  "defs": {
+    "going": {
+      "description": "Going to the event",
+      "type": "token"
+    },
+    "interested": {
+      "description": "Interested in the event",
+      "type": "token"
+    },
+    "main": {
+      "description": "An RSVP for an event.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "status": {
+            "default": "community.lexicon.calendar.rsvp#going",
+            "knownValues": [
+              "community.lexicon.calendar.rsvp#interested",
+              "community.lexicon.calendar.rsvp#going",
+              "community.lexicon.calendar.rsvp#notgoing"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "ref": "com.atproto.repo.strongRef",
+            "type": "ref"
+          }
+        },
+        "required": [
+          "subject",
+          "status"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    },
+    "notgoing": {
+      "description": "Not going to the event",
+      "type": "token"
+    }
+  },
+  "id": "community.lexicon.calendar.rsvp",
+  "lexicon": 1
+}

@@ -52,8 +52,8 @@ What sign-in asks for and what it settles on. Opting in later works differently:
 
 ```mermaid
 flowchart TD
-  Full["Ask for full: blobs, calendar events,<br/>the permission set"]
-  Full -- "scope refused" --> Base["Ask for base: profile, shows,<br/>follows, calendar events, blobs"]
+  Full["Ask for full: blobs, calendar events,<br/>RSVPs, the permission set"]
+  Full -- "scope refused" --> Base["Ask for base: profile, shows,<br/>follows, calendar events, RSVPs, blobs"]
   Base -- "scope refused" --> Minimal["Ask for atproto alone"]
   Full -- "accepted" --> Grant["The grant"]
   Base -- "accepted" --> Grant
@@ -223,7 +223,7 @@ Source: [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff
 
 ## Capabilities by role
 
-The starting capabilities of each role in a performer, party or venue space. `page.edit`, `presskits.manage`, `shows.manage` and `events.manage` also make someone a writing member. No page uses these roles yet except the staff console.
+The starting capabilities of each role in a performer, party or venue space. `page.edit`, `presskits.manage`, `shows.manage` and `events.manage` also make someone a writing member. Only the staff console, a venue's claim, settings and events pages, a party's page and its events use these roles so far: the party page shows its hosts and cohosts and lets those with page.edit edit it, events.manage makes and changes the party's events, and venue.approve confirms the events naming a venue. The venue's `booker` reads Booking manager wherever the site shows it.
 
 ```mermaid
 flowchart LR
@@ -233,7 +233,7 @@ flowchart LR
   Party --> C["cohost, listed:<br/>all of host's but people.manage"]
   Party --> D["door:<br/>guests.checkin"]
   Venue["venue space"] --> O["owner:<br/>page.edit, people.manage,<br/>venue.approve, venue.block"]
-  Venue --> B["booker:<br/>venue.approve"]
+  Venue --> B["booker, shown as Booking manager:<br/>venue.approve"]
 ```
 
 Source: [`src/lib/capabilities.ts`](../../src/lib/capabilities.ts), [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/services/shared-spaces.ts), [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts)

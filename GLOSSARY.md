@@ -25,15 +25,15 @@ The list of which other public pages each kind of public page links to whenever 
 _Avoid_: sitemap, related links
 
 **Dashboard**:
-Your hub once signed in: the inbox, bookings, plans, settings, onboarding, and lists of what's yours. There's one per account, and editing a page happens on the page. Its sections follow who the switcher says you're acting as, and its home starts with the onboarding checklist until that's done.
-_Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
+Your hub once signed in: the inbox, bookings, plans, settings, onboarding, and lists of what's yours. There's one per account, and editing a page happens on the page. Its sections follow who the switcher says you're acting as. Its first page is **Overview**, which starts with the onboarding checklist until that's done. **Account** is about your sign-in account itself, not who the switcher says you're acting as.
+_Avoid_: app, account area, my page, DJ dashboard, promoter dashboard, home (Home is the signed-in home page with the Feed)
 
 **Switcher**:
 Choosing who you're acting as: yourself, or an act, party or venue you have capabilities for. It's the same on every page, the header always shows the choice, and the dashboard follows it.
 _Avoid_: account switcher (the account doesn't change), context, workspace
 
 **Onboarding**:
-A short flow on first sign-in, then a checklist on the dashboard home with one step per piece of data and what filling it in gets you. A feature that turns on for someone adds its own steps to the checklist, marked new.
+A short flow on first sign-in, then a checklist on the dashboard's Overview with one step per piece of data and what filling it in gets you. A feature that turns on for someone adds its own steps to the checklist, marked new.
 _Avoid_: setup wizard, tour, getting started
 
 **Feed**:
@@ -53,7 +53,7 @@ The separate area where staff moderate and run the site. Only staff can see it. 
 _Avoid_: admin dashboard, admin panel
 
 **Flag**:
-A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
+A switch that turns a feature on for some people before everyone. The website and locallibrary share its key and give an account the same answer. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
 _Avoid_: feature toggle, experiment, setting
 
 **Flag group**:
@@ -63,6 +63,10 @@ _Avoid_: segment, cohort, group (on its own)
 **Flag preview**:
 A staff member seeing a flag on or off in their own browser for an hour, with nothing changing for anyone else.
 _Avoid_: override, test mode
+
+**Kill switch**:
+A flag that stops something that already works while it's on. It's named for the paused state, like pauseGoogleTokenExchange, so a flag nobody has saved changes nothing, and it stays for as long as the feature does.
+_Avoid_: circuit breaker, pause flag
 
 **Rollout**:
 The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted.
@@ -155,11 +159,11 @@ Someone who has RSVP'd to an event, whether going, interested, can't go, waitlis
 _Avoid_: attendee, ticket holder
 
 **Venue**:
-A real place events happen, shared by everyone who links to it. There's one venue per place: anyone can suggest two venues are the same place, the owners of both get a window to object, and staff merge them into the older one. Promoters say how they relate to each venue they work with: owner, booking manager, resident or regular promoter, staff, or something else in their own words. Owners are confirmed by staff. Each venue chooses **Anyone can list**, where events naming it show right away as **Waiting for the venue** until an owner confirms them, or **Venue approves**, where they show only once **Confirmed**. Owners can block profiles, acts and parties from listing events there, claiming a relationship to it, or naming it in booking inquiries. A block is silent: the blocked side only ever sees its event waiting for the venue, and only the venue's owners and staff see the block.
+A real place events happen, shared by everyone who links to it. There's one venue per place: anyone can suggest two venues are the same place, the owners of both get a window to object, and staff merge them into the older one. Promoters say how they relate to each venue they work with: owner, booking manager, resident or regular promoter, staff, or something else in their own words. Owners are confirmed by staff. Each venue chooses **Anyone can list**, where events naming it show right away as **Waiting for the venue** until an owner confirms them, or **Venue approves**, where they show only once **Confirmed**. Owners can block profiles, acts and parties from listing events there, claiming a relationship to it, or naming it in booking inquiries. A block is a public record, like a Bluesky block, and silent: nobody tells the blocked side, and the site only ever shows its event waiting for the venue.
 _Avoid_: club, location (when meaning the place itself), booker, unconfirmed, pending
 
 **Inbox**:
-Where the site tells someone about guests, bookings, waitlist spots and new events, and asks them to decide things: claim and listing decisions, press kit access requests, lineup credits to confirm and community photos to approve. Every item opens what it's about. Inquiries and messages from strangers wait under its Requests tab. Each person can also opt into getting these by email or Bluesky DM.
+Where the site tells someone about guests, bookings, waitlist spots and new events, and asks them to decide things: claim and listing decisions, press kit access requests, lineup credits to confirm and community photos to approve. Every item opens what it's about. Inquiries and messages from strangers wait under its Requests tab. Each person can also opt into getting these by email or Bluesky DM, chosen per kind of item.
 _Avoid_: notifications page, feed
 
 **Event**:
@@ -191,8 +195,12 @@ Where a promoter works out shows before they're public, privately in their own s
 _Avoid_: draft show, plan (a plan is what someone's going to)
 
 **Booking**:
-The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
+The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled, or confirmed and its night has passed, it's settled, and nothing reopens it.
 _Avoid_: gig, inquiry (the inquiry is what opens one)
+
+**Turn**:
+In a live booking, the side whose move it is: whoever didn't send the last message or status change.
+_Avoid_: needs reply, waiting (on its own)
 
 **Review request**:
 Asking staff to list a DJ, act or party in the directory, to confirm someone owns a venue, or to confirm a claim: that a performer is you, or that you manage them. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.

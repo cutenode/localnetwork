@@ -9,7 +9,8 @@
 	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
 	import { formatDateTime, requestTitle } from '#lib/format.ts';
 	import { requestStanding } from '#lib/request-standing.ts';
-	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
+	import { claimTerms } from '#lib/requests.ts';
+	import { labelFor } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import type { PageProps } from './$types';
@@ -75,7 +76,7 @@
 	{#if request.kind === 'claim'}
 		<Card as="section" class="flex flex-col gap-3 text-small text-fg-soft">
 			<h2 class="m-0 text-emphasis font-semibold text-fg">Your claim</h2>
-			<p class="m-0"><span class="text-fg-subtle">Relationship:</span> {labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</p>
+			<p class="m-0"><span class="text-fg-subtle">Relationship:</span> {labelFor(claimTerms(request.record).relationships, request.record.claim?.relationship)}</p>
 			<p class="m-0 whitespace-pre-line">{request.record.claim?.evidence}</p>
 			{#if request.record.claim?.links?.length}
 				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
@@ -119,7 +120,7 @@
 		{#if editing}
 			{#if request.kind === 'claim'}
 				<form method="POST" action="?/revise" class="card flex flex-col gap-4 p-5 sm:p-6">
-					<ClaimFields values={claim} claimant={request.requester} />
+					<ClaimFields values={claim} claimant={request.requester} terms={claimTerms(request.record)} />
 					<div>
 						<label class="label" for="message">Note</label>
 						<textarea id="message" name="message" class="input min-h-24 py-2.5">{claim.message ?? ''}</textarea>

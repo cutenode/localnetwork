@@ -31,7 +31,7 @@
 	const count = $derived(data.waiting + access.value.length);
 </script>
 
-<svelte:head><title>Home · Local Network</title></svelte:head>
+<svelte:head><title>Overview · Local Network</title></svelte:head>
 
 {#snippet failure()}
 	<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Some of your nights didn't load. Everything else here is up to date.<a class="btn-secondary btn-sm" href="/dashboard" data-sveltekit-reload>Try again</a></p>
@@ -60,7 +60,7 @@
 	{#if onboarding.value}<OnboardingChecklist data={onboarding.value} flags={data.flags} />{/if}
 
 	{#if !data.viewer?.spacesCapable}
-		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and requests for you (<a href="/dashboard/account/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
+		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and review requests for you (<a href="/dashboard/account/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
 	{/if}
 
 	{#if !needs && count}
@@ -105,7 +105,7 @@
 				<p class="m-0 text-small text-fg-muted">All quiet. A good time to freshen up <a class="link" href="/dashboard/projects/{act.slug}">{act.profile.name}</a>.</p>
 			{:else if !firstRun.value}
 				<EmptyState title="Nothing here yet" body="Bookings show up here as soon as someone writes.">
-					<div class="flex flex-wrap justify-center gap-2"><a class="btn-primary" href="/projects">Find DJs</a><a class="btn-secondary" href="/dashboard/projects/new">List a project</a></div>
+					<div class="flex flex-wrap justify-center gap-2"><a class="btn-primary" href="/djs">Find DJs</a><a class="btn-secondary" href="/dashboard/projects/new">List a project</a></div>
 				</EmptyState>
 			{/if}
 		{/await}

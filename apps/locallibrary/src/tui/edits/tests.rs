@@ -75,6 +75,16 @@ fn menu_says_why_actions_are_unavailable() {
     assert!(items.iter().any(|i| i.label == "new playlist in Sets…"));
     let t = Target { stale: true, ..t };
     assert!(menu_items(&t).iter().filter(|i| i.action != Action::CrateAdd).all(|i| i.unavailable.is_some()));
+    // rekordbox's collection is never written: everything but the crate (which isn't the
+    // collection's) says so.
+    let t = Target { stale: false, collection: true, ..t };
+    let items = menu_items(&t);
+    let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::ClearCrate));
+    assert!(
+        others.clone().all(|i| i.unavailable.as_deref() == Some(COLLECTION_READ_ONLY)),
+        "{:?}",
+        others.map(|i| (&i.label, &i.unavailable)).collect::<Vec<_>>()
+    );
 }
 
 fn clear_line(app: &mut App) {
@@ -1323,4 +1333,40 @@ fn a_plugins_news_leaves_the_undo_up() {
     app.toast = None;
     app.told(notice("more tracks"));
     assert!(last_message(&app).ends_with("more tracks"), "with nothing to keep up, it says so");
+}
+
+/// A sync asks about every drive it writes, and the drive operations with no wording of their
+/// own say what they do.
+#[test]
+fn the_confirmation_says_what_each_operation_does() {
+    let (_dir, root) = demo_drive();
+    let req = EditRequest {
+        drive: root.display().to_string(),
+        edits: create("Warmup", false, &[]),
+        options: EditOptions::default(),
+    };
+    let mut plan = api::edit_plan(&req, &Ctx::silent()).unwrap();
+    let said = |plan: &mut Planned<EditPlan>, op: &'static str| {
+        plan.operation = op.into();
+        let w = wording(&*plan, "DEMO");
+        (w.ask, w.yes, w.who, w.what, w.doing)
+    };
+    let (ask, yes, who, _, doing) = said(&mut plan, "sync.group");
+    assert_eq!((ask.as_str(), yes, who.as_str(), doing.as_str()), ("Sync 1 drive?", "sync", "DEMO", "Syncing"));
+    let mut other = plan.drives[0].clone();
+    other.name = "OTHER".into();
+    plan.drives.push(other);
+    let (ask, _, who, ..) = said(&mut plan, "sync.group");
+    assert_eq!((ask.as_str(), who.as_str()), ("Sync 2 drives?", "DEMO, OTHER"));
+
+    for (op, what) in [
+        ("dedupe", "replace duplicates"),
+        ("relocate", "point tracks at their missing files"),
+        ("upgrade", "upgrade tracks to lossless files"),
+        ("refresh", "put back what rekordbox's export replaced"),
+    ] {
+        let (ask, yes, .., said_what, doing) = said(&mut plan, op);
+        assert_eq!((ask.as_str(), yes, said_what.as_str()), ("Write to DEMO?", "write", what), "{op}");
+        assert_eq!(doing, "Writing DEMO", "{op}");
+    }
 }

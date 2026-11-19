@@ -2,7 +2,7 @@ import type { Component } from 'svelte';
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import type { Flags, ProfileRecord } from '#lib/types.ts';
 
-/** What the onboarding steps check, all of it read when the dashboard home loads. */
+/** What the onboarding steps check, all of it read when Overview loads. */
 export type OnboardingData = {
 	/** The viewer's profile, or null before they make one. */
 	profile: ProfileRecord | null;

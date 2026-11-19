@@ -45,10 +45,12 @@ ignored = [
     "locallibrary-plugin-archive",
     "locallibrary-plugin-coverart",
     "locallibrary-plugin-demos",
+    "locallibrary-plugin-discogs",
     "locallibrary-plugin-interop",
     "locallibrary-plugin-mixcloud",
     "locallibrary-plugin-musicbrainz",
     "locallibrary-plugin-plyr",
+    "locallibrary-plugin-rekordbox-backup",
     "locallibrary-plugin-sound",
     "locallibrary-plugin-soundcloud",
     "locallibrary-plugin-tracklist",
@@ -135,6 +137,7 @@ locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive
 locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
 locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixcloud" }
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
+locallibrary-plugin-discogs = { version = "0.1.0", path = "../../plugins/discogs" }
 # The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
 terminal-colorsaurus = { version = "1.0.3", optional = true }
 # Cover art in the graphics a terminal has. Pinned: its API changes between versions. No default
@@ -143,6 +146,7 @@ ratatui-image = { version = "=11.1.0", default-features = false, optional = true
 image = { workspace = true, optional = true }
 # The short fades of panels and tracks.
 tachyonfx = { version = "0.25", default-features = false, features = ["std"], optional = true }
+locallibrary-plugin-rekordbox-backup = { version = "0.1.0", path = "../../plugins/rekordbox-backup" }
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

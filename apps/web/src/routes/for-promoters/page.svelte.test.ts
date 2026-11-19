@@ -47,7 +47,7 @@ describe('/for-promoters', () => {
 
 		const search = page.getByRole('search', { name: 'Find DJs' });
 		await expect.element(search.getByLabelText('Sound or name')).toHaveAttribute('name', 'q');
-		expect(search.element().getAttribute('action')).toBe('/projects');
+		expect(search.element().getAttribute('action')).toBe('/djs');
 		await expect.element(page.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
 	});
 

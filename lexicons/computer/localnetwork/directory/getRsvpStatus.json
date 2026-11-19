@@ -1,0 +1,58 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.getRsvpStatus",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "How many accounts are going to and interested in a party event's calendar event, from any calendar app, and one account's RSVPs to it.",
+			"parameters": {
+				"type": "params",
+				"required": ["subject"],
+				"properties": {
+					"subject": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The root's community.lexicon.calendar.event the RSVPs answer."
+					},
+					"actor": { "type": "string", "format": "did", "description": "The account to look up RSVPs for." }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["going", "interested", "rsvps"],
+					"properties": {
+						"going": {
+							"type": "integer",
+							"minimum": 0,
+							"description": "Accounts whose latest RSVP to it says going."
+						},
+						"interested": {
+							"type": "integer",
+							"minimum": 0,
+							"description": "Accounts whose latest RSVP to it says interested."
+						},
+						"rsvps": {
+							"type": "array",
+							"description": "The actor's RSVPs to it, oldest first. Usually one, but nothing stops an app writing two.",
+							"items": { "type": "ref", "ref": "#rsvp" }
+						}
+					}
+				}
+			}
+		},
+		"rsvp": {
+			"type": "object",
+			"required": ["uri", "status"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"status": {
+					"type": "string",
+					"maxLength": 128,
+					"description": "As the RSVP has it: community.lexicon.calendar.rsvp#going, #interested or #notgoing, or anything another app wrote."
+				}
+			}
+		}
+	}
+}

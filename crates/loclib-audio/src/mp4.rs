@@ -44,9 +44,11 @@ pub(super) fn vet_file(file: &mut File, path: &Path) -> Result<()> {
         return Ok(());
     }
     let len = meta.len();
-    let mut reader = BufReader::new(&mut *file);
-    let vetted = match find_ftyp(&mut reader, path).map_err(io)? {
-        Some(start) => walk(&mut reader, start, len, len, Level::Top).or_else(eof_is_fine).map_err(io)?,
+    // Buffered only once it's an MP4: `check` vets every file it can't read, and most aren't.
+    let vetted = match find_ftyp(file, path).map_err(io)? {
+        Some(start) => {
+            walk(&mut BufReader::new(&mut *file), start, len, len, Level::Top).or_else(eof_is_fine).map_err(io)?
+        }
         None => None,
     };
     file.rewind().map_err(io)?;
@@ -58,7 +60,7 @@ pub(super) fn vet_file(file: &mut File, path: &Path) -> Result<()> {
 
 /// Where the MP4 starts: symphonia reads one from the atom its `ftyp` marker is in, which every
 /// MP4 starts with. A file named as MP4 is searched as far as symphonia's probe looks.
-fn find_ftyp(file: &mut BufReader<&mut File>, path: &Path) -> io::Result<Option<u64>> {
+fn find_ftyp(file: &mut File, path: &Path) -> io::Result<Option<u64>> {
     let mut head = [0; 8];
     match file.read_exact(&mut head) {
         Ok(()) if &head[4..] == b"ftyp" => return Ok(Some(0)),

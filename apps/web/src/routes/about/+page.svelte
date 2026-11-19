@@ -9,15 +9,15 @@
 		<p>Local Network stores its data on the <a href="https://atproto.com">AT Protocol</a>, not in a private database. Public profiles are ordinary atproto records. Everything else sits in <a href="https://atproto.com/blog/atproto-spaces-alpha">atproto spaces</a>, the protocol's permissioned-data extension, and each space's read policy decides who can read it. The app keeps a local index for fast search, and it can rebuild that index from the network.</p>
 
 		<h2 id="projects">Projects</h2>
-		<p>A <em>project</em> is a DJ act: a solo DJ, a b2b duo, a group, or a whole collective. Published projects are <code>computer.localnetwork.project</code> records in the Local Network root account's public repo. Only the root account writes them, after an admin adds a project or a moderator approves a request, so nobody can change a profile without review.</p>
+		<p>A <em>project</em> is a DJ act: a solo DJ, a b2b duo, a group, or a whole collective. Published projects are <code>computer.localnetwork.project</code> records in the Local Network root account's public repo. Only the root account writes them, after an admin adds a project or a moderator approves a review request, so nobody can change a profile without review.</p>
 
-		<h2 id="requests">Requests and claims</h2>
-		<p>Anyone with an atproto account can list a new project, claim one an admin added, or propose changes to a project they manage. Each request is written <strong>into your own repo</strong>, inside the root account's moderation space, which only staff can read. Decisions are recorded by the root account in the same space.</p>
+		<h2 id="requests">Review requests and claims</h2>
+		<p>Anyone with an atproto account can list a new project, claim one an admin added, or propose changes to a project they manage. Each review request is written <strong>into your own repo</strong>, inside the root account's moderation space, which only staff can read. Decisions are recorded by the root account in the same space.</p>
 
 		<h2 id="spaces">Spaces we use</h2>
 		<ul>
 			<li><strong>Audit log</strong>: anyone may write their own audit entries; staff read.</li>
-			<li><strong>Moderation</strong>: anyone may file requests; staff read.</li>
+			<li><strong>Moderation</strong>: anyone may file review requests; staff read.</li>
 			<li><strong>Staff</strong>: role assignments, written by the root account; staff read.</li>
 			<li><strong>Industry</strong>: private booking details, readable by staff. Everyone else sees them through the site, in a press kit they've been let into.</li>
 			<li><strong>Booking threads</strong>: one space per inquiry, shared only by the promoter and the project's managers.</li>

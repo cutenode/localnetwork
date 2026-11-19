@@ -4,7 +4,15 @@ import { sql } from 'kysely';
 import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
-import type { BookingEventView, BookingShowLinks, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+import type {
+	BookingEventView,
+	BookingListThread,
+	BookingShowLinks,
+	BookingThreadView,
+	ShowDetails,
+	ThreadProjects,
+	Viewer
+} from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import { type JsonRecord, memberSpacePolicy, type RecordRef } from '../atproto/repo-client';
 import {
@@ -20,8 +28,8 @@ import { nowIso, parseJson } from '../db';
 import type { BookingThreadRow } from '../db/schema';
 import { unlessOffline } from '../happyview/offline';
 import { isFresh } from '../notifications/notifier';
+import type { BookingPerformers } from './booking-performers';
 import { spaceWriter } from './own-repo';
-import type { ProjectService } from './projects';
 import { actorRole } from './requests';
 
 type EventKind = 'inquiry' | 'message' | 'status';
@@ -129,18 +137,20 @@ function announcedShow(uri: string | undefined): BookingShowLinks['announcedShow
 
 /**
  * Booking threads. Each thread is its own space under the root authority
- * whose member list is the promoter plus the project's managers; each party
- * writes messages into their own repo in that space.
+ * whose member list is the promoter plus whoever answers for the performer
+ * (an act's managers, or a listed DJ); each party writes messages into their
+ * own repo in that space.
  */
 export class BookingService {
 	constructor(
 		private readonly core: Core,
-		private readonly projects: ProjectService
+		private readonly performers: BookingPerformers
 	) {}
 
 	/**
-	 * Opens a thread with the project. `plannerShow` is the key of the actor's planner show it starts from, which the
-	 * caller has read back from their planner: the inquiry names it only under the actor's own planner space.
+	 * Opens a thread with the act or listed DJ `projectUri` names (BookingPerformers.forInquiry). `plannerShow` is the
+	 * key of the actor's planner show it starts from, which the caller has read back from their planner: the inquiry
+	 * names it only under the actor's own planner space.
 	 */
 	async start(input: {
 		actor: Viewer;
@@ -150,15 +160,7 @@ export class BookingService {
 		plannerShow?: string;
 	}): Promise<string> {
 		const { actor } = input;
-		// The root's repo, not the directory, so a manager change that's still being indexed is already in the thread.
-		const project = await this.projects.current(input.projectUri);
-
-		if (!project || project.status !== 'active') throw new NotFoundError('That project is not available');
-
-		if (project.managers.length === 0)
-			throw new UserError("This project hasn't been claimed yet, so nobody can answer an inquiry");
-
-		if (project.managers.includes(actor.did)) throw new UserError("You can't send an inquiry to your own project");
+		const performer = await this.performers.forInquiry(input.projectUri, actor.did);
 		const message = input.message.trim();
 
 		if (!message) throw new UserError('Write a message');
@@ -168,7 +170,7 @@ export class BookingService {
 		const { client, onBehalf } = await spaceWriter(this.core, actor);
 
 		const draft: BookingRecord = {
-			project: project.uri,
+			project: performer.uri,
 			show: JSON.parse(JSON.stringify(input.show)),
 			message,
 			createdAt: nowIso()
@@ -195,9 +197,9 @@ export class BookingService {
 			throw error;
 		}
 
-		const participants: { did: string; role: 'promoter' | 'manager' }[] = [
+		const participants: { did: string; role: BookingRole }[] = [
 			{ did: actor.did, role: 'promoter' },
-			...project.managers.map((did) => ({ did, role: 'manager' as const }))
+			...performer.answerers
 		];
 
 		let ref: RecordRef;
@@ -213,7 +215,7 @@ export class BookingService {
 					.values({
 						spaceUri: space,
 						skey,
-						projectUri: project.uri,
+						projectUri: performer.uri,
 						promoterDid: actor.did,
 						status: 'open',
 						title: input.show.title,
@@ -232,7 +234,7 @@ export class BookingService {
 			const opened = validateRecord(COLLECTION.bookingStatus, {
 				status: 'open',
 				note: 'Thread opened',
-				project: project.uri,
+				project: performer.uri,
 				promoter: actor.did,
 				createdAt: now
 			});
@@ -275,8 +277,8 @@ export class BookingService {
 				action: 'booking.create',
 				subject: space,
 				subjectKind: 'booking',
-				summary: `Sent a booking inquiry to ${project.profile.name}`,
-				details: { project: project.uri, inquiry: ref.uri, showDate: input.show.date, onBehalf }
+				summary: `Sent a booking inquiry to ${performer.name}`,
+				details: { project: performer.uri, inquiry: ref.uri, showDate: input.show.date, onBehalf }
 			},
 			{ actorClient: onBehalf ? null : client }
 		);
@@ -315,7 +317,7 @@ export class BookingService {
 		return { ...thread, role: participant.role };
 	}
 
-	/** Whether any of the thread's managers has written in it yet. */
+	/** Whether anyone on the side being booked has written in the thread yet. */
 	private async answered(space: string): Promise<boolean> {
 		const reply = await this.core.db
 			.selectFrom('bookingEvent')
@@ -327,7 +329,7 @@ export class BookingService {
 			.select('bookingEvent.uri')
 			.where('bookingEvent.spaceUri', '=', space)
 			.where('bookingEvent.kind', '!=', 'unapplied')
-			.where('bookingParticipant.role', '=', 'manager')
+			.where('bookingParticipant.role', '!=', 'promoter')
 			.executeTakeFirst();
 
 		return reply !== undefined;
@@ -580,11 +582,13 @@ export class BookingService {
 			// is, over whichever inquiry a sync reads first.
 			const opened = await this.openingRecord(input.space);
 			const projectUri = opened?.project ?? value.project;
-			const project = await this.projects.byUri(projectUri);
+			const performer = await this.performers.get(projectUri);
 
 			// Threads opened before the record named the promoter go by who sent it: nobody can send an inquiry to their
 			// own project (start), so one from the act's side never opens a thread.
-			const promoter = opened?.promoter ? opened.promoter === author : !project?.managers.includes(author);
+			const promoter = opened?.promoter
+				? opened.promoter === author
+				: !performer?.answerers.some((answerer) => answerer.did === author);
 
 			if (!promoter) {
 				this.core.logger.warn("not opening a booking thread from an inquiry its promoter didn't send", {
@@ -611,9 +615,7 @@ export class BookingService {
 
 				const members = [
 					{ did: author, role: 'promoter' as const },
-					...(project?.managers ?? [])
-						.filter((did) => participants.has(did))
-						.map((did) => ({ did, role: 'manager' as const }))
+					...(performer?.answerers ?? []).filter((answerer) => participants.has(answerer.did))
 				];
 
 				await db
@@ -788,13 +790,13 @@ export class BookingService {
 				.execute();
 
 			if (participants.length === 0) return;
-			const project = await this.projects.byUri(thread.projectUri).catch(() => null);
+			const performer = await this.performers.get(thread.projectUri).catch(() => null);
 
 			// The act speaks as itself: which of its people wrote stays out (docs/adr/0004).
 			const data = {
 				skey: thread.skey,
 				title: thread.title,
-				projectName: project?.profile.name ?? null,
+				projectName: performer?.name ?? null,
 				from: author === thread.promoterDid ? ('promoter' as const) : ('act' as const)
 			};
 
@@ -821,16 +823,61 @@ export class BookingService {
 		}
 	}
 
-	async threadsFor(did: string): Promise<BookingThreadView[]> {
-		const rows = await this.core.db
+	private rowsFor(did: string): Promise<BookingThreadRow[]> {
+		return this.core.db
 			.selectFrom('bookingThread')
 			.innerJoin('bookingParticipant', 'bookingParticipant.spaceUri', 'bookingThread.spaceUri')
 			.selectAll('bookingThread')
 			.where('bookingParticipant.did', '=', did)
 			.orderBy('bookingThread.lastActivityAt', 'desc')
 			.execute();
+	}
 
-		return this.toViews(rows);
+	async threadsFor(did: string): Promise<BookingThreadView[]> {
+		return this.toViews(await this.rowsFor(did));
+	}
+
+	/**
+	 * `did`'s threads from the site's index, so a list can render at once: `project` is null on each until `projects`
+	 * answers with them by space, or with null if the directory is offline. `acts` says how many there'll be.
+	 */
+	async listFor(did: string): Promise<{
+		threads: BookingListThread[];
+		acts: number;
+		projects: Promise<ThreadProjects | null>;
+	}> {
+		const rows = await this.rowsFor(did);
+		const threads = await this.indexViews(rows);
+		const confirmed = await this.everConfirmed(rows);
+
+		return {
+			threads: threads.map((thread) => ({
+				...thread,
+				withdrawn: thread.status === 'cancelled' && !confirmed.has(thread.space)
+			})),
+			acts: new Set(rows.map((row) => row.projectUri)).size,
+			projects: this.projectsOf(rows)
+		};
+	}
+
+	/**
+	 * Which cancelled threads were confirmed at some point. Only a confirmed booking can be cancelled (bookingActions),
+	 * so one that wasn't is an inquiry someone withdrew.
+	 */
+	private async everConfirmed(rows: BookingThreadRow[]): Promise<Set<string>> {
+		const cancelled = rows.flatMap((row) => (row.status === 'cancelled' ? [row.spaceUri] : []));
+
+		if (cancelled.length === 0) return new Set();
+
+		const events = await this.core.db
+			.selectFrom('bookingEvent')
+			.select('spaceUri')
+			.where('spaceUri', 'in', cancelled)
+			.where('kind', '=', 'status')
+			.where(sql<string>`json_extract(record, '$.status')`, '=', 'confirmed')
+			.execute();
+
+		return new Set(events.map((event) => event.spaceUri));
 	}
 
 	/** How many of `did`'s threads wait on them. It reads only the site's index, so it answers without the directory. */
@@ -858,8 +905,26 @@ export class BookingService {
 		viewer: Viewer,
 		space: string
 	): Promise<{ thread: BookingThreadView; events: BookingEventView[]; links: BookingShowLinks }> {
+		const { thread, events, links, project } = await this.openThread(viewer, space);
+
+		return { thread: { ...thread, project: await project }, events, links };
+	}
+
+	/**
+	 * The thread, its events and the shows it links to from the site's index, so the page can render at once:
+	 * `thread.project` stays null, and `project` answers with it, or with null if the directory is offline.
+	 */
+	async openThread(
+		viewer: Viewer,
+		space: string
+	): Promise<{
+		thread: BookingThreadView;
+		events: BookingEventView[];
+		links: BookingShowLinks;
+		project: Promise<BookingThreadView['project']>;
+	}> {
 		const row = await this.requireParticipant(viewer, space);
-		const [thread] = await this.toViews([row]);
+		const [thread] = await this.indexViews([row]);
 
 		const rows = await this.core.db
 			.selectFrom('bookingEvent')
@@ -875,6 +940,7 @@ export class BookingService {
 
 		return {
 			thread,
+			project: this.projectsOf([row]).then((projects) => projects?.get(space) ?? null),
 			events: events
 				.filter((event) => event.authorDid !== this.core.rootDid)
 				.map(({ uri, kind, authorDid, createdAt, value }) => ({
@@ -931,35 +997,61 @@ export class BookingService {
 	}
 
 	private async toViews(rows: BookingThreadRow[]): Promise<BookingThreadView[]> {
+		const threads = await this.indexViews(rows);
+		const projects = await this.projectsOf(rows);
+
+		return threads.map((thread) => ({ ...thread, project: projects?.get(thread.space) ?? null }));
+	}
+
+	/** Who each thread is with (an act or a listed DJ) as the directory has it, keyed by space, or null while it's down. */
+	private async projectsOf(rows: BookingThreadRow[]): Promise<ThreadProjects | null> {
+		if (rows.length === 0) return new Map();
+
+		// Who it's with is all the directory adds, so a thread stays readable without it while it's down.
+		const performers = await unlessOffline(this.core.logger, () =>
+			this.performers.many(rows.map((row) => row.projectUri))
+		);
+
+		if (!performers) return null;
+
+		return new Map(
+			rows.flatMap((row) => {
+				const performer = performers.get(row.projectUri);
+
+				return performer
+					? [
+							[
+								row.spaceUri,
+								{ uri: performer.uri, slug: performer.slug, name: performer.name, href: performer.href }
+							] as const
+						]
+					: [];
+			})
+		);
+	}
+
+	/** The threads as the site's index has them, which is everything but the project. */
+	private async indexViews(rows: BookingThreadRow[]): Promise<BookingThreadView[]> {
 		if (rows.length === 0) return [];
 		const { members: participants, lastAuthors } = await this.parties(rows);
 
 		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
 
-		// Project names are all the directory adds, so a thread stays readable without one while it's down.
-		const projects = await unlessOffline(this.core.logger, () =>
-			this.projects.byUris(rows.map((row) => row.projectUri))
-		);
-
-		return rows.map((row) => {
-			const project = projects?.get(row.projectUri);
-
-			return {
-				space: row.spaceUri,
-				skey: row.skey,
-				status: row.status,
-				title: row.title,
-				showDate: row.showDate,
-				project: project ? { uri: project.uri, slug: project.slug, name: project.profile.name } : null,
-				promoter: accounts.get(row.promoterDid),
-				participants: participants
-					.filter((p) => p.spaceUri === row.spaceUri)
-					.map((p) => ({ ...accounts.get(p.did), role: p.role })),
-				lastAuthor: lastAuthors.get(row.spaceUri) ?? null,
-				lastActivityAt: row.lastActivityAt,
-				createdAt: row.createdAt
-			};
-		});
+		return rows.map((row) => ({
+			space: row.spaceUri,
+			skey: row.skey,
+			status: row.status,
+			title: row.title,
+			showDate: row.showDate,
+			project: null,
+			promoter: accounts.get(row.promoterDid),
+			participants: participants
+				.filter((p) => p.spaceUri === row.spaceUri)
+				.map((p) => ({ ...accounts.get(p.did), role: p.role })),
+			lastAuthor: lastAuthors.get(row.spaceUri) ?? null,
+			lastActivityAt: row.lastActivityAt,
+			createdAt: row.createdAt
+		}));
 	}
 
 	/** The threads `actor` started from their planner show `rkey`, as each one's key by the project it's with. */

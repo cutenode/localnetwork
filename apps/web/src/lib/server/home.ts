@@ -1,21 +1,20 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { bookingGroup } from '#lib/bookings.ts';
+import { bookingGroup, isBookedSide } from '#lib/bookings.ts';
 import { formatDate, nightLabel, pluralize, requestTitle, timeAgo, accountLabel } from '#lib/format.ts';
 import type { NeedsRow, NightRow } from '#lib/home.ts';
 import type { BookingThreadView, PlannerShowView, ProjectView, RequestView, Viewer } from '#lib/types.ts';
 import { unlessOffline } from './happyview/offline';
 import type { Logger } from './logger';
-import { loadPlanner } from './planner-page';
+import { loadPlanner, type PlannerApp } from './planner-page';
 import type { BookingService } from './services/bookings';
 import type { EpkService } from './services/epk';
 import type { PlannerService } from './services/planner';
-import type { ProjectService } from './services/projects';
 import type { RequestService } from './services/requests';
 import type { ShowService } from './services/shows';
 
 type Log = Pick<Logger, 'warn'>;
 
-/** How many of an account's projects Home asks the directory about, so nobody's page waits on dozens of lookups. */
+/** How many of an account's projects Overview asks the directory about, so nobody's page waits on dozens of lookups. */
 const PROJECTS_READ = 10;
 
 const NIGHTS_SHOWN = 5;
@@ -47,7 +46,7 @@ const roleIn = (thread: BookingThreadView, did: string) =>
 function bookingRow(thread: BookingThreadView, viewer: Viewer, now: number): NeedsRow {
 	const title = thread.title ?? 'a booking';
 	const act = thread.project?.name;
-	const isManager = roleIn(thread, viewer.did) === 'manager';
+	const isBooked = isBookedSide(roleIn(thread, viewer.did));
 	const isPast = !!thread.showDate && dayOf(thread.showDate) < today(now);
 	const night = thread.showDate ? nightLabel(thread.showDate) : 'No date yet';
 	const inquiry = thread.status === 'open' ? 'New inquiry from' : 'From';
@@ -55,10 +54,10 @@ function bookingRow(thread: BookingThreadView, viewer: Viewer, now: number): Nee
 	return {
 		key: thread.skey,
 		scope: act ?? title,
-		title: isManager || !act ? `Reply to ${title}` : `Answer ${act} about ${title}`,
+		title: isBooked || !act ? `Reply to ${title}` : `Answer ${act} about ${title}`,
 		detail: [
 			isPast ? `${night}, date passed` : night,
-			isManager && `${inquiry} ${accountLabel(thread.promoter)}`,
+			isBooked && `${inquiry} ${accountLabel(thread.promoter)}`,
 			timeAgo(thread.lastActivityAt, now)
 		]
 			.filter(Boolean)
@@ -82,7 +81,7 @@ function byNight(a: BookingThreadView, b: BookingThreadView, now: number) {
 const requestRow = (request: RequestView, now: number): NeedsRow => ({
 	key: request.uri,
 	scope: requestTitle(request),
-	title: 'Update your request',
+	title: 'Update your review request',
 	detail: `${requestTitle(request)} · Staff asked for changes · ${timeAgo(request.decision?.at ?? request.updatedAt, now)}`,
 	href: `/dashboard/account/requests/${request.rkey}`,
 	action: 'Update'
@@ -90,7 +89,7 @@ const requestRow = (request: RequestView, now: number): NeedsRow => ({
 
 /**
  * How many of {@link needsYou}'s rows there'll be. It reads only the site's index, so every dashboard page can say at
- * once, and Home can hold the rows' room, however slow the directory is.
+ * once, and Overview can hold the rows' room, however slow the directory is.
  */
 export async function needsCount(
 	app: { bookings: Pick<BookingService, 'waitingOn'>; requests: Pick<RequestService, 'sentBack'> },
@@ -101,7 +100,7 @@ export async function needsCount(
 	return replies + sentBack;
 }
 
-/** What's waiting on `viewer` in the order Home shows it: bookings, then requests staff sent back. */
+/** What's waiting on `viewer` in the order Overview shows it: bookings, then requests staff sent back. */
 export async function needsYou(
 	app: { bookings: Pick<BookingService, 'threadsFor'>; requests: Pick<RequestService, 'list'> },
 	viewer: Viewer,
@@ -145,10 +144,10 @@ export async function accessWaiting(
 	}
 }
 
-/** The line under Home's lists saying what's with someone else, or null with nothing out. */
+/** The line under Overview's lists saying what's with someone else, or null with nothing out. */
 export function withOthers(threads: BookingThreadView[], requests: RequestView[], did: string): string | null {
 	const waiting = threads.filter((thread) => bookingGroup(thread, did) === 'active');
-	const onPromoters = waiting.filter((thread) => roleIn(thread, did) === 'manager').length;
+	const onPromoters = waiting.filter((thread) => isBookedSide(roleIn(thread, did))).length;
 	const onDjs = waiting.length - onPromoters;
 
 	const parts = [
@@ -172,7 +171,7 @@ const bookingNight = (thread: BookingThreadView, did: string): NightRow => {
 		date: dayOf(thread.showDate ?? ''),
 		title: thread.title ?? 'Booking',
 		detail: [
-			act ? `Booking ${roleIn(thread, did) === 'manager' ? 'for' : 'with'} ${act}` : 'Booking',
+			act ? `Booking ${isBookedSide(roleIn(thread, did)) ? 'for' : 'with'} ${act}` : 'Booking',
 			!isConfirmed && 'not confirmed'
 		]
 			.filter(Boolean)
@@ -210,8 +209,7 @@ export async function nextNights(
 		app: {
 			shows: Pick<ShowService, 'forProject'>;
 			planner: Pick<PlannerService, 'saves' | 'shows'>;
-			projects: Pick<ProjectService, 'byUris'>;
-		};
+		} & PlannerApp;
 		log: Log;
 	},
 	viewer: Viewer,

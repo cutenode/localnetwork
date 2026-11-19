@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { SpacePerson } from '#lib/types.ts';
 	import SpacePeople from './SpacePeople.svelte';
 
@@ -32,11 +33,23 @@
 	};
 
 	const nothing = { invites: [], requests: [], links: 0 };
+
+	/** A venue's people: its stored `booker` role reads Booking manager. */
+	const venue = {
+		people: [
+			person('did:plc:tresor', 'tresor.test', 'owner', ['page.edit', 'people.manage', 'venue.approve', 'venue.block']),
+			person('did:plc:desk', 'desk.test', 'booker', ['venue.approve'])
+		],
+		pending: { invites: [{ did: 'did:plc:night', handle: 'night.test', role: 'booker', createdAt: '2026-10-21T10:00:00Z', expiresAt: null }], requests: [], links: 0 },
+		roles: ['owner', 'booker']
+	};
 </script>
 
 <Story name="People and who's waiting" args={{ people, pending, roles }} />
 
-<Story name="People and who's waiting on a phone" args={{ people, pending, roles }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="People and who's waiting on a phone" args={{ people, pending, roles }} globals={phone} />
+
+<Story name="A venue's people" args={venue} />
 
 <Story
 	name="Someone who can't do anything yet, and plain invites"

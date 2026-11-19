@@ -1,0 +1,25 @@
+/*
+ * What marks InlineText's fields as fields. The editor's chunk (editor.ts) brings it, so a visitor never downloads it;
+ * the fields' box is drawn with the page, so nothing moves when it arrives. Unlayered, so it wins over the forms
+ * plugin's focus ring.
+ */
+[data-inline-field] {
+	outline: 1px dashed var(--color-line-strong);
+	outline-offset: 2px;
+}
+[data-inline-field]::placeholder {
+	color: var(--color-fg-subtle);
+}
+[data-inline-field]:hover {
+	outline-color: var(--color-fg-subtle);
+}
+[data-inline-field]:focus {
+	outline: 2px solid var(--color-link);
+	box-shadow: none;
+}
+[data-inline-field]:read-only {
+	outline-color: var(--color-line);
+}
+[data-inline-field][aria-invalid='true'] {
+	outline-color: var(--color-critical);
+}

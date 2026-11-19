@@ -143,7 +143,7 @@ Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/service
 
 ## People in shared spaces
 
-How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people. No page starts a space yet either: `SharedSpaces.create` and `createAct`, which add its first person, have no caller.
+How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people, and an approved venue claim adds the venue's owner. Starting a party at `/party/new` adds its creator as host; no page starts an act yet (`createAct` has no caller).
 
 ```mermaid
 flowchart TD
@@ -160,12 +160,12 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue reaches the directory. Acts and venues have something to list so far, from the root's performer or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and parties have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for everyone. HappyView keeps only the root's listings.
+How a listed act, party or venue reaches the directory. Acts, published parties and venues have something to list, from the root's performer, party or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and a draft party have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for everyone. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD
   Status["Staff list or unlist:<br/>listing.status in the space"] --> Refresh["ListingWriter.refresh"]
-  People["A people, performer<br/>or venue record syncs"] --> Refresh
+  People["A people, performer,<br/>party or venue record syncs"] --> Refresh
   Hourly["Startup and hourly reconcile"] --> Refresh
   Refresh --> Source{"Listed, with a<br/>page to show?"}
   Source -- "no" --> Delete["Delete any listing"]
@@ -177,7 +177,7 @@ flowchart TD
   Same -- "yes" --> Put["Root writes computer.localnetwork.listing"]
 ```
 
-Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
+Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`src/lib/server/services/party-index.ts`](../../src/lib/server/services/party-index.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
 
 ## Backup and restore
 

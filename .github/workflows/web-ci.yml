@@ -33,6 +33,8 @@ permissions:
 defaults:
   run:
     working-directory: apps/web
+    # Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+    shell: bash
 
 # Actions are pinned to commits, as in locallibrary-ci.yml. Firefox, WebKit and the phone viewports
 # run weekly in web-scheduled.yml; pull requests run the e2e tests in Chromium only.

@@ -2,18 +2,18 @@ import { P256Keypair } from '@atproto/crypto';
 import { isLexMap } from '@atproto/lex-data';
 import { type JsonValue, jsonToLex, lexParse } from '@atproto/lex-json';
 import { isDidString } from '@atproto/oauth-scopes';
+import { isSpaceAtUriString } from '@atproto/syntax';
 import {
 	createSpaceSigHeaders,
 	encapsulate,
-	formatWantMacHeader,
-	MAC_HEADER,
-	type MacType,
-	parseMacHeader,
+	formatMacRequest,
+	type MacProfile,
 	parseSpaceToken,
-	RECORD_MAC_TYPE,
+	RECORD_MAC_PROFILE,
 	SpaceMacError,
-	verifyRecord,
-	WANT_MAC_HEADER
+	SpaceRepoVerificationError,
+	type VerifyMacParams,
+	verifyRecord
 } from '@atproto/space';
 import { z } from 'zod';
 import type { Logger } from '../logger';
@@ -64,14 +64,11 @@ type RequestInput = {
 	params: Record<string, string | number | boolean | undefined>;
 };
 
-/** Asks the repo host for a MAC of `type`, keyed to the author's `#atproto_kem` key. */
-type MacRequest = { type: MacType; kemKey: string };
+/** Asks the repo host for a MAC of `profile`, keyed to the author's `#atproto_kem` key. */
+type MacRequest = { profile: MacProfile; kemKey: string };
 
-/**
- * What a response's MAC is checked with: this request's shared secret and the MAC the response carried.
- * Throws a SpaceMacError if it carried none, as a listRepoOps page without a commit doesn't.
- */
-type MacParams = () => { sharedSecret: Uint8Array; mac: Uint8Array };
+/** Where a space host sends a syncer its space's updates, and the token that names the registration. */
+export type NotifyRegistration = { endpoint: string; token: string };
 
 /**
  * A space credential bound (RFC 9421 / RFC 7800 `cnf.kid`) to a fresh P-256
@@ -84,7 +81,9 @@ export class SpaceCredential {
 	constructor(
 		readonly space: string,
 		readonly token: string,
-		private readonly key: P256Keypair
+		private readonly key: P256Keypair,
+		/** Whether minting it registered for the space's updates, which last as long as it does. */
+		readonly notifying = false
 	) {
 		this.expiresAt = parseSpaceToken('credential', token).payload.exp * 1000;
 	}
@@ -100,8 +99,9 @@ export class SpaceCredential {
 	/** Headers for a request whose `Atproto-Space-Audience` is the repo owner (or the authority for host methods). */
 	async headers(audience: string): Promise<Record<string, string>> {
 		if (!isDidString(audience)) throw new Error(`Space audience is not a DID: ${audience}`);
+		const authorization = `Atproto-Space-Credential ${this.token}`;
 
-		return createSpaceSigHeaders(this.key, { authorization: `Atproto-Space-Credential ${this.token}`, audience });
+		return (await createSpaceSigHeaders({ authorization, audience, keypair: this.key })).headers;
 	}
 }
 
@@ -119,6 +119,8 @@ export class SpaceCredentialManager {
 			source: () => Promise<CredentialSource>;
 			identity: IdentityResolver;
 			logger: Logger;
+			/** The registration a credential for `space` asks for, if the space's updates should be sent to this app. */
+			notify?: (space: string) => Promise<NotifyRegistration | null>;
 		}
 	) {}
 
@@ -137,6 +139,13 @@ export class SpaceCredentialManager {
 		return credential;
 	}
 
+	/** When the space's registration for updates lapses, if the credential held for it made one. */
+	registeredUntil(space: string): string | null {
+		const credential = this.cache.get(space);
+
+		return credential?.notifying ? new Date(credential.expiresAt).toISOString() : null;
+	}
+
 	invalidate(space: string): void {
 		this.cache.get(space)?.markRejected();
 		this.cache.delete(space);
@@ -146,42 +155,52 @@ export class SpaceCredentialManager {
 		const ref = parseSpaceUri(space);
 
 		if (!ref) throw new Error(`Not a space URI: ${space}`);
-		const source = await this.deps.source();
-		let delegationToken: string;
-
-		try {
-			delegationToken = await source.getDelegationToken(space);
-		} catch (error) {
-			if (error instanceof Error && /bad token scope/i.test(error.message)) {
-				throw new Error(
-					'The root account session cannot mint space delegation tokens. ROOT_PASSWORD looks like an app password; com.atproto.space.getDelegationToken requires a full-access session (use the account password of a dedicated root account).',
-					{ cause: error }
-				);
-			}
-
-			throw error;
-		}
-
 		// An authority's PDS is its space host.
 		const host = (await this.deps.identity.resolve(ref.authority)).pds;
+		const notify = (await this.deps.notify?.(space)) ?? undefined;
+
+		try {
+			return await this.authorize({ space, host, notify });
+		} catch (error) {
+			// The host calls the endpoint back before it registers it. One it can't reach, or that doesn't know the token,
+			// shouldn't cost the credential, which polling still needs.
+			if (!notify || !(error instanceof XrpcResponseError && error.error === 'RegistrationNotConfirmed')) throw error;
+			this.deps.logger.warn('space host could not confirm the notify endpoint; polling instead', {
+				err: error,
+				space,
+				host
+			});
+
+			return this.authorize({ space, host });
+		}
+	}
+
+	/** Trades a fresh delegation token for a credential, registering `notify` for the space's updates if it's given. */
+	private async authorize(input: {
+		space: string;
+		host: string;
+		notify?: NotifyRegistration;
+	}): Promise<SpaceCredential> {
+		const { space, host, notify } = input;
+		// The host takes each delegation token once.
+		const delegationToken = await this.delegationToken(space);
 		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
 
-		const response = await this.deps.identity.serviceApiFetch(
-			new URL('/xrpc/com.atproto.space.getSpaceCredential', host),
-			{
-				method: 'POST',
-				redirect: 'error',
-				headers: { 'content-type': 'application/json', accept: 'application/json' },
-				body: JSON.stringify({ space, credentialKid: key.did(), delegationToken }),
-				signal: AbortSignal.timeout(15_000)
-			}
-		);
+		const nsid = 'com.atproto.space.authorizeSpaceSync';
+
+		const response = await this.deps.identity.serviceApiFetch(new URL(`/xrpc/${nsid}`, host), {
+			method: 'POST',
+			redirect: 'error',
+			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			body: JSON.stringify({ space, credentialKey: key.did(), delegationToken, notify }),
+			signal: AbortSignal.timeout(15_000)
+		});
 
 		const body = await readBody(response);
 
 		if (!response.ok) {
-			const error = toXrpcError(response.status, body, 'com.atproto.space.getSpaceCredential');
+			const error = toXrpcError(response.status, body, nsid);
 
 			// The authority refused the token the root's PDS minted (its audience, subject, or lifetime). Unlike
 			// SpaceDeleted, which the syncer drops the space for, this says nothing about the space itself.
@@ -194,14 +213,33 @@ export class SpaceCredentialManager {
 
 		const output = spaceCredentialOutput.safeParse(body);
 
-		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned');
-		this.deps.logger.debug('minted space credential', { space });
+		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned', nsid);
+		const notifying = notify !== undefined;
+		const credential = readAnswer(nsid, () => new SpaceCredential(space, output.data.credential, key, notifying));
+		this.deps.logger.debug('minted space credential', { space, notifying });
 
-		return new SpaceCredential(space, output.data.credential, key);
+		return credential;
+	}
+
+	private async delegationToken(space: string): Promise<string> {
+		const source = await this.deps.source();
+
+		try {
+			return await source.getDelegationToken(space);
+		} catch (error) {
+			if (error instanceof Error && /bad token scope/i.test(error.message)) {
+				throw new Error(
+					'The root account session cannot mint space delegation tokens. ROOT_PASSWORD looks like an app password; com.atproto.space.getDelegationToken requires a full-access session (use the account password of a dedicated root account).',
+					{ cause: error }
+				);
+			}
+
+			throw error;
+		}
 	}
 
 	/**
-	 * Calls a credential-authenticated space query (listRepos, ...), decodes
+	 * Calls a credential-authenticated space query (listWriters, ...), decodes
 	 * the response as lex JSON (bytes and CIDs decoded), and parses it with
 	 * the method's output `schema`. Retries once with a fresh credential if it
 	 * was rejected. Responses that carry records are read with {@link macRequest}
@@ -211,35 +249,7 @@ export class SpaceCredentialManager {
 		const response = await this.request(input);
 		const text = await response.text();
 
-		return input.schema.parse(lexParse(text));
-	}
-
-	/** Calls a credential-authenticated space procedure (e.g. registerNotify) with a JSON body and parses the response with `schema`. */
-	async procedure<T>(input: {
-		space: string;
-		service: string;
-		audience: string;
-		nsid: string;
-		body: unknown;
-		schema: z.ZodType<T>;
-	}): Promise<T> {
-		return this.retryRejected(input.space, async () => {
-			const credential = await this.get(input.space);
-
-			const response = await this.deps.identity.serviceApiFetch(new URL(`/xrpc/${input.nsid}`, input.service), {
-				method: 'POST',
-				redirect: 'error',
-				headers: { ...(await credential.headers(input.audience)), 'content-type': 'application/json' },
-				body: JSON.stringify(input.body),
-				signal: AbortSignal.timeout(15_000)
-			});
-
-			const body = await readBody(response);
-
-			if (!response.ok) throw toXrpcError(response.status, body, input.nsid);
-
-			return input.schema.parse(body ?? {});
-		});
+		return readAnswer(input.nsid, () => input.schema.parse(lexParse(text)));
 	}
 
 	/** Like {@link query} but returns the raw response (for blob downloads). */
@@ -252,14 +262,14 @@ export class SpaceCredentialManager {
 	 * listRepoOps, getLatestCommit): asks for one keyed to a secret shared with the author's repo host,
 	 * and returns what checking it needs.
 	 */
-	async macRequest(input: RequestInput & { mac: MacRequest }): Promise<{ response: Response; macParams: MacParams }> {
+	async macRequest(input: RequestInput & { mac: MacRequest }): Promise<{ response: Response; mac: VerifyMacParams }> {
 		return this.retryRejected(input.space, async () => {
+			if (!isDidString(input.mac.kemKey)) throw new Error(`KEM key is not a did:key: ${input.mac.kemKey}`);
 			// A fresh ephemeral key for every request, retries included, so no two responses share a secret.
 			const { keyShare, sharedSecret } = await encapsulate(input.mac.kemKey);
-			const response = await this.send(input, { [WANT_MAC_HEADER]: formatWantMacHeader(input.mac.type, keyShare) });
-			const header = response.headers.get(MAC_HEADER) ?? undefined;
+			const response = await this.send(input, { 'accept-signature': formatMacRequest(input.mac.profile, keyShare) });
 
-			return { response, macParams: () => ({ sharedSecret, mac: parseMacHeader(header, input.mac.type) }) };
+			return { response, mac: { keyShare, sharedSecret, headers: response.headers } };
 		});
 	}
 
@@ -293,28 +303,39 @@ export class SpaceCredentialManager {
 		rkey: string;
 	}): Promise<StoredRecord | null> {
 		const uri = spaceRecordUri(input.space, input.repo, input.collection, input.rkey);
+		const nsid = 'com.atproto.space.getRecord';
+
+		if (!isSpaceAtUriString(uri)) throw new Error(`Not a space record URI: ${uri}`);
 
 		try {
 			return await this.readVerified(input.repo, async ({ pds }, kemKey) => {
-				const { response, macParams } = await this.macRequest({
+				const { response, mac } = await this.macRequest({
 					space: input.space,
 					service: pds,
 					audience: input.repo,
-					nsid: 'com.atproto.space.getRecord',
+					nsid,
 					params: input,
-					mac: { type: RECORD_MAC_TYPE, kemKey }
+					mac: { profile: RECORD_MAC_PROFILE, kemKey }
 				});
 
-				const body: JsonValue = await response.json();
+				const text = await response.text();
+				const body: JsonValue = readAnswer(nsid, () => JSON.parse(text));
 
 				// z.json() and jsonToLex recurse, so the record, one level into the body, is checked with a stack first.
 				if (isTooDeep(body, 0)) throw new RecordValidationError(input.collection, TOO_DEEP);
-				const record = spaceRecordOutput.parse(body);
+				const record = readAnswer(nsid, () => spaceRecordOutput.parse(body));
 				// verifyRecord re-encodes the value to check its CID, so it needs the CIDs and bytes decoded.
 				const value = jsonToLex(record.value);
 
-				if (!isLexMap(value) || !(await verifyRecord({ ...record, value }, { uri, ...macParams() }))) {
-					throw new SpaceMacError(`${uri} does not match its MAC`);
+				if (!isLexMap(value)) throw new SpaceMacError(`${uri} does not match its MAC`);
+
+				try {
+					await verifyRecord({ ...record, value }, { uri, ...mac });
+				} catch (error) {
+					// A MAC that doesn't verify stays a SpaceMacError, so the KEM key is refreshed. Another record than the
+					// one asked for is an answer the host shouldn't give.
+					if (!(error instanceof SpaceRepoVerificationError)) throw error;
+					throw new XrpcResponseError(502, 'InvalidResponse', error.message, nsid);
 				}
 
 				return record;
@@ -371,6 +392,19 @@ const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.
 const xrpcErrorBody = z
 	.object({ error: z.string().optional().catch(undefined), message: z.string().optional().catch(undefined) })
 	.catch({});
+
+/**
+ * What `read` makes of a host's answer to `nsid`. An answer it throws on (not JSON, nested deeper than lex JSON's
+ * recursion goes, a key lex JSON refuses, the wrong shape, a credential that isn't a space token) is the host's
+ * failure, so it rejects as one, naming the method.
+ */
+function readAnswer<T>(nsid: string, read: () => T): T {
+	try {
+		return read();
+	} catch (error) {
+		throw new XrpcResponseError(502, 'InvalidResponse', error instanceof Error ? error.message : String(error), nsid);
+	}
+}
 
 async function readBody(response: Response): Promise<JsonValue | undefined> {
 	try {

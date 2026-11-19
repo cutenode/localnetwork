@@ -1,12 +1,11 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { ada } from '#lib/testing/requests.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import SystemPage from './+page.svelte';
 
 	/** The staff System page with a space whose synced records keep failing to project, listed under it. */
 	const { Story } = defineMeta({ title: 'Patterns/System' });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 

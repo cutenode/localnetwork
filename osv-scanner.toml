@@ -23,6 +23,14 @@ reason = "unmaintained, no vulnerability; heapless 0.7 (under postcard) only use
 # Also ignored in deny.toml, with the same reason.
 [[PackageOverrides]]
 ecosystem = "crates.io"
+name = "chrono"
+version = "0.4.45"
+vulnerability.ignore = true
+reason = "unmaintained, no vulnerability, and no fixed release; the workspace and jacquard-common use it for dates, and LOC-714 moves the workspace to jiff"
+
+# Also ignored in deny.toml, with the same reason.
+[[PackageOverrides]]
+ecosystem = "crates.io"
 name = "crypto-bigint"
 version = "0.5.5"
 vulnerability.ignore = true

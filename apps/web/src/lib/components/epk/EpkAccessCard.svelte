@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Lock } from '@lucide/svelte';
 	import { enhance } from '$app/forms';
-	import { type EpkAccessState, REQUEST_ROLES, ROLE_LABELS } from '#lib/epk.ts';
+	import type { EpkAccessState } from '#lib/epk.ts';
 	import { formatDate } from '#lib/format.ts';
 	import { control } from '#lib/ui/Field.svelte';
 
@@ -40,17 +40,9 @@
 				};
 			}}
 		>
-			<div class="grid gap-3 sm:grid-cols-[12rem_1fr]">
-				<div class="flex flex-col gap-1.5">
-					<label for="role" class="text-label font-medium text-fg-soft">You're a</label>
-					<select id="role" name="role" class={control}>
-						{#each REQUEST_ROLES as role (role)}<option value={role}>{ROLE_LABELS[role]}</option>{/each}
-					</select>
-				</div>
-				<div class="flex flex-col gap-1.5">
-					<label for="message" class="text-label font-medium text-fg-soft">Message <span class="font-normal text-fg-subtle">(optional)</span></label>
-					<input id="message" name="message" maxlength="1000" class={control} placeholder="What you're booking or writing about" />
-				</div>
+			<div class="flex flex-col gap-1.5">
+				<label for="message" class="text-label font-medium text-fg-soft">Message <span class="font-normal text-fg-subtle">(optional)</span></label>
+				<input id="message" name="message" maxlength="1000" class={control} placeholder="Who you are and what it's for" />
 			</div>
 			{#if error}<p role="alert" class="m-0 text-label text-critical">{error}</p>{/if}
 			<p class="m-0 flex flex-wrap items-center gap-3">

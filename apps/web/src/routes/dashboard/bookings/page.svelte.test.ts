@@ -1,8 +1,9 @@
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import type { BookingThreadView, ProjectView, Viewer } from '#lib/types.ts';
+import type { BookingListThread, ProjectView, ThreadProjects, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
+import type { PageProps } from './$types';
 
 const viewer = (did: string): Viewer => ({
 	did,
@@ -13,28 +14,57 @@ const viewer = (did: string): Viewer => ({
 	spacesCapable: true
 });
 
-const thread = (skey: string, status: string, lastAuthor: string, project = 'neon-tide'): BookingThreadView => ({
+const PAT = 'did:plc:pat';
+
+const NEON = 'did:plc:neon';
+
+const thread = (
+	skey: string,
+	status: string,
+	lastAuthor: string,
+	overrides: Partial<BookingListThread> = {}
+): BookingListThread => ({
 	space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
 	skey,
 	status,
 	title: `Show ${skey}`,
 	showDate: null,
-	project: {
-		uri: `at://did:plc:root/computer.localnetwork.project/${project}`,
-		slug: project,
-		name: project === 'neon-tide' ? 'Neon Tide' : 'Harbour Lights'
-	},
-	promoter: { did: 'did:plc:pat', handle: 'pat.test' },
+	project: null,
+	promoter: { did: PAT, handle: 'pat.test' },
 	participants: [
-		{ did: 'did:plc:pat', handle: 'pat.test', role: 'promoter' },
-		{ did: 'did:plc:neon', handle: 'neon.test', role: 'manager' }
+		{ did: PAT, handle: 'pat.test', role: 'promoter' },
+		{ did: NEON, handle: 'neon.test', role: 'manager' }
 	],
 	lastAuthor,
 	lastActivityAt: '2026-10-01T00:00:00Z',
-	createdAt: '2026-10-01T00:00:00Z'
+	createdAt: '2026-10-01T00:00:00Z',
+	withdrawn: false,
+	...overrides
 });
 
-const data = (did: string, threads: BookingThreadView[], projects: ProjectView[] = []) => ({
+/** Which act each thread is with: Neon Tide, unless its key is listed under Harbour Lights. */
+const named = (threads: BookingListThread[], harbour: string[] = []): ThreadProjects =>
+	new Map(
+		threads.map(({ space, skey }) => {
+			const slug = harbour.includes(skey) ? 'harbour-lights' : 'neon-tide';
+
+			return [
+				space,
+				{
+					uri: `at://did:plc:root/computer.localnetwork.project/${slug}`,
+					slug,
+					name: harbour.includes(skey) ? 'Harbour Lights' : 'Neon Tide',
+					href: `/projects/${slug}`
+				}
+			];
+		})
+	);
+
+const data = (
+	did: string,
+	threads: BookingListThread[],
+	overrides: Partial<PageProps['data']> = {}
+): PageProps['data'] => ({
 	viewer: viewer(did),
 	pendingRequests: 0,
 	unread: 0,
@@ -42,49 +72,250 @@ const data = (did: string, threads: BookingThreadView[], projects: ProjectView[]
 	needs: [],
 	access: Promise.resolve([]),
 	sections: Promise.resolve(null),
-	projects: Promise.resolve(projects),
-	threads
+	projects: Promise.resolve([]),
+	threads,
+	acts: new Set(threads.map(({ skey }) => skey)).size,
+	names: named(threads),
+	...overrides
 });
 
-it('groups threads by whose turn it is and how they ended, with a filter once there are several projects', async () => {
-	await render(Page, {
-		params: {},
-		form: null,
-		data: data('did:plc:pat', [
-			thread('a', 'negotiating', 'did:plc:neon'),
-			thread('b', 'open', 'did:plc:pat', 'harbour-lights'),
-			thread('c', 'confirmed', 'did:plc:neon'),
-			thread('d', 'declined', 'did:plc:neon')
-		])
-	});
+/** The page's address, filtered to an act when one's given. */
+const at = (project?: string) =>
+	new URL(`https://localnetwork.test/dashboard/bookings${project ? `?project=${project}` : ''}`);
+
+const list = (props: PageProps['data'], url = at()) => render(Page, { params: {}, form: null, data: props, url });
+
+const region = (name: string) => page.getByRole('region', { name: new RegExp(`^${name}`) });
+
+const text = (name: string) => region(name).element().textContent.replaceAll(/\s+/g, ' ');
+
+it('groups threads by whose turn it is, with a filter once there are several acts', async () => {
+	const threads = [
+		thread('a', 'negotiating', NEON),
+		thread('b', 'open', PAT),
+		thread('c', 'confirmed', NEON),
+		thread('d', 'declined', NEON)
+	];
+
+	await list(data(PAT, threads, { names: named(threads, ['b']) }));
 
 	for (const [group, show] of [
-		['Needs your reply', 'Show a'],
-		['In progress', 'Show b'],
+		['Your turn', 'Show a'],
+		['Waiting on them', 'Show b'],
 		['Confirmed', 'Show c'],
-		['Closed', 'Show d']
+		['Settled', 'Show d']
 	]) {
-		const section = page.getByRole('region', { name: new RegExp(`^${group}`) });
-		await expect.element(section.getByText(show)).toBeInTheDocument();
+		await expect.element(region(group).getByText(show)).toBeInTheDocument();
 	}
 
-	const filter = page.getByRole('navigation', { name: 'Filter by project' });
+	await expect.element(page.getByText('In progress')).not.toBeInTheDocument();
+
+	const filter = page.getByRole('navigation', { name: 'Filter by act' });
 	await expect.element(filter.getByRole('link', { name: 'All' })).toHaveAttribute('aria-current', 'page');
 	await expect
 		.element(filter.getByRole('link', { name: 'Harbour Lights' }))
 		.toHaveAttribute('href', '/dashboard/bookings?project=harbour-lights');
 });
 
-it('tells a DJ inquiries come to them, and a promoter where to find DJs', async () => {
-	// SAFETY: the empty state checks only that the viewer manages a project.
-	const { rerender } = await render(Page, {
-		params: {},
-		form: null,
-		data: data('did:plc:neon', [], [{} as ProjectView])
+it('says who a booking waits on: the act to a promoter, the handle to a manager', async () => {
+	const threads = [thread('a', 'open', PAT)];
+	const { rerender } = await list(data(PAT, threads));
+
+	expect(text('Waiting on them')).toContain('Waiting on Neon Tide · you wrote');
+	expect(text('Waiting on them')).not.toContain('neon.test');
+
+	const answered = [thread('a', 'negotiating', NEON)];
+	await rerender({ data: data(NEON, answered) });
+	await expect.poll(() => text('Waiting on them')).toContain('Waiting on @pat.test · Neon Tide · you wrote');
+});
+
+it('leads a row with its date, dashed until confirmed, and marks a date with none', async () => {
+	await list(
+		data(NEON, [
+			thread('a', 'open', PAT, { showDate: '2099-11-14' }),
+			thread('b', 'confirmed', PAT, { showDate: '2099-11-21' }),
+			thread('c', 'open', PAT)
+		])
+	);
+
+	const dashed = (show: string) =>
+		page.getByRole('listitem').filter({ hasText: show }).element().querySelector('time')?.className;
+
+	expect(dashed('Show a')).toMatch(/border-dashed/);
+	expect(dashed('Show b')).not.toMatch(/border-dashed/);
+	await expect.element(page.getByRole('listitem').filter({ hasText: 'Show c' }).getByText('No date')).toBeVisible();
+});
+
+it('shows a pill only where it adds to the group', async () => {
+	await list(
+		data(NEON, [
+			thread('a', 'open', PAT),
+			thread('b', 'negotiating', PAT),
+			thread('c', 'open', NEON),
+			thread('d', 'confirmed', PAT, { showDate: '2099-11-21' }),
+			thread('e', 'negotiating', PAT, { showDate: '2020-11-21' })
+		])
+	);
+
+	const row = (show: string) => page.getByRole('listitem').filter({ hasText: show });
+
+	await expect.element(row('Show a').getByText('New', { exact: true })).toBeVisible();
+	await expect.element(row('Show b').getByText('Negotiating', { exact: true })).toBeVisible();
+	await expect.element(row('Show c').getByText('New', { exact: true })).not.toBeInTheDocument();
+	await expect.element(row('Show d').getByText('Confirmed', { exact: true })).not.toBeInTheDocument();
+	await expect.element(row('Show e').getByText('Date passed')).toBeVisible();
+});
+
+it('puts Settled away, each row saying how it ended', async () => {
+	await list(
+		data(PAT, [
+			thread('a', 'declined', NEON),
+			thread('b', 'cancelled', PAT, { withdrawn: true }),
+			thread('c', 'cancelled', NEON),
+			thread('d', 'confirmed', NEON, { showDate: '2020-11-21' })
+		])
+	);
+
+	await expect.element(page.getByText('Show a')).not.toBeVisible();
+	await page.getByText('Settled', { exact: false }).click();
+
+	const row = (show: string) => page.getByRole('listitem').filter({ hasText: show });
+
+	await expect.element(row('Show a').getByText('Declined')).toBeVisible();
+	await expect.element(row('Show b').getByText('Withdrawn')).toBeVisible();
+	await expect.element(row('Show c').getByText('Cancelled')).toBeVisible();
+	await expect.element(row('Show d').getByText('Date passed')).toBeVisible();
+});
+
+it('renders every thread while the directory is slow, and fills the act in when it answers', async () => {
+	const threads = [thread('a', 'open', NEON)];
+	let answer = (_: ThreadProjects) => {};
+
+	const names = new Promise<ThreadProjects>((resolve) => {
+		answer = resolve;
 	});
 
+	await list(data(PAT, threads, { names }));
+
+	await expect.element(page.getByText('Show a')).toBeVisible();
+	expect(text('Your turn')).not.toContain('Neon Tide');
+	answer(named(threads));
+	await expect.poll(() => text('Your turn')).toContain('Neon Tide');
+});
+
+it('filters by the act in the address, and says when it has nothing', async () => {
+	const threads = [thread('a', 'open', NEON), thread('b', 'open', NEON)];
+
+	const url = at('harbour-lights');
+	const { rerender } = await list(data(PAT, threads, { names: named(threads, ['b']) }), url);
+
+	await expect.element(page.getByText('Show b')).toBeVisible();
+	await expect.element(page.getByText('Show a')).not.toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Harbour Lights' })).toHaveAttribute('aria-current', 'page');
+
+	await rerender({ data: data(PAT, threads), url });
+	await expect.element(page.getByText('No bookings with this act')).toBeVisible();
+	await expect.element(page.getByRole('link', { name: 'Show all' })).toHaveAttribute('href', '/dashboard/bookings');
+});
+
+it('holds the filter until the directory can say which threads match', async () => {
+	const threads = [thread('a', 'open', NEON)];
+
+	await list(data(PAT, threads, { acts: 2, names: new Promise<never>(() => {}) }), at('neon-tide'));
+
+	await expect.element(page.getByRole('status', { name: 'Loading acts' })).toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading bookings' })).toBeInTheDocument();
+	await expect.element(page.getByText('Show a')).not.toBeInTheDocument();
+});
+
+it('shows every booking when it has no names to filter by, and says so', async () => {
+	await list(data(PAT, [thread('a', 'open', NEON)], { names: null }), at('neon-tide'));
+
+	await expect.element(page.getByText('Show a')).toBeVisible();
+	await expect.element(page.getByText(/so this shows every booking/)).toBeVisible();
+	await expect
+		.element(page.getByRole('link', { name: 'Try again' }))
+		.toHaveAttribute('href', '/dashboard/bookings?project=neon-tide');
+});
+
+it('works without act names, and says so', async () => {
+	await list(data(PAT, [thread('a', 'open', PAT)], { names: null }));
+
+	await expect.element(page.getByText(/Waiting on the act/)).toBeVisible();
+	await expect.element(page.getByText(/Act names didn't load/)).toBeVisible();
+	await expect.element(page.getByRole('link', { name: 'Try again' })).toBeVisible();
+});
+
+it('keeps New inquiry reachable', async () => {
+	await list(data(PAT, [thread('a', 'open', PAT)]));
+
+	await expect.element(page.getByRole('link', { name: 'New inquiry' })).toHaveAttribute('href', '/djs');
+});
+
+it('gives a DJ and a promoter each a next step when there are no bookings', async () => {
+	// SAFETY: the empty state only reads the first project's slug.
+	const projects = Promise.resolve([{ slug: 'neon-tide' } as ProjectView]);
+	const { rerender } = await list(data(NEON, [], { projects }));
+
+	await expect.element(page.getByRole('heading', { level: 1, name: 'Bookings' })).toBeVisible();
 	await expect.element(page.getByText(/When a promoter sends an inquiry/)).toBeInTheDocument();
+	await expect
+		.element(page.getByRole('link', { name: 'Edit your page' }))
+		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
 	await expect.element(page.getByRole('link', { name: 'Find DJs' })).not.toBeInTheDocument();
-	await rerender({ data: data('did:plc:pat', []) });
-	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+	// A DJ by their own name, with the DJ section on and no project, gets inquiries too.
+	await rerender({ data: data(NEON, [], { sections: Promise.resolve({ performer: true, promoter: false }) }) });
+	await expect.element(page.getByText(/When a promoter sends an inquiry to you/)).toBeInTheDocument();
+	await expect
+		.element(page.getByRole('link', { name: 'Edit your profile' }))
+		.toHaveAttribute('href', '/dashboard/profile');
+	await rerender({ data: data(PAT, []) });
+	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/djs');
+});
+
+const MARA = 'did:plc:mara';
+
+const mara = { uri: `at://${MARA}/computer.localnetwork.profile/self`, slug: null, name: 'Mara', href: '/@mara.test' };
+
+/** A thread with a DJ Find DJs lists, who answers for themself. */
+const withDj = (skey: string, status: string, lastAuthor: string) =>
+	thread(skey, status, lastAuthor, {
+		participants: [
+			{ did: PAT, handle: 'pat.test', role: 'promoter' },
+			{ did: MARA, handle: 'mara.test', role: 'performer' }
+		]
+	});
+
+it('filters threads with a listed DJ by their handle, beside an act', async () => {
+	const threads = [thread('a', 'open', PAT), withDj('b', 'open', PAT)];
+	const names: ThreadProjects = new Map([...named(threads.slice(0, 1)), [threads[1].space, mara]]);
+
+	const { rerender } = await list(data(PAT, threads, { names }));
+
+	const filter = page.getByRole('navigation', { name: 'Filter by act' });
+	await expect
+		.element(filter.getByRole('link', { name: 'Mara' }))
+		.toHaveAttribute('href', '/dashboard/bookings?project=@mara.test');
+
+	await rerender({ data: data(PAT, threads, { names }), url: at('@mara.test') });
+	await expect.element(page.getByText('Show b')).toBeVisible();
+	await expect.element(page.getByText('Show a')).not.toBeInTheDocument();
+});
+
+it("sorts a listed DJ's bookings by whose turn it is, as an act manager's", async () => {
+	const threads = [withDj('a', 'open', PAT), withDj('b', 'negotiating', MARA)];
+	const names: ThreadProjects = new Map(threads.map(({ space }) => [space, mara]));
+
+	const { rerender } = await list(data(MARA, threads, { names }));
+
+	await expect.element(region('Your turn').getByText('Show a')).toBeVisible();
+	await expect
+		.element(page.getByRole('listitem').filter({ hasText: 'Show a' }).getByText('New', { exact: true }))
+		.toBeVisible();
+	expect(text('Your turn')).toContain('Mara · from @pat.test');
+	expect(text('Waiting on them')).toContain('Waiting on @pat.test · Mara · you wrote');
+
+	await rerender({ data: data(PAT, threads, { names }) });
+	await expect.poll(() => text('Your turn')).toContain('Show b');
+	expect(text('Waiting on them')).toContain('Waiting on Mara · you wrote');
 });

@@ -2,7 +2,7 @@ import type { OnboardingData } from '#lib/onboarding/checklist.ts';
 import type { ProfileView, Viewer } from '#lib/types.ts';
 
 /**
- * What the dashboard home's checklist checks for `viewer`, from their `profile` and `prefill`, the start of a first
+ * What Overview's checklist checks for `viewer`, from their `profile` and `prefill`, the start of a first
  * one. Null while the directory can't say whether they have a profile, so nobody is asked to make one they have.
  */
 export async function onboardingData(

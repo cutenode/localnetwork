@@ -18,7 +18,7 @@ use locallibrary::collection_export::{CollectionExportOptions, CollectionExportP
 use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
-use locallibrary::plugin::PluginExport;
+use locallibrary::plugin::{PluginCommand, PluginExport};
 use locallibrary::progress::{Event, Phase, Progress};
 use locallibrary::query::{SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
@@ -161,6 +161,8 @@ pub struct Target {
     pub crate_total: usize,
     /// The drive was unplugged.
     pub stale: bool,
+    /// It's rekordbox's collection, which isn't written.
+    pub collection: bool,
     pub selected: Selected,
 }
 
@@ -212,10 +214,13 @@ impl Menu {
     }
 }
 
+/// Why nothing is changed in rekordbox's collection from here.
+pub const COLLECTION_READ_ONLY: &str = "rekordbox's collection is read-only here: export it to a drive to edit";
+
 pub fn menu_items(t: &Target) -> Vec<MenuItem> {
     let item = |key, label: String, action, unavailable: Option<String>| MenuItem { key, label, action, unavailable };
     let because = |cond: bool, why: &str| cond.then(|| why.to_string());
-    let stale = because(t.stale, "the drive was unplugged");
+    let stale = because(t.collection, COLLECTION_READ_ONLY).or(because(t.stale, "the drive was unplugged"));
     let no_tracks = because(t.tracks.is_empty(), "no track selected");
     let tracks = stale.clone().or(no_tracks.clone());
     let list = t.list.as_deref();
@@ -390,6 +395,11 @@ impl Confirm {
         self.plan.as_any().downcast_ref::<Planned<PluginExport>>()
     }
 
+    /// The plan, when it's a plugin's command planned first (its files shown).
+    pub fn command(&self) -> Option<&Planned<PluginCommand>> {
+        self.plan.as_any().downcast_ref::<Planned<PluginCommand>>()
+    }
+
     /// The plan, when it's undoing (shown in detail).
     pub fn undo(&self) -> Option<&api::UndoPlan> {
         self.plan.as_any().downcast_ref::<Planned<api::UndoPlan, bool>>().map(|p| &p.plan)
@@ -557,6 +567,14 @@ pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
         let who = e.plan.output.display().to_string();
         return Wording { ask, yes, who, what: "export".into(), doing: "Exporting".into() };
     }
+    // A plugin's command planned first: it does what it says, on this computer.
+    if let Some(c) = plan.as_any().downcast_ref::<Planned<PluginCommand>>() {
+        let named = super::plugins::planned_command(plan.operation());
+        let (by, title) =
+            named.map_or((c.plan.plugin.clone(), c.plan.command.clone()), |(by, x)| (by.into(), x.title.clone()));
+        let what = super::plugins::named(&title);
+        return Wording { ask: format!("{title}?"), yes: "run", who: by, what, doing: title };
+    }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
     // Building a drive from a plugin's library source: the only collection export the player plans.
@@ -667,6 +685,7 @@ impl App {
             crated,
             crate_total: self.crate_list.len(),
             stale: l.stale,
+            collection: l.is_collection(),
             selected: match self.focus {
                 Focus::Playlists => Selected::List,
                 Focus::Crate => Selected::Crate,
@@ -1151,7 +1170,7 @@ impl App {
             self.toast(msg, Level::Info);
             return;
         }
-        if self.unplugged(&root) {
+        if self.unplugged(&root) || self.read_only(&root) {
             return;
         }
         let id = self.next_id();
@@ -1183,6 +1202,16 @@ impl App {
         };
         self.spawn_or(job, move |e| Msg::Planned { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
+    /// Whether `root` is rekordbox's collection, which the player never writes: said, as
+    /// nothing's planned on it then.
+    pub(super) fn read_only(&mut self, root: &Path) -> bool {
+        let collection = self.loaded.as_ref().is_some_and(|l| l.is_collection() && l.root() == root);
+        if collection {
+            self.toast(COLLECTION_READ_ONLY, Level::Info);
+        }
+        collection
+    }
+
     /// Whether the drive at `root` was unplugged since it was opened: said, as nothing's planned
     /// on it then.
     pub(super) fn unplugged(&mut self, root: &Path) -> bool {
@@ -1326,12 +1355,15 @@ impl App {
             after: c.after.clone(),
         });
         let tx = self.sender();
+        let plugin_command = c.command().is_some();
         let Confirm { root, plan, .. } = c;
         let store_root = self.store_root.clone();
         let failed_root = root.clone();
         let job = move || {
             let _opened = opening.as_ref().map(|o| o.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-            let inner = CancelToken::new();
+            // A plugin's command stops when the plugin can, so esc asks it at once, not only as
+            // its progress comes in.
+            let inner = if plugin_command { outer.clone() } else { CancelToken::new() };
             let reporter = Reporter::new(tx, id, outer.clone(), inner.clone());
             let ctx = Ctx::new(&reporter, inner);
             let result = if outer.is_cancelled() {
@@ -1448,6 +1480,10 @@ impl App {
                     msg.push_str(UNDO_HINT);
                 }
                 self.toast(msg, Level::Info);
+            }
+            Ok(Applied { operation, report }) if super::plugins::planned_command(&operation).is_some() => {
+                let (_, command) = super::plugins::planned_command(&operation).expect("checked above");
+                self.show_planned_answer(command, report);
             }
             Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");

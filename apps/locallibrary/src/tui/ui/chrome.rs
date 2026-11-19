@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use crate::output::bytes;
-use crate::tui::app::{App, Level, UNDO_HINT, View, typed_tail};
+use crate::tui::app::{App, Focus, Level, UNDO_HINT, View, typed_tail};
 use crate::tui::edits::Modal;
 use crate::tui::first_run::intro_line;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
@@ -246,7 +246,13 @@ fn mode(app: &App) -> &'static str {
 /// about the drive comes from the last read of the drive list, so a frame touches no disk.
 fn whereabouts(app: &mut App) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
-    let (selected, len) = app.list_selection();
+    let (selected, len) = match (app.view, app.focus) {
+        (View::Library, Focus::Drives) if !app.deck_showing() => (app.source_row(), app.source_rows()),
+        _ => {
+            let (selected, len) = app.list_selection();
+            (*selected, len)
+        }
+    };
     if let Some(at) = selected.filter(|_| len > 0) {
         spans.push(Span::styled(format!("{}/{len}", at.min(len - 1) + 1), dim()));
     }
@@ -271,8 +277,16 @@ pub(super) fn draw_status(f: &mut Frame, app: &mut App, area: Rect) -> Rect {
     let width = area.width as usize;
     let mode = Span::styled(format!(" {} ", mode(app)), theme::chip(theme::current().dim));
     let mode_w = mode.width() + 1;
-    // The right side gives way first, from its end.
+    // The right side gives way first, from its end. With the deck showing, the modes that are on
+    // lead it.
     let mut right = whereabouts(app);
+    if app.deck_showing() {
+        let mut states = super::deck::deck_states(app);
+        if !states.is_empty() {
+            states.push(Span::raw("   "));
+            right.splice(0..0, states);
+        }
+    }
     while right.len() > 1 && right.iter().map(Span::width).sum::<usize>() * 2 > width.saturating_sub(mode_w) {
         right.remove(right.len() - 2);
     }

@@ -27,6 +27,7 @@
 
 <script lang="ts">
 	import { MapPin, Plus, Search } from '@lucide/svelte';
+	import { tick } from 'svelte';
 	import { Combobox } from '#lib/combobox.svelte.ts';
 	import { placeKey, placeText, searchPlaces } from '#lib/places.ts';
 	import ComboboxOptions from './ComboboxOptions.svelte';
@@ -34,18 +35,17 @@
 
 	/**
 	 * Picks a venue for a form: an existing one by name, or a new one by its name and its city from the city search.
-	 * Names repeat, so each venue shows its city under its name. The form gets the venue's space URI as `name`.
+	 * Names repeat, so each venue shows its city under its name. The form gets the venue's space URI as `name`, and
+	 * hears an `input` when the venue changes, as it would from typing, since no field it reads was typed in.
 	 */
 	let {
 		name = 'venue',
-		value = null,
+		value = $bindable(null),
 		required = false,
 		id = 'venue'
 	}: { name?: string; value?: VenueOption | null; required?: boolean; id?: string } = $props();
 
-	// Starts from `value`, then follows what's picked here.
-	// svelte-ignore state_referenced_locally
-	let chosen = $state<VenueOption | null>(value);
+	let root = $state<HTMLDivElement>();
 
 	let query = $state('');
 
@@ -71,7 +71,7 @@
 
 			return found;
 		},
-		(venue) => (chosen = venue),
+		(venue) => void choose(venue),
 		250
 	);
 
@@ -98,8 +98,14 @@
 		adding = true;
 	}
 
+	async function choose(venue: VenueOption | null) {
+		value = venue;
+		await tick();
+		root?.dispatchEvent(new Event('input', { bubbles: true }));
+	}
+
 	function change() {
-		chosen = null;
+		void choose(null);
 		query = '';
 		answered = '';
 	}
@@ -123,7 +129,7 @@
 				return;
 			}
 
-			chosen = added.venue;
+			void choose(added.venue);
 			adding = false;
 		} catch {
 			error = "Couldn't add the venue. Check your connection and try again.";
@@ -133,19 +139,19 @@
 	}
 </script>
 
-<div class="space-y-3">
-	{#if chosen}
+<div class="space-y-3" bind:this={root}>
+	{#if value}
 		<div class="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
 			<p class="m-0 flex min-w-0 items-start gap-2">
 				<MapPin aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-fg-subtle" />
 				<span class="min-w-0">
-					<span class="block truncate font-medium text-fg">{chosen.name}</span>
-					<span class="block text-small text-fg-muted">{where(chosen)}</span>
+					<span class="block truncate font-medium text-fg">{value.name}</span>
+					<span class="block text-small text-fg-muted">{where(value)}</span>
 				</span>
 			</p>
 			<button type="button" class="btn-ghost btn-sm" onclick={change} aria-label="Change venue">Change</button>
 		</div>
-		<input type="hidden" {name} value={chosen.space} />
+		<input type="hidden" {name} value={value.space} />
 	{:else if adding}
 		<fieldset class="space-y-3 rounded-lg border border-line p-3">
 			<legend class="px-1 text-small font-medium text-fg">New venue</legend>
