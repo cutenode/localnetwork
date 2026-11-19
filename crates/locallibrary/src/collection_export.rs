@@ -888,14 +888,17 @@ pub fn apply(
     let library = target.library()?;
     let scanned = target.scan_fingerprinted(Some(&library), ctx)?;
     report.fingerprint = scanned.fingerprint;
-    target.finish(scanned.fingerprint.map(|fp| LineageEntry {
-        fingerprint: fp,
-        at: Utc::now(),
-        op: LineageOp::Export,
-        snapshot: None,
-        source: None,
-        tracks: library.tracks.len(),
-    }))?;
+    target.finish(
+        scanned.fingerprint.map(|fp| LineageEntry {
+            fingerprint: fp,
+            at: Utc::now(),
+            op: LineageOp::Export,
+            snapshot: None,
+            source: None,
+            tracks: library.tracks.len(),
+        }),
+        ctx,
+    )?;
     let rec = CollectionExportRecord {
         collection: plan.collection.clone(),
         source: plan.source.clone(),

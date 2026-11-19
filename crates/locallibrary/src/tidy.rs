@@ -206,6 +206,33 @@ pub(crate) fn remove_leftovers(device: &Device) -> Result<()> {
     Ok(())
 }
 
+/// Remove the AppleDouble files in the library's folders (`PIONEER/`, `Contents/` and theirs at
+/// the root). macOS gives every file a process creates a `com.apple.provenance` attribute, which
+/// on FAT and exFAT it keeps in a `._` file beside it, so a write leaves one beside every file and
+/// folder it made. The attribute can't be removed, but the `._` file can. One that can't be
+/// removed is left for `drive tidy`, with a warning: the write it follows is done either way.
+pub(crate) fn remove_apple_double(root: &Path, ctx: &Ctx<'_>) {
+    let library = [paths::PIONEER_DIR, paths::CONTENTS_DIR];
+    let below = library.iter().flat_map(|d| WalkDir::new(root.join(d)).follow_links(false)).filter_map(|e| e.ok());
+    let found: Vec<PathBuf> = below
+        .filter(|e| e.file_type().is_file())
+        .map(walkdir::DirEntry::into_path)
+        .chain(library.map(|d| root.join(format!("._{d}"))))
+        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("._")) && is_apple_double(p))
+        .collect();
+    let mut left = 0;
+    for e in found.iter().filter_map(|p| crate::fsutil::remove_if_exists(p).err()) {
+        left += 1;
+        // The first few say why; the count after them says how many.
+        if left <= 3 {
+            ctx.warn(format!("couldn't remove {e}"));
+        }
+    }
+    if left > 0 {
+        ctx.warn(format!("{left} macOS ._ file(s) are left on the drive; `locallibrary drive tidy` removes them"));
+    }
+}
+
 /// Delete what [`plan`] found. Each item is checked again first; anything that changed is left.
 pub fn apply(plan: &TidyPlan, device: &Device, ctx: &Ctx<'_>) -> Result<TidyReport> {
     let _lock = device.lock()?;
