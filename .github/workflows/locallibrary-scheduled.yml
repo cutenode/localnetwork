@@ -18,6 +18,11 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 # Pinned the same way as locallibrary-ci.yml.
 jobs:
   # Whether anything the suites test changed since the last weekly or hand-started run on main that

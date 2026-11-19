@@ -1,10 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import DiffTable from './DiffTable.svelte';
 
 	const { Story } = defineMeta({ title: 'Requests/Changes table', component: DiffTable, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const changes = [
 		{ field: 'profile.location.city', before: 'Leeds', after: 'York' },

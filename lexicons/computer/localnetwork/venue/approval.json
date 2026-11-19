@@ -1,0 +1,20 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.venue.approval",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "That a venue confirms an event naming it. Written only by the Local Network root account, into the venue's space, for its people with venue.approve or for staff.",
+			"record": {
+				"type": "object",
+				"required": ["event", "approvedBy", "createdAt"],
+				"properties": {
+					"event": { "type": "string", "format": "at-uri", "description": "The party's event record." },
+					"approvedBy": { "type": "string", "format": "did" },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

@@ -11,7 +11,7 @@ use locallibrary::plugin::AccountId;
 
 use super::accounts::{form, has};
 use super::net::Got;
-use super::shared_accounts::{Mock, WITH, asking, keys_plugin, mock_among, mock_for, options, who};
+use super::shared_accounts::{Losing, Mock, WITH, asking, keys_plugin, mock_among, mock_for, options, who};
 use super::*;
 use crate::mock_oauth::sent_at;
 
@@ -88,12 +88,13 @@ enum Naming {
 
 /// For an echo plugin needing any of the mock type's scopes (the rest optional), an account
 /// granted what any of them ask, given to it or not (with any optional scopes, and maybe missing
-/// one it needs now), signed out or not, and a request of any method to any address, naming the
-/// account by type, by the access or by another: the token goes, where the type says, exactly
-/// when the plugin has the access named, the account is signed in, the access has every scope the
-/// plugin needs, one of its scopes covers the request and the account was granted what that one
-/// asks; otherwise it fails as `access` (`signed_out` when it's signed out) or `scope`, naming
-/// the type and the account plugin, and nothing is sent. No token gets out.
+/// one it needs now), signed out or its session ended or neither, and a request of any method to
+/// any address, naming the account by type, by the access or by another: the token goes, where
+/// the type says, exactly when the plugin has the access named, the account is signed in, the
+/// access has every scope the plugin needs, one of its scopes covers the request and the account
+/// was granted what that one asks; otherwise it fails as `access` (losing the account took the
+/// access with it) or `scope`, naming the type and the account plugin, and nothing is sent. No
+/// token gets out.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
@@ -123,9 +124,9 @@ fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
         let kept = json!(scopes.iter().filter(|s| *s != needs[0]).collect::<Vec<_>>());
         m.edit("accounts.json", |book| book["accesses"][0]["scopes"] = kept);
     }
-    let signed_out = tc.draw(gs::booleans());
-    if signed_out {
-        m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap();
+    let lost = tc.draw(gs::sampled_from(vec![None, Some(Losing::SignOut), Some(Losing::SessionEnds)]));
+    if let Some(how) = lost {
+        m.lose("a", how);
     }
     let naming = tc.draw(gs::sampled_from(vec![Naming::Default, Naming::Its, Naming::Another]));
     let named = match naming {
@@ -140,8 +141,7 @@ fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
 
     let covering: Vec<&String> = scopes.iter().filter(|s| covers(s, method, path)).collect();
     let expected = match () {
-        _ if !given || matches!(naming, Naming::Another) => Err(("access", None)),
-        _ if signed_out => Err(("access", Some("signed_out"))),
+        _ if !given || lost.is_some() || matches!(naming, Naming::Another) => Err(("access", None)),
         _ if dropped => Err(("scope", None)),
         _ if covering.is_empty() => Err(("scope", None)),
         _ if !covering.iter().any(|s| asks(s).iter().all(|a| granted.contains(a))) => Err(("scope", None)),
@@ -345,40 +345,42 @@ fn giving(subject: &str, name: &str, scopes: &[&str]) -> Action {
     Action::call("accounts.access.give", params, format!("Allow {} with {name}", scopes.join(", ")))
 }
 
-/// An account signed out keeps its accesses, which still list, and a request through one fails as
-/// `access` (`signed_out`) naming the access, its account and what signing in again allows, which
-/// passed on says to sign in again as it; signed in again, it has its token.
+/// An account signed out, or whose session ended, takes echo's access with it: none lists, the
+/// account lists signed out with the access remembered, and a request fails as `access` naming no
+/// access, which passed on says to sign in for echo; signed in again for echo, its access is back
+/// as it was, with the new token.
 #[test]
 fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
-    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
-    m.sign_in(who(json!("a"), Some("a@mock.example")), None, &[]).0.unwrap();
-    m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap();
-    let listed = m.f.plugins.accesses(&m.f.store, None, Some(&account("a"))).unwrap();
-    let said: Vec<(&str, &str, bool, &[String])> =
-        listed.iter().map(|a| (a.plugin.as_str(), a.name.as_str(), a.default, a.scopes.as_slice())).collect();
-    assert_eq!(said, [("echo", "a@mock.example", true, ["read".to_string()].as_slice())]);
-    let answer = m.fetch_as("GET", "/r/x", "{account:mock}", None);
-    let failed = &answer["error"]["data"];
-    assert_eq!((&failed["kind"], &failed["reason"]), (&json!("access"), &json!("signed_out")), "{answer}");
-    let named = (&failed["fields"]["access"], &failed["fields"]["account"], &failed["fields"]["needs"]);
-    assert_eq!(named, (&json!(listed[0].id), &json!(account("a")), &json!(["read"])), "{answer}");
-    let e = m.passed_on("access", Some("signed_out"), &failed["fields"]);
-    assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NotSignedIn)), "{e}");
-    let again = signing_in_again("a", "a@mock.example", &["read"]);
-    assert_eq!(e.detail().actions, [vec![again], resolving(&[])].concat());
+    for losing in Losing::BOTH {
+        let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
+        let had = m.sign_in(who(json!("a"), Some("a@mock.example")), None, &[]).0.unwrap().access.unwrap();
+        m.lose("a", losing);
+        assert_eq!(m.f.plugins.accesses(&m.f.store, None, None).unwrap(), [], "{losing:?}");
+        let listing = m.f.plugins.accounts_and_accesses(&m.f.store).unwrap();
+        let listed: Vec<(&str, bool)> = listing.accounts.iter().map(|a| (a.name.as_str(), a.signed_in)).collect();
+        assert_eq!((listed, &listing.remembered), (vec![("a@mock.example", false)], &vec![had.clone()]), "{losing:?}");
+        let answer = m.fetch_as("GET", "/r/x", "{account:mock}", None);
+        let failed = &answer["error"]["data"];
+        assert_eq!((&failed["kind"], &failed["reason"]), (&json!("access"), &Value::Null), "{losing:?}: {answer}");
+        assert!(failed["fields"].get("access").is_none(), "{losing:?}: {answer}");
+        let e = m.passed_on("access", None, &failed["fields"]);
+        assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NoAccess)), "{losing:?}: {e}");
+        assert_eq!(e.detail().actions, resolving(&[]), "{losing:?}");
 
-    m.sign_in(who(json!("a"), Some("a@mock.example")), Some("a"), &["read"]).0.unwrap();
-    assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["result"]["body"], "/r/x Bearer at-2");
-    assert_eq!(m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap(), listed, "one access, as it was");
+        m.sign_in(who(json!("a"), Some("a@mock.example")), Some("a"), &["read"]).0.unwrap();
+        let newest = format!("/r/x Bearer at-{}", m.state.lock().unwrap().issued);
+        assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["result"]["body"], newest, "{losing:?}");
+        assert_eq!(m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap(), [had], "{losing:?}: not as it was");
+    }
 }
 
 /// For an account granted what any of the mock type's scopes ask, echo's access to it and another
-/// plugin's (each with any scopes, or none), signed out or not, and signed in to again (for echo or
-/// not) asking for any scopes besides, the service answering a new refresh token or none: the
-/// browser is asked to sign in as the account, for what the type always asks, what the account
-/// was granted, what every access's scopes ask and what's asked for besides; the refresh token it
-/// had is kept when the service answers none; and one signed out that no plugin has access to
-/// can't be signed in to again.
+/// plugin's (each with any scopes, or none), signed out or its session ended or neither, and
+/// signed in to again (for echo or not) asking for any scopes besides, the service answering a new
+/// refresh token or none: the browser is asked to sign in as the account, for what the type always
+/// asks, what the account was granted, what every access's scopes ask (remembered, once it's lost)
+/// and what's asked for besides; the refresh token it had is kept when the service answers none;
+/// and one lost that no plugin had access to can't be signed in to again.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
     let m = mock_for(30, "/userinfo", "", &asking(&["read"], &["write", "peek"]));
@@ -399,11 +401,12 @@ fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
         m.edit("accounts.json", |book| book["accesses"].as_array_mut().unwrap().push(access));
         named.extend(scopes.iter().map(|s| s.to_string()));
     }
-    let signed_out = tc.draw(gs::booleans());
-    match signed_out {
-        true => drop(m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap()),
-        false => named.extend(first.iter().map(|s| s.to_string())),
+    let lost = tc.draw(gs::sampled_from(vec![None, Some(Losing::SignOut), Some(Losing::SessionEnds)]));
+    match lost {
+        Some(how) => m.lose("a", how),
+        None => named.extend(first.iter().map(|s| s.to_string())),
     }
+    let signed_out = lost.is_some();
     let refreshless = tc.draw(gs::booleans());
     m.state.lock().unwrap().refreshless = refreshless;
     let for_echo = tc.draw(gs::booleans());
@@ -474,7 +477,9 @@ enum Failing {
     NoAccess,
     /// It's signed out.
     SignedOut,
-    /// Its token expired, and the service won't refresh it any more.
+    /// Its session ended before: its token expired, and the service wouldn't refresh it.
+    SessionEnded,
+    /// Its token expires as the request is made, and the service won't refresh it any more.
     Refused,
     /// Its token expired, and the service can't refresh it now.
     Unavailable,
@@ -494,18 +499,21 @@ enum Failing {
 const GONE: &str = "gone-accounts";
 
 /// For every way a request echo makes through its access to an account can fail (no access, the
-/// account signed out here or by the service, a refresh the service can't make now, its account
-/// plugin gone, a scope missing, not covering or not granted, a type it doesn't ask for), its
-/// token placed either way and the access named by type or by its id: the request fails before
-/// it's sent, as `access` (`signed_out` when it's signed out), `scope`, `external` (the service's
-/// failure) or `invalid`, an account failure naming the type and the account plugins; an account
-/// the service signed out is forgotten, one it couldn't refresh kept; and echo passing an
-/// `access` or `scope` failure on, whatever type it says, is an `account` error (not signed in,
+/// account signed out or its session ended before, the service ending it as the request is made,
+/// a refresh the service can't make now, its account plugin gone, a scope missing, not covering or
+/// not granted, a type it doesn't ask for), its token placed either way and the access named by
+/// type or by its id: the request fails before it's sent, as `access` (an account lost before
+/// took the access with it; `signed_out` when the service ends it then), `scope`, `external` (the
+/// service's failure) or `invalid`, an account failure naming the type and the account plugins;
+/// an account the service signed out is forgotten, one it couldn't refresh kept; and echo passing
+/// an `access` or `scope` failure on, whatever type it says, is an `account` error (not signed in,
 /// no access, a missing scope) offering what its manifest and the store resolve it with.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
     use Failing::*;
-    for failing in [NoAccess, SignedOut, Refused, Unavailable, Uninstalled, Missing, Uncovered, Ungranted, Unasked] {
+    let all =
+        [NoAccess, SignedOut, SessionEnded, Refused, Unavailable, Uninstalled, Missing, Uncovered, Ungranted, Unasked];
+    for failing in all {
         let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
         let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
         let expiring = matches!(failing, Refused | Unavailable);
@@ -515,7 +523,8 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
         m.sign_in_for(for_echo, who(json!("a"), None), None, &["read"]).0.unwrap();
         let edit = |change: &dyn Fn(&mut Value)| m.edit("accounts.json", change);
         match failing {
-            SignedOut => drop(m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap()),
+            SignedOut => m.lose("a", Losing::SignOut),
+            SessionEnded => m.lose("a", Losing::SessionEnds),
             Refused => m.state.lock().unwrap().refuses = Some(("invalid_grant".into(), "spent".into())),
             Unavailable => m.state.lock().unwrap().refuses = Some(("temporarily_unavailable".into(), "later".into())),
             Uninstalled => edit(&|kept| {
@@ -543,15 +552,15 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
         assert!(!m.server.got().iter().any(|g| g.target.starts_with(path)), "sent: {said}");
         let e = &answer["error"]["data"];
         let (kind, reason) = match failing {
-            NoAccess | Uninstalled => ("access", None),
-            SignedOut | Refused => ("access", Some("signed_out")),
+            NoAccess | Uninstalled | SignedOut | SessionEnded => ("access", None),
+            Refused => ("access", Some("signed_out")),
             Unavailable => ("external", None),
             Missing | Uncovered | Ungranted => ("scope", None),
             Unasked => ("invalid", None),
         };
         assert_eq!((e["kind"].as_str(), e["reason"].as_str()), (Some(kind), reason), "{said}");
         let kept = m.listed();
-        assert_eq!(kept.is_empty(), matches!(failing, SignedOut | Refused), "{said}");
+        assert_eq!(kept.is_empty(), matches!(failing, SignedOut | SessionEnded | Refused), "{said}");
         assert!(!m.leaked(&[answer["error"].clone()]), "a token is out: {said}");
         let message = match kind {
             "external" => "signing in to Mock: temporarily_unavailable: later",
@@ -574,9 +583,9 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
         };
         assert_eq!((passed.code(), passed.reason()), ("account", Some(resolves)), "{said}");
         // Giving echo's access what its request was refused, when the account was granted it, else
-        // signing in again as the account, when that gives it.
+        // signing in again as the account, when that gives it. Once the account is lost, echo has
+        // no access left to give more of.
         let mut actions: Vec<Action> = match failing {
-            SignedOut | Refused => vec![signing_in_again("a", "a", &["read"])],
             Ungranted => vec![signing_in_again("a", "a", &["write"])],
             Missing if !lying => vec![giving("a", "a", &["read"])],
             _ => Vec::new(),
@@ -858,6 +867,10 @@ enum Standing {
     /// It has no access.
     NoAccess,
     SignedOut,
+    /// Its session ended: its token expired, and the service wouldn't refresh it.
+    SessionEnded,
+    /// The keychain lost its tokens, the access still there.
+    Lost,
     /// Its account plugin isn't installed.
     Gone,
     /// Its access lacks the scope it needs.
@@ -871,14 +884,16 @@ enum Standing {
 /// For an account signed in as anyone, each way it can stand for the echo plugin needing `read`
 /// of it: what keeps echo from using it is said first of [`Unready`]'s, for the type, and starting
 /// its store destination fails as an `account` error saying why (not signed in, no access or a
-/// missing scope), or starts when nothing keeps it; an account signing itself out within the hour
-/// is due a warning, and one signed out that echo has access to still lists, signed out.
+/// missing scope), or starts when nothing keeps it. An account signed out, or whose session ended,
+/// took echo's access with it, and one whose tokens the keychain lost is signed out with the
+/// access still there. One signing itself out within the hour is due a warning, and one signed out
+/// that echo had access to still lists, signed out.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_unready_says_what_keeps_each_type_from_use(tc: TestCase) {
     use Standing::*;
     use locallibrary::plugin::Unready;
     let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
-    for standing in [Ready, NoAccess, SignedOut, Gone, Ungiven, Ungranted, Expiring] {
+    for standing in [Ready, NoAccess, SignedOut, SessionEnded, Lost, Gone, Ungiven, Ungranted, Expiring] {
         let m = mock_for(if standing == Expiring { 1800 } else { 3600 }, "/userinfo", "", &asking(&["read"], &[]));
         {
             let mut s = m.state.lock().unwrap();
@@ -888,7 +903,9 @@ fn prop_unready_says_what_keeps_each_type_from_use(tc: TestCase) {
         let plugin = (standing != NoAccess).then_some("echo");
         m.sign_in_for(plugin, who(json!(subject), None), None, &[]).0.unwrap();
         match standing {
-            SignedOut => drop(m.f.plugins.sign_out_account(WITH, subject, &m.f.store).unwrap()),
+            SignedOut => m.lose(subject, Losing::SignOut),
+            SessionEnded => m.lose(subject, Losing::SessionEnds),
+            Lost => std::fs::remove_file(m.f.store.root().join("secrets/accounts.json")).unwrap(),
             Gone => {
                 m.edit("accounts.json", |kept| {
                     kept["accounts"][0]["plugin"] = json!(GONE);
@@ -907,22 +924,25 @@ fn prop_unready_says_what_keeps_each_type_from_use(tc: TestCase) {
         let said = format!("{standing:?} as {subject}");
         let unready = m.f.plugins.unready("echo", &m.f.store).unwrap();
         let access = m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap().first().cloned();
+        assert_eq!(access.is_none(), matches!(standing, NoAccess | SignedOut | SessionEnded), "{said}");
         let expected = access.clone().map(|a| match standing {
-            SignedOut => Unready::SignedOut(a),
+            Lost => Unready::SignedOut(a),
             Ungiven => Unready::Ungiven(a, vec!["read".into()]),
             Ungranted => Unready::Ungranted(a, vec!["read".into()]),
             Expiring => Unready::Expiring(a),
             _ => Unready::NoAccess("mock".into()),
         });
-        let expected: Vec<Unready> = expected.into_iter().filter(|_| standing != Ready).collect();
-        let expected = if standing == NoAccess { vec![Unready::NoAccess("mock".into())] } else { expected };
+        let expected = match standing {
+            Ready => Vec::new(),
+            _ => vec![expected.unwrap_or_else(|| Unready::NoAccess("mock".into()))],
+        };
         assert_eq!(unready, expected, "{said}");
         assert!(unready.iter().all(|u| u.kind() == "mock"), "{said}");
         let started = m.f.plugins.store_destination("echo:folder", Some(&m.f.store));
         let reason = match standing {
             Ready => None,
-            NoAccess | Gone => Some(Reason::NoAccess),
-            SignedOut | Expiring => Some(Reason::NotSignedIn),
+            NoAccess | Gone | SignedOut | SessionEnded => Some(Reason::NoAccess),
+            Lost | Expiring => Some(Reason::NotSignedIn),
             Ungiven | Ungranted => Some(Reason::MissingScope),
         };
         match reason {
@@ -942,7 +962,7 @@ fn prop_unready_says_what_keeps_each_type_from_use(tc: TestCase) {
         let listed = m.f.plugins.accounts_and_accesses(&m.f.store).unwrap().accounts;
         let due: Vec<(bool, bool)> = listed.iter().map(|a| (a.signed_in, a.due_soon())).collect();
         let expected = match standing {
-            SignedOut => vec![(false, false)],
+            SignedOut | SessionEnded | Lost => vec![(false, false)],
             Expiring => vec![(true, true)],
             _ => vec![(true, false)],
         };

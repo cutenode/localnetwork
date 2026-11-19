@@ -1,6 +1,6 @@
 # Performance budgets
 
-`budgets/` lists each number we hold locallibrary to, one file per area, so branches don't collide
+`budgets/` lists each number we hold locallibrary and the website's client bundle to, one file per area, so branches don't collide
 on a shared list. Every number is one a run gives exactly: bytes, allocations, instructions under
 cachegrind, the names of the packages the CLI links. Wall-clock time on a shared runner isn't, so
 it's never gated on; `cargo bench` and CodSpeed still track time and instructions weekly
@@ -19,6 +19,7 @@ it merges into, so main's own growth never turns it red and it never edits these
 | `cli` | instructions of everyday commands on the 3,886-track fixture | the same | the same |
 | `tui-instructions` | instructions of a frame of the player, for the same views | the same, running the `tui` test | the same |
 | `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and pushes to main |
+| `web` | the website's JavaScript every page loads, the largest page's own on top of it, and all its CSS, uncompressed | `apps/web/scripts/bundle-sizes.ts`, after `pnpm test:build` in the `verify` job of `web-ci.yml` | pull requests and merge queue groups that change the website, and pushes to main |
 | `size-<other target>` | release binary and archive, recorded in the run's summary with no base to compare with | `locallibrary-scheduled.yml`'s `release-build` | weekly and by hand |
 
 ## Growth, not limits

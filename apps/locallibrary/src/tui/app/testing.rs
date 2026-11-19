@@ -613,6 +613,11 @@ const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/ec
 /// named by `LOCALLIBRARY_TEST_PLUGINS`, which the host reads once, as it's first used. Call it
 /// before anything opens the palette or a menu.
 pub fn echo_plugin(dir: &Path) {
+    echo_plugin_with(dir, "");
+}
+
+/// [`echo_plugin`], its manifest ending with `more`.
+pub fn echo_plugin_with(dir: &Path, more: &str) {
     let params = r#"params = { type = "object", required = ["name"], properties = { name = { type = "string", minLength = 2, description = "Who to greet" }, times = { type = "integer" }, loud = { type = "boolean" }, mood = { type = "string", enum = ["calm", "wild"] }, file = { type = "string", x-path = true }, tags = { type = "array", items = { type = "string" } }, log = { type = "string" }, context = { type = "boolean" } } }"#;
     let operation = r#"params = { type = "object", properties = { name = { type = "string" }, tracks = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" } }, required = ["name"] }"#;
     let manifest = ECHO
@@ -643,7 +648,7 @@ choices = ["calm", "wild"]
 default = "calm"
 "#;
     let file = dir.join("echo.toml");
-    std::fs::write(&file, manifest + settings).unwrap();
+    std::fs::write(&file, manifest + settings + more).unwrap();
     // SAFETY: nextest runs each test in a process of its own, and this runs before the test
     // starts a thread.
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };

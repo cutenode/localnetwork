@@ -1,6 +1,9 @@
 //! The commands and operations plugins add to the command line: `locallibrary <plugin> <name>`,
 //! or the place a manifest gives one (`import`, `playlist import`), with a flag for each param
 //! (see [`params`]), and `--choose PARAM=VALUE` for a question one asks (see [`super::choose`]).
+//! An operation, and a command planned first, show their plan and ask before they change
+//! anything (`--dry-run` stops there, `--yes` doesn't ask). `collection --help` lists the commands
+//! about rekordbox's collection.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -9,14 +12,14 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result};
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, ArgMatches};
-use locallibrary::plugin::{Cli, CommandOutput, OpPlanned, Plugins};
+use locallibrary::plugin::{Cli, CommandOutput, CommandPlanned, OpPlanned, Plugins};
 use locallibrary::progress::Ctx;
-use loclib_plugin::{Context, Manifest, Selection, View};
+use loclib_plugin::{Context, Manifest, Selection, View, Where};
 use serde_json::{Map, Value};
 
 use super::{choose, view};
 use crate::jobs_cmd::usage;
-use crate::output::{Output, heading};
+use crate::output::{Outcome, Output, heading};
 use crate::plugins::params::{self, Takes, properties, takes};
 use crate::plugins::{self, CHOOSE, DRY_RUN, PARAMS};
 
@@ -32,26 +35,29 @@ const DRIVE: &str = "drive";
 const DRY_RUN_ID: &str = "dry_run";
 const CHOOSE_ID: &str = "choose";
 
-/// The command line's command for a plugin's command or operation, called `name`: the drive,
-/// then the positional param if there's one, and a flag for each other param it can take as
-/// text, in the schema's order; required ones unless `--params` gives them, or they're the drive
-/// (`x-from = "selection.drive"`), which the drive given stands for. The command line has no
-/// other selection. `--choose` answers a question it asks.
-fn contributed(name: &str, title: &str, params: Option<&Value>, operation: bool) -> clap::Command {
-    let drive = match operation {
-        true => {
+/// The command line's command for a plugin's command or operation (`hook`), called `name`: the
+/// drive (but for a command about the collection alone), then the positional param if there's
+/// one, and a flag for each other param it can take as text, in the schema's order; required ones
+/// unless `--params` gives them, or they're the drive (`x-from = "selection.drive"`), which the
+/// drive given stands for. The command line has no other selection. `--choose` answers a question
+/// it asks, and `--dry-run` stops at the plan of one that's planned first.
+fn contributed(name: &str, hook: Cli<'_>) -> clap::Command {
+    let (title, params) = (hook.title(), hook.params());
+    let drive = match hook {
+        Cli::Operation(_) => {
             "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
 rekordbox drive, or the one library plugged in]"
         }
-        false => "A library's name, or a drive's mount path, name or id prefix, for it to read",
+        Cli::Command(_) => "A library's name, or a drive's mount path, name or id prefix, for it to read",
     };
     let required: Vec<&str> =
         params.and_then(|p| p["required"].as_array()).into_iter().flatten().filter_map(Value::as_str).collect();
-    let mut c = clap::Command::new(name.to_string())
-        .about(title.to_string())
-        .arg(Arg::new(DRIVE).value_name("DRIVE").help(drive))
-        .arg(Arg::new(PARAMS).long(PARAMS).value_name("JSON").help("Params as a JSON object (flags given win)"))
-        .arg(
+    let mut c = clap::Command::new(name.to_string()).about(title.to_string());
+    if !hook.collection_only() {
+        c = c.arg(Arg::new(DRIVE).value_name("DRIVE").help(drive));
+    }
+    let mut c =
+        c.arg(Arg::new(PARAMS).long(PARAMS).value_name("JSON").help("Params as a JSON object (flags given win)")).arg(
             Arg::new(CHOOSE_ID)
                 .long(CHOOSE)
                 .value_name("PARAM=VALUE")
@@ -68,7 +74,8 @@ rekordbox drive, or the one library plugged in]"
         };
         let mut arg = Arg::new(param_id(param)).help(about.clone());
         arg = match params::positional(schema) {
-            true => arg.index(2),
+            // After the drive, when it takes one.
+            true => arg.index(if hook.collection_only() { 1 } else { 2 }),
             false => arg.long(params::flag(param, schema)),
         };
         // Usage doesn't show a flag `--params` can stand in for as required: its help says so.
@@ -90,7 +97,7 @@ rekordbox drive, or the one library plugged in]"
             Takes::Pairs(_) => arg.value_name("KEY=VALUE").action(ArgAction::Append),
         });
     }
-    if operation {
+    if hook.planned() {
         let dry_run = Arg::new(DRY_RUN_ID).long(DRY_RUN).action(ArgAction::SetTrue);
         c = c.arg(dry_run.help("Show the plan without changing anything"));
     }
@@ -98,31 +105,42 @@ rekordbox drive, or the one library plugged in]"
 }
 
 /// `cmd` with the commands and operations plugins add: `locallibrary <plugin> <name>` for each,
-/// and each at the place its manifest gives it (`import`, `playlist import`).
+/// and each at the place its manifest gives it (`import`, `playlist import`). `collection --help`
+/// lists those about rekordbox's collection (`where = ["collection"]`).
 pub fn add_to(mut cmd: clap::Command, plugins: &Plugins) -> clap::Command {
+    let mut collection = Vec::new();
     for m in plugins.manifests() {
         let c = &m.contributes;
-        let commands =
-            c.commands.iter().map(|x| (x.name.as_str(), &x.title, x.params.as_ref(), x.cli.as_deref(), false));
-        let operations =
-            c.operations.iter().map(|x| (x.name.as_str(), &x.title, x.params.as_ref(), x.cli.as_deref(), true));
-        let all: Vec<_> = commands.chain(operations).collect();
+        let all: Vec<Cli<'_>> =
+            c.commands.iter().map(Cli::Command).chain(c.operations.iter().map(Cli::Operation)).collect();
         if !all.is_empty() {
-            let own = all.iter().map(|&(name, title, params, _, op)| contributed(name, title, params, op));
+            let own = all.iter().map(|&hook| contributed(hook.name(), hook));
             let group = clap::Command::new(m.id.clone()).about(format!("{} (a plugin)", m.name));
             cmd = cmd.subcommand(group.subcommand_required(true).subcommands(own));
         }
-        for &(_, title, params, cli, op) in &all {
-            let Some(place) = cli else { continue };
+        for &hook in &all {
+            if hook.offered().contains(&Where::Collection) {
+                let place = hook.cli().map_or_else(|| format!("{} {}", m.id, hook.name()), String::from);
+                collection.push((place, hook.title()));
+            }
+            let Some(place) = hook.cli() else { continue };
             cmd = match place.split_once(' ') {
-                Some((group, name)) => {
-                    cmd.mut_subcommand(group, |g| g.subcommand(contributed(name, title, params, op)))
-                }
-                None => cmd.subcommand(contributed(place, title, params, op)),
+                Some((group, name)) => cmd.mut_subcommand(group, |g| g.subcommand(contributed(name, hook))),
+                None => cmd.subcommand(contributed(place, hook)),
             };
         }
     }
-    cmd
+    if collection.is_empty() {
+        return cmd;
+    }
+    let width = collection.iter().map(|(place, _)| place.len()).max().unwrap_or(0);
+    let listed: Vec<String> =
+        collection.iter().map(|(place, title)| format!("  locallibrary {place:width$}  {title}")).collect();
+    let more = format!("Plugins' commands about the collection:\n{}", listed.join("\n"));
+    cmd.mut_subcommand("collection", |c| {
+        let help = c.get_after_help().map(|h| format!("{h}\n\n{more}")).unwrap_or(more);
+        c.after_help(help)
+    })
 }
 
 /// A command or operation a plugin adds, as the command line gave it: where (its place, or the
@@ -162,8 +180,33 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
         }
     };
     let store = crate::diff_cmd::existing_store(store_path)?;
-    let drive = m.get_one::<String>(DRIVE).cloned();
+    // A command about the collection alone has no drive to give.
+    let drive = m.try_get_one::<String>(DRIVE).ok().flatten().cloned();
     match what {
+        Cli::Command(command) if command.plan => {
+            let mut params = params_of(command.params.as_ref(), m)?;
+            let context = Context { drive, ..Context::default() };
+            let planned = loop {
+                let planning =
+                    plugins.plan_command(plugin, &command.name, params.clone(), context.clone(), store.as_ref(), ctx);
+                match planning? {
+                    CommandPlanned::Choose { choose: c } => params = c.answered(params, choose::ask(&c, out)?),
+                    CommandPlanned::Plan(planned) => break planned,
+                }
+            };
+            if !out.json {
+                crate::export_cmd::render_written(&planned.summary, &planned.files, &[], &planned.warnings);
+            }
+            if let Some(o) = out.decide(m.get_flag(DRY_RUN_ID), "Run it?") {
+                return Ok(out.not_applied(&planned, o));
+            }
+            let answer = planned.apply(store.as_ref(), ctx)?;
+            let names = view::names_on(context.drive.as_deref());
+            Ok(out.applied(&planned, &answer, Outcome::Applied, || match &answer {
+                CommandOutput::Headless(v) => view::headless(v),
+                CommandOutput::View(v) => view::view(v, &names),
+            }))
+        }
         Cli::Command(command) => {
             let mut params = params_of(command.params.as_ref(), m)?;
             let context = Context { drive, ..Context::default() };

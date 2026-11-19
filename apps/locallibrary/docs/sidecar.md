@@ -265,11 +265,13 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
   (harmonic matches), `doctor` (`analyze`: the analysis section, after the analyzers for its
   roles run), `doctor.orphans.plan/apply`,
-  `analysis.bench` (scoring rekordbox and the analysis against GiantSteps annotations), `plays.history`, `plays.archive`,
+  `analysis.bench` (scoring rekordbox and the analyzers chosen for key and bpm against GiantSteps annotations), `plays.history`, `plays.archive`,
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),
-  `account.status`, `account.check`, `account.logout`, `account.client_metadata`, `collection.info`,
+  `account.status`, `account.check`, `account.flags` (optional `refresh`: each flag on or off, how
+  fresh the website's answer is, and `needs_sign_in`), `account.logout`,
+  `account.client_metadata`, `collection.info`,
   `collection.library` and `collection.diff` (rekordbox's `master.db`: optional `db` and `key`, and
   `drive` for the diff). Signing in takes two calls: `account.login.begin` (`handle`, optional
   `client_id`, `dev_client`, `session_file`, `scopes`, and `publish: true` to allow publishing)
@@ -368,22 +370,28 @@ the access they're given (see [plugins.md](plugins.md#accounts)). No answer hold
 `accounts.list` answers `{accounts, accesses}`: each account kept (`{type, plugin, subject, name,
 scopes, expires?, refreshes, signs_out?, signed_in}`, `plugin` the account plugin it was signed in
 through, `signs_out` when it signs itself out: as `expires` when it isn't refreshed, else as its
-refresh token runs out when the service said), then each one signed out that a plugin still has
-access to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
+refresh token runs out when the service said), then each one signed out that a plugin had access
+to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
 name, scopes, default, declined?}`, `declined` the scopes the user declined when the plugin asked
 for them, or the service didn't grant at a sign-in for that plugin, until they're given again).
+With any, `remembered` lists the accesses signing out (or a session ending) removed, until they're
+restored or reset, and `restore_automatically` the Automatically Restore Access settings
+(`{account?, on}`, without `account` for every account without one of its own).
 
-`accounts.sign_in.begin {type, with?, for?, account?, scopes?}` starts a sign-in through the
-account plugin `with` (the only one providing the type when it's left out), for the plugin `for`
-when it's given, again as the account `account` (a subject, of one kept or one signed out that a
-plugin still has access to) when it's given, asking for the type's `scopes` besides; signing in
-again asks for what every access to the account needs too. It answers `{id, type, plugin, url,
+`accounts.sign_in.begin {type, with?, for?, account?, scopes?, restore?}` starts a sign-in through
+the account plugin `with` (the only one providing the type when it's left out), for the plugin
+`for` when it's given, again as the account `account` (a subject, of one kept or one signed out
+that a plugin had access to) when it's given, asking for the type's `scopes` besides; signing in
+again asks for what every access to the account needs too. `restore` says what signing in does
+with the access remembered of the account: `restore` gives it all back, `reset` forgets it.
+Without it, Automatically Restore Access decides, else only `for` gets its own back. It answers `{id, type, plugin, url,
 redirect_uri}`. Open `url` in the browser, then `accounts.sign_in.finish {id, timeout_secs?}`
 waits for it to come back (300 seconds unless it says, an hour at most) and answers the account,
 with `instead_of` when the browser signed in to another than `account` (the plugin it was for
 isn't given access then), `access` when it was for a plugin: the access that plugin was given, and
 `declined`: the scopes asked for that plugin that the service didn't grant. The plugin gets those
-it needs all the same, and goes without the others.
+it needs all the same, and goes without the others. `restored` lists the access the sign-in gave
+back, and `remembered` what's still waiting, for the front end to ask about.
 A type signed in to with keys answers `{id, type, plugin, url, keys, named?}` instead: `url` is
 where the user gets them, `keys` what each is called by name, and `named` is true when the user
 names the account. `accounts.sign_in.finish {id, keys, name?}` finishes it at once with what the
@@ -391,13 +399,20 @@ user entered for each key, by name, and the account's `name` when `named`. The h
 and never answers them.
 `accounts.sign_in.paste {id, url}` finishes with the address the browser ended up on, and
 `accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
-subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
+subject}}` answers the account as it was, with `revoked`, and removes every plugin's access to it,
+remembering it.
 
 `accounts.access.list {plugin?}` answers the accesses, `accounts.access.give {plugin, account,
 scopes?}` gives a plugin access to an account (the scopes it needs, and those of `scopes` it can do
 without, which aren't declined any more), `accounts.access.set_default {plugin, account}` makes
 one the plugin's default for its type (giving the access first when it has none), and
-`accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's `account`
+`accounts.access.take_away {plugin, account}` answers the access taken away. Giving access to an
+account signed out, or making it a default, fails as `account` (`not_signed_in`).
+`accounts.access.restore {account, plugins?}` gives back what was remembered of the account,
+answering the accesses: all of it, or with `plugins` (`[{plugin, scopes}]`) those plugins with
+those scopes, forgetting the rest (`[]` resets it, signed out too). The account has to be signed
+in to get any back. `accounts.restore_automatically {account?, on}` turns Automatically Restore
+Access on or off for the account, or for every account without a setting of its own. A plugin's `account`
 error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions calling
 `accounts.sign_in.begin` (again as the account of the plugin's access, for the scopes it's missing,
 when that can help) and `accounts.access.set_default`.
@@ -482,10 +497,16 @@ URL, and a table's column is its heading or `{name, kind, unit?}`. `plugins.op.p
 context}` (`context.drive` is required) answers an edit plan whose `operation` is
 `<plugin>.<operation>`, its summary first (an image a plugin's `set_artwork` gives is read as it's
 planned, and held by the plan), applied by `plugins.op.apply {plan_id}`; it's stale once the drive
-changes, or a file on this computer the plugin worked it out from. A view command or an operation
-may ask the user something first: `plugins.run` answers a view `{kind: "choose", title, param,
-multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` (no plan, nothing
-kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
+changes, or a file on this computer the plugin worked it out from. A command whose manifest says
+`plan: true` isn't run by `plugins.run`: `plugins.command.plan {plugin, command, params, context}`
+answers the plugin's dry run as a plan (`<plugin>.command.<name>`: `{plugin, command, files:
+[{path, what, bytes, exists}]}`, its summary first, destructive when it would overwrite a file),
+applied by `plugins.command.apply {plan_id}`, which runs the same request and answers what the
+command answers; it's stale once one of its files changes. A command with `long_running: true`
+reports progress: show it and offer `$/cancel`. A view command, an operation or a command planned
+first may ask the user something first: `plugins.run` answers a view `{kind: "choose", title, param,
+multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` and `plugins.command.plan`
+`{choose: {...}}` (no plan, nothing kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
 (with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
 one that asks. A question may carry `more`, further questions of the same shape (at most 64 in
 all, each about a param of its own): ask them all, then call it again once with every param
@@ -532,6 +553,8 @@ change it before it goes on as it does when they start it.
   plugin).
 - `analyze` `{analyzer, drive, tracks?}`: `plugins.analyze {plugin, analyzer, drive, tracks}`,
   once the user says so.
+- `command` `{command, params?}`: `plugins.command.plan {plugin, command, params, context}` for
+  one whose manifest says `plan: true`, else `plugins.run`, with the context where the user is.
 
 Never plan or apply either unless the user chooses to.
 

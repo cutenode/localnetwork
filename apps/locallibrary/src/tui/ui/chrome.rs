@@ -277,8 +277,16 @@ pub(super) fn draw_status(f: &mut Frame, app: &mut App, area: Rect) -> Rect {
     let width = area.width as usize;
     let mode = Span::styled(format!(" {} ", mode(app)), theme::chip(theme::current().dim));
     let mode_w = mode.width() + 1;
-    // The right side gives way first, from its end.
+    // The right side gives way first, from its end. With the deck showing, the modes that are on
+    // lead it.
     let mut right = whereabouts(app);
+    if app.deck_showing() {
+        let mut states = super::deck::deck_states(app);
+        if !states.is_empty() {
+            states.push(Span::raw("   "));
+            right.splice(0..0, states);
+        }
+    }
     while right.len() > 1 && right.iter().map(Span::width).sum::<usize>() * 2 > width.saturating_sub(mode_w) {
         right.remove(right.len() - 2);
     }

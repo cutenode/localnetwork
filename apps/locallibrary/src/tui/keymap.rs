@@ -210,12 +210,9 @@ pub enum Act {
     ExportList,
     // Profile
     ProfileInclude,
-    ProfilePin,
-    ProfileHide,
     ProfileHideArtist,
     ProfileDocument,
     ProfileWrite,
-    ProfileScope,
     ProfileRounding,
     ProfileAccount,
     // Mixes
@@ -520,17 +517,12 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Profile, &[K::Ch('i')], "i", A::ProfileInclude, "put the section in the document, or take it out", "put the section in the document, or take it out", G::Profile)
         .hint("in/out of document", 8),
     note(S::Profile, "tab  enter", "move between sections and their lists (esc goes back)", G::Profile),
-    key(S::Profile, &[K::Ch('m')], "m", A::ProfilePin, "pin the track among signature tracks", "pin a track first among signature tracks", G::Profile)
-        .hint("pin", 6),
-    key(S::Profile, &[K::Ch('h')], "h  H", A::ProfileHide, "never name the track", "never name a track / its artist (still counted)", G::Profile)
-        .hint("hide track/artist", 6),
-    key(S::Profile, &[K::Ch('H')], "", A::ProfileHideArtist, "never name the artist", "", G::Profile),
+    key(S::Profile, &[K::Ch('h'), K::Ch('H')], "h", A::ProfileHideArtist, "never name the artist", "never name an artist under Artists (still counted)", G::Profile)
+        .hint("hide artist", 6),
     key(S::Profile, &[K::Ch('D')], "D", A::ProfileDocument, "show the profile document", "show the document a public profile would get", G::Profile)
         .hint("document", 7),
     key(S::Profile, &[K::Ch('w')], "w", A::ProfileWrite, "write the profile document to the store folder", "write the document as JSON in the store folder", G::Profile)
         .hint("write", 5),
-    key(S::Profile, &[K::Ch('a')], "a", A::ProfileScope, "profile from every drive or the open one", "every drive and the store, or just the open drive", G::Profile)
-        .hint("scope", 4),
     key(S::Profile, &[K::Ch('#')], "#", A::ProfileRounding, "rounded or exact numbers in the document", "rounded or exact numbers in the document", G::Profile)
         .hint("rounding", 3),
     tip(S::Profile, "R", "rebuild", 4),

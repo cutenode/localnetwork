@@ -12,6 +12,8 @@
 - **locallibrary → Local Network**: locallibrary signs in to some account types through the
   website's token exchange, and publishes a DJ's profile and sets to their Atmosphere account,
   where the website reads them.
+- **Flags**: the website holds who a flag is on for, and locallibrary asks it, so an account gets
+  the same answer from both. See [ADR 0006](./docs/adr/0006-locallibrary-asks-the-website-for-flags.md).
 - **Grant and access**: the website's grant lets an account read a press kit. locallibrary's
   access lets a plugin use an account. They're unrelated.
 - **Plan and plan**: the website's plan is an event someone's going to or a show they're on.

@@ -321,11 +321,11 @@ fn a_keys_sign_in_is_typed_unseen_and_kept() {
     assert_eq!(subjects(&app), ["me"]);
 }
 
-/// For a plugin's sign-in again with keys, the player's asker takes them in the form, the
+/// For a sign-in with keys waiting off the UI thread, the player takes them in the form, the
 /// account's name only when the sign-in asks for it: entered, they go back by key; closed,
 /// nothing does.
 #[hegel::test(test_cases = 6)]
-fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
+fn the_player_takes_keys_in_the_form(tc: TestCase) {
     keys_accounts();
     let (mut app, _store) = blank(Screen::Library);
     let named = tc.draw(gs::booleans());
@@ -341,8 +341,8 @@ fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
         keys,
         named,
     };
-    let ask = app.plugin_asker();
-    let asking = std::thread::spawn(move || ask.enter_keys(&start));
+    let tx = app.sender();
+    let asking = std::thread::spawn(move || super::super::keys::entered_keys(&tx, &start));
     wait(&mut app, |app| app.modal.is_some());
     assert_eq!(unseen(&mut app).contains("Account name"), named);
     if !entered {
@@ -354,4 +354,124 @@ fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
     press(&mut app, "\n");
     let keys = IndexMap::from_iter([("access".to_string(), ACCESS.to_string()), ("secret".into(), SECRET.into())]);
     assert_eq!(asking.join().unwrap(), Some((keys, named.then(|| "me".to_string()))));
+}
+
+/// The store at `app`'s remembering echo's access to the account `subject` (through `with`, of
+/// type `kind`), its default reading things, as signing out of the account leaves it.
+fn remembered(app: &App, with: &str, kind: &str, subject: &str) {
+    let file = app.store_root.join("accounts.json");
+    let mut book: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let account = serde_json::json!({ "plugin": with, "subject": subject });
+    book["remembered"] = serde_json::json!([{
+        "id": "0a1b2c3d", "plugin": "echo", "type": kind, "account": account,
+        "name": format!("{subject}@mock.example"), "scopes": ["read"], "default": true,
+    }]);
+    std::fs::write(&file, book.to_string()).unwrap();
+}
+
+/// What the store at `app`'s remembers of plugins' access, by plugin and subject.
+fn still_remembered(app: &App) -> Vec<(String, String)> {
+    let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
+    let all = crate::plugins::host().unwrap().accounts_and_accesses(&store).unwrap();
+    all.remembered.into_iter().map(|a| (a.plugin, a.account.subject)).collect()
+}
+
+/// What to do in the restore form, in [`the_restore_form_does_what_its_picked_to`].
+#[derive(Debug, Clone, Copy)]
+enum Picking {
+    Restore,
+    /// Choose, echo's scopes left as they were.
+    Choose,
+    /// Choose, echo's scopes cleared.
+    ChooseNone,
+    Reset,
+    /// The form closed.
+    Closed,
+}
+
+/// For a mock account signed in again that echo had access to, the restore form says what echo
+/// had, starting on Restore: enter restores echo's access (its default again); Choose restores it
+/// with the scopes typed, or with none typed forgets it; Reset forgets it; closed, it stays
+/// remembered and echo has none.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_restore_form_does_what_its_picked_to(tc: TestCase) {
+    plugins_once();
+    let (mut app, _store) = blank(Screen::Library);
+    kept(&app, &["a"]);
+    remembered(&app, "mock-accounts", "mock", "a");
+    let picking = tc.draw(gs::sampled_from(vec![
+        Picking::Restore,
+        Picking::Choose,
+        Picking::ChooseNone,
+        Picking::Reset,
+        Picking::Closed,
+    ]));
+    let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
+    let waiting = crate::plugins::host().unwrap().accounts_and_accesses(&store).unwrap().remembered;
+    let account = AccountId { plugin: "mock-accounts".into(), subject: "a".into() };
+    app.ask_restore("a@mock.example".into(), account, waiting);
+    let shown = screen(&mut app, 140, 30);
+    for text in [
+        "Restore access to a@mock.example",
+        "access  ‹ Restore ›",
+        "Plugins had access to a@mock.example before it was signed out: echo",
+        "(read)",
+        "echo    read",
+        "enter restore",
+    ] {
+        assert!(shown.contains(text), "{text:?} isn't shown:\n{shown}");
+    }
+    match picking {
+        Picking::Restore => {}
+        Picking::Choose => key(&mut app, KeyCode::Right),
+        Picking::ChooseNone => {
+            key(&mut app, KeyCode::Right);
+            key(&mut app, KeyCode::Down);
+            (0..4).for_each(|_| key(&mut app, KeyCode::Backspace));
+        }
+        Picking::Reset => (0..2).for_each(|_| key(&mut app, KeyCode::Right)),
+        Picking::Closed => press(&mut app, "\u{1b}"),
+    }
+    if !matches!(picking, Picking::Closed) {
+        press(&mut app, "\n");
+        assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Restoring access"), "{picking:?}");
+        wait(&mut app, |a| a.job.is_none());
+    }
+    assert!(app.modal.is_none(), "{picking:?}: the form stayed open");
+    let restored = matches!(picking, Picking::Restore | Picking::Choose);
+    assert_eq!(echos_default(&app).as_deref(), restored.then_some("a"), "{picking:?}");
+    let waiting = matches!(picking, Picking::Closed).then(|| ("echo".to_string(), "a".to_string()));
+    assert_eq!(still_remembered(&app), waiting.into_iter().collect::<Vec<_>>(), "{picking:?}");
+    let said = match picking {
+        Picking::Restore | Picking::Choose => "restored access: echo (read)",
+        Picking::ChooseNone | Picking::Reset => "reset: no plugin has access to it",
+        Picking::Closed => "",
+    };
+    assert_eq!(last_message(&app), said, "{picking:?}");
+}
+
+/// Signed out of a Mock keys account echo had access to, signing in to it again from the palette
+/// opens the restore form once it's signed in, and enter gives echo its access back.
+#[test]
+fn signing_in_again_from_the_palette_asks_to_restore() {
+    keys_accounts();
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":sign in to a mock keys account\n");
+    wait(&mut app, |a| a.modal.is_some());
+    type_keys(&mut app, Some("me"));
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "me signed in");
+    remembered(&app, "keys-accounts", "mock-keys", "me");
+
+    press(&mut app, ":sign in to a mock keys account\n");
+    wait(&mut app, |a| a.modal.is_some());
+    type_keys(&mut app, Some("me"));
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none() && a.modal.is_some());
+    assert!(screen(&mut app, 140, 30).contains("Restore access to me"), "the restore form isn't open");
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "restored access: echo (read)");
+    assert_eq!(still_remembered(&app), Vec::<(String, String)>::new());
 }

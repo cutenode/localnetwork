@@ -27,7 +27,7 @@ Each thing a plugin's manifest can contribute, and the protocol method that asks
 ```mermaid
 flowchart TD
     hub["A plugin's manifest"]
-    hub --> commands["Commands<br/>command/run"]
+    hub --> commands["Commands<br/>command/run, a dry run first<br/>for one planned first"]
     hub --> operations["Operations<br/>op/plan"]
     hub --> panels["Panels<br/>panel/render"]
     hub --> analyzers["Analyzers<br/>track/analyze"]
@@ -66,9 +66,10 @@ flowchart LR
     demos["demos"] --> demoadds["Check tracks, operation clean"]
     tracklist["tracklist"] --> trackadds["Operation import: playlist import<br/>Importer and source for rekordbox XML"]
     interop["interop"] --> interopadds["Exporters traktor, serato, engine, rekordbox<br/>Importer and source for Traktor"]
+    rekordboxbackup["rekordbox-backup"] --> rbadds["Commands collection backup, backups, verify<br/>Service schedule: a backup every few days"]
 ```
 
-Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml)
+Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml), [`plugins/rekordbox-backup/locallibrary-plugin.toml`](../../../../plugins/rekordbox-backup/locallibrary-plugin.toml)
 
 ## Built-in plugins that publish a set
 
@@ -193,6 +194,7 @@ flowchart LR
     plugin -->|"atmosphere/put_record"| record["Records of the types its atmosphere:write:<br/>capabilities name, in the DJ account, each one you confirm"]
     plugin -->|"its answers"| scratch["Its request's scratch folder"]
     plugin -->|"its files"| work["STORE/plugins/ID/work/"]
+    plugin -->|"what it keeps"| data["STORE/plugins/ID/data/"]
     plugin -->|"fs:read"| folders["Folders you grant for a source read"]
     plugin -->|"collection:files"| rekordbox["rekordbox's library here: where its files are,<br/>whether it runs, a copy of master.db in scratch,<br/>its tracks, with real paths"]
     plugin -->|"host/notify"| notify["A message or a suggestion"]
@@ -247,20 +249,21 @@ Source: [`crates/locallibrary/src/plugin/operations.rs`](../../../../crates/loca
 
 ## Plugins that write elsewhere
 
-Two hooks that write files without an edit plan, and what the host checks.
+Three hooks that write files without an edit plan, and what the host checks.
 
 ```mermaid
 flowchart TD
     source["Library source:<br/>answers tracks"] --> copied["The host checks each file is in<br/>a folder you granted, and hashes it"]
     copied --> built["Written as collection export writes"]
     exporter["Exporter: writes its own<br/>files, where you say"] --> dry["A dry run first, overwrites confirmed. Never on<br/>a drive or in the store, and it must write what it said"]
+    command["Command planned first: writes<br/>its own files on this computer"] --> planned["A dry run first, its files and their overwrites<br/>confirmed. Stale once one of them changes"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/plugin/exports.rs`](../../../../crates/locallibrary/src/plugin/exports.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs)
+Source: [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/plugin/exports.rs`](../../../../crates/locallibrary/src/plugin/exports.rs), [`crates/locallibrary/src/plugin/commands.rs`](../../../../crates/locallibrary/src/plugin/commands.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs)
 
 ## Running an analyzer
 
-`track/analyze` over a drive's tracks. Each audio file is handed to the plugin read only.
+`track/analyze` over a drive's tracks, or for `analysis bench` over audio files too. Each audio file is handed to the plugin read only.
 
 ```mermaid
 flowchart TD
@@ -271,9 +274,11 @@ flowchart TD
     ask -->|"answered, fields as declared"| fields[("Fields in cache/,<br/>grids and waveforms beside them")]
     ask -->|"it failed"| failed
     ask -->|"a field it didn't declare"| failed
+    bench["analysis bench: the analyzers chosen<br/>for key and bpm, on a drive's tracks or files"] --> measure["track/analyze afresh, a few at a time.<br/>Files on no drive: library reads refused"]
+    measure --> scored["Scored against the dataset, nothing kept"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/analyzers.rs`](../../../../crates/locallibrary/src/plugin/analyzers.rs), [`crates/locallibrary/src/fields.rs`](../../../../crates/locallibrary/src/fields.rs), [`src/plugin_cmd/analyze.rs`](../../src/plugin_cmd/analyze.rs)
+Source: [`crates/locallibrary/src/plugin/analyzers.rs`](../../../../crates/locallibrary/src/plugin/analyzers.rs), [`crates/locallibrary/src/fields.rs`](../../../../crates/locallibrary/src/fields.rs), [`src/plugin_cmd/analyze.rs`](../../src/plugin_cmd/analyze.rs), [`crates/locallibrary/src/sound/bench.rs`](../../../../crates/locallibrary/src/sound/bench.rs)
 
 ## Running checks and guards
 
