@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, waitFor, within } from 'storybook/test';
 	import { capture, cues } from '#lib/testing/tools.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { tools } from '#lib/tools/index.ts';
 	import Screen from './Screen.svelte';
 
@@ -16,8 +17,6 @@
 	// Pixels that load without a server. The dev server encodes a real capture on its first request,
 	// which on a busy CI runner takes longer than waitFor waits.
 	const pixels = cues.map((cue) => cue.capture);
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Once the picked capture settles it's the one showing. */
 	const showsPicked = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

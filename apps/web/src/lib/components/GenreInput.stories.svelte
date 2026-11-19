@@ -1,13 +1,12 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import GenreInput from './GenreInput.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Genre input', component: GenreInput, tags: ['autodocs'] });
 
 	const many = 'house, deep house, techno, dub techno, electro, breaks, jungle, footwork, ambient, disco';
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Types two genres the way someone would, each ended with Enter or a comma, and they become tags. */
 	const typeTwo = async ({ canvasElement }: { canvasElement: HTMLElement }) => {

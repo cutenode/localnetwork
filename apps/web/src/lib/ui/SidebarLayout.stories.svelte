@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { Activity, CalendarPlus, ClipboardCheck, ClipboardList, Disc3, Globe, History, House, Inbox, LayoutDashboard, NotebookPen, Plus, ScrollText, ShieldCheck } from '@lucide/svelte';
+	import { phone } from '#lib/testing/viewports.ts';
 	import SidebarLayout, { type SidebarGroup } from './SidebarLayout.svelte';
 
 	const { Story } = defineMeta({ title: 'Primitives/Sidebar layout', component: SidebarLayout, tags: ['autodocs'], parameters: { layout: 'fullscreen' } });
@@ -43,7 +44,7 @@
 	];
 
 	const main = [
-		{ href: '/dashboard', label: 'Home', icon: House, exact: true },
+		{ href: '/dashboard', label: 'Overview', icon: House, exact: true },
 		{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, dot: true },
 		{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus }
 	];
@@ -55,8 +56,6 @@
 		{ href: '/dashboard/projects/neon-tide', label: 'Neon Tide', monogram: 'Neon Tide' },
 		{ href: '/dashboard/projects/new', label: 'List a project', icon: Plus, exact: true }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet content()}

@@ -3,6 +3,7 @@
 	import type { MatchResult } from '#lib/matching.ts';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { DEMO_PROJECTS } from '../../../scripts/seed-data.ts';
 	import Layout from '../+layout.svelte';
 	import type { PageData } from './$types';
@@ -44,8 +45,6 @@
 	const loading = new Promise<never>(() => {});
 
 	const member: Viewer = { did: 'did:plc:pat', handle: 'pat.test', roles: [], isAdmin: false, isStaff: false, spacesCapable: true };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	type State = Pick<PageData, 'directory' | 'shortlist' | 'promoting'>;
 

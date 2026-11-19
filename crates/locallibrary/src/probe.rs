@@ -256,9 +256,14 @@ fn whole_size(path: &Path, size: u64, expected_bytes: u64) -> Option<u64> {
     boxes.max(recorded)
 }
 
-/// Whether reading `path`'s headers runs out of file before they say what's in it.
+/// Whether reading `path`'s headers runs out of file before they say what's in it. An MP4 that
+/// [`vet_container`] refuses isn't read: symphonia would abort on it, and one cut short is
+/// measured by its own boxes ([`mp4_len`]) instead.
 fn runs_out(path: &Path) -> bool {
     use symphonia::core::{formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint};
+    if vet_container(path).is_err() {
+        return false;
+    }
     let Ok(file) = std::fs::File::open(path) else { return false };
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {

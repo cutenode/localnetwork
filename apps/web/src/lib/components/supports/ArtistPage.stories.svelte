@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import ArtistPage from './ArtistPage.svelte';
 	import { artistSupports } from './fixtures.ts';
 
@@ -11,8 +12,6 @@
 		tags: ['autodocs'],
 		parameters: { layout: 'fullscreen', sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/artists/name/Ferrule?from=charts') } } } }
 	});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const backToArtists = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
 		await expect(within(canvasElement).getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists');

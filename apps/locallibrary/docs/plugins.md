@@ -54,6 +54,15 @@ The built-in ones are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **rekordbox-backup**: backs up rekordbox's library on this computer as rekordbox's own File >
+  Library > Backup Library does (`locallibrary collection backup`, planned first), into your
+  Documents folder unless its `destination` setting says otherwise, with the music copied into
+  `rekordbox_bak/` beside it when `music` is on. `locallibrary collection backups` lists the
+  backups there and `locallibrary collection verify` checks one. Its `schedule` service makes one
+  every `every_days` while the player, the sidecar or `watch` runs. It doesn't restore: rekordbox's
+  File > Library > Restore Library does. It's written as a plugin from outside locallibrary
+  would be, with the SDK alone (see its
+  [README](../../../plugins/rekordbox-backup/README.md)).
 - **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
   the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
   (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
@@ -203,9 +212,11 @@ clashing with each other are both left out.
 ## Where they show up
 
 On the command line, what a plugin adds runs as commands of its own or of locallibrary's
-(`analyze`, `export --format`, `import`, `art fetch`). In the player (`locallibrary tui`) it's in the
-palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks or a
-playlist, with a form for what it takes, a param the plugin fills from what's selected (the
+(`analyze`, `export --format`, `import`, `art fetch`), and `locallibrary collection --help` lists
+the commands about rekordbox's collection on this computer. In the player (`locallibrary tui`) it's
+in the palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks
+or a playlist (one about the collection is in the palette alone, and needs no drive open), with a
+form for what it takes, a param the plugin fills from what's selected (the
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)).
 
@@ -244,11 +255,20 @@ that you left out, and the sign-in says which. `locallibrary account TYPE:NAME s
 again as that account, also once it's signed out, asking for what every plugin's access to it
 needs; when the browser signs in to someone else, that account is kept too, but the plugin it was
 for gets no access to it.
-`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
-plugins keep their access, unused until it's signed in again.
+`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can.
+Signing out, or the account's session ending (the service won't refresh it, or says its token is
+no good), removes every plugin's access to it, and a plugin that used it as its default has none
+until you pick one. This computer remembers that access, never in a copy of the store. Signing in
+again asks what to do with it: Restore (enter) gives it all back, Choose picks the plugins and
+their scopes, and Reset forgets it. The plugin you sign in for gets its own back either way.
+`--restore` or `--reset` answers without asking; with neither and no terminal, the access stays
+off and the sign-in prints `locallibrary account TYPE:NAME restore`, which gives it back later.
+`locallibrary account TYPE:NAME --restore-automatically on` (or with no account, for every account
+without a setting of its own) restores it as you sign in without asking, saying in a line what came
+back. `account` lists what's waiting as "access to restore".
 
 `locallibrary plugin access PLUGIN` lists a plugin's access, `--give ACCOUNT` gives it access to
-an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
+an account signed in (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
 the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
 request fails because its account is signed out or wasn't granted a scope, the error offers to
 sign in again as that account, allowing what's missing. A plugin's destination (and publishing
@@ -262,12 +282,14 @@ and in the sidecar, nothing is asked: it fails and says how to resolve it.
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
-uses, saying what for, or signing in to another. Signing in with keys there opens a form saying
+uses, saying what for, or signing in to another. Signing in again to an account plugins had
+access to opens a form with Restore picked (enter gives it all back), Choose taking the scopes
+typed for each plugin (none leaves it off), and Reset. Signing in with keys there opens a form saying
 where to get them, each typed unseen, then the account's name when the service doesn't say.
 
 A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
 player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
-allowing it signs in again in the browser, or asks for the account's keys. A no is remembered: it isn't asked again until
+allowing it signs in again in the browser. A no is remembered: it isn't asked again until
 `locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
 `--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
 how to give it the scope.
@@ -397,7 +419,14 @@ shows what it answers as a list or a table (its rows as they come, when the plug
 labelled values, a tree, a chart (as a table of its points), a picture (said in words) or
 sections of those, or as text or JSON when it answers a plain value (`--json`: as it is, a
 picture as a PNG `data:` URL); an operation shows its plan
-and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back.
+and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back. A
+command the plugin plans first (one that writes files, like a backup) does too: it says what it
+would do and which files it would write (those there already marked, since it replaces them), asks,
+and only then runs (`--dry-run` stops at the plan, `--yes` doesn't ask, and without a terminal or
+with `--json` it doesn't run unless `--yes`); once a file it would write changes, it's planned
+again. One about rekordbox's collection takes no drive. A command that takes a while shows its
+progress and stops on Ctrl-C (esc in the player), and gets a minute to tidy up before it's stopped
+for it.
 Either may ask you something first (which track an entry is, say), or several things at once
 (which track each of a tracklist's entries is): in a terminal you pick from a numbered list for
 each; otherwise, or with `--json`, it stops and says how to answer each with `--choose
@@ -452,10 +481,12 @@ is dropped, and its log says so), so a slow plugin never holds up the player, th
 A plugin may tell you something back, from an event or a service, and suggest one of its own
 operations, or one of locallibrary's own flows on what it contributes: fetching cover art or track
 details from its providers (`art.fetch`, `track.fetch`), exporting in one of its formats
-(`export`) or running one of its analyzers (`analyze`), on a drive known here it names (never a
+(`export`), running one of its analyzers (`analyze`) or one of its commands (`command`), on a
+drive known here it names (never a
 path: one locallibrary doesn't know, the suggestion is left out) and the tracks of it that drive
 has. The player shows it as a message, and "review: ..." in the palette plans the operation,
-shown and asked about as any is, or opens the flow as if you'd started it, filled in: the fetch
+shown and asked about as any is, runs one of its commands as from the palette (`command`: one it
+plans first is shown and asked about), or opens the flow as if you'd started it, filled in: the fetch
 form only from its providers to start with, saying which drive and how many tracks; the export
 form with its options and a set's own name for the file (where it goes is yours to pick, as
 always); or a question before analyzing. The player doesn't export mixes, so it says so for a
@@ -592,7 +623,9 @@ plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another th
 the same recording (their values are equal), and the musicbrainz plugin answers it with the
 recording's ID. `doctor --analyze` runs those analyzers first on the tracks they haven't
 worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
-[Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
+[Publishing](account.md#publishing)); the check and ordering a set read what they kept. `analysis
+bench` scores the key and bpm ones against annotated datasets, keeping nothing (see [Checking the
+analysis](drives.md#checking-the-analysis)). A
 recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
 is a UUID and there's one for each name. What an analyzer keeps goes with the audio file, which a
 library can retag without changing, so a track takes the IDs only when they were looked up by its
@@ -658,7 +691,12 @@ kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online, `host.put_record(..)` to write an [Atmosphere
 record](#atmosphere-records) and `host.partial_rows(..)` to send a view's rows as they're ready. A command or an operation may answer a question for you (`Choice`) instead, or several
-at once (`Choice::together`), and is run again with your answers as its params. A view (a
+at once (`Choice::together`), and is run again with your answers as its params. A command with
+`plan = true` answers its plan (`CommandPlan`: a summary, warnings and the files it would write)
+when it's asked for a dry run, and is run with the same request once you confirm; one with
+`long_running = true` is shown with its progress. `where = ["collection"]` puts a command with
+rekordbox's collection rather than on a drive, and `context.data_dir` is the plugin's own folder
+for what it keeps (`plugins/ID/data/` in the store). A view (a
 command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
 that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
 handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
@@ -699,7 +737,8 @@ rekordbox and Dropbox sign-in tokens. locallibrary still never writes to rekordb
 the copy of rekordbox's database it makes for the plugin leaves the cloud agent's sign-in out
 unless the plugin asks for it. An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
-root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
+root, and each runs in a folder of its own in the store (`plugins/ID/work/`), keeping what it
+needs between runs in another (`plugins/ID/data/`), which locallibrary makes and never removes. One that stops
 answering is stopped, and started again the next time it's needed. What a plugin says (its
 manifest, its answers, its errors and what it tells you) is shown without control characters or
 terminal escape sequences, a newline or a tab as a space (but in a text view, or a command's

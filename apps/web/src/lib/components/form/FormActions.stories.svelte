@@ -1,13 +1,12 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import DeleteRow from './DeleteRow.svelte';
 	import FormActions from './FormActions.svelte';
 	import FormActionsHarness from './FormActionsHarness.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Form actions', component: FormActionsHarness, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const refused = { error: "That doesn't look like a web address", field: { name: 'name', row: 0 } };
 

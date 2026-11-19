@@ -1,0 +1,25 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.party",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "A named night or series and what its page shows, identified by its space's key: two parties can share a name. Written only by the Local Network root account, into the party's space, for its people with page.edit or for staff.",
+			"record": {
+				"type": "object",
+				"required": ["basics", "createdAt", "updatedAt"],
+				"properties": {
+					"basics": { "type": "ref", "ref": "computer.localnetwork.section.defs#basics" },
+					"publishedAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "When it was published. Absent while it's a draft, which only its people and staff see."
+					},
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

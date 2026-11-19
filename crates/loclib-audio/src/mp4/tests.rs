@@ -139,16 +139,19 @@ fn other_files_are_left_to_the_decoder(tc: TestCase) {
 }
 
 /// A `data` atom whose 64-bit size claims 16 TiB (symphonia would ask for all of it at once,
-/// which aborts the process anywhere) is refused.
+/// which aborts the process anywhere) is refused, named as an MP4 or not: symphonia finds the
+/// MP4 by its bytes.
 #[test]
 fn a_tag_claiming_terabytes_is_refused() {
     let data = [be(&[1]), b"data".to_vec(), (1u64 << 44).to_be_bytes().to_vec(), be(&[1, 0])].concat();
     let udta = mp4_atom(b"udta", &mp4_full(b"meta", &mp4_atom(b"ilst", &mp4_atom(b"\xa9nam", &data))));
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("x.m4a");
-    std::fs::write(&path, m4a(8_000, &mp4_empty_tables(), &udta)).unwrap();
-    for read in read_all(&path) {
-        assert_eq!(read.as_deref(), Some("an atom runs past the one holding it"));
+    for name in ["x.m4a", "x.mp3"] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, m4a(8_000, &mp4_empty_tables(), &udta)).unwrap();
+        for read in read_all(&path) {
+            assert_eq!(read.as_deref(), Some("an atom runs past the one holding it"), "{name}");
+        }
     }
 }
 

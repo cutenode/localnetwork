@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import { findTool } from '#lib/tools/index.ts';
 	import GuideList from './GuideList.svelte';
 
@@ -14,10 +15,6 @@
 		tags: ['autodocs'],
 		args: { tool: 'localtoolbox', guides, current: guides[1]?.slug }
 	});
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Beside the page" globals={desktop} />

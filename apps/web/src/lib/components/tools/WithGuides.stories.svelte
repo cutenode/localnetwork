@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { tools } from '#lib/tools/index.ts';
 	import WithGuides from './WithGuides.svelte';
 
@@ -12,8 +13,6 @@
 	const guides = docs.map(({ slug, title }) => ({ slug, title }));
 
 	const current = guides[1];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** The guide being read is marked in the list. */
 	const marksCurrent = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -35,7 +34,8 @@
 	</section>
 {/snippet}
 
-<Story name="Guide" asChild play={marksCurrent}>
+<!-- desktop-only: the guide list folds away below lg; the Guide list stories open it on a phone. -->
+<Story name="Guide" asChild play={marksCurrent} tags={['desktop-only']}>
 	<div class="container-page py-10"><WithGuides tool={id} {guides} current={current.slug}>{@render page()}</WithGuides></div>
 </Story>
 

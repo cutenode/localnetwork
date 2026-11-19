@@ -9,7 +9,7 @@ export type BlockKind = (typeof BLOCK_KINDS)[number]['value'];
 /** A block as the settings page lists it: who, and what kind of thing they are. */
 export type BlockView = { rkey: string; kind: BlockKind; name: string };
 
-type Lookups = Pick<App, 'core' | 'identity' | 'performerRegistry' | 'sharedSpaces' | 'accounts'>;
+type Lookups = Pick<App, 'core' | 'identity' | 'performerRegistry' | 'sharedSpaces' | 'accounts' | 'parties'>;
 
 /** The key in an act's or party's page link (`/act/<key>/<name>`), or in a party's space URI. */
 function pageKey(kind: 'act' | 'party', input: string): string {
@@ -17,8 +17,8 @@ function pageKey(kind: 'act' | 'party', input: string): string {
 }
 
 /**
- * The URI a block names for `input`: a handle (or DID) for a person, and for an act or party its page link, its key, or
- * a party's space URI.
+ * The URI a block, or an event's lineup, names for `input`: a handle (or DID) for a person, and for an act or party its
+ * page link, its key, or a party's space URI.
  */
 export async function blockSubject(app: Lookups, kind: BlockKind, input: string): Promise<string> {
 	const wanted = input.trim().replace(/^@/, '');
@@ -45,7 +45,7 @@ export async function blockSubject(app: Lookups, kind: BlockKind, input: string)
 	return performerUri(rootDid, { kind: 'act', skey });
 }
 
-/** Each block with the name it shows under: a person's handle, an act's name, or a party's key. */
+/** Each block with the name it shows under: a person's handle, an act's name, or a party's name. */
 export async function blockViews(app: Lookups, blocks: { rkey: string; subject: string }[]): Promise<BlockView[]> {
 	return Promise.all(
 		blocks.map(async ({ rkey, subject }): Promise<BlockView> => {
@@ -62,9 +62,9 @@ export async function blockViews(app: Lookups, blocks: { rkey: string; subject: 
 
 				if (act?.kind === 'act') return { rkey, kind: 'act', name: act.act.basics.name };
 
-				// Parties have no record to name them by yet, so a party shows as its key.
-				if (await app.sharedSpaces.get(sharedSpace(app.core.rootDid, 'party', ref.skey)))
-					return { rkey, kind: 'party', name: ref.skey };
+				const party = await app.parties.bySkey(ref.skey);
+
+				if (party) return { rkey, kind: 'party', name: party.basics.name };
 			}
 
 			// What it named is gone; the block stays until someone takes it away.

@@ -14,6 +14,7 @@ changes_steps(filter) := [base_step, {"uses": "dorny/paths-filter@abc", "with": 
 # A gated workflow whose changes job filters on `filter`.
 workflow(on, name, filter) := {
 	"true": on,
+	"defaults": {"run": {"shell": "bash"}},
 	"concurrency": {"group": name, "cancel-in-progress": true},
 	"jobs": {
 		"changes": {"steps": changes_steps(filter)},
@@ -74,6 +75,7 @@ repo := [
 	}},
 	{"path": ".github/workflows/site-ci.yml", "contents": {
 		"true": {"pull_request": null, "push": {"branches": ["main"]}},
+		"defaults": {"run": {"working-directory": "apps/site", "shell": "bash"}},
 		"concurrency": {"group": "ci", "cancel-in-progress": true},
 		"jobs": {
 			"changes": {"steps": changes_steps("run:\n  - 'apps/**'\n  - 'packages/**'\n  - '!**/*.md'\n")},
@@ -84,6 +86,7 @@ repo := [
 	}},
 	{"path": ".github/workflows/site-e2e.yml", "contents": {
 		"true": {"workflow_call": null, "schedule": [{"cron": "0 5 * * 1"}]},
+		"defaults": {"run": {"shell": "bash"}},
 		"jobs": {
 			"test": {"permissions": {"contents": "read"}},
 			"report": {"needs": "test", "continue-on-error": true, "permissions": {"pull-requests": "write"}},
@@ -92,7 +95,11 @@ repo := [
 	{"path": ".github/workflows/rust.yml", "contents": workflow("pull_request", "Rust passed", "locallibrary:\n  - 'crates/**'\n  - 'plugins/**'\n  - 'lexicons/computer/localnetwork/dj/**'\n  - '!Cargo.lock'\n  - '!**/*.md'\n")},
 	{"path": ".github/workflows/deps.yml", "contents": workflow({"pull_request": {"branches": ["main"]}}, "Deps passed", "run:\n  - 'vendor/**'\n")},
 	{"path": ".github/workflows/lint.yml", "contents": workflow(["push", "pull_request"], "Lint passed", "run: '.github/**'\n")},
-	{"path": ".github/workflows/labels.yml", "contents": {"true": ["push"], "jobs": {"sync": {}}}},
+	{"path": ".github/workflows/labels.yml", "contents": {"true": ["push"], "defaults": {"run": {"shell": "bash"}}, "jobs": {"sync": {}}}},
+	{"path": ".github/actions/last-passed/action.yml", "contents": {"runs": {"using": "composite", "steps": [
+		{"uses": "actions/checkout@abc"},
+		{"id": "last", "run": "gh run list", "shell": "bash"},
+	]}}},
 	{"path": ".github/labels.yml", "contents": {"name": "site"}},
 	{"path": ".github/labels.yml", "contents": {"name": "tool"}},
 	{"path": ".github/labels.yml", "contents": {"name": "docs"}},
@@ -113,13 +120,22 @@ repo := [
 	{"path": ".github/rulesets/protect-main.json", "contents": {"rules": [
 		{"type": "deletion"},
 		{"type": "pull_request", "parameters": {"dismiss_stale_reviews_on_push": true, "require_last_push_approval": true}},
-		{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Site CI passed"}, {"context": "Rust passed"}, {"context": "Deps passed"}, {"context": "Lint passed"}]}},
+		{"type": "required_status_checks", "parameters": {"required_status_checks": [
+			{"context": "Site CI passed", "integration_id": 15368},
+			{"context": "Rust passed", "integration_id": 15368},
+			{"context": "Deps passed", "integration_id": 15368},
+			{"context": "Lint passed", "integration_id": 15368},
+		]}},
 	]}},
 	{"path": "lexicons/computer/localnetwork/tool/record.json", "contents": {"id": "computer.localnetwork.tool.record"}},
 	{"path": "lexicons/computer/localnetwork/toolPublishing.json", "contents": {"id": "computer.localnetwork.toolPublishing"}},
 	{"path": "lexicons/computer/localnetwork/dj/set.json", "contents": {"id": "computer.localnetwork.dj.set"}},
 	{"path": "lexicons/community/lexicon/location/address.json", "contents": {"id": "community.lexicon.location.address"}},
-	{"path": "/scratch/embedded-files.json", "contents": {"files": ["lexicons/computer/localnetwork/dj/set.json", "plugins/p/locallibrary-plugin.toml"]}},
+	{"path": "/scratch/reads.json", "contents": {"reads": [
+		{"from": "crates/x/src/lib.rs", "path": "lexicons/computer/localnetwork/dj/set.json"},
+		{"from": "apps/locallibrary/src/plugins.rs", "path": "plugins/p/locallibrary-plugin.toml"},
+		{"from": "crates/x/tests/lexicons.rs", "path": "lexicons/"},
+	]}},
 	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "apps/site/package-lock.json", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]
 

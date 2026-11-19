@@ -124,7 +124,7 @@ it('tells a promoter writing to a listed DJ that the thread is with them, and go
 
 	await render(Page, { params: {}, data: { ...fromShow, to: dj, values: inquiryDefaults, show: null }, form: null });
 
-	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon' })).toBeInTheDocument();
+	await expect.element(page.getByRole('heading', { level: 1, name: 'Inquire with Neon' })).toBeInTheDocument();
 	await expect.element(page.getByText('This opens a private thread with Neon.', { exact: false })).toBeInTheDocument();
 	await expect.element(page.getByText("the project's managers", { exact: false })).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/@neon.test');

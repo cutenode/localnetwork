@@ -33,8 +33,8 @@
 <text x="36 45 54 63 72 81 90 99 108" y="50" fill="#9494a8" font-weight="bold">Playlists</text>
 <text x="126 135 144 153 162 171 180 189 198 207" y="50" fill="#5c5c74">─────────╮</text>
 <text x="216" y="50" fill="#5cd6ff">│</text>
-<text x="306 315 324 333 342" y="50" fill="#9494a8" font-weight="bold">Title</text>
-<text x="450 459 468 477 486 495" y="50" fill="#9494a8" font-weight="bold">Artist</text>
+<text x="288 297 306 315 324" y="50" fill="#9494a8" font-weight="bold">Title</text>
+<text x="441 450 459 468 477 486" y="50" fill="#9494a8" font-weight="bold">Artist</text>
 <text x="549 558 567" y="50" fill="#9494a8" font-weight="bold">BPM</text>
 <text x="612 621 630" y="50" fill="#9494a8" font-weight="bold">Key</text>
 <text x="657 666 675 684" y="50" fill="#9494a8" font-weight="bold">Time</text>
@@ -49,10 +49,10 @@
 <text x="207" y="68" fill="#5c5c74">│</text>
 <text x="216" y="68" fill="#5cd6ff">│</text>
 <text x="225" y="68" fill="#ff5ca0" font-weight="bold">▍</text>
-<text x="306 315 324 333" y="68" fill="#e2e2ec" font-weight="bold">Demo</text>
-<text x="351 360 369 378 387" y="68" fill="#e2e2ec" font-weight="bold">Track</text>
-<text x="405" y="68" fill="#e2e2ec" font-weight="bold">1</text>
-<text x="450 459 468 477 486 495 504 513 522 531" y="68" fill="#c3c3d1" font-weight="bold">Loopmaster</text>
+<text x="288 297 306 315" y="68" fill="#e2e2ec" font-weight="bold">Demo</text>
+<text x="333 342 351 360 369" y="68" fill="#e2e2ec" font-weight="bold">Track</text>
+<text x="387" y="68" fill="#e2e2ec" font-weight="bold">1</text>
+<text x="441 450 459 468 477 486 495 504 513 522 531" y="68" fill="#c3c3d1" font-weight="bold">Loopmasters</text>
 <text x="558 567 576 585 594" y="68" fill="#ffc456" font-weight="bold">128.0</text>
 <text x="621 630" y="68" fill="#5cd6ff" font-weight="bold">4A</text>
 <text x="675 684 693 702" y="68" fill="#9494a8" font-weight="bold">2:52</text>
@@ -64,10 +64,10 @@
 <text x="189 198" y="86" fill="#78788e">12</text>
 <text x="207" y="86" fill="#5c5c74">│</text>
 <text x="216" y="86" fill="#5cd6ff">│</text>
-<text x="306 315 324 333" y="86" fill="#e2e2ec">Demo</text>
-<text x="351 360 369 378 387" y="86" fill="#e2e2ec">Track</text>
-<text x="405" y="86" fill="#e2e2ec">2</text>
-<text x="450 459 468 477 486 495 504 513 522 531" y="86" fill="#c3c3d1">Loopmaster</text>
+<text x="288 297 306 315" y="86" fill="#e2e2ec">Demo</text>
+<text x="333 342 351 360 369" y="86" fill="#e2e2ec">Track</text>
+<text x="387" y="86" fill="#e2e2ec">2</text>
+<text x="441 450 459 468 477 486 495 504 513 522 531" y="86" fill="#c3c3d1">Loopmasters</text>
 <text x="558 567 576 585 594" y="86" fill="#ffc456">120.0</text>
 <text x="612 621 630" y="86" fill="#78de8c" font-weight="bold">=4A</text>
 <text x="675 684 693 702" y="86" fill="#9494a8">2:08</text>

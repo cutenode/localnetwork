@@ -86,6 +86,12 @@ patchedDependencies:
 auditConfig:
   ignoreGhsas:
     - GHSA-mrhx-c7xc-m3w5
+    # picomatch (<=4.0.7, no fixed release) reaches only dev and build tooling: vite, vitest, knip,
+    # tinyglobby, fdir, unplugin, @rollup/pluginutils, @stylistic/eslint-plugin, micromatch (through
+    # @lavamoat/harden) and tools/budgets/baseline.ts, which glob our own config patterns, never input
+    # from users. evlog only loads vite from its evlog/vite entry, which the server doesn't import.
+    # Drop this once a fixed picomatch ships.
+    - GHSA-fc5q-39xc-vjpf
 # Avoid installing packages published in last 3 days (in minutes).
 minimumReleaseAge: 4320
 # Disable exotic subdeps in older pnpm versions.

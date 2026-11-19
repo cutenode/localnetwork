@@ -178,7 +178,7 @@ flowchart TD
     hub --> store["The store and settings<br/>store.gc, store.prune, settings.write, settings.import, settings.import_file, settings.import_published, players.set, players.clear"]
     hub --> jobs["Jobs<br/>refresh, prep"]
     hub --> publish["Publishing<br/>settings.publish, profile.publish, sets.publish"]
-    hub --> plugin["Plugins<br/>plugins.op, plugins.export, plugins.import, plugins.source, plugins.publish, plugins.provide, plugins.apply_fields, plugins.apply_analysis"]
+    hub --> plugin["Plugins<br/>plugins.op, plugins.command, plugins.export, plugins.import, plugins.source, plugins.publish, plugins.provide, plugins.apply_fields, plugins.apply_analysis"]
     copies ~~~ jobs
     edits ~~~ publish
     drive ~~~ plugin
@@ -197,7 +197,7 @@ flowchart TD
     hub --> sets["Sets and profile<br/>sets.new, sets.edit, sets.delete, sets.export, sets.lookup, sessions.dismiss, sessions.import, profile.prefs.set"]
     hub --> mix["Mixes and files<br/>mix.index, mix.identify, mix.export, mix.reports.html, export"]
     hub --> drive["Drives<br/>drive.role, drive.retire, drive.forget, drive.repair, drive.fsck, drive.speed.measure"]
-    hub --> account["Accounts<br/>account.login.begin, finish, paste, cancel, account.logout, accounts.sign_in.begin, finish, paste, cancel, accounts.sign_out, accounts.access.give, set_default, take_away"]
+    hub --> account["Accounts<br/>account.login.begin, finish, paste, cancel, account.logout, accounts.sign_in.begin, finish, paste, cancel, accounts.sign_out, accounts.access.give, set_default, take_away, restore, accounts.restore_automatically"]
     hub --> plugins["Plugins<br/>plugins.settings.set, plugins.analyze, plugins.checks.set, plugins.checks.timeout.set, plugins.providers.set, plugins.roles.set, plugins.store.copy, plugins.store.restore, plugins.store.repair"]
     store ~~~ drive
     sets ~~~ account

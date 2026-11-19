@@ -258,10 +258,11 @@ fn spectrum_bars_rise_with_their_level(tc: TestCase) {
     }
 }
 
-/// As many bars fit as the width takes, and one more wouldn't.
+/// As many bars fit as the width takes, and one more wouldn't. A mirrored pair and its gap take
+/// three columns.
 #[hegel::test(test_cases = 300)]
 fn bars_fill_the_width(tc: TestCase) {
-    let width = tc.draw(gs::integers::<u16>().min_value(2).max_value(400));
+    let width = tc.draw(gs::integers::<u16>().min_value(3).max_value(400));
     let mirror = tc.draw(gs::booleans());
     let (n, bar, gap) = bar_layout(width, mirror);
     let bars = if mirror { 2 * n } else { n } as u16;

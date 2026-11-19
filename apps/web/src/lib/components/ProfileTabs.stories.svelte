@@ -3,6 +3,7 @@
 	import { expect, userEvent, within } from 'storybook/test';
 	import { dj, neon, playsIn, profile, waiting } from '#lib/profile-tabs/stories/fixtures.ts';
 	import { light } from '#lib/testing/light.ts';
+	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import ProfileTabs from './ProfileTabs.svelte';
 
 	/** A person's profile sections as tabs, with Neon from the seed data; the first two at 1280px, the rest at 390px too. */
@@ -10,15 +11,8 @@
 		title: 'Patterns/Profile tabs',
 		component: ProfileTabs,
 		tags: ['autodocs'],
-		args: { profile: neon, sets: undefined, dj, playsIn, requested: null },
-		parameters: {
-			viewport: { options: { phone: { name: 'Phone', styles: { width: '390px', height: '844px' }, type: 'mobile' } } }
-		}
+		args: { profile: neon, sets: undefined, dj, playsIn, requested: null }
 	});
-
-	const desktop = { viewport: { value: 'desktop', isRotated: false } };
-
-	const phone = { viewport: { value: 'phone', isRotated: false } };
 </script>
 
 <Story

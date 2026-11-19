@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { slimCapture } from '#lib/components/tools/sources.ts';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { findTool } from '#lib/tools/index.ts';
 	import type { ProjectView, ShowView, SupportedTrack } from '#lib/types.ts';
 	import { DEMO_PROJECTS } from '../../../scripts/seed-data.ts';
@@ -63,8 +64,6 @@
 	const live: State = { directory: Promise.resolve({ example, djs: 12, cities: 10, unclaimed: 7 }), shows: Promise.resolve(shows), tracks: Promise.resolve(tracks) };
 
 	const loading = new Promise<never>(() => {});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet landing(state: State)}

@@ -50,6 +50,7 @@ ignored = [
     "locallibrary-plugin-mixcloud",
     "locallibrary-plugin-musicbrainz",
     "locallibrary-plugin-plyr",
+    "locallibrary-plugin-rekordbox-backup",
     "locallibrary-plugin-sound",
     "locallibrary-plugin-soundcloud",
     "locallibrary-plugin-tracklist",
@@ -145,6 +146,7 @@ ratatui-image = { version = "=11.1.0", default-features = false, optional = true
 image = { workspace = true, optional = true }
 # The short fades of panels and tracks.
 tachyonfx = { version = "0.25", default-features = false, features = ["std"], optional = true }
+locallibrary-plugin-rekordbox-backup = { version = "0.1.0", path = "../../plugins/rekordbox-backup" }
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

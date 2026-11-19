@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { nowIso, openDatabase } from '../db';
 import { silentLogger } from '../logger';
@@ -26,9 +26,6 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
-
-/** The lexicon-community RSVP a guest answers an event with, which nothing here writes yet. */
-const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp';
 
 /** A fetch for services whose client never reaches the network. */
 const offline: typeof globalThis.fetch = async (input) => {
@@ -151,8 +148,6 @@ describe('OAuth scopes', () => {
 
 		for (const action of ['create', 'update', 'delete'] as const) {
 			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
-			// Nothing writes an RSVP yet, so sign-in doesn't ask to.
-			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(false);
 			expect(permissions.allowsSpace(performer, { action, collection: COLLECTION.epkDraft })).toBe(true);
 			// Only staff list a DJ, from the root account.
 			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
@@ -188,7 +183,7 @@ describe('OAuth scopes', () => {
 		expect(SCOPES.minimal).toBe('atproto');
 	});
 
-	it('lets any account keep a profile, follow, and announce shows as calendar events, with or without spaces', () => {
+	it('lets any account keep a profile, follow, RSVP, and announce shows as calendar events, with or without spaces', () => {
 		for (const scopes of [granted, base.split(' ')]) {
 			const permissions = new ScopePermissions(scopes);
 
@@ -199,7 +194,7 @@ describe('OAuth scopes', () => {
 				expect(permissions.allowsRepo({ collection: COLLECTION.follow, action })).toBe(true);
 			expect(permissions.allowsRepo({ collection: COLLECTION.follow, action: 'update' })).toBe(false);
 
-			for (const collection of [COLLECTION.show, CALENDAR_EVENT])
+			for (const collection of [COLLECTION.show, CALENDAR_EVENT, CALENDAR_RSVP])
 				for (const action of ['create', 'update', 'delete'] as const)
 					expect(permissions.allowsRepo({ collection, action })).toBe(true);
 			expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(scopes === granted);
@@ -208,7 +203,7 @@ describe('OAuth scopes', () => {
 
 	it('counts a grant from before shows and follows as one with spaces, which lacks only those writes', () => {
 		// What the PDS grants from the permission set as it was, or from one it hasn't fetched again yet.
-		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.(event|rsvp)/.test(scope);
 		const before = granted.filter((scope) => !publicRecords(scope)).join(' ');
 
 		expect(grantsSpaces(before, user, root)).toBe(true);
@@ -265,7 +260,7 @@ describe('OAuth scopes', () => {
 		expect(grantsPublicRecords(before, user, root)).toBe(false);
 
 		// Every space write it had is still needed, drafts in a project's backstage included.
-		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.(event|rsvp)/.test(scope);
 
 		for (const dropped of held.filter((scope) => !publicRecords(scope)))
 			expect(grantsSpaces(held.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
@@ -284,7 +279,21 @@ describe('OAuth scopes', () => {
 
 		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
 		expect(new Set(declared).size).toBe(declared.length);
-		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(false);
+	});
+
+	it('keeps a grant from before RSVPs signed in, and has its first RSVP ask for a fresh sign-in', () => {
+		const rsvps = (scope: string) => scope.includes(CALENDAR_RSVP);
+		const before = granted.filter((scope) => !rsvps(scope)).join(' ');
+
+		expect(granted.filter(rsvps)).toHaveLength(1);
+		// Still spaces-capable, so nobody is signed out at deploy.
+		expect(grantsSpaces(before, user, root)).toBe(true);
+		// The PDS refuses the RSVP write, which writeOwn turns into "Sign in again"; that sign-in asks for `full` again.
+		expect(new ScopePermissions(before.split(' ')).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(
+			false
+		);
+		expect(grantsPublicRecords(before, user, root)).toBe(false);
+		expect(grantsAll(before, full, user, root)).toBe(false);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {

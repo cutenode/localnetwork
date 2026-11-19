@@ -1,10 +1,11 @@
 //! Accounts on the command line: `account` listing them, signing in to one through an account
 //! plugin at the mock service (see [`super::shared_accounts`]) and out, `plugin access` giving the
 //! echo plugin access, and a plugin's destination asking which account it may use only where it
-//! can ask (see [`cli`]). Here, a sign-in the browser doesn't come back to approved, on the command
-//! line and in the sidecar.
+//! can ask (see [`cli`]), and giving back the access signing out took (see [`restoring`]). Here,
+//! a sign-in the browser doesn't come back to approved, on the command line and in the sidecar.
 
 mod cli;
+mod restoring;
 
 use hegel::TestCase;
 use hegel::generators as gs;

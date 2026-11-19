@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { LocallibraryStatus } from '#lib/dj.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import LocallibraryCard from './LocallibraryCard.svelte';
 
 	const { Story } = defineMeta({ title: 'Dashboard/locallibrary card', component: LocallibraryCard, tags: ['autodocs'] });
@@ -10,8 +11,6 @@
 	const set = { href: '/@neon.test/sets/3kset', name: 'Tidal Hours at Halle Nord', at: ago(3) };
 
 	const published: LocallibraryStatus = { statsAt: ago(50), sets: set };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Loading" args={{ status: null }} />

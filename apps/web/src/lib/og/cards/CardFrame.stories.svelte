@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import { CARD, clamp, ink } from '../style.ts';
 	import CardFrame from './CardFrame.svelte';
 	import CardPreview from './CardPreview.svelte';
@@ -7,8 +8,6 @@
 
 	/** Every card's canvas and footer, drawn at 1200×630 and shown here scaled to fit. */
 	const { Story } = defineMeta({ title: 'Link previews/Frame', component: CardFrame, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 {#snippet title()}

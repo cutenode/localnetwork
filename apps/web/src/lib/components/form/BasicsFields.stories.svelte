@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectFormValues } from '#lib/types.ts';
 	import BasicsFields from './BasicsFields.svelte';
 
@@ -24,8 +25,6 @@
 
 	/** A picture already on the profile, drawn inline so the story never loads one. */
 	const avatarUrl = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="#2a6f6f"/></svg>')}`;
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="New profile" args={{ pronouns: '' }} />

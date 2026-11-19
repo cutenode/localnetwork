@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { ACCOUNT_PAGES } from '#lib/account.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import LinkRows from './LinkRows.svelte';
 
 	const { Story } = defineMeta({ title: 'Dashboard/Link rows', component: LinkRows, tags: ['autodocs'] });
@@ -15,8 +16,6 @@
 		{ label: 'Booking messages', detail: 'Inquiries and messages', count: 2, href: '/dashboard/account/data/booking' },
 		{ label: 'Press kit access', detail: 'Asks to see a press kit', count: 0 }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Pages" args={{ rows: pages }} />

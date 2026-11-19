@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { DjSetView, ProjectFormValues } from '#lib/types.ts';
 	import PerformerFields from './PerformerFields.svelte';
 
@@ -41,8 +42,6 @@
 
 	/** The account's sets, still on their way. */
 	const loading = new Promise<DjSetView[] | null>(() => {});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Empty" />

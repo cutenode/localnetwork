@@ -1,9 +1,7 @@
 import type { ProfileRecord, ProjectFormValues } from '#lib/types.ts';
 import {
 	basicsToValues,
-	parseAvatar,
-	parseBasics,
-	parseLocation,
+	parseBasicsPage,
 	parsePerformer,
 	parsePromoter,
 	performerToValues,
@@ -32,17 +30,17 @@ export async function parseProfileForm(
 	previous: ProfileRecord | undefined
 ): Promise<Omit<ProfileInput, 'swap'>> {
 	const on = new Set(form.getAll('section'));
-	const { pronouns: _, ...basics } = parseBasics(form, 'Add your name');
+
+	const {
+		basics: { pronouns: _, ...basics },
+		avatar
+	} = await parseBasicsPage(form, 'Add your name', "Add the city you're based in, or clear the place");
+
 	// A person's pronouns come from their Bluesky profile, which the form shows but doesn't change, so the ones the
 	// profile kept before stay as they were, for pages to fall back on.
 	const { pronouns } = previous?.basics ?? {};
-	const location = parseLocation(form, false, "Add the city you're based in, or clear the place");
-	const avatar = await parseAvatar(form);
 
-	const input: Omit<ProfileInput, 'swap'> = {
-		basics: { ...basics, ...(pronouns && { pronouns }), ...(location && { location }) },
-		avatar: avatar ? { upload: avatar } : form.get('removeAvatar') === 'on' ? 'remove' : 'keep'
-	};
+	const input: Omit<ProfileInput, 'swap'> = { basics: { ...basics, ...(pronouns && { pronouns }) }, avatar };
 
 	if (on.has('performer')) {
 		const { profile: performer, tracklists } = await withTracklists(form, parsePerformer(form), [previous?.performer]);

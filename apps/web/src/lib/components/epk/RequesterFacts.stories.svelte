@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { RequesterAbout } from '#lib/epk.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import RequesterFacts from './RequesterFacts.svelte';
 
 	const { Story } = defineMeta({ title: 'Press kits/Requester facts', component: RequesterFacts, tags: ['autodocs'] });
@@ -25,8 +26,6 @@
 		performer: { genres: ['dubstep', 'riddim', 'baile funk', 'jungle'] },
 		venues: venueOwner.venues
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Promoter" args={{ about: promoter }} />

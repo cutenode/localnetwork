@@ -151,7 +151,7 @@ Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/serv
 
 ## Public pages
 
-The pages anyone can read. A performer that isn't active shows only to its managers and staff; everyone else gets a 404.
+The pages anyone can read. A performer that isn't active shows only to its managers and staff; everyone else gets a 404. So does an event never confirmed, to anyone outside its party.
 
 ```mermaid
 flowchart LR
@@ -161,6 +161,10 @@ flowchart LR
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]
   Public --> Shows["/shows"]
+  Public --> Party["/party/[key]/[...rest] (spacePages),<br/>drafts for its people and staff;<br/>/party/new signed in"]
+  Party --> Event["/party/[key]/[event]/[name],<br/>drafts for the party's people and staff,<br/>private ones from their link's ?t=;<br/>/party/[key]/new for events.manage"]
+  Event --> Rsvp["?/rsvp: Going or Interested,<br/>signed in, on a published public<br/>event until its night is over"]
+  Public --> Venue["/venue/[key]/[[name]] (spacePages)"]
   Public --> Music["/charts, /artists,<br/>/artists/[id], /artists/name/[[name]]"]
   Public --> Tools["/tools, /tools/[tool],<br/>/tools/[tool]/docs/[page]"]
   Public --> Preview["/mixes/preview"]
@@ -169,7 +173,7 @@ flowchart LR
   Public --> Report["/report, which sends signed-out<br/>visitors to GitHub"]
 ```
 
-Source: [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts)
+Source: [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/party-page.ts`](../../src/lib/server/party-page.ts), [`src/lib/server/event-page.ts`](../../src/lib/server/event-page.ts), [`src/routes/venue/[key]/[[name]]/+page.server.ts`](../../src/routes/venue/[key]/[[name]]/+page.server.ts)
 
 ## Dashboard routes
 
@@ -185,7 +189,7 @@ flowchart LR
   Dash -- "308 from /activity, /data,<br/>/requests, /inbox/settings" --> Account
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
-  Dash --> Claim["/claim/[slug], /projects/new,<br/>/venues/[key]/claim and /settings<br/>(peopleSpaces)"]
+  Dash --> Claim["/claim/[slug], /projects/new,<br/>/venues/[key]/claim, /settings<br/>and /events (peopleSpaces)"]
   Dash --> Access["/access/[slug]/[rkey]"]
   Dash --> Manage["/projects/[slug]<br/>the performer's managers"]
   Manage --> Mine["/profile, /shows/[rkey]"]

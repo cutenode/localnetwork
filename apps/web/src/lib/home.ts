@@ -1,4 +1,4 @@
-/** Something waiting on the viewer, as Home lists it. `scope` is the act or thing it belongs to, for its monogram. */
+/** Something waiting on the viewer, as Overview lists it. `scope` is the act or thing it belongs to, for its monogram. */
 export type NeedsRow = { key: string; scope: string; title: string; detail: string; href: string; action: string };
 
 /** A night the viewer has something to do with. `tentative` nights aren't settled yet; `when` says how close it is. */
@@ -12,7 +12,7 @@ export type NightRow = {
 	when?: 'Tonight' | 'Tomorrow';
 };
 
-/** Home's heading: the one count of what's waiting on the viewer. */
+/** Overview's heading: the one count of what's waiting on the viewer. */
 export const statusLine = (count: number): string => {
 	if (!count) return 'Nothing needs you.';
 

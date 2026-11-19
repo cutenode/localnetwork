@@ -1,10 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import RemoveRow from './RemoveRow.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Remove row', component: RemoveRow, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <script lang="ts">
