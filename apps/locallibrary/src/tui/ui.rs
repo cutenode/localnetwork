@@ -10,7 +10,7 @@ mod shell;
 mod strip;
 
 pub(super) use chrome::*;
-use deck::{beat_spans, draw_deck, end_style};
+use deck::{draw_deck, end_style};
 use drives::*;
 pub(super) use library::*;
 pub(super) use overlays::*;

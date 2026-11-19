@@ -300,7 +300,7 @@ flowchart LR
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
-    core --> sound["loclib-analysis<br/>tempo, key, loudness"]
+    core -->|scoring only| sound["loclib-analysis<br/>tempo, key, loudness"]
     core --> trans["loclib-transcode<br/>copies for players"]
     core --> model["loclib-model<br/>loclib-progress"]
     plugins --> sdk
@@ -374,7 +374,7 @@ flowchart TD
     hub --> plays["Plays and players<br/>plays, sets, mix, profile, players"]
     hub --> other["Other<br/>account, plugin, bug, completions, help,<br/>analysis, import"]
     hub --> hidden["Not in the help<br/>rpc and man"]
-    hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other"]
+    hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other;<br/>those about the collection in collection --help too"]
     everyday ~~~ plays
     drives ~~~ other
     library ~~~ hidden
@@ -442,7 +442,7 @@ flowchart TD
     hub --> library["library<br/>ls, rename, log, push, prune"]
     hub --> store["store<br/>info, gc, verify, index-limit, copy-on-write, label, unlabel, prune, copy, copies,<br/>browse, views, unbrowse, restore, serve, fetch"]
     hub --> diff["diff<br/>entries between two drives or snapshots"]
-    hub --> collection["collection<br/>info, tracks, playlists, export, diff"]
+    hub --> collection["collection<br/>info, tracks, playlists, export, diff,<br/>and the rekordbox-backup plugin's backup, backups, verify"]
     hub --> export["export<br/>M3U8, CSV, text or a plugin's format"]
     hub --> xml["xml<br/>rekordbox XML"]
     hub --> analyze["analyze<br/>run plugins' analyzers"]
@@ -452,7 +452,7 @@ flowchart TD
     diff ~~~ analyze
 ```
 
-Source: [`src/main.rs`](src/main.rs), [`src/library_cmd.rs`](src/library_cmd.rs), [`src/store_cmd.rs`](src/store_cmd.rs), [`src/diff_cmd.rs`](src/diff_cmd.rs), [`src/collection_cmd.rs`](src/collection_cmd.rs), [`src/export_cmd.rs`](src/export_cmd.rs), [`src/plugin_cmd/analyze.rs`](src/plugin_cmd/analyze.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/library_cmd.rs`](src/library_cmd.rs), [`src/store_cmd.rs`](src/store_cmd.rs), [`src/diff_cmd.rs`](src/diff_cmd.rs), [`src/collection_cmd.rs`](src/collection_cmd.rs), [`src/export_cmd.rs`](src/export_cmd.rs), [`src/plugin_cmd/analyze.rs`](src/plugin_cmd/analyze.rs), [`plugins/rekordbox-backup/locallibrary-plugin.toml`](../../plugins/rekordbox-backup/locallibrary-plugin.toml)
 
 ### Editing commands
 

@@ -6,6 +6,7 @@ mod accounts;
 mod analysis;
 #[cfg(feature = "account")]
 mod atmosphere;
+mod bench;
 mod blobs;
 mod callbacks;
 mod checks;
@@ -21,6 +22,7 @@ mod jobs;
 mod key_accounts;
 mod net;
 mod panels;
+mod plans;
 mod printable;
 mod props;
 mod providers;
@@ -495,7 +497,10 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
             .unwrap_err();
         failure(e)
     };
-    assert_eq!(run("old"), "the Echo plugin failed: protocol \"9.0.0\" isn't compatible with 0.2.0");
+    assert_eq!(
+        run("old"),
+        format!("the Echo plugin failed: protocol \"9.0.0\" isn't compatible with {PROTOCOL_VERSION}")
+    );
     assert_eq!(run("stranger"), "the Echo plugin failed: it says it's echo 0.1.0, not stranger 0.1.0");
     assert_eq!(
         run("otherwise"),

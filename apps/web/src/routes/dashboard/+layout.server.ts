@@ -39,7 +39,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params }) => {
 		projects: managed.value,
 		sections: shown.value,
 		unread: await locals.app.notifications.unreadCount(viewer.did),
-		// Here rather than on Home because the sidebar counts them on every dashboard page. Reading a notification never
+		// Here rather than on Overview because the sidebar counts them on every dashboard page. Reading a notification never
 		// clears one: they go when the thing itself is answered.
 		waiting: await needsCount(locals.app, viewer.did),
 		needs: needs.value,

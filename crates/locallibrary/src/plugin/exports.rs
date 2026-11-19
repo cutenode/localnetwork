@@ -49,13 +49,29 @@ pub struct PluginExport {
     given: Option<(String, PathBuf)>,
 }
 
-/// A file an export writes, as the plugin says, and whether it's there already (and so
-/// overwritten).
-#[derive(Serialize, JsonSchema)]
+/// A file an export (or a planned command) writes, as the plugin says, and whether it's there
+/// already (and so overwritten).
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct ExportFile {
     #[serde(flatten)]
     pub file: ExportedFile,
     pub exists: bool,
+}
+
+impl ExportFile {
+    /// `file`, and whether it's there now.
+    pub(super) fn of(file: ExportedFile) -> ExportFile {
+        ExportFile { exists: file.path.exists(), file }
+    }
+}
+
+/// What `files` come to as a plan's summary says it after their count (` (12.5 MB)`), when the
+/// plugin says their sizes: refused when they add up to more than a size can be.
+pub(super) fn size_said(slot: &Slot, files: &[ExportFile]) -> Result<String> {
+    let size = files.iter().try_fold(0u64, |sum, f| sum.checked_add(f.file.bytes));
+    let size =
+        size.ok_or_else(|| slot.misbehaved(format!("its files' sizes add up to more than {} bytes", u64::MAX)))?;
+    Ok(if size > 0 { format!(" ({})", crate::op::bytes(size)) } else { String::new() })
 }
 
 impl Plugins {
@@ -111,13 +127,9 @@ impl Plugins {
                 key.ok_or_else(|| slot.misbehaved(format!("it would write {} outside the output", f.path.display())))
             })
             .collect::<Result<Vec<_>>>()?;
-        let files: Vec<ExportFile> =
-            files.into_iter().map(|file| ExportFile { exists: file.path.exists(), file }).collect();
+        let files: Vec<ExportFile> = files.into_iter().map(ExportFile::of).collect();
         let overwrites = files.iter().filter(|f| f.exists).count();
-        let size = files.iter().try_fold(0u64, |sum, f| sum.checked_add(f.file.bytes));
-        let size =
-            size.ok_or_else(|| slot.misbehaved(format!("its files' sizes add up to more than {} bytes", u64::MAX)))?;
-        let size = if size > 0 { format!(" ({})", crate::op::bytes(size)) } else { String::new() };
+        let size = size_said(slot, &files)?;
         let mut summary = vec![format!("write {} file(s){size} to {}", files.len(), output.display())];
         if !counts.is_empty() {
             let counted: Vec<String> = counts.iter().map(|(label, n)| format!("{n} {label}")).collect();

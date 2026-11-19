@@ -73,6 +73,7 @@ export type DirectoryOutputs = {
 	listShows: { shows: DirectoryShow[]; cursor?: string };
 	getShows: { shows: DirectoryShow[] };
 	getFollowStatus: { followers: number; follows: string[] };
+	getRsvpStatus: { going: number; interested: number; rsvps: { uri: string; status: string }[] };
 	getCharts: Charts;
 	getArtist: { artist?: SupportedArtist; tracks: TrackPlays[]; djs: DirectoryDj[] };
 	searchArtists: { artists: SupportedArtist[] };

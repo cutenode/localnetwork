@@ -26,16 +26,18 @@
 			changes_requested: warning,
 			denied: warning,
 			outdated: warning,
+			date_passed: warning,
 			rejected: critical,
 			declined: critical,
 			failure: critical,
 			failed: critical,
 			open: info,
+			new: info,
 			written: info
 		})
 	);
 
-	const labels = new Map(Object.entries({ changes_requested: 'Changes requested', self: 'Root is actor', unsupported: 'No spaces support', outdated: 'Out of date', unverified: 'Not verified' }));
+	const labels = new Map(Object.entries({ changes_requested: 'Changes requested', self: 'Root is actor', unsupported: 'No spaces support', outdated: 'Out of date', unverified: 'Not verified', date_passed: 'Date passed' }));
 
 	const label = $derived(labels.get(status) ?? status.charAt(0).toUpperCase() + status.slice(1));
 </script>

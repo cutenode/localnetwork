@@ -195,7 +195,7 @@ enum Answer {
 /// In a terminal, signing in again to an account echo had access to (with `write`) asks what to
 /// give back, listing it: everything (Restore), the plugins chosen with the scopes chosen
 /// besides what each needs (Choose), or nothing, forgetting it (Reset). Echo has as the answer
-/// says, and nothing's left to restore.
+/// says, nothing's left to restore, and nothing printed holds a token the service gave.
 #[cfg(unix)]
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(answer = Answer::Restore)]
@@ -228,6 +228,7 @@ fn in_a_terminal_signing_in_again_asks_what_to_give_back(tc: TestCase) {
     assert_eq!(err.contains("? Which plugins?\n    1. echo\n"), choosing, "{said}");
     let scoping = matches!(answer, Answer::Choose { echo: true, .. });
     assert_eq!(err.contains("? Which may echo do besides what it needs?\n    1. write  had it\n"), scoping, "{said}");
+    assert!(!m.leaked(&said), "a token the service gave was printed: {said}");
     let has = match answer {
         Answer::Restore | Answer::Choose { echo: true, write: true } => Some("read, write"),
         Answer::Choose { echo: true, write: false } => Some("read"),

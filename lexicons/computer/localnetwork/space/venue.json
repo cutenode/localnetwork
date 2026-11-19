@@ -13,7 +13,8 @@
 				"computer.localnetwork.people.link",
 				"computer.localnetwork.people.request",
 				"computer.localnetwork.listing.status",
-				"computer.localnetwork.venue"
+				"computer.localnetwork.venue",
+				"computer.localnetwork.venue.approval"
 			]
 		}
 	}

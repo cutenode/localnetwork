@@ -17,6 +17,11 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   sync:
     runs-on: ubuntu-latest

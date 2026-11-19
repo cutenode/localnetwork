@@ -1,50 +1,51 @@
 import { render } from 'vitest-browser-svelte';
 import { EVENT_STATUS } from '#lib/shows.ts';
-import Page from '../../../routes/shows/+page.svelte';
-import { NEON, NEON_TIDE, type LinkChecks } from '#lib/testing/link-matrix.ts';
+import Page from '../../../routes/party/[key]/[...rest]/+page.svelte';
+import { NEON, PAT, type LinkChecks } from '#lib/testing/link-matrix.ts';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 
-// Events have no page on main: a show is a row on /shows, which names its act, and on the act's own page.
+/** A published event of a party's, as a signed-in visitor sees it. */
 export default {
 	pageType: 'Event',
 	render: () =>
 		render(Page, {
-			params: {},
+			params: { key: '3lzparty', rest: '3mwinter/winter-opening' },
 			data: {
-				viewer: null,
+				viewer: PAT,
 				pendingRequests: 0,
 				meta: PAGE_META,
-				following: false,
-				place: null,
-				radii: [10, 25, 50, 100, 250],
-				geocoder: true,
-				shows: Promise.resolve({
-					items: [
-						{
-							uri: `at://${NEON.did}/computer.localnetwork.show/a`,
-							cid: 'c',
-							did: NEON.did,
-							rkey: 'a',
-							project: NEON_TIDE,
-							record: {
-								project: NEON_TIDE.uri,
-								event: { uri: `at://${NEON.did}/community.lexicon.calendar.event/a`, cid: 'e' },
-								name: 'Tidal Hours',
-								startsAt: '2026-11-07T23:00:00+01:00',
-								venue: 'Halle Nord',
-								location: { city: 'Berlin', country: 'DE' },
-								status: EVENT_STATUS.scheduled,
-								tickets: 'https://tickets.example/tidal',
-								createdAt: '2026-10-01T00:00:00Z'
-							}
-						}
-					]
-				})
+				editing: false,
+				timeZones: [],
+				version: 'bafyreievent',
+				status: 'listed',
+				event: {
+					name: 'Winter Opening',
+					startsAt: '2026-12-05T23:00:00+01:00',
+					tickets: 'https://tickets.example/winter',
+					status: EVENT_STATUS.scheduled,
+					audience: 'public',
+					venue: {
+						space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor',
+						skey: '3tresor',
+						name: 'Tresor',
+						locality: 'Berlin',
+						country: 'DE'
+					},
+					timeZone: 'Europe/Berlin',
+					confirmed: false,
+					neverConfirmed: false,
+					lineup: [{ name: `@${NEON.handle}`, href: `/@${NEON.handle}`, value: NEON.handle }]
+				},
+				party: { name: 'Night Shift', href: '/party/3lzparty/night-shift' },
+				link: null,
+				rsvp: { going: 12, interested: 30, answer: 'going' }
 			},
 			form: null
 		}),
 	links: {
-		'Each performer on the lineup': [{ name: 'Neon Tide', href: '/projects/neon-tide' }],
-		'Ticket sites': [{ name: 'Tickets', href: 'https://tickets.example/tidal' }]
+		Venue: [{ name: 'Tresor', href: '/venue/3tresor/tresor' }],
+		Party: [{ name: 'Night Shift', href: '/party/3lzparty/night-shift' }],
+		'Each performer on the lineup': [{ name: '@neon.test', href: '/@neon.test', within: 'Lineup' }],
+		'Ticket sites': [{ name: 'Tickets', href: 'https://tickets.example/winter' }]
 	}
 } satisfies LinkChecks;

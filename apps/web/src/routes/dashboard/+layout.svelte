@@ -11,7 +11,7 @@
 	const access = resolved(() => data.access, []);
 
 	const main = $derived([
-		{ href: '/dashboard', label: 'Home', icon: House, exact: true, badge: data.waiting + access.value.length },
+		{ href: '/dashboard', label: 'Overview', icon: House, exact: true, badge: data.waiting + access.value.length },
 		{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, dot: data.unread > 0 },
 		{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus }
 	]);

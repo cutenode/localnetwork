@@ -1,7 +1,4 @@
-import { readFile, rename, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { parse } from 'libpg-query';
 import { type LexiconDoc, Lexicons, type LexXrpcParameters, ValidationError } from '@atproto/lexicon';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
@@ -9,6 +6,7 @@ import { LUA_REGISTRYINDEX, LuaEventMasks, LuaFactory, LuaReturn, type LuaState,
 import { REFERENCED_DOCS } from '../atproto/lexicons';
 import type { JsonRecord } from '../atproto/repo-client';
 import { z } from 'zod';
+import { startPostgres } from './pglite';
 import { type HappyViewBundle, happyViewBundle } from '../happyview/bundle';
 import { REMOVED_GLOBALS, removedGlobals } from './removed-globals';
 
@@ -972,28 +970,6 @@ let engine: Promise<Engine> | undefined;
 /** One Postgres for every FakeHappyView in the process. */
 let postgres: Promise<PGlite> | undefined;
 
-/** A freshly made Postgres data directory, which every test file's Postgres starts from. */
-const DATA_DIR = join(tmpdir(), 'localnetwork-pglite-data.tar');
-
-/**
- * Postgres, from the data directory a test file made before, since making one (initdb) takes about half a second and
- * loading it a tenth of that. Without one, or with one this PGlite can't start from, it makes its own and saves it.
- */
-async function startPostgres(): Promise<PGlite> {
-	try {
-		return await PGlite.create({ loadDataDir: new Blob([await readFile(DATA_DIR)]) });
-	} catch {
-		const pg = await PGlite.create();
-		const saving = `${DATA_DIR}.${process.pid}`;
-
-		// Written aside, then moved into place, so a file starting at the same time never reads half of it.
-		await writeFile(saving, (await pg.dumpDataDir('none')).stream());
-		await rename(saving, DATA_DIR);
-
-		return pg;
-	}
-}
-
 let schemas = 0;
 
 type Param = LexXrpcParameters['properties'][string];
@@ -1061,8 +1037,8 @@ function readParams(query: string, nsid: string, schema: LexXrpcParameters | und
 }
 
 /**
- * A schema of its own in the shared Postgres, made on its first query (most tests never make one, and starting
- * Postgres takes a good part of a second), which every statement runs in. A transaction per statement keeps another
+ * A schema of its own in the shared Postgres, made on its first query since most tests never make one, which every
+ * statement runs in. A transaction per statement keeps another
  * instance's statements out of its search path.
  */
 function database(): Database {

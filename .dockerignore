@@ -1,6 +1,6 @@
 # The build context is the repo root, but only the web app's image is built from it
 # (apps/web/Dockerfile). Send the workspace files and pnpm's patches, the lexicons, the flags, the shared
-# tokens, apps/web, and every tool's README and docs (the website's tool pages bundle them),
+# tokens, apps/web, and every tool's README, docs and changelog (the website's tool pages bundle them),
 # minus what's local or generated.
 *
 !package.json
@@ -14,6 +14,7 @@
 !apps/*/README.md
 !apps/*/docs/*.md
 lexicons/network
+!apps/*/CHANGELOG.md
 apps/web/node_modules
 apps/web/.svelte-kit
 apps/web/build

@@ -639,8 +639,9 @@ fn a_destination_without_access_asks_which_account_in_a_terminal() {
     std::fs::write(&file, kept.to_string()).unwrap();
     let (code, out, err) = m.typed(&COPY, "y\n", "b");
     assert_eq!(code, 0, "{err}");
-    assert!(err.contains("? Echo needs to read with the Mock account b@mock.example. Give it access? [y/N]"), "{err}");
-    assert!(out.starts_with("✓ Echo has access to the Mock account b@mock.example\n"), "{out}");
+    assert!(err.contains("? Give it access? [y/N]"), "{err}");
+    let given = "Echo needs to read with the Mock account b@mock.example.\n✓ Echo has access to the Mock account b@mock.example\n";
+    assert!(out.starts_with(given), "{out}");
 }
 
 /// A destination whose account signs itself out within two days (its refresh token running out)
@@ -736,18 +737,26 @@ fn a_destination_asks_once_about_what_keeps_its_account_from_use(tc: TestCase) {
         Keeping::Expiring | Keeping::SigningOutSoon => {}
     }
     let account = format!("Mock account {subject}@mock.example");
-    let question = match keeping {
-        Keeping::LostTokens => format!("? The {account}, which Echo uses, is signed out. Sign in again? [y/N]"),
-        Keeping::Ungiven => format!("? Echo needs to read with the {account}. Give it access? [y/N]"),
-        Keeping::Ungranted => format!("? The {account} doesn't allow Echo to read. Sign in again? [y/N]"),
-        Keeping::Expiring => format!("? The {account} won't stay signed in long enough for Echo. Sign in again? [y/N]"),
-        Keeping::SigningOutSoon => "? Sign in again now? [y/N]".to_string(),
+    // What's asked about, naming the account, on stdout, and the question on stderr.
+    let (about, question) = match keeping {
+        Keeping::LostTokens => {
+            (Some(format!("The {account}, which Echo uses, is signed out.\n")), "? Sign in again? [y/N]")
+        }
+        Keeping::Ungiven => (Some(format!("Echo needs to read with the {account}.\n")), "? Give it access? [y/N]"),
+        Keeping::Ungranted => (Some(format!("The {account} doesn't allow Echo to read.\n")), "? Sign in again? [y/N]"),
+        Keeping::Expiring => {
+            (Some(format!("The {account} won't stay signed in long enough for Echo.\n")), "? Sign in again? [y/N]")
+        }
+        Keeping::SigningOutSoon => (None, "? Sign in again now? [y/N]"),
     };
     // Declined, an account that won't stay signed in is offered signing in again a second
     // time, as one signing itself out soon: the answer is typed for that too.
     let (code, out, err) = m.typed(&COPY, if yes { "y\n" } else { "n\nn\n" }, subject);
     let said = format!("{keeping:?} as {subject}, yes {yes}: exit {code}\n{out}{err}");
-    assert_eq!(err.matches(&question).count(), 1, "{said}");
+    assert_eq!(err.matches(question).count(), 1, "{said}");
+    if let Some(about) = &about {
+        assert_eq!(out.matches(about.as_str()).count(), 1, "{said}");
+    }
     let used = yes || matches!(keeping, Keeping::SigningOutSoon);
     assert_eq!(code, if used { 0 } else { 1 }, "{said}");
     let resolved = match keeping {

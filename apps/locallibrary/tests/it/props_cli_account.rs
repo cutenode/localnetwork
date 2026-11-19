@@ -865,7 +865,8 @@ fn a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
 /// empty one), then: nothing typed for the title, GitHub's form with what was; from an account
 /// allowed to post, the report shown and the question answered (posted, or declined); from one
 /// that isn't, asked to sign in again, which declined or failed (its client is on this computer)
-/// gives GitHub's form instead. Only a post that went ahead reaches the server.
+/// gives GitHub's form instead. Only a post that went ahead reaches the server, and no token is
+/// printed.
 #[cfg(unix)]
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(reports = false, title = "  The map is grey  ", lines = Vec::<&str>::new(), answer = true)]
@@ -903,8 +904,13 @@ fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
         assert!(form_in(&r.out, false).contains("&title=The%20map%20is%20grey"), "{said}");
     } else {
         assert!(r.out.contains("  The map is grey\n"), "{said}");
-        assert!(r.err.contains("? Post it as @dj.example.com? Anyone can read it [y/N] "), "{said}");
+        assert!(r.out.contains("Bug report from @dj.example.com"), "{said}");
+        assert!(r.err.contains("? Post it? Anyone can read it [y/N] "), "{said}");
         assert_eq!(r.code, if answer { 0 } else { 3 }, "{said}");
+    }
+    // The session's tokens (support::account::sign_in) are never printed.
+    for token in ["access-token", "refresh-1"] {
+        assert!(!format!("{}{}", r.out, r.err).contains(token), "{token} was printed: {said}");
     }
     let sent = pds.calls(CREATE);
     assert_eq!(!sent.is_empty(), posted, "{said}");

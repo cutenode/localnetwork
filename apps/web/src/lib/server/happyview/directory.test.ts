@@ -2,7 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
-import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { BSKY_PROFILE, CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
 import type { DjSetView, ProfileRecord, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -1785,6 +1785,29 @@ describe('calendar event record script', () => {
 
 		await hv.ingest({ did: 'did:plc:dj', collection: CALENDAR_EVENT, rkey: 'kept', cid: '', record: null });
 		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([]);
+	});
+});
+
+describe('RSVP record script and getRsvpStatus', () => {
+	it("keeps RSVPs to the root's calendar events, with just the event and the answer", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const subject = { uri: `at://${ROOT}/${CALENDAR_EVENT}/3mwinter`, cid: 'bafyreicopy' };
+		const going = `${CALENDAR_RSVP}#going`;
+		const elsewhere = { ...subject, uri: `at://did:plc:dj/${CALENDAR_EVENT}/3mwinter` };
+
+		const kept = await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'a', { subject, status: going, note: 'see you' });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'b', { subject: elsewhere, status: going });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'c', { subject: { uri: subject.uri }, status: going });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'd', { subject, status: 7 });
+		await ingest(hv, 'did:plc:fan', CALENDAR_RSVP, 'e', { subject: subject.uri, status: going });
+
+		const listed = await query<Records>(hv, 'listRecords', { actor: 'did:plc:fan', collection: CALENDAR_RSVP });
+		expect(listed.records).toEqual([{ ...kept, value: { subject, status: going } }]);
+		expect(await query(hv, 'getRsvpStatus', { subject: subject.uri, actor: 'did:plc:fan' })).toEqual({
+			going: 1,
+			interested: 0,
+			rsvps: [{ uri: kept.uri, status: going }]
+		});
 	});
 });
 

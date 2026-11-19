@@ -6,12 +6,15 @@
 // artist comes in twice, which of two answers about an artist wins, how what
 // a tab loaded is folded in and written back, where each half is written, and
 // what it does when storage will not take it.
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import type { ProfileFailure, SavedArtistEntry } from '$lib/types';
 import { flush } from '../helpers/flush.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
 
 declare const chrome: ChromeMock;
+
+/** The list the running test started, whose pending save it writes before it ends. */
+let started: { flush(): Promise<void> } | undefined;
 
 // A fresh module graph each time, so the singleton starts empty.
 async function freshArtists(storage = {}, session = {}) {
@@ -19,9 +22,19 @@ async function freshArtists(storage = {}, session = {}) {
 	globalThis.chrome = createChrome({ storage, session });
 	const module = await import('../../src/tools/artists/artists.svelte.ts');
 	await module.artists.start();
+	started = module.artists;
 
 	return module;
 }
+
+// A profile `learn` takes in is saved on a timer (SAVE_DELAY_MS), and the save
+// writes through whatever `chrome` is global when it fires. Left pending under
+// real timers, it fires a second later into a later test's store and puts
+// this test's artists on that test's list.
+afterEach(async () => {
+	await started?.flush();
+	started = undefined;
+});
 
 const stored = () => chrome.testStore('local').artists;
 

@@ -1,6 +1,6 @@
 -- Records the index lacks, read straight from their account's own PDS, so DJ stats, a calendar event or the bug
 -- report space HappyView hasn't heard of yet still answers, without a backfill. Bluesky profiles aren't among them:
--- the store holds every one, and the profile gate keeps only the name and pronouns. The read goes to the PDS
+-- the store holds every one, and the profile script keeps each as written. The read goes to the PDS
 -- with HTTP, never through HappyView's own com.atproto.repo.getRecord, which would index (and keep) everything it
 -- reads. Nothing read here is written back, and the record scripts' gates don't run on it: the app reads only the
 -- fields it uses. Any failure (a DID that isn't did:plc or did:web, no DID document or PDS, an answer other than 200

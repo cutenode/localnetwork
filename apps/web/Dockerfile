@@ -19,7 +19,7 @@ RUN pnpm install --frozen-lockfile --filter localnetwork
 COPY lexicons lexicons/
 COPY flags flags/
 COPY packages/tokens packages/tokens/
-# apps/web, and the tools' READMEs and docs for their pages (.dockerignore sends only those).
+# apps/web, and the tools' READMEs, docs and changelogs for their pages (.dockerignore sends only those).
 COPY apps apps/
 # The other authorities' lexicons come from the network as lexicons/network.json pins them, and the build bundles them in.
 RUN pnpm --filter localnetwork lexicons:install && pnpm --filter localnetwork build

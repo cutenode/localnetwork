@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { USERINPUT } from '#lib/bug-report.ts';
-import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY, NS, VERIFICATION } from '#lib/nsid.ts';
+import {
+	BSKY_FOLLOW,
+	BSKY_PROFILE,
+	CALENDAR_EVENT,
+	CALENDAR_RSVP,
+	COLLECTION,
+	DIRECTORY,
+	NS,
+	VERIFICATION
+} from '#lib/nsid.ts';
 import { FakeHappyView } from '../testing/happyview';
 import { chunk, happyViewBundle } from './bundle';
 
@@ -21,13 +30,21 @@ describe('happyViewBundle', () => {
 			COLLECTION.listing,
 			`${NS}.locallibrary.settings`,
 			CALENDAR_EVENT,
+			CALENDAR_RSVP,
 			VERIFICATION,
 			BSKY_PROFILE,
 			BSKY_FOLLOW,
 			USERINPUT.space
 		];
 
-		const others = new Set<string>([CALENDAR_EVENT, VERIFICATION, BSKY_PROFILE, BSKY_FOLLOW, USERINPUT.space]);
+		const others = new Set<string>([
+			CALENDAR_EVENT,
+			CALENDAR_RSVP,
+			VERIFICATION,
+			BSKY_PROFILE,
+			BSKY_FOLLOW,
+			USERINPUT.space
+		]);
 
 		// The other authorities' lexicons are HappyView's to track from the network, ingesting those a script handles.
 		expect(network.toSorted((a, b) => a.nsid.localeCompare(b.nsid))).toEqual(
