@@ -152,7 +152,13 @@ fn signing_in_again_to_report_keeps_publishing() {
     let asked: Vec<&str> = action.params["scopes"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
     assert_eq!(
         asked,
-        ["atproto", "include:computer.localnetwork.locallibraryPublishing", "blob:audio/*", REPORT_SCOPE]
+        [
+            "atproto",
+            crate::atmosphere::FLAGS_SCOPE,
+            "include:computer.localnetwork.locallibraryPublishing",
+            "blob:audio/*",
+            REPORT_SCOPE
+        ]
     );
     assert_eq!(action.label, "Sign in again, allowing bug reports");
 }

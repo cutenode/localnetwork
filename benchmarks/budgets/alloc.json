@@ -53,14 +53,14 @@
 			"measures": "Bytes allocated planning a sync of two 500-track drives."
 		},
 		"check.500.allocations": {
-			"allowance": 0,
+			"allowance": 16,
 			"unit": "allocations",
-			"measures": "Allocations made checking two 500-track drives."
+			"measures": "Allocations made checking two 500-track drives. The same code measures 8 more or fewer from one run to the next on CI (LOC-698), so the allowance is twice that."
 		},
 		"check.500.bytes": {
-			"allowance": 0,
+			"allowance": 376,
 			"unit": "bytes",
-			"measures": "Bytes allocated checking two 500-track drives."
+			"measures": "Bytes allocated checking two 500-track drives. The same code measures 188 more or fewer from one run to the next on CI, with those 8 allocations (LOC-698), so the allowance is twice that."
 		}
 	}
 }

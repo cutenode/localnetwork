@@ -1,11 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { inboxRows } from '#lib/testing/inbox.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import InboxList from './InboxList.svelte';
 
 	const { Story } = defineMeta({ title: 'Dashboard/Inbox', component: InboxList, tags: ['autodocs'] });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Unread and read" args={{ rows: inboxRows }} />

@@ -1,6 +1,6 @@
 //! Plugins' events and services in the player: what they tell the user is a message, and what
 //! they suggest (one of their operations, or one of the player's own flows on their
-//! contributions) waits in the palette to be reviewed (started as the user would, then confirmed
+//! contributions, running one of their commands too) waits in the palette to be reviewed (started as the user would, then confirmed
 //! as any plan) or dismissed, kept in the store until it is, with what the `watch` agent kept for
 //! it. The services the user turned on run while the player does.
 
@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use locallibrary::plugin::{Cli, Notices, PluginNotice, forget_suggested, keep_suggested, suggested, tracks_on};
 use locallibrary::{Result, Store};
-use loclib_plugin::{Context, HostAction, Manifest, Suggested, Suggestion};
+use loclib_plugin::{CommandAction, Context, HostAction, Manifest, Suggested, Suggestion};
+use serde_json::Value;
 
 use super::{Run, named};
 use crate::tui::app::{App, Level, Msg, UNDO_HINT};
@@ -166,6 +167,9 @@ impl App {
     /// exporting in its format open their forms filled in, saying what they're for, and analyzing
     /// asks first.
     fn review_action(&mut self, m: &'static Manifest, mut action: HostAction) {
+        if let HostAction::Command(x) = action {
+            return self.review_command(m, x);
+        }
         let root = match action.drive().map(|d| self.named_drive(d)) {
             Some(Ok(root)) => Some(root),
             Some(Err(why)) => return self.toast(why, Level::Info),
@@ -219,6 +223,18 @@ impl App {
                 self.fetch_form_from(kind, title, root, f.tracks.clone(), Some(from));
             }
         }
+    }
+
+    /// Runs one of `m`'s commands with the params suggested, as from the palette: on the drive
+    /// actions work on (none for one about the collection alone), and planned and confirmed first
+    /// when it's planned first.
+    fn review_command(&mut self, m: &'static Manifest, suggested: CommandAction) {
+        let Some(command) = m.contributes.commands.iter().find(|c| c.name == suggested.command) else { return };
+        let hook = Cli::Command(command);
+        let root = self.action_drive().filter(|_| !hook.collection_only());
+        let context = Context { drive: root.as_deref().and_then(|r| self.plugin_drive(r)), ..Context::default() };
+        let run = Run { plugin: &m.id, hook, root, context };
+        self.run_plugin(run, Value::Object(suggested.params));
     }
 
     /// No longer offers what a plugin suggested (the one marked `marked`).

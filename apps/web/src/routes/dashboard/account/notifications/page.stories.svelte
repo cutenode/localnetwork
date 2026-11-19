@@ -1,14 +1,13 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { accountLayout } from '#lib/testing/account.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ChannelView, DmAvailability } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 	import Page from './+page.svelte';
 
 	/** Account > Notifications: what goes where, then each channel's own setting. */
 	const { Story } = defineMeta({ title: 'Patterns/Notifications' });
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const on: ChannelView = { status: 'active', pausedReason: null, address: 'neon@example.test', topics: ['bookings'] };
 

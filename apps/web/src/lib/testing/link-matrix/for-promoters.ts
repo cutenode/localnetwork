@@ -36,7 +36,7 @@ export default {
 			form: null
 		}),
 	links: {
-		'Find DJs': [{ name: 'Open Find DJs', href: '/projects' }],
+		'Find DJs': [{ name: 'Open Find DJs', href: '/djs' }],
 		'Acts and listed DJs': [
 			{ name: /^Neon Tide/, href: '/projects/neon-tide', within: 'Search the way you book.' },
 			{ name: 'Neon Tide', href: '/projects/neon-tide', within: 'Describe the night. Get a shortlist with reasons.' }

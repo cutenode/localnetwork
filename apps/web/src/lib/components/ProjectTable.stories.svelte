@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectView } from '#lib/types.ts';
 	import ProjectTable from './ProjectTable.svelte';
 
@@ -29,6 +30,6 @@
 
 <Story name="Projects" args={{ projects }} />
 
-<Story name="Projects on a phone" args={{ projects }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Projects on a phone" args={{ projects }} globals={phone} />
 
 <Story name="No matches" args={{ projects: [] }} />

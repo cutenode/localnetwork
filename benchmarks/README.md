@@ -1,6 +1,6 @@
 # Performance budgets
 
-`budgets/` lists each number we hold locallibrary to, one file per area, so branches don't collide
+`budgets/` lists each number we hold locallibrary and the website's client bundle to, one file per area, so branches don't collide
 on a shared list. Every number is one a run gives exactly: bytes, allocations, instructions under
 cachegrind, the names of the packages the CLI links. Wall-clock time on a shared runner isn't, so
 it's never gated on; `cargo bench` and CodSpeed still track time and instructions weekly
@@ -19,6 +19,7 @@ it merges into, so main's own growth never turns it red and it never edits these
 | `cli` | instructions of everyday commands on the 3,886-track fixture | the same | the same |
 | `tui-instructions` | instructions of a frame of the player, for the same views | the same, running the `tui` test | the same |
 | `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and pushes to main |
+| `web` | the website's JavaScript every page loads, the largest page's own on top of it, and all its CSS, uncompressed | `apps/web/scripts/bundle-sizes.ts`, after `pnpm test:build` in the `verify` job of `web-ci.yml` | pull requests and merge queue groups that change the website, and pushes to main |
 | `size-<other target>` | release binary and archive, recorded in the run's summary with no base to compare with | `locallibrary-scheduled.yml`'s `release-build` | weekly and by hand |
 
 ## Growth, not limits
@@ -39,15 +40,23 @@ A merge queue group runs `release-budgets` on its pull requests together, agains
 and allows each pull request in it its allowance, so two that each passed alone can't land over
 together.
 
-Growing a metric past its allowance on purpose takes a line in the pull request's body, which the
-`budgets` and `release-budgets` jobs read, and a merge queue group's from each pull request in it:
+Growing a metric past its allowance on purpose takes a `Budget-Raise` trailer on one of the pull
+request's commits, saying by how much in the metric's unit and why. A commit of its own does it:
 
-```text
-budget-raise: size-x86_64-unknown-linux-gnu/locallibrary: the Opus decoder adds 400 KiB
+```bash
+git commit --allow-empty -m 'chore(budgets): make room for the Opus decoder' \
+  --trailer 'Budget-Raise: size-x86_64-unknown-linux-gnu/locallibrary +409600: the Opus decoder'
 ```
 
-So does widening an allowance or dropping a metric, which the `budgets` job checks with
-`tools/budgets/cli.ts raises`. Rerun the job after editing the body.
+The failure says the exact trailer it needs. Raises add up, on top of the allowance. In a commit,
+review covers a raise, and the merge queue reads the trailers of every pull request in a group. A
+package name counts as 1, so a new crate takes `Budget-Raise: deps/locallibrary-cli +1: <why>`.
+
+Widening an allowance or dropping a metric takes a trailer naming it too (`+0` will do), which the
+`budgets` job checks with `tools/budgets/cli.ts raises`.
+
+Until 2026-11-30, a `budget-raise: <metric>: <why>` line in the pull request's body still allows any
+growth, for pull requests opened before trailers. Rerun the job after editing the body.
 
 To run the check yourself, download a run's measurements and its base's:
 

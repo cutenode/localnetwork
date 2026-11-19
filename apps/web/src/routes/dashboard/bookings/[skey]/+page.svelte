@@ -99,7 +99,7 @@
 
 <!-- The name fills in when the directory answers. `fallback` stands in when it doesn't. `linked` makes it a link to their public page. -->
 {#snippet actName(fallback: string, linked = false)}
-	{#if thread.project}{#if linked}<a class="link" href={thread.project.href}>{thread.project.name}</a>{:else}{thread.project.name}{/if}{:else if act.value === undefined}<span class={['inline-block h-3 w-20 align-baseline', ghost]}></span>{:else}{fallback}{/if}
+	{#if thread.project}{#if linked}<a class="link" href={thread.project.href}>{thread.project.name}</a>{:else}{thread.project.name}{/if}{:else if act.value === undefined}<span class={['inline-block h-3 w-20', ghost]}></span>{:else}{fallback}{/if}
 {/snippet}
 
 <!-- The act speaks as itself, so a promoter reads its name and not whichever of its people wrote (docs/adr/0004). -->

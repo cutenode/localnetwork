@@ -1,8 +1,8 @@
-//! Accesses: the scopes of an account a plugin was given, kept beside the accounts (see [`kept`])
-//! and outlasting them, so an access to an account signed out still lists, and gets its token back
-//! once the account is signed in again. A plugin has one access to an account at most, and of each
-//! type it asks for one default at most, which `{account:<type>}` names: the first it's given,
-//! or the one left when the default is taken away.
+//! Accesses: the scopes of an account a plugin was given, kept beside the accounts (see [`kept`]).
+//! Signing out of an account, or its session ending, removes every plugin's access to it, which
+//! is remembered until it's restored (see [`super::restore`]). A plugin has one access to an
+//! account at most, and of each type it asks for one default at most, which `{account:<type>}`
+//! names: the first it's given, or the one left when the default is taken away.
 
 use indexmap::IndexSet;
 use loclib_plugin::{AccountNeed, Manifest, Scope, a_or_an};
@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::kept::{self, Book, Kept};
-use super::shared::not_kept;
 use crate::error::Action;
 use crate::plugin::Plugins;
 use crate::plugin::process::{Host, Plugin};
@@ -28,7 +27,7 @@ pub struct Access {
     #[serde(rename = "type")]
     pub kind: String,
     pub account: AccountId,
-    /// What the account is shown as, kept so an access to one signed out still says.
+    /// What the account is shown as, kept so an access remembered of one signed out still says.
     pub name: String,
     /// The type's scopes, by name.
     pub scopes: Vec<String>,
@@ -64,13 +63,13 @@ impl Access {
 }
 
 impl AccountId {
-    fn of(k: &Kept) -> AccountId {
+    pub(super) fn of(k: &Kept) -> AccountId {
         AccountId { plugin: k.plugin.clone(), subject: k.subject.clone() }
     }
 }
 
 /// A new access's id: 8 random lowercase hex digits, none of `taken`'s.
-fn new_id(taken: &[Access]) -> String {
+pub(super) fn new_id(taken: &[Access]) -> String {
     loop {
         let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
         if !taken.iter().any(|a| a.id == id) {
@@ -144,12 +143,13 @@ impl Plugins {
 
     /// Gives `plugin` access to `account` (one `store` keeps): to the scopes it needs of the
     /// account's type, and those of `scopes` it can do without, besides what it has, none of them
-    /// declined any more. Its first access of the type is its default.
+    /// declined any more. Its first access of the type is its default. An account signed out is
+    /// refused: signing in to it again gives its access back (see [`Plugins::restore_access`]).
     pub fn give_access(&self, plugin: &str, account: &AccountId, scopes: &[String], store: &Store) -> Result<Access> {
         let slot = self.slot(plugin)?;
         kept::update(store, |book| {
             let k = book.account(&account.plugin, &account.subject).cloned();
-            let k = k.ok_or_else(|| not_kept(&account.plugin, &account.subject))?;
+            let k = k.ok_or_else(|| book.unkept(account))?;
             let given = slot.scopes_given(&k.kind, scopes)?;
             Ok(book.give(plugin, &k, &given, &[]))
         })
@@ -164,7 +164,7 @@ impl Plugins {
                 Some(i) => i,
                 None => {
                     let k = book.account(&account.plugin, &account.subject).cloned();
-                    let k = k.ok_or_else(|| not_kept(&account.plugin, &account.subject))?;
+                    let k = k.ok_or_else(|| book.unkept(account))?;
                     let given = slot.scopes_given(&k.kind, &[])?;
                     book.give(plugin, &k, &given, &[]);
                     book.accesses.len() - 1

@@ -29,7 +29,9 @@
 	const yours = $derived([
 		{ href: '/dashboard/profile', label: 'You', monogram: accountLabel(data.viewer) },
 		...(projects.value ?? []).map((project) => ({ href: `/dashboard/projects/${project.slug}`, label: project.profile.name, monogram: project.profile.name })),
-		...(!sections.value || sections.value.performer || projects.value?.length ? [{ href: '/dashboard/projects/new', label: 'List a project', icon: Plus, exact: true }] : [])
+		...(!sections.value || sections.value.performer || projects.value?.length ? [{ href: '/dashboard/projects/new', label: 'List a project', icon: Plus, exact: true }] : []),
+		// Party pages ship dark behind spacePages, as /party/new does.
+		...(data.flags?.spacePages ? [{ href: '/party/new', label: 'Start a party', icon: Plus, exact: true }] : [])
 	]);
 
 	const isKnown = $derived(projects.value !== undefined && sections.value !== undefined);

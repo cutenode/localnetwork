@@ -43,6 +43,7 @@ const open = (saved: ProfileView | null, needsSignIn = false, { listing = null, 
 			sections: Promise.resolve(null),
 			profile: saved,
 			values: saved ? { name: 'Neon', tagline: 'Hypnotic techno' } : { name: 'Neon' },
+			pronouns: '',
 			sectionsOn: { performer: !!saved?.record.performer, promoter: !!saved?.record.promoter },
 			needsSignIn,
 			listing,
@@ -109,7 +110,7 @@ it('lets a DJ ask to be listed in Find DJs, and then says where that stands', as
 	cleanup();
 	await open(profile, false, { listRequest: { rkey: '3req', status: 'pending' } });
 	await expect
-		.element(page.getByRole('link', { name: 'See your request' }))
+		.element(page.getByRole('link', { name: 'See your review request' }))
 		.toHaveAttribute('href', '/dashboard/account/requests/3req');
 	await expect.element(page.getByRole('button', { name: 'Ask to be listed' })).not.toBeInTheDocument();
 

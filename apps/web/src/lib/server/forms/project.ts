@@ -362,6 +362,26 @@ export async function parseAvatar(form: FormData): Promise<{ bytes: Uint8Array; 
 export type Upload = { bytes: Uint8Array; mimeType: string };
 
 /**
+ * A page's basics with their place, which can be left empty, and what its form does to the avatar: a new upload,
+ * removing it (`removeAvatar`), or keeping it. `unnamed` is the error for a missing name, `unplaced` for a place
+ * without a city.
+ */
+export async function parseBasicsPage(
+	form: FormData,
+	unnamed: string,
+	unplaced: string
+): Promise<{ basics: Omit<BasicsSection, 'avatar'>; avatar: { upload: Upload } | 'keep' | 'remove' }> {
+	const basics = parseBasics(form, unnamed);
+	const location = parseLocation(form, false, unplaced);
+	const upload = await parseAvatar(form);
+
+	return {
+		basics: location ? { ...basics, location } : basics,
+		avatar: upload ? { upload } : form.get('removeAvatar') === 'on' ? 'remove' : 'keep'
+	};
+}
+
+/**
  * Mix tracklists from the project form, aligned with `profile.mixes`. A newly chosen file is
  * validated and re-serialized (so only fields this site knows are published) and returned as an
  * upload; otherwise the mix keeps the tracklist it had (`mixTracklistCid`), but only when one of

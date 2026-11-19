@@ -35,13 +35,15 @@ export default {
 					avatarUrl: null
 				},
 				name: DEMO_PROFILE.basics.name,
+				pronouns: null,
 				account: NEON,
 				bookable: row === INQUIRY,
 				meta: PAGE_META,
 				dj: Promise.resolve(row === ACTS ? [] : [{ ...NEON_DJ, profile: null }]),
 				sets: undefined,
 				playsIn: Promise.resolve(row === ACTS ? [NEON_TIDE] : []),
-				follow: undefined
+				follow: undefined,
+				saved: null
 			},
 			form: null
 		}),

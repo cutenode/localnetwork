@@ -31,6 +31,19 @@ test_last_push_approval_missing if {
 	review_denial("require_last_push_approval") in ruleset.deny with input as review_rule({"dismiss_stale_reviews_on_push": true})
 }
 
+pinned(checks) := fixtures.with_file(".github/rulesets/protect-main.json", {"rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": array.concat(
+	[{"context": name, "integration_id": 15368} | some name in ["Site CI passed", "Rust passed", "Deps passed"]],
+	checks,
+)}}]})
+
+test_check_any_app_can_pass if {
+	".github/rulesets/protect-main.json: give \"Lint passed\" `\"integration_id\": 15368`, so only GitHub Actions can pass it" in ruleset.deny with input as pinned([{"context": "Lint passed"}])
+}
+
+test_check_another_app_passes if {
+	".github/rulesets/protect-main.json: give \"Lint passed\" `\"integration_id\": 15368`, so only GitHub Actions can pass it" in ruleset.deny with input as pinned([{"context": "Lint passed", "integration_id": 1}])
+}
+
 queue := {"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}
 
 with_queue := fixtures.with_file(".github/rulesets/protect-main.json", json.patch(fixtures.file(".github/rulesets/protect-main.json"), [{"op": "add", "path": "/rules/-", "value": queue}]))

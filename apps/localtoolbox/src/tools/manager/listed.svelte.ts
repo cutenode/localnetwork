@@ -11,10 +11,10 @@
 // until it is taken off.
 //
 // Where it lives: chrome.storage.local, under the key below, beside the marks
-// (downloaded-store.ts) and the details cache (content.ts) and for the same
-// reason: those are what the tool knows, as against where somebody is in a
-// piece of work, which is the session's (view.svelte.ts) and dies with the
-// browser. The exported state file carries all three; state-transfer.ts reads
+// (downloaded-store.ts) and for the same reason: both are what the tool knows,
+// as against where somebody is in a piece of work, which is the session's
+// (view.svelte.ts) and dies with the browser. The exported state file carries
+// both; state-transfer.ts reads
 // this key directly, and test/consistency.test.ts checks the two agree on it.
 //
 // What an entry is: a track as the panel lists it (enough to draw the row, to
@@ -34,8 +34,7 @@ export const LISTED_KEY = 'listed';
 // How many tracks the list holds. chrome.storage.local is 10 MB without the
 // unlimitedStorage permission, which this extension does not ask for; an entry
 // is a few hundred bytes, so five thousand of them is a small fraction of it
-// and leaves the details cache (which is far bigger, and shared with the
-// content script) the room it needs.
+// and leaves the marks and the artists list the room they need.
 //
 // Past it the list *refuses* rather than dropping the oldest, which is what a
 // cache would do. These are tracks somebody put here on purpose, and silently

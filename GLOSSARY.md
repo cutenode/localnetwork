@@ -53,7 +53,7 @@ The separate area where staff moderate and run the site. Only staff can see it. 
 _Avoid_: admin dashboard, admin panel
 
 **Flag**:
-A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
+A switch that turns a feature on for some people before everyone. The website and locallibrary share its key and give an account the same answer. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
 _Avoid_: feature toggle, experiment, setting
 
 **Flag group**:
@@ -63,6 +63,10 @@ _Avoid_: segment, cohort, group (on its own)
 **Flag preview**:
 A staff member seeing a flag on or off in their own browser for an hour, with nothing changing for anyone else.
 _Avoid_: override, test mode
+
+**Kill switch**:
+A flag that stops something that already works while it's on. It's named for the paused state, like pauseGoogleTokenExchange, so a flag nobody has saved changes nothing, and it stays for as long as the feature does.
+_Avoid_: circuit breaker, pause flag
 
 **Rollout**:
 The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted.

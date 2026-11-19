@@ -199,7 +199,9 @@ fn a_session_that_may_not_write_it_says_how_to_sign_in_again() {
     assert_eq!((error.code(), error.reason()), ("account", Some(Reason::MissingScope)), "{error}");
     let again = &error.detail().actions[0];
     assert_eq!(again.method.as_deref(), Some("account.login.begin"));
-    assert_eq!(again.params["scopes"], json!(["atproto", "repo:fm.plyr.track?action=create&action=update"]));
+    let asked =
+        json!(["atproto", locallibrary::atmosphere::FLAGS_SCOPE, "repo:fm.plyr.track?action=create&action=update"]);
+    assert_eq!(again.params["scopes"], asked);
     assert_eq!(again.label, "Sign in again, allowing fm.plyr.track records");
 
     let mut other = e.clone();
@@ -220,6 +222,20 @@ fn a_session_that_may_not_write_it_says_how_to_sign_in_again() {
     let actions = error.detail().actions;
     let offered: Vec<(Option<&str>, usize)> = actions.iter().map(|a| (a.method.as_deref(), a.params.len())).collect();
     assert_eq!(offered, [(Some("account.login.begin"), 0)], "{error}");
+    assert!(confirming.asked.lock().unwrap().is_empty());
+}
+
+/// Run without a store (as a front end with none does), a plugin has no Atmosphere session to
+/// write with: its record fails as `account` (`not_signed_in`) before the user is asked.
+#[test]
+fn without_a_store_a_record_isnt_written() {
+    let confirming = Arc::new(Confirming { answer: Mutex::new(Some(true)), ..Confirming::default() });
+    let f = writer(&confirming);
+    let call = json!({ "call": "atmosphere/put_record", "params": { "collection": TRACK, "record": track("A") } });
+    let ran = f.plugins.run_command("echo", "echo", call, f.context(), None, &Ctx::silent(), &|_| {});
+    let CommandOutput::Headless(answer) = ran.unwrap() else { panic!("headless") };
+    let e = &answer["error"];
+    assert_eq!((&e["data"]["kind"], &e["data"]["reason"]), (&json!("account"), &json!("not_signed_in")), "{answer}");
     assert!(confirming.asked.lock().unwrap().is_empty());
 }
 

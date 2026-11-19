@@ -16,6 +16,8 @@ permissions:
 defaults:
   run:
     working-directory: apps/localtoolbox
+    # Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+    shell: bash
 
 # Pinned the same way as localtoolbox-ci.yml.
 jobs:

@@ -58,6 +58,14 @@ it('streams the act, and opens the thread without it when the directory is down'
 	await expect(Promise.resolve(down.project)).resolves.toBeNull();
 });
 
+it('opens the thread without the act when reading the directory fails some other way', async () => {
+	vi.spyOn(f.t.directory, 'query').mockRejectedValue(new Error('socket hang up'));
+	const failed = await opened(PROMOTER);
+
+	expect(failed.thread.title).toBe('Warehouse Night');
+	await expect(Promise.resolve(failed.project)).resolves.toBeNull();
+});
+
 it("says a thread that doesn't exist, or that the viewer isn't in, isn't found", async () => {
 	await expect(opened(PROMOTER, 'missing')).rejects.toMatchObject({ status: 404 });
 	await expect(opened(STRANGER)).rejects.toMatchObject({ status: 404, body: { message: 'Booking thread not found' } });

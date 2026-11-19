@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { BookingListThread, ProjectView, ThreadProjects, Viewer } from '#lib/types.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
 	/** Every booking the viewer is in, by whose turn it is. It renders from the site's own data, whatever the directory does. */
@@ -74,9 +75,11 @@
 		threads: list,
 		acts: 1,
 		names: names(list),
-		filter: null,
 		...overrides
 	});
+
+	/** The page's address, filtered to an act. */
+	const at = (project: string) => new URL(`https://localnetwork.test/dashboard/bookings?project=${project}`);
 
 	const twoActs = data(NEON, threads, { acts: 2, names: names(threads, ['3', '6']) });
 
@@ -99,8 +102,6 @@
 	const waiting = new Promise<never>(() => {});
 
 	const slow = { names: waiting, acts: 2 };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const openSettled = async ({ canvasElement }: { canvasElement: HTMLElement }) => canvasElement.querySelector('summary')?.click();
 </script>
@@ -137,7 +138,7 @@
 </Story>
 
 <Story name="Filtered to a listed DJ" asChild>
-	<Page params={{}} form={null} data={{ ...promoterWithDj, filter: '@mara.test' }} />
+	<Page params={{}} form={null} data={promoterWithDj} url={at('@mara.test')} />
 </Story>
 
 <Story name="Settled, opened" asChild play={openSettled}>
@@ -167,15 +168,15 @@
 
 <!-- Only the directory can say which threads a filter keeps, so the rows hold their room. -->
 <Story name="Loading a filter" asChild>
-	<Page params={{}} form={null} data={data(NEON, threads, { ...slow, filter: 'neon-tide' })} />
+	<Page params={{}} form={null} data={data(NEON, threads, slow)} url={at('neon-tide')} />
 </Story>
 
 <Story name="Filtered to one act" asChild>
-	<Page params={{}} form={null} data={{ ...twoActs, filter: 'saffron-social' }} />
+	<Page params={{}} form={null} data={twoActs} url={at('saffron-social')} />
 </Story>
 
 <Story name="Nothing with this act" asChild>
-	<Page params={{}} form={null} data={{ ...twoActs, filter: 'moved-on' }} />
+	<Page params={{}} form={null} data={twoActs} url={at('moved-on')} />
 </Story>
 
 <Story name="Directory down" asChild>
@@ -187,7 +188,7 @@
 </Story>
 
 <Story name="Directory down while filtering" asChild>
-	<Page params={{}} form={null} data={data(NEON, threads, { names: null, filter: 'neon-tide' })} />
+	<Page params={{}} form={null} data={data(NEON, threads, { names: null })} url={at('neon-tide')} />
 </Story>
 
 <Story name="Empty for a DJ" asChild>

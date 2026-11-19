@@ -1517,6 +1517,11 @@ export type FormatApply = {
   check_capacity?: boolean;
 };
 
+export type AccountFlagsRequest = {
+  /** Ask the website now, however recent its last answer or failure. */
+  refresh?: boolean;
+};
+
 export type AccountLoginRequest = {
   /**
    * A handle (`alice.bsky.social`), a DID, or the account's server (`https://bsky.social`).
@@ -1535,7 +1540,10 @@ export type AccountLoginRequest = {
    * `$LOCALLIBRARY_SESSION_STORE=file`.
    */
   session_file?: boolean | null;
-  /** Scopes to ask for (default: `atproto`, which identifies you and nothing more). */
+  /**
+   * Scopes to ask for (default: `atproto`, which identifies you, and
+   * [`atmosphere::FLAGS_SCOPE`], tokens for two methods of Local Network's website).
+   */
   scopes?: string[];
   /**
    * Also allow publishing: writing the My Settings, profile, set and recording records to the
@@ -2319,13 +2327,30 @@ export type BeginSignIn = {
    */
   for?: string | null;
   /**
-   * An account the store keeps, or one signed out that plugins still have access to, by
-   * subject, to sign in to again (asking for more scopes, say).
+   * An account the store keeps, or one signed out that plugins had access to, by subject, to
+   * sign in to again (asking for more scopes, say).
    */
   account?: string | null;
   /** The type's scopes to ask for besides, by name. */
   scopes?: string[];
+  /**
+   * What signing in does with the access plugins had to the account before it was signed out:
+   * `restore` gives it all back, `reset` forgets it. Without, Automatically Restore Access
+   * decides, else it stays off and the answer's `remembered` lists it, for
+   * `accounts.access.restore`.
+   */
+  restore?: Restoring | null;
 };
+
+/**
+ * What signing in to an account does with the access plugins had to it before it was signed
+ * out.
+ */
+export type Restoring =
+  /** Every plugin gets its access back, as it was. */
+  | "restore"
+  /** No plugin does, and what was remembered is forgotten. */
+  | "reset";
 
 export type FinishSignIn = {
   /** What its `sign_in.begin` answered. */
@@ -2379,6 +2404,28 @@ export type AccessRef = {
   /** The plugin's id. */
   plugin: string;
   account: AccountId;
+};
+
+export type RestoreAccess = {
+  account: AccountId;
+  /**
+   * The plugins to give their access back, with the scopes each gets: those left out are
+   * forgotten, and none resets it. Without, every plugin gets its access back as it was.
+   */
+  plugins?: Chosen[] | null;
+};
+
+/** One plugin's access chosen to be restored, with the scopes (by name) it gets back. */
+export type Chosen = {
+  plugin: string;
+  /** The account type's scopes, by name: those the plugin needs are given whatever's chosen. */
+  scopes?: string[];
+};
+
+export type RestoreAutomatically = {
+  /** Only this account [default: every account without a setting of its own]. */
+  account?: AccountId | null;
+  on: boolean;
 };
 
 export type PluginRef = {
@@ -5713,6 +5760,14 @@ export type HostAction =
     name: "analyze";
     params: AnalyzeAction;
   }
+  /**
+   * Run one of its commands with these params, as from a menu where the user is: one planned
+   * first (`plan = true`) is planned and confirmed as any.
+   */
+  | {
+    name: "command";
+    params: CommandAction;
+  }
   /** Save a drive in the store as a snapshot (`locallibrary pull`). */
   | {
     name: "pull";
@@ -5762,6 +5817,14 @@ export type AnalyzeAction = {
   drive: string;
   /** Only these tracks, by id [default: every one]. */
   tracks?: number[];
+};
+
+/** `command`'s params. */
+export type CommandAction = {
+  /** One of the plugin's commands. */
+  command: string;
+  /** As the command's `params` schema says. */
+  params?: { [key: string]: unknown };
 };
 
 /** `pull`'s and `sync`'s params. */
@@ -5876,7 +5939,10 @@ export type DriveLoudness = {
 
 /** Each analyzer's scores. */
 export type BenchReport = {
-  /** Key reports by analyzer (`rekordbox`, `stratum-dsp`): `score` is MIREX's weighted score. */
+  /**
+   * Key reports by analyzer (`rekordbox`, `sound.tempo-key-loudness`): `score` is MIREX's
+   * weighted score.
+   */
   keys: { [key: string]: KeyOutcomeReport };
   /** Tempo reports by analyzer: `score` is Accuracy1. */
   tempos: { [key: string]: TempoOutcomeReport };
@@ -5887,7 +5953,10 @@ export type BenchReport = {
    * the audio folder.
    */
   unmatched: number;
-  /** Audio files that couldn't be analysed: `[name, error]`. */
+  /**
+   * Audio files that couldn't be analysed: `[name, error]`, once for each analyzer that failed
+   * on it.
+   */
   failed: [string, string][];
 };
 
@@ -6293,6 +6362,32 @@ export type Storage =
    * desktop session).
    */
   | "file";
+
+/** What `account flags` shows. */
+export type FlagReport = {
+  /** Every flag this version knows. */
+  flags: FlagState[];
+  freshness: Freshness;
+  /** When the website last answered, however long ago. */
+  fetched_at: string | null;
+  /** The session can't ask about flags that target an account or group: only a new sign-in can. */
+  needs_sign_in: boolean;
+};
+
+/** A flag in [`FlagReport`]. */
+export type FlagState = {
+  key: string;
+  on: boolean;
+};
+
+/** How much an answer can be gone by. */
+export type Freshness =
+  /** Younger than [`FRESH`]. */
+  | "fresh"
+  /** The website hasn't answered since, but it's younger than [`LAST_KNOWN_GOOD`]. */
+  | "stale"
+  /** No answer, or one older than that: every flag is off. */
+  | "none";
 
 /** A sign-in waiting for the browser. */
 export type LoginStart = {
@@ -8370,10 +8465,17 @@ export type CollectionExportReport = {
 export type Accounts = {
   /**
    * Those it keeps, in the order they were first signed in, then those signed out that plugins
-   * still have access to.
+   * had access to.
    */
   accounts: StoreAccount[];
   accesses: Access[];
+  /**
+   * The access plugins had to accounts before they were signed out, until it's restored or
+   * reset.
+   */
+  remembered?: Access[];
+  /** Automatically Restore Access, for all accounts and for each with a setting of its own. */
+  restore_automatically?: AutoRestore[];
 };
 
 /** An account a store keeps, as hosts show it: never a token. */
@@ -8412,7 +8514,7 @@ export type Access = {
   plugin: string;
   type: string;
   account: AccountId;
-  /** What the account is shown as, kept so an access to one signed out still says. */
+  /** What the account is shown as, kept so an access remembered of one signed out still says. */
   name: string;
   /** The type's scopes, by name. */
   scopes: string[];
@@ -8425,6 +8527,15 @@ export type Access = {
    * still can't be used.
    */
   declined?: string[];
+};
+
+/**
+ * Automatically Restore Access, on or off: for one account, or (`account` none) for all those
+ * without a setting of their own.
+ */
+export type AutoRestore = {
+  account?: AccountId | null;
+  on: boolean;
 };
 
 /** A sign-in to an account of a type, waiting for the browser, or for the user's keys. */
@@ -8491,6 +8602,16 @@ export type AccountSignedIn = {
    * those it can do without aren't in its access.
    */
   declined?: string[];
+  /**
+   * The access plugins had to it before it was signed out that signing in gave back: as the
+   * sign-in said to, or Automatically Restore Access did, or the plugin it was for had.
+   */
+  restored?: Access[];
+  /**
+   * What's still remembered of the access plugins had to it, for front ends to ask about:
+   * restoring it all, choosing from it, or resetting it (see [`Plugins::restore_access`]).
+   */
+  remembered?: Access[];
 };
 
 /** What signing out of an account of a type did. */
@@ -8809,6 +8930,16 @@ export type Command = {
   mode: Mode;
   /** Where hosts offer it (see [`Where`]). */
   where: Where[];
+  /**
+   * Planned first: the host asks for a dry run, shows its plan ([`CommandPlan`]) and runs it
+   * only once the user confirms.
+   */
+  plan?: boolean;
+  /**
+   * Running it takes a while: hosts show its progress and offer to stop it, and give it longer
+   * to stop once asked before they kill the plugin.
+   */
+  long_running?: boolean;
   /** A JSON Schema for its params (an object). */
   params?: unknown;
   /** Its own place on the command line (see [`Operation::cli`]). */
@@ -8823,9 +8954,16 @@ export type Mode =
 
 /**
  * Where a host offers a command or an operation: in the menu of the tracks selected, of a
- * playlist, or of a drive. A host's palette has every one.
+ * playlist, or of a drive; or, for a command alone, with what's about rekordbox's collection on
+ * this computer rather than a drive (`collection`). A host's palette has every one.
  */
-export type Where = "track" | "playlist" | "drive";
+export type Where =
+  | ("track" | "playlist" | "drive")
+  /**
+   * About this computer's rekordbox collection, not a track, a playlist or a drive: run without
+   * one (a backup of the collection, say). Commands only: an operation edits a drive.
+   */
+  | "collection";
 
 /**
  * `[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or
@@ -9293,6 +9431,36 @@ export type Section = {
   view: View;
 };
 
+/**
+ * What planning a plugin's command comes to: its plan, or a question for the user first, after
+ * which it's planned again with each of its params set ([`Choice::answered`]).
+ */
+export type CommandPlanned = {
+  choose: PluginChoice;
+} | (PluginCommand & PlanFields);
+
+/** A plugin's command, planned: what it said it would do, to run once confirmed. */
+export type PluginCommand = {
+  plugin: string;
+  command: string;
+  /** The files it would write, as the plugin says, each with whether it's there already. */
+  files: ExportFile[];
+};
+
+/**
+ * A file an export (or a planned command) writes, as the plugin says, and whether it's there
+ * already (and so overwritten).
+ */
+export type ExportFile = {
+  /** Absolute, below the export's `output`. */
+  path: string;
+  /** What it holds, in a few words (`Traktor collection`). */
+  what?: string;
+  /** Its size, as far as it's known before it's written. */
+  bytes: number;
+  exists: boolean;
+};
+
 /** A set a plugin will publish, as its dry run said. */
 export type SetPublish = {
   plugin: string;
@@ -9343,20 +9511,6 @@ export type PluginExport = {
    * are the plan's warnings.)
    */
   notes: string[];
-};
-
-/**
- * A file an export writes, as the plugin says, and whether it's there already (and so
- * overwritten).
- */
-export type ExportFile = {
-  /** Absolute, below the export's `output`. */
-  path: string;
-  /** What it holds, in a few words (`Traktor collection`). */
-  what?: string;
-  /** Its size, as far as it's known before it's written. */
-  bytes: number;
-  exists: boolean;
 };
 
 /** What `export/write` answers. */
@@ -10274,6 +10428,8 @@ export interface Methods {
   "account.status": { params: NoParams; result: AccountStatus };
   /** read method; long running: sends `progress`, can be cancelled */
   "account.check": { params: NoParams; result: AccountInfo };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "account.flags": { params: AccountFlagsRequest; result: FlagReport };
   /** immediate method */
   "account.login.begin": { params: AccountLoginRequest & WriteOptions; result: LoginStart };
   /** immediate method; long running: sends `progress`, can be cancelled */
@@ -10464,6 +10620,10 @@ export interface Methods {
   "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
   /** immediate method */
   "accounts.access.take_away": { params: AccessRef & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.restore": { params: RestoreAccess & WriteOptions; result: Access[] };
+  /** immediate method */
+  "accounts.restore_automatically": { params: RestoreAutomatically & WriteOptions; result: AutoRestore };
   /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */
@@ -10478,6 +10638,10 @@ export interface Methods {
   "plugins.apply_analysis.apply": { params: ApplyPlan | (ApplyAnalysis & WriteOptions); result: EditReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.run": { params: RunPluginCommand; result: CommandOutput };
+  /** plan method; paired with `plugins.command.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.command.plan": { params: RunPluginCommand & WriteOptions; result: CommandPlanned };
+  /** apply method; paired with `plugins.command.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.command.apply": { params: ApplyPlan | (RunPluginCommand & WriteOptions); result: CommandOutput };
   /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.store.copy": { params: CopyTo & WriteOptions; result: CopyReport };
   /** immediate method; long running: sends `progress`, can be cancelled */

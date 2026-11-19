@@ -641,11 +641,12 @@ fn player_mode_says_what_a_set_needs() {
     app.deck_layout = true;
     let s = screen(&mut app, 160, 45);
     for said in [
-        "INTRO",
+        " Intro ",
         "high mood",
-        "phrase  Chorus  1.0 bars",
-        "Delsin · 2016",
-        "cue  B  15.0 bars",
+        "1.0 bar  till  Chorus ",
+        "Daft Punk  2016",
+        "Delsin  high mood",
+        "15.0 bars till cue  B ",
         "open this drive to see suggestions",
         "+ 3 more",
     ] {
@@ -658,7 +659,7 @@ fn player_mode_says_what_a_set_needs() {
     }
     // In the last phrase there's no next one.
     app.resume = Some(std::time::Duration::from_secs(200));
-    assert!(screen(&mut app, 160, 45).contains("phrase last"));
+    assert!(screen(&mut app, 160, 45).contains("  last phrase"));
 }
 
 /// The hot cue the playhead last passed is underlined, and only that one: none before the first.
@@ -764,6 +765,31 @@ fn the_track_panel_says_what_is_wrong_with_a_track() {
     wait(&mut app, |a| a.details_current() && a.loaded.as_ref().unwrap().problems.is_missing(0));
     let s = screen(&mut app, 160, 40);
     assert!(s.contains("✖ the audio file isn't on the drive"), "{s}");
+}
+
+/// The track panel shows a key that isn't on the wheel as it was typed, and counts each other
+/// copy of the recording past the first it names.
+#[test]
+fn the_track_panel_shows_a_key_as_typed_and_every_other_copy() {
+    let mut lib = library();
+    // The first track and its copy: a third copy, and a key no notation reads. Short paths, so
+    // the copies' line fits the panel.
+    lib.tracks[0].key = "unsure".into();
+    (lib.tracks[3].key, lib.tracks[3].file_path) = ("unsure".into(), "/b.mp3".into());
+    let mut third = lib.tracks[0].clone();
+    (third.id, third.file_path) = (5, "/c.mp3".into());
+    lib.tracks.push(third);
+    let (mut app, _dir) = app_with(lib);
+    app.show_details = true;
+    app.focus = Focus::Details;
+    let row = (0..5).find(|&r| {
+        app.track_state.select(Some(r));
+        app.selected_track() == Some(0)
+    });
+    assert!(row.is_some(), "the first track is listed");
+    wait(&mut app, |a| a.details_current());
+    let s = screen(&mut app, 160, 40);
+    assert!(s.contains("BPM  unsure  ") && s.contains("also at /b.mp3 (+1 more)"), "{s}");
 }
 
 /// A question waits for a yes or no; the rating picker opened by the pointer opens beside

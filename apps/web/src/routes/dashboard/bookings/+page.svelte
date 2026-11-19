@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ChevronDown } from '@lucide/svelte';
+	import { page } from '$app/state';
 	import BookingRows from '#lib/components/BookingRows.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import { bookingsByTurn } from '#lib/bookings.ts';
@@ -7,7 +8,16 @@
 	import Button from '#lib/ui/Button.svelte';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let {
+		data,
+		url
+	}: PageProps & {
+		/** The page's address: SvelteKit's page state's, unless a harness gives its own. */
+		url?: URL;
+	} = $props();
+
+	// Read on the page rather than in a load, so a filter chip answers from the threads already loaded.
+	const filter = $derived((url ?? page.url).searchParams.get('project'));
 
 	const viewer = $derived(data.viewer?.did ?? '');
 
@@ -27,7 +37,7 @@
 	// The filter goes by what only the directory knows, so without it every booking shows.
 	const groups = $derived(
 		bookingsByTurn(
-			threads.filter((thread) => !data.filter || !names.value || (thread.project && filterKey(thread.project) === data.filter)),
+			threads.filter((thread) => !filter || !names.value || (thread.project && filterKey(thread.project) === filter)),
 			viewer
 		)
 	);
@@ -50,13 +60,13 @@
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
 		<h1 class="m-0 text-heading font-semibold">Bookings</h1>
-		{#if data.threads.length}<a class="btn-secondary btn-sm" href="/projects">New inquiry</a>{/if}
+		{#if data.threads.length}<a class="btn-secondary btn-sm" href="/djs">New inquiry</a>{/if}
 	</header>
 
 	{#if data.threads.length === 0}
 		{#if managed.value === undefined || sections.value === undefined}
 			<EmptyState title="No bookings yet">
-				<div role="status" aria-label="Loading" class="flex flex-col items-center gap-3"><span class={['h-4 w-64 max-w-full', ghost]}></span><span class={['h-11 w-28', ghost]}></span></div>
+				<div role="status" aria-label="Loading" class="flex flex-col items-center gap-3"><span class={['h-4 w-64 max-w-full', ghost]}></span><span class={['min-h-11 w-28', ghost]}></span></div>
 			</EmptyState>
 		{:else if managed.value?.[0]}
 			<EmptyState title="No bookings yet" body="When a promoter sends an inquiry, it starts here. A full page helps them find you.">
@@ -68,7 +78,7 @@
 			</EmptyState>
 		{:else}
 			<EmptyState title="No bookings yet" body="Find a DJ and send an inquiry with your show details.">
-				<Button href="/projects">Find DJs</Button>
+				<Button href="/djs">Find DJs</Button>
 			</EmptyState>
 		{/if}
 	{:else}
@@ -80,25 +90,25 @@
 				</div>
 			{:else if acts.length > 1}
 				<nav aria-label="Filter by act" class="flex flex-wrap gap-2">
-					<a href="/dashboard/bookings" aria-current={data.filter ? undefined : 'page'} class={chip}>All</a>
-					{#each acts as [slug, name] (slug)}<a href="/dashboard/bookings?project={slug}" aria-current={data.filter === slug ? 'page' : undefined} class={chip}>{name}</a>{/each}
+					<a href="/dashboard/bookings" aria-current={filter ? undefined : 'page'} class={chip}>All</a>
+					{#each acts as [slug, name] (slug)}<a href="/dashboard/bookings?project={slug}" aria-current={filter === slug ? 'page' : undefined} class={chip}>{name}</a>{/each}
 				</nav>
 			{/if}
 
 			{#if names.value === null}
-				<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Act names didn't load{data.filter ? ', so this shows every booking' : ''}.<a class="btn-secondary btn-sm" href={data.filter ? `/dashboard/bookings?project=${data.filter}` : '/dashboard/bookings'} data-sveltekit-reload>Try again</a></p>
+				<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Act names didn't load{filter ? ', so this shows every booking' : ''}.<a class="btn-secondary btn-sm" href={filter ? `/dashboard/bookings?project=${filter}` : '/dashboard/bookings'} data-sveltekit-reload>Try again</a></p>
 			{/if}
 
-			{#if data.filter && actsPending}
+			{#if filter && actsPending}
 				<div role="status" aria-label="Loading bookings"><BookingRows loading={Math.min(data.threads.length, 5)} /></div>
 			{:else}
 				{#each groups as { value, label, threads } (value)}
 					<section aria-labelledby="group-{value}" class="flex flex-col gap-3">
 						{#if value === 'settled'}
-							<details class="group/settled">
+							<details class="group">
 								<summary class="flex min-h-11 cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
 									{@render heading(value, label, threads.length)}
-									<ChevronDown class="size-4 text-fg-subtle group-open/settled:rotate-180 motion-safe:transition-transform" aria-hidden="true" />
+									<ChevronDown class="size-4 text-fg-subtle transition-transform motion-reduce:transition-none group-open:rotate-180" aria-hidden="true" />
 								</summary>
 								<div class="mt-1"><BookingRows {threads} group={value} {viewer} {actsPending} /></div>
 							</details>

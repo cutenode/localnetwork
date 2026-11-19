@@ -83,7 +83,7 @@ describe('needsYou', () => {
 		expect(rows.map((row) => row.title)).toEqual([
 			'Reply to Second undated',
 			'Reply to First undated',
-			'Update your request'
+			'Update your review request'
 		]);
 		expect(rows[2].detail).toMatch(/ · yesterday$/);
 	});
@@ -122,7 +122,7 @@ describe('needsYou', () => {
 
 		const rows = await needsYou(f.t, dj, NOW);
 
-		expect(rows.map((row) => row.title)).toEqual(['Reply to Night', 'Update your request']);
+		expect(rows.map((row) => row.title)).toEqual(['Reply to Night', 'Update your review request']);
 		expect(rows[1]).toMatchObject({ action: 'Update', href: `/dashboard/account/requests/${request.rkey}` });
 		expect(rows[1].detail).toMatch(/^New project: Second Act · Staff asked for changes · /);
 	});
@@ -158,7 +158,10 @@ describe("a thread the directory can't name", () => {
 		const app = {
 			shows: { forProject: async () => [] },
 			planner: { saves: async () => [], shows: async () => [] },
-			projects: { byUris: async () => new Map() }
+			projects: { byUris: async () => new Map() },
+			profiles: f.t.profiles,
+			accounts: f.t.accounts,
+			djListings: f.t.djListings
 		};
 
 		const { nights } = await nextNights(
@@ -261,7 +264,7 @@ describe('soon', () => {
 describe('accessWaiting', () => {
 	it("asks about each person waiting on a press kit, and drops them once they're answered", async () => {
 		const epk = await f.publish(DJ);
-		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), { role: 'press' });
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {});
 
 		const rows = await accessWaiting({ app: f.t, log: silentLogger }, [f.project], NOW);
 
@@ -362,7 +365,10 @@ describe('nextNights', () => {
 		const app = {
 			shows: { forProject: () => answer(shows) },
 			planner: { saves: async () => [], shows: () => answer(plans) },
-			projects: { byUris: async () => new Map() }
+			projects: { byUris: async () => new Map() },
+			profiles: f.t.profiles,
+			accounts: f.t.accounts,
+			djListings: f.t.djListings
 		};
 
 		return nextNights({ app, log: silentLogger }, await f.t.viewer(DJ), threads, [f.project], sections, NOW);

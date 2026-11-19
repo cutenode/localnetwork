@@ -6,6 +6,7 @@ use url::Url;
 
 use super::*;
 use crate::hooks::account_types::{AUTHORIZE_PARAMS, METHODS};
+use crate::test_util::absolute;
 use crate::{
     AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
     ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, Key,
@@ -202,11 +203,10 @@ fn paths_are_strings_and_absolute() {
         "files": { "type": "array", "items": { "type": "string" }, "x-path": true },
         "name": { "type": "string" },
     } });
-    let absolute = if cfg!(windows) { "C:\\list.txt" } else { "/list.txt" };
-    let fine = json!({ "file": absolute, "files": [absolute], "name": "list.txt" });
+    let list = absolute("list.txt");
+    let fine = json!({ "file": list, "files": [list], "name": "list.txt" });
     assert_eq!(check_params(Some(&schema), &fine), Ok(()));
-    for (params, at) in [(json!({ "file": "list.txt" }), "/file"), (json!({ "files": [absolute, "b.txt"] }), "/files")]
-    {
+    for (params, at) in [(json!({ "file": "list.txt" }), "/file"), (json!({ "files": [list, "b.txt"] }), "/files")] {
         let e = check_params(Some(&schema), &params).unwrap_err();
         assert!(e.message.ends_with("isn't an absolute path"), "{e}");
         assert_eq!((e.code, e.data.unwrap().fields["path"].clone()), (crate::code::INVALID_PARAMS, json!(at)));
@@ -250,7 +250,10 @@ fn ids_and_versions_are_checked() {
     let m = Manifest::parse(&HEAD.replace("^0.2", "^^")).unwrap();
     assert!(m.validate(false).unwrap_err().to_string().starts_with("protocol: "));
     let m = Manifest::parse(&HEAD.replace("^0.2", "^0.1")).unwrap();
-    assert_eq!(m.validate(false).unwrap_err().to_string(), "protocol: \"^0.1\" doesn't include 0.2.0");
+    assert_eq!(
+        m.validate(false).unwrap_err().to_string(),
+        format!("protocol: \"^0.1\" doesn't include {PROTOCOL_VERSION}")
+    );
 }
 
 #[test]
@@ -1243,11 +1246,14 @@ fn commands_and_operations_say_where_they_are_offered() {
     let operation =
         |places: &str| problem(&format!("[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\nwhere = {places}\n"));
     assert_eq!(operation("[\"track\", \"playlist\", \"drive\"]"), "");
-    assert_eq!(operation("[]"), "contributes.operations[0].where: names no place: track, playlist or drive");
+    assert_eq!(
+        operation("[]"),
+        "contributes.operations[0].where: names no place: track, playlist, drive or collection"
+    );
     assert_eq!(operation("[\"track\", \"track\"]"), "contributes.operations[0].where: track is there twice");
     assert!(operation("[\"deck\"]").contains("unknown variant `deck`"));
     let command = "[[contributes.commands]]\nname = \"c\"\ntitle = \"C\"\nmode = \"view\"\nwhere = []\n";
-    assert_eq!(problem(command), "contributes.commands[0].where: names no place: track, playlist or drive");
+    assert_eq!(problem(command), "contributes.commands[0].where: names no place: track, playlist, drive or collection");
 }
 
 /// A param filled in from what's selected (`x-from`) is of a type that holds it.
@@ -1649,10 +1655,16 @@ fn setting(tc: &TestCase, key: String) -> Setting {
     Setting { key, title: title(tc), kind, default, choices }
 }
 
-/// The menus a command or an operation is offered in: one or more, each once.
+/// The menus an operation is offered in: one or more, each once.
 #[hegel::test_helper]
 fn offered(tc: &TestCase) -> Vec<Where> {
     tc.draw(gs::subsequences(vec![Where::Track, Where::Playlist, Where::Drive]).min_size(1))
+}
+
+/// The places a command is offered in: an operation's, and the collection.
+#[hegel::test_helper]
+fn offered_command(tc: &TestCase) -> Vec<Where> {
+    tc.draw(gs::subsequences(vec![Where::Track, Where::Playlist, Where::Drive, Where::Collection]).min_size(1))
 }
 
 /// An endpoint an account may have: https anywhere, or http on this computer.
@@ -1779,7 +1791,9 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
             name,
             title: title(tc),
             mode: tc.draw(gs::sampled_from(modes.clone())),
-            offered: offered(tc),
+            offered: offered_command(tc),
+            plan: tc.draw(gs::booleans()),
+            long_running: tc.draw(gs::booleans()),
             params: maybe_schema(tc),
             cli: place(tc),
         })
@@ -1952,7 +1966,8 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
     capabilities.extend(hosts.into_iter().map(Capability::Net));
     let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
     let [major, minor, patch] = tc.draw(gs::arrays(gs::integers::<u16>()));
-    let protocols = vec!["^0.2", "0.2", "~0.2", "^0.2.0", "=0.2.0", "*", ">=0.2.0, <0.3.0", ">=0.0.1"];
+    let exactly = format!("={PROTOCOL_VERSION}");
+    let protocols = vec!["^0.2", "0.2", "~0.2", "^0.2.0", &exactly, "*", ">=0.2.0, <0.3.0", ">=0.0.1"];
     Manifest {
         id: tc.draw(gs::from_regex(DRAWN_NAME)),
         name: title(tc),
@@ -2094,7 +2109,9 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             "destinations" => c.destinations.push(Destination { name, title, kind: DestinationKind::Store }),
             "commands" => {
                 let offered = on_a_drive();
-                c.commands.push(Command { name, title, mode: Mode::Headless, offered, params: None, cli: None });
+                let mode = Mode::Headless;
+                let (plan, long_running) = (false, false);
+                c.commands.push(Command { name, title, mode, offered, plan, long_running, params: None, cli: None });
             }
             "operations" => {
                 let offered = on_a_drive();
@@ -2837,11 +2854,6 @@ fn refused_saying_where(tc: &TestCase, mistake: &str) {
     }
 }
 
-/// An absolute path on this computer, ending in `name`.
-fn absolute(name: &str) -> String {
-    if cfg!(windows) { format!("C:\\{name}") } else { format!("/{name}") }
-}
-
 #[hegel::test_helper]
 fn file_name(tc: &TestCase) -> String {
     tc.draw(gs::from_regex("[a-z0-9 ._-]{1,8}(/[a-z0-9]{1,4})?"))
@@ -3109,6 +3121,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "sets:read",
         "account:status",
         "collection:read",
+        "collection:files",
         "library:plan",
         "library:delete",
         "library:delete-unbacked",
@@ -4192,8 +4205,8 @@ fn prop_a_net_grant_reaches_its_host_or_those_below_its_domain(tc: TestCase) {
 }
 
 /// A manifest has a feature's contributions exactly when the feature says it does: accounts it
-/// asks for, analyzers with a structured field, `net` limits, records it writes, or a contribution
-/// of the feature's kind; never for the SDK's own features.
+/// asks for, analyzers with a structured field, `net` limits, records it writes, commands planned
+/// first, or a contribution of the feature's kind; never for the SDK's other features.
 #[hegel::test(test_cases = 50)]
 fn prop_a_feature_is_contributed_exactly_when_the_manifest_has_its_contributions(tc: TestCase) {
     let m = manifest(&tc, tc.draw(gs::booleans()));
@@ -4205,6 +4218,7 @@ fn prop_a_feature_is_contributed_exactly_when_the_manifest_has_its_contributions
             "analysis" => structured,
             "net" => !m.net.is_empty(),
             "atmosphere" => m.capabilities.iter().any(|c| matches!(c, Capability::AtmosphereWrite(_))),
+            "plans" => c.commands.iter().any(|x| x.plan),
             "blobs" | "choose" | "views" => false,
             "events" => !c.events.is_empty(),
             kind => len(c, kind) > 0,
@@ -4585,7 +4599,7 @@ fn prop_every_schema_place_and_source_is_checked(tc: TestCase) {
             let said = match twice {
                 false => {
                     offered.clear();
-                    "names no place: track, playlist or drive".to_string()
+                    "names no place: track, playlist, drive or collection".to_string()
                 }
                 true => {
                     let again = offered[index(&tc, offered.len())];

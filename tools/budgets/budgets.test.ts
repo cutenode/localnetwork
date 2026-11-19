@@ -33,43 +33,66 @@ describe('compared', () => {
 	});
 });
 
+const none = new Map<string, number>();
+
 describe('problems', () => {
 	const rows = (base: Measured | undefined, head: Measured) => compared('size', budget(), base, head);
 
 	it('passes growth up to the allowance, and any shrinking', () => {
-		expect(problems(rows({ binary: 1000 }, { binary: 1010 }), 1, [])).toEqual([]);
-		expect(problems(rows({ binary: 1000 }, { binary: 10 }), 1, [])).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 1010 }), 1, none)).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 10 }), 1, none)).toEqual([]);
 	});
 	it('fails one unit over the allowance', () => {
-		expect(problems(rows({ binary: 1000 }, { binary: 1011 }), 1, [])).toEqual([
-			"size/binary: 11 bytes more than its base, over its allowance of 10: add `budget-raise: size/binary: <why>` if it's meant"
+		expect(problems(rows({ binary: 1000 }, { binary: 1011 }), 1, none)).toEqual([
+			"size/binary: 11 bytes more than its base, 1 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +1: <why>`"
 		]);
 	});
 	it("allows each of a merge queue group's pull requests its allowance", () => {
-		expect(problems(rows({ binary: 1000 }, { binary: 1020 }), 2, [])).toEqual([]);
-		expect(problems(rows({ binary: 1000 }, { binary: 1021 }), 2, [])).toHaveLength(1);
+		expect(problems(rows({ binary: 1000 }, { binary: 1020 }), 2, none)).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 1021 }), 2, none)).toHaveLength(1);
 	});
-	it('passes a declared raise', () => {
-		expect(problems(rows({ binary: 1000 }, { binary: 9000 }), 1, ['size/binary'])).toEqual([]);
+	it('allows a declared raise on top of the allowance, and asks for what it still lacks', () => {
+		const raised = new Map([['size/binary', 100]]);
+
+		expect(problems(rows({ binary: 1000 }, { binary: 1110 }), 1, raised)).toEqual([]);
+		expect(problems(rows({ binary: 1000 }, { binary: 1115 }), 1, raised)).toEqual([
+			"size/binary: 115 bytes more than its base, 5 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +5: <why>`"
+		]);
 	});
 	it('passes a metric with no base, and fails one nothing measured', () => {
-		expect(problems(rows(undefined, { binary: 9000 }), 1, [])).toEqual([]);
-		expect(problems(rows({ binary: 1 }, {}), 1, [])).toEqual(['size/binary: not measured']);
+		expect(problems(rows(undefined, { binary: 9000 }), 1, none)).toEqual([]);
+		expect(problems(rows({ binary: 1 }, {}), 1, none)).toEqual(['size/binary: not measured']);
 	});
 	it('names the packages a list gained', () => {
 		const grown = compared('deps', names, { cli: ['a'] }, { cli: ['a', 'b', 'c'] });
-		expect(problems(grown, 1, [])).toEqual([
-			"deps/cli: b, c added, over its allowance of 0: add `budget-raise: deps/cli: <why>` if it's meant"
+		expect(problems(grown, 1, none)).toEqual([
+			"deps/cli: b, c added, 2 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: deps/cli +2: <why>`"
 		]);
 	});
 });
 
 describe('declared', () => {
-	it('takes the metric of each line that says why', () => {
-		const body =
-			'Text.\n\n budget-raise: size/binary: the new decoder needs it\r\nbudget-raise: size/other:\nbudget-raise: x\n';
+	it('sums the trailers of each metric, as git log prints them', () => {
+		const log =
+			'Budget-Raise: size/binary +100: a decoder\n\nbudget-raise: size/binary +20: its tables\r\nBudget-Raise: deps/cli +1: rustls\n';
 
-		expect(declared(body)).toEqual(['size/binary']);
+		expect(declared(log, '2026-12-01')).toEqual(
+			new Map([
+				['size/binary', 120],
+				['deps/cli', 1]
+			])
+		);
+	});
+	it('takes no trailer without an amount or a reason', () => {
+		expect(
+			declared('Budget-Raise: size/binary: a decoder\nBudget-Raise: size/binary +5:\nBudget-Raise: size/binary 5: x\n')
+		).toEqual(none);
+	});
+	it('lets a body line allow any growth, until the date', () => {
+		const body = 'Text.\n\n budget-raise: size/binary: the new decoder needs it\r\nbudget-raise: size/other:\n';
+
+		expect(declared(body, '2026-11-30')).toEqual(new Map([['size/binary', Infinity]]));
+		expect(declared(body, '2026-12-01')).toEqual(none);
 	});
 });
 
@@ -144,7 +167,7 @@ describe('the commands', () => {
 			expect(lines.slice(2)).toEqual([
 				'| size/binary | 1000 | 1011 | +11 | 10 bytes |',
 				'',
-				"size/binary: 11 bytes more than its base, over its allowance of 10: add `budget-raise: size/binary: <why>` if it's meant"
+				"size/binary: 11 bytes more than its base, 1 over what's allowed: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +1: <why>`"
 			]);
 		});
 		it('passes growth within the allowance times the entries, and a declared raise', () => {
@@ -152,7 +175,7 @@ describe('the commands', () => {
 			write('head/size.json', { binary: 1020 });
 			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md', '2']).ok).toBe(true);
 			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md']).ok).toBe(false);
-			writeFileSync('raises.md', 'budget-raise: size/binary: a new decoder\n');
+			writeFileSync('raises.md', 'Budget-Raise: size/binary +10: a new decoder\n');
 			expect(run(['check', 'pull-request', 'base', 'head', 'raises.md']).ok).toBe(true);
 		});
 		it('passes anything with no base measured', () => {
@@ -179,10 +202,12 @@ describe('the commands', () => {
 			commit('base');
 			write('benchmarks/budgets/size.json', budget(20));
 			expect(run(['raises', 'HEAD', 'raises.md'])).toEqual({
-				lines: ["size/binary: loosened: add a line `budget-raise: size/binary: <why>` to the pull request's body"],
+				lines: [
+					"size/binary: loosened: if it's meant, add a commit with the trailer `Budget-Raise: size/binary +0: <why>`"
+				],
 				ok: false
 			});
-			writeFileSync('raises.md', 'budget-raise: size/binary: a noisier metric\n');
+			writeFileSync('raises.md', 'Budget-Raise: size/binary +0: a noisier metric\n');
 			expect(run(['raises', 'HEAD', 'raises.md'])).toEqual({ lines: [], ok: true });
 		});
 		it('counts a budget file taken away', () => {

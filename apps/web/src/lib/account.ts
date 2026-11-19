@@ -7,7 +7,7 @@ export const ACCOUNT_PAGES: { href: string; label: string; icon: LucideIcon; abo
 	{ href: '/dashboard/account/data', label: 'Your data', icon: Database, about: 'What Local Network holds for you' },
 	{
 		href: '/dashboard/account/requests',
-		label: 'Requests to staff',
+		label: 'Review requests',
 		icon: ClipboardList,
 		about: "What you've asked staff for"
 	}

@@ -9,10 +9,11 @@ export const CAN: { text: string; covers: string[] }[] = [
 		covers: ['computer.localnetwork.profile', 'computer.localnetwork.dj.set']
 	},
 	{
-		text: 'Post your shows, follows and press kits',
+		text: "Post your shows, follows, press kits and the events you're going to",
 		covers: [
 			'computer.localnetwork.show',
 			'community.lexicon.calendar.event',
+			'community.lexicon.calendar.rsvp',
 			'computer.localnetwork.follow',
 			'computer.localnetwork.epk',
 			'computer.localnetwork.space.epk'

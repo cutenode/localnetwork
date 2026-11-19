@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use locallibrary::edit::EditPlan;
 use locallibrary::op::{AnyPlanned, Operation, Planned};
-use locallibrary::plugin::OpPlanned;
+use locallibrary::plugin::{CommandPlanned, OpPlanned, PluginCommand};
 use locallibrary::progress::{Ctx, Event, Phase};
 use locallibrary::{Store, api};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -291,6 +291,18 @@ impl PlanAnswer for OpPlanned {
         match self {
             OpPlanned::Plan(plan) => plan.keep(plans, method),
             asked @ OpPlanned::Choose { .. } => ok(asked),
+        }
+    }
+}
+
+/// A plugin's command planned first may ask a question first too.
+impl PlanAnswer for CommandPlanned {
+    type Report = <Planned<PluginCommand> as PlanAnswer>::Report;
+
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError> {
+        match self {
+            CommandPlanned::Plan(plan) => plan.keep(plans, method),
+            asked @ CommandPlanned::Choose { .. } => ok(asked),
         }
     }
 }
@@ -703,7 +715,7 @@ fn build() -> Registry {
         .long()
         .destructive();
     r.read("check", |c, req| Ok(api::check(c.existing()?.as_ref(), &req, c.ctx)?)).long();
-    r.read("analysis.bench", |c, req| Ok(api::analysis_bench(&req, c.ctx)?)).long();
+    r.read("analysis.bench", |c, req| Ok(crate::plugins::roles::bench(&req, &c.store()?, c.ctx)?)).long();
     r.read("plays.history", |_, req| Ok(api::drive_history(&req)?)).quick();
     r.read("plays.archive", |c, req| Ok(api::history_archive(&c.to_read()?, &req, c.ctx)?)).long();
     r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing()?.as_ref(), &req)?));
@@ -726,6 +738,7 @@ fn build() -> Registry {
     {
         r.read("account.status", |c, _: NoParams| Ok(api::account_status(c.root)?)).quick();
         r.read("account.check", |c, _: NoParams| Ok(api::account_check(c.root, c.ctx)?)).long();
+        r.read("account.flags", |c, req| Ok(api::account_flags(c.root, &req))).long();
         r.immediate("account.login.begin", |c, req| Ok(api::account_login_begin(c.root, &req)?)).keeps_cache();
         r.immediate("account.login.finish", |c, req| Ok(api::account_login_finish(&req, c.ctx)?)).long().keeps_cache();
         r.immediate("account.login.paste", |_, req| Ok(api::account_login_paste(&req)?)).keeps_cache();

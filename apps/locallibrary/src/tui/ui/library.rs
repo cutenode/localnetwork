@@ -14,7 +14,7 @@ use ratatui::widgets::{
 };
 
 use crate::output::{bytes, clock};
-use crate::tui::app::{App, Focus};
+use crate::tui::app::{App, COLLECTION_NAME, Focus};
 use crate::tui::browse::{NodeId, sort_label, stars};
 use crate::tui::icons;
 use crate::tui::keys::{Camelot, Notation, Relation};
@@ -127,20 +127,68 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Drives;
     let loaded_root = app.loaded.as_ref().map(|l| l.root().to_path_buf());
     let inner_w = area.width.saturating_sub(3);
-    let items: Vec<ListItem> = (app.drives.iter())
-        .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w)))
-        .collect();
-    if area.height <= 1 {
-        return title_row(f, pane_title(1, "Drives", focused), focused, area);
+    // rekordbox's collection first, when it's on this computer: then the pane holds sources.
+    let collection = app.collection_db.is_some();
+    let title = if collection { "Sources" } else { "Drives" };
+    let open = app.loaded.as_ref().filter(|l| l.is_collection());
+    let mut items: Vec<ListItem> = Vec::new();
+    if collection {
+        items.push(ListItem::new(collection_line(open.map(|l| l.library.tracks.len()), open.is_some(), inner_w)));
     }
-    let list = drive_list(items, focused, app.scanning());
-    app.drive_state.fit(area.height.saturating_sub(2) as usize, app.drives.len());
-    f.render_stateful_widget(list, area, &mut app.drive_state);
+    items.extend(app.drives.iter().map(|d| {
+        let open = loaded_root.as_deref() == Some(d.root.as_path());
+        ListItem::new(match app.collection_copies.get(&d.root) {
+            Some(at) => copy_line(d, *at, open, inner_w),
+            None => drive_line(d, open, "", inner_w),
+        })
+    }));
+    if area.height <= 1 {
+        return title_row(f, pane_title(1, title, focused), focused, area);
+    }
+    let list = drive_list(items, title, focused, app.scanning() && !collection);
+    let rows = app.source_rows();
+    let mut state = ListState::default().with_offset(app.source_offset).with_selected(app.source_row());
+    state.fit(area.height.saturating_sub(2) as usize, rows);
+    f.render_stateful_widget(list, area, &mut state);
+    app.source_offset = state.offset();
+}
+
+/// rekordbox's collection in the sources: open like a drive (pink), else hollow until read, with
+/// its track count once it is.
+fn collection_line(tracks: Option<usize>, open: bool, width: u16) -> Line<'static> {
+    let dot = if open {
+        Span::styled(icons::DOT.spaced(), bold(theme::current().accent))
+    } else {
+        Span::styled(icons::DOT.spaced(), fg(theme::current().good))
+    };
+    let name_style = if open { bold(theme::current().text) } else { text() };
+    let left = vec![dot, Span::styled(COLLECTION_NAME, name_style)];
+    let right = match tracks {
+        Some(n) => vec![Span::styled(compact(n), dim())],
+        None => vec![Span::styled("this computer", faint())],
+    };
+    spread(left, right, width)
+}
+
+/// A drive holding a copy of the collection, made `at`: said so in place of its track count, so
+/// it isn't taken for the collection as it is now.
+fn copy_line(d: &DeviceInfo, at: chrono::DateTime<chrono::Utc>, open: bool, width: u16) -> Line<'static> {
+    let note = format!("copy, {}", at.with_timezone(&chrono::Local).format("%b %-d"));
+    spread(drive_name_spans(d, open, ""), vec![Span::styled(note, faint())], width)
 }
 
 /// A drive in a list: a dot (pink: open, green: has an export, hollow: blank), its name and its
 /// track count, after `indent`.
 pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -> Line<'static> {
+    let right = match &d.summary {
+        Some(s) => vec![Span::styled(compact(s.tracks), dim())],
+        None => vec![Span::styled("blank", faint())],
+    };
+    spread(drive_name_spans(d, open, indent), right, width)
+}
+
+/// A drive's dot and name in a list, after `indent`.
+fn drive_name_spans(d: &DeviceInfo, open: bool, indent: &str) -> Vec<Span<'static>> {
     let dot = if !d.has_export {
         Span::styled(icons::RING.spaced(), faint())
     } else if open {
@@ -149,22 +197,17 @@ pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -
         Span::styled(icons::DOT.spaced(), fg(theme::current().good))
     };
     let name_style = if open { bold(theme::current().text) } else { text() };
-    let left = vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)];
-    let right = match &d.summary {
-        Some(s) => vec![Span::styled(compact(s.tracks), dim())],
-        None => vec![Span::styled("blank", faint())],
-    };
-    spread(left, right, width)
+    vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)]
 }
 
 /// The drive lists' frame, and what they say with no drive.
-pub(super) fn drive_list(items: Vec<ListItem<'static>>, focused: bool, scanning: bool) -> List<'static> {
+pub(super) fn drive_list(items: Vec<ListItem<'static>>, title: &str, focused: bool, scanning: bool) -> List<'static> {
     let list = if items.is_empty() && !scanning {
         List::new([ListItem::new(Line::styled("no rekordbox drives", dim()))])
     } else {
         List::new(items)
     };
-    list.block(block(pane_title(1, "Drives", focused), focused))
+    list.block(block(pane_title(1, title, focused), focused))
         .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)))
 }
@@ -571,12 +614,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let eq = ["▁", "▃", "▅", "▇", "▅", "▃"];
     let paused = !app.is_playing();
 
-    // Narrow columns first: playing or marked, colour, the cover's colours, problems.
-    let chips = app.shows_art();
-    let chip_w = Constraint::Length(u16::from(chips));
-    let mut widths = vec![Constraint::Length(1), Constraint::Length(1), chip_w, Constraint::Length(1)];
+    // Narrow columns first: playing or marked, colour, problems.
+    let mut widths = vec![Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)];
     widths.extend(cols.iter().map(|c| c.width()));
-    let header: Vec<Cell> = ["", "", "", ""]
+    let header: Vec<Cell> = ["", "", ""]
         .into_iter()
         .map(Cell::from)
         .chain(cols.iter().map(|c| {
@@ -598,7 +639,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height };
     let cells = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
     let rects = Layout::horizontal(widths.clone()).flex(Flex::Start).spacing(1).split(cells);
-    app.areas.columns = cols.iter().zip(rects.iter().skip(4)).filter_map(|(c, r)| Some((c.field()?, *r))).collect();
+    app.areas.columns = cols.iter().zip(rects.iter().skip(3)).filter_map(|(c, r)| Some((c.field()?, *r))).collect();
 
     // Build only the rows on screen: libraries run to tens of thousands of tracks, redrawn at 60 fps.
     let page = area.height.saturating_sub(3) as usize;
@@ -612,9 +653,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     // underlined too.
     let mix_style = if theme::flat() { Modifier::UNDERLINED } else { Modifier::empty() };
     let (notation, key_palette) = (app.deck.notation, app.deck.key_palette);
-    let root = l.root();
-    app.covers.new_frame();
-    let (covers, played) = (&mut app.covers, &app.played_tracks);
+    let played = &app.played_tracks;
 
     let rows: Vec<Row> = window
         .iter()
@@ -635,10 +674,6 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::raw(" ")
             };
             let color = tr.color.map_or(Span::raw(" "), theme::colour_dot);
-            let chip = (tr.artwork_id.zip(tr.artwork_path.as_deref()))
-                .filter(|_| chips)
-                .and_then(|(id, path)| covers.chip(root, id, path))
-                .map_or_else(empty, |[main, second]| Cell::from(Span::styled("▌", fg(main).bg(theme::rgb3(second)))));
             let problem = if l.problems.is_missing(i) {
                 Span::styled(icons::CROSS.get(), bold(theme::current().critical))
             } else if l.problems.has_copies(i) {
@@ -648,7 +683,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
             };
             let title_style = if is_playing { bold(theme::current().accent) } else { text() };
             let key = Camelot::parse(&tr.key);
-            let narrow = [Cell::from(indicator), Cell::from(color), chip, Cell::from(problem)];
+            let narrow = [Cell::from(indicator), Cell::from(color), Cell::from(problem)];
             // Sized once: pushed a column at a time, it would grow twice a row.
             let mut cells = Vec::with_capacity(narrow.len() + cols.len());
             cells.extend(narrow);

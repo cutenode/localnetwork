@@ -3,7 +3,9 @@
 //! the type always asks for, what the account was granted before and what every access to it
 //! needs, and what the scopes asked for ask for; whoever signed in is then asked of the service
 //! (see [`Plugin::whoami`]), and the same account signed in again through the same account plugin
-//! is changed in place, keeping its refresh token when the service answers none.
+//! is changed in place, keeping its refresh token when the service answers none. Signing out, or
+//! the service ending its session, removes every plugin's access to it, which signing in again
+//! restores as the sign-in says (see [`super::restore`]).
 
 use std::time::{Duration, Instant};
 
@@ -14,9 +16,10 @@ use oauth2::TokenResponse;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use super::access::Access;
+use super::access::{Access, AccountId};
 use super::kept::{self, Kept};
 use super::keys::Credential;
+use super::restore::{AutoRestore, Restoring};
 use super::{Pending, Tokens, Waiting, come_back, pasted};
 use crate::callback::CallbackQuery;
 use crate::error::Reason;
@@ -68,9 +71,16 @@ impl Account {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
 pub struct Accounts {
     /// Those it keeps, in the order they were first signed in, then those signed out that plugins
-    /// still have access to.
+    /// had access to.
     pub accounts: Vec<Account>,
     pub accesses: Vec<Access>,
+    /// The access plugins had to accounts before they were signed out, until it's restored or
+    /// reset.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remembered: Vec<Access>,
+    /// Automatically Restore Access, for all accounts and for each with a setting of its own.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub restore_automatically: Vec<AutoRestore>,
 }
 
 /// A sign-in to an account of a type, waiting for the browser, or for the user's keys.
@@ -116,6 +126,14 @@ pub struct AccountSignedIn {
     /// those it can do without aren't in its access.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub declined: Vec<String>,
+    /// The access plugins had to it before it was signed out that signing in gave back: as the
+    /// sign-in said to, or Automatically Restore Access did, or the plugin it was for had.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub restored: Vec<Access>,
+    /// What's still remembered of the access plugins had to it, for front ends to ask about:
+    /// restoring it all, choosing from it, or resetting it (see [`Plugins::restore_access`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remembered: Vec<Access>,
 }
 
 /// What signing out of an account of a type did.
@@ -140,6 +158,8 @@ pub(crate) struct Asked {
     account: Option<String>,
     /// The service's scopes.
     scopes: Vec<String>,
+    /// What's done with the access plugins had to the account before it was signed out.
+    restoring: Option<Restoring>,
 }
 
 /// `kept` as hosts show it.
@@ -282,11 +302,11 @@ impl Plugins {
     }
 
     /// The accounts `store` keeps (see [`Plugins::store_accounts`]), then those signed out that
-    /// plugins still have access to, signed out, and every access.
+    /// plugins had access to, signed out, every access and what's remembered of those.
     pub fn accounts_and_accesses(&self, store: &Store) -> Result<Accounts> {
         let mut accounts = self.store_accounts(store)?;
-        let accesses = kept::read(store)?.accesses;
-        for a in &accesses {
+        let kept::Book { accesses, remembered, restore_automatically, .. } = kept::read(store)?;
+        for a in accesses.iter().chain(&remembered) {
             if !accounts.iter().any(|k| k.plugin == a.account.plugin && k.subject == a.account.subject) {
                 accounts.push(Account {
                     kind: a.kind.clone(),
@@ -301,7 +321,7 @@ impl Plugins {
                 });
             }
         }
-        Ok(Accounts { accounts, accesses })
+        Ok(Accounts { accounts, accesses, remembered, restore_automatically })
     }
 
     /// The account plugins providing the account type `kind`, by id.
@@ -331,17 +351,21 @@ impl Plugins {
     /// Starts signing in to an account of type `kind` in `store` through the account plugin
     /// `with`, for the plugin `for_plugin` if it's for one: the address to open in the browser,
     /// which comes back to this computer. With `account`, it signs in again as that account (the
-    /// subject of one `with` signed in, or of one signed out that plugins still have access to);
+    /// subject of one `with` signed in, or of one signed out that plugins had access to);
     /// without, the service is asked to offer another than those it signed in, when there are
     /// any; the type's own params go with either. It asks the service for what the type always
     /// asks for, what `account` was granted and what every access to it needs, and what `scopes`
     /// (the type's, by name) ask for, and for a plugin, what the scopes it needs ask for: it's
     /// given access to those, and to those of `scopes` it can do without that the service grants
-    /// (see [`Plugins::give_access`]). Finished with [`Plugins::finish_account_sign_in`] (or
-    /// [`Plugins::finish_account_sign_in_with_url`], when the browser runs on another computer),
-    /// within a quarter of an hour. A type signed in to with keys asks the service for nothing:
-    /// the address is where the user gets the keys, and the sign-in finishes with them
-    /// ([`Plugins::finish_account_sign_in_with_keys`]), listening for no browser.
+    /// (see [`Plugins::give_access`]). What plugins had of the account before it was signed out
+    /// is restored or reset as `restoring` says, else as Automatically Restore Access does, else
+    /// only the plugin it's for gets its back (see [`Plugins::restore_access`]). Finished with
+    /// [`Plugins::finish_account_sign_in`] (or [`Plugins::finish_account_sign_in_with_url`], when
+    /// the browser runs on another computer), within a quarter of an hour. A type signed in to
+    /// with keys asks the service for nothing: the address is where the user gets the keys, and
+    /// the sign-in finishes with them ([`Plugins::finish_account_sign_in_with_keys`]), listening
+    /// for no browser.
+    #[allow(clippy::too_many_arguments)]
     pub fn begin_account_sign_in(
         &self,
         kind: &str,
@@ -349,10 +373,11 @@ impl Plugins {
         for_plugin: Option<&str>,
         account: Option<&str>,
         scopes: &[String],
+        restoring: Option<Restoring>,
         store: &Store,
     ) -> Result<AccountSignIn> {
         let for_plugin = for_plugin.map(|p| self.slot(p)).transpose()?;
-        self.slot(with)?.begin_sign_in(kind, for_plugin.map(|s| &*s.plugin), account, scopes, store)
+        self.slot(with)?.begin_sign_in(kind, for_plugin.map(|s| &*s.plugin), account, scopes, restoring, store)
     }
 
     /// Waits for the browser to come back to sign-in `id` (at most `timeout`, an hour at most),
@@ -389,6 +414,7 @@ impl Plugin {
         for_plugin: Option<&Plugin>,
         account: Option<&str>,
         scopes: &[String],
+        restoring: Option<Restoring>,
         store: &Store,
     ) -> Result<AccountSignIn> {
         let with = self.manifest.id.as_str();
@@ -398,8 +424,9 @@ impl Plugin {
         let mut params = t.params.clone();
         match account {
             Some(subject) => {
-                let accesses: Vec<&Access> =
-                    book.accesses.iter().filter(|a| a.account.plugin == with && a.account.subject == subject).collect();
+                let accesses: Vec<&Access> = (book.accesses.iter().chain(&book.remembered))
+                    .filter(|a| a.account.plugin == with && a.account.subject == subject)
+                    .collect();
                 let k = book.account(with, subject);
                 if k.is_none() && accesses.is_empty() {
                     return Err(not_kept(with, subject));
@@ -432,6 +459,7 @@ impl Plugin {
             for_plugin: given,
             account: account.map(String::from),
             scopes: scopes.clone(),
+            restoring,
         };
         if t.kind == SignIn::Keys {
             let id =
@@ -475,7 +503,9 @@ impl Plugin {
 
     /// Keeps the account `subject`, shown as `name`, that `asked` signed in to in `store`, with
     /// what `keep` keeps of its sign-in (the caller holding [`kept::hold`]): changed in place when
-    /// it's kept already, and the plugin it was for given access to it.
+    /// it's kept already, what plugins had of it before restored as `asked` says (see
+    /// [`kept::Book::signed_in_again`]), and the plugin it was for given access to it, with what it
+    /// had.
     pub(super) fn keep(
         &self,
         asked: Asked,
@@ -490,7 +520,7 @@ impl Plugin {
         // through one not granted says to sign in again), those it can do without only when
         // granted, and nothing when the browser signed in to another account than asked.
         let for_plugin = asked.for_plugin.filter(|_| instead_of.is_none());
-        let (account, access, declined) = kept::update(store, |book| {
+        let (account, access, declined, restored, remembered) = kept::update(store, |book| {
             let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {
                 Some(i) => i,
@@ -504,16 +534,22 @@ impl Plugin {
             keep(k)?;
             let k = k.clone();
             book.renamed(&k);
-            let Some((plugin, scopes, needs)) = &for_plugin else { return Ok((listed(k, true), None, Vec::new())) };
+            let id = AccountId::of(&k);
+            let mut restored = book.signed_in_again(&id, asked.restoring);
+            restored.extend(for_plugin.as_ref().and_then(|(plugin, _, _)| book.restore_one(&id, plugin)));
+            let remembered: Vec<Access> = book.remembered.iter().filter(|a| a.account == id).cloned().collect();
+            let Some((plugin, scopes, needs)) = &for_plugin else {
+                return Ok((listed(k, true), None, Vec::new(), restored, remembered));
+            };
             let is_granted =
                 |name: &String| t.scopes.get(name).is_some_and(|s| s.asks.iter().all(|a| k.scopes.contains(a)));
             let declined: Vec<String> = scopes.iter().filter(|s| !is_granted(s)).cloned().collect();
             let given: Vec<String> =
                 scopes.iter().filter(|s| needs.contains(s) || !declined.contains(s)).cloned().collect();
             let access = book.give(plugin, &k, &given, &declined);
-            Ok((listed(k, true), Some(access), declined))
+            Ok((listed(k, true), Some(access), declined, restored, remembered))
         })?;
-        Ok(AccountSignedIn { account, instead_of, access, declined })
+        Ok(AccountSignedIn { account, instead_of, access, declined, restored, remembered })
     }
 }
 
@@ -527,8 +563,8 @@ impl Plugins {
     /// Signs out of the account `subject` that `with` signed in to in `store`: it's forgotten here,
     /// and its tokens are revoked at the service when its type has a revocation endpoint (as far
     /// as it answers: they're forgotten here all the same). An account signed in to with keys has
-    /// nothing to revoke: they're forgotten. Plugins keep their accesses to it, which have no
-    /// token until it's signed in again.
+    /// nothing to revoke: they're forgotten. Every plugin's access to it is removed, and
+    /// remembered until signing in again restores it, as the service ending its session does.
     pub fn sign_out_account(&self, with: &str, subject: &str, store: &Store) -> Result<AccountSignedOut> {
         let slot = self.slot(with)?;
         let _one = kept::hold(store, with, subject)?;
@@ -545,9 +581,11 @@ impl Plugins {
     }
 }
 
-/// Forgets `kept` and its tokens, but not the accesses to it.
+/// Forgets `kept` and its tokens, removing every plugin's access to it and remembering it (see
+/// [`kept::Book::remember`]): signing out, and the service ending its session.
 fn forget(store: &Store, storage: Storage, kept: &Kept) -> Result<()> {
     kept::update(store, |book| {
+        book.remember(&AccountId::of(kept));
         book.accounts.retain(|k| !k.is(&kept.plugin, &kept.subject));
         kept::keep(storage, store, kept, None)
     })

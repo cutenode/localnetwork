@@ -468,6 +468,18 @@ impl From<loclib_progress::Cancelled> for Error {
     }
 }
 
+impl From<loclib_anlz::Error> for Error {
+    fn from(e: loclib_anlz::Error) -> Self {
+        use loclib_anlz::Error as E;
+        match e {
+            E::Malformed(message) => Error::parse("ANLZ", message),
+            E::Invalid(message) => Error::Invalid(message),
+            // A variant a newer loclib-anlz adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 impl From<loclib_audio::Error> for Error {
     fn from(e: loclib_audio::Error) -> Self {
         use loclib_audio::Error as E;

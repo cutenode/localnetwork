@@ -1,6 +1,7 @@
-//! `account TYPE sign-in` and `account TYPE:NAME status|sign-out`: the accounts the store keeps
-//! besides the DJ account, signed in to through account plugins in the browser or with keys
+//! `account TYPE sign-in` and `account TYPE:NAME status|sign-out|restore`: the accounts the store
+//! keeps besides the DJ account, signed in to through account plugins in the browser or with keys
 //! (their tokens and keys never shown), and listed with the plugins that have access to them.
+//! Signing out removes that access, and signing in again restores it (see [`super::restoring`]).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,7 +10,9 @@ use anyhow::Result;
 use clap::{Args, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::local_time;
-use locallibrary::plugin::{Access, Account, AccountSignIn, AccountSignedIn, Accounts, EnteredKeys, Plugins};
+use locallibrary::plugin::{
+    Access, Account, AccountId, AccountSignIn, AccountSignedIn, Accounts, EnteredKeys, Plugins, Restoring,
+};
 use locallibrary::progress::Ctx;
 use loclib_plugin::AccountType;
 
@@ -25,9 +28,11 @@ pub(super) enum Action {
     /// Sign in to an account of the type in the browser, or with its keys read from stdin
     /// (TYPE:NAME: again, as that account)
     SignIn,
-    /// Sign out: its tokens are removed from this computer, and the service is told when it can
-    /// be; plugins keep their access, unused until it's signed in again
+    /// Sign out: its tokens are removed from this computer, the service is told when it can be,
+    /// and every plugin's access to it is removed until it's restored
     SignOut,
+    /// Give plugins back the access they had to it before it was signed out
+    Restore,
 }
 
 #[derive(Args)]
@@ -43,6 +48,14 @@ pub(super) struct SignInArgs {
     /// them)
     #[arg(long = "scope", value_name = "SCOPE")]
     scopes: Vec<String>,
+    /// With sign-in: give plugins back the access they had to it before it was signed out,
+    /// without asking
+    #[arg(long, conflicts_with = "reset")]
+    restore: bool,
+    /// With sign-in: forget the access plugins had to it before it was signed out, without
+    /// asking
+    #[arg(long)]
+    reset: bool,
     #[command(flatten)]
     browser: BrowserArgs,
 }
@@ -60,12 +73,13 @@ pub(super) fn run(
         Some((kind, named)) => (kind, Some(named)),
         None => (target, None),
     };
-    if action != Action::SignIn && (args.with.is_some() || args.for_plugin.is_some() || !args.scopes.is_empty()) {
-        return Err(usage("--with, --for and --scope go with sign-in"));
+    let signing_in = args.with.is_some() || args.for_plugin.is_some() || !args.scopes.is_empty();
+    if action != Action::SignIn && (signing_in || args.restore || args.reset) {
+        return Err(usage("--with, --for, --scope, --restore and --reset go with sign-in"));
     }
     if action == Action::SignIn {
         let store = crate::open_store(store_path)?;
-        // Signed in again as an account kept, or one signed out that plugins still have access to.
+        // Signed in again as an account kept, or one signed out that plugins had access to.
         let known = plugins.accounts_and_accesses(&store)?.accounts;
         let again = named.map(|named| find(&known, kind, named)).transpose()?;
         let with = match (args.with, again) {
@@ -74,10 +88,17 @@ pub(super) fn run(
             (None, None) => plugins.provider(kind, None)?,
         };
         let subject = again.map(|a| a.subject.as_str());
-        let start =
-            plugins.begin_account_sign_in(kind, &with, args.for_plugin.as_deref(), subject, &args.scopes, &store)?;
+        let restoring = match (args.restore, args.reset) {
+            (true, _) => Some(Restoring::Restore),
+            (_, true) => Some(Restoring::Reset),
+            _ => None,
+        };
+        let for_plugin = args.for_plugin.as_deref();
+        let start = plugins.begin_account_sign_in(kind, &with, for_plugin, subject, &args.scopes, restoring, &store)?;
         let done = finish_sign_in(plugins, &start, args.browser, out, ctx)?;
-        return Ok(out.done(&done, |d| signed_in(plugins, d, args.for_plugin.as_deref())));
+        let code = out.done(&done, |d| signed_in(plugins, d, for_plugin));
+        super::restoring::after_sign_in(plugins, &done, &store, out)?;
+        return Ok(code);
     }
     let named =
         named.ok_or_else(|| usage(format!("name an account: {kind}:NAME (`locallibrary account` lists them)")))?;
@@ -85,19 +106,54 @@ pub(super) fn run(
     let all = store.as_ref().map(|s| plugins.accounts_and_accesses(s)).transpose()?.unwrap_or_default();
     let a = find(&all.accounts, kind, named)?.clone();
     if action == Action::Status {
-        let accesses =
-            all.accesses.into_iter().filter(|x| x.account.plugin == a.plugin && x.account.subject == a.subject);
-        let accesses = accesses.collect();
-        let one = Accounts { accounts: vec![a], accesses };
+        let is_it = |x: &AccountId| x.plugin == a.plugin && x.subject == a.subject;
+        let to_it = |of: Vec<Access>| of.into_iter().filter(|x| is_it(&x.account)).collect();
+        let (accesses, remembered) = (to_it(all.accesses), to_it(all.remembered));
+        let restore_automatically =
+            all.restore_automatically.into_iter().filter(|s| s.account.as_ref().is_none_or(is_it)).collect();
+        let one = Accounts { accounts: vec![a], accesses, remembered, restore_automatically };
         out.emit(&one, |one| list(plugins, one));
         return Ok(ExitCode::SUCCESS);
     }
     let store = store.ok_or_else(|| usage(format!("{} isn't signed in", a.name)))?;
+    if action == Action::Restore {
+        let account = AccountId { plugin: a.plugin.clone(), subject: a.subject.clone() };
+        let back = plugins.restore_access(&account, None, &store)?;
+        return Ok(out.done(&back, |back| match back.is_empty() {
+            true => say!("{}", dim("No plugin had access to it to give back.")),
+            false => super::restoring::restored(plugins, back),
+        }));
+    }
     let r = plugins.sign_out_account(&a.plugin, &a.subject, &store)?;
     Ok(out.done(&r, |r| match r.revoked || !r.account.signed_in {
         true => ok(format!("Signed out of {}", r.account.name)),
         false => ok(format!("Signed out of {} on this computer", r.account.name)),
     }))
+}
+
+/// `account [TYPE:NAME] --restore-automatically on|off`: Automatically Restore Access for the
+/// account `target` names, or for every account without a setting of its own.
+pub(super) fn restore_automatically(
+    target: Option<&str>,
+    on: bool,
+    store_path: &Option<PathBuf>,
+    out: Output,
+) -> Result<ExitCode> {
+    let plugins = plugins::host()?;
+    let store = crate::open_store(store_path)?;
+    let named = target.map(|target| {
+        let (kind, named) = target
+            .split_once(':')
+            .ok_or_else(|| usage(format!("name an account: {target}:NAME (`locallibrary account` lists them)")))?;
+        let known = plugins.accounts_and_accesses(&store)?.accounts;
+        let a = find(&known, kind, named)?;
+        Ok::<_, anyhow::Error>((AccountId { plugin: a.plugin.clone(), subject: a.subject.clone() }, called(plugins, a)))
+    });
+    let named = named.transpose()?;
+    let setting = plugins.restore_automatically(named.as_ref().map(|(id, _)| id), on, &store)?;
+    let which = named.map_or("every account".to_string(), |(_, called)| format!("the {called}"));
+    let state = if on { "on" } else { "off" };
+    Ok(out.done(&setting, |_| ok(format!("Automatically Restore Access is {state} for {which}"))))
 }
 
 /// Finishes the sign-in `start` began: with the keys the user enters when it asks for keys (see
@@ -228,17 +284,18 @@ pub fn signing_out(at: chrono::DateTime<chrono::Utc>) -> String {
 }
 
 /// Each of `all`'s accounts: its type, name and account plugin, whether it's signed in and when
-/// it signs itself out (warning in its last days), what it was granted, and which plugins have
-/// access to it.
+/// it signs itself out (warning in its last days), what it was granted, which plugins have access
+/// to it, and which had before it was signed out.
 pub(super) fn list(plugins: &Plugins, all: &Accounts) {
+    let to = |a: &Account, of: &[Access]| -> Vec<Access> {
+        of.iter().filter(|x| x.account.plugin == a.plugin && x.account.subject == a.subject).cloned().collect()
+    };
     for a in &all.accounts {
-        let accesses: Vec<&Access> =
-            all.accesses.iter().filter(|x| x.account.plugin == a.plugin && x.account.subject == a.subject).collect();
-        show(plugins, a, &accesses);
+        show(plugins, a, &to(a, &all.accesses), &to(a, &all.remembered));
     }
 }
 
-fn show(plugins: &Plugins, a: &Account, accesses: &[&Access]) {
+fn show(plugins: &Plugins, a: &Account, accesses: &[Access], remembered: &[Access]) {
     heading(&called(plugins, a));
     let again = format!("`locallibrary account {}:{} sign-in` signs in again", a.kind, a.subject);
     let mut state = match (a.signed_in, a.refreshes) {
@@ -256,11 +313,14 @@ fn show(plugins: &Plugins, a: &Account, accesses: &[&Access]) {
     if let Some(at) = a.signs_out.filter(|_| a.due_soon()) {
         warn(format!("it {}: {again}", signing_out(at)));
     }
+    let who = |of: &[Access]| -> String {
+        let each = of.iter().map(|x| if x.default { format!("{} (default)", x.plugin) } else { x.plugin.clone() });
+        each.collect::<Vec<_>>().join(", ")
+    };
     if !accesses.is_empty() {
-        let who: Vec<String> = accesses
-            .iter()
-            .map(|x| if x.default { format!("{} (default)", x.plugin) } else { x.plugin.clone() })
-            .collect();
-        say!("  {}", dim(format!("access: {}", who.join(", "))));
+        say!("  {}", dim(format!("access: {}", who(accesses))));
+    }
+    if !remembered.is_empty() {
+        say!("  {}", dim(format!("access to restore: {}", who(remembered))));
     }
 }

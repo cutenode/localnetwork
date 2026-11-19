@@ -14,7 +14,7 @@ import { COLLECTION } from '#lib/nsid.ts';
 import type { ActForm, BasicsSection, PerformerSection, SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { memberSpacePolicy, type RepoWrite, type RootRepoClient } from '../atproto/repo-client';
-import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind } from '../atproto/spaces';
+import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind, spaceRecordUri } from '../atproto/spaces';
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
@@ -22,6 +22,9 @@ import type { Upload } from '../forms/project';
 import type { ListingWriter } from './listings';
 import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
 import { slugify } from './projects';
+import { savedChanges } from './diff';
+import { indexEvent, indexVenueApproval } from './event-index';
+import { indexParty, PARTY_KEY } from './party-index';
 import { indexVenue, VENUE_KEY } from './venue-index';
 import { actorRole } from './requests';
 import { reconcileMembers } from './space-members';
@@ -129,7 +132,20 @@ export type PageInput = {
 	swap: string;
 };
 
-const STALE_PAGE = 'The page changed since you opened it. Reload to see the latest, then save again.';
+export const STALE_PAGE = 'The page changed since you opened it. Reload to see the latest, then save again.';
+
+/** The avatar a saved page keeps: none, the one it had, or a new upload the root now holds. */
+export async function pageAvatar(
+	root: RootRepoClient,
+	avatar: PageInput['avatar'],
+	current: BasicsSection['avatar']
+): Promise<BasicsSection['avatar']> {
+	if (avatar === 'remove') return undefined;
+
+	if (avatar === 'keep') return current;
+
+	return root.uploadBlob(avatar.upload.bytes, avatar.upload.mimeType);
+}
 
 export const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined, capability: Capability) =>
 	!!person && capabilitiesIn(kind, person.capabilities).includes(capability);
@@ -270,14 +286,9 @@ export class SharedSpaces {
 
 			if (!stored || current?.subject.$type !== ACT_TYPE) throw new NotFoundError('That act does not exist');
 
-			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE);
+			if (stored.cid !== input.swap) throw new UserError(STALE_PAGE, 409);
 
-			const avatar =
-				input.avatar === 'remove'
-					? undefined
-					: input.avatar === 'keep'
-						? current.subject.basics.avatar
-						: await live.root.uploadBlob(input.avatar.upload.bytes, input.avatar.upload.mimeType);
+			const avatar = await pageAvatar(live.root, input.avatar, current.subject.basics.avatar);
 
 			const record = validateRecord(COLLECTION.performer, {
 				...current,
@@ -292,9 +303,15 @@ export class SharedSpaces {
 
 			await live.root.putSpaceRecord({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, record });
 			await this.index({ space, collection: COLLECTION.performer, rkey: PERFORMER_KEY, value: record });
-			await this.record(actor, actingAs, 'page.update', space, `Updated ${input.basics.name}'s page`, {
-				slug: current.subject.slug
-			});
+			await this.record(
+				actor,
+				actingAs,
+				'page.update',
+				space,
+				`Updated ${input.basics.name}'s page`,
+				{ slug: current.subject.slug },
+				savedChanges(current, record)
+			);
 		});
 	}
 
@@ -696,6 +713,18 @@ export class SharedSpaces {
 			case COLLECTION.venue:
 				return kind === 'venue' && rkey === VENUE_KEY && indexVenue(db, space, value);
 
+			case COLLECTION.venueApproval:
+				return kind === 'venue' && indexVenueApproval(db, space, rkey, value);
+
+			case COLLECTION.event:
+				return (
+					kind === 'party' &&
+					indexEvent(db, space, rkey, spaceRecordUri(space, this.core.rootDid, COLLECTION.event, rkey), value)
+				);
+
+			case COLLECTION.party:
+				return kind === 'party' && rkey === PARTY_KEY && indexParty(db, space, value);
+
 			default:
 				return false;
 		}
@@ -720,6 +749,12 @@ export class SharedSpaces {
 			await db.deleteFrom('performer').where('spaceUri', '=', space).execute();
 		else if (collection === COLLECTION.venue && rkey === VENUE_KEY)
 			await db.deleteFrom('venue').where('spaceUri', '=', space).execute();
+		else if (collection === COLLECTION.venueApproval)
+			await db.deleteFrom('venueApproval').where('spaceUri', '=', space).where('rkey', '=', rkey).execute();
+		else if (collection === COLLECTION.event)
+			await db.deleteFrom('event').where('spaceUri', '=', space).where('rkey', '=', rkey).execute();
+		else if (collection === COLLECTION.party && rkey === PARTY_KEY)
+			await db.deleteFrom('party').where('spaceUri', '=', space).execute();
 	}
 
 	/** Forgets a space that's gone, and takes down its listing. */
@@ -731,6 +766,9 @@ export class SharedSpaces {
 			'spaceJoinRequest',
 			'performer',
 			'venue',
+			'venueApproval',
+			'event',
+			'party',
 			'sharedSpace'
 		] as const)
 			await this.core.db.deleteFrom(table).where('spaceUri', '=', space).execute();

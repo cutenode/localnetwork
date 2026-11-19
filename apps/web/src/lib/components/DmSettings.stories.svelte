@@ -1,6 +1,8 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
+	import { submit } from '#lib/testing/submits.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ChannelView, DmAvailability } from '#lib/types.ts';
 	import DmSettings from './DmSettings.svelte';
 
@@ -16,8 +18,6 @@
 
 	/** Bluesky chat taking its time. */
 	const checking = new Promise<DmAvailability>(() => {});
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** Asks Bluesky chat again: the page reloads its data, which Storybook's SvelteKit stand-in announces on the window. */
 	const tryAgain = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -46,3 +46,11 @@
 <Story name="Not set up here" args={{ available: false, channel: null, availability: null, root }} />
 
 <Story name="Phone, not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root }} globals={phone} />
+
+<Story
+	name="Turning on"
+	args={{ available: true, channel: null, availability: answer('ok'), root }}
+	play={async ({ canvasElement }) => {
+		await submit(canvasElement, 'Turn on DMs');
+	}}
+/>

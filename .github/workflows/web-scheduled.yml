@@ -2,10 +2,10 @@ name: Web scheduled
 
 # The end-to-end tests in every Playwright project (playwright.config.ts): Chromium, Firefox and
 # WebKit on the desktop, and a Pixel 7 and an iPhone 14. Then Lighthouse on every page in
-# lighthouse/pages.json, on a phone and a desktop, held against each page's history. Weekly and on
-# demand (Actions > Web scheduled > Run workflow, on any branch), so pull requests only wait for
-# web-ci.yml's Chromium run and its Lighthouse run on three pages. A week that changed none of what
-# they test skips them (see the changes job).
+# lighthouse/pages.json, on a phone and a desktop, held against each page's history, and the fuzz
+# targets in apps/web/fuzz/. Weekly and on demand (Actions > Web scheduled > Run workflow, on any
+# branch), so pull requests only wait for web-ci.yml's Chromium run and its Lighthouse run on three
+# pages. A week that changed none of what they test skips them (see the changes job).
 on:
   schedule:
     - cron: "29 4 * * 1"
@@ -22,11 +22,13 @@ concurrency:
 defaults:
   run:
     working-directory: apps/web
+    # Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+    shell: bash
 
 # Pinned the same way as web-ci.yml.
 jobs:
-  # Whether anything the end-to-end tests and Lighthouse read changed since the last weekly or hand-started run on
-  # main that passed. A run that failed doesn't count, so they run again each week until one
+  # Whether anything the end-to-end tests, Lighthouse and the fuzz targets read changed since the last weekly or
+  # hand-started run on main that passed. A run that failed doesn't count, so they run again each week until one
   # passes. Started by hand, everything runs, as it does when none of the workflow's last 100 runs
   # passed and there's nothing to compare with. The paths are what the e2e tests run: the app, the
   # tools' READMEs its home page's cards come from, and the workspace's dependencies.
@@ -211,6 +213,43 @@ jobs:
           path: apps/web/lighthouse-history.jsonl
           retention-days: 90
 
+  # The Jazzer.js targets in apps/web/fuzz/ (the byte parsers: mix reports, uploaded images, Range headers), five
+  # minutes each, in turn (scripts/fuzz.ts). The corpus a run grows is cached for the next one; a crash fails the job
+  # and uploads its input.
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # As the cargo-fuzz job's corpus (locallibrary-scheduled.yml): each run saves under its own key and the next
+      # restores the newest, saved even when a target crashed.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/fuzz/corpus
+          key: web-fuzz-corpus-${{ github.run_id }}
+          restore-keys: web-fuzz-corpus-
+      - run: pnpm fuzz --seconds 300
+      - if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/fuzz/corpus
+          key: web-fuzz-corpus-${{ github.run_id }}
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-fuzz-artifacts
+          path: apps/web/fuzz/artifacts
+
   # Known vulnerabilities in the deployed image's OS packages and node_modules (Grype), every week
   # whatever changed: advisories come out without a commit here, and Dependabot only bumps the base
   # image's digest. Only ones with a fix fail it, since a fix is something a pull request can take.
@@ -255,7 +294,7 @@ jobs:
   # that passes closes it (scheduled-issue.yml). A skipped run counts as passed, and the image scan
   # runs every week, so a week the suites skip can still close or open the issue.
   report:
-    needs: [changes, e2e, lighthouse, lighthouse-history, image-scan]
+    needs: [changes, e2e, lighthouse, lighthouse-history, fuzz, image-scan]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
@@ -267,4 +306,4 @@ jobs:
         The Playwright report, with each failed test's trace and screenshots, is the run's
         playwright-report artifact. Lighthouse's regressions and bad results are in the run's
         summary, and each page's reports in its lighthouse-mobile and lighthouse-desktop artifacts.
-        The image scan's log lists each vulnerability with its package and the version that fixes it.
+        A fuzz crash's input is in web-fuzz-artifacts. The image scan's log lists each vulnerability with its package and the version that fixes it.

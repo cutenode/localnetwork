@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import type { VenueView } from '#lib/server/services/venues.ts';
-import { createTestServices } from '#lib/server/testing/core.ts';
+import { CALENDAR_EVENT } from '#lib/nsid.ts';
+import { createTestServices, ROOT } from '#lib/server/testing/core.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import type { Flags } from '#lib/types.ts';
 import { actions, load } from './+page.server.ts';
@@ -36,7 +37,11 @@ beforeEach(async () => {
 	actKey = keyOf(
 		await t.sharedSpaces.createAct(await t.viewer(DJ), { slug: 'crew', form: 'duo', basics: { name: 'Crew' } })
 	);
-	partySpace = await t.sharedSpaces.create(await t.viewer(DJ), 'party');
+	partySpace = await t.parties.start(await t.viewer(DJ), {
+		basics: { name: 'Night Shift' },
+		avatar: 'keep',
+		publish: true
+	});
 	partyKey = keyOf(partySpace);
 	await t.accounts.recordLogin({
 		did: DJ,
@@ -102,7 +107,7 @@ it("shows a venue's owners its approval mode and blocks, by name", async () => {
 	expect((await opened(OWNER)).blocks.map(({ kind, name }) => [kind, name])).toEqual([
 		['profile', '@dj.test'],
 		['act', 'Crew'],
-		['party', partyKey]
+		['party', 'Night Shift']
 	]);
 });
 
@@ -168,4 +173,41 @@ it('names a block whose act or party is gone', async () => {
 	await t.sharedSpaces.forget(partySpace);
 
 	expect((await opened(OWNER)).blocks.map(({ name }) => name)).toEqual(['Someone no longer here']);
+});
+
+it("brings its events' calendar copies in line as its approval mode and blocks change", async () => {
+	const admin = await t.viewer(ADMIN);
+	venue = await t.venues.add(admin, {
+		name: 'Halle',
+		address: { country: 'DE', locality: 'Berlin' },
+		geo: { latitude: '52.51', longitude: '13.42' }
+	});
+	await t.sharedSpaces.addPerson(admin, venue.space, { did: OWNER, role: 'owner' });
+
+	const uri = await t.events.create(await t.viewer(DJ), partySpace, {
+		name: 'Winter Opening',
+		date: '2099-12-05',
+		start: '23:00',
+		venue: venue.space,
+		audience: 'public',
+		publish: true
+	});
+
+	const copied = () => t.net.records.has(`${ROOT}|${CALENDAR_EVENT}|${uri.split('/').at(-1)}`);
+	expect(copied()).toBe(true);
+
+	// Waiting for the venue isn't listed under Venue approves.
+	await post('approval', OWNER, { approval: 'approval' });
+	expect(copied()).toBe(false);
+	await post('approval', OWNER, { approval: 'open' });
+	expect(copied()).toBe(true);
+
+	// Confirmed under Venue approves, until a block of its party means the venue never confirms it.
+	await t.venues.setApproval(admin, venue.space, 'approval');
+	await t.events.approve(admin, uri);
+	await post('block', OWNER, { kind: 'party', name: partySpace });
+	expect(copied()).toBe(false);
+	const [block] = await t.venues.blocks(venue.space);
+	await post('unblock', OWNER, { rkey: block.rkey });
+	expect(copied()).toBe(true);
 });
