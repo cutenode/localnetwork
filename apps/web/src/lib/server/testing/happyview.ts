@@ -399,6 +399,11 @@ class Engine {
 	private readonly modules: Record<string, Record<string, number>>;
 	/** Script bodies that loaded the way HappyView checks one on upload. */
 	private readonly uploadable = new Set<string>();
+	/**
+	 * Each script body as UTF-8 in Lua's memory, copied in on its first run: copying a bundled script (all of its
+	 * libraries included) on every run took about a third of a parity test's time under coverage.
+	 */
+	private readonly buffers = new Map<string, { pointer: number; size: number }>();
 
 	constructor(private readonly lua: LuaWasm) {
 		this.hook = lua.module.addFunction((L: LuaState) => {
@@ -618,10 +623,17 @@ class Engine {
 	private load(L: LuaState, name: string, body: string): void {
 		const { lua } = this;
 		const run = this.current();
+
+		const buffer = this.buffers.get(body) ?? {
+			pointer: lua.module.stringToNewUTF8(body),
+			size: lua.module.lengthBytesUTF8(body)
+		};
+
+		this.buffers.set(body, buffer);
 		lua.lua_sethook(L, this.hook, LuaEventMasks.Count, HOOK_INTERVAL);
 
 		const loaded =
-			lua.luaL_loadbufferx(L, body, lua.module.lengthBytesUTF8(body), `=${name}`, null) === LuaReturn.Ok
+			lua.luaL_loadbufferx(L, buffer.pointer, buffer.size, `=${name}`, null) === LuaReturn.Ok
 				? this.call(L, 0, 0)
 				: lua.lua_tolstring(L, -1, null);
 
@@ -971,6 +983,12 @@ let postgres: Promise<PGlite> | undefined;
 
 let schemas = 0;
 
+/**
+ * The removed globals each script reads, by trigger and body. Every FakeHappyView checks its whole bundle, nearly
+ * always the same one, and parsing it again took about a third of a directory test's time.
+ */
+const removedByScript = new Map<string, string[]>();
+
 type Param = LexXrpcParameters['properties'][string];
 
 /** A param's text as the type the lexicon gives it, the way HappyView 3's coerce_param reads it. */
@@ -1035,33 +1053,46 @@ function readParams(query: string, nsid: string, schema: LexXrpcParameters | und
 	return (lexicons.assertValidXrpcParams(nsid, params) ?? params) as Record<string, JsonValue>;
 }
 
+/** The schema the shared Postgres's search path names, and the statements' turns on its one connection. */
+let searchPath: string | undefined;
+
+let turns: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `use` once every statement before it has, so no other instance's statement comes between it and the search
+ * path it set.
+ */
+function takeTurn<T>(use: (pg: PGlite) => Promise<T>): Promise<T> {
+	const next = turns.then(async () => use(await (postgres ??= startPostgres())));
+	turns = next.catch(() => undefined);
+
+	return next;
+}
+
 /**
  * A schema of its own in the shared Postgres, made on its first query since most tests never make one, which every
- * statement runs in. A transaction per statement keeps another
- * instance's statements out of its search path.
+ * statement runs in. The search path changes only when the instance asking does, since wrapping each statement in a
+ * transaction to set it took twice as long as the statement.
  */
 function database(): Database {
 	const schema = `fake_${(schemas += 1)}`;
-	let ready: Promise<PGlite> | undefined;
+	let ready: Promise<void> | undefined;
 
-	const start = async () => {
-		const pg = await (postgres ??= startPostgres());
-
-		await pg.transaction(async (tx) => {
-			await tx.exec(`CREATE SCHEMA ${schema}; SET LOCAL search_path TO ${schema}; ${SCHEMA}`);
+	const start = () =>
+		takeTurn(async (pg) => {
+			await pg.exec(`CREATE SCHEMA ${schema}; SET search_path TO ${schema}; ${SCHEMA}`);
+			searchPath = schema;
 		});
-
-		return pg;
-	};
 
 	return {
 		async query(statement, params) {
-			const pg = await (ready ??= start());
+			await (ready ??= start());
 
-			return pg.transaction(async (tx) => {
-				await tx.exec(`SET LOCAL search_path TO ${schema}`);
+			return takeTurn(async (pg) => {
+				if (searchPath !== schema) await pg.exec(`SET search_path TO ${schema}`);
+				searchPath = schema;
 
-				return tx.query<(string | null)[]>(statement, params, { rowMode: 'array', parsers: AS_TEXT });
+				return pg.query<(string | null)[]>(statement, params, { rowMode: 'array', parsers: AS_TEXT });
 			});
 		}
 	};
@@ -1112,7 +1143,9 @@ export class FakeHappyView {
 	 */
 	constructor(rootDid: string, bundle: HappyViewBundle = happyViewBundle(rootDid)) {
 		for (const { id, body } of bundle.scripts) {
-			const removed = removedGlobals(id, body);
+			const key = `${id}\n${body}`;
+			const removed = removedByScript.get(key) ?? removedGlobals(id, body);
+			removedByScript.set(key, removed);
 
 			if (removed.length) throw new Error(`${id}: script references removed globals: ${removed.join(', ')}`);
 		}
