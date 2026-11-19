@@ -88,6 +88,12 @@ fn eof_is_fine(e: io::Error) -> io::Result<Option<&'static str>> {
     if e.kind() == ErrorKind::UnexpectedEof { Ok(None) } else { Err(e) }
 }
 
+/// What the atoms are read from: the file, buffered, or in the tests a reader that fails partway.
+/// Taken as `dyn`, not as a generic, so the tests' reader runs the same compiled walk the file does.
+trait Source: Read + Seek {}
+
+impl<T: Read + Seek> Source for T {}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Level {
     /// The file's own atoms: one may run past the end of a file cut short (its `mdat`), for the
@@ -100,7 +106,7 @@ enum Level {
 }
 
 /// What's wrong with the atoms from `at` to `end` in a file of `len` bytes, if anything.
-fn walk<R: Read + Seek>(r: &mut R, mut at: u64, end: u64, len: u64, level: Level) -> io::Result<Option<&'static str>> {
+fn walk(r: &mut dyn Source, mut at: u64, end: u64, len: u64, level: Level) -> io::Result<Option<&'static str>> {
     let depth = match level {
         Level::Top => 0,
         Level::In(n) | Level::Tags(n) => n,
@@ -149,13 +155,7 @@ fn walk<R: Read + Seek>(r: &mut R, mut at: u64, end: u64, len: u64, level: Level
 /// bytes, if it's one symphonia reads a table or sample sizes from: a count of entries the atom
 /// doesn't hold, or a sample larger than the file. Sizes come from `stsz` (one for every sample,
 /// or each sample's), a fragmented MP4's defaults (`trex`, `tfhd`) and its runs (`trun`).
-fn table<R: Read + Seek>(
-    r: &mut R,
-    kind: &[u8; 4],
-    body: u64,
-    body_end: u64,
-    len: u64,
-) -> io::Result<Option<&'static str>> {
+fn table(r: &mut dyn Source, kind: &[u8; 4], body: u64, body_end: u64, len: u64) -> io::Result<Option<&'static str>> {
     if !matches!(kind, b"trex" | b"tfhd" | b"trun") && !TABLES.iter().any(|(t, _)| *t == kind) {
         return Ok(None);
     }
@@ -211,13 +211,13 @@ fn table<R: Read + Seek>(
     Ok(None)
 }
 
-fn read_u32(r: &mut impl Read) -> io::Result<u32> {
+fn read_u32(r: &mut (impl Read + ?Sized)) -> io::Result<u32> {
     let mut b = [0; 4];
     r.read_exact(&mut b)?;
     Ok(u32::from_be_bytes(b))
 }
 
-fn read_u64(r: &mut impl Read) -> io::Result<u64> {
+fn read_u64(r: &mut (impl Read + ?Sized)) -> io::Result<u64> {
     let mut b = [0; 8];
     r.read_exact(&mut b)?;
     Ok(u64::from_be_bytes(b))

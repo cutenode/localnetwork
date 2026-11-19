@@ -22,9 +22,9 @@
 			"regions": 97
 		},
 		"crates/loclib-audio": {
-			"lines": 98.7,
-			"functions": 97.9,
-			"regions": 97.3
+			"lines": 98.8,
+			"functions": 98,
+			"regions": 97.8
 		},
 		"crates/loclib-capacity": {
 			"lines": 96.4,

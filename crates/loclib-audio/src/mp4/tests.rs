@@ -99,6 +99,29 @@ fn samples_larger_than_the_file_are_refused(tc: TestCase) {
     let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
     let tfhd_fields = tc.draw(gs::integers::<u32>().max_value(0xf));
     let trun_fields = tc.draw(gs::integers::<u32>().max_value(0xfff));
+    let file = sized_m4a(place, size, tfhd_fields, trun_fields);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, &file).unwrap();
+
+    let too_big = u64::from(size) > file.len() as u64;
+    match vet_container(&path) {
+        Ok(()) => assert!(!too_big, "a sample of {size} bytes in {} passed", SIZES[place]),
+        Err(Error::Parse { message, .. }) => {
+            assert!(too_big, "{size} in {}: {message}", SIZES[place]);
+            assert_eq!(message, TOO_BIG);
+            for read in read_all(&path) {
+                assert_eq!(read.as_deref(), Some(TOO_BIG));
+            }
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// An M4A with every table and fragment atom a sample size is read from, `place` (an index into
+/// [`SIZES`]) giving a sample `size` bytes; each other place has none. `tfhd_fields` and
+/// `trun_fields` are the optional fields of `tfhd` and `trun` before the size, which move it.
+fn sized_m4a(place: usize, size: u32, tfhd_fields: u32, trun_fields: u32) -> Vec<u8> {
     let size_in = |at: usize| if place == at { size } else { 0 };
     let stsz = match place {
         0 => be(&[size, 0]),
@@ -143,22 +166,56 @@ fn samples_larger_than_the_file_are_refused(tc: TestCase) {
     ]
     .concat();
     file.extend(mp4_atom(b"moof", &mp4_atom(b"traf", &[mp4_atom(b"tfhd", &tfhd), mp4_atom(b"trun", &trun)].concat())));
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("x.m4a");
-    std::fs::write(&path, &file).unwrap();
+    file
+}
 
-    let too_big = u64::from(size) > file.len() as u64;
-    match vet_container(&path) {
-        Ok(()) => assert!(!too_big, "a sample of {size} bytes in {} passed", SIZES[place]),
-        Err(Error::Parse { message, .. }) => {
-            assert!(too_big, "{size} in {}: {message}", SIZES[place]);
-            assert_eq!(message, TOO_BIG);
-            for read in read_all(&path) {
-                assert_eq!(read.as_deref(), Some(TOO_BIG));
-            }
-        }
-        Err(e) => panic!("{e}"),
+/// A file read through `Cursor` whose `fails_at`th read or seek (counting from 0) fails, once: an
+/// error swallowed anywhere would let the walk go on as if nothing happened.
+struct Failing {
+    file: io::Cursor<Vec<u8>>,
+    fails_at: usize,
+    calls: usize,
+}
+
+impl Failing {
+    fn call(&mut self) -> io::Result<()> {
+        let this = self.calls;
+        self.calls += 1;
+        if this == self.fails_at { Err(io::Error::other("unreadable")) } else { Ok(()) }
     }
+}
+
+impl Read for Failing {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.call()?;
+        self.file.read(buf)
+    }
+}
+
+impl Seek for Failing {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        self.call()?;
+        self.file.seek(to)
+    }
+}
+
+/// A read or seek failing anywhere in an M4A's atoms is that error: the file is never passed, or
+/// refused for what the reads before it found.
+#[hegel::test(test_cases = 200)]
+fn a_read_failing_partway_through_the_tables_is_its_error(tc: TestCase) {
+    let place = tc.draw(gs::integers::<usize>().max_value(SIZES.len() - 1));
+    let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
+    let tfhd_fields = tc.draw(gs::integers::<u32>().max_value(0xf));
+    let trun_fields = tc.draw(gs::integers::<u32>().max_value(0xfff));
+    let file = sized_m4a(place, size, tfhd_fields, trun_fields);
+    let len = file.len() as u64;
+    // The whole walk's verdict, and how many reads and seeks it takes: one of them fails.
+    let mut counting = Failing { file: io::Cursor::new(file.clone()), fails_at: usize::MAX, calls: 0 };
+    assert!(walk(&mut counting, 0, len, len, Level::Top).is_ok());
+    let fails_at = tc.draw(gs::integers::<usize>().max_value(counting.calls - 1));
+    let mut failing = Failing { file: io::Cursor::new(file), fails_at, calls: 0 };
+    let read = walk(&mut failing, 0, len, len, Level::Top);
+    assert_eq!(read.unwrap_err().to_string(), "unreadable", "call {fails_at} of {}", counting.calls);
 }
 
 /// A `trun` claiming more samples than it holds is refused: symphonia would read the rest of
