@@ -3,7 +3,7 @@
 	import { ACCOUNT_PAGES } from '#lib/account.ts';
 
 	/**
-	 * The way around the Account area on `path`. A phone gets one step back, since the row of pages wouldn't fit; wider,
+	 * The way around Account on `path`. A phone gets one step back, since the row of pages wouldn't fit; wider,
 	 * they all show. The landing page is the list of these pages, so it needs neither.
 	 */
 	let { path }: { path: string } = $props();

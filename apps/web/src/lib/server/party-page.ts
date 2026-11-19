@@ -29,23 +29,22 @@ export async function findParty(locals: App.Locals, key: string) {
 }
 
 /**
- * The party's events still to come or still going, soonest first, with drafts that have no date yet last. Visitors
- * get the published public ones; its people and staff (`inside`) get its drafts and private ones too.
+ * The party's events whose night isn't over yet, soonest first, with drafts that have no date yet last. Visitors get
+ * the published public ones; its people and staff (`inside`) get its drafts and private ones too, and the ones never
+ * confirmed, which stay here for them.
  */
 export async function upcomingEvents(
 	app: Pick<App.Locals['app'], 'events'>,
 	party: Pick<PartyView, 'space' | 'skey'>,
-	inside: boolean,
-	now = Date.now()
+	inside: boolean
 ): Promise<EventSummary[]> {
 	const events = await app.events.ofParty(party.space);
 
-	return events.flatMap(({ rkey, record, venue }) => {
+	return events.flatMap(({ rkey, record, venue, over, neverConfirmed }) => {
 		const isPrivate = record.audience !== 'public';
-		const isOver = !!record.startsAt && Date.parse(record.endsAt ?? record.startsAt) < now;
-		const isShown = inside || (!!record.publishedAt && !isPrivate);
+		const isShown = inside ? !over || neverConfirmed : !over && !!record.publishedAt && !isPrivate;
 
-		if (isOver || !isShown) return [];
+		if (!isShown) return [];
 
 		return [
 			{
@@ -55,7 +54,8 @@ export async function upcomingEvents(
 				status: record.status,
 				venue: venue?.name ?? null,
 				draft: !record.publishedAt,
-				private: isPrivate
+				private: isPrivate,
+				neverConfirmed
 			}
 		];
 	});

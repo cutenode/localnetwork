@@ -19,8 +19,8 @@
 	/**
 	 * A party's page, built in place: its name, picture, bio, area, links and the people who run it, and in edit mode the
 	 * same layout with each part as its field. A party being started has no `party` yet and draws every field empty.
-	 * Its upcoming events are listed, its drafts and private ones marked for its people, and in edit mode those who can
-	 * add one get a slot that goes to where it's made (`newEventHref`).
+	 * Its upcoming events are listed, its drafts, private ones and ones never confirmed marked for its people, and in edit
+	 * mode those who can add one get a slot that goes to where it's made (`newEventHref`).
 	 */
 	let {
 		party = null,
@@ -57,6 +57,7 @@
 						<a class={['entity-link text-emphasis font-semibold break-words', isCancelled && 'text-fg-muted line-through']} href={item.href}>{item.name}</a>
 						{#if item.draft}<span class="pill bg-well text-fg-muted">Draft</span>{/if}
 						{#if item.private}<span class="pill bg-well text-fg-muted">Private</span>{/if}
+						{#if item.neverConfirmed}<span class="pill bg-well text-fg-muted">Never confirmed</span>{/if}
 						{#if isCancelled}<span class="pill bg-raised text-critical">Cancelled</span>{:else if item.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
 					</p>
 					{#if item.startsAt || item.venue}
@@ -74,7 +75,7 @@
 
 <EditMode {...edit} {name} {labels} missing={party ? [] : ['a name']}>
 	{#snippet children(view)}
-		{@const shownEvents = view.visitor ? events.filter((item) => !item.draft && !item.private) : events}
+		{@const shownEvents = view.visitor ? events.filter((item) => !item.draft && !item.private && !item.neverConfirmed) : events}
 		{#if edit.status === 'draft' && !view.visitor}<div class="container-page pt-6"><p class="m-0 notice notice-info">This is a draft. Only its people can see it.</p></div>{/if}
 		<div class="border-b border-line">
 			<div class="container-page flex flex-col gap-5 py-10 sm:flex-row sm:items-end sm:py-14">

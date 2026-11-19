@@ -1,19 +1,31 @@
 import { timingSafeEqual } from 'node:crypto';
 import { TID } from '@atproto/common-web';
 import type { Selectable } from 'kysely';
-import { toE6 } from '#lib/geo.ts';
-import { COLLECTION } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
+import { eventPagePath, spacePagePath } from '#lib/space-paths.ts';
 import type { EventCredit, EventRecord, Location, Viewer } from '#lib/types.ts';
 import { isWebUrl } from '#lib/web-url.ts';
 import { isValidRecord, validateRecord } from '../atproto/lexicons';
+import { recordCid } from '../atproto/repo-client';
 import { parseSpaceRecordUri, parseSpaceUri, sharedSpace, sharedSpaceKind, spaceRecordUri } from '../atproto/spaces';
 import { newToken } from '../auth/session';
 import { parsePerformerUri } from '../performer-uri';
 import { type Core, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { EventTable } from '../db/schema';
-import { atVenue, isTimeZone, nextDay, venueEnd, venueTime, zoneOf } from '../venue-time';
+import {
+	atVenue,
+	isTimeZone,
+	nextDay,
+	nightEnd,
+	nightsSince,
+	venueEnd,
+	venuePlace,
+	venueTime,
+	zoneOf
+} from '../venue-time';
+import { ADDRESS, type CalendarEvent, calendarEvent, GEO } from './calendar-event';
 import { savedChanges } from './diff';
 import type { PartyService } from './parties';
 import type { PerformerService } from './performer-registry';
@@ -71,10 +83,17 @@ export type EventView = {
 	venue: VenueView | null;
 	approved: boolean;
 	/**
-	 * How the venue shows it: listed or not, and Confirmed or waiting for the venue. A draft or a private event is never
-	 * listed.
+	 * How the venue shows it: listed or not, and Confirmed or waiting for the venue. A draft, a private event or one that
+	 * was never confirmed is never listed.
 	 */
 	standing: EventStanding;
+	/** Whether its night is over, as of when it was read: 6:00 the next morning on the venue's clock (nightEnd). */
+	over: boolean;
+	/**
+	 * Published and still waiting for the venue when its night ended. It leaves listings, and only its party's people
+	 * and staff can open it.
+	 */
+	neverConfirmed: boolean;
 };
 
 /** What an event's form fills in, which every save rebuilds. */
@@ -99,8 +118,7 @@ export class ZoneChangeError extends UserError {
 }
 
 /** The venue's time zone, from its coordinates, or null when it has none yet. */
-export const venueZone = ({ geo }: VenueView) =>
-	geo ? zoneOf({ latE6: toE6(Number(geo.latitude)), lngE6: toE6(Number(geo.longitude)) }) : null;
+export const venueZone = ({ geo }: VenueView) => (geo ? zoneOf(venuePlace(geo)) : null);
 
 /** A location's time zone, or null when it has no coordinates (typed by hand, not picked from the city search). */
 const locationZone = (location: Location | undefined) =>
@@ -145,6 +163,56 @@ const moments = ({ startsAt, endsAt, lineup }: Times) =>
 
 const isPrivate = (record: Pick<EventRecord, 'audience'>) => record.audience !== 'public';
 
+/**
+ * Events by when they start, as instants, since stored starts carry their venue's offset and so don't sort as text,
+ * then by URI, compared as code units the way a page's cursor compares them (upcomingListings).
+ */
+const soonestFirst = (events: EventView[]) =>
+	events.toSorted(
+		(a, b) =>
+			Date.parse(a.record.startsAt ?? '') - Date.parse(b.record.startsAt ?? '') ||
+			Number(a.uri > b.uri) - Number(a.uri < b.uri)
+	);
+
+/** Whether a save of the event could change its calendar copy: only a published public one is ever listed. */
+const isOnCalendar = (record: EventRecord) => !!record.publishedAt && !isPrivate(record);
+
+/**
+ * The public copy of a listed event (its standing's `listed`: published, public, not never confirmed, and under Venue
+ * approves only once confirmed), a `community.lexicon.calendar.event` the root keeps in its own repo under the
+ * event's key, so other calendar apps can show it and guests' RSVPs have a record to answer: its name, what it's about,
+ * its times with the venue's offset, its status, the venue's address, coordinates and page, and its ticket link and
+ * page here. Null for any other event, which has none: a private one since anyone can read it, and one the venue
+ * doesn't list since the copy would list it anyway.
+ */
+export function calendarCopy(event: EventView, publicUrl: string): CalendarEvent | null {
+	const { record, venue } = event;
+
+	// A listed event always has a start and a venue, which publishing checks (EventService.fields).
+	if (!event.standing.listed || !venue || !record.startsAt || !record.publishedAt) return null;
+	// SAFETY: indexEvent only takes events from a party space under the root.
+	const party = parseSpaceUri(event.space)!;
+	const { name } = venue;
+
+	return calendarEvent({
+		name: record.name,
+		description: record.description,
+		startsAt: record.startsAt,
+		endsAt: record.endsAt,
+		status: record.status ?? EVENT_STATUS.scheduled,
+		locations: [
+			{ ...venue.address, $type: ADDRESS, name },
+			...(venue.geo ? [{ ...venue.geo, $type: GEO, name }] : []),
+			{ $type: `${CALENDAR_EVENT}#uri`, uri: `${publicUrl}${spacePagePath('venue', venue.skey, name)}`, name }
+		],
+		uris: [
+			...(record.tickets ? [{ uri: record.tickets, name: 'Tickets' }] : []),
+			{ uri: `${publicUrl}${eventPagePath(party.skey, event.rkey, record.name)}`, name: 'Local Network' }
+		],
+		createdAt: record.publishedAt
+	});
+}
+
 /** Whether `token` is the one a private event's link carries, compared in constant time. */
 function sameToken(stored: string | undefined, token: string | null | undefined): boolean {
 	if (!stored || !token) return false;
@@ -158,7 +226,8 @@ function sameToken(stored: string | undefined, token: string | null | undefined)
  * and cancel them; people with venue.approve at the venue approve them, as a record in the venue's own space. An event
  * starts as a draft unless it's published as it's created, and a draft is only its party's people's and staff's to
  * see. How the venue shows a published event follows its rules (VenueRules): its mode, its approval, and whether it
- * blocks the party or a performer.
+ * blocks the party or a performer. Its calendar copy (calendarCopy) follows: each save and approval keeps it in step,
+ * and reconcileCalendarCopies catches what changes without one.
  */
 export class EventService {
 	constructor(
@@ -168,12 +237,15 @@ export class EventService {
 		private readonly rules: VenueRules,
 		private readonly performers: Pick<PerformerService, 'byRef'>,
 		private readonly parties: Pick<PartyService, 'bySpace'>,
-		private readonly profiles: Pick<ProfileService, 'get'>
+		private readonly profiles: Pick<ProfileService, 'get'>,
+		/** The site's address, which the calendar copy links the event's and venue's pages by. */
+		private readonly publicUrl: string
 	) {}
 
 	/** Creates an event in the party's space, and returns its URI. Needs events.manage. A private one gets a link token. */
 	async create(actor: Viewer, party: string, input: EventInput): Promise<string> {
 		let uri = '';
+		let onCalendar = false;
 
 		await this.sharedSpaces.change(party, async (live) => {
 			if (live.kind !== 'party') throw new NotFoundError('That party does not exist');
@@ -199,8 +271,10 @@ export class EventService {
 			const summary = `Created ${fields.name}${input.publish ? '' : ' as a draft'}`;
 
 			await this.sharedSpaces.record(actor, actingAs, 'event.create', party, summary, { event: uri });
+			onCalendar = isOnCalendar(record);
 		});
 
+		if (onCalendar) await this.syncCopy(uri);
 		this.core.logger.info('created an event', { uri, published: input.publish });
 
 		return uri;
@@ -284,6 +358,9 @@ export class EventService {
 				event: uri
 			});
 		});
+
+		// Under Venue approves, confirming it lists it.
+		await this.syncCopy(uri);
 	}
 
 	/** Any event, drafts and private ones too, for its party's people and staff. */
@@ -295,12 +372,13 @@ export class EventService {
 
 	/**
 	 * The event as a visitor opens it from a link, signed in or not: a published public one for anyone, a published
-	 * private one only with its link's token (ADR 0015). Anything else is as if it weren't there.
+	 * private one only with its link's token (ADR 0015). Anything else, or one never confirmed, is as if it weren't
+	 * there.
 	 */
 	async open(uri: string, token: string | null): Promise<EventView | null> {
 		const event = await this.get(uri);
 
-		if (!event?.record.publishedAt) return null;
+		if (!event?.record.publishedAt || event.neverConfirmed) return null;
 
 		if (isPrivate(event.record) && !sameToken(event.record.linkToken, token)) return null;
 
@@ -321,8 +399,8 @@ export class EventService {
 	}
 
 	/**
-	 * The upcoming published events naming the venue that are waiting for the venue, soonest first, for the people who
-	 * approve them.
+	 * The published events naming the venue that are waiting for the venue and whose night isn't over, soonest first,
+	 * for the people who approve them.
 	 */
 	async waiting(venue: string): Promise<EventView[]> {
 		const rows = await this.core.db
@@ -331,16 +409,33 @@ export class EventService {
 			.where('venueSpace', '=', venue)
 			.where('publishedAt', 'is not', null)
 			.where('status', '!=', EVENT_STATUS.cancelled)
-			.where('startsAt', '>=', nowIso())
+			.where('startsAt', '>=', nightsSince(Date.now()))
 			.where((eb) =>
 				eb.not(
 					eb.exists(eb.selectFrom('venueApproval').select('rkey').whereRef('venueApproval.eventUri', '=', 'event.uri'))
 				)
 			)
-			.orderBy('startsAt')
 			.execute();
 
-		return Promise.all(rows.map((row) => this.toView(row)));
+		return soonestFirst(await Promise.all(rows.map((row) => this.toView(row)))).filter((event) => !event.over);
+	}
+
+	/**
+	 * The events listed now, at `venue` or anywhere, soonest first: published, public, listed under their venue's rules,
+	 * cancelled ones too, until their night is over. Waiting for the venue or Confirmed is in each one's standing.
+	 */
+	async listed(venue?: string): Promise<EventView[]> {
+		let query = this.core.db
+			.selectFrom('event')
+			.selectAll()
+			.where('publishedAt', 'is not', null)
+			.where('audience', '=', 'public')
+			.where('startsAt', '>=', nightsSince(Date.now()));
+
+		if (venue) query = query.where('venueSpace', '=', venue);
+		const views = await Promise.all((await query.execute()).map((row) => this.toView(row)));
+
+		return soonestFirst(views).filter((event) => event.standing.listed && !event.over);
 	}
 
 	/**
@@ -358,6 +453,7 @@ export class EventService {
 		const party = ref && sharedSpaceKind(ref.type) === 'party' ? sharedSpace(ref.authority, 'party', ref.skey) : null;
 
 		if (!ref || !party || ref.collection !== COLLECTION.event) throw new NotFoundError('That event does not exist');
+		let onCalendar = false;
 
 		await this.sharedSpaces.change(party, async (live) => {
 			const actingAs = this.sharedSpaces.authorize(actor, live, 'events.manage');
@@ -380,7 +476,64 @@ export class EventService {
 			await live.root.putSpaceRecord({ space: party, collection: COLLECTION.event, rkey: ref.rkey, record: value });
 			await this.sharedSpaces.index({ space: party, collection: COLLECTION.event, rkey: ref.rkey, value });
 			await this.sharedSpaces.record(actor, actingAs, action, party, summary, { event: uri }, changes);
+			onCalendar = isOnCalendar(stored.value) || isOnCalendar(value);
 		});
+
+		if (onCalendar) await this.syncCopy(uri);
+	}
+
+	/**
+	 * Brings the calendar copy of every published event, or of each one at `venue`, in line with how it's listed now, and
+	 * returns how many it wrote or deleted. Only where the root's repo differs is anything written, so running it again
+	 * changes nothing. It catches what changes listing without a save of the event's own: its night ending while it
+	 * waited for the venue, and the venue's mode or blocks. It runs at startup and every hour, and after a venue's
+	 * settings change.
+	 */
+	async reconcileCalendarCopies(venue?: string): Promise<number> {
+		const root = await this.core.root();
+		// The root's own repo: each copy is checked against what the root wrote, which a directory that's behind can't say.
+		// ast-grep-ignore: no-direct-pds-read
+		const stored = new Map((await root.listRecords(CALENDAR_EVENT)).map(({ uri, cid }) => [uri, cid]));
+		let query = this.core.db.selectFrom('event').selectAll().where('publishedAt', 'is not', null);
+
+		if (venue) query = query.where('venueSpace', '=', venue);
+		let changed = 0;
+
+		for (const row of await query.execute()) {
+			const event = await this.toView(row);
+
+			if (await this.keepCopy(event, stored.get(`at://${root.did}/${CALENDAR_EVENT}/${event.rkey}`) ?? null)) changed++;
+		}
+
+		if (changed) this.core.logger.info('brought calendar copies in line with their listing', { venue, changed });
+
+		return changed;
+	}
+
+	/** Keeps the event's calendar copy in step after a change to it. */
+	private async syncCopy(uri: string): Promise<void> {
+		// SAFETY: the change before this indexed the event.
+		await this.keepCopy((await this.get(uri))!);
+	}
+
+	/**
+	 * Writes the event's calendar copy as it should be now (calendarCopy), or deletes it when it should have none, and
+	 * says whether it did: not when `stored`, the CID the root's repo holds under its key (null for none), is already
+	 * that. Without `stored` it always writes. Deleting a copy that isn't there does nothing.
+	 */
+	private async keepCopy(event: EventView, stored?: string | null): Promise<boolean> {
+		const copy = calendarCopy(event, this.publicUrl);
+		const record = copy && validateRecord(CALENDAR_EVENT, copy);
+
+		if (stored !== undefined && stored === (record && (await recordCid(record)))) return false;
+		const root = await this.core.root();
+		const ref = { collection: CALENDAR_EVENT, rkey: event.rkey };
+
+		if (record) await root.putRecord({ ...ref, record });
+		else await root.deleteRecord(ref);
+		this.core.logger.info("kept an event's calendar copy in step", { uri: event.uri, written: !!record });
+
+		return true;
 	}
 
 	/**
@@ -513,10 +666,17 @@ export class EventService {
 			...(record.lineup ?? []).map((credit) => credit.performer)
 		];
 
-		const venue = row.venueSpace;
-		const approved = venue !== null && (await this.approved(venue, row.uri));
-		const rules = venue === null ? null : await this.rules.event(venue, subjects, approved);
-		const listed = !!rules?.listed && row.publishedAt !== null && !isPrivate(record);
+		const space = row.venueSpace;
+		const venue = space === null ? null : await this.venues.bySpace(space);
+		const approved = space !== null && (await this.approved(space, row.uri));
+		const rules = space === null ? null : await this.rules.event(space, subjects, approved);
+		const confirmed = !!rules?.confirmed;
+		// On the clock its times are on: its venue's, or a venue-less draft's own.
+		const zone = venue ? venueZone(venue) : record.timeZone;
+		const ends = record.startsAt && zone && nightEnd(record.startsAt, zone);
+		const over = !!ends && Date.parse(ends) <= Date.now();
+		const neverConfirmed = over && row.publishedAt !== null && !confirmed;
+		const listed = !!rules?.listed && row.publishedAt !== null && !isPrivate(record) && !neverConfirmed;
 
 		return {
 			uri: row.uri,
@@ -524,9 +684,11 @@ export class EventService {
 			rkey: row.rkey,
 			record,
 			cid: row.cid,
-			venue: venue === null ? null : await this.venues.bySpace(venue),
+			venue,
 			approved,
-			standing: { listed, confirmed: !!rules?.confirmed }
+			standing: { listed, confirmed },
+			over,
+			neverConfirmed
 		};
 	}
 }

@@ -27,6 +27,7 @@ const event: EventPageView = {
 	venue: tresor,
 	timeZone: 'Europe/Berlin',
 	confirmed: false,
+	neverConfirmed: false,
 	lineup: [
 		{ name: 'Crew', href: null, value: '/act/3crew/crew', start: '23:00', end: '02:00' },
 		{ name: '@dj.test', href: '/@dj.test', value: 'dj.test' }
@@ -117,6 +118,7 @@ describe('EventPage', () => {
 		await expect.element(page.getByText('Dec 5, 2026')).toBeInTheDocument();
 		await expect.element(page.getByText('23:00 to 06:00')).toBeInTheDocument();
 		await expect.element(page.getByText('Tresor, Berlin')).toBeInTheDocument();
+		await expect.element(page.getByRole('link', { name: 'Tresor' })).toHaveAttribute('href', '/venue/3tresor/tresor');
 		await expect.element(page.getByText('Waiting for the venue')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'Tickets' }))
@@ -143,6 +145,13 @@ describe('EventPage', () => {
 		await expect.element(page.getByText('New date')).toBeInTheDocument();
 		expect(page.getByText('Waiting for the venue').elements()).toHaveLength(0);
 		expect(page.getByRole('heading', { level: 2 }).elements()).toHaveLength(0);
+	});
+
+	it('tells its people an event whose night ended while it waited for the venue was never confirmed', async () => {
+		await render(EventPage, { ...host, event: { ...event, neverConfirmed: true }, status: 'listed' });
+
+		await expect.element(page.getByText('Never confirmed')).toBeInTheDocument();
+		expect(page.getByText('Waiting for the venue').elements()).toHaveLength(0);
 	});
 
 	it('marks a cancelled event, with no tickets, standing or way to cancel it again', async () => {
@@ -366,5 +375,106 @@ describe('EventPage', () => {
 
 		await expect.element(name()).toHaveValue('Winter Opening Late');
 		await expect.element(bar()).toMatchTextContent(/Unsaved changes/);
+	});
+});
+
+describe('Going and Interested', () => {
+	/** Someone signed in who isn't one of the party's people. */
+	const guest = { ...host, can: [], role: undefined, viewer: { did: 'did:plc:fan' } };
+
+	const rsvp = { going: 12, interested: 1, answer: 'going' as const };
+
+	const going = () => page.getByRole('button', { name: /^Going/ });
+
+	const interested = () => page.getByRole('button', { name: /^Interested/ });
+
+	it("shows each answer with how many gave it, the viewer's pressed, and sends a change or takes it back", async () => {
+		const server = answering({ type: 'success', status: 200, location: host.url.pathname });
+		await render(EventPage, { ...guest, enhance: server.enhance, event, rsvp, status: 'listed' });
+
+		await expect.element(going()).toHaveAttribute('aria-pressed', 'true');
+		await expect.element(going()).toHaveAccessibleName('Going 12 people');
+		await expect.element(interested()).toHaveAttribute('aria-pressed', 'false');
+		await expect.element(interested()).toHaveAccessibleName('Interested 1 person');
+
+		await interested().click();
+		await going().click();
+		await expect.poll(() => server.sent.map(({ body }) => body.get('answer'))).toEqual(['interested', '']);
+		expect(server.sent[0].action).toMatch(/\?\/rsvp$/);
+		expect(page.getByRole('alert').elements()).toHaveLength(0);
+	});
+
+	it('shows them without a ticket link when there is none', async () => {
+		await render(EventPage, { ...guest, event: { ...event, tickets: undefined }, rsvp, status: 'listed' });
+
+		await expect.element(going()).toBeInTheDocument();
+		expect(page.getByRole('link', { name: 'Tickets' }).elements()).toHaveLength(0);
+	});
+
+	it('links each to sign-in, back to the event, for someone signed out', async () => {
+		await render(EventPage, { ...guest, viewer: null, event, rsvp: { ...rsvp, answer: null }, status: 'listed' });
+
+		const next = encodeURIComponent(`${host.url.pathname}#rsvp`);
+		await expect.element(page.getByRole('link', { name: /^Going/ })).toHaveAttribute('href', `/login?next=${next}`);
+		await expect
+			.element(page.getByRole('link', { name: /^Interested/ }))
+			.toHaveAttribute('href', `/login?next=${next}`);
+		expect(page.getByRole('button', { name: /^Going/ }).elements()).toHaveLength(0);
+	});
+
+	it('asks a session from before the app wrote RSVPs to sign in again, and says why anything else failed', async () => {
+		const reauth = answering({
+			type: 'failure',
+			status: 401,
+			location: host.url.pathname,
+			data: { error: "Sign in again to say you're going", reauth: true }
+		});
+
+		const { unmount } = await render(EventPage, { ...guest, enhance: reauth.enhance, event, rsvp, status: 'listed' });
+
+		await interested().click();
+		await expect.element(page.getByText("Sign in again to say you're going.", { exact: false })).toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+		await unmount();
+
+		const down = answering({
+			type: 'failure',
+			status: 503,
+			location: host.url.pathname,
+			data: { error: "Going and Interested aren't available right now. Try again in a minute.", reauth: false }
+		});
+
+		await render(EventPage, { ...guest, enhance: down.enhance, event, rsvp, status: 'listed' });
+
+		await interested().click();
+		await expect
+			.element(page.getByRole('alert'))
+			.toHaveTextContent("Going and Interested aren't available right now. Try again in a minute.");
+		expect(page.getByRole('button', { name: 'Sign in again' }).elements()).toHaveLength(0);
+	});
+
+	it('shows a refusal sent without scripts beside the answers, not as a failed save', async () => {
+		await render(EventPage, {
+			...host,
+			event,
+			rsvp,
+			status: 'listed',
+			form: { error: "Sign in again to say you're going", reauth: true, values: { answer: 'going' } }
+		});
+
+		await expect.element(page.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+		await expect.element(bar()).not.toMatchTextContent(/Sign in again/);
+	});
+
+	it('leaves them out for an event that takes no answers, and while editing', async () => {
+		const { unmount } = await render(EventPage, { ...guest, event, rsvp: null, status: 'listed' });
+
+		await expect.element(page.getByRole('link', { name: 'Tickets' })).toBeInTheDocument();
+		expect(going().elements()).toHaveLength(0);
+		await unmount();
+
+		await render(EventPage, { ...host, event, rsvp, status: 'listed', editing: true });
+		await editorReady();
+		expect(going().elements()).toHaveLength(0);
 	});
 });

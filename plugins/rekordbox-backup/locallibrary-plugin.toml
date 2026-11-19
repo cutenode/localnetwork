@@ -1,0 +1,76 @@
+id = "rekordbox-backup"
+name = "rekordbox library backup"
+version = "0.1.0"
+protocol = "^0.2"
+# collection:files to read rekordbox's own files: where they are, a copy of master.db and its
+# tracks' files. The backup holds rekordbox's sign-in tokens unless `credentials` says strip.
+capabilities = ["collection:files"]
+
+[[contributes.commands]]
+name = "backup"
+title = "Back up rekordbox's library, as rekordbox's Backup Library does"
+mode = "view"
+where = ["collection"]
+plan = true
+long_running = true
+cli = "collection backup"
+
+[[contributes.commands]]
+name = "backups"
+title = "List the rekordbox library backups in the backup folder"
+mode = "view"
+where = ["collection"]
+cli = "collection backups"
+
+[[contributes.commands]]
+name = "verify"
+title = "Check that a rekordbox library backup is whole"
+mode = "view"
+where = ["collection"]
+long_running = true
+cli = "collection verify"
+
+[contributes.commands.params]
+type = "object"
+additionalProperties = false
+
+[contributes.commands.params.properties.file]
+type = "string"
+minLength = 1
+x-path = true
+x-cli = { positional = true }
+description = "The backup's zip (default: asked, from those in the backup folder)"
+
+[[contributes.services]]
+name = "schedule"
+title = "Back up rekordbox's library every few days (without music)"
+
+[[contributes.settings]]
+key = "destination"
+title = "Folder backups go in (default: your Documents folder)"
+type = "directory"
+
+[[contributes.settings]]
+key = "music"
+title = "Copy the music too, into rekordbox_bak/ beside the zip"
+type = "boolean"
+default = false
+
+[[contributes.settings]]
+key = "credentials"
+title = "Sign-in tokens in the backup: keep them as rekordbox does, or strip them"
+type = "enum"
+choices = ["keep", "strip"]
+default = "keep"
+
+[[contributes.settings]]
+key = "every_days"
+title = "Scheduled backups: days between them (0: off)"
+type = "number"
+default = 0
+
+[[contributes.settings]]
+key = "keep"
+title = "Scheduled backups: how many of this plugin's to keep (0: all)"
+type = "number"
+default = 7

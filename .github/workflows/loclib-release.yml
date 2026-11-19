@@ -18,6 +18,11 @@ on:
 
 permissions: {}
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 # One release at a time, and never cancelled halfway through publishing.
 concurrency:
   group: ${{ github.workflow }}

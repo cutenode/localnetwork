@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { COLLECTION } from '#lib/nsid.ts';
+import { XRPCError } from '@atproto/api';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CALENDAR_RSVP, COLLECTION } from '#lib/nsid.ts';
 import { parseSpaceRecordUri, parseSpaceUri } from '#lib/server/atproto/spaces.ts';
 import { performerUri } from '#lib/server/performer-uri.ts';
 import type { EventInput } from '#lib/server/services/events.ts';
@@ -151,10 +152,12 @@ it('shows a published event to anyone at its own address under the party, waitin
 			venue: { space: venue.space, skey: venue.skey, name: 'Tresor', locality: 'Berlin', country: 'DE' },
 			timeZone: 'Europe/Berlin',
 			confirmed: false,
+			neverConfirmed: false,
 			lineup: []
 		},
 		party: { name: 'Night Shift', href: `/party/${key}/night-shift` },
 		link: null,
+		rsvp: { going: 0, interested: 0, answer: null },
 		meta: expect.objectContaining({ title: 'Winter Opening', description: 'Doors at eleven.', noindex: false })
 	});
 	expect(headers['cache-control']).toBe('public, max-age=60');
@@ -439,11 +442,105 @@ it("resets a private event's link, so the old one stops opening it", async () =>
 	await expect(post('resetLink', HOST, `/party/${key}`, {})).rejects.toMatchObject({ status: 404 });
 });
 
-it("lists the party's upcoming events: public ones for visitors, drafts and private ones too for its people", async () => {
+describe('Going and Interested', () => {
+	it('lets anyone signed in answer a public event and take it back, with the page uncached for them', async () => {
+		const rkey = await make();
+		const path = `/party/${key}/${rkey}/winter-opening`;
+		t.capable.add(STRANGER);
+
+		expect(await post('rsvp', STRANGER, path, { answer: 'going' })).toBeUndefined();
+		expect(await opened(STRANGER, path)).toMatchObject({ rsvp: { going: 1, interested: 0, answer: 'going' } });
+		expect(await opened(null, path)).toMatchObject({ rsvp: { going: 1, interested: 0, answer: null } });
+
+		expect(await post('rsvp', STRANGER, path, { answer: 'interested' })).toBeUndefined();
+		expect(await opened(STRANGER, path)).toMatchObject({ rsvp: { going: 0, interested: 1, answer: 'interested' } });
+
+		// Pressing the answer again sends none, and anything it doesn't know is none too.
+		expect(await post('rsvp', STRANGER, path, { answer: '' })).toBeUndefined();
+		expect(await post('rsvp', STRANGER, path, { answer: 'maybe' })).toBeUndefined();
+		expect(await opened(STRANGER, path)).toMatchObject({ rsvp: { going: 0, interested: 0, answer: null } });
+
+		const signedIn = routeEvent({
+			app: app(),
+			viewer: await t.viewer(STRANGER),
+			url: path,
+			params: paramsOf(path),
+			flags: on
+		});
+
+		await signedIn.loadData<PageServerData>(load);
+		expect(signedIn.headers['cache-control']).toBe('no-store');
+	});
+
+	it('answers nothing at the party itself', async () => {
+		await expect(post('rsvp', HOST, `/party/${key}/night-shift`, { answer: 'going' })).rejects.toMatchObject({
+			status: 404
+		});
+	});
+
+	it('sends someone signed out to sign in first', async () => {
+		const rkey = await make();
+		const path = `/party/${key}/${rkey}/winter-opening`;
+
+		const answering = callRoute(actions.rsvp, {
+			app: app(),
+			viewer: null,
+			url: `${path}?/rsvp`,
+			params: paramsOf(path),
+			flags: on,
+			form: { answer: 'going' }
+		});
+
+		await expect(answering).rejects.toMatchObject({
+			status: 303,
+			location: `/login?next=${encodeURIComponent(`${path}?/rsvp`)}`
+		});
+	});
+
+	it('asks a session from before the app wrote RSVPs to sign in again, handing back its answer', async () => {
+		const rkey = await make();
+		const path = `/party/${key}/${rkey}/winter-opening`;
+		t.capable.add(STRANGER);
+		t.net.failWrites(
+			STRANGER,
+			1,
+			new XRPCError(403, 'ScopeMissingError', `Missing required scope "repo:${CALENDAR_RSVP}"`)
+		);
+
+		expect(await post('rsvp', STRANGER, path, { answer: 'going' })).toMatchObject({
+			status: 401,
+			data: { error: "Sign in again to say you're going", reauth: true, values: { answer: 'going' } }
+		});
+		expect(await opened(STRANGER, path)).toMatchObject({ rsvp: { going: 0, answer: null } });
+	});
+
+	it('offers none on a private event, a draft or a cancelled one, and takes none there', async () => {
+		const secret = await make({ audience: 'private' });
+		const draft = await make({ publish: false });
+		const cancelled = await make();
+		await post('cancel', HOST, `/party/${key}/${cancelled}/winter-opening`, { cid: stored(cancelled).cid });
+
+		for (const rkey of [secret, draft, cancelled]) {
+			const path = `/party/${key}/${rkey}/winter-opening`;
+
+			expect(await opened(HOST, path)).toMatchObject({ rsvp: null });
+			expect(await post('rsvp', HOST, path, { answer: 'going' })).toMatchObject({
+				status: 400,
+				data: { error: "This event isn't taking answers" }
+			});
+		}
+	});
+});
+
+it("lists the party's upcoming events: public ones for visitors, and drafts, private ones and ones never confirmed too for its people", async () => {
 	const winter = await make();
 	const hidden = await make({ name: 'Back Room', audience: 'private', date: '2026-12-12' });
 	const draft = await make({ name: 'Spring', publish: false, date: undefined, start: undefined, end: undefined });
-	await make({ name: 'Last Week', date: '2026-11-01' });
+	const never = await make({ name: 'Last Week', date: '2026-11-01' });
+	const past = await make({ name: 'Confirmed Last Week', date: '2026-11-02' });
+	const owner = 'did:plc:owner';
+	await t.sharedSpaces.addPerson(await t.viewer(ADMIN), venue.space, { did: owner, role: 'owner' });
+	await t.events.approve(await t.viewer(owner), uriOf(past));
 	const path = `/party/${key}/night-shift`;
 
 	expect((await opened(STRANGER, path)).events).toEqual([
@@ -454,16 +551,40 @@ it("lists the party's upcoming events: public ones for visitors, drafts and priv
 			status: EVENT_STATUS.scheduled,
 			venue: 'Tresor',
 			draft: false,
-			private: false
+			private: false,
+			neverConfirmed: false
 		}
 	]);
 	expect(
-		(await opened(DOOR, path)).events?.map(({ href, draft, private: isPrivate }) => ({ href, draft, isPrivate }))
+		(await opened(DOOR, path)).events?.map(({ href, draft, private: isPrivate, neverConfirmed }) => ({
+			href,
+			draft,
+			isPrivate,
+			neverConfirmed
+		}))
 	).toEqual([
-		{ href: `/party/${key}/${winter}/winter-opening`, draft: false, isPrivate: false },
-		{ href: `/party/${key}/${hidden}/back-room`, draft: false, isPrivate: true },
-		{ href: `/party/${key}/${draft}/spring`, draft: true, isPrivate: false }
+		{ href: `/party/${key}/${never}/last-week`, draft: false, isPrivate: false, neverConfirmed: true },
+		{ href: `/party/${key}/${winter}/winter-opening`, draft: false, isPrivate: false, neverConfirmed: false },
+		{ href: `/party/${key}/${hidden}/back-room`, draft: false, isPrivate: true, neverConfirmed: false },
+		{ href: `/party/${key}/${draft}/spring`, draft: true, isPrivate: false, neverConfirmed: false }
 	]);
 	expect(await opened(HOST, path)).toMatchObject({ newEventHref: `/party/${key}/new` });
 	expect(await opened(DOOR, path)).toMatchObject({ newEventHref: null });
+});
+
+it("keeps an event never confirmed to its party's people, marked, and a past confirmed one open to anyone", async () => {
+	const never = await make({ date: '2026-11-01' });
+	const path = `/party/${key}/${never}/winter-opening`;
+
+	await expect(opened(STRANGER, path)).rejects.toMatchObject({ status: 404 });
+	expect(await opened(DOOR, path)).toMatchObject({ event: { confirmed: false, neverConfirmed: true } });
+
+	const past = await make({ date: '2026-11-02' });
+	const owner = 'did:plc:owner';
+	await t.sharedSpaces.addPerson(await t.viewer(ADMIN), venue.space, { did: owner, role: 'owner' });
+	await t.events.approve(await t.viewer(owner), uriOf(past));
+
+	expect(await opened(STRANGER, `/party/${key}/${past}/winter-opening`)).toMatchObject({
+		event: { confirmed: true, neverConfirmed: false }
+	});
 });

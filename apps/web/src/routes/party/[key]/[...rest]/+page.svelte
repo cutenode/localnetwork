@@ -11,6 +11,7 @@
 		event={data.event}
 		party={data.party}
 		link={data.link}
+		rsvp={data.rsvp}
 		timeZones={data.timeZones}
 		subject={data.subject}
 		can={data.can}

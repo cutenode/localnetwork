@@ -24,17 +24,26 @@ export default {
 					tickets: 'https://tickets.example/winter',
 					status: EVENT_STATUS.scheduled,
 					audience: 'public',
-					venue: null,
+					venue: {
+						space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor',
+						skey: '3tresor',
+						name: 'Tresor',
+						locality: 'Berlin',
+						country: 'DE'
+					},
 					timeZone: 'Europe/Berlin',
 					confirmed: false,
+					neverConfirmed: false,
 					lineup: [{ name: `@${NEON.handle}`, href: `/@${NEON.handle}`, value: NEON.handle }]
 				},
 				party: { name: 'Night Shift', href: '/party/3lzparty/night-shift' },
-				link: null
+				link: null,
+				rsvp: { going: 12, interested: 30, answer: 'going' }
 			},
 			form: null
 		}),
 	links: {
+		Venue: [{ name: 'Tresor', href: '/venue/3tresor/tresor' }],
 		Party: [{ name: 'Night Shift', href: '/party/3lzparty/night-shift' }],
 		'Each performer on the lineup': [{ name: '@neon.test', href: '/@neon.test', within: 'Lineup' }],
 		'Ticket sites': [{ name: 'Tickets', href: 'https://tickets.example/winter' }]

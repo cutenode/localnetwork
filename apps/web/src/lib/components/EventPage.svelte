@@ -2,11 +2,14 @@
 	import type { ComponentProps } from 'svelte';
 	import { Check, Copy, ExternalLink, MapPin } from '@lucide/svelte';
 	import { enhance, type SubmitFunction } from '$app/forms';
-	import type { EventPageView } from '#lib/events.ts';
+	import { page } from '$app/state';
+	import type { EventPageView, RsvpState } from '#lib/events.ts';
 	import { asShowDate, formatShowDate } from '#lib/format.ts';
 	import { EVENT_STATUS, showHours, venueClock, venueDay } from '#lib/shows.ts';
+	import { spacePagePath } from '#lib/space-paths.ts';
 	import { webHref } from '#lib/web-url.ts';
 	import FormMessage from './FormMessage.svelte';
+	import RsvpButtons from './RsvpButtons.svelte';
 	import VenuePicker from './VenuePicker.svelte';
 	import EditMode from './edit/EditMode.svelte';
 	import InlineText from './edit/InlineText.svelte';
@@ -14,16 +17,18 @@
 
 	/**
 	 * An event's page, built in place like its party's: its name, night, venue, party, lineup, tickets and what it's
-	 * about, and whether the venue has confirmed it. In edit mode the same layout has each part as its field. Times are
-	 * on the venue's clock, or until there's a venue, on a time zone picked with them; a save that would move them onto
-	 * another clock comes back asking whether to keep them as entered or at the same moments (`view.choice`). An event
-	 * being made has no `event` yet and draws every field empty. Its people with events.manage also get, outside edit
-	 * mode, a private event's `link` to share or reset, and a way to cancel it.
+	 * about, and whether the venue has confirmed it (or never did, for its people). In edit mode the same layout has each
+	 * part as its field. Times are on the venue's clock, or until there's a venue, on a time zone picked with them; a
+	 * save that would move them onto another clock comes back asking whether to keep them as entered or at the same
+	 * moments (`view.choice`). An event being made has no `event` yet and draws every field empty. Its people with
+	 * events.manage also get, outside edit mode, a private event's `link` to share or reset, and a way to cancel it. While
+	 * it takes answers (`rsvp`), everyone gets Going and Interested beside its tickets.
 	 */
 	let {
 		event = null,
 		party,
 		link = null,
+		rsvp = null,
 		timeZone = 'UTC',
 		timeZones = [],
 		...edit
@@ -33,6 +38,8 @@
 		party: { name: string; href: string };
 		/** A private event's whole link, token and all, for its people with events.manage. */
 		link?: string | null;
+		/** Its Going and Interested, while it takes answers. */
+		rsvp?: RsvpState | null;
 		/** The time zone an event being made starts on, until it has a venue. */
 		timeZone?: string;
 		/** The time zones a draft without a venue can be on, sent while editing. */
@@ -56,6 +63,13 @@
 	const isPublished = $derived(edit.status !== 'draft');
 
 	const manages = $derived(!!edit.can?.includes('events.manage'));
+
+	const viewer = $derived(edit.viewer === undefined ? page.data.viewer : edit.viewer);
+
+	const path = $derived((edit.url ?? page.url).pathname);
+
+	/** An answer that didn't go through without scripts: it comes back with the answer, which a save's refusal never has. */
+	const answered = $derived(edit.form?.values && 'answer' in edit.form.values ? edit.form : null);
 
 	const missing = $derived([...(event ? [] : ['a name']), ...(event?.venue ? [] : ['a venue']), ...(event?.startsAt ? [] : ['a date'])]);
 
@@ -100,7 +114,7 @@
 		};
 </script>
 
-<EditMode {...edit} {name} {labels} {missing}>
+<EditMode {...edit} form={answered ? null : edit.form} {name} {labels} {missing}>
 	{#snippet children(view)}
 		{#if edit.status === 'draft' && !view.visitor}<div class="container-page pt-6"><p class="m-0 notice notice-info">This is a draft. Only the party's people can see it.</p></div>{/if}
 		<div class="border-b border-line">
@@ -119,21 +133,26 @@
 							</p>
 						{/if}
 						{#if event.venue}
-							<p class="m-0 inline-flex items-center gap-1.5 text-small text-fg-muted"><MapPin aria-hidden="true" class="size-4" />{[event.venue.name, event.venue.locality ?? event.venue.country].join(', ')}</p>
+							<p class="m-0 inline-flex items-center gap-1.5 text-small text-fg-muted"><MapPin aria-hidden="true" class="size-4" /><span><a class="entity-link" href={spacePagePath('venue', event.venue.skey, event.venue.name)}>{event.venue.name}</a>, {event.venue.locality ?? event.venue.country}</span></p>
 						{/if}
 						<p class="m-0 flex flex-wrap gap-2">
 							{#if isCancelled}
 								<span class="pill bg-raised text-critical">Cancelled</span>
 							{:else}
 								{#if event.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
-								{#if event.venue && isPublished}<span class={['pill', event.confirmed ? 'bg-raised text-good' : 'bg-well text-fg-muted']}>{event.confirmed ? 'Confirmed' : 'Waiting for the venue'}</span>{/if}
+								{#if event.venue && isPublished}<span class={['pill', event.confirmed ? 'bg-raised text-good' : 'bg-well text-fg-muted']}>{event.neverConfirmed ? 'Never confirmed' : event.confirmed ? 'Confirmed' : 'Waiting for the venue'}</span>{/if}
 							{/if}
 							{#if event.audience === 'private' && !view.visitor}<span class="pill bg-well text-fg-muted">Private</span>{/if}
 						</p>
 					{/if}
 				</div>
-				{#if event?.tickets && !isCancelled && !view.editing}
-					<a class="btn-primary self-start sm:self-auto" href={webHref(event.tickets)} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink aria-hidden="true" class="size-4" /></a>
+				{#snippet tickets()}
+					{#if event?.tickets && !isCancelled}<a class="btn-primary self-start sm:self-auto" href={webHref(event.tickets)} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink aria-hidden="true" class="size-4" /></a>{/if}
+				{/snippet}
+				{#if rsvp && !view.editing}
+					<RsvpButtons {rsvp} loginHref={viewer ? undefined : `/login?next=${encodeURIComponent(`${path}#rsvp`)}`} did={viewer?.did} next={path} refused={answered} enhance={send}>{@render tickets()}</RsvpButtons>
+				{:else if !view.editing}
+					{@render tickets()}
 				{/if}
 			</div>
 		</div>

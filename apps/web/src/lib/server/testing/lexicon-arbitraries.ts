@@ -58,18 +58,18 @@ function asObject(def: ValueDef, uri: string): LexObject {
 
 	if (def.nullable?.length) throw unsupported(`nullable properties (${uri})`);
 
-	// A missing required string with a default reads as its default, so leaving it out would break nothing. A ref to
-	// such a string (like a calendar event's status) reads the same way.
-	const hasDefault = (key: string) => {
-		const property = def.properties[key];
-		const value = property?.type === 'ref' ? defOf(property.ref) : property;
-
-		return value?.type === 'string' && 'default' in value;
-	};
-
-	if (def.required?.some(hasDefault)) throw unsupported(`required properties with defaults (${uri})`);
-
 	return def;
+}
+
+/**
+ * Whether `def`'s property `key` is a string with a default, or a ref to one (like a calendar event's status). Left
+ * out, it reads as its default, so leaving out a required one (like an RSVP's status) breaks nothing.
+ */
+function hasDefault(def: LexObject, key: string): boolean {
+	const property = def.properties[key];
+	const value = property?.type === 'ref' ? defOf(property.ref) : property;
+
+	return value?.type === 'string' && 'default' in value;
 }
 
 /** A union member's `$type`: the NSID alone for a main def, as records write it. */
@@ -364,9 +364,9 @@ function brokenUnion(def: LexRefUnion, depth: number): fc.Arbitrary<Broken> {
 	);
 }
 
-/** An object of `def` with one thing wrong: a required property missing, or one property broken. */
+/** An object of `def` with one thing wrong: a required property without a default missing, or one property broken. */
 function brokenObject(def: LexObject, depth: number): fc.Arbitrary<BrokenObject> {
-	const droppable = def.required ?? [];
+	const droppable = (def.required ?? []).filter((key) => !hasDefault(def, key));
 
 	const options = Object.entries(def.properties).map(([key, property]) =>
 		fc

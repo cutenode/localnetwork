@@ -13,6 +13,7 @@ import { nowIso } from '../db';
 import type { DirectoryShow, HappyViewClient } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, type IndexedRepo, reindex } from '../happyview/indexed';
 import { atVenue, venueEnd, venueTime, zoneOf } from '../venue-time';
+import { ADDRESS, type CalendarEvent, calendarEvent, GEO } from './calendar-event';
 import { writeOwn } from './own-repo';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
@@ -50,10 +51,6 @@ export type ShowQuery = {
 const REAUTH = 'Sign in again to announce shows';
 
 const CHANGED = 'This show changed since you opened it. Reload and try again.';
-
-const ADDRESS = 'community.lexicon.location.address';
-
-const GEO = 'community.lexicon.location.geo';
 
 /** What the announce form reads back from a calendar event, which another app may have written or changed. */
 const eventSchema = z.object({
@@ -105,9 +102,6 @@ function readEvent(value: JsonObject): EventRecord | null {
 	}
 }
 
-/** A calendar event as this app writes it, with the fields its show copies. */
-type CalendarEvent = JsonObject & { startsAt: string; endsAt?: string; status: string };
-
 /**
  * The `community.lexicon.calendar.event` for a show, over `previous` (the event as it is now, when editing) so what
  * other calendar apps added to it stays, unless it no longer fits the lexicon. A start that moves from the one `listed`
@@ -136,24 +130,18 @@ export function eventRecord(input: ShowInput, previous?: JsonObject | null, list
 	if (input.venue) geo.name = input.venue;
 	locations.push(geo);
 
-	const event: CalendarEvent = {
-		...(before ? previous : null),
-		name: input.name,
-		startsAt,
-		mode: 'community.lexicon.calendar.event#inperson',
-		status: input.cancelled ? EVENT_STATUS.cancelled : moved ? EVENT_STATUS.rescheduled : EVENT_STATUS.scheduled,
-		locations,
-		createdAt: before?.createdAt ?? nowIso()
-	};
-
-	delete event.endsAt;
-	delete event.uris;
-
-	if (input.end) event.endsAt = venueEnd(input.date, input.start, input.end, zoneOf(location));
-
-	if (input.tickets) event.uris = [{ uri: input.tickets, name: 'Tickets' }];
-
-	return event;
+	return calendarEvent(
+		{
+			name: input.name,
+			startsAt,
+			...(input.end && { endsAt: venueEnd(input.date, input.start, input.end, zoneOf(location)) }),
+			status: input.cancelled ? EVENT_STATUS.cancelled : moved ? EVENT_STATUS.rescheduled : EVENT_STATUS.scheduled,
+			locations,
+			uris: input.tickets ? [{ uri: input.tickets, name: 'Tickets' }] : [],
+			createdAt: before?.createdAt ?? nowIso()
+		},
+		before && previous
+	);
 }
 
 /** The show record for a written event: the project, the event's version, and the copy of it listings read. */

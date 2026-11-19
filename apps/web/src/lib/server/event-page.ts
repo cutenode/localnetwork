@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Capability } from '#lib/capabilities.ts';
 import type { PageStatus } from '#lib/components/edit/types.ts';
-import type { EventPageView, LineupEntry } from '#lib/events.ts';
+import { type EventPageView, type LineupEntry, RSVP_ANSWERS } from '#lib/events.ts';
 import { accountLabel, profileHref } from '#lib/format.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { venueClock } from '#lib/shows.ts';
@@ -10,11 +10,13 @@ import type { EventCredit, Viewer } from '#lib/types.ts';
 import { spaceRecordUri } from './atproto/spaces';
 import { openEditor, pageContext, savePage } from './edit-mode';
 import { eventValues, parseEventForm, zoneChoice } from './forms/event';
-import { act, cacheBriefly, requireViewer } from './http';
+import { unlessOffline } from './happyview/offline';
+import { act, cacheBriefly, requireViewer, text } from './http';
 import { pageMeta } from './meta';
 import type { FoundParty } from './party-page';
 import { parsePerformerUri } from './performer-uri';
 import { type EventView, venueZone, ZoneChangeError } from './services/events';
+import { takesRsvps } from './services/rsvps';
 import { venueOption } from './services/venues';
 
 type Locals = App.Locals;
@@ -82,7 +84,10 @@ async function lineupEntry(app: Locals['app'], credit: EventCredit): Promise<Lin
 }
 
 /** The event as its page draws it, without its link token. */
-async function eventView(app: Locals['app'], { record, venue, standing }: EventView): Promise<EventPageView> {
+async function eventView(
+	app: Locals['app'],
+	{ record, venue, standing, neverConfirmed }: EventView
+): Promise<EventPageView> {
 	const { name, description, startsAt, endsAt, tickets, status } = record;
 
 	return {
@@ -96,6 +101,7 @@ async function eventView(app: Locals['app'], { record, venue, standing }: EventV
 		venue: venue && venueOption(venue),
 		timeZone: (venue ? venueZone(venue) : record.timeZone) ?? null,
 		confirmed: standing.confirmed,
+		neverConfirmed,
 		lineup: await Promise.all((record.lineup ?? []).map((credit) => lineupEntry(app, credit)))
 	};
 }
@@ -104,6 +110,8 @@ async function eventView(app: Locals['app'], { record, venue, standing }: EventV
  * `/party/<key>/<event>/<name>`: the event's page, built in place like its party's. The name part is only there to
  * read, so any other is sent on to the current one, keeping the query (and so a private event's link token). The
  * party's people get the edit bar, those with events.manage its Edit and, for a private event, its whole link to share.
+ * While it takes answers (takesRsvps), everyone gets its Going and Interested counts, and the viewer their own answer,
+ * read before the page draws so its buttons work without scripts; while the directory is down there are none.
  */
 export async function eventPage(
 	event: { locals: Locals; url: URL; setHeaders(headers: Record<string, string>): void },
@@ -119,8 +127,9 @@ export async function eventPage(
 	const context = pageContext(locals, 'event', shown.uri, eventCan(can));
 	const status: PageStatus = !record.publishedAt ? 'draft' : isPrivate ? 'private' : 'listed';
 
-	// A private event's page answers to its token, so nothing keeps a copy that would outlast a reset.
-	if (isPrivate) event.setHeaders({ 'cache-control': 'no-store', vary: 'Cookie' });
+	// A private event's page answers to its token, and a signed-in viewer's has their own answer on it, so nothing keeps a
+	// copy that would outlast a reset or their next answer.
+	if (isPrivate || locals.viewer) event.setHeaders({ 'cache-control': 'no-store', vary: 'Cookie' });
 	else cacheBriefly(event, 60, context.can ?? []);
 
 	const meta = pageMeta(locals.app.config.publicUrl, {
@@ -145,8 +154,23 @@ export async function eventPage(
 			context.can?.includes('events.manage') && record.linkToken
 				? `${meta.url}?${LINK_TOKEN}=${record.linkToken}`
 				: null,
+		rsvp: takesRsvps(shown)
+			? await unlessOffline(locals.log, () => locals.app.rsvps.state(shown, locals.viewer?.did))
+			: null,
 		meta
 	};
+}
+
+/** Says the signed-in viewer is going to the event, interested in it, or neither (any other answer). */
+export async function answerEvent(event: ActionEvent, shown: EventView) {
+	const viewer = requireViewer(event.locals, event.url);
+	const answer = text(await event.request.formData(), 'answer', 20);
+
+	// The answer goes back with a refusal, so the page tells it from a save's.
+	return act(
+		() => event.locals.app.rsvps.answer(viewer, shown, RSVP_ANSWERS.find((known) => known === answer) ?? null),
+		{ answer }
+	);
 }
 
 type ActionEvent = { locals: Locals; request: Request; url: URL };

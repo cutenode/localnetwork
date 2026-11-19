@@ -54,11 +54,12 @@
 		newEventHref: '/party/3lzparty/new'
 	};
 
-	/** Its next nights as its people see them: a public one, a private one and a draft without a date yet. */
+	/** Its next nights as its people see them: one never confirmed, a public one, a private one and a draft without a date yet. */
 	const events = [
-		{ href: '/party/3lzparty/3mwinter/winter-opening', name: 'Winter Opening', startsAt: '2026-12-05T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: false },
-		{ href: '/party/3lzparty/3mback/back-room', name: 'Back Room', startsAt: '2026-12-12T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: true },
-		{ href: '/party/3lzparty/3mspring/spring', name: 'Spring Opening', status: EVENT_STATUS.scheduled, venue: null, draft: true, private: false }
+		{ href: '/party/3lzparty/3mautumn/autumn-closing', name: 'Autumn Closing', startsAt: '2026-11-07T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: false, neverConfirmed: true },
+		{ href: '/party/3lzparty/3mwinter/winter-opening', name: 'Winter Opening', startsAt: '2026-12-05T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: false, neverConfirmed: false },
+		{ href: '/party/3lzparty/3mback/back-room', name: 'Back Room', startsAt: '2026-12-12T23:00:00+01:00', status: EVENT_STATUS.scheduled, venue: 'Tresor', draft: false, private: true, neverConfirmed: false },
+		{ href: '/party/3lzparty/3mspring/spring', name: 'Spring Opening', status: EVENT_STATUS.scheduled, venue: null, draft: true, private: false, neverConfirmed: false }
 	];
 
 	const view = { ...owner, party, people, events, status: 'listed' as const };

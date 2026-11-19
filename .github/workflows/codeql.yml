@@ -31,6 +31,11 @@ on:
 
 permissions: {}
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 jobs:
   analyze:

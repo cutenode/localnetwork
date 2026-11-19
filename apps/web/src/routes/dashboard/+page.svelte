@@ -31,7 +31,7 @@
 	const count = $derived(data.waiting + access.value.length);
 </script>
 
-<svelte:head><title>Home · Local Network</title></svelte:head>
+<svelte:head><title>Overview · Local Network</title></svelte:head>
 
 {#snippet failure()}
 	<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Some of your nights didn't load. Everything else here is up to date.<a class="btn-secondary btn-sm" href="/dashboard" data-sveltekit-reload>Try again</a></p>

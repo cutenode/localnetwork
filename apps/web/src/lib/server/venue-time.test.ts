@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { atVenue, isTimeZone, venueTime, zoneOf } from './venue-time';
+import { atVenue, isTimeZone, nightEnd, nightsSince, venuePlace, venueTime, zoneOf } from './venue-time';
 
 const BERLIN = zoneOf({ latE6: 52_520_000, lngE6: 13_405_000 });
 
@@ -48,5 +48,33 @@ describe('time zones', () => {
 		expect(isTimeZone('Europe/Berlin')).toBe(true);
 		expect(isTimeZone('UTC')).toBe(true);
 		expect(isTimeZone('Mars/Olympus')).toBe(false);
+	});
+});
+
+describe('nightEnd', () => {
+	it("ends a night at 6:00 the next morning on the venue's clock, or the same morning for a start before 6:00", () => {
+		expect(nightEnd('2026-11-07T23:00:00+01:00', BERLIN)).toBe('2026-11-08T06:00:00+01:00');
+		expect(nightEnd('2026-11-07T06:00:00+01:00', BERLIN)).toBe('2026-11-08T06:00:00+01:00');
+		expect(nightEnd('2026-11-08T05:59:00+01:00', BERLIN)).toBe('2026-11-08T06:00:00+01:00');
+		expect(nightEnd('2026-11-07T21:30:00-05:00', NEW_YORK)).toBe('2026-11-08T06:00:00-05:00');
+	});
+
+	it('reads the start on the venue clock, and ends after a clock change on the new offset', () => {
+		// 22:00 UTC is 23:00 in Berlin.
+		expect(nightEnd('2026-11-07T22:00:00Z', BERLIN)).toBe('2026-11-08T06:00:00+01:00');
+		// Berlin's clocks go back at 03:00 on 25 October 2026.
+		expect(nightEnd('2026-10-24T23:00:00+02:00', BERLIN)).toBe('2026-10-25T06:00:00+01:00');
+	});
+});
+
+describe('nightsSince', () => {
+	it('goes back two days, far enough for any night still going and any stored offset', () => {
+		expect(nightsSince(Date.parse('2026-11-14T05:00:00Z'))).toBe('2026-11-12T05:00:00.000Z');
+	});
+});
+
+describe('venuePlace', () => {
+	it("reads a venue record's coordinates as the place its clock is found from", () => {
+		expect(venuePlace({ latitude: '52.52', longitude: '13.405' })).toEqual({ latE6: 52_520_000, lngE6: 13_405_000 });
 	});
 });

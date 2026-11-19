@@ -1,4 +1,4 @@
-import type { EventRecord } from './types';
+import type { EventRecord, ShowView } from './types';
 import type { VenueOption } from './venues';
 
 /**
@@ -15,13 +15,45 @@ export type EventPageView = Pick<EventRecord, 'name' | 'description' | 'startsAt
 	timeZone: string | null;
 	/** Whether the venue has confirmed it, the only standing a page shows besides waiting for the venue (ADR 0014). */
 	confirmed: boolean;
+	/** Its night ended while it waited for the venue, which only its party's people see. */
+	neverConfirmed: boolean;
 	lineup: LineupEntry[];
 };
 
-/** One of a party's events as its page lists it. Its people also see its drafts and private ones, marked. */
+/** What a guest can say here about an event they'll be at, as the event page offers it. */
+export const RSVP_ANSWERS = ['going', 'interested'] as const;
+
+export type RsvpAnswer = (typeof RSVP_ANSWERS)[number];
+
+/**
+ * How many guests are going to an event and interested in it, from any calendar app, and the viewer's own answer (null
+ * when they're signed out, haven't answered, or answered something else in another app, like not going).
+ */
+export type RsvpState = { going: number; interested: number; answer: RsvpAnswer | null };
+
+/** One of a party's events as its page lists it. Its people also see its drafts, private ones and ones never confirmed, marked. */
 export type EventSummary = Pick<EventRecord, 'name' | 'startsAt' | 'status'> & {
 	href: string;
 	venue: string | null;
 	draft: boolean;
 	private: boolean;
+	neverConfirmed: boolean;
 };
+
+/**
+ * A party's event as a list of upcoming ones shows it, beside announced shows: its page, its party's and venue's, and
+ * whether the venue has confirmed it. `distanceKm` is how far its venue is from the place the list is near.
+ */
+export type ListedEvent = Pick<EventRecord, 'name' | 'endsAt' | 'status' | 'tickets'> & {
+	kind: 'event';
+	uri: string;
+	href: string;
+	startsAt: string;
+	party: { name: string; href: string };
+	venue: { name: string; href: string; locality?: string };
+	confirmed: boolean;
+	distanceKm?: number;
+};
+
+/** A row of a list of upcoming nights: a show a project announced, or a party's event. */
+export type Listing = ShowView | ListedEvent;

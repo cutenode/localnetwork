@@ -215,15 +215,37 @@ base_from_last_passed(job, filter) if {
 	job.steps[filter]["with"].base == sprintf("${{ steps.%s.outputs.sha }}", [step.id])
 }
 
-# Every glob a gated workflow's changes job filters on.
-filter_globs contains pattern if {
-	some wf in gated
+# Every paths filter in a gated workflow, as {path, name, globs}.
+paths_filters contains {"path": path, "name": name, "globs": lib.string_set(globs)} if {
+	some path, wf in gated
 	some job in wf.jobs
 	some step in job.steps
 	startswith(step.uses, "dorny/paths-filter@")
-	some globs in yaml.unmarshal(step["with"].filters)
-	some pattern in lib.string_set(globs)
+	some name, globs in yaml.unmarshal(step["with"].filters)
+}
+
+# Filters that take files from every project (repo-checks', the lint and review jobs', a change to
+# ci.yml itself), so a project matching one says nothing about whether its own checks run.
+catch_all(name) if regex.match(`^(ci|repo_checks.*|dependency_review|workflow_lint|codeql_.*|npm_advisories|rust_cache)$`, name)
+
+# Every glob a project's own filter in a gated workflow matches on.
+filter_globs contains pattern if {
+	some f in paths_filters
+	not catch_all(f.name)
+	some pattern in f.globs
 	not startswith(pattern, "!")
+}
+
+# dorny/paths-filter reports a moved file as `renamed`, so a filter on the files a pull request adds
+# or deletes, as the policies that list every file need, misses a file that moved without it.
+deny contains msg if {
+	some f in paths_filters
+	some entry in f.globs
+	some statuses, _ in entry
+	parts := split(statuses, "|")
+	count({"added", "deleted"} & {p | some p in parts}) > 0
+	not "renamed" in parts
+	msg := sprintf("%s: filter %q matches %s files, so add renamed: a moved file is renamed, not added or deleted", [f.path, f.name, statuses])
 }
 
 deny contains msg if {
@@ -259,13 +281,58 @@ excluded(globs, path) if {
 	lib.matches(substring(pattern, 1, -1), path)
 }
 
-# A file the Rust code embeds from outside its crate (include_str! and include_bytes!) changes
-# what the Rust checks see, so the locallibrary filter has it, even where its folder belongs to
-# another tool (the lexicons, the tokens).
+# The filters whose jobs run the code in each folder: its tests, and what embeds or type-checks it.
+# A file's folder is the longest of these it's in.
+readers := {
+	"apps/locallibrary/": {"locallibrary"},
+	# Bombadil's specs run weekly (locallibrary-scheduled.yml); pull requests only type-check them,
+	# which reads nothing from outside its folder.
+	"apps/locallibrary/bombadil/": set(),
+	"crates/": {"locallibrary"},
+	"plugins/": {"locallibrary"},
+	"vendor/": {"locallibrary"},
+	"fuzz/": {"locallibrary"},
+	"apps/web/": {"web"},
+	"apps/localtoolbox/": {"localtoolbox"},
+	"packages/atstore/": {"atstore"},
+	"tools/": {"repo_checks", "repo_checks_md"},
+}
+
+reader(file) := folder if {
+	folders := {f | some f, _ in readers; startswith(file, f)}
+	longest := max({count(f) | some f in folders})
+	some folder in folders
+	count(folder) == longest
+}
+
+# A file a project's code reads from outside its folder (include_str!, a test reading an issue form
+# or another app's JSON, the docs a page bundles) changes what its checks see, so its filter has it,
+# even where the file belongs to another tool.
 deny contains msg if {
-	some path in lib.embedded_files
-	not filtered("locallibrary", path)
-	msg := sprintf("%s: the Rust code embeds it, so add it to the locallibrary paths filter", [path])
+	some read in lib.reads
+	not reader(read.from)
+	msg := sprintf("%s: it reads %s, so add its folder to workflows.rego's readers with the filters that run its checks", [read.from, read.path])
+}
+
+deny contains msg if {
+	some read in lib.reads
+	filters := readers[reader(read.from)]
+	count(filters) > 0
+	not read_filtered(filters, read.path)
+	msg := sprintf("%s: %s reads it, so add it to the %s paths filter", [read.path, read.from, concat(" or ", sort(filters))])
+}
+
+read_filtered(filters, path) if {
+	some name in filters
+	filtered(name, path)
+}
+
+# A folder whose files the code picks at run time is read when a glob of the filter is in it.
+read_filtered(filters, path) if {
+	endswith(path, "/")
+	some name in filters
+	some pattern in filter(name)
+	startswith(pattern, path)
 }
 
 # The filters that say a language's CodeQL results can be reused (ci.yml's codeql_*).

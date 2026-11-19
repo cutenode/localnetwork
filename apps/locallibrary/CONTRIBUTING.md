@@ -287,13 +287,16 @@ times), `mysettings` (the players' settings files), `tracklist`, `mp4` (MP4 and 
 `vet_container` walks them, then symphonia opening and decoding what it lets through, and the
 probe's format, health and length checks), `wav` (WAV headers of recordings, and the WAV and
 AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (Audacity projects:
-the binary XML, the project it builds and its mixdown) and `traktor` (Traktor's `collection.nml`,
-the beat grids it lays down and what an import makes of it). libFuzzer mutates the test fixtures
-(and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
-sequences from nothing) looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz`
-aliases also hand libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values
-the readers branch on), so it gets past a header without guessing four bytes at once. `fuzz/` is a
-workspace of its own and needs nightly:
+the binary XML, the project it builds and its mixdown), `traktor` (Traktor's `collection.nml`,
+the beat grids it lays down and what an import makes of it), `onelibrary` (`exportLibrary.db` and
+its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
+`master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules) and
+`rekordbox_sync` (`playlists3*.sync`). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for
+formats whose tests keep their examples inline; `pdb_edit` grows its edit sequences from nothing)
+looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
+libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values the readers branch
+on), so it gets past a header without guessing four bytes at once. `fuzz/` is a workspace of its
+own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -308,6 +311,16 @@ What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 (`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
 workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
 input of any crash.
+
+The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
+plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
+
+```bash
+sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
+sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
+  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
+```
 
 ## Exploring the TUI and the mix report
 
