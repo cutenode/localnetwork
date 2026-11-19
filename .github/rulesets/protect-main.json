@@ -37,7 +37,7 @@
 			"parameters": {
 				"check_response_timeout_minutes": 120,
 				"grouping_strategy": "ALLGREEN",
-				"max_entries_to_build": 2,
+				"max_entries_to_build": 4,
 				"max_entries_to_merge": 5,
 				"merge_method": "MERGE",
 				"min_entries_to_merge": 1,
@@ -63,10 +63,12 @@
 				"do_not_enforce_on_create": false,
 				"required_status_checks": [
 					{
-						"context": "CI passed"
+						"context": "CI passed",
+						"integration_id": 15368
 					},
 					{
-						"context": "PR issue passed"
+						"context": "PR issue passed",
+						"integration_id": 15368
 					}
 				]
 			}

@@ -62,39 +62,28 @@ const Verification = fallback(z.object({ attempts: fallback(z.string(), ''), sta
 });
 
 // What /gate/download/ul answers: whether the gate opened, and the signed
-// file URL if it did. Anything else reads as a gate that stayed shut.
+// file URL if it did. Anything else reads as a gate that stayed shut, a URL
+// that is not a web address included: the downloader refuses one, and the
+// worker would then open it in a tab.
 const Download = fallback(
 	z.object({
 		download_status: z.pipe(z.unknown(), z.transform(Boolean)),
-		URL: fallback(z.string(), '')
+		URL: fallback(z.url({ protocol: /^https?$/ }), '')
 	}),
 	{ download_status: false, URL: '' }
 );
 
 // --- reading a gate page -----------------------------------------------------
 
-function decodeEntities(text: string) {
-	return text
-		.replace(/&quot;/g, '"')
-		.replace(/&#0?39;/g, "'")
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&amp;/g, '&');
+// The value of a hidden input, found by id, and the page's CSRF token. Read
+// off the parsed page, so attribute order, quoting and entities are the
+// parser's business: gate templates differ in all three.
+function valueOf(page: Document, id: string) {
+	return page.querySelector(`input#${id}`)?.getAttribute('value') ?? '';
 }
 
-// The value of a hidden input, found by id. Attribute order and quoting vary
-// across gate templates, so match the tag on its id and read `value` out of it.
-function valueOf(html: string, id: string) {
-	const tag = new RegExp(`<input[^>]*\\bid=["']${id}["'][^>]*>`, 'i').exec(html);
-	const value = tag && /\bvalue=["']([^"']*)["']/i.exec(tag[0]);
-
-	return value ? decodeEntities(value[1]) : '';
-}
-
-function csrfOf(html: string) {
-	const found = /<meta[^>]*name=["']csrf-token["'][^>]*content=["']([^"']*)["']/i.exec(html);
-
-	return found ? found[1] : '';
+function csrfOf(page: Document) {
+	return page.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
 }
 
 // Where the Spotify step's Connect button would send a tab.
@@ -141,16 +130,16 @@ export function parseGate(html: string) {
 	const page = new DOMParser().parseFromString(html, 'text/html');
 
 	const gate = {
-		uid: valueOf(html, 'current_download_file_listner'),
+		uid: valueOf(page, 'current_download_file_listner'),
 		// A per-page nonce ("<gate id>x<random>") tying the post to this session's
 		// view of this gate. A stale one silently refuses to unlock.
-		wrndk: valueOf(html, 'wrndk'),
-		gvt: valueOf(html, 'gvt'),
-		fanGateId: valueOf(html, 'fan_gate_id'),
-		steps: valueOf(html, 'nwSteps'),
-		isSkippable: valueOf(html, 'is_skippable'),
-		duration: Number(valueOf(html, 'duration')) || 0,
-		csrf: csrfOf(html),
+		wrndk: valueOf(page, 'wrndk'),
+		gvt: valueOf(page, 'gvt'),
+		fanGateId: valueOf(page, 'fan_gate_id'),
+		steps: valueOf(page, 'nwSteps'),
+		isSkippable: valueOf(page, 'is_skippable'),
+		duration: Number(valueOf(page, 'duration')) || 0,
+		csrf: csrfOf(page),
 		spotify: spotifyConnectOf(page),
 		artist: artistOf(page)
 	};

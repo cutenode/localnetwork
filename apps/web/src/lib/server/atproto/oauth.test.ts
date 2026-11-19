@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { nowIso, openDatabase } from '../db';
 import { silentLogger } from '../logger';
@@ -26,9 +26,6 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
-
-/** The lexicon-community RSVP a guest answers an event with, which nothing here writes yet. */
-const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp';
 
 /** A fetch for services whose client never reaches the network. */
 const offline: typeof globalThis.fetch = async (input) => {
@@ -93,83 +90,77 @@ describe('OAuth scopes', () => {
 
 	it("allows every space write the app makes with a user's session, and no reads of others' records", () => {
 		const permissions = new ScopePermissions(granted);
-		const audit = { type: SPACE_TYPE.audit, authority: root, skey: 'main' } as const;
-		const moderation = { type: SPACE_TYPE.moderation, authority: root, skey: 'main' } as const;
-		const booking = { type: SPACE_TYPE.booking, authority: root, skey: '3mxq3whd6gi2d' } as const;
-		const planner = { type: SPACE_TYPE.planner, authority: user, skey: 'self' } as const;
+		const audit = { spaceType: SPACE_TYPE.audit, authority: root, skey: 'main' } as const;
+		const moderation = { spaceType: SPACE_TYPE.moderation, authority: root, skey: 'main' } as const;
+		const booking = { spaceType: SPACE_TYPE.booking, authority: root, skey: '3mxq3whd6gi2d' } as const;
+		const planner = { spaceType: SPACE_TYPE.planner, authority: user, skey: 'self' } as const;
 
-		expect(permissions.allowsSpace({ ...audit, action: 'create', collection: COLLECTION.auditEntry })).toBe(true);
+		expect(permissions.allowsSpace(audit, { action: 'create', collection: COLLECTION.auditEntry })).toBe(true);
 
 		for (const action of ['create', 'update', 'delete'] as const) {
-			expect(permissions.allowsSpace({ ...moderation, action, collection: COLLECTION.request })).toBe(true);
+			expect(permissions.allowsSpace(moderation, { action, collection: COLLECTION.request })).toBe(true);
 
 			for (const collection of [COLLECTION.bookingInquiry, COLLECTION.bookingMessage, COLLECTION.bookingStatus])
-				expect(permissions.allowsSpace({ ...booking, action, collection })).toBe(true);
+				expect(permissions.allowsSpace(booking, { action, collection })).toBe(true);
 
 			for (const collection of [COLLECTION.plannerSave, COLLECTION.plannerShow])
-				expect(permissions.allowsSpace({ ...planner, action, collection })).toBe(true);
+				expect(permissions.allowsSpace(planner, { action, collection })).toBe(true);
 		}
 
-		for (const manage of ['create', 'update'] as const)
-			expect(permissions.allowsSpace({ ...planner, manage })).toBe(true);
+		for (const manage of ['create', 'update'] as const) expect(permissions.allowsSpace(planner, { manage })).toBe(true);
 
 		for (const space of [audit, moderation, booking])
-			expect(permissions.allowsSpace({ ...space, action: 'read' })).toBe(false);
-		expect(permissions.allowsSpace({ ...planner, authority: 'did:plc:someoneelse', action: 'read' })).toBe(false);
+			expect(permissions.allowsSpace(space, { action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace({ ...planner, authority: 'did:plc:someoneelse' }, { action: 'read' })).toBe(false);
 		expect(
-			permissions.allowsSpace({
-				type: SPACE_TYPE.staff,
-				authority: root,
-				skey: 'main',
-				action: 'create',
-				collection: COLLECTION.staffRole
-			})
+			permissions.allowsSpace(
+				{ spaceType: SPACE_TYPE.staff, authority: root, skey: 'main' },
+				{ action: 'create', collection: COLLECTION.staffRole }
+			)
 		).toBe(false);
 	});
 
 	it("lets a DJ run their own press kit spaces, and anyone ask for access in a project's request space", () => {
 		const permissions = new ScopePermissions(granted);
-		const own = { type: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
+		const own = { spaceType: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
 		const theirs = { ...own, authority: root } as const;
-		const requests = { type: SPACE_TYPE.epkRequests, authority: root, skey: '3mproj' } as const;
+		const requests = { spaceType: SPACE_TYPE.epkRequests, authority: root, skey: '3mproj' } as const;
 		// Another DJ's own press kit space, made before the root held them.
 		const legacy = { ...own, authority: 'did:plc:other' } as const;
 
 		expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(true);
 		expect(permissions.allowsRepo({ collection: COLLECTION.project, action: 'create' })).toBe(false);
-		expect(permissions.allowsSpace({ ...own, manage: 'update' })).toBe(true);
-		expect(permissions.allowsSpace({ ...own, action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
-		expect(permissions.allowsSpace({ ...requests, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
-		expect(permissions.allowsSpace({ ...requests, action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace(own, { manage: 'update' })).toBe(true);
+		expect(permissions.allowsSpace(own, { action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
+		expect(permissions.allowsSpace(requests, { action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace(requests, { action: 'read' })).toBe(false);
 		// Not in a press kit's own space, which everyone granted the press kit reads.
-		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
-		expect(permissions.allowsSpace({ ...theirs, action: 'delete', collection: COLLECTION.epkRequest })).toBe(false);
-		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
-		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
-		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
+		expect(permissions.allowsSpace(theirs, { action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
+		expect(permissions.allowsSpace(theirs, { action: 'delete', collection: COLLECTION.epkRequest })).toBe(false);
+		expect(permissions.allowsSpace(theirs, { action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
+		expect(permissions.allowsSpace(theirs, { action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace(legacy, { action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
 	});
 
 	it("lets users keep their profile, edit their sets and draft in a performer's space", () => {
 		const permissions = new ScopePermissions(granted);
-		const performer = { type: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
+		const performer = { spaceType: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
 
 		for (const action of ['create', 'update', 'delete'] as const) {
 			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
-			// Nothing writes an RSVP yet, so sign-in doesn't ask to.
-			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(false);
-			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.epkDraft })).toBe(true);
+			expect(permissions.allowsSpace(performer, { action, collection: COLLECTION.epkDraft })).toBe(true);
 			// Only staff list a DJ, from the root account.
 			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
 			// The root keeps a performer's people.
-			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.person })).toBe(false);
+			expect(permissions.allowsSpace(performer, { action, collection: COLLECTION.person })).toBe(false);
 		}
 
 		// locallibrary makes and removes sets; the site only edits them.
 		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'update' })).toBe(true);
 		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'create' })).toBe(false);
 		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'delete' })).toBe(false);
-		expect(permissions.allowsSpace({ ...performer, action: 'read_self' })).toBe(true);
-		expect(permissions.allowsSpace({ ...performer, action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace(performer, { action: 'read_self' })).toBe(true);
+		expect(permissions.allowsSpace(performer, { action: 'read' })).toBe(false);
 	});
 
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {
@@ -192,7 +183,7 @@ describe('OAuth scopes', () => {
 		expect(SCOPES.minimal).toBe('atproto');
 	});
 
-	it('lets any account keep a profile, follow, and announce shows as calendar events, with or without spaces', () => {
+	it('lets any account keep a profile, follow, RSVP, and announce shows as calendar events, with or without spaces', () => {
 		for (const scopes of [granted, base.split(' ')]) {
 			const permissions = new ScopePermissions(scopes);
 
@@ -203,7 +194,7 @@ describe('OAuth scopes', () => {
 				expect(permissions.allowsRepo({ collection: COLLECTION.follow, action })).toBe(true);
 			expect(permissions.allowsRepo({ collection: COLLECTION.follow, action: 'update' })).toBe(false);
 
-			for (const collection of [COLLECTION.show, CALENDAR_EVENT])
+			for (const collection of [COLLECTION.show, CALENDAR_EVENT, CALENDAR_RSVP])
 				for (const action of ['create', 'update', 'delete'] as const)
 					expect(permissions.allowsRepo({ collection, action })).toBe(true);
 			expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(scopes === granted);
@@ -212,7 +203,7 @@ describe('OAuth scopes', () => {
 
 	it('counts a grant from before shows and follows as one with spaces, which lacks only those writes', () => {
 		// What the PDS grants from the permission set as it was, or from one it hasn't fetched again yet.
-		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.(event|rsvp)/.test(scope);
 		const before = granted.filter((scope) => !publicRecords(scope)).join(' ');
 
 		expect(grantsSpaces(before, user, root)).toBe(true);
@@ -229,16 +220,16 @@ describe('OAuth scopes', () => {
 		const elsewhere = 'did:plc:elsewhere';
 
 		const writes = [
-			{ type: SPACE_TYPE.audit, skey: 'main', collection: COLLECTION.auditEntry },
-			{ type: SPACE_TYPE.moderation, skey: 'main', collection: COLLECTION.request },
-			{ type: SPACE_TYPE.booking, skey: '3mxq3whd6gi2d', collection: COLLECTION.bookingInquiry },
-			{ type: SPACE_TYPE.backstage, skey: '3mabc', collection: COLLECTION.epkDraft },
-			{ type: SPACE_TYPE.epkRequests, skey: '3mproj', collection: COLLECTION.epkRequest }
+			{ spaceType: SPACE_TYPE.audit, skey: 'main', collection: COLLECTION.auditEntry },
+			{ spaceType: SPACE_TYPE.moderation, skey: 'main', collection: COLLECTION.request },
+			{ spaceType: SPACE_TYPE.booking, skey: '3mxq3whd6gi2d', collection: COLLECTION.bookingInquiry },
+			{ spaceType: SPACE_TYPE.backstage, skey: '3mabc', collection: COLLECTION.epkDraft },
+			{ spaceType: SPACE_TYPE.epkRequests, skey: '3mproj', collection: COLLECTION.epkRequest }
 		] as const;
 
-		for (const write of writes) {
-			expect(permissions.allowsSpace({ ...write, authority: root, action: 'create' })).toBe(true);
-			expect(permissions.allowsSpace({ ...write, authority: elsewhere, action: 'create' })).toBe(false);
+		for (const { collection, ...space } of writes) {
+			expect(permissions.allowsSpace({ ...space, authority: root }, { action: 'create', collection })).toBe(true);
+			expect(permissions.allowsSpace({ ...space, authority: elsewhere }, { action: 'create', collection })).toBe(false);
 		}
 
 		// What a PDS grants from another network's set, whose root is someone else, isn't this network's grant.
@@ -269,7 +260,7 @@ describe('OAuth scopes', () => {
 		expect(grantsPublicRecords(before, user, root)).toBe(false);
 
 		// Every space write it had is still needed, drafts in a project's backstage included.
-		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.(event|rsvp)/.test(scope);
 
 		for (const dropped of held.filter((scope) => !publicRecords(scope)))
 			expect(grantsSpaces(held.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
@@ -288,7 +279,21 @@ describe('OAuth scopes', () => {
 
 		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
 		expect(new Set(declared).size).toBe(declared.length);
-		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(false);
+	});
+
+	it('keeps a grant from before RSVPs signed in, and has its first RSVP ask for a fresh sign-in', () => {
+		const rsvps = (scope: string) => scope.includes(CALENDAR_RSVP);
+		const before = granted.filter((scope) => !rsvps(scope)).join(' ');
+
+		expect(granted.filter(rsvps)).toHaveLength(1);
+		// Still spaces-capable, so nobody is signed out at deploy.
+		expect(grantsSpaces(before, user, root)).toBe(true);
+		// The PDS refuses the RSVP write, which writeOwn turns into "Sign in again"; that sign-in asks for `full` again.
+		expect(new ScopePermissions(before.split(' ')).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(
+			false
+		);
+		expect(grantsPublicRecords(before, user, root)).toBe(false);
+		expect(grantsAll(before, full, user, root)).toBe(false);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {

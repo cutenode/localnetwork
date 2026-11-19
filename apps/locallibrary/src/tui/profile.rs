@@ -1,7 +1,7 @@
-//! The Profile view: what the DJ's sets, collection and settings say about how they play, and
-//! the part of it a public profile would show. Choices (sections, pinned and hidden tracks,
-//! rounding) are saved to the store as they're made, and the document follows at once; only a
-//! rebuild (`R`, or changing scope) reads the drives again.
+//! The localnetwork view: the sections of the DJ profile that can be published (what the
+//! collection and the sets say), and which of them the document holds. Choices (sections, hidden
+//! artists, rounding) are saved to the store as they're made, and the document follows at once;
+//! only a rebuild (`R`) reads the drives again.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,12 +10,11 @@ use std::sync::mpsc::Sender;
 
 use locallibrary::Store;
 use locallibrary::api::{self, ProfileRequest, ProfileView};
-use locallibrary::profile::{self, Basis, Precision, PrefsUpdate, ProfileReport, RankedSection, Section};
+use locallibrary::profile::{Basis, Precision, PrefsUpdate, ProfileReport, RankedSection, Section};
 use locallibrary::progress::{CancelToken, Ctx, Event};
 use ratatui::Frame;
 use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
 
@@ -23,17 +22,14 @@ use super::account::Account;
 use super::app::{App, Level, Msg};
 use super::icons;
 use super::keymap::Act;
-use super::theme::{self, bold, dim, faint, fg, rgb3, text};
+use super::theme::{self, bold, dim, faint, fg, text};
 use super::ui::{Scrolled, block, pane_title, title};
 use crate::output::{BLOCKS, bar, opt_pct, pct, plural};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Scope {
-    /// Every mounted drive and the store.
-    Everything,
-    /// One drive (and the store's archive of its library).
-    Drive(PathBuf, String),
-}
+/// The sections the view lists: the ones that can be published ([`Section::publishable`]).
+/// What only describes plays (tempo, keys, mixing…) stays out of this view.
+pub const SECTIONS: [Section; 6] =
+    [Section::Sets, Section::Energy, Section::Genres, Section::Artists, Section::Era, Section::Collection];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -49,7 +45,9 @@ pub struct ProfileTab {
     /// Analysis files read so far, and how many there are.
     progress: Arc<[AtomicU64; 2]>,
     generation: u64,
-    pub scope: Scope,
+    /// Read only this drive (and the store's archive of it), not every drive and the store. The
+    /// player never sets it; tests do, so they don't read the drives of the machine running them.
+    pub only_drive: Option<PathBuf>,
     pub pane: Pane,
     pub sections: ListState,
     pub rows: TableState,
@@ -70,7 +68,7 @@ impl ProfileTab {
             cancel: None,
             progress: Arc::new([AtomicU64::new(0), AtomicU64::new(0)]),
             generation: 0,
-            scope: Scope::Everything,
+            only_drive: None,
             pane: Pane::Sections,
             sections: ListState::default().with_selected(Some(0)),
             rows: TableState::default(),
@@ -106,7 +104,7 @@ impl ProfileTab {
     }
 
     fn section(&self) -> Section {
-        Section::ALL[self.sections.selected().unwrap_or(0).min(Section::ALL.len() - 1)]
+        SECTIONS[self.sections.selected().unwrap_or(0).min(SECTIONS.len() - 1)]
     }
 
     fn report(&self) -> Option<&ProfileReport> {
@@ -121,9 +119,7 @@ impl ProfileTab {
         let Some(r) = self.report() else { return 0 };
         match self.section() {
             Section::Sets => r.sets.list.len(),
-            Section::Signature => r.signature.played.len(),
             Section::Genres => r.genres.top.len(),
-            Section::Labels => r.labels.top.len(),
             Section::Artists => r.artists.top.len(),
             _ => 0,
         }
@@ -139,7 +135,7 @@ impl ProfileTab {
     }
 
     fn select_section(&mut self, i: usize) {
-        let i = i.min(Section::ALL.len() - 1);
+        let i = i.min(SECTIONS.len() - 1);
         if self.sections.selected() != Some(i) {
             self.sections.select(Some(i));
             self.rows = TableState::default();
@@ -155,7 +151,7 @@ impl ProfileTab {
         match self.pane {
             Pane::Sections => {
                 let cur = self.sections.selected().unwrap_or(0) as isize;
-                self.select_section((cur + delta).clamp(0, Section::ALL.len() as isize - 1) as usize);
+                self.select_section((cur + delta).clamp(0, SECTIONS.len() as isize - 1) as usize);
             }
             Pane::Detail => {
                 let n = self.detail_len();
@@ -193,9 +189,9 @@ pub fn refresh(app: &mut App) {
     t.loading = true;
     t.progress[0].store(0, Ordering::Relaxed);
     t.progress[1].store(0, Ordering::Relaxed);
-    let req = match &t.scope {
-        Scope::Everything => ProfileRequest::default(),
-        Scope::Drive(path, _) => ProfileRequest { drives: vec![path.display().to_string()], ..Default::default() },
+    let req = match &t.only_drive {
+        None => ProfileRequest::default(),
+        Some(path) => ProfileRequest { drives: vec![path.display().to_string()], ..Default::default() },
     };
     let tx = t.tx.clone();
     let progress = t.progress.clone();
@@ -304,23 +300,6 @@ pub fn perform(app: &mut App, act: Act) {
             t.scroll = 0;
         }
         Act::ProfileWrite => export(app),
-        Act::ProfileScope => {
-            let next = match (&app.profile.scope, &app.loaded) {
-                (Scope::Everything, Some(l)) => Scope::Drive(l.root().to_path_buf(), l.device.name()),
-                (Scope::Everything, None) => {
-                    app.toast("open a drive in the library first", Level::Info);
-                    return;
-                }
-                (Scope::Drive(..), _) => Scope::Everything,
-            };
-            let label = match &next {
-                Scope::Everything => "every drive and the store".to_string(),
-                Scope::Drive(_, name) => format!("{name} only"),
-            };
-            app.profile.scope = next;
-            refresh(app);
-            app.toast(format!("profile from {label}"), Level::Info);
-        }
         Act::ProfileInclude => {
             let t = &app.profile;
             let Some(Ok(v)) = &t.view else { return };
@@ -350,57 +329,27 @@ pub fn perform(app: &mut App, act: Act) {
                 format!("{name} numbers in the document"),
             );
         }
-        Act::ProfilePin => track_action(app, 'm'),
-        Act::ProfileHide => track_action(app, 'h'),
-        Act::ProfileHideArtist => track_action(app, 'H'),
+        Act::ProfileHideArtist => hide_artist(app),
         Act::ProfileAccount => super::account::press(app),
         _ => {}
     }
 }
 
-/// Pin or hide the selected track, or hide an artist.
-fn track_action(app: &mut App, c: char) {
+/// Hide the selected artist under Artists, or name them again.
+fn hide_artist(app: &mut App) {
     let t = &app.profile;
     let Some(Ok(v)) = &t.view else { return };
     let row = t.rows.selected().filter(|_| t.pane == Pane::Detail);
-    let p = &v.prefs;
-    let update = match (t.section(), row) {
-        (Section::Signature, Some(i)) => {
-            let Some(track) = v.report.signature.played.get(i) else { return };
-            match c {
-                'm' if p.is_pinned(&track.name) => (
-                    PrefsUpdate { unpin: vec![track.name.clone()], ..Default::default() },
-                    format!("unpinned {}", track.name),
-                ),
-                'm' => (
-                    PrefsUpdate { pin: vec![track.name.clone()], ..Default::default() },
-                    format!("pinned {}", track.name),
-                ),
-                'h' if p.is_hidden_track(&track.name) => (
-                    PrefsUpdate { unhide: vec![track.name.clone()], ..Default::default() },
-                    format!("{} can be named again", track.name),
-                ),
-                'h' => (
-                    PrefsUpdate { hide: vec![track.name.clone()], ..Default::default() },
-                    format!("{} won't be named", track.name),
-                ),
-                _ => artist_toggle(p, &track.artist),
-            }
-        }
-        (Section::Artists, Some(i)) if c != 'm' => {
-            let Some(a) = v.report.artists.top.get(i) else { return };
-            artist_toggle(p, &a.name)
-        }
-        _ => {
-            let msg = match c {
-                'm' => "select a track under Signature tracks (tab) to pin it",
-                _ => "select a track under Signature tracks, or an artist under Artists (tab), to hide it",
-            };
-            app.toast(msg, Level::Info);
-            return;
-        }
+    let artist = match (t.section(), row) {
+        (Section::Artists, Some(i)) => v.report.artists.top.get(i),
+        _ => None,
     };
-    change(app, update.0, update.1);
+    let Some(a) = artist else {
+        app.toast("select an artist under Artists (tab) to hide them", Level::Info);
+        return;
+    };
+    let (update, msg) = artist_toggle(&v.prefs, &a.name);
+    change(app, update, msg);
 }
 
 fn artist_toggle(p: &locallibrary::profile::ProfilePrefs, artist: &str) -> (PrefsUpdate, String) {
@@ -434,7 +383,7 @@ pub fn on_mouse(app: &mut App, m: MouseEvent) -> bool {
         MouseEventKind::Down(MouseButton::Left) if in_sections => {
             t.pane = Pane::Sections;
             let row = m.row.saturating_sub(t.sections_area.y + 1) as usize + t.sections.offset();
-            if m.row > t.sections_area.y && row < Section::ALL.len() {
+            if m.row > t.sections_area.y && row < SECTIONS.len() {
                 t.select_section(row);
             }
         }
@@ -512,34 +461,35 @@ fn note(s: impl Into<String>) -> Line<'static> {
 /// One-line digest of each section for the section list.
 fn stat(r: &ProfileReport, s: Section) -> String {
     match s {
-        Section::Summary => format!("{} traits", r.summary.tags.len()),
         Section::Sets => r.sets.count.to_string(),
-        Section::Tempo => r.tempo.core.map(|c| format!("{}–{}", c.low.round(), c.high.round())).unwrap_or_default(),
-        Section::Arc => {
-            if r.arc.sets == 0 {
-                String::new()
-            } else if r.arc.builds >= 0.5 {
-                "builds".into()
-            } else if r.arc.steady >= 0.5 {
-                "steady".into()
-            } else if r.arc.winds_down >= 0.5 {
-                "winds down".into()
-            } else {
-                "varies".into()
-            }
-        }
-        Section::Mixing => r.mixing.harmonic_share.map(|h| format!("{} key", pct(h))).unwrap_or_default(),
-        Section::Keys => r.keys.top.first().map(|k| k.name.clone()).unwrap_or_default(),
         Section::Energy => r.energy.as_ref().map(|e| format!("{} high", pct(e.high))).unwrap_or_default(),
         Section::Genres => r.genres.top.first().map(|g| g.name.clone()).unwrap_or_default(),
-        Section::Labels => r.labels.distinct.to_string(),
         Section::Artists => r.artists.distinct.to_string(),
         Section::Era => r.era.median_year.map(|y| y.to_string()).unwrap_or_default(),
-        Section::Signature => r.signature.tracks.len().to_string(),
-        Section::Prep => r.prep.as_ref().map(|p| pct(p.hot_cue_share)).unwrap_or_default(),
         Section::Collection => r.collection.tracks.to_string(),
-        Section::Style => r.style.as_ref().map(|s| s.values.len().to_string()).unwrap_or_default(),
+        _ => String::new(),
     }
+}
+
+/// The line at the top: an overview of the collection (and how many sets), counted as the
+/// sections count it. It's for the DJ; the document has no summary.
+fn overview(r: &ProfileReport) -> String {
+    let mut parts = vec![plural(r.collection.tracks, "track")];
+    if r.genres.distinct > 0 {
+        parts.push(plural(r.genres.distinct, "genre"));
+    }
+    if r.artists.distinct > 0 {
+        parts.push(plural(r.artists.distinct, "artist"));
+    }
+    match (r.era.oldest, r.era.newest) {
+        (Some(a), Some(b)) if a != b => parts.push(format!("released {a}–{b}")),
+        (Some(a), _) => parts.push(format!("released {a}")),
+        _ => {}
+    }
+    if r.basis != Basis::Collection && r.sets.count > 0 {
+        parts.push(plural(r.sets.count, r.basis.unit()));
+    }
+    parts.join(" · ")
 }
 
 pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
@@ -564,10 +514,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
                 _ => vec![
                     Line::raw(""),
                     Line::styled(status.unwrap_or_else(|| "Building profile…".into()), bold(theme::current().text)),
-                    Line::styled(
-                        "Reading sets, history lists, tags and analysis from your drives and the store",
-                        dim(),
-                    ),
+                    Line::styled("Reading your collection, its analysis and your sets", dim()),
                 ],
             };
             let p = Paragraph::new(lines).alignment(Alignment::Center).block(block(title("Profile", true), true));
@@ -578,53 +525,14 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         }
     };
     let r = &v.report;
-    let [top, main] = Layout::vertical([Constraint::Length(5), Constraint::Min(0)]).areas(area);
+    let [top, main] = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
 
-    // Summary.
-    let scope = match &t.scope {
-        Scope::Everything => "every drive and the store".to_string(),
-        Scope::Drive(_, name) => format!("{name} only"),
-    };
-    let headline = v.prefs.headline.clone().unwrap_or_else(|| r.summary.headline.clone());
-    let mut tags: Vec<Span<'static>> = Vec::new();
-    for tag in &r.summary.tags {
-        tags.push(Span::styled(icons::CHECK.spaced(), bold(theme::current().good)));
-        tags.push(Span::styled(format!("{}  ", tag.label), text()));
-    }
-    if tags.is_empty() {
-        tags.push(Span::styled("no traits stand out yet (more sets will tell)", dim()));
-    }
-    let sources: Vec<&str> = r.sources.iter().map(|s| s.name.as_str()).collect();
-    let basis = match r.basis {
-        Basis::Plays => format!("{} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "set")),
-        Basis::Sessions => {
-            format!("no sets declared: {} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "session"))
-        }
-        Basis::Collection => "no sets: from the collection".to_string(),
-    };
-    let rounding = match v.prefs.precision {
-        Precision::Rounded => "rounded",
-        Precision::Exact => "exact",
-    };
-    let mut info = vec![Span::styled(
-        format!(
-            "{} · {basis} · document: {} of {} sections, {rounding}",
-            sources.join(", "),
-            v.published.iter().filter(|s| r.basis.publishes(**s)).count(),
-            Section::ALL.len()
-        ),
-        dim(),
-    )];
+    // The overview.
+    let mut head = vec![Span::styled(overview(r), bold(theme::current().info))];
     if let Some(s) = status {
-        info.push(Span::styled(format!("  {} {s}", icons::BUSY.get()), fg(theme::current().info)));
+        head.push(Span::styled(format!("  {} {s}", icons::BUSY.get()), fg(theme::current().info)));
     }
-    let mut head = vec![Span::styled(headline, bold(theme::current().info))];
-    if v.prefs.headline.is_some() {
-        head.push(Span::styled("  (your headline)", faint()));
-    }
-    let summary = Paragraph::new(vec![Line::from(head), Line::from(tags), Line::from(info)])
-        .block(block(title(&format!("Profile · {scope}"), false), false))
-        .wrap(Wrap { trim: true });
+    let summary = Paragraph::new(Line::from(head)).block(block(title("Profile", false), false));
     f.render_widget(summary, top);
 
     // Sections.
@@ -633,7 +541,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     t.detail_area = detail;
     let focused = t.pane == Pane::Sections && !t.document;
     let inner_w = side.width.saturating_sub(3) as usize;
-    let items: Vec<ListItem> = Section::ALL
+    let items: Vec<ListItem> = SECTIONS
         .iter()
         .map(|&s| {
             let on = v.published.contains(&s) && r.basis.publishes(s);
@@ -642,7 +550,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
             } else {
                 Span::styled(icons::RING.spaced(), faint())
             };
-            // The stat can be user text (the top genre or key): it gets half the column at most.
+            // The stat can be user text (the top genre): it gets half the column at most.
             let st = super::ui::clip(&stat(r, s), inner_w / 2);
             let name_w = inner_w.saturating_sub(unicode_width::UnicodeWidthStr::width(st.as_str()) + 3).max(4);
             ListItem::new(Line::from(vec![
@@ -656,14 +564,14 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         .block(block(pane_title(1, "Sections", focused), focused))
         .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
-    t.sections.fit(side.height.saturating_sub(2) as usize, Section::ALL.len());
+    t.sections.fit(side.height.saturating_sub(2) as usize, SECTIONS.len());
     f.render_stateful_widget(list, side, &mut t.sections);
 
     if t.document {
         draw_document(f, v, t.scroll, detail);
         return;
     }
-    let section = Section::ALL[t.sections.selected().unwrap_or(0).min(Section::ALL.len() - 1)];
+    let section = t.section();
     let on = v.published.contains(&section);
     let state = if on && r.basis.publishes(section) {
         Span::styled(" in the document ", fg(theme::current().good))
@@ -681,61 +589,27 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         (true, true) => "Published, this shows ",
         (true, false) => "Published, this would show ",
     };
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(format!(" {reveal_text}"), faint()),
-            Span::styled(section.reveals().to_string(), dim()),
-            Span::styled("   i ", theme::key()),
-            Span::styled(if on { "leave out" } else { "include" }, faint()),
-        ]))
-        .wrap(Wrap { trim: true }),
-        reveal,
-    );
+    let spans = vec![
+        Span::styled(format!(" {reveal_text}"), faint()),
+        Span::styled(section.reveals().to_string(), dim()),
+        Span::styled("   i ", theme::key()),
+        Span::styled(if on { "leave out" } else { "include" }, faint()),
+    ];
+    f.render_widget(Paragraph::new(Line::from(spans)).wrap(Wrap { trim: true }), reveal);
     let body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
     let w = body.width as usize;
     let lines: Vec<Line<'static>> = match section {
-        Section::Summary => summary_lines(v),
         Section::Sets => return draw_sets(f, r, &mut t.rows, detail_focused, body),
-        Section::Tempo => tempo_lines(r, w),
-        Section::Arc => arc_lines(r, w),
-        Section::Mixing => mixing_lines(r, w),
-        Section::Keys => keys_lines(r, w),
         Section::Energy => energy_lines(r, w),
-        Section::Genres | Section::Labels | Section::Artists => {
+        Section::Genres | Section::Artists => {
             return draw_ranked(f, v, section, &mut t.rows, detail_focused, body);
         }
         Section::Era => era_lines(r, w),
-        Section::Signature => return draw_signature(f, v, &mut t.rows, detail_focused, body),
-        Section::Prep => prep_lines(r, w),
         Section::Collection => collection_lines(r),
-        Section::Style => style_lines(r),
+        // Not in SECTIONS.
+        _ => Vec::new(),
     };
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
-}
-
-fn summary_lines(v: &ProfileView) -> Vec<Line<'static>> {
-    let r = &v.report;
-    let mut lines = vec![Line::styled(r.summary.headline.clone(), bold(theme::current().text))];
-    if let Some(h) = &v.prefs.headline {
-        lines.push(Line::from(vec![
-            Span::styled("Your headline: ", dim()),
-            Span::styled(h.clone(), bold(theme::current().info)),
-        ]));
-    } else {
-        lines.push(note("Your own: locallibrary profile headline \"…\""));
-    }
-    lines.push(Line::raw(""));
-    if r.summary.tags.is_empty() {
-        lines.push(note("No trait stands out yet. Traits need evidence: 20+ transitions, 3+ sets, 20+ dated plays."));
-    }
-    for t in &r.summary.tags {
-        lines.push(Line::from(vec![
-            Span::styled(icons::CHECK.spaced(), bold(theme::current().good)),
-            Span::styled(t.label.clone(), bold(theme::current().text)),
-        ]));
-        lines.push(Line::styled(format!("  {}", t.why), dim()));
-    }
-    lines
 }
 
 fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: bool, area: Rect) {
@@ -816,183 +690,13 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
     f.render_stateful_widget(t, table, rows);
 }
 
-fn tempo_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
-    let t = &r.tempo;
-    let (Some(core), Some(median)) = (t.core, t.median) else {
-        return vec![note("No BPMs: tracks need rekordbox's analysis.")];
-    };
-    let (lo, hi) = (core.low, core.high);
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(profile::bpm_range(lo, hi), bold(theme::current().info)),
-            Span::styled(
-                format!(
-                    " in the middle 80% · median {median:.1} · half between {:.1} and {:.1}",
-                    t.p25.unwrap_or(median),
-                    t.p75.unwrap_or(median)
-                ),
-                text(),
-            ),
-        ]),
-        Line::raw(""),
-    ];
-    let n = t.histogram.len().max(1);
-    let col_w = (w / n).clamp(2, 6);
-    let values: Vec<Option<f64>> = t.histogram.iter().map(|b| Some(b.count as f64)).collect();
-    let core = |i: usize| {
-        let start = t.histogram[i].bpm;
-        if start + t.bin_width > lo && start <= hi { theme::current().info } else { theme::current().faint }
-    };
-    lines.extend(columns(&values, 0.0, 8, col_w, core));
-    // Labels under every column that has room.
-    let every = (5 / col_w).max(1);
-    let labels: String = t
-        .histogram
-        .iter()
-        .enumerate()
-        .map(|(i, b)| {
-            let label = if i % every == 0 { format!("{:.0}", b.bpm) } else { String::new() };
-            fit(&label, col_w).chars().take(col_w).collect::<String>()
-        })
-        .collect();
-    lines.push(Line::styled(labels, dim()));
-    lines.push(note(format!("BPM, {:.0} per column · cyan: the middle 80%", t.bin_width)));
-    lines
-}
-
-fn arc_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
-    let a = &r.arc;
-    let unit = r.basis.unit();
-    if a.sets == 0 {
-        return vec![note(format!("Needs {unit}s of 6 or more tracks with BPMs."))];
-    }
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(
-                format!("{:.1} → {:.1} BPM", a.opening_bpm.unwrap_or(0.0), a.closing_bpm.unwrap_or(0.0)),
-                bold(theme::current().info),
-            ),
-            Span::styled(format!("  opening and closing quarter, averaged over {}", plural(a.sets, unit)), text()),
-        ]),
-        Line::raw(""),
-    ];
-    let bw = w.saturating_sub(20).clamp(10, 40);
-    lines.push(bar_line("builds", 12, a.builds, bw, theme::current().good, pct(a.builds)));
-    lines.push(bar_line("steady", 12, a.steady, bw, theme::current().info, pct(a.steady)));
-    lines.push(bar_line("winds down", 12, a.winds_down, bw, theme::current().warning, pct(a.winds_down)));
-    lines.push(Line::raw(""));
-    let lo = a.curve.iter().flatten().copied().fold(f64::INFINITY, f64::min);
-    if lo.is_finite() {
-        let col_w = (w / 10).clamp(3, 8);
-        lines.extend(columns(&a.curve, lo - 0.5, 6, col_w, |_| theme::current().secondary));
-        let mut axis = fit("start", col_w * 5);
-        axis.push_str(&format!("{:>width$}", "end", width = col_w * 5 - 1));
-        lines.push(Line::styled(axis, dim()));
-        let hi = a.curve.iter().flatten().copied().fold(f64::NEG_INFINITY, f64::max);
-        lines.push(note(format!("BPM against each {unit}'s median, through a {unit}: {lo:+.1} to {hi:+.1}")));
-    }
-    lines
-}
-
-fn mixing_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
-    let m = &r.mixing;
-    if m.transitions == 0 {
-        return vec![note(format!("Needs {}s.", r.basis.unit()))];
-    }
-    let mut lines = Vec::new();
-    if m.keyed > 0 {
-        lines.push(Line::from(vec![
-            Span::styled(opt_pct(m.harmonic_share), bold(theme::current().info)),
-            Span::styled(format!(" of {} transitions between keyed tracks are harmonic", m.keyed), text()),
-        ]));
-        lines.push(Line::raw(""));
-        let parts = [
-            ("same key", m.same_key, theme::current().good),
-            ("±1", m.adjacent, theme::current().info),
-            ("relative", m.relative, theme::current().secondary),
-            ("energy boost", m.energy_boost, theme::current().warning),
-            ("clash", m.clash, theme::current().critical),
-        ];
-        let width = w.clamp(10, 60);
-        let mut stacked = Vec::new();
-        let mut used = 0;
-        for (i, (_, n, c)) in parts.iter().enumerate() {
-            let cells = if i == parts.len() - 1 {
-                width - used
-            } else {
-                ((*n as f64 / m.keyed as f64) * width as f64).round() as usize
-            };
-            let cells = cells.min(width - used);
-            used += cells;
-            stacked.push(Span::styled("█".repeat(cells), fg(*c)));
-        }
-        lines.push(Line::from(stacked));
-        let legend: Vec<Span<'static>> = parts
-            .iter()
-            .flat_map(|(name, n, c)| {
-                [Span::styled(icons::SQUARE.spaced(), fg(*c)), Span::styled(format!("{name} {n}   "), dim())]
-            })
-            .collect();
-        lines.push(Line::from(legend));
-        lines.push(Line::raw(""));
-    }
-    if m.timed > 0 {
-        lines.push(Line::styled(
-            format!(
-                "Tempo steps: median {:.1}% · {} within 3% · {} within 6%{}",
-                m.median_step_pct.unwrap_or(0.0),
-                opt_pct(m.within_3pct),
-                opt_pct(m.within_6pct),
-                if m.half_double > 0 { format!(" · {} at half or double time", m.half_double) } else { String::new() }
-            ),
-            text(),
-        ));
-    }
-    if m.genred > 0 {
-        lines.push(Line::styled(format!("{} of transitions change genre", opt_pct(m.genre_change_share)), text()));
-    }
-    lines
-}
-
-fn keys_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
-    let k = &r.keys;
-    if k.tracks == 0 {
-        return vec![note("No keys: tracks need rekordbox's analysis.")];
-    }
-    let cell = (w.saturating_sub(3) / 12).clamp(3, 6);
-    let max = k.wheel.iter().map(|x| x.count).max().unwrap_or(1).max(1);
-    let mut lines = vec![Line::from(
-        std::iter::once(Span::raw("   "))
-            .chain((1..=12).map(|n| Span::styled(format!("{n:^cell$}"), dim())))
-            .collect::<Vec<_>>(),
-    )];
-    for (row, letter) in [(0usize, "A"), (1, "B")] {
-        let mut spans = vec![Span::styled(format!(" {letter} "), dim())];
-        for n in 0..12 {
-            let count = k.wheel[n * 2 + row].count;
-            let t = count as f32 / max as f32;
-            let bg = theme::mix(theme::current().idle, theme::current().info, t.sqrt());
-            let fgc = theme::ink_on(bg);
-            let label = if count == 0 { "·".to_string() } else { count.to_string() };
-            spans.push(Span::styled(format!("{label:^cell$}"), Style::new().bg(rgb3(bg)).fg(rgb3(fgc))));
-        }
-        lines.push(Line::from(spans));
-    }
-    lines.push(note("   A: minor keys · B: major keys · neighbours on the wheel mix"));
-    lines.push(Line::raw(""));
-    let top: Vec<String> = k.top.iter().take(5).map(|s| format!("{} {}", s.name, pct(s.share))).collect();
-    lines.push(Line::styled(format!("Most played: {}", top.join(" · ")), text()));
-    lines.push(Line::styled(format!("Minor keys: {}", opt_pct(k.minor_share)), text()));
-    lines
-}
-
 fn energy_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let Some(e) = &r.energy else {
         return vec![note("No phrase analysis read: it needs the drives' analysis files.")];
     };
     let bw = w.saturating_sub(16).clamp(10, 40);
     let mut lines = vec![
-        note(format!("rekordbox's phrase-analysis mood, {} tracks", e.tracks)),
+        note(format!("rekordbox's phrase-analysis mood, {} tracks in your collection", e.tracks)),
         Line::raw(""),
         bar_line("high", 6, e.high, bw, theme::current().accent, pct(e.high)),
         bar_line("mid", 6, e.mid, bw, theme::current().secondary, pct(e.mid)),
@@ -1012,15 +716,8 @@ fn energy_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
 
 fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState, focused: bool, area: Rect) {
     let r = &v.report;
-    let ranked: &RankedSection = match s {
-        Section::Genres => &r.genres,
-        Section::Labels => &r.labels,
-        _ => &r.artists,
-    };
-    let noun = match r.basis {
-        Basis::Plays | Basis::Sessions => "plays",
-        Basis::Collection => "tracks",
-    };
+    let ranked: &RankedSection = if s == Section::Genres { &r.genres } else { &r.artists };
+    let noun = "tracks in your collection";
     let hint = match s {
         Section::Artists => " · h hides an artist everywhere",
         Section::Genres => " · locallibrary profile alias spells a genre your way",
@@ -1042,11 +739,7 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
         .iter()
         .map(|x| {
             let hidden = s == Section::Artists && v.prefs.is_hidden_artist(&x.name);
-            let color = match s {
-                Section::Genres => theme::current().info,
-                Section::Labels => theme::current().warning,
-                _ => theme::current().secondary,
-            };
+            let color = if s == Section::Genres { theme::current().info } else { theme::current().secondary };
             Row::new(vec![
                 Cell::from(Span::styled(x.name.clone(), if hidden { faint() } else { text() })),
                 Cell::from(Span::styled(
@@ -1085,10 +778,11 @@ fn era_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
             Span::styled(format!("median {}", e.median_year.unwrap_or(0)), bold(theme::current().info)),
             Span::styled(
                 format!(
-                    " ({}–{}) · {} released the year played or the year before",
+                    " ({}–{}) · {} released this year or last, of {} tracks in your collection",
                     e.oldest.unwrap_or(0),
                     e.newest.unwrap_or(0),
-                    opt_pct(e.recent_share)
+                    opt_pct(e.recent_share),
+                    e.tracks
                 ),
                 text(),
             ),
@@ -1110,128 +804,6 @@ fn era_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     lines
 }
 
-fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused: bool, area: Rect) {
-    let r = &v.report;
-    let s = &r.signature;
-    let p = &v.prefs;
-    let unit = r.basis.unit();
-    let moves = s.transitions.len().min(4);
-    let [h, table, foot] = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(3),
-        Constraint::Length(if moves > 0 { moves as u16 + 1 } else { 0 }),
-    ])
-    .areas(area);
-    f.render_widget(
-        Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled(format!("{} pinned ", icons::STAR.get()), fg(theme::current().warning)),
-                Span::styled(format!("tracks lead the document's list, then those in the most {unit}s. "), dim()),
-                Span::styled("m", theme::key()),
-                Span::styled(" pin  ", dim()),
-                Span::styled("h", theme::key()),
-                Span::styled(" hide  ", dim()),
-                Span::styled("H", theme::key()),
-                Span::styled(" hide artist", dim()),
-            ]),
-            note(format!(
-                "{} tracks played · {} in two or more of {} {unit}s",
-                s.played.len(),
-                s.tracks.len(),
-                r.sets.count
-            )),
-        ]),
-        h,
-    );
-    let data: Vec<Row> = s
-        .played
-        .iter()
-        .map(|t| {
-            let (mark, mark_style) = if !p.may_name(&t.name, &t.artist) {
-                (icons::BLOCKED.get(), fg(theme::current().critical))
-            } else if p.is_pinned(&t.name) {
-                (icons::STAR.get(), fg(theme::current().warning))
-            } else if t.sets >= 2 {
-                (icons::BULLET.get(), fg(theme::current().good))
-            } else {
-                (" ", faint())
-            };
-            let name_style = if !p.may_name(&t.name, &t.artist) { faint() } else { text() };
-            Row::new(vec![
-                Cell::from(Span::styled(mark, mark_style)),
-                Cell::from(Line::styled(t.sets.to_string(), text()).right_aligned()),
-                Cell::from(Line::styled(t.plays.to_string(), dim()).right_aligned()),
-                Cell::from(
-                    Line::styled(if t.opened > 0 { t.opened.to_string() } else { String::new() }, dim())
-                        .right_aligned(),
-                ),
-                Cell::from(
-                    Line::styled(if t.closed > 0 { t.closed.to_string() } else { String::new() }, dim())
-                        .right_aligned(),
-                ),
-                Cell::from(Span::styled(t.name.clone(), name_style)),
-            ])
-        })
-        .collect();
-    let in_how_many = if r.basis == Basis::Sessions { "Sessions" } else { "Sets" };
-    let header = ["", in_how_many, "Plays", "Opened", "Closed", "Track"];
-    let t = Table::new(
-        data,
-        [
-            Constraint::Length(1),
-            Constraint::Length(in_how_many.len() as u16),
-            Constraint::Length(5),
-            Constraint::Length(6),
-            Constraint::Length(6),
-            Constraint::Fill(1),
-        ],
-    )
-    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
-    .column_spacing(1)
-    .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
-    .highlight_symbol(Span::styled(
-        icons::SELECTED.get(),
-        fg(if focused { theme::current().accent } else { theme::current().faint }),
-    ));
-    rows.fit(table.height.saturating_sub(1) as usize, s.played.len());
-    f.render_stateful_widget(t, table, rows);
-    if moves > 0 {
-        let mut lines = vec![note("Moves played again and again")];
-        for m in s.transitions.iter().take(moves) {
-            lines.push(Line::from(vec![
-                Span::styled(format!("{:>2}× ", m.sets), fg(theme::current().warning)),
-                Span::styled(format!("{} → {}", m.from, m.to), text()),
-            ]));
-        }
-        f.render_widget(Paragraph::new(lines), foot);
-    }
-}
-
-fn prep_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
-    let Some(p) = &r.prep else {
-        return vec![note("No cues read: it needs the drives' analysis files.")];
-    };
-    let bw = w.saturating_sub(24).clamp(10, 40);
-    vec![
-        note(format!("Cues across {} tracks in the collection", p.tracks)),
-        Line::raw(""),
-        bar_line(
-            "hot cues",
-            12,
-            p.hot_cue_share,
-            bw,
-            theme::current().hot_cue,
-            format!(
-                "{}{}",
-                pct(p.hot_cue_share),
-                p.hot_cues_per_track.map(|n| format!(" · {n:.1} each")).unwrap_or_default()
-            ),
-        ),
-        bar_line("memory cues", 12, p.memory_cue_share, bw, theme::current().memory_cue, pct(p.memory_cue_share)),
-        bar_line("loops", 12, p.loop_share, bw, theme::current().loop_cue, pct(p.loop_share)),
-    ]
-}
-
 fn collection_lines(r: &ProfileReport) -> Vec<Line<'static>> {
     let c = &r.collection;
     let row = |k: &str, v: String| Line::from(vec![Span::styled(fit(k, 20), dim()), Span::styled(v, text())]);
@@ -1251,25 +823,6 @@ fn collection_lines(r: &ProfileReport) -> Vec<Line<'static>> {
             c.duplicate_files
         )));
     }
-    lines
-}
-
-fn style_lines(r: &ProfileReport) -> Vec<Line<'static>> {
-    let Some(s) = &r.style else {
-        return vec![note("No My Settings on these drives (locallibrary settings import sets a profile).")];
-    };
-    let mut lines: Vec<Line<'static>> = s
-        .values
-        .iter()
-        .map(|v| {
-            Line::from(vec![
-                Span::styled(fit(&v.label, 22), dim()),
-                Span::styled(v.value_label.clone(), bold(theme::current().text)),
-            ])
-        })
-        .collect();
-    lines.push(Line::raw(""));
-    lines.push(note(format!("From {}", s.source)));
     lines
 }
 

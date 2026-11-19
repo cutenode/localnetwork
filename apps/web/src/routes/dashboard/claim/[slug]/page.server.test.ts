@@ -87,7 +87,7 @@ it('files the claim for review and opens the request', async () => {
 			message: 'Happy to verify by email'
 		}
 	});
-	expect(redirect).toMatchObject({ status: 303, location: `/dashboard/requests/${request.rkey}?submitted=1` });
+	expect(redirect).toMatchObject({ status: 303, location: `/dashboard/account/requests/${request.rkey}?submitted=1` });
 });
 
 it('keeps what was typed when the claim is refused', async () => {

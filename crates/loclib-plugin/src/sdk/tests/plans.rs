@@ -8,6 +8,7 @@ use std::sync::mpsc::{Sender, channel};
 use serde_json::Map;
 
 use super::*;
+use crate::test_util::absolute;
 use crate::{
     Choice, ChoiceItem, CommandAction, CommandPlan, CommandPlanAnswer, Context, HostAction, HostNotify, Suggested,
     Suggestion, Where,
@@ -68,12 +69,13 @@ fn keep(to: &str, dry_run: bool) -> Value {
 fn a_planned_command_answers_its_plan_then_runs_as_asked() {
     let (seen, requests) = channel();
     let s = greeted_with(with_keep(), keeping(seen, writes_to), &["plans"]);
-    let planned: CommandPlanAnswer = serde_json::from_value(s.call(method::RUN_COMMAND, keep("/k", true)).unwrap())
-        .expect("a dry run answers a plan");
-    let file = ExportedFile { path: "/k".into(), what: "a copy".into(), bytes: 12 };
-    let plan = CommandPlan { summary: "keep a copy at /k".into(), warnings: Vec::new(), files: vec![file] };
+    let k = absolute("k");
+    let planned: CommandPlanAnswer =
+        serde_json::from_value(s.call(method::RUN_COMMAND, keep(&k, true)).unwrap()).expect("a dry run answers a plan");
+    let file = ExportedFile { path: k.clone().into(), what: "a copy".into(), bytes: 12 };
+    let plan = CommandPlan { summary: format!("keep a copy at {k}"), warnings: Vec::new(), files: vec![file] };
     assert_eq!(planned, CommandPlanAnswer::Plan(plan));
-    let ran = s.call(method::RUN_COMMAND, keep("/k", false)).unwrap();
+    let ran = s.call(method::RUN_COMMAND, keep(&k, false)).unwrap();
     let dry: RunCommand = requests.recv().unwrap();
     let run: RunCommand = requests.recv().unwrap();
     assert_eq!(serde_json::from_value::<RunCommand>(ran["ran"].clone()).unwrap(), run);
@@ -88,7 +90,7 @@ fn a_host_that_doesnt_plan_first_cant_run_a_planned_command() {
     let (seen, requests) = channel();
     let s = greeted_with(with_keep(), keeping(seen, writes_to), &["blobs"]);
     for dry_run in [false, true] {
-        let e = s.call(method::RUN_COMMAND, keep("/k", dry_run)).unwrap_err();
+        let e = s.call(method::RUN_COMMAND, keep(&absolute("k"), dry_run)).unwrap_err();
         assert_eq!(e.kind(), Some("incompatible"), "{e:?}");
         assert!(e.message.contains("planned and confirmed first"), "{}", e.message);
     }
@@ -171,10 +173,11 @@ fn suggesting(command: &str, params: Value) -> HostNotify {
 #[test]
 fn a_plugin_suggests_one_of_its_own_commands() {
     let m = Manifest::parse(&with_keep()).unwrap();
-    let params = Map::from_iter([("to".to_string(), json!("/k"))]);
+    let k = absolute("k");
+    let params = Map::from_iter([("to".to_string(), json!(k))]);
     let keep = HostAction::Command(CommandAction { command: "keep".into(), params });
     assert_eq!(HostNotify::action("back up?", &keep).suggestion(&m), Ok(Some(Suggestion::Action(keep.clone()))));
-    assert_eq!(suggesting("keep", json!({ "to": "/k" })).suggestion(&m), Ok(Some(Suggestion::Action(keep))));
+    assert_eq!(suggesting("keep", json!({ "to": k })).suggestion(&m), Ok(Some(Suggestion::Action(keep))));
     let refused = |notice: HostNotify| notice.suggestion(&m).unwrap_err();
     let which = "it suggests the action \"command\", which it can't: ";
     assert_eq!(refused(suggesting("backup", json!({}))), format!("{which}no command \"backup\""));
@@ -218,7 +221,7 @@ fn prop_a_plan_is_its_own_answer_and_reads_back_as_one(tc: TestCase) {
 #[hegel::test(test_cases = 25)]
 fn prop_any_plan_reads_back_and_its_run_differs_only_in_dry_run(tc: TestCase) {
     let plan = plan(&tc);
-    let to = tc.draw(gs::from_regex("/[a-z]{1,6}").fullmatch(true));
+    let to = absolute(&tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)));
     static PLANNED: std::sync::Mutex<Option<CommandPlan>> = std::sync::Mutex::new(None);
     *PLANNED.lock().unwrap() = Some(plan.clone());
     let (seen, requests) = channel();
@@ -247,7 +250,7 @@ fn prop_a_planned_command_runs_only_where_its_planned_first(tc: TestCase) {
     };
     let (seen, requests) = channel();
     let s = greeted_with(manifest, keeping(seen, writes_to), if plans_first { &["plans"] } else { &[] });
-    let answered = s.call(method::RUN_COMMAND, keep("/k", dry_run));
+    let answered = s.call(method::RUN_COMMAND, keep(&absolute("k"), dry_run));
     let runs = (!dry_run || planned) && (!planned || plans_first);
     assert_eq!(answered.is_ok(), runs, "{answered:?}");
     assert_eq!(requests.try_recv().is_ok(), runs);
@@ -263,7 +266,7 @@ fn prop_a_suggested_command_is_taken_only_when_its_one_the_plugin_has(tc: TestCa
     let command = tc.draw(gs::sampled_from(vec!["keep", "echo", "titles", "backup", ""]));
     let to = tc.draw(gs::one_of(vec![
         gs::just(Value::Null).boxed(),
-        gs::from_regex("/[a-z]{1,6}").fullmatch(true).map(Value::from).boxed(),
+        gs::from_regex("[a-z]{1,6}").fullmatch(true).map(|name| Value::from(absolute(&name))).boxed(),
         gs::integers::<i64>().map(Value::from).boxed(),
     ]));
     let params: Map<String, Value> = match &to {

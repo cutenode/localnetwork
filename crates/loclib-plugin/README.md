@@ -139,7 +139,8 @@ see [commands](#commands)).
    `collection.copy` writes a copy of `master.db` as of one moment, rebuilt and still
    encrypted as rekordbox's own backup writes it, to `into`: a new file in the request's
    scratch folder (absolute), as far as the folder has room. The copy leaves out the cloud
-   agent's sign-in (`agentRegistry`'s `agentCredentials` row) unless `with_credentials` is true. `collection.tracks`
+   agent's sign-in (`agentRegistry`'s `agentCredentials` row) unless `with_credentials` is true.
+   A `master.db` with a trigger can't be copied without it, as the trigger could keep it. `collection.tracks`
    lists every track row, deleted ones too, in pages of at most 500: `path` is the audio file
    on this computer (`OrgFolderPath` for a Cloud Library Sync track), and `analysis_path` and
    `image_path` are in `share`, as stored. `artist` and `album` are the names rekordbox has for
@@ -197,10 +198,26 @@ elevated) included.
 ## The manifest
 
 `locallibrary-plugin.toml` says who the plugin is, what it may call back for and what it adds.
-`Manifest::parse` reads it and `Manifest::validate` checks it; `schemars::schema_for!(Manifest)`
-is its JSON Schema. A key it doesn't know is left out (`Manifest::unknown` lists them), so an
-older locallibrary reads a newer plugin's manifest; in a plugin locallibrary ships it's a mistake,
-refused.
+`Manifest::parse` reads it and `Manifest::validate` checks it. A key it doesn't know is left out
+(`Manifest::unknown` lists them), so an older locallibrary reads a newer plugin's manifest; in a
+plugin locallibrary ships it's a mistake, refused.
+
+[`manifest.schema.json`](https://github.com/cutenode/localnetwork/blob/main/crates/loclib-plugin/manifest.schema.json)
+is its JSON Schema, made from `Manifest`, for an editor to check and complete it with. With taplo
+(VS Code's Even Better TOML runs it), start the manifest with a line naming the schema, by a path
+from the manifest or a URL. The plugins in this repository do:
+
+```toml
+#:schema ../../crates/loclib-plugin/manifest.schema.json
+id = "tracklist"
+```
+
+The schema allows keys it doesn't list, as `Manifest::parse` does. `Manifest::validate` checks
+more than it says: what names look like and that each is used once, semver versions, that
+`protocol` takes this protocol, that a `net` limit or an event has its capability, what only
+plugins locallibrary ships may declare, that settings' defaults fit and that params schemas
+compile. A test fails when the file is out of date, and
+`LOCALLIBRARY_BLESS=1 cargo test -p loclib-plugin --test schema` rewrites it.
 
 ```rust
 use loclib_plugin::{Capability, Manifest};
@@ -429,7 +446,9 @@ has none and writes them into analysis files only when the user asks. An operati
 
 `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
 `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null` for one
-worked out with nothing to show. A field left out wasn't worked out.
+worked out with nothing to show. A field left out wasn't worked out. A track with `id` 0 is an
+audio file on no drive, handed in to score the analyzer (`file_path` is the file's name): the
+context names no drive, and reads of a library are refused until the answer.
 
 - `[[contributes.analyzers]]`: `name`, `title`, `version` (its own: locallibrary keeps its
   values by it, so bump it when they'd change), `fields` (each `number`, `integer`, `string`,
@@ -775,6 +794,14 @@ drawn, and a section can't be one.
 
 ## Writing a plugin in Rust
 
+To try one in locallibrary, give it the manifest and the program for one run: `locallibrary
+--dev-plugin locallibrary-plugin.toml:target/debug/my-plugin plugin list`, or
+`LOCALLIBRARY_DEV_PLUGINS` (`;` between the two on Windows). It holds the manifest to
+`Manifest::validate(false)` and refuses an id one of its own plugins has. `locallibrary plugin
+check locallibrary-plugin.toml -- target/debug/my-plugin` checks the same without running a
+command: the manifest, then `hello` and `describe` (which must answer the manifest exactly), and
+lists the features both sides have. Either way the plugin runs as you, unsandboxed.
+
 Register a function for each kind of hook the manifest needs in `Hooks` (`.on(run_command)`, for
 a `fn(RunCommand, &Host) -> Result<Value, RpcError>`), and `serve` them, with the manifest, over
 stdin and stdout. `serve` answers `hello` (with the features of the hooks registered) and
@@ -876,17 +903,23 @@ plugin's tests needn't write one. Add it as a dev-dependency
 in-memory pipes, sends `hello`, and checks that `describe` answers the manifest. `read(method,
 answer)` answers a read every time the plugin calls it. `on_read(method, f)` works the answer out
 from the params instead, and answers any other call too (`accounts/ensure`). `fetch(url, answer)`
-answers `net/fetch` for one URL. A call with no answer fails: `external` for a fetch,
-`method_not_found` for anything else.
+answers `net/fetch` for one URL. `on_call(method, f)` is `on_read` whose `f` returns a
+`Response`: an answer, an answer followed by a cancel of the hook (the user cancelling just as the
+call came back), or `Hold`, which never answers (a server that keeps the plugin waiting until its
+hook is cancelled). A call with no answer fails: `external` for a fetch, `method_not_found` for
+anything else.
 
 `request(method, params)` sends a hook and waits for its typed answer. `send` returns a `Sent`
-instead, which can `cancel()` it (`$/cancel`), `wait()` for it, and has its `progress()`. With the
-`blobs` feature each request gets a fresh `context.scratch` folder (`Sent::scratch`), removed when
-the `Sent` is dropped, as the host removes it once it has read the answer. `cancel_on(method)`
+instead, which can `cancel()` it (`$/cancel`), `wait()` or `wait_timeout(limit)` for it, and has
+its `progress()`. With the `blobs` feature each request gets a fresh `context.scratch` folder
+(`Sent::scratch`), removed when the `Sent` is dropped, as the host removes it once it has read the
+answer. Params that already give `context.scratch` keep it: a folder of the test's, or `null` for
+a host without `blobs`. `cancel_on(method)`
 cancels the hook under way the next time the plugin calls `method`. `calls()` lists every call the
 plugin made, with its params. `event(..)` sends `event/notify`, and `notices()` has what the
 plugin told the user (`host/notify`). `stop()` closes the plugin's input and waits for it to stop:
-after that, every notice is in.
+after that, every notice is in. A call an event's handler is still waiting on fails then, so a
+test whose events make calls first sends one last event and waits for its call, held.
 
 ```rust
 # #[cfg(feature = "test-util")] {

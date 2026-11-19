@@ -280,7 +280,7 @@ describe('a request', () => {
 		const { logger, lines } = writtenLog('info');
 		let late = () => {};
 
-		await logger.request({ requestId: 'req-1', path: '/dashboard/data' }, async (log) => {
+		await logger.request({ requestId: 'req-1', path: '/dashboard/account/data' }, async (log) => {
 			late = () => log.warn('could not list the records held for someone');
 
 			return answer(200);
@@ -289,8 +289,8 @@ describe('a request', () => {
 		late();
 
 		expect(lines.map(({ level, message, requestId, path }) => [level, message, requestId, path])).toEqual([
-			['info', 'request', 'req-1', '/dashboard/data'],
-			['warn', 'could not list the records held for someone', 'req-1', '/dashboard/data']
+			['info', 'request', 'req-1', '/dashboard/account/data'],
+			['warn', 'could not list the records held for someone', 'req-1', '/dashboard/account/data']
 		]);
 	});
 });
@@ -353,7 +353,7 @@ describe('a job', () => {
 	it('keeps its own line inside a request, and passes on what it throws', async () => {
 		const { logger, lines } = writtenLog('info');
 
-		await logger.request({ path: '/xrpc/notifyWrite' }, async (log) => {
+		await logger.request({ path: '/xrpc/com.atproto.space.notifySpaceUpdate' }, async (log) => {
 			await logger
 				.job('space-sync', async () => {
 					logger.warn('space sync failed');
@@ -366,7 +366,7 @@ describe('a job', () => {
 
 		expect(lines.map(({ message, job, path }) => [message, job, path])).toEqual([
 			['space sync failed', 'space-sync', undefined],
-			['notified sync failed', undefined, '/xrpc/notifyWrite']
+			['notified sync failed', undefined, '/xrpc/com.atproto.space.notifySpaceUpdate']
 		]);
 	});
 

@@ -1,5 +1,8 @@
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { scheme, writtenUrl } from '#lib/testing/links.ts';
+import { webHref } from '#lib/web-url.ts';
+import { embedUrl, mixPlatform } from './links';
 import { linkSources, playable, preferred, type PlayerSource, trackAt } from './source';
 
 const ARCHIVE = 'https://archive.org/download/neon-tidal-hours/tidal-hours.mp3';
@@ -17,6 +20,15 @@ describe('linkSources', () => {
 		});
 	});
 
+	it('plays an archive.org download from archive.org itself, without a username or port in the address', () => {
+		expect(
+			linkSources([
+				{ uri: 'https://user:pass@archive.org/download/item/set.mp3#t=60' },
+				{ uri: 'https://archive.org:8443/download/item/set.mp3' }
+			]).map((source) => source.kind === 'audio' && source.src)
+		).toEqual(['https://archive.org/download/item/set.mp3#t=60', 'https://archive.org/download/item/set.mp3']);
+	});
+
 	it("doesn't play archive.org pages, other files, plain http or look-alike hosts", () => {
 		expect(
 			linkSources([
@@ -31,6 +43,15 @@ describe('linkSources', () => {
 		).toEqual([]);
 	});
 
+	it('plays and links only web addresses, whatever host another scheme names', () => {
+		expect(
+			linkSources([
+				{ uri: 'javascript://soundcloud.com/%0Aalert(document.domain)' },
+				{ uri: 'data://www.youtube.com/watch?v=abc123' }
+			])
+		).toEqual([]);
+	});
+
 	it("uses the platforms' players for the links they have, in order", () => {
 		const sources = linkSources([
 			{ uri: 'https://www.mixcloud.com/neon/tidal-hours/' },
@@ -41,6 +62,41 @@ describe('linkSources', () => {
 		expect(sources.map((source) => source.kind === 'embed' && source.platform)).toEqual(['Mixcloud', 'SoundCloud']);
 		expect(sources[0]).toMatchObject({ link: 'https://www.mixcloud.com/neon/tidal-hours/' });
 		expect(linkSources(undefined)).toEqual([]);
+	});
+});
+
+describe('linkSources on any links', () => {
+	// archive.org downloads, near misses among them, so audio comes up as often as players.
+	const archiveLink = fc
+		.tuple(
+			scheme,
+			fc.constantFrom('archive.org', 'notarchive.org', 'archive.org.example'),
+			fc.constantFrom(
+				'/download/item/set.mp3',
+				'/download/item/disc%201/Side%20A.FLAC',
+				'/download/set.mp3',
+				'/details/item'
+			)
+		)
+		.map(([prefix, host, path]) => `${prefix}://${host}${path}`);
+
+	const archiveDownload = expect.stringMatching(/^https:\/\/archive\.org\/download\/[^/]+\/./);
+
+	it('plays only https archive.org downloads and platform players, and links only web addresses', () => {
+		fc.assert(
+			fc.property(fc.array(fc.record({ uri: fc.oneof(writtenUrl, archiveLink) }), { maxLength: 4 }), (links) => {
+				for (const source of linkSources(links)) {
+					expect(webHref(source.link), source.link).toBe(source.link);
+
+					const expected =
+						source.kind === 'audio'
+							? { src: archiveDownload }
+							: { src: embedUrl(source.link), platform: mixPlatform(source.link) };
+
+					expect(source).toMatchObject(expected);
+				}
+			})
+		);
 	});
 });
 

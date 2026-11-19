@@ -1,4 +1,5 @@
 import type { JsonValue } from '@atproto/lex-json';
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { BlobRefJson } from '#lib/types.ts';
@@ -331,6 +332,73 @@ describe('parseAvatar', () => {
 			true
 		);
 		expect(sniffImage(new Uint8Array([1]), 'image/bmp')).toBe(false);
+	});
+});
+
+describe('sniffImage on any bytes', () => {
+	/** Each type's magic bytes, with null for a byte that can be anything (a WebP's RIFF chunk size). */
+	const signatures = new Map<string, (number | null)[]>([
+		['image/png', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+		['image/jpeg', [0xff, 0xd8, 0xff]],
+		['image/webp', [...Buffer.from('RIFF'), null, null, null, null, ...Buffer.from('WEBP')]]
+	]);
+
+	const startsWith = (bytes: Uint8Array, signature: (number | null)[]) =>
+		signature.every((byte, i) => i < bytes.length && (byte === null || bytes[i] === byte));
+
+	const otherType = fc.oneof(fc.constantFrom('image/gif', 'image/svg+xml', 'IMAGE/PNG', ''), fc.string());
+
+	// Some or all of a signature, its open bytes filled in, then anything: truncated and real headers alike, claimed
+	// mostly as the signature's own type.
+	const signed = fc
+		.tuple(
+			fc.constantFrom(...signatures.entries()),
+			fc.nat({ max: 12 }),
+			fc.uint8Array({ minLength: 12, maxLength: 12 }),
+			fc.uint8Array({ maxLength: 16 }),
+			fc.oneof({ arbitrary: fc.constant(undefined), weight: 3 }, fc.constantFrom(...signatures.keys()), otherType)
+		)
+		.map(([[type, signature], length, fill, tail, claimed]): [Uint8Array, string] => [
+			Uint8Array.from([...signature.slice(0, length).map((byte, i) => byte ?? fill[i]), ...tail]),
+			claimed ?? type
+		]);
+
+	const unsigned = fc.tuple(
+		fc.uint8Array({ maxLength: 24 }),
+		fc.oneof(fc.constantFrom(...signatures.keys()), otherType)
+	);
+
+	it('names a type only when the bytes start with its signature', () => {
+		fc.assert(
+			fc.property(fc.oneof(unsigned, signed), ([bytes, type]) => {
+				const signature = signatures.get(type);
+
+				expect(sniffImage(bytes, type)).toBe(signature !== undefined && startsWith(bytes, signature));
+			})
+		);
+	});
+
+	it('refuses a signature with any one of its bytes changed', () => {
+		fc.assert(
+			fc.property(
+				fc.uint8Array({ minLength: 12, maxLength: 12 }),
+				fc.integer({ min: 1, max: 255 }),
+				fc.uint8Array({ maxLength: 16 }),
+				(fill, change, tail) => {
+					for (const [type, signature] of signatures) {
+						const header = signature.map((byte, i) => byte ?? fill[i]);
+						const fixed = signature.flatMap((byte, i) => (byte === null ? [] : [i]));
+
+						for (const i of fixed) {
+							const bytes = Uint8Array.from([...header, ...tail]);
+
+							bytes[i] = (header[i] + change) % 256;
+							expect(sniffImage(bytes, type), `${type} byte ${i}`).toBe(false);
+						}
+					}
+				}
+			)
+		);
 	});
 });
 

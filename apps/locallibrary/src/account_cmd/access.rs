@@ -16,6 +16,7 @@ use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
 use super::accounts::{account_type, called, declined, find, finish_sign_in, named, signing_out, titles};
+use super::restoring::after_sign_in;
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
 use crate::output::{Output, dim, heading, ok, warn};
@@ -150,9 +151,11 @@ fn signing_out_soon(
         if !asking || !out.confirm("Sign in again now?") {
             continue;
         }
-        let start = plugins.begin_account_sign_in(&a.kind, &a.plugin, Some(plugin), Some(&a.subject), &[], store)?;
+        let start =
+            plugins.begin_account_sign_in(&a.kind, &a.plugin, Some(plugin), Some(&a.subject), &[], None, store)?;
         let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
         ok(format!("Signed in to the {}", called(plugins, &done.account)));
+        after_sign_in(plugins, &done, store, out)?;
     }
     Ok(())
 }
@@ -171,24 +174,28 @@ fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Outp
     };
     let t = account_type(plugins, &a.account.plugin, &a.kind);
     let account = named(plugins, &a.kind, &a.account.plugin, &a.name);
-    let question = match &u {
+    // What's asked about is said on stdout, naming the account; the question, on stderr, doesn't.
+    let said = match &u {
         Unready::Ungiven(_, scopes) => {
-            if out.confirm(&format!(
-                "{name} needs to {} with the {account}. Give it access?",
-                titles(t, scopes).join(", ")
-            )) {
+            if !out.json {
+                say!("{name} needs to {} with the {account}.", titles(t, scopes).join(", "));
+            }
+            if out.confirm("Give it access?") {
                 plugins.give_access(plugin, &a.account, &[], store)?;
                 ok(format!("{name} has access to the {account}"));
             }
             return Ok(());
         }
         Unready::Ungranted(_, scopes) => {
-            format!("The {account} doesn't allow {name} to {}. Sign in again?", titles(t, scopes).join(", "))
+            format!("The {account} doesn't allow {name} to {}.", titles(t, scopes).join(", "))
         }
-        Unready::Expiring(_) => format!("The {account} won't stay signed in long enough for {name}. Sign in again?"),
-        _ => format!("The {account}, which {name} uses, is signed out. Sign in again?"),
+        Unready::Expiring(_) => format!("The {account} won't stay signed in long enough for {name}."),
+        _ => format!("The {account}, which {name} uses, is signed out."),
     };
-    if !out.confirm(&question) {
+    if !out.json {
+        say!("{said}");
+    }
+    if !out.confirm("Sign in again?") {
         return Ok(());
     }
     let start = plugins.begin_account_sign_in(
@@ -197,12 +204,13 @@ fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Outp
         Some(plugin),
         Some(&a.account.subject),
         &[],
+        None,
         store,
     )?;
     let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
     ok(format!("Signed in to the {}", called(plugins, &done.account)));
     declined(plugins, &done);
-    Ok(())
+    after_sign_in(plugins, &done, store, out)
 }
 
 /// Asks which account of the type `need` asks for `plugin` may use, and makes it its default.
@@ -236,9 +244,10 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
         Some(a) => (*a).clone(),
         None => {
             let with = &providing[i - signed_in.len()];
-            let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], store)?;
+            let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], None, store)?;
             let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
             declined(plugins, &done);
+            after_sign_in(plugins, &done, store, out)?;
             done.account
         }
     };

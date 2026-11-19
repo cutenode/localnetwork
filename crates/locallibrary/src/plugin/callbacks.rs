@@ -43,6 +43,15 @@ pub trait Reads: Send + Sync {
     }
 }
 
+/// Whether `method` reads a drive's library (its tracks, playlists and tags, or what's kept for
+/// its tracks): refused while the plugin has audio files on no drive (see [`Plugin::has_loose`]).
+fn reads_library(method: &str) -> bool {
+    READS
+        .iter()
+        .find(|r| r.method == method)
+        .is_some_and(|r| r.library || r.capability == loclib_plugin::Capability::LibraryRead)
+}
+
 pub(super) fn invalid_params(message: impl std::fmt::Display) -> RpcFailure {
     RpcFailure::new(code::INVALID_PARAMS, "invalid_params", format!("invalid params: {message}"))
 }
@@ -84,6 +93,12 @@ pub(crate) fn answer(
             peer.respond(&req.id, Err(RpcError::closed()));
             continue;
         }
+        if plugin.host.options.isolated {
+            let id = &plugin.manifest.id;
+            let why = format!("the {id} plugin is given nothing to call back for here, {} included", req.method);
+            peer.respond(&req.id, Err(RpcError::failed("denied", why)));
+            continue;
+        }
         let most = plugin.host.options.callbacks;
         let under_way = busy.fetch_add(1, Ordering::SeqCst);
         let quota = Quota(busy.clone());
@@ -110,7 +125,17 @@ pub(crate) fn answer(
                     plugin.put_record(&live, req.params)
                 }
                 _ => {
-                    let params = check(&plugin.manifest, &|spec| plugin.drive(spec), &req.method, req.params);
+                    let params = match plugin.has_loose() && reads_library(&req.method) {
+                        true => Err(RpcFailure::new(
+                            code::FAILED,
+                            "denied",
+                            format!(
+                                "{} reads a library, and the audio file the plugin was handed is on no drive",
+                                req.method
+                            ),
+                        )),
+                        false => check(&plugin.manifest, &|spec| plugin.drive(spec), &req.method, req.params),
+                    };
                     let read = params.and_then(|p| match collection::answers(&req.method) {
                         true => collection::answer(&live, plugin.host.options.max_blobs, &req.method, p),
                         false => reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())),

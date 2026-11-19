@@ -54,7 +54,7 @@
 			{#if data.listing}
 				<p class="m-0 text-small text-fg-muted">Staff list you in Find DJs, so promoters searching there find you.</p>
 			{:else if data.listRequest}
-				<p class="m-0 text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/requests/{data.listRequest.rkey}">See your request</a></p>
+				<p class="m-0 text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/account/requests/{data.listRequest.rkey}">See your review request</a></p>
 			{:else}
 				<p class="m-0 text-small text-fg-muted">Ask staff to list you, so promoters searching Find DJs find you. They look at your profile as it is when they review.</p>
 				<form method="POST" action="?/requestListing" class="flex flex-col gap-3" use:enhance>
@@ -91,7 +91,7 @@
 		}}
 	>
 		<input type="hidden" name="cid" value={data.profile?.cid ?? ''} />
-		<BasicsFields {values} avatarUrl={data.profile?.avatarUrl} geocoder={data.geocoder} description="How people see you across Local Network." />
+		<BasicsFields {values} avatarUrl={data.profile?.avatarUrl} geocoder={data.geocoder} pronouns={data.pronouns} description="How people see you across Local Network." />
 
 		<FormSection title="What you do" description="Each adds its own part of your profile. You can turn them on and off any time.">
 			<div class="flex items-start gap-3">
@@ -110,7 +110,18 @@
 			</div>
 		</FormSection>
 
-		{#if performer}<PerformerFields {values} sets={data.sets} />{/if}
+		{#if performer}
+			<PerformerFields {values} sets={data.sets} />
+			<FormSection title="Inquiries" description="Whether promoters can ask to book you here.">
+				<div class="flex items-start gap-3">
+					<input id="takes-inquiries" type="checkbox" class="checkbox mt-0.5" name="takesInquiries" aria-describedby="takes-inquiries-hint" checked={values.takesInquiries === true} />
+					<div class="flex flex-col gap-0.5">
+						<label class="text-fg" for="takes-inquiries">Take inquiries</label>
+						<p id="takes-inquiries-hint" class="m-0 text-small text-fg-muted">Your profile gets a Send inquiry button once staff list you in Find DJs.</p>
+					</div>
+				</div>
+			</FormSection>
+		{/if}
 		{#if promoter}<PromoterFields {values} />{/if}
 
 		<FormActions form={form?.values ? form : null} {submitting}>

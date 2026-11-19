@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # Whether a run would save anything. rust-cache keys other-os's caches on the manifests, the
   # lockfile, the toolchain and cargo's config, and saves nothing on an exact hit, so a night when
@@ -65,6 +70,7 @@ jobs:
     # What locallibrary-ci.yml's jobs ask for, which a call has to grant even to the ones it skips
     # (its report job's comment), or GitHub won't start the run.
     permissions:
+      actions: read
       contents: read
       pull-requests: write
     uses: ./.github/workflows/locallibrary-ci.yml
@@ -74,6 +80,7 @@ jobs:
       cache: false
       deny: false
       release: false
+      budgets: false
       dist: false
       other-os: true
       semver: false

@@ -658,7 +658,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		// A token for another method, as a PDS signs one for any lxm it's asked for, is turned away.
 		const other = await kai.agent.com.atproto.server.getServiceAuth({
 			aud: audience,
-			lxm: 'com.atproto.space.notifyWrite'
+			lxm: 'com.atproto.space.notifySpaceUpdate'
 		});
 
 		expect((await call(other.data.token)).status).toBe(401);
@@ -1015,10 +1015,10 @@ describe('Local Network on a real atproto spaces network', () => {
 			}
 		};
 
-		const state = JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' });
+		const state = JSON.stringify({ next: '/dashboard/account/notifications', intent: 'email' });
 		const declined = await net.declineOAuth('sol', { optional: 'email', state });
 		expect(declined.searchParams.get('error')).toBe('access_denied');
-		expect(await callback(declined)).toBe('/dashboard/inbox/settings?email=declined');
+		expect(await callback(declined)).toBe('/dashboard/account/notifications?email=declined');
 
 		expect(await callback(await net.declineOAuth('sol'))).toBe('/login?error=denied');
 	});
@@ -1160,9 +1160,10 @@ describe('Local Network on a real atproto spaces network', () => {
 			net.app.core.readSpaceRecord!({ space, repo: lee.did, collection: inquiry.collection, rkey: inquiry.rkey })
 		).resolves.toMatchObject({ cid: inquiry.cid });
 
+		// The host's notice alone isn't proof: the authority confirms it by refusing a fresh credential.
 		await root.deleteSpace(space);
-		await net.app.syncer.onSpaceDeleted(space);
-		await net.app.syncer.onSpaceDeleted(space);
+		await net.app.syncer.reauthorize(space);
+		await net.app.syncer.reauthorize(space);
 		expect(await writers()).toEqual([]);
 		await expect(net.app.bookings.thread(lee, space)).rejects.toThrow(NotFoundError);
 

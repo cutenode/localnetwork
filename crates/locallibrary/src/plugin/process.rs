@@ -94,6 +94,18 @@ pub(crate) struct Plugin {
     /// The drives given to its hooks under way (see [`Slot::context`]), each by the name its
     /// context gives it and with its root, once for each hook.
     given: Mutex<Vec<(String, PathBuf)>>,
+    /// The hooks under way that were handed audio files on no drive (see [`Plugin::hand_loose`]).
+    loose: AtomicUsize,
+}
+
+/// A hook under way handed audio files on no drive: its plugin's reads of a library are refused
+/// until it's dropped.
+pub(crate) struct Loose(Arc<Plugin>);
+
+impl Drop for Loose {
+    fn drop(&mut self) {
+        self.0.loose.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// A drive given to a hook under way: its plugin's callbacks may name it (as the context does)
@@ -383,11 +395,19 @@ pub(crate) fn printable_json<R: DeserializeOwned>(file: impl std::io::Read) -> s
 
 /// `manifest` with its text [`printable`], as what the plugin answers `describe` is: as it was
 /// when all of it is.
-#[cfg(any(test, debug_assertions))]
 pub(crate) fn printable_manifest(manifest: Manifest) -> serde_json::Result<Manifest> {
     match printed(serde_json::to_value(&manifest)?) {
         None => Ok(manifest),
         Some(v) => serde_json::from_value(v),
+    }
+}
+
+impl super::Plugins {
+    /// Starts the plugin, if it isn't running (without a store, in a new folder in the temporary
+    /// folder), shaking hands with it: answers the features it and the host both have.
+    pub fn start(&self, plugin: &str) -> Result<Vec<String>> {
+        let p = self.slot(plugin)?.start(None)?;
+        Ok(p.live.features.get().cloned().unwrap_or_default())
     }
 }
 
@@ -414,11 +434,30 @@ impl Plugin {
     pub(crate) fn given(&self) -> Vec<(String, PathBuf)> {
         lock(&self.given).clone()
     }
+
+    /// Refuses the plugin's reads of a library until what this answers is dropped: a hook under
+    /// way has audio files on no drive, which no library has tracks for. Its callbacks can't say
+    /// which hook they're for, so its other hooks' are refused meanwhile too.
+    pub(crate) fn hand_loose(self: &Arc<Self>) -> Loose {
+        self.loose.fetch_add(1, Ordering::SeqCst);
+        Loose(self.clone())
+    }
+
+    /// Whether a hook under way has audio files on no drive ([`Plugin::hand_loose`]).
+    pub(crate) fn has_loose(&self) -> bool {
+        self.loose.load(Ordering::SeqCst) > 0
+    }
 }
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default(), given: Mutex::default() });
+        let plugin = Arc::new(Plugin {
+            manifest,
+            host,
+            net: Arc::default(),
+            given: Mutex::default(),
+            loose: AtomicUsize::default(),
+        });
         Slot { plugin, launch, hosting: Arc::default(), events: Arc::default(), services: Mutex::default() }
     }
 

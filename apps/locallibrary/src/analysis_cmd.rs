@@ -1,5 +1,5 @@
-//! `locallibrary analysis bench`: rekordbox's stored keys and tempos, and loclib-analysis's
-//! estimates, scored against the GiantSteps datasets.
+//! `locallibrary analysis bench`: rekordbox's stored keys and tempos, and what the analyzers
+//! chosen for the key and bpm roles hear, scored against the GiantSteps datasets.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -23,8 +23,9 @@ pub struct AnalysisArgs {
 
 #[derive(Subcommand)]
 enum AnalysisCommand {
-    /// Score rekordbox's stored keys and tempos, and the analysis `doctor --analyze` runs, against
-    /// the GiantSteps datasets' annotations (tracks match annotations by file name)
+    /// Score rekordbox's stored keys and tempos, and the analyzers `doctor --analyze` runs for key
+    /// and bpm (`plugin roles`), against the GiantSteps datasets' annotations (tracks match
+    /// annotations by file name)
     #[command(after_long_help = "Examples:
   locallibrary analysis bench GIANTSTEPS --keys giantsteps-key-dataset/annotations/key
   locallibrary analysis bench GIANTSTEPS --tempos giantsteps-tempo-dataset/annotations_v2/tempo
@@ -50,10 +51,10 @@ a drive and name that drive here.")]
     },
 }
 
-pub fn run(args: AnalysisArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+pub fn run(args: AnalysisArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let AnalysisCommand::Bench { drive, keys, tempos, audio } = args.command;
     let req = api::AnalysisBenchRequest { drive, options: BenchOptions { keys, tempos, audio } };
-    let report = api::analysis_bench(&req, ctx)?;
+    let report = crate::plugins::roles::bench(&req, &crate::open_store(store)?, ctx)?;
     Ok(out.report(&report, Outcome::Applied, render))
 }
 
@@ -68,8 +69,10 @@ fn breakdown<O: Scored>(r: &Report<O>, name: impl Fn(O) -> &'static str) -> Stri
 }
 
 fn analyzers<O: Scored>(reports: &IndexMap<String, Report<O>>, line: impl Fn(&str, &Report<O>) -> String) {
+    // As wide as the longest name: an analyzer's is `<plugin>.<analyzer>`.
+    let width = reports.keys().map(String::len).max().unwrap_or_default().max(12);
     for (analyzer, r) in reports {
-        say!("  {:<12} {}", style(analyzer).bold(), line(analyzer, r));
+        say!("  {:<width$} {}", style(analyzer).bold(), line(analyzer, r));
     }
 }
 

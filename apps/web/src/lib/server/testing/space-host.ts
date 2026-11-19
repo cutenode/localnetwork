@@ -3,26 +3,24 @@ import { P256Keypair } from '@atproto/crypto';
 import type { Cid, LexMap } from '@atproto/lex-data';
 import { lexStringify } from '@atproto/lex-json';
 import { isDidString, isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
+import { isSpaceAtUriString } from '@atproto/syntax';
 import {
-	COMMIT_MAC_TYPE,
-	type Commit,
-	computeCommitMac,
-	computeRecordMac,
-	createSpaceToken,
+	COMMIT_MAC_PROFILE,
+	createCommitMacHeaders,
+	createRecordMacHeaders,
+	createSpaceCredential,
 	decapsulate,
-	formatMacHeader,
 	isP256DidKey,
-	MAC_HEADER,
-	type MacType,
+	type MacProfile,
+	parseMacRequest,
 	parseSpaceToken,
-	parseWantMacHeader,
-	RECORD_MAC_TYPE,
+	RECORD_MAC_PROFILE,
 	type RecordPathParts,
 	RepoCommit,
 	serializeRecord,
-	serializeRepo,
+	type SpaceCommit,
 	verifyCredentialSig,
-	WANT_MAC_HEADER
+	writeRepoStar
 } from '@atproto/space';
 import { z } from 'zod';
 import { IdentityResolver, type ResolvedIdentity } from '../atproto/identity';
@@ -41,11 +39,16 @@ type HostedRepo = {
 	ops: (HostedOp & { rev: string })[];
 };
 
-const credentialRequest = z.object({ space: z.string(), credentialKid: z.string(), delegationToken: z.string() });
+const authorizeRequest = z.object({
+	space: z.string(),
+	credentialKey: z.string(),
+	delegationToken: z.string(),
+	notify: z.object({ endpoint: z.string(), token: z.string() }).optional()
+});
 
 const xrpcError = (status: number, error: string) => Response.json({ error }, { status });
 
-const isSpaceRef = (value: string): value is Commit['space'] => parseSpaceUri(value) !== null;
+const isSpaceRef = (value: string): value is SpaceCommit['space'] => parseSpaceUri(value) !== null;
 
 /**
  * Resolves every account to the host and the KEM key it holds for them, as a DID document cache would, and sends
@@ -83,9 +86,9 @@ class HostIdentity extends IdentityResolver {
 
 /**
  * One space's authority and the repo host of all its writers, speaking the spaces protocol over `fetch` as
- * the alpha PDS does: credentials are asked for with a JSON body, every other request has to carry one in
- * a signed `Atproto-Space-Credential` header, and listRepoOps, getRepo, and getRecord answer with a MAC
- * keyed to the author's KEM key.
+ * the alpha PDS does: credentials are asked for with authorizeSpaceSync's JSON body, every other request has to
+ * carry one in a signed `Atproto-Space-Credential` header, and listRepoOps, getRepo, and getRecord answer with a
+ * MAC keyed to the author's KEM key.
  */
 export class FakeSpaceHost {
 	readonly url = 'https://host.test';
@@ -93,8 +96,14 @@ export class FakeSpaceHost {
 	readonly requests: { nsid: string; headers: Headers; body: unknown }[] = [];
 	/** Ops per listRepoOps page, whatever the limit asked for. */
 	pageSize = 500;
-	/** An error getSpaceCredential answers with, as an authority does for a deleted space or a bad token. */
+	/** An error authorizeSpaceSync answers with, as an authority does for a deleted space or a bad token. */
 	credentialError: string | null = null;
+	/** Whether the endpoint a credential asks to register confirms it, which it does unless it can't be reached. */
+	confirmsRegistration = true;
+	/** The registrations for updates it holds, by endpoint and token, and when each lapses. */
+	readonly registrations: { endpoint: string; token: string; expiresAt: number }[] = [];
+	/** Repos it took out of the space's writer set, which listWriters reports once their removal comes up. */
+	readonly removed = new Map<string, string>();
 	/** Credentials it has revoked, which it answers CredentialRevoked to. */
 	readonly revoked = new Set<string>();
 	/** Every credential it issued, in order. */
@@ -103,7 +112,7 @@ export class FakeSpaceHost {
 	repoError: string | null = null;
 	/** Errors one writer's repo reads answer with, by DID, for one bad repo among good ones. */
 	readonly repoErrors = new Map<string, string>();
-	/** How many repos a listRepos page holds. */
+	/** How many repos a listWriters page holds. */
 	repoPageSize = 500;
 	/** MACs responses with a secret of its own instead of the one it shares with the syncer. */
 	forgeMacs = false;
@@ -113,7 +122,7 @@ export class FakeSpaceHost {
 	private readonly repos = new Map<string, HostedRepo>();
 
 	private constructor(
-		readonly space: Commit['space'],
+		readonly space: SpaceCommit['space'],
 		private readonly authorityKey: P256Keypair
 	) {}
 
@@ -154,6 +163,11 @@ export class FakeSpaceHost {
 		this.write(repo, { collection: record.collection, rkey: record.rkey, cid: null, prev: record.cid.toString() });
 	}
 
+	/** Takes `did` out of the space's writer set, as removing a member does. */
+	removeWriter(did: string): void {
+		this.removed.set(did, TID.nextStr());
+	}
+
 	readonly fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
 		const request = new Request(input, init);
 		const url = new URL(request.url);
@@ -164,8 +178,8 @@ export class FakeSpaceHost {
 
 		if (override) return override();
 
-		if (nsid === 'com.atproto.space.getSpaceCredential') {
-			const asked = credentialRequest.safeParse(body);
+		if (nsid === 'com.atproto.space.authorizeSpaceSync') {
+			const asked = authorizeRequest.safeParse(body);
 
 			return this.issueCredential(asked.success ? asked.data : null);
 		}
@@ -177,9 +191,7 @@ export class FakeSpaceHost {
 		if (this.revoked.has(authorization[1])) return xrpcError(401, 'CredentialRevoked');
 
 		try {
-			const key = parseSpaceToken('credential', authorization[1]).payload.cnf?.kid;
-
-			if (!key) throw new Error('Credential is not bound to a key');
+			const key = parseSpaceToken('credential', authorization[1]).payload.cnf.kid;
 			await verifyCredentialSig(Object.fromEntries(request.headers), key);
 		} catch {
 			return xrpcError(400, 'BadSpaceSignature');
@@ -187,17 +199,29 @@ export class FakeSpaceHost {
 
 		const params = Object.fromEntries(url.searchParams);
 
-		if (nsid === 'com.atproto.space.listRepos') {
+		if (nsid === 'com.atproto.space.listWriters') {
 			const since = params.cursor ?? '';
 
-			const repos = [...this.repos]
-				.filter(([, repo]) => repo.rev > since)
-				.toSorted(([, a], [, b]) => (a.rev < b.rev ? -1 : 1));
+			// A repo's space revision is its own last one, or its removal's.
+			const writers = [
+				...[...this.repos].flatMap(([repo, { rev }]) =>
+					this.removed.has(repo)
+						? []
+						: [{ $type: 'com.atproto.space.defs#repoWrite', repo, repoRev: rev, data: { $bytes: '' }, spaceRev: rev }]
+				),
+				...[...this.removed].map(([repo, spaceRev]) => ({
+					$type: 'com.atproto.space.defs#repoRemoved',
+					repo,
+					spaceRev
+				}))
+			]
+				.filter((writer) => writer.spaceRev > since)
+				.toSorted((a, b) => (a.spaceRev < b.spaceRev ? -1 : 1));
 
-			const page = repos.slice(0, this.repoPageSize);
-			const cursor = repos.length > page.length ? page.at(-1)?.[1].rev : undefined;
+			const page = writers.slice(0, this.repoPageSize);
+			const cursor = writers.length > page.length ? page.at(-1)?.spaceRev : undefined;
 
-			return Response.json({ repos: page.map(([did, { rev }]) => ({ did, repoRev: rev, spaceRev: rev })), cursor });
+			return Response.json({ repos: page, cursor });
 		}
 
 		const repoError = this.repoError ?? this.repoErrors.get(params.repo);
@@ -206,17 +230,16 @@ export class FakeSpaceHost {
 		const repo = this.repos.get(params.repo);
 
 		if (!repo || !isDidString(params.repo)) return xrpcError(400, 'RepoNotFound');
-		const want = request.headers.get(WANT_MAC_HEADER) ?? undefined;
-		const type: MacType = nsid === 'com.atproto.space.getRecord' ? RECORD_MAC_TYPE : COMMIT_MAC_TYPE;
-		let sharedSecret: Uint8Array;
+		const profile: MacProfile = nsid === 'com.atproto.space.getRecord' ? RECORD_MAC_PROFILE : COMMIT_MAC_PROFILE;
+		const asked = parseMacRequest(request.headers.get('accept-signature') ?? undefined, profile);
 
-		try {
-			sharedSecret = this.forgeMacs
-				? crypto.getRandomValues(new Uint8Array(32))
-				: decapsulate(repo.kem, parseWantMacHeader(want, type));
-		} catch {
-			return xrpcError(400, 'BadSpaceMac');
-		}
+		if (!asked) return xrpcError(400, 'InvalidSpaceMac');
+
+		const sharedSecret = this.forgeMacs
+			? crypto.getRandomValues(new Uint8Array(32))
+			: decapsulate(repo.kem, asked.keyShare);
+
+		const mac = { ...asked, sharedSecret };
 
 		const commit = RepoCommit.fromRecords(repo.records.values()).toCommit({
 			space: this.space,
@@ -224,7 +247,7 @@ export class FakeSpaceHost {
 			rev: repo.rev
 		});
 
-		const commitMac = { [MAC_HEADER]: formatMacHeader(COMMIT_MAC_TYPE, computeCommitMac(sharedSecret, commit)) };
+		const { headers: commitMac } = createCommitMacHeaders(commit, mac);
 
 		if (nsid === 'com.atproto.space.listRepoOps') {
 			const from = params.cursor ? Number(params.cursor) : repo.ops.filter((op) => op.rev <= params.since).length;
@@ -237,9 +260,9 @@ export class FakeSpaceHost {
 				return current?.cid.toString() === op.cid ? { ...op, value: current.value } : op;
 			});
 
-			if (next < repo.ops.length) return new Response(lexStringify({ ops, cursor: String(next) }));
+			const cursor = next < repo.ops.length ? String(next) : undefined;
 
-			return new Response(lexStringify({ ops, commit }), { headers: commitMac });
+			return new Response(lexStringify({ ops, commit, cursor }), { headers: commitMac });
 		}
 
 		if (nsid === 'com.atproto.space.getRepo') {
@@ -247,10 +270,10 @@ export class FakeSpaceHost {
 			// A STAR archive lists records in path order.
 			const records = [...repo.records].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, record]) => record);
 
-			for await (const chunk of serializeRepo(commit, records)) chunks.push(chunk);
+			for await (const chunk of writeRepoStar(commit, records)) chunks.push(chunk);
 
 			return new Response(Buffer.concat(chunks), {
-				headers: { 'content-type': 'application/octet-stream', ...commitMac }
+				headers: { 'content-type': 'application/vnd.dasl.star', ...commitMac }
 			});
 		}
 
@@ -258,27 +281,36 @@ export class FakeSpaceHost {
 
 		if (!record) return xrpcError(400, 'RecordNotFound');
 		const uri = spaceRecordUri(this.space, params.repo, record.collection, record.rkey);
-		const mac = formatMacHeader(RECORD_MAC_TYPE, computeRecordMac(sharedSecret, uri, record.cid));
 
-		return new Response(lexStringify({ uri, cid: record.cid.toString(), value: record.value }), {
-			headers: { [MAC_HEADER]: mac }
-		});
+		if (!isSpaceAtUriString(uri)) return xrpcError(400, 'InvalidRequest');
+		const { headers } = createRecordMacHeaders(uri, record.cid, mac);
+
+		return new Response(lexStringify({ uri, cid: record.cid.toString(), value: record.value }), { headers });
 	};
 
-	private async issueCredential(input: z.infer<typeof credentialRequest> | null): Promise<Response> {
+	private async issueCredential(input: z.infer<typeof authorizeRequest> | null): Promise<Response> {
 		if (this.credentialError) return xrpcError(400, this.credentialError);
+		const authority = parseSpaceUri(this.space)?.authority;
 
-		if (!input || input.space !== this.space || !isP256DidKey(input.credentialKid)) {
+		if (!input || input.space !== this.space || !isP256DidKey(input.credentialKey) || !isDidString(authority)) {
 			return xrpcError(400, 'InvalidRequest');
 		}
 
-		const credential = await createSpaceToken(
-			'credential',
-			{ iss: parseSpaceUri(this.space)!.authority, sub: this.space, keyId: input.credentialKid },
-			this.authorityKey
-		);
+		if (input.notify && !this.confirmsRegistration) return xrpcError(400, 'RegistrationNotConfirmed');
+
+		const credential = await createSpaceCredential({
+			iss: authority,
+			sub: this.space,
+			keyId: input.credentialKey,
+			keypair: this.authorityKey
+		});
 
 		this.issued.push(credential);
+
+		if (input.notify) {
+			const expiresAt = parseSpaceToken('credential', credential).payload.exp * 1000;
+			this.registrations.push({ ...input.notify, expiresAt });
+		}
 
 		return Response.json({ credential });
 	}

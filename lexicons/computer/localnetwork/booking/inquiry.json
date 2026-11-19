@@ -12,7 +12,8 @@
 				"properties": {
 					"project": {
 						"type": "string",
-						"format": "at-uri"
+						"format": "at-uri",
+						"description": "Who the inquiry is for: an act's computer.localnetwork.project, or the computer.localnetwork.profile of a listed DJ, who answers for themself."
 					},
 					"show": {
 						"type": "ref",
@@ -23,6 +24,11 @@
 						"minLength": 1,
 						"maxLength": 20000,
 						"maxGraphemes": 2000
+					},
+					"plannerShow": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The promoter's planner show the inquiry started from. The planner is the promoter's own private space, so only they can open it."
 					},
 					"onBehalfOf": {
 						"type": "string",

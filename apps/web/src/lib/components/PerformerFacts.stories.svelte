@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectProfile } from '#lib/types.ts';
 	import PerformerFacts from './PerformerFacts.svelte';
 
@@ -19,8 +20,6 @@
 		{ label: 'Festivals', tier: 'headliner', currency: 'EUR', minAmount: 2000 },
 		{ tier: 'community' }
 	];
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Fee levels" args={{ performer: { ...profile, fees } }} />

@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::atmosphere::{self, LoginOptions};
 pub use crate::atmosphere::{AccountInfo, Client, LoginStart, LogoutReport, Storage};
+use crate::flags;
+pub use crate::flags::{FlagReport, FlagState, Freshness};
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
@@ -33,7 +35,8 @@ pub struct AccountLoginRequest {
     /// `$LOCALLIBRARY_SESSION_STORE=file`.
     #[serde(default)]
     pub session_file: Option<bool>,
-    /// Scopes to ask for (default: `atproto`, which identifies you and nothing more).
+    /// Scopes to ask for (default: `atproto`, which identifies you, and
+    /// [`atmosphere::FLAGS_SCOPE`], tokens for two methods of Local Network's website).
     #[serde(default)]
     pub scopes: Vec<String>,
     /// Also allow publishing: writing the My Settings, profile, set and recording records to the
@@ -139,6 +142,19 @@ pub fn account_check(store_root: &Path, ctx: &Ctx<'_>) -> Result<AccountInfo> {
 /// Sign out: revoke the session and remove it from this computer.
 pub fn account_logout(store_root: &Path) -> Result<LogoutReport> {
     atmosphere::logout(store_root)
+}
+
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+pub struct AccountFlagsRequest {
+    /// Ask the website now, however recent its last answer or failure.
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// Every feature flag, on or off for whoever's signed in. Asks the website when the last answer
+/// is due, as a flag check does.
+pub fn account_flags(store_root: &Path, req: &AccountFlagsRequest) -> FlagReport {
+    flags::all(store_root, req.refresh)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

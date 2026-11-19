@@ -62,12 +62,14 @@ flowchart LR
     sound["sound"] --> soundadds["Analyzer tempo-key-loudness<br/>events: suggests analysing new tracks"]
     musicbrainz["musicbrainz"] --> mbadds["Analyzer ids<br/>musicbrainz.org"]
     coverart["coverart"] --> coveradds["Providers covers, tags<br/>events: suggests fetching covers<br/>musicbrainz.org, coverartarchive.org,<br/>archive.org, *.archive.org"]
+    discogs["discogs"] --> discogsadds["Providers covers, tags<br/>discogs account: a personal access token<br/>api.discogs.com, i.discogs.com"]
     demos["demos"] --> demoadds["Check tracks, operation clean"]
     tracklist["tracklist"] --> trackadds["Operation import: playlist import<br/>Importer and source for rekordbox XML"]
     interop["interop"] --> interopadds["Exporters traktor, serato, engine, rekordbox<br/>Importer and source for Traktor"]
+    rekordboxbackup["rekordbox-backup"] --> rbadds["Commands collection backup, backups, verify<br/>Service schedule: a backup every few days"]
 ```
 
-Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml)
+Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml), [`plugins/rekordbox-backup/locallibrary-plugin.toml`](../../../../plugins/rekordbox-backup/locallibrary-plugin.toml)
 
 ## Built-in plugins that publish a set
 
@@ -87,15 +89,20 @@ Source: [`plugins/plyr/locallibrary-plugin.toml`](../../../../plugins/plyr/local
 
 ## Loading plugins
 
-How the plugins in `plugins/` end up in a host. Only built-in plugins run. A clash is with a command, a sidecar method or another plugin, or an account nothing can meet.
+How the plugins in `plugins/`, and any a developer gives for one run, end up in a host. A clash is with a command, a sidecar method or another plugin, or an account nothing can meet.
 
 ```mermaid
 flowchart TD
     folders["plugins/ID, plugins/accounts/ID"] --> build["build.rs writes the table:<br/>each manifest and how it serves"]
     build --> specs["Compiled in. A spec for each:<br/>run this binary, plugin serve ID"]
-    specs --> check{"Debug builds<br/>only: a clash?"}
-    check -->|yes| out["Left out, and said why"]
-    check -->|"no, or a release"| host["The plugin host. A repeated id or<br/>cli place refuses every plugin"]
+    dev["--dev-plugin MANIFEST:PROGRAM,<br/>or LOCALLIBRARY_DEV_PLUGINS"] --> rules{"Its manifest keeps<br/>a third party's rules?"}
+    rules -->|no| fail["The run fails, saying why"]
+    rules -->|yes| given["A spec: run that program"]
+    specs --> check{"Debug builds, or plugins<br/>given: a clash?"}
+    given --> check
+    check -->|"yes, a shipped plugin"| out["Left out, and said why"]
+    check -->|"yes, or a shipped plugin's<br/>id: a given plugin"| fail
+    check -->|"no, or a release<br/>with none given"| host["The plugin host. A repeated id or<br/>cli place refuses every plugin"]
     host --> lazy["Started when first used"]
     host --> account["Account plugins:<br/>signed in from, never started"]
 ```
@@ -256,7 +263,7 @@ Source: [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/localli
 
 ## Running an analyzer
 
-`track/analyze` over a drive's tracks. Each audio file is handed to the plugin read only.
+`track/analyze` over a drive's tracks, or for `analysis bench` over audio files too. Each audio file is handed to the plugin read only.
 
 ```mermaid
 flowchart TD
@@ -267,9 +274,11 @@ flowchart TD
     ask -->|"answered, fields as declared"| fields[("Fields in cache/,<br/>grids and waveforms beside them")]
     ask -->|"it failed"| failed
     ask -->|"a field it didn't declare"| failed
+    bench["analysis bench: the analyzers chosen<br/>for key and bpm, on a drive's tracks or files"] --> measure["track/analyze afresh, a few at a time.<br/>Files on no drive: library reads refused"]
+    measure --> scored["Scored against the dataset, nothing kept"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/analyzers.rs`](../../../../crates/locallibrary/src/plugin/analyzers.rs), [`crates/locallibrary/src/fields.rs`](../../../../crates/locallibrary/src/fields.rs), [`src/plugin_cmd/analyze.rs`](../../src/plugin_cmd/analyze.rs)
+Source: [`crates/locallibrary/src/plugin/analyzers.rs`](../../../../crates/locallibrary/src/plugin/analyzers.rs), [`crates/locallibrary/src/fields.rs`](../../../../crates/locallibrary/src/fields.rs), [`src/plugin_cmd/analyze.rs`](../../src/plugin_cmd/analyze.rs), [`crates/locallibrary/src/sound/bench.rs`](../../../../crates/locallibrary/src/sound/bench.rs)
 
 ## Running checks and guards
 

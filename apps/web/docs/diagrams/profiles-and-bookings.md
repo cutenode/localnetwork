@@ -18,7 +18,7 @@ How someone gets a profile, and how a DJ gets into Find DJs.
 
 ```mermaid
 flowchart TD
-  First["No profile yet: a card on /dashboard,<br/>filled from their Bluesky profile"] --> Edit["/dashboard/profile"]
+  First["No profile yet: the first step of<br/>the /dashboard checklist, filled<br/>from their Bluesky profile"] --> Edit["/dashboard/profile"]
   Edit --> Save["Writes computer.localnetwork.profile<br/>to their repo over the version the form opened"]
   Save --> Wait["Waits up to 5 s for HappyView to serve it"]
   Wait --> Page["/@[handle] shows it,<br/>sections decide the sidebar"]
@@ -30,11 +30,11 @@ flowchart TD
   Find --> Off["Turning the DJ section off hides<br/>them too, the listing stays"]
 ```
 
-Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/profiles.ts), [`src/routes/dashboard/profile/+page.server.ts`](../../src/routes/dashboard/profile/+page.server.ts), [`src/lib/server/services/dj-listings.ts`](../../src/lib/server/services/dj-listings.ts), [`src/routes/admin/listings/[did]/+page.server.ts`](../../src/routes/admin/listings/[did]/+page.server.ts)
+Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/profiles.ts), [`src/lib/onboarding/steps/profile.ts`](../../src/lib/onboarding/steps/profile.ts), [`src/routes/dashboard/profile/+page.server.ts`](../../src/routes/dashboard/profile/+page.server.ts), [`src/lib/server/services/dj-listings.ts`](../../src/lib/server/services/dj-listings.ts), [`src/routes/admin/listings/[did]/+page.server.ts`](../../src/routes/admin/listings/[did]/+page.server.ts)
 
 ## Moderation requests
 
-A request from filing to decision. `create`, `claim` and `update` publish a performer; `list` lists a DJ.
+A request from filing to decision. `create`, `claim` and `update` publish a performer; `list` lists a DJ; a `claim` on a venue makes the claimant an owner.
 
 ```mermaid
 sequenceDiagram
@@ -52,26 +52,26 @@ sequenceDiagram
   T->>A: Decide
   alt Approved
     A->>S: Copy and check<br/>avatar and tracklists
-    A->>P: Publish the performer<br/>or the DJ listing
+    A->>P: Publish the performer<br/>or the DJ listing,<br/>or add a venue's owner
   end
   A->>S: Root writes the decision
   A->>A: Audit the decision
 ```
 
-Source: [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts), [`src/routes/admin/requests/[rkey]/+page.server.ts`](../../src/routes/admin/requests/[rkey]/+page.server.ts), [`src/routes/dashboard/projects/new/+page.server.ts`](../../src/routes/dashboard/projects/new/+page.server.ts), [`src/routes/dashboard/claim/[slug]/+page.server.ts`](../../src/routes/dashboard/claim/[slug]/+page.server.ts)
+Source: [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts), [`src/routes/admin/requests/[rkey]/+page.server.ts`](../../src/routes/admin/requests/[rkey]/+page.server.ts), [`src/routes/dashboard/projects/new/+page.server.ts`](../../src/routes/dashboard/projects/new/+page.server.ts), [`src/routes/dashboard/claim/[slug]/+page.server.ts`](../../src/routes/dashboard/claim/[slug]/+page.server.ts), [`src/routes/dashboard/venues/[key]/claim/+page.server.ts`](../../src/routes/dashboard/venues/[key]/claim/+page.server.ts)
 
 ## Request lifecycle
 
-The status of a moderation request. Nobody can decide their own, and only staff decide. A rejection or a call for changes needs a reason. A `list` request can't be revised, so changes requested on one end in a withdrawal.
+The status of a moderation request. Nobody can decide their own, and only staff decide. A rejection or a call for changes needs a reason. Revising a `list` request takes only a note, since staff review the profile as it is.
 
 ```mermaid
 stateDiagram-v2
   [*] --> pending: submitted
-  pending --> pending: requester revises (not a list request)
+  pending --> pending: requester revises
   pending --> approved: staff approve
   pending --> rejected: staff reject
   pending --> changes_requested: staff ask for changes
-  changes_requested --> pending: requester revises (not a list request)
+  changes_requested --> pending: requester revises
   pending --> withdrawn: requester withdraws, or their record is deleted
   changes_requested --> withdrawn: requester withdraws, or their record is deleted
   approved --> [*]
@@ -104,11 +104,13 @@ How a promoter finds a performer and starts a booking.
 
 ```mermaid
 flowchart TD
-  Find["/projects: Find DJs"] --> Search["searchPerformers:<br/>active performers and listed DJs"]
+  Find["/djs: Find DJs"] --> Search["searchPerformers:<br/>active performers and listed DJs"]
   Match["/match: describe the night"] --> Rank["matchProjects: ranked,<br/>with reason codes"]
   City["City search"] --> Places["/api/places, cached in SQLite"]
   Places --> Find
   Places --> Match
+  City -- "typed, not picked" --> Lookup["/djs looks it up once,<br/>same cache"]
+  Lookup --> Search
   Search --> Dj["/@[handle] for a listed DJ"]
   Search --> Page["/projects/[slug]"]
   Rank --> Page
@@ -116,9 +118,11 @@ flowchart TD
   Rank --> Night["Save the night and ticked DJs<br/>as a planned show"]
   Page --> Save["Save to the planner"]
   Page --> Inquire["/dashboard/bookings/new"]
+  Dj -- "if they take inquiries" --> Inquire
+  Dj --> Save
 ```
 
-Source: [`src/routes/projects/+page.server.ts`](../../src/routes/projects/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
+Source: [`src/routes/djs/+page.server.ts`](../../src/routes/djs/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/routes/@[handle]/+page.svelte`](../../src/routes/@[handle]/+page.svelte), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
 
 ## Planner flow
 
@@ -130,6 +134,8 @@ flowchart TD
   Night["/match: Save show to planner"] --> Client
   Show["/dashboard/planner/shows/[rkey]"] --> Client
   Show --> Inquire["Inquire from a planned show,<br/>filled in from its details"]
+  Inquire --> Named["The inquiry names the planner show,<br/>read back from their own planner"]
+  Show --> Booked["Opens the booking for an act<br/>already asked from this show"]
   Client -- "no" --> Off["Planner unavailable"]
   Client -- "yes" --> Ensure["Create the planner space if it's missing"]
   Ensure --> Records["planner.save and planner.show<br/>in their own repo"]
@@ -138,22 +144,27 @@ flowchart TD
   Read --> Names["Names performers from HappyView"]
 ```
 
-Source: [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts), [`src/routes/dashboard/bookings/new/+page.server.ts`](../../src/routes/dashboard/bookings/new/+page.server.ts)
+Source: [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts), [`src/routes/dashboard/bookings/new/+page.server.ts`](../../src/routes/dashboard/bookings/new/+page.server.ts), [`src/routes/dashboard/planner/shows/[rkey]/+page.server.ts`](../../src/routes/dashboard/planner/shows/[rkey]/+page.server.ts)
 
 ## Booking inquiry
 
-Opening a booking thread. It reads the performer from the root's own repo, so a new manager is already in the thread.
+Opening a booking thread, with an act or a DJ Find DJs lists who turned on Take inquiries. It reads an act from the root's own repo, so a new manager is already in the thread. A DJ answers for themself, as the thread's performer.
 
 ```mermaid
 sequenceDiagram
   participant B as Promoter
   participant A as App
   participant R as Root's repo
+  participant H as HappyView
   participant S as Thread's space
   participant D as SQLite
   B->>A: Send the inquiry
-  A->>R: Performer record
-  A->>S: Root creates the space,<br/>adds promoter, managers
+  alt An act
+    A->>R: Its project record
+  else A listed DJ
+    A->>H: Their listing, and a profile<br/>with Take inquiries on
+  end
+  A->>S: Root creates the space, adds<br/>the promoter, then the act's<br/>managers or the DJ
   A->>D: Thread and<br/>participant rows
   A->>S: Root writes the<br/>opening status record
   A->>S: Inquiry in the<br/>promoter's repo
@@ -168,7 +179,7 @@ sequenceDiagram
   end
 ```
 
-Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/dashboard/bookings/new/+page.server.ts`](../../src/routes/dashboard/bookings/new/+page.server.ts), [`src/routes/dashboard/bookings/[skey]/+page.server.ts`](../../src/routes/dashboard/bookings/[skey]/+page.server.ts)
+Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/booking-performers.ts`](../../src/lib/server/services/booking-performers.ts), [`src/routes/dashboard/bookings/new/+page.server.ts`](../../src/routes/dashboard/bookings/new/+page.server.ts), [`src/routes/dashboard/bookings/[skey]/+page.server.ts`](../../src/routes/dashboard/bookings/[skey]/+page.server.ts)
 
 ## Booking thread messages
 
@@ -186,30 +197,31 @@ sequenceDiagram
     A-->>P: 404
   else Participant
     A->>D: Thread and events,<br/>leaving out the root's
+    A->>D: The promoter's planner show (theirs only),<br/>the show the root noted as announced
     A-->>P: The thread
   end
   P->>A: Send a message
   A->>S: Message in their repo, or<br/>the root's with onBehalfOf
   A->>D: Index it, inbox items for<br/>the other participants
   A->>D: Audit booking.message,<br/>its length, never its text
-  Note over P,A: A confirmed thread offers<br/>managers Announce this show
+  Note over P,A: A confirmed thread with an act offers<br/>its managers Announce this show, until one is
 ```
 
 Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/dashboard/bookings/[skey]/+page.server.ts`](../../src/routes/dashboard/bookings/[skey]/+page.server.ts), [`src/routes/dashboard/bookings/[skey]/+page.svelte`](../../src/routes/dashboard/bookings/[skey]/+page.svelte), [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts)
 
 ## Booking lifecycle
 
-The status of a booking thread. The site refuses any other change with a 409 and audits it as denied. A status record a participant writes to the space from elsewhere is indexed without that check.
+The status of a booking thread. The side being booked is an act's managers or the DJ. The site refuses any other change with a 409 and audits it as denied. A status record a participant writes to the space from elsewhere waits as unapplied until the thread's rules allow that move. The root's own status records, opening the thread and noting the show announced from it, never move it.
 
 ```mermaid
 stateDiagram-v2
   [*] --> open: inquiry sent
-  open --> negotiating: manager
-  open --> confirmed: manager, or promoter once a manager wrote
-  open --> declined: manager
+  open --> negotiating: booked side
+  open --> confirmed: booked side, or promoter once it wrote
+  open --> declined: booked side
   open --> cancelled: promoter withdraws
   negotiating --> confirmed: either side
-  negotiating --> declined: manager
+  negotiating --> declined: booked side
   negotiating --> cancelled: promoter withdraws
   confirmed --> cancelled: either side
   declined --> [*]

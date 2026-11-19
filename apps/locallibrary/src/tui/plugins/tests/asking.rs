@@ -165,8 +165,9 @@ fn fetch_details(app: &mut App, root: &Path) {
     for needle in ["Fetch track details", "from", "replace", "Only from this provider", "‹ none ›"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}\n{}", last_message(app));
     }
-    // The third provider (after none, coverart's, which would go online, and echo's own), and
-    // over what they have.
+    // The fourth provider (after none, and coverart's and discogs', which would go online, echo's
+    // own), and over what they have.
+    key(app, KeyCode::Right);
     key(app, KeyCode::Right);
     key(app, KeyCode::Right);
     key(app, KeyCode::Right);

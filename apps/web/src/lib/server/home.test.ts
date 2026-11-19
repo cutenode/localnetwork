@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { BookingRole } from '#lib/bookings.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { ADMIN, DJ, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
@@ -82,8 +83,8 @@ describe('needsYou', () => {
 
 		const rows = await needsYou(f.t, dj, NOW);
 
-		expect(rows.map((row) => row.title)).toEqual(['Reply to Night', 'Update your request']);
-		expect(rows[1]).toMatchObject({ action: 'Update', href: `/dashboard/requests/${request.rkey}` });
+		expect(rows.map((row) => row.title)).toEqual(['Reply to Night', 'Update your review request']);
+		expect(rows[1]).toMatchObject({ action: 'Update', href: `/dashboard/account/requests/${request.rkey}` });
 		expect(rows[1].detail).toMatch(/^New project: Second Act · Staff asked for changes · /);
 	});
 });
@@ -118,7 +119,10 @@ describe("a thread the directory can't name", () => {
 		const app = {
 			shows: { forProject: async () => [] },
 			planner: { saves: async () => [], shows: async () => [] },
-			projects: { byUris: async () => new Map() }
+			projects: { byUris: async () => new Map() },
+			profiles: f.t.profiles,
+			accounts: f.t.accounts,
+			djListings: f.t.djListings
 		};
 
 		const { nights } = await nextNights(
@@ -221,7 +225,7 @@ describe('soon', () => {
 describe('accessWaiting', () => {
 	it("asks about each person waiting on a press kit, and drops them once they're answered", async () => {
 		const epk = await f.publish(DJ);
-		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), { role: 'press' });
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {});
 
 		const rows = await accessWaiting({ app: f.t, log: silentLogger }, [f.project], NOW);
 
@@ -249,7 +253,7 @@ describe('accessWaiting', () => {
 });
 
 describe('withOthers', () => {
-	const thread = (role: 'promoter' | 'manager'): BookingThreadView => ({
+	const thread = (role: BookingRole): BookingThreadView => ({
 		space: role,
 		skey: role,
 		status: 'open',
@@ -278,6 +282,9 @@ describe('withOthers', () => {
 			withOthers([thread('manager'), thread('manager'), thread('promoter')], [request, request], 'did:plc:me')
 		).toBe(
 			'2 bookings are waiting on promoters and 1 booking is waiting on a DJ and 2 requests are with staff. Nothing needed from you.'
+		);
+		expect(withOthers([thread('performer')], [], 'did:plc:me')).toBe(
+			'1 booking is waiting on a promoter. Nothing needed from you.'
 		);
 	});
 });
@@ -319,7 +326,10 @@ describe('nextNights', () => {
 		const app = {
 			shows: { forProject: () => answer(shows) },
 			planner: { saves: async () => [], shows: () => answer(plans) },
-			projects: { byUris: async () => new Map() }
+			projects: { byUris: async () => new Map() },
+			profiles: f.t.profiles,
+			accounts: f.t.accounts,
+			djListings: f.t.djListings
 		};
 
 		return nextNights({ app, log: silentLogger }, await f.t.viewer(DJ), threads, [f.project], sections, NOW);

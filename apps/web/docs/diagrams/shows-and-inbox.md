@@ -11,7 +11,7 @@ Shows, follows, inbox delivery and channels. The rest are listed in the [README]
 
 ## Announcing a show
 
-A show is two records with the same key in the manager's own repo. A confirmed booking thread can prefill the form.
+A show is two records with the same key in the manager's own repo. A confirmed booking thread can prefill the form, and the show announced from it is noted in the thread's space, never in the show.
 
 ```mermaid
 sequenceDiagram
@@ -32,30 +32,40 @@ sequenceDiagram
     A->>H: Re-read that collection
   end
   A->>A: Audit show.save
+  opt New show from a confirmed booking they manage
+    A->>A: Root writes a confirmed status record<br/>naming the show into the booking space
+  end
 ```
 
 Source: [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/forms/announce.ts`](../../src/lib/server/forms/announce.ts), [`src/routes/dashboard/projects/[slug]/shows/[rkey]/+page.server.ts`](../../src/routes/dashboard/projects/[slug]/shows/[rkey]/+page.server.ts), [`src/lib/server/venue-time.ts`](../../src/lib/server/venue-time.ts)
 
 ## Follows and the shows list
 
-Following a performer, and what that does to `/shows`.
+Following a performer or a person, and what that does to `/shows` and the home page. `/shows` also lists parties' events beside the shows while `spacePages` is on.
 
 ```mermaid
 flowchart TD
   Button["Follow on a performer's page"] --> Signed{"Signed in?"}
+  Person["Follow on a profile"] --> Signed
   Signed -- "no" --> Login["/login, then back"]
-  Signed -- "yes" --> Active{"Performer active?"}
-  Active -- "no" --> Gone["404"]
+  Signed -- "yes" --> Active{"Performer active,<br/>or someone else's profile?"}
+  Active -- "no" --> Gone["404, or refused"]
   Active -- "yes" --> Write["computer.localnetwork.follow<br/>in the follower's repo"]
   Write --> Wait["Wait for getFollowStatus to show it"]
   Wait --> Audit["Audit follow.create"]
   Shows["/shows"] --> View{"Which view?"}
   View -- "default" --> Near["listShows near a city,<br/>kept in a cookie"]
-  View -- "Following" --> Followed["listShows of followed performers"]
-  Write -. "read by" .-> Followed
+  View -- "default, spacePages" --> Events["Parties' listed events near it<br/>until their night ends"]
+  Near --> Merged["Merged by start, 30 a page"]
+  Events --> Merged
+  View -- "Following" --> Followed["listShows of followed performers,<br/>no events"]
+  Write -. "performer follows read by" .-> Followed
+  Home["/ with socialHome on"] -- "signed out" --> Near
+  Home -- "signed in" --> Followed
+  Home -- "signed in, then" --> HomeCity["listShows near their home city,<br/>else the city in the cookie"]
 ```
 
-Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua)
+Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/@[handle]/+page.server.ts`](../../src/routes/@[handle]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`src/lib/server/social-home.ts`](../../src/lib/server/social-home.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua), [`src/lib/server/events-list.ts`](../../src/lib/server/events-list.ts)
 
 ## Inbox delivery
 
@@ -74,7 +84,7 @@ flowchart TD
   Batch --> Dm["Bluesky DM from the root,<br/>1 minute window"]
 ```
 
-Source: [`src/lib/server/notifications/notifier.ts`](../../src/lib/server/notifications/notifier.ts), [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifications/outbox.ts), [`src/lib/server/notifications/email.ts`](../../src/lib/server/notifications/email.ts), [`src/lib/server/notifications/dm.ts`](../../src/lib/server/notifications/dm.ts), [`src/lib/server/notifications/kinds.ts`](../../src/lib/server/notifications/kinds.ts)
+Source: [`src/lib/server/notifications/notifier.ts`](../../src/lib/server/notifications/notifier.ts), [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifications/outbox.ts), [`src/lib/server/notifications/email.ts`](../../src/lib/server/notifications/email.ts), [`src/lib/server/notifications/dm.ts`](../../src/lib/server/notifications/dm.ts), [`src/lib/server/notifications/kinds.ts`](../../src/lib/server/notifications/kinds.ts), [`src/lib/server/notifications/kinds/`](../../src/lib/server/notifications/kinds/)
 
 ## Delivery lifecycle
 
@@ -131,4 +141,4 @@ stateDiagram-v2
   WaitingForLink --> Off: off or unsubscribed
 ```
 
-Source: [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts), [`src/routes/dashboard/inbox/settings/+page.server.ts`](../../src/routes/dashboard/inbox/settings/+page.server.ts), [`src/routes/notifications/confirm/+page.server.ts`](../../src/routes/notifications/confirm/+page.server.ts), [`src/routes/notifications/unsubscribe/+page.server.ts`](../../src/routes/notifications/unsubscribe/+page.server.ts)
+Source: [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts), [`src/routes/dashboard/account/notifications/+page.server.ts`](../../src/routes/dashboard/account/notifications/+page.server.ts), [`src/routes/notifications/confirm/+page.server.ts`](../../src/routes/notifications/confirm/+page.server.ts), [`src/routes/notifications/unsubscribe/+page.server.ts`](../../src/routes/notifications/unsubscribe/+page.server.ts)

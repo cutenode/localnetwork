@@ -39,11 +39,11 @@ The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrar
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
 every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
-Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host
-(loclib-plugin's `FakeHost` for new ones, see its README's "Testing a plugin"); the
-CLI's tests run them through the real one. Account plugins are the exception: each is a
-`locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
-`build.rs` includes and nothing runs, so adding one is adding its folder.
+Their tests sit beside their code, driving the plugin over in-memory pipes with loclib-plugin's
+`FakeHost` (see its README's "Testing a plugin"); the CLI's tests run them through the real one.
+Account plugins are the exception: each is a `locallibrary-plugin.toml` alone in
+`plugins/accounts/<id>/`, outside the workspace, which `build.rs` includes and nothing runs, so
+adding one is adding its folder.
 
 `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with clippy, rustfmt
 and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that
@@ -169,7 +169,7 @@ have it check the result (`tests/support/sqlcipher.rs`); without it they skip th
 Publishing is tested against a pretend data server on 127.0.0.1
 (`crates/locallibrary/tests/support/mock_pds.rs`, shared with the CLI's tests): it keeps records,
 checks each write's DPoP proof and hands out a DPoP nonce, and refuses on cue. It stands in for
-Local Network's directory (HappyView's `getRecords`) and website (`requestIndex`) too, so the
+Local Network's directory (HappyView's `getRecords`) and website (`requestIndex`, `getFlags`) too, so the
 library's tests point both at it (`locallibrary::testing::directory_on_this_thread`) and the CLI's
 (`Env::with_directory`); otherwise the CLI's tests find them at an address nothing answers at. The tests write the
 session as files, or to an in-memory keychain, so none of them signs in to a real account,
@@ -225,8 +225,10 @@ Crates with work that grows with a library or a recording have
 `locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
 of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
-`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
-`loclib-analysis`. `loclib-model` needs `--features test-util`. The first
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget),
+`loclib-sqlcipher` (decrypting a database, with and without a WAL), `loclib-anlz` (reading every
+section of a track's analysis files, and writing its waveforms, cues and grid) and
+`loclib-analysis`. `loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 
@@ -278,10 +280,23 @@ failing examples it finds for the next week's run.
 
 The parsers for what a drive or an import hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
-root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
-their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
-mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
-runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+root): `pdb` (`export.pdb` and `exportExt.pdb`), `pdb_edit` (`PdbEditor`'s playlist, entry,
+track string and history edits on the vendored fixtures, each read back and checked against a
+model of what it changes), `anlz` (analysis files, and the rewrites of their paths, cues and
+times), `mysettings` (the players' settings files), `tracklist`, `mp4` (MP4 and M4A atoms as
+`vet_container` walks them, then symphonia opening and decoding what it lets through, and the
+probe's format, health and length checks), `wav` (WAV headers of recordings, and the WAV and
+AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (Audacity projects:
+the binary XML, the project it builds and its mixdown), `traktor` (Traktor's `collection.nml`,
+the beat grids it lays down and what an import makes of it), `onelibrary` (`exportLibrary.db` and
+its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
+`master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules) and
+`rekordbox_sync` (`playlists3*.sync`). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for
+formats whose tests keep their examples inline; `pdb_edit` grows its edit sequences from nothing)
+looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
+libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values the readers branch
+on), so it gets past a header without guessing four bytes at once. `fuzz/` is a workspace of its
+own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -296,6 +311,16 @@ What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 (`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
 workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
 input of any crash.
+
+The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
+plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
+
+```bash
+sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
+sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
+  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
+```
 
 ## Exploring the TUI and the mix report
 
@@ -328,8 +353,9 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
    Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
    and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
    takes its notes from that section.
-2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
-   `Cargo.lock` follows, and commit.
+2. Bump `version` in `[workspace.package]` in the root `Cargo.toml` (the CLI's and the plugins'
+   version; the loclib crates have their own, see below), run `cargo check` so `Cargo.lock`
+   follows, and commit.
 3. Tag the commit with the CLI package's name and push the tag:
    `git tag locallibrary-cli-v0.2.0 && git push origin locallibrary-cli-v0.2.0`. Only tags that
    start with `locallibrary` release it (`tag-namespace` in `dist-workspace.toml`), so the
@@ -340,21 +366,26 @@ The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
-`.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs
-`dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
-generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
-`allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the
-file (`dist generate --mode=ci`, with `allow-dirty` removed for the run) and carry the additions
-over. Upgrading dist also takes the new version and its archives' checksums in
-`.github/actions/install-dist/action.yml`.
+`.github/build-setup.yml`, `.github/actions/install-dist` or the workflow itself,
+`locallibrary-ci.yml`'s lint job runs `dist plan`, which checks the configuration.
+`locallibrary-release.yml` is dist 0.33.0's generated workflow with hand-written additions listed
+at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing the dist
+configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
+`allow-dirty` removed for the run) and carry the additions over. Upgrading dist also takes the new
+version and its archives' checksums in `.github/actions/install-dist/action.yml`.
+
+Each archive has `THIRD-PARTY-NOTICES.md` next to `LICENSE`: the licences of the crates the binary
+is built from, among them the vendored rekordbox-pdb's, which `template.pdb` is under too. The
+build jobs write it with `cargo notices` ([cargo-about](https://github.com/EmbarkStudios/cargo-about),
+set up in the root's `about.toml` and `about.hbs`) before dist builds, and the Homebrew formula
+installs it in `share/locallibrary`. `about.toml` accepts the licences `deny.toml` allows, which
+`tools/policy.sh` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
+that change the lockfile or their configuration. To see what it writes, run `cargo install
+--locked cargo-about` and then `cargo notices`, which writes `THIRD-PARTY-NOTICES.md` at the root.
 
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):
 
-- Third-party notices: dist puts `LICENSE` in the archives and the Homebrew formula, but the
-  binary also holds code under other licences (the dependencies, and the vendored rekordbox-pdb
-  with its `template.pdb`), whose notices have to ship with it: generate a notices file at
-  release (with `cargo about`, say) and include it.
 - The Homebrew tap: create the `cutenode/homebrew-tap` repository, and save a fine-grained
   token that can write to its contents as the `HOMEBREW_TAP_TOKEN` secret. Until then the
   formula is only attached to the release.
@@ -376,3 +407,27 @@ skipped):
   has run yet: check the first signed release's log for Apple's verdict.
 - Windows binaries aren't signed (SmartScreen warns about them); dist can sign them through
   Azure Artifact Signing if that's ever wanted.
+
+## Releasing crates
+
+The loclib crates go to crates.io, each with its own version, through
+[release-plz](https://release-plz.dev) (`release-plz.toml`) and
+`.github/workflows/loclib-release.yml`. The workflow publishes with crates.io's trusted
+publishing, so no crates.io token is stored anywhere.
+
+1. `release-plz update` (`cargo install release-plz`) bumps the version of each crate that
+   changed since its last release, from the conventional commits that touched it, and writes
+   them into the crate's `CHANGELOG.md`. While a crate is 0.x a breaking change moves the minor
+   version and anything else the patch; from 1.0 a `feat` moves the minor and a breaking change
+   the major. Open a pull request with what it changed.
+2. When it merges, the workflow publishes each crate whose version crates.io doesn't have yet,
+   dependencies first, and tags it `<crate>-v<version>`.
+
+crates.io takes a crate's first version only from a token, and only then lets it trust a
+workflow. So for a new crate, or for all of them the first time, run `tools/crates-io.sh` to see
+what's missing and `tools/crates-io.sh setup` to fix it. It sets up the `crates-io` environment
+(deploys from `main` only), publishes the crates crates.io doesn't have, has every crate trust
+the workflow, and turns on "require trusted publishing" so a token can't publish them again.
+Make the token it asks for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`,
+with the scopes `publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. The
+environment needs `gh` signed in as a repository admin.

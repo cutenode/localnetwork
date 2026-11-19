@@ -61,6 +61,10 @@ impl App {
 
     /// A drive's name as shown: its adopted name, else its volume's.
     pub fn drive_label(&self, root: &Path) -> String {
+        // `/` is never a drive here: it's where rekordbox's collection is opened from.
+        if root == super::drives::collection_root() {
+            return COLLECTION_NAME.to_string();
+        }
         self.drives
             .iter()
             .find(|d| d.root == root)
@@ -94,7 +98,6 @@ impl App {
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
-            || self.covers.busy()
             || self.transitions.active()
             || self.chord.is_some_and(|at| at.elapsed() < CHORD_HINT)
     }

@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn actions_become_commands_and_flags() {
     let e = locallibrary::Error::NotFound("library \"Club\" in the store".into())
-        .action(Action::call("pull", json!({ "drive": "/Volumes/My DNA" }), "Pull DNA into the store"))
+        .action(Action::call("pull.apply", json!({ "drive": "/Volumes/My DNA" }), "Pull DNA into the store"))
         .action(Action::retry(json!({ "force": true, "library": null }), "Force it"))
         .action(Action::call(
             "sync.plan",
@@ -24,6 +24,21 @@ fn actions_become_commands_and_flags() {
     );
     let admin = locallibrary::Error::Permission("formatting /dev/disk4 needs administrator rights".into());
     assert!(hints(&admin)[0].contains("run it again"), "{:?}", hints(&admin));
+}
+
+/// Signing in again for one more scope names only that one: what every sign-in asks for, it asks
+/// for anyway.
+#[cfg(feature = "account")]
+#[test]
+fn signing_in_again_names_only_the_scope_it_adds() {
+    let mut scopes = locallibrary::atmosphere::DEFAULT_SCOPES.to_vec();
+    scopes.push("repo:app.example.thing?action=create");
+    let again = Action::call("account.login.begin", json!({ "scopes": scopes }), "Sign in again");
+    let e = locallibrary::Error::Conflict("x".into()).action(again);
+    assert_eq!(
+        hints(&e),
+        ["Sign in again: locallibrary account login --scope \"repo:app.example.thing?action=create\""]
+    );
 }
 
 #[test]
@@ -91,15 +106,15 @@ const VALUES: &[&str] = &[
     "Wow!",
 ];
 
-/// Every hint that names a command is one the command line reads, with each value given
-/// back as it was (quoted where a shell needs it); one that adds to the request names a flag
-/// for each parameter it adds, and leaves out a switch that's off. One missing a value it needs
-/// (a drive's role without the drive) says where it goes.
+/// Every action names a method the sidecar answers, and every hint that names a command is one
+/// the command line reads, with each value given back as it was (quoted where a shell needs it);
+/// one that adds to the request names a flag for each parameter it adds, and leaves out a switch
+/// that's off. One missing a value it needs (a drive's role without the drive) says where it goes.
 #[hegel::test(test_cases = 200)]
 fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let methods = [
-        "pull",
+        "pull.apply",
         "push.plan",
         "sync.plan",
         "merge.plan",
@@ -108,7 +123,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "drive.backups",
         "drive.role",
         "drive.retire",
-        "drive.reidentify",
+        "drive.reidentify.apply",
         "snapshot.label",
         "convert.plan",
         #[cfg(feature = "account")]
@@ -120,6 +135,10 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "settings.import.plan",
         "library.list",
     ];
+    // An action a front end can't call is no help: each names a method the sidecar answers.
+    for m in methods {
+        assert!(crate::rpc::answers(m), "{m} is no method the sidecar answers");
+    }
     let value = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(VALUES));
     let mut params = Map::new();
     for key in ["drive", "left", "right", "source", "target", "label", "type", "with", "for", "plugin"] {

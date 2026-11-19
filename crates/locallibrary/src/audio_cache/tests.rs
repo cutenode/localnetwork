@@ -20,6 +20,18 @@ fn caches_keep_their_layout() {
     assert_eq!(prints.file("abcdef", "fp"), prints.root().join("ab/abcdef.fp"));
 }
 
+/// Without a store, the cache is in a temporary folder; with none to make (`TMPDIR` on a drive
+/// that's gone), it fails naming that folder.
+#[cfg(unix)]
+#[test]
+fn without_a_store_or_a_temporary_folder_there_is_no_cache() {
+    let gone = std::env::temp_dir().join("locallibrary-unplugged");
+    // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
+    unsafe { std::env::set_var("TMPDIR", &gone) };
+    let e = Cache::<Prints>::of_default_store().map(drop).unwrap_err();
+    assert!(matches!(&e, Error::Io { path, .. } if *path == gone), "{e:?}");
+}
+
 /// A cached value that can't be read back (cut short) counts as not cached.
 #[test]
 fn unreadable_values_are_not_cached() {

@@ -468,6 +468,33 @@ fn a_key_from_a_database_stays_on_the_drive(tc: hegel::TestCase) {
     }
 }
 
+/// From the computer's own root `/`, where the player opens rekordbox's collection, a full path
+/// keyed (as the collection names its files) is that path, on whichever drive it's on, there or
+/// not yet. A drive's root keeps the same key on the drive.
+#[hegel::test(test_cases = 20)]
+fn from_the_computers_root_a_full_path_is_itself(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let names =
+        tc.draw(gs::vecs(gs::sampled_from(vec!["Music", "Only Here.mp3", "Daft Punk", "été"])).min_size(1).max_size(4));
+    let dir = tempfile::tempdir().unwrap();
+    let file = names.iter().fold(dir.path().to_path_buf(), |p, n| p.join(n));
+    if tc.draw(gs::booleans()) {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, b"mp3").unwrap();
+    }
+    let key = paths::key(&file.display().to_string());
+    let computer = Device::open("/").unwrap();
+    assert_eq!(computer.root(), Path::new("/"));
+    assert_eq!(computer.checked_path(&key).unwrap(), file);
+    assert_eq!(computer.path(&key), file);
+    let drive = Device::open(dir.path()).unwrap();
+    let from_drive = drive.checked_path(&key);
+    match cfg!(windows) {
+        true => assert!(from_drive.is_err(), "{key} names another drive"),
+        false => assert!(from_drive.is_ok_and(|p| p.starts_with(drive.root())), "{key}"),
+    }
+}
+
 /// A scan for one library, with another's tracks added, is the scan for both: audio either
 /// keeps outside `Contents/`, once, in order.
 #[test]

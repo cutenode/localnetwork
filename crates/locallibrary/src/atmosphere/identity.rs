@@ -14,7 +14,9 @@ use jacquard_common::http_client::HttpClient;
 use jacquard_common::types::did::Did;
 use jacquard_common::types::string::Handle;
 use jacquard_identity::JacquardResolver;
-use jacquard_identity::resolver::{self, DidDocResponse, HandleStep, IdentityError, IdentityResolver, ResolverOptions};
+use jacquard_identity::resolver::{
+    self, DidDocResponse, HandleStep, IdentityError, IdentityErrorKind, IdentityResolver, ResolverOptions,
+};
 use jacquard_oauth::dpop::DpopExt;
 use jacquard_oauth::resolver::OAuthResolver;
 
@@ -47,16 +49,40 @@ impl Resolver {
         Resolver { jacquard: JacquardResolver::new(http, options), dns }
     }
 
-    /// The DID `handle`'s `_atproto` TXT record names, if DNS has one.
-    async fn dns_did(&self, handle: &str) -> Option<Did> {
-        let answer = self.dns.as_ref()?.txt_lookup(format!("_atproto.{handle}.")).await.ok()?;
+    /// The DID `handle`'s `_atproto` TXT record names, or why DNS gives none.
+    async fn dns_did(&self, handle: &str) -> std::result::Result<Did, String> {
+        let name = format!("_atproto.{handle}");
+        let Some(dns) = &self.dns else {
+            return Err(format!("{name} wasn't looked up: this computer's DNS settings couldn't be read"));
+        };
+        let answer = match dns.txt_lookup(format!("{name}.")).await {
+            Ok(answer) => answer,
+            Err(e) if e.is_no_records_found() => return Err(format!("DNS has no {name} record")),
+            Err(e) => return Err(format!("DNS couldn't be asked for {name} ({e})")),
+        };
         let txts = answer.answers().iter().filter_map(|record| match &record.data {
             RData::TXT(txt) => Some(txt.txt_data.iter().map(|s| String::from_utf8_lossy(s).into_owned())),
             _ => None,
         });
-        did_in(txts.flatten())
+        did_in(txts.flatten()).ok_or_else(|| format!("DNS's {name} record has no did=… in it"))
     }
 }
+
+/// A handle neither its DNS nor its web address names a DID for: why DNS didn't, as
+/// [`Resolver::dns_did`] says.
+#[derive(Debug)]
+pub(crate) struct HandleNotFound {
+    pub(crate) handle: String,
+    pub(crate) dns: String,
+}
+
+impl std::fmt::Display for HandleNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}, and https://{}/.well-known/atproto-did doesn't give a DID", self.dns, self.handle)
+    }
+}
+
+impl std::error::Error for HandleNotFound {}
 
 /// The DID in a handle's TXT strings: the first `did=` one that holds a valid DID, as jacquard
 /// reads them.
@@ -70,10 +96,18 @@ impl IdentityResolver for Resolver {
     }
 
     async fn resolve_handle<S: BosStr + Sync>(&self, handle: &Handle<S>) -> resolver::Result<Did> {
-        match self.dns_did(handle.as_str()).await {
-            Some(did) => Ok(did),
-            None => self.jacquard.resolve_handle(handle).await,
-        }
+        let dns = match self.dns_did(handle.as_str()).await {
+            Ok(did) => return Ok(did),
+            Err(why) => why,
+        };
+        self.jacquard.resolve_handle(handle).await.map_err(|e| match e.kind() {
+            // jacquard's own word for it says neither what was asked nor what each answered.
+            IdentityErrorKind::HandleResolutionExhausted => {
+                let found = HandleNotFound { handle: handle.as_str().to_lowercase(), dns };
+                IdentityError::new(IdentityErrorKind::HandleResolutionExhausted, Some(Box::new(found)))
+            }
+            _ => e,
+        })
     }
 
     async fn resolve_did_doc<S: BosStr + Sync>(&self, did: &Did<S>) -> resolver::Result<DidDocResponse> {

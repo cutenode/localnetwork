@@ -57,7 +57,7 @@ export type DirectoryOutputs = {
 	searchProjects: { projects: DirectoryProject[]; total: number; cursor?: string };
 	searchPerformers: { performers: DirectoryPerformer[]; total: number; cursor?: string };
 	matchProjects: { matches: DirectoryMatch[] };
-	getProject: { project?: DirectoryProject; pressKits?: number; upcomingShows?: number };
+	getProject: { project?: DirectoryProject; pressKits?: number; upcomingShows?: number; djs?: number };
 	getProjects: { projects: DirectoryProject[] };
 	getStats: {
 		total: number;
@@ -72,6 +72,7 @@ export type DirectoryOutputs = {
 	listShows: { shows: DirectoryShow[]; cursor?: string };
 	getShows: { shows: DirectoryShow[] };
 	getFollowStatus: { followers: number; follows: string[] };
+	getRsvpStatus: { going: number; interested: number; rsvps: { uri: string; status: string }[] };
 	getCharts: Charts;
 	getArtist: { artist?: SupportedArtist; tracks: TrackPlays[]; djs: DirectoryDj[] };
 	searchArtists: { artists: SupportedArtist[] };

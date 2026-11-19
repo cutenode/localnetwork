@@ -26,12 +26,15 @@
 //!   directory ([`directory`]).
 //! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
 //!   [`REPORT_SCOPE`].
+//! * Asking Local Network's website about feature flags ([`flags`]), which targeting them at an
+//!   account needs [`FLAGS_SCOPE`] for.
 //!
 //! One account is signed in at a time. Bluesky's servers end a public client's session two weeks
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
 
 pub mod bug_report;
 pub mod directory;
+pub mod flags;
 mod identity;
 pub mod lexicon;
 mod net;
@@ -76,8 +79,26 @@ use crate::{Error, Result};
 /// locallibrary's client metadata document: what servers fetch to learn who's asking.
 pub const CLIENT_ID: &str = "https://locallibrary.localnetwork.computer/oauth-client-metadata.json";
 
-/// What signing in asks for: to know who you are, nothing more.
-pub const DEFAULT_SCOPES: [&str; 1] = ["atproto"];
+/// What every sign-in asks for besides `atproto`: service tokens for two methods of Local
+/// Network's website, [`flags::GET_FLAGS`] and [`directory::REQUEST_INDEX`], which can only have
+/// the directory read the caller's own records again. A token needs an `rpc` permission, which
+/// `atproto` isn't, and [`PUBLISH_SET`] can't give one here: servers would have to look the set up,
+/// and signing in has to work before it's published.
+///
+/// It names two methods because of how it has to be spelled. jacquard-oauth 0.12.2 writes one
+/// method with `aud=*` as `rpc:<nsid>` (`scopes.rs:2450`), which servers can't read: they need
+/// `aud` (`RpcPermission.fromString` returns null). With two it keeps `rpc?aud=*&lxm=…&lxm=…`,
+/// which they can. A lone `aud=did:web:x#y` isn't an option either: servers hand it back as `%23`,
+/// jacquard's scope parser doesn't percent-decode (`scopes.rs:2679`), and a granted scope it can't
+/// read makes sign-in fail (`net`'s `readable_scopes`). This is jacquard's own spelling, which the
+/// hosted document lists and sign-in looks for word for word: a test pins it, so an upgrade that
+/// changes it fails.
+pub const FLAGS_SCOPE: &str =
+    "rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags";
+
+/// What signing in asks for: to know who you are and [`FLAGS_SCOPE`]'s two tokens for Local
+/// Network's website. It can't post or change anything.
+pub const DEFAULT_SCOPES: [&str; 2] = ["atproto", FLAGS_SCOPE];
 
 /// The permission set publishing asks for (as `include:<nsid>`), a Lexicon in the repo's
 /// `lexicons/`. Servers show its title and detail when the DJ approves and grant the
@@ -110,8 +131,8 @@ pub const PUBLISH_SCOPES: [&str; 5] = [
 /// it on its own.
 pub const UPLOAD_SCOPE: &str = "blob:audio/*";
 
-/// `atproto`, [`PUBLISH_SET`] and [`UPLOAD_SCOPE`]: what a sign-in that allows publishing asks
-/// for. The hosted client document has to allow them before a release asks: sign-in checks, and
+/// [`DEFAULT_SCOPES`], [`PUBLISH_SET`] and [`UPLOAD_SCOPE`]: what a sign-in that allows publishing
+/// asks for. The hosted client document has to allow them before a release asks: sign-in checks, and
 /// refuses while it doesn't.
 pub fn publish_scopes() -> Vec<String> {
     let publishing = [format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.to_string()];
@@ -155,7 +176,7 @@ pub fn may_delete(info: &AccountInfo, collection: &str) -> bool {
 }
 
 /// What signing `info`'s account in again asks for, so the session keeps what it may do now:
-/// `atproto`, publishing ([`PUBLISH_SET`]) when it may publish (any of the record types: a
+/// [`DEFAULT_SCOPES`], publishing ([`PUBLISH_SET`]) when it may publish (any of the record types: a
 /// session from before the set granted one more still publishes the rest), and [`REPORT_SCOPE`]
 /// when it may file bug reports. Add what the new sign-in is for.
 pub fn kept_scopes(info: &AccountInfo) -> Vec<String> {
@@ -273,8 +294,20 @@ fn oauth_error(e: OAuthError) -> Error {
         OAuthError::Callback(CallbackError::IssuerMismatch { .. }) => Error::Account(one_line(&format!(
             "the sign-in came back from a different server than it went to ({e}); sign in again"
         ))),
-        _ => Error::Account(one_line(&format!("signing in: {}", net::with_causes(&e)))),
+        _ => match causes(&e).find_map(|c| c.downcast_ref::<identity::HandleNotFound>()) {
+            Some(nf) => Error::Account(one_line(&format!(
+                "no Atmosphere account has the handle {}: {nf}. Check the handle, or sign in with your \
+                 account's server instead (https://bsky.social for a Bluesky account)",
+                nf.handle
+            ))),
+            None => Error::Account(one_line(&format!("signing in: {}", net::with_causes(&e)))),
+        },
     }
+}
+
+/// `e` and the errors under it, outermost first.
+fn causes<'a>(e: &'a (dyn std::error::Error + 'static)) -> impl Iterator<Item = &'a (dyn std::error::Error + 'static)> {
+    std::iter::successors(Some(e), |e| e.source())
 }
 
 fn scopes(list: &[String]) -> Result<Scopes<SmolStr>> {
@@ -352,7 +385,7 @@ pub struct LoginOptions {
     pub client: Option<Client>,
     #[serde(default)]
     pub storage: Storage,
-    /// Scopes to ask for (default: `atproto`).
+    /// Scopes to ask for (default: [`DEFAULT_SCOPES`]).
     #[serde(default)]
     pub scopes: Vec<String>,
 }
@@ -645,8 +678,9 @@ fn restore(root: &Path) -> Result<Session> {
 }
 
 /// Remove the session from this computer (no network), with any secrets an earlier sign-in
-/// left behind. Returns why secrets stay when some can't be removed (the keychain doesn't
-/// answer); they're remembered, to try again.
+/// left behind and what the website said about the account's feature flags. Returns why secrets
+/// stay when some can't be removed (the keychain doesn't answer); they're remembered, to try
+/// again.
 fn forget(root: &Path) -> Result<Option<String>> {
     let mut file = AccountFile::load(root)?;
     let account = file.account.take();
@@ -662,6 +696,7 @@ fn forget(root: &Path) -> Result<Option<String>> {
         }
     }
     file.save(root)?;
+    crate::fsutil::remove_if_exists(&root.join(crate::flags::CACHE_FILE))?;
     Ok(why)
 }
 
@@ -742,8 +777,8 @@ async fn revoke(session: &Session) -> bool {
 
 /// The client metadata document to host at `client_id` (an HTTPS URL, conventionally ending in
 /// `/oauth-client-metadata.json`) for [`Client::Hosted`]. Servers then show its host as the app's
-/// name and remember approvals. Its `scope` is the most any sign-in may ask for: `atproto`,
-/// [`PUBLISH_SET`], [`REPORT_SCOPE`], and `extra`.
+/// name and remember approvals. Its `scope` is the most any sign-in may ask for:
+/// [`DEFAULT_SCOPES`], [`PUBLISH_SET`], [`REPORT_SCOPE`], and `extra`.
 pub fn client_metadata(client_id: &str, extra: &[String]) -> Result<serde_json::Value> {
     let url = uri(client_id)?;
     if url.scheme().as_str() != "https" {

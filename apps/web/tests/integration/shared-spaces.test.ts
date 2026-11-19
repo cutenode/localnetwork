@@ -23,7 +23,9 @@ describe('shared spaces on a real atproto spaces network', () => {
 	beforeAll(async () => {
 		net = await TestNetwork.create(['ada', 'bobo', 'cyan', 'mira'], {
 			admins: ['mira'],
-			listingSources: { performer: { publicFields: async () => ({ name: 'Night Shift' }) } }
+			listingSources: { performer: { publicFields: async () => ({ name: 'Night Shift' }) } },
+			// A listing points at a public page, so none is written while the pages are off.
+			flags: 'spacePages=on'
 		});
 		space = await net.app.sharedSpaces.create(await net.viewer('ada'), 'performer');
 	});
@@ -139,13 +141,13 @@ describe('shared spaces on a real atproto spaces network', () => {
 
 		await net.app.sharedSpaces.removePerson(viewerAda, space, cy.did);
 
-		// removeMember doesn't revoke a credential already minted (nothing on the PDS sends notifyCredentialRevoked),
+		// removeMembers doesn't revoke a credential already minted (nothing on the PDS sends notifyCredentialsRevoked),
 		// so it reads on for the rest of its 600-second life; a new one isn't issued.
 		expect(await people(credentials)).toEqual([ada.did]);
 		await expect(people(credentialsOf('cyan'))).rejects.toBeInstanceOf(XrpcResponseError);
 
 		// Their PDS still takes a write into their own repo in the space, but the space doesn't: the authority
-		// refuses its notification, the sync doesn't pick it up, and it's not the root's anyway.
+		// refuses its notifyRepoUpdate, the sync doesn't pick it up, and it's not the root's anyway.
 		const now = new Date().toISOString();
 
 		const forged = {

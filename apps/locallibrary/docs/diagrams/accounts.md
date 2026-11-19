@@ -9,6 +9,7 @@ The DJ account, token exchange, keys and access. The rest are listed in the [REA
 - [Signing in through the token exchange](#signing-in-through-the-token-exchange)
 - [Signing in with keys](#signing-in-with-keys)
 - [An account's life](#an-accounts-life)
+- [Restoring access](#restoring-access)
 - [When a plugin needs more of an account](#when-a-plugin-needs-more-of-an-account)
 - [When a destination starts](#when-a-destination-starts)
 - [Managing access](#managing-access)
@@ -59,6 +60,7 @@ sequenceDiagram
     L->>C: Online, allowing<br/>these scopes?
     Note over L,C: Offline: the localhost<br/>development client.<br/>Online without them: refused
     L->>L: Find the server from<br/>a handle, DID or address
+    Note over L: A handle neither DNS nor<br/>its web address names a DID for:<br/>stops, saying what each answered,<br/>and to try the server's address
     L->>S: Pushed authorization<br/>request, with PKCE
     L->>B: Open the sign-in page
     B->>S: You approve
@@ -76,7 +78,7 @@ What each sign-in asks of the account's server. Each is asked for the first time
 
 ```mermaid
 flowchart TD
-    plain["account login<br/>atproto: know who you are"] --> publish["Publishing, or login --publish<br/>include:computer.localnetwork.locallibraryPublishing,<br/>blob:audio/*"]
+    plain["account login<br/>atproto: know who you are,<br/>and tokens for the website's<br/>getFlags and requestIndex"] --> publish["Publishing, or login --publish<br/>include:computer.localnetwork.locallibraryPublishing,<br/>blob:audio/*"]
     plain --> report["bug, the first time<br/>repo:app.userinput.discussion?action=create"]
     plain --> plugin["A plugin's record write, the first time,<br/>or login --scope: repo:NSID"]
     publish --> records["Create and replace settings, profile, set, recording.<br/>Delete set, recording.<br/>A token for directory.requestIndex"]
@@ -161,7 +163,7 @@ Source: [`crates/locallibrary/src/plugin/accounts/keys.rs`](../../../../crates/l
 
 ## An account's life
 
-An account a plugin uses, from signing in to signing out. A plugin's access outlasts it. Lapsed requests fail as signed out. Sign-out revokes it if the service can. An account with keys never refreshes or expires: only sign-out ends it. A keychain that lost its tokens acts as signed out, with the account still listed.
+An account a plugin uses, from signing in to signing out. Signing out, or the service ending its session, removes every plugin's access to it, remembered until signing in again restores or resets it. Lapsed requests fail as signed out. Sign-out revokes it if the service can. An account with keys never refreshes or expires: only sign-out ends it. A keychain that lost its tokens acts as signed out, with the account still listed.
 
 ```mermaid
 stateDiagram-v2
@@ -177,10 +179,30 @@ stateDiagram-v2
     Lapsed --> In: signed in again
     Lapsed --> Out: sign-out
     In --> Out: invalid_token, or sign-out
-    Out --> In: signed in again
+    Out --> In: signed in again, access restored or reset
 ```
 
 Source: [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`crates/locallibrary/src/plugin/accounts/token.rs`](../../../../crates/locallibrary/src/plugin/accounts/token.rs), [`crates/locallibrary/src/plugin/accounts/shared.rs`](../../../../crates/locallibrary/src/plugin/accounts/shared.rs), [`docs/plugins.md`](../plugins.md)
+
+## Restoring access
+
+What signing in again does with the access plugins had to an account before it was signed out, or its session ended. It's remembered on this computer only.
+
+```mermaid
+flowchart TD
+    out["Signed out, or the session ended"] --> removed["Every plugin's access removed and remembered,<br/>no default moved to another account"]
+    removed --> again["Signed in again"]
+    again -->|"--restore, restore: restore,<br/>or Automatically Restore Access"| all["All of it given back,<br/>said in one line"]
+    again -->|"--reset, restore: reset"| reset["Forgotten"]
+    again -->|"for a plugin"| its["That plugin's given back"]
+    again -->|"neither, in a terminal or the player"| ask["Restore, Choose or Reset?"]
+    again -->|"neither, no terminal"| waits["Stays off: account TYPE:NAME restore,<br/>or accounts.access.restore"]
+    ask -->|Restore| all
+    ask -->|"Choose: plugins and scopes"| some["Those given back, the rest forgotten"]
+    ask -->|Reset| reset
+```
+
+Source: [`crates/locallibrary/src/plugin/accounts/restore.rs`](../../../../crates/locallibrary/src/plugin/accounts/restore.rs), [`crates/locallibrary/src/plugin/accounts/shared.rs`](../../../../crates/locallibrary/src/plugin/accounts/shared.rs), [`src/account_cmd/restoring.rs`](../../src/account_cmd/restoring.rs), [`src/tui/plugins/restoring.rs`](../../src/tui/plugins/restoring.rs)
 
 ## When a plugin needs more of an account
 
@@ -229,6 +251,7 @@ flowchart TD
     list --> default["--default ACCOUNT: the one<br/>{account:TYPE} names"]
     list --> away["--take-away ACCOUNT"]
     give -->|"the first of its type"| isdefault["It's the default"]
+    give -->|"the account is signed out"| first["Refused: sign in to it first"]
     away -->|"it was the default,<br/>and one access is left"| left["That one becomes the default"]
     away --> gone["The account stays signed in"]
 ```

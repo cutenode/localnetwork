@@ -181,19 +181,24 @@ fn source_track(e: &Entry, path: PathBuf, unlaid: &mut Vec<(&'static str, usize)
 /// `import/read`: each track's key, tempo and cues, found by its file, artist, title and length.
 /// Tracks the collection says none of those about are left out.
 pub(crate) fn read_import(req: ReadImport, host: &Host) -> Result<ImportAnswer, RpcError> {
-    let collection = collection(&req.file, &host.ctx())?;
-    let startup = traktor::startup_disk();
-    let mut left_out = LeftOut::default();
-    let tracks = collection.entries.iter().filter_map(|e| imported(e, &startup, &mut left_out));
-    let read = Imported {
-        tracks: tracks.collect(),
-        sessions: Vec::new(),
-        warnings: collection.warnings.into_iter().chain(left_out.warnings()).collect(),
-    };
+    let read = import(collection(&req.file, &host.ctx())?, &traktor::startup_disk());
     Ok(match spilled(&read, &req.context, "read.json")? {
         Some(blob) => Blob { blob }.into(),
         None => read.into(),
     })
+}
+
+/// What `import/read` answers for a collection read: each track's key, tempo and cues, found by
+/// its file (`startup` naming the startup disk, see [`traktor::startup_disk`]), artist, title and
+/// length, and what was left out.
+pub fn import(collection: Collection, startup: &str) -> Imported {
+    let mut left_out = LeftOut::default();
+    let tracks = collection.entries.iter().filter_map(|e| imported(e, startup, &mut left_out));
+    Imported {
+        tracks: tracks.collect(),
+        sessions: Vec::new(),
+        warnings: collection.warnings.into_iter().chain(left_out.warnings()).collect(),
+    }
 }
 
 /// `file`'s stamp: its size and when it changed.

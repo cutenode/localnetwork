@@ -1,26 +1,28 @@
 import { ComAtprotoSpaceDefs } from '@atproto/api';
 import { type Cid, isLexMap, isObject, type LexMap, parseCid } from '@atproto/lex-data';
 import { type JsonObject, type JsonValue, jsonToLex, lexToJson } from '@atproto/lex-json';
-import { isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
+import { isDidString, isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
 import {
-	COMMIT_MAC_TYPE,
-	type Commit,
+	COMMIT_MAC_PROFILE,
 	type RecordPathParts,
-	readRepoStar,
 	RepoCommit,
-	SpaceMacError,
-	type VerifiedRecord,
-	verifyCommit
+	type SpaceCommit,
+	verifyCommit,
+	verifyRepoStarFull
 } from '@atproto/space';
+import { isSpaceRefString } from '@atproto/syntax';
+import { timingSafeEqual } from 'node:crypto';
 import PQueue from 'p-queue';
 import { z } from 'zod';
 import {
+	type NotifyRegistration,
 	type SpaceCredentialManager,
 	isCredentialRejected,
 	isMacFailure,
 	XrpcResponseError
 } from '../atproto/credentials';
 import type { IdentityResolver } from '../atproto/identity';
+import { newToken } from '../auth/session';
 import { isTooDeep, TOO_DEEP } from '../atproto/lexicons';
 import { parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
 import { type Db, nowIso, parseJson } from '../db';
@@ -41,12 +43,21 @@ export type SyncedChange =
 
 export type ChangeHandler = (change: SyncedChange) => Promise<void>;
 
-const listReposOutput = z.object({
-	repos: z.array(z.object({ did: z.string(), repoRev: z.string(), spaceRev: z.string() })),
+const REPO_WRITE = 'com.atproto.space.defs#repoWrite';
+
+/**
+ * A listWriters page. Besides each repo's latest write, it lists repos removed from the writer set, which the syncer
+ * only reads past: their records stay as they were synced, as they did before hosts reported removals. The union is
+ * open, so an update of a kind this app doesn't know is read past too.
+ */
+const listWritersOutput = z.object({
+	repos: z.array(
+		z.object({ $type: z.string(), repo: z.string(), repoRev: z.string().optional(), spaceRev: z.string() })
+	),
 	cursor: z.string().optional()
 });
 
-type RepoEntry = z.infer<typeof listReposOutput>['repos'][number];
+type RepoEntry = { repo: string; repoRev: string };
 
 const listRepoOpsOutput = z.object({
 	ops: z.array(
@@ -59,11 +70,9 @@ const listRepoOpsOutput = z.object({
 			value: z.custom<LexMap>(isLexMap).optional()
 		})
 	),
-	commit: z.custom<Commit>((value) => ComAtprotoSpaceDefs.validateCommit(value).success).optional(),
+	commit: z.custom<SpaceCommit>((value) => ComAtprotoSpaceDefs.validateCommit(value).success),
 	cursor: z.string().optional()
 });
-
-const registerNotifyOutput = z.object({ expiresAt: z.string().optional() });
 
 export type SyncStatus = {
 	space: string;
@@ -108,33 +117,47 @@ const toJson = (record: LexMap) => lexToJson(record) as JsonObject;
 
 const asCid = (value: string | null): Cid | null => (value ? parseCid(value) : null);
 
+/** The space and repo a commit has to name, typed as @atproto/space checks them. */
+function commitScope(space: string, repo: string) {
+	if (!isSpaceRefString(space) || !isDidString(repo)) throw new Error(`Not a space and a repo DID: ${space} ${repo}`);
+
+	return { space, repo };
+}
+
 /**
- * Whether the space's authority said the space is gone: getSpaceCredential and listRepos only go to the
+ * Whether the space's authority said the space is gone: authorizeSpaceSync and listWriters only go to the
  * authority. A writer's repo host answering SpaceDeleted says nothing about the space, and neither does a
- * credential renewal that fails any other way.
+ * credential renewal that fails any other way, SpaceNotFound included, which hosts may answer in place of a refusal.
  */
 function authoritySaysGone(error: XrpcResponseError): boolean {
-	if (error.nsid === 'com.atproto.space.getSpaceCredential') return error.error === 'SpaceDeleted';
+	if (error.nsid === 'com.atproto.space.authorizeSpaceSync') return error.error === 'SpaceDeleted';
 
 	return (
-		error.nsid === 'com.atproto.space.listRepos' && (error.error === 'SpaceDeleted' || error.error === 'SpaceNotFound')
+		error.nsid === 'com.atproto.space.listWriters' &&
+		(error.error === 'SpaceDeleted' || error.error === 'SpaceNotFound')
 	);
 }
 
 /** Getting a credential fails for every repo in the space, so it ends the pass instead of counting against one repo. */
 const failsWholeSpace = (cause: unknown) =>
-	cause instanceof XrpcResponseError && cause.nsid === 'com.atproto.space.getSpaceCredential';
+	cause instanceof XrpcResponseError && cause.nsid === 'com.atproto.space.authorizeSpaceSync';
 
 const REPO_UNAVAILABLE = new Set(['RepoTakendown', 'RepoSuspended', 'RepoDeactivated']);
 
 /**
  * Whether a writer's repo host won't serve the repo because the account is taken down, suspended, or
  * deactivated. A full download fails the same way, and the pass carries on without it: the repo waits out its
- * backoff, so it's picked up again once the account is back. The same errors from getSpaceCredential mean the
+ * backoff, so it's picked up again once the account is back. The same errors from authorizeSpaceSync mean the
  * authority's account is, which suspends the whole space.
  */
 const isRepoUnavailable = (cause: unknown) =>
 	cause instanceof XrpcResponseError && REPO_UNAVAILABLE.has(cause.error) && !failsWholeSpace(cause);
+
+/**
+ * The most pages of a listWriters or listRepoOps listing one pass reads. The host decides when its listing ends, so
+ * without a limit one that keeps answering with a cursor would hold the space's pass, and every pass after it.
+ */
+const MAX_PAGES = 100;
 
 /** How long a repo waits after its `attempts`th failure in a row: 1 minute, doubling up to an hour. */
 const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1), 3_600_000);
@@ -148,13 +171,13 @@ const nextRetry = (attempts: number, message: string) => ({
 
 /**
  * Keeps a local copy of every watched space: enumerates writers with
- * `listRepos` on the space host, pulls each repo's oplog with
+ * `listWriters` on the space host, pulls each repo's oplog with
  * `listRepoOps`, checks the result against the LtHash commit (authenticated
  * by a MAC keyed to the author's `#atproto_kem` key), and falls back to a
  * full verified STAR download (`getRepo`) when the incremental path cannot be
  * trusted. A repo that fails doesn't hold back the rest: the pass carries on,
  * its cursor moves past the repo, and `syncRepoRetry` keeps it for a retry,
- * since `listRepos` won't list it again until it next changes. A record is
+ * since `listWriters` won't list it again until it next changes. A record is
  * stored and queued for projection in one transaction, so one whose
  * projection throws, or never runs, stays in `pendingProjection` for later
  * passes once the repo's cursor has moved on.
@@ -173,8 +196,10 @@ export class SpaceSyncer {
 			onChange: ChangeHandler;
 			/** Forgets what was derived from a space as a whole, not from its records, once the space is dropped. */
 			onSpaceDropped: (space: string) => Promise<void>;
-			/** Service id to register for write notifications, or null to rely on polling. */
-			notifyService: string | null;
+			/** The base URL a space host sends this app its spaces' updates at, or null to rely on polling. */
+			notifyEndpoint: string | null;
+			/** The most pages of a listing one pass reads, MAX_PAGES unless a test needs a host's endless listing short. */
+			maxPages?: number;
 		}
 	) {}
 
@@ -191,6 +216,7 @@ export class SpaceSyncer {
 				skey: ref.skey,
 				spaceRev: null,
 				registrationExpiresAt: null,
+				notifyToken: newToken(),
 				lastSyncedAt: null,
 				lastError: null,
 				createdAt: nowIso()
@@ -201,6 +227,32 @@ export class SpaceSyncer {
 
 	async unwatch(space: string): Promise<void> {
 		await this.deps.db.deleteFrom('spaceWatch').where('spaceUri', '=', space).execute();
+	}
+
+	/** What a credential for a watched space registers, so its host sends the space's updates here. */
+	async registration(space: string): Promise<NotifyRegistration | null> {
+		const endpoint = this.deps.notifyEndpoint;
+		const token = endpoint ? await this.notifyToken(space) : undefined;
+
+		return endpoint && token ? { endpoint, token } : null;
+	}
+
+	/** Whether `token` is the one this app registered for `space`, which is how a host's notice says it's from the host. */
+	async isRegistered(space: string, token: string): Promise<boolean> {
+		const expected = Buffer.from((await this.notifyToken(space)) ?? '');
+		const given = Buffer.from(token);
+
+		return expected.length > 0 && given.length === expected.length && timingSafeEqual(given, expected);
+	}
+
+	private async notifyToken(space: string): Promise<string | undefined> {
+		const watch = await this.deps.db
+			.selectFrom('spaceWatch')
+			.select('notifyToken')
+			.where('spaceUri', '=', space)
+			.executeTakeFirst();
+
+		return watch?.notifyToken;
 	}
 
 	/** Syncs every watched space; errors are recorded per space, not thrown. */
@@ -264,7 +316,6 @@ export class SpaceSyncer {
 		try {
 			// An authority's PDS is its space host.
 			const authority = await this.deps.identity.resolve(watch.authorityDid);
-			await this.maybeRegister(space, watch.authorityDid, authority.pds, watch.registrationExpiresAt);
 			let cursor = watch.spaceRev ?? undefined;
 			let changed = 0;
 			const failures: unknown[] = [];
@@ -279,24 +330,34 @@ export class SpaceSyncer {
 				}
 			};
 
-			for (;;) {
+			for (let pages = 1; ; pages++) {
 				const page = await this.deps.credentials.query({
 					space,
 					service: authority.pds,
 					audience: watch.authorityDid,
-					nsid: 'com.atproto.space.listRepos',
+					nsid: 'com.atproto.space.listWriters',
 					params: { space, limit: 500, cursor },
-					schema: listReposOutput
+					schema: listWritersOutput
 				});
 
 				const last = page.repos.at(-1);
 
 				if (!last) break;
 
-				await settle(page.repos.map((repo) => this.repoQueue.add(() => this.syncRepoIfBehind(space, repo))));
+				const writes = page.repos.flatMap(({ $type, repo, repoRev }) =>
+					$type === REPO_WRITE && repoRev ? [{ repo, repoRev }] : []
+				);
+
+				await settle(writes.map((repo) => this.repoQueue.add(() => this.syncRepoIfBehind(space, repo))));
 				cursor = page.cursor ?? last.spaceRev;
 
 				if (!page.cursor) break;
+
+				// The cursor is kept, so the next pass reads on from here.
+				if (pages === (this.deps.maxPages ?? MAX_PAGES)) {
+					logger.warn('repo list ran past the page limit; reading on next pass', { pages });
+					break;
+				}
 			}
 
 			const due = await db
@@ -335,7 +396,13 @@ export class SpaceSyncer {
 
 			await db
 				.updateTable('spaceWatch')
-				.set({ spaceRev: cursor ?? null, lastSyncedAt: nowIso(), lastError: waiting?.lastError ?? null })
+				.set({
+					spaceRev: cursor ?? null,
+					// Each credential minted for the space renews its registration for updates.
+					registrationExpiresAt: this.deps.credentials.registeredUntil(space),
+					lastSyncedAt: nowIso(),
+					lastError: waiting?.lastError ?? null
+				})
 				.where('spaceUri', '=', space)
 				.execute();
 
@@ -363,37 +430,12 @@ export class SpaceSyncer {
 		}
 	}
 
-	private async maybeRegister(space: string, authorityDid: string, host: string, expiresAt: string | null) {
-		if (!this.deps.notifyService) return;
-
-		if (expiresAt && Date.parse(expiresAt) - Date.now() > 10 * 60_000) return;
-
-		try {
-			const body = await this.deps.credentials.procedure({
-				space,
-				service: host,
-				audience: authorityDid,
-				nsid: 'com.atproto.space.registerNotify',
-				body: { space, service: this.deps.notifyService },
-				schema: registerNotifyOutput
-			});
-
-			await this.deps.db
-				.updateTable('spaceWatch')
-				.set({ registrationExpiresAt: body.expiresAt ?? null })
-				.where('spaceUri', '=', space)
-				.execute();
-		} catch (error) {
-			this.deps.logger.debug('could not register for write notifications; polling instead', { err: error, space });
-		}
-	}
-
 	private async syncRepoIfBehind(space: string, repo: RepoEntry): Promise<boolean> {
 		const local = await this.deps.db
 			.selectFrom('syncedRepo')
 			.select(['rev'])
 			.where('spaceUri', '=', space)
-			.where('repoDid', '=', repo.did)
+			.where('repoDid', '=', repo.repo)
 			.executeTakeFirst();
 
 		if (local && local.rev >= repo.repoRev) return false;
@@ -402,11 +444,11 @@ export class SpaceSyncer {
 			.selectFrom('syncRepoRetry')
 			.select('nextAttemptAt')
 			.where('spaceUri', '=', space)
-			.where('repoDid', '=', repo.did)
+			.where('repoDid', '=', repo.repo)
 			.executeTakeFirst();
 
 		if (retry && retry.nextAttemptAt > nowIso()) return false;
-		await this.syncRepo(space, repo.did);
+		await this.syncRepo(space, repo.repo);
 
 		return true;
 	}
@@ -491,17 +533,21 @@ export class SpaceSyncer {
 		const state = RepoCommit.fromState(ltHash);
 		const changes: SyncedChange[] = [];
 		let cursor: string | undefined;
-		let commit: Commit | undefined;
+		let commit: SpaceCommit;
+		const maxPages = this.deps.maxPages ?? MAX_PAGES;
+		let pages = 0;
 
 		do {
-			// The host wants a MAC request on every page, and only MACs the pages that carry a commit.
-			const { response, macParams } = await this.deps.credentials.macRequest({
+			// A full download replaces an oplog this long in one request, so syncRepo falls back to one.
+			if (++pages > maxPages) throw new Error(`Oplog ran past ${maxPages} pages`);
+
+			const { response, mac } = await this.deps.credentials.macRequest({
 				space,
 				service: pds,
 				audience: repoDid,
 				nsid: 'com.atproto.space.listRepoOps',
 				params: { space, repo: repoDid, since: cursor ? undefined : since, cursor, limit: 500 },
-				mac: { type: COMMIT_MAC_TYPE, kemKey }
+				mac: { profile: COMMIT_MAC_PROFILE, kemKey }
 			});
 
 			const json: JsonValue = JSON.parse(await response.text());
@@ -542,21 +588,11 @@ export class SpaceSyncer {
 				}
 			}
 
-			if (page.commit) {
-				if (!verifyCommit(page.commit, { space, repo: repoDid, ...macParams() })) {
-					throw new SpaceMacError('Commit does not match its MAC');
-				}
-
-				commit = page.commit;
-			}
-
+			// Every page carries the repo's current commit with its MAC. The last page's is the one the oplog adds up to.
+			verifyCommit(page.commit, { ...commitScope(space, repoDid), ...mac });
+			commit = page.commit;
 			cursor = page.cursor;
 		} while (cursor);
-
-		if (!commit) {
-			if (changes.length === 0) return;
-			throw new Error('Oplog did not end with a commit');
-		}
 
 		if (!state.matches(commit)) throw new Error('Set hash does not match the commit');
 
@@ -580,32 +616,19 @@ export class SpaceSyncer {
 	}
 
 	private async recover(space: string, repoDid: string, pds: string, kemKey: string) {
-		const { response, macParams } = await this.deps.credentials.macRequest({
+		const { response, mac } = await this.deps.credentials.macRequest({
 			space,
 			service: pds,
 			audience: repoDid,
 			nsid: 'com.atproto.space.getRepo',
 			params: { space, repo: repoDid },
-			mac: { type: COMMIT_MAC_TYPE, kemKey }
+			mac: { profile: COMMIT_MAC_PROFILE, kemKey }
 		});
 
 		if (!response.body) throw new Error('Empty repo response');
 
-		// A STAR archive: the commit, then every record, which must fold into its data. verifyRepoStar would check the
-		// commit too, but reports a MAC that doesn't verify as the same RepoVerificationError as an archive that
-		// doesn't parse, and only the first is worth refreshing the KEM key for.
-		const archive = await readRepoStar(response.body);
-		const records: VerifiedRecord[] = [];
-
-		try {
-			if (!verifyCommit(archive.commit, { space, repo: repoDid, ...macParams() })) {
-				throw new SpaceMacError('Commit does not match its MAC');
-			}
-
-			for await (const record of archive.records) records.push(record);
-		} finally {
-			await archive[Symbol.asyncDispose]();
-		}
+		// A STAR archive: the commit, checked against its MAC, then every record, which must fold into its data.
+		const { commit, records } = await verifyRepoStarFull(response.body, { ...commitScope(space, repoDid), ...mac });
 
 		const existing = await this.deps.db
 			.selectFrom('spaceRecord')
@@ -649,14 +672,14 @@ export class SpaceSyncer {
 			}
 		}
 
-		await this.apply(space, repoDid, pds, archive.commit, RepoCommit.fromRecords(records), changes);
+		await this.apply(space, repoDid, pds, commit, RepoCommit.fromRecords(records), changes);
 	}
 
 	private async apply(
 		space: string,
 		repoDid: string,
 		pds: string,
-		commit: Commit,
+		commit: SpaceCommit,
 		state: RepoCommit,
 		changes: SyncedChange[]
 	) {
@@ -830,20 +853,14 @@ export class SpaceSyncer {
 	}
 
 	/**
-	 * Handles a verified `notifySpaceDeleted`. Authorities retry it until it's answered, so a repeat finds
-	 * nothing left to drop. A space recreated under the same URI is new: watching it again starts from scratch.
+	 * Syncs a space with a fresh credential, renewing its registration for updates. A host's notice that the space was
+	 * deleted isn't proof on its own, so the authority confirms it: it refuses the credential with SpaceDeleted, and the
+	 * pass drops the local copy. A repeat finds no watch left. A space recreated under the same URI is new: watching it
+	 * again starts from scratch.
 	 */
-	async onSpaceDeleted(space: string): Promise<void> {
+	async reauthorize(space: string): Promise<void> {
 		this.deps.credentials.invalidate(space);
-		// No pass starts without the watch, and one already running could write the space back after the purge.
-		await this.deps.db.deleteFrom('spaceWatch').where('spaceUri', '=', space).execute();
-
-		for (let running = this.spaceLocks.get(space); running; running = this.spaceLocks.get(space)) {
-			await running.catch(() => undefined);
-		}
-
-		await this.dropSpace(space);
-		this.deps.logger.info('space deleted; dropped local copy', { space });
+		await this.sync(space);
 	}
 
 	async status(): Promise<SyncStatus[]> {

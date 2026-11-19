@@ -471,6 +471,97 @@ describe('createProjections', () => {
 			expect(await rows()).toEqual([]);
 		});
 
+		it("indexes a venue space's venue record only from the root, at its key, and drops it when deleted", async () => {
+			const venueSpace = sharedSpace(ROOT, 'venue', '3venue');
+			const venue = { name: 'Tresor', address: { country: 'DE' }, createdAt: now, updatedAt: now };
+			const rows = () => t.db.selectFrom('venue').select(['spaceUri', 'skey', 'nameKey']).execute();
+
+			await upsert(venueSpace, ALICE, COLLECTION.venue, 'self', venue);
+			await upsert(sharedSpace(ALICE, 'venue', '3venue'), ROOT, COLLECTION.venue, 'self', venue);
+			await upsert(venueSpace, ROOT, COLLECTION.venue, 'other', venue);
+			// Only a venue's space holds a venue.
+			await upsert(space, ROOT, COLLECTION.venue, 'self', venue);
+			await upsert(venueSpace, ROOT, COLLECTION.venue, 'self', { ...venue, address: {} });
+			expect(await rows()).toEqual([]);
+
+			await upsert(venueSpace, ROOT, COLLECTION.venue, 'self', venue);
+			expect(await rows()).toEqual([{ spaceUri: venueSpace, skey: '3venue', nameKey: 'tresor' }]);
+
+			await remove(venueSpace, ALICE, COLLECTION.venue, 'self');
+			expect(await rows()).toHaveLength(1);
+			await remove(venueSpace, ROOT, COLLECTION.venue, 'self');
+			expect(await rows()).toEqual([]);
+		});
+
+		it('indexes events in a party space and approvals in a venue space only from the root, and drops them', async () => {
+			const partySpace = sharedSpace(ROOT, 'party', '3party');
+			const venueSpace = sharedSpace(ROOT, 'venue', '3venue');
+
+			const event = {
+				name: 'Winter Opening',
+				startsAt: '2026-12-05T23:00:00+01:00',
+				venue: venueSpace,
+				status: 'community.lexicon.calendar.event#scheduled',
+				audience: 'public',
+				createdBy: ALICE,
+				createdAt: now,
+				updatedAt: now
+			};
+
+			const eventUri = `${partySpace}/${ROOT}/${COLLECTION.event}/3e1`;
+			const approval = { event: eventUri, approvedBy: ALICE, createdAt: now };
+			const events = () => t.db.selectFrom('event').select(['uri', 'venueSpace']).execute();
+			const approvals = () => t.db.selectFrom('venueApproval').select(['spaceUri', 'eventUri']).execute();
+
+			await upsert(partySpace, ALICE, COLLECTION.event, '3e1', event);
+			await upsert(venueSpace, ROOT, COLLECTION.event, '3e1', event);
+			await upsert(partySpace, ROOT, COLLECTION.event, '3e2', { ...event, startsAt: 'tonight' });
+			await upsert(venueSpace, ALICE, COLLECTION.venueApproval, '3a1', approval);
+			await upsert(partySpace, ROOT, COLLECTION.venueApproval, '3a1', approval);
+			expect([await events(), await approvals()]).toEqual([[], []]);
+
+			await upsert(partySpace, ROOT, COLLECTION.event, '3e1', event);
+			await upsert(venueSpace, ROOT, COLLECTION.venueApproval, '3a1', approval);
+			expect(await events()).toEqual([{ uri: eventUri, venueSpace }]);
+			expect(await approvals()).toEqual([{ spaceUri: venueSpace, eventUri }]);
+
+			await remove(partySpace, ROOT, COLLECTION.event, '3e1');
+			await remove(venueSpace, ROOT, COLLECTION.venueApproval, '3a1');
+			expect([await events(), await approvals()]).toEqual([[], []]);
+		});
+
+		it('indexes an event without a status as scheduled, the calendar status default', async () => {
+			const partySpace = sharedSpace(ROOT, 'party', '3party');
+			const event = { name: 'Winter Opening', audience: 'public', createdBy: ALICE, createdAt: now, updatedAt: now };
+
+			await upsert(partySpace, ROOT, COLLECTION.event, '3e1', event);
+			expect(await t.db.selectFrom('event').select('status').execute()).toEqual([
+				{ status: 'community.lexicon.calendar.event#scheduled' }
+			]);
+		});
+
+		it("indexes a party space's party record only from the root, at its key, and drops it when deleted", async () => {
+			const partySpace = sharedSpace(ROOT, 'party', '3party');
+			const party = { basics: { name: 'Night Shift' }, createdAt: now, updatedAt: now };
+			const rows = () => t.db.selectFrom('party').select(['spaceUri', 'skey', 'name']).execute();
+
+			await upsert(partySpace, ALICE, COLLECTION.party, 'self', party);
+			await upsert(sharedSpace(ALICE, 'party', '3party'), ROOT, COLLECTION.party, 'self', party);
+			await upsert(partySpace, ROOT, COLLECTION.party, 'other', party);
+			// Only a party's space holds a party.
+			await upsert(sharedSpace(ROOT, 'venue', '3venue'), ROOT, COLLECTION.party, 'self', party);
+			await upsert(partySpace, ROOT, COLLECTION.party, 'self', { ...party, basics: {} });
+			expect(await rows()).toEqual([]);
+
+			await upsert(partySpace, ROOT, COLLECTION.party, 'self', party);
+			expect(await rows()).toEqual([{ spaceUri: partySpace, skey: '3party', name: 'Night Shift' }]);
+
+			await remove(partySpace, ALICE, COLLECTION.party, 'self');
+			expect(await rows()).toHaveLength(1);
+			await remove(partySpace, ROOT, COLLECTION.party, 'self');
+			expect(await rows()).toEqual([]);
+		});
+
 		it('ignores records keyed by the wrong DID and listing statuses under any other key', async () => {
 			await upsert(space, ROOT, COLLECTION.invite, ALICE, {
 				subject: BOB,

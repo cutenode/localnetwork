@@ -16,10 +16,20 @@
 			"functions": 98.3,
 			"regions": 98.3
 		},
+		"crates/loclib-anlz": {
+			"lines": 98.4,
+			"functions": 95.7,
+			"regions": 97
+		},
 		"crates/loclib-audio": {
 			"lines": 98.7,
 			"functions": 97.9,
 			"regions": 97.3
+		},
+		"crates/loclib-capacity": {
+			"lines": 96.4,
+			"functions": 99.8,
+			"regions": 95.3
 		},
 		"crates/loclib-equipment": {
 			"lines": 99.8,
@@ -56,6 +66,11 @@
 			"functions": 99.8,
 			"regions": 99.8
 		},
+		"crates/loclib-sqlcipher": {
+			"lines": 97.9,
+			"functions": 88.3,
+			"regions": 97.4
+		},
 		"crates/loclib-tracklist": {
 			"lines": 99.7,
 			"functions": 99.8,
@@ -86,6 +101,11 @@
 			"functions": 99.8,
 			"regions": 99.8
 		},
+		"plugins/discogs": {
+			"lines": 99.4,
+			"functions": 97.9,
+			"regions": 98.3
+		},
 		"plugins/interop": {
 			"lines": 99.1,
 			"functions": 96.7,
@@ -105,6 +125,11 @@
 			"lines": 99.8,
 			"functions": 99.8,
 			"regions": 99.5
+		},
+		"plugins/rekordbox-backup": {
+			"lines": 95.5,
+			"functions": 87.6,
+			"regions": 93.6
 		},
 		"plugins/sound": {
 			"lines": 99.8,

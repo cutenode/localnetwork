@@ -1,0 +1,15 @@
+id: story-viewport-helper
+valid:
+  - |
+    import { phone } from '#lib/testing/viewports.ts';
+  - |
+    const { Story } = defineMeta({ title: 'Pages/Party', component: PartyPage, parameters: { viewport: { options: VIEWPORTS } } });
+  - |
+    const story = { globals: phone, args: { value: 'mobile2' } };
+invalid:
+  - |
+    const phone = { viewport: { value: 'mobile2', isRotated: false } };
+  - |
+    const desktop = { viewport: { value: 'desktop', isRotated: false } };
+  - |
+    const at = (value: string) => ({ viewport: { value, isRotated: false } });

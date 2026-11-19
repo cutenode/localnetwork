@@ -52,8 +52,8 @@ fn the_report_and_the_document() {
     assert_eq!(v["report"]["sets"]["count"], 2);
     assert_eq!(v["report"]["sets"]["too_short"], 1);
     assert_eq!(v["report"]["basis"], "sessions");
-    assert_eq!(v["document"]["version"], 1);
-    assert!(v["document"].get("signature").is_none());
+    assert_eq!(v["document"]["version"], 2);
+    assert!(v["document"].get("signature").is_none() && v["document"].get("tempo").is_none());
 
     // Fewer tracks make the sound check a set.
     let v = env.json(&["profile", env.drive(), "--min-tracks", "2", "--no-analysis"]);
@@ -73,23 +73,24 @@ fn the_report_and_the_document() {
     assert!(doc.get("sets").is_none(), "sessions are never counted in public");
     let file = env.dir.path().join("profile.json");
     let v = env.json(&["profile", "document", env.drive(), "-o", file.to_str().unwrap()]);
-    assert_eq!(v["report"]["document"]["version"], 1);
+    assert_eq!(v["report"]["document"]["version"], 2);
     let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(written["tempo"], doc["tempo"]);
+    assert_eq!(written["genres"], doc["genres"]);
     // A file that's there is replaced only with --replace.
     std::fs::write(&file, "mine").unwrap();
     let err = env.fails(&["profile", "document", env.drive(), "-o", file.to_str().unwrap()]);
     assert!(err.contains("already there") && err.contains("--replace"), "{err}");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "mine");
     env.json(&["profile", "document", env.drive(), "-o", file.to_str().unwrap(), "--replace"]);
-    assert!(std::fs::read_to_string(&file).unwrap().contains("\"tempo\""));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("\"genres\""));
 }
 
 #[test]
 fn choices_shape_the_document() {
     let env = Env::new();
-    let p = env.json(&["profile", "include", "signature,artists"]);
-    assert!(p["report"]["sections"].as_array().unwrap().contains(&"signature".into()));
+    let p = env.json(&["profile", "include", "artists"]);
+    assert!(p["report"]["sections"].as_array().unwrap().contains(&"artists".into()));
+    assert!(env.fails(&["profile", "include", "signature"]).contains("stays on this computer"));
 
     // "In Charge" names two tracks; the CLI asks for one.
     let err = env.fails(&["profile", "pin", "in charge", env.drive()]);
@@ -102,9 +103,11 @@ fn choices_shape_the_document() {
     env.json(&["profile", "alias", "electronic", "Electronica"]);
     env.json(&["profile", "headline", "Techno warm-ups"]);
 
+    // Pins, hidden tracks and the headline shape the report; the document names no track and
+    // has no headline.
     let doc = env.json(&["profile", "document", env.drive()]);
-    assert_eq!(doc["headline"], "Techno warm-ups");
-    assert_eq!(doc["signature"], serde_json::json!([{ "artist": "[a]pendics.shuffle", "title": "A2 - In Charge" }]));
+    assert!(doc.get("headline").is_none() && doc.get("signature").is_none(), "{doc}");
+    assert_eq!(doc["artists"][0]["name"], "[a]pendics.shuffle");
     assert!(doc["genres"].as_array().unwrap().iter().any(|g| g["name"] == "Electronica"));
 
     let p = env.json(&["profile", "prefs"]);

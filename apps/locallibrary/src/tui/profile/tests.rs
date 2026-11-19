@@ -49,38 +49,51 @@ fn fixture_tab_with(history: &[&[u32]]) -> ProfileTab {
 fn every_section_draws_at_any_size() {
     let mut t = fixture_tab();
     for (w, h) in [(160, 48), (80, 24), (40, 12), (10, 4)] {
-        for i in 0..Section::ALL.len() {
+        for (i, s) in SECTIONS.iter().enumerate() {
             t.select_section(i);
             let screen = render(&mut t, w, h);
             if w >= 80 {
-                assert!(screen.contains(Section::ALL[i].title()), "{}:\n{screen}", Section::ALL[i].title());
+                assert!(screen.contains(s.title()), "{}:\n{screen}", s.title());
             }
         }
         t.document = true;
         let screen = render(&mut t, w, h);
         if w >= 80 {
-            assert!(screen.contains("\"version\": 1"), "{screen}");
+            assert!(screen.contains("\"version\": 2"), "{screen}");
         }
         t.document = false;
     }
-    t.select_section(Section::ALL.iter().position(|s| *s == Section::Tempo).unwrap());
-    let screen = render(&mut t, 120, 40);
-    assert!(screen.contains("124–128 BPM"), "{screen}");
+}
+
+/// The view lists only the sections that can be published, under an overview of the collection
+/// titled just Profile: no generated headline, traits, sources or scope.
+#[test]
+fn only_what_can_be_published_is_listed() {
+    assert_eq!(SECTIONS.to_vec(), Section::ALL.into_iter().filter(|s| s.publishable()).collect::<Vec<_>>());
+    let mut t = fixture_tab();
+    let screen = render(&mut t, 160, 40);
+    for s in Section::ALL.into_iter().filter(|s| !s.publishable()) {
+        assert!(!screen.contains(s.title()), "{s:?} is listed:\n{screen}");
+    }
+    let r = t.report().unwrap();
+    let header = screen.lines().take(4).collect::<Vec<_>>().join("\n");
+    assert!(header.contains("Profile") && !header.contains("Profile ·"), "{header}");
+    assert!(header.contains(&format!("12 tracks · {} genres", r.genres.distinct)), "{header}");
+    for gone in ["every drive", "the store", "traits", "document:", "rounded", "BPM"] {
+        assert!(!header.contains(gone), "{gone}:\n{header}");
+    }
 }
 
 /// Without declared sets, the view counts sessions and calls them that.
 #[test]
 fn sessions_are_called_sessions() {
     let mut t = fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]);
-    t.select_section(Section::ALL.iter().position(|s| *s == Section::Sets).unwrap());
+    t.select_section(SECTIONS.iter().position(|s| *s == Section::Sets).unwrap());
     let screen = render(&mut t, 160, 30);
-    assert!(screen.contains("no sets declared: 12 plays in 2 sessions"), "{screen}");
-    assert!(
-        screen.contains("Session shape") && screen.contains("2 sessions · 6 tracks in a typical session"),
-        "{screen}"
-    );
+    assert!(screen.lines().nth(2).is_some_and(|l| l.contains(" · 2 sessions")), "{screen}");
+    assert!(screen.contains("2 sessions · 6 tracks in a typical session"), "{screen}");
     assert!(screen.contains("First seen") && screen.contains("HISTORY 001"), "{screen}");
-    assert!(screen.contains("only on this computer") && !screen.contains("Set shape"), "{screen}");
+    assert!(screen.contains("only on this computer"), "{screen}");
     assert!(!screen.contains(" Sets ") && !screen.contains("2 sets"), "{screen}");
 }
 
@@ -98,6 +111,8 @@ fn keys_change_the_view_and_save_choices() {
     };
 
     key(&mut app, KeyCode::Down);
+    assert_eq!(app.profile.section(), Section::Energy);
+    key(&mut app, KeyCode::Up);
     assert_eq!(app.profile.section(), Section::Sets);
     assert!(published(&app).contains(&Section::Sets));
     press(&mut app, "i");
@@ -106,7 +121,7 @@ fn keys_change_the_view_and_save_choices() {
     assert!(!saved.published().contains(&Section::Sets), "choices are saved as they're made");
 
     // Into the artist list, and hide the top artist.
-    let artists = Section::ALL.iter().position(|s| *s == Section::Artists).unwrap();
+    let artists = SECTIONS.iter().position(|s| *s == Section::Artists).unwrap();
     app.profile.select_section(artists);
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.profile.pane, Pane::Detail);
@@ -130,9 +145,9 @@ fn keys_change_the_view_and_save_choices() {
     // Keys the view doesn't use still work.
     press(&mut app, "gl");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "gu");
+    press(&mut app, "gn");
     assert_eq!(app.view, View::Profile);
-    press(&mut app, "q");
+    press(&mut app, "Q");
     assert!(app.quit);
 }
 
@@ -205,7 +220,12 @@ fn signing_in_takes_a_handle_and_signing_out_two_presses() {
     app.profile.account.info = Some(account);
     let screen = render(&mut app.profile, 140, 30);
     assert!(screen.contains("Atmosphere account @dj.example.com as the development client"), "{screen}");
-    assert!(screen.contains("sign in again by"), "{screen}");
+    assert!(!screen.contains("sign in again"), "far off, when to sign in again isn't said:\n{screen}");
+    // Within a couple of days, it is.
+    let soon = chrono::Utc::now() + chrono::Duration::hours(30);
+    app.profile.account.info.as_mut().unwrap().sign_in_again_by = soon;
+    let screen = render(&mut app.profile, 140, 30);
+    assert!(screen.contains("sign in again by") && screen.contains("(1 days)"), "{screen}");
     press(&mut app, "L");
     assert!(app.toast.as_ref().is_some_and(|t| t.0.contains("signed in as @dj.example.com: press L again")));
     press(&mut app, "L");
@@ -248,15 +268,11 @@ fn json_lines_colour_keys_and_values() {
 /// [`fixture_tab_with`] two sessions, as a profile of declared sets, every section filled
 /// in with made-up numbers.
 fn full_tab() -> ProfileTab {
-    use locallibrary::profile::{
-        ArcSection, DecadeCount, EnergySection, MixingSection, PrepSection, SetInfo, SignatureTransition, StyleSection,
-        StyleValue, Tag,
-    };
+    use locallibrary::profile::{DecadeCount, EnergySection, SetInfo};
     let mut t = fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]);
     let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
     let r = &mut v.report;
     r.basis = Basis::Plays;
-    r.summary.tags = vec![Tag { id: "harmonic", label: "Mixes in key".into(), why: "77% of 30 transitions".into() }];
     (r.sets.not_archived, r.sets.too_short) = (1, 2);
     r.sets.list.push(SetInfo {
         id: "0123456789abcdef".into(),
@@ -268,76 +284,41 @@ fn full_tab() -> ProfileTab {
         closing_bpm: Some(128.0),
         harmonic_share: Some(0.5),
     });
-    r.arc = ArcSection {
-        sets: 2,
-        opening_bpm: Some(122.0),
-        closing_bpm: Some(127.5),
-        builds: 0.6,
-        steady: 0.3,
-        winds_down: 0.1,
-        curve: vec![Some(-2.0), Some(-1.0), None, Some(1.5)],
-    };
-    r.mixing = MixingSection {
-        transitions: 40,
-        keyed: 30,
-        same_key: 10,
-        adjacent: 8,
-        relative: 3,
-        energy_boost: 2,
-        clash: 7,
-        harmonic_share: Some(0.77),
-        timed: 30,
-        median_step_pct: Some(1.2),
-        within_3pct: Some(0.8),
-        within_6pct: Some(0.95),
-        half_double: 1,
-        genred: 20,
-        genre_change_share: Some(0.35),
-    };
     r.energy = Some(EnergySection { tracks: 12, high: 0.5, mid: 0.3, low: 0.2, curve: vec![Some(0.2), Some(1.0)] });
     r.era.tracks = 10;
     (r.era.median_year, r.era.oldest, r.era.newest, r.era.recent_share) =
         (Some(2019), Some(1998), Some(2024), Some(0.3));
     r.era.decades = vec![DecadeCount { decade: 1990, count: 2 }, DecadeCount { decade: 2010, count: 8 }];
-    r.signature.transitions =
-        vec![SignatureTransition { from: "Ferrule - Night Bus".into(), to: "Ferrule - Halogen".into(), sets: 3 }];
-    r.prep = Some(PrepSection {
-        tracks: 12,
-        hot_cue_share: 0.75,
-        hot_cues_per_track: Some(3.5),
-        memory_cue_share: 0.5,
-        loop_share: 0.1,
-    });
     (r.collection.played_share, r.collection.duplicate_files) = (Some(0.4), 3);
-    r.style = Some(StyleSection {
-        source: "MYSETTING.DAT on DNA".into(),
-        values: vec![StyleValue {
-            key: "quantize".into(),
-            label: "Quantize".into(),
-            value: "on".into(),
-            value_label: "On".into(),
-        }],
-    });
-    v.prefs.headline = Some("Warm-up specialist".into());
-    let played: Vec<String> = r.signature.played.iter().take(2).map(|p| p.name.clone()).collect();
-    (v.prefs.pinned, v.prefs.hidden) = (vec![played[0].clone()], vec![played[1].clone()]);
+    add_artists(r);
     t
+}
+
+/// Eight more artists under Artists (the fixture has one), so its list has rows to move through.
+fn add_artists(r: &mut ProfileReport) {
+    for i in 0..8 {
+        let name = format!("Artist {i}");
+        r.artists.top.push(locallibrary::profile::Share { name, count: 1, share: 0.05 });
+    }
+    r.artists.distinct = r.artists.top.len();
 }
 
 /// The screen with section `s` selected.
 fn showing(t: &mut ProfileTab, s: Section) -> String {
-    t.select_section(Section::ALL.iter().position(|x| *x == s).unwrap());
+    t.select_section(SECTIONS.iter().position(|x| *x == s).unwrap());
     render(t, 140, 40)
 }
 
 #[test]
 fn every_section_says_what_its_numbers_show() {
     let mut t = full_tab();
+    let r = t.report().unwrap();
+    let overview = format!(
+        "12 tracks · {} · {} · released 1998–2024 · 2 sets",
+        plural(r.genres.distinct, "genre"),
+        plural(r.artists.distinct, "artist")
+    );
     for (s, says) in [
-        (
-            Section::Summary,
-            &["Warm-up specialist  (your headline)", "Your headline: Warm-up specialist", "77% of 30 transitions"][..],
-        ),
         (
             Section::Sets,
             &[
@@ -345,36 +326,18 @@ fn every_section_says_what_its_numbers_show() {
                 "on a drive",
                 "122 → 128",
                 "01234567",
-            ],
-        ),
-        (Section::Arc, &["122.0 → 127.5 BPM", "averaged over 2 sets", "builds", "through a set: -2.0 to +1.5"]),
-        (
-            Section::Mixing,
-            &[
-                "77% of 30 transitions between keyed tracks are harmonic",
-                "clash 7",
-                "median 1.2% · 80% within 3% · 95% within 6% · 1 at half or double time",
-                "35% of transitions change genre",
-            ],
+            ][..],
         ),
         (Section::Energy, &["mood, 12 tracks", "high", "50%", "Mood through a set"]),
-        (Section::Era, &["median 2019", "(1998–2024) · 30% released the year played", "1990s", "2010s"]),
-        (Section::Signature, &["Moves played again and again", " 3× Ferrule - Night Bus → Ferrule - Halogen"]),
-        (Section::Prep, &["Cues across 12 tracks", "75% · 3.5 each", "memory cues"]),
+        (Section::Era, &["median 2019", "(1998–2024) · 30% released this year or last", "1990s", "2010s"]),
         (Section::Collection, &["Played in a set", "40%", "3 more files are copies of these"]),
-        (Section::Style, &["Quantize", "On", "From MYSETTING.DAT on DNA"]),
     ] {
         let screen = showing(&mut t, s);
+        assert!(screen.contains(&overview), "{overview}\n{screen}");
         for said in says {
             assert!(screen.contains(said), "{s:?}: {said}\n{screen}");
         }
     }
-    // The pinned track is starred, the hidden one struck out.
-    let Some(Ok(v)) = &t.view else { panic!("no profile") };
-    let (pinned, hidden) = (v.prefs.pinned[0].clone(), v.prefs.hidden[0].clone());
-    let screen = showing(&mut t, Section::Signature);
-    let row = |name: &str| screen.lines().find(|l| l.contains(name)).unwrap_or_else(|| panic!("{name}\n{screen}"));
-    assert!(row(&pinned).contains('★') && row(&hidden).contains('⊘'), "{screen}");
 }
 
 /// A section without the data it needs says what it needs.
@@ -383,40 +346,17 @@ fn empty_sections_say_what_they_need() {
     let mut t = fixture_tab();
     let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
     let r = &mut v.report;
-    (r.tempo.core, r.keys.tracks, r.era.tracks, r.energy, r.prep, r.style) = (None, 0, 0, None, None, None);
+    (r.era.tracks, r.energy) = (0, None);
     r.genres.top.clear();
     for (s, says) in [
-        (Section::Tempo, "No BPMs: tracks need rekordbox's analysis."),
-        (Section::Arc, "Needs sets of 6 or more tracks with BPMs."),
-        (Section::Mixing, "Needs sets."),
-        (Section::Keys, "No keys: tracks need rekordbox's analysis."),
         (Section::Energy, "No phrase analysis read"),
         (Section::Genres, "None tagged."),
         (Section::Era, "No release years tagged."),
-        (Section::Prep, "No cues read"),
-        (Section::Style, "No My Settings on these drives"),
         (Section::Sets, "No sets declared, and no sessions with enough tracks."),
-        (Section::Summary, "No trait stands out yet."),
     ] {
         let screen = showing(&mut t, s);
         assert!(screen.contains(says), "{s:?}: {says}\n{screen}");
     }
-}
-
-/// The section list sums up how the sets run.
-#[test]
-fn the_arc_is_summed_up_in_a_word() {
-    let mut t = full_tab();
-    let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
-    let r = &mut v.report;
-    let mut word = |builds, steady, winds_down| {
-        (r.arc.builds, r.arc.steady, r.arc.winds_down) = (builds, steady, winds_down);
-        stat(r, Section::Arc)
-    };
-    assert_eq!(word(0.6, 0.2, 0.2), "builds");
-    assert_eq!(word(0.2, 0.6, 0.2), "steady");
-    assert_eq!(word(0.2, 0.2, 0.6), "winds down");
-    assert_eq!(word(0.4, 0.3, 0.3), "varies");
 }
 
 /// The app's Profile view showing `t`, its store in a temporary folder.
@@ -426,44 +366,29 @@ fn profile_app(t: ProfileTab) -> (App, tempfile::TempDir) {
     (app, dir)
 }
 
-/// `m` pins a signature track and `h` hides it, each pressed again undoing it; `H` hides
-/// its artist. Outside a list, they say where to go.
+/// `h` (or `H`) hides the selected artist under Artists, pressed again names them again.
+/// Outside that list, it says where to go.
 #[test]
-fn signature_tracks_are_pinned_and_hidden() {
-    let (mut app, _store) = profile_app(fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]));
-    press(&mut app, "m");
-    assert_eq!(last_message(&app), "select a track under Signature tracks (tab) to pin it");
+fn artists_are_hidden_and_named_again() {
+    let (mut app, _store) = profile_app(fixture_tab());
     press(&mut app, "h");
-    assert!(
-        last_message(&app).starts_with("select a track under Signature tracks, or an artist"),
-        "{}",
-        last_message(&app)
-    );
+    assert_eq!(last_message(&app), "select an artist under Artists (tab) to hide them");
 
-    app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Signature).unwrap());
+    app.profile.select_section(SECTIONS.iter().position(|s| *s == Section::Artists).unwrap());
     press(&mut app, "\t");
     let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
-    let track = v.report.signature.played[0].clone();
+    let artist = v.report.artists.top[0].name.clone();
     for (key, said) in [
-        ('m', format!("pinned {}", track.name)),
-        ('m', format!("unpinned {}", track.name)),
-        ('h', format!("{} won't be named", track.name)),
-        ('h', format!("{} can be named again", track.name)),
-        ('H', format!("{} won't be named", track.artist)),
-        ('H', format!("{} can be named again", track.artist)),
+        ('h', format!("{artist} won't be named")),
+        ('h', format!("{artist} can be named again")),
+        ('H', format!("{artist} won't be named")),
+        ('H', format!("{artist} can be named again")),
     ] {
         press(&mut app, &key.to_string());
         assert_eq!(last_message(&app), said);
     }
     let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
-    assert!(v.prefs.pinned.is_empty() && v.prefs.hidden.is_empty() && v.prefs.hidden_artists.is_empty());
-
-    // Among artists, m pins nothing.
-    press(&mut app, "\u{1b}");
-    app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Artists).unwrap());
-    press(&mut app, "\t");
-    press(&mut app, "m");
-    assert_eq!(last_message(&app), "select a track under Signature tracks (tab) to pin it");
+    assert!(v.prefs.hidden_artists.is_empty());
 }
 
 /// `w` writes the document into the store folder, made there if there's none.
@@ -474,7 +399,7 @@ fn w_writes_the_document_to_the_store() {
     let path = app.store_root.join("profile-document.json");
     assert_eq!(last_message(&app), format!("wrote {}", path.display()));
     let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(doc["version"], 1);
+    assert_eq!(doc["version"], locallibrary::profile::DOCUMENT_VERSION);
 
     let (tx, _rx) = std::sync::mpsc::channel();
     app.profile = ProfileTab::new(tx);
@@ -495,6 +420,7 @@ fn a_choice_that_cant_be_saved_says_why() {
         Some(Ok(v)) => v.published.clone(),
         _ => panic!("no profile"),
     };
+    app.profile.select_section(SECTIONS.iter().position(|s| *s == Section::Genres).unwrap());
     press(&mut app, "i");
     assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
     press(&mut app, "w");
@@ -503,26 +429,19 @@ fn a_choice_that_cant_be_saved_says_why() {
     assert_eq!(v.published, before);
 }
 
-/// `a` builds the profile from the open drive alone, in the background, and the header
-/// says how far it's got.
+/// `R` builds the profile in the background, and the header says how far it's got.
 #[test]
-fn a_builds_the_profile_from_the_open_drive() {
+fn r_builds_the_profile_in_the_background() {
     let dir = tempfile::tempdir().unwrap();
     let pdb = dir.path().join("PIONEER/rekordbox/export.pdb");
     std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/rekordbox-pdb/tests/data/bigger-export.pdb");
     std::fs::copy(fixture, &pdb).unwrap();
-    let (tx, _rx) = std::sync::mpsc::channel();
-    let (mut app, _store) = profile_app(ProfileTab::new(tx));
-    press(&mut app, "a");
-    assert_eq!(last_message(&app), "open a drive in the library first");
-
     let mut app = App::with_library(dir.path(), library());
     app.view = View::Profile;
-    press(&mut app, "a");
-    let Scope::Drive(_, name) = app.profile.scope.clone() else { panic!("{:?}", app.profile.scope) };
-    assert_eq!(last_message(&app), format!("profile from {name} only"));
+    app.profile.only_drive = Some(dir.path().to_path_buf());
+    press(&mut app, "R");
     assert!(app.profile.loading);
     // The header says so while it builds. Counters of the test's own: the build's thread keeps
     // the ones it was given, and counting there can't overwrite these.
@@ -538,29 +457,31 @@ fn a_builds_the_profile_from_the_open_drive() {
     wait(&mut app, |a| !a.profile.loading);
     assert!(matches!(&app.profile.view, Some(Ok(v)) if v.report.collection.tracks == 12), "{:?}", app.toast);
     let s = screen(&mut app, 140, 30);
-    assert!(s.contains(&format!("Profile · {name} only")), "{s}");
+    assert!(s.contains("12 tracks ·"), "{s}");
 }
 
 /// The pointer picks a section, a click picks the row of its list under it, and the wheel
 /// moves through either.
 #[test]
 fn the_mouse_picks_sections_and_rows() {
-    let (mut app, _dir) = profile_app(fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]));
-    let signature = spot_in(&mut app, "Signature", |a| a.profile.sections_area);
-    mouse(&mut app, LEFT, signature);
-    assert_eq!(app.profile.section(), Section::Signature);
+    let mut t = fixture_tab();
+    let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
+    add_artists(&mut v.report);
+    let (mut app, _dir) = profile_app(t);
+    let artists = spot_in(&mut app, "Artists", |a| a.profile.sections_area);
+    mouse(&mut app, LEFT, artists);
+    assert_eq!(app.profile.section(), Section::Artists);
 
-    // The row showing the third track.
+    // The row showing the third artist.
     let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
-    let third = v.report.signature.played[2].name.clone();
+    let third = v.report.artists.top[2].name.clone();
     let row = spot_in(&mut app, &third, |a| a.profile.detail_area);
     mouse(&mut app, LEFT, row);
     assert_eq!((app.profile.pane, app.profile.rows.selected()), (Pane::Detail, Some(2)));
     mouse(&mut app, MouseEventKind::ScrollDown, row);
     assert_eq!(app.profile.rows.selected(), Some(5));
-    mouse(&mut app, MouseEventKind::ScrollUp, signature);
-    let i = Section::ALL.iter().position(|s| *s == Section::Signature).unwrap();
-    assert_eq!((app.profile.pane, app.profile.section()), (Pane::Sections, Section::ALL[i - 3]));
+    mouse(&mut app, MouseEventKind::ScrollUp, artists);
+    assert_eq!((app.profile.pane, app.profile.section()), (Pane::Sections, SECTIONS[0]));
     let detail = app.profile.detail_area;
     // The document scrolls with the wheel.
     press(&mut app, "D");
@@ -571,7 +492,7 @@ fn the_mouse_picks_sections_and_rows() {
     assert_eq!(app.profile.scroll, 3);
 }
 
-/// A full profile (every section filled in, some tracks pinned or hidden) draws at any size,
+/// A full profile (every section filled in) draws at any size,
 /// whichever section, pane, row or scroll, and with room, lists every section by its title,
 /// the selected one's numbers beside them; the selected row stays among the section's rows.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
@@ -581,7 +502,7 @@ fn a_full_profile_draws_whole_at_any_size(tc: hegel::TestCase) {
     let basis = t.report().unwrap().basis;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
         match tc.draw(gs::integers::<u8>().max_value(4)) {
-            0 => t.select_section(tc.draw(gs::integers::<usize>().max_value(Section::ALL.len() - 1))),
+            0 => t.select_section(tc.draw(gs::integers::<usize>().max_value(SECTIONS.len() - 1))),
             1 => t.pane = if t.pane == Pane::Sections && t.detail_len() > 0 { Pane::Detail } else { Pane::Sections },
             2 => t.document = !t.document,
             _ => t.move_by(tc.draw(gs::sampled_from(&[-10, -1, 1, 1, 10][..]))),
@@ -600,7 +521,7 @@ fn a_full_profile_draws_whole_at_any_size(tc: hegel::TestCase) {
         render(&mut t, w, h);
         let screen = render(&mut t, 140, 45);
         if !t.document {
-            for s in Section::ALL {
+            for s in SECTIONS {
                 assert!(screen.contains(s.title_in(basis)), "{s:?} isn't listed:\n{screen}");
             }
         }
@@ -614,19 +535,17 @@ fn the_tables_come_back_up_once_they_fit(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut t = full_tab();
     let r = t.report().unwrap();
-    let name = |x: &profile::Share| x.name.clone();
+    let name = |x: &locallibrary::profile::Share| x.name.clone();
     let tables: Vec<(Section, Vec<String>)> = [
         (Section::Sets, r.sets.list.iter().map(|s| s.name.clone()).collect::<Vec<_>>()),
-        (Section::Signature, r.signature.played.iter().map(|p| p.name.clone()).collect()),
         (Section::Genres, r.genres.top.iter().map(name).collect()),
-        (Section::Labels, r.labels.top.iter().map(name).collect()),
         (Section::Artists, r.artists.top.iter().map(name).collect()),
     ]
     .into_iter()
     .filter(|(_, names)| !names.is_empty())
     .collect();
     let (section, names) = tc.draw(gs::sampled_from(&tables[..]));
-    t.select_section(Section::ALL.iter().position(|s| *s == section).unwrap());
+    t.select_section(SECTIONS.iter().position(|s| *s == section).unwrap());
     let sel = tc.draw(gs::integers::<usize>().max_value(names.len() - 1));
     (t.pane, t.rows) = (Pane::Detail, TableState::default().with_selected(Some(sel)));
     render(&mut t, 140, tc.draw(gs::integers::<u16>().min_value(1).max_value(30)));
@@ -660,25 +579,17 @@ fn tab_of(view: ProfileView) -> ProfileTab {
     t
 }
 
-/// Each section says what its numbers show, whatever they are: the arc's opening and closing
-/// tempo, how it runs (summed up in a word in the list) and its curve; the moods and theirs; the
-/// era's decades; the cues; how much of the collection was played and its copies; and, without
-/// the data, what it needs; how the sets are mixed: in key, by tempo steps, across genres, each
-/// share said as unknown when it is. The header says what the numbers come from and how they're
-/// rounded.
+/// Each section says what its numbers show, whatever they are: the moods and their curve; the
+/// era's decades; how much of the collection was played and its copies; and, without the data,
+/// what it needs. The header sums up the collection, and how many sets or sessions there are.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    use locallibrary::profile::{DecadeCount, EnergySection, PrepSection};
+    use locallibrary::profile::{DecadeCount, EnergySection};
     let mut v = full_view();
     let r = &mut v.report;
     r.basis = tc.draw(gs::sampled_from(&[Basis::Plays, Basis::Sessions, Basis::Collection][..]));
     let shares = &[0.0, 0.2, 0.3, 0.5, 0.6, 1.0][..];
-    r.arc.sets = tc.draw(gs::integers::<usize>().max_value(3));
-    (r.arc.opening_bpm, r.arc.closing_bpm) = (Some(122.0), Some(tc.draw(gs::sampled_from(&[118.25, 127.5][..]))));
-    (r.arc.builds, r.arc.steady, r.arc.winds_down) =
-        (tc.draw(gs::sampled_from(shares)), tc.draw(gs::sampled_from(shares)), tc.draw(gs::sampled_from(shares)));
-    r.arc.curve = tc.draw(gs::vecs(gs::optional(gs::sampled_from(&[-2.0, 0.5, 1.5][..]))).max_size(4));
     r.energy = tc.draw(gs::booleans()).then(|| EnergySection {
         tracks: 12,
         high: tc.draw(gs::sampled_from(shares)),
@@ -687,93 +598,34 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
         curve: tc.draw(gs::vecs(gs::optional(gs::sampled_from(&[0.0, 0.5, 1.0][..]))).max_size(3)),
     });
     r.era.tracks = tc.draw(gs::sampled_from(&[0usize, 10][..]));
+    (r.era.oldest, r.era.newest) =
+        tc.draw(gs::sampled_from(&[(None, None), (Some(2001), Some(2001)), (Some(1998), Some(2024))][..]));
     r.era.decades = (0..tc.draw(gs::integers::<i32>().min_value(0).max_value(3)))
         .map(|i| DecadeCount { decade: 1990 + 10 * i, count: 1 + i as usize })
         .collect();
-    r.prep = tc.draw(gs::booleans()).then(|| PrepSection {
-        tracks: 12,
-        hot_cue_share: tc.draw(gs::sampled_from(shares)),
-        hot_cues_per_track: tc.draw(gs::optional(gs::sampled_from(&[1.0, 3.5][..]))),
-        memory_cue_share: 0.5,
-        loop_share: 0.1,
-    });
+    r.sets.count = tc.draw(gs::integers::<usize>().max_value(3));
     r.collection.played_share = tc.draw(gs::optional(gs::sampled_from(shares)));
     r.collection.duplicate_files = tc.draw(gs::integers::<usize>().max_value(3));
-    let m = &mut r.mixing;
-    m.transitions = tc.draw(gs::sampled_from(&[0usize, 40][..]));
-    (m.keyed, m.timed, m.genred, m.half_double) = (
-        tc.draw(gs::sampled_from(&[0usize, 30][..])),
-        tc.draw(gs::sampled_from(&[0usize, 30][..])),
-        tc.draw(gs::sampled_from(&[0usize, 20][..])),
-        tc.draw(gs::integers::<usize>().max_value(2)),
-    );
-    m.harmonic_share = tc.draw(gs::optional(gs::sampled_from(shares)));
-    (m.within_3pct, m.within_6pct, m.genre_change_share) = (
-        tc.draw(gs::optional(gs::sampled_from(shares))),
-        tc.draw(gs::optional(gs::sampled_from(shares))),
-        tc.draw(gs::optional(gs::sampled_from(shares))),
-    );
-    v.prefs.precision = if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded };
-    // However the sets run, the list sums it up in a word.
-    let mut arc = v.report.clone();
-    for (b, st, w, word) in
-        [(0.6, 0.3, 0.1, "builds"), (0.2, 0.6, 0.2, "steady"), (0.2, 0.2, 0.6, "winds down"), (0.4, 0.3, 0.3, "varies")]
-    {
-        (arc.arc.sets, arc.arc.builds, arc.arc.steady, arc.arc.winds_down) = (2, b, st, w);
-        assert_eq!(stat(&arc, Section::Arc), word);
-    }
-    // And without the tempos, keys or My Settings, those sections say what they need.
-    let mut bare = tab_of(ProfileView { report: ProfileReport { style: None, ..v.report.clone() }, ..v.clone() });
-    if let Some(Ok(b)) = &mut bare.view {
-        (b.report.tempo.core, b.report.keys.tracks) = (None, 0);
-    }
-    for (section, says) in [
-        (Section::Tempo, "No BPMs: tracks need rekordbox's analysis."),
-        (Section::Keys, "No keys: tracks need rekordbox's analysis."),
-        (Section::Style, "No My Settings on these drives"),
-    ] {
-        assert!(showing(&mut bare, section).contains(says), "{section:?}");
-    }
     let r = v.report.clone();
-    let exact = v.prefs.precision == Precision::Exact;
     let mut t = tab_of(v);
     let unit = r.basis.unit();
-    let units = |n: usize| plural(n, unit);
-    for (i, s) in Section::ALL.iter().enumerate() {
+    let mut overview =
+        format!("12 tracks · {} · {}", plural(r.genres.distinct, "genre"), plural(r.artists.distinct, "artist"));
+    match (r.era.oldest, r.era.newest) {
+        (Some(a), Some(b)) if a != b => overview.push_str(&format!(" · released {a}–{b}")),
+        (Some(a), _) => overview.push_str(&format!(" · released {a}")),
+        _ => {}
+    }
+    if r.basis != Basis::Collection && r.sets.count > 0 {
+        overview.push_str(&format!(" · {}", plural(r.sets.count, unit)));
+    }
+    for (i, s) in SECTIONS.iter().enumerate() {
         t.select_section(i);
         let screen = render(&mut t, 160, 50);
+        let header = screen.lines().nth(2).unwrap_or_default();
+        assert!(header.trim_start_matches('│').trim().trim_end_matches('│').trim() == overview, "{overview}\n{screen}");
         let mut want: Vec<String> = Vec::new();
         match s {
-            Section::Summary => {
-                want.push(if exact { "exact".into() } else { "rounded".into() });
-                want.push(match r.basis {
-                    Basis::Plays => format!("{} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "set")),
-                    Basis::Sessions => format!(
-                        "no sets declared: {} in {}",
-                        plural(r.sets.plays, "play"),
-                        plural(r.sets.count, "session")
-                    ),
-                    Basis::Collection => "no sets: from the collection".into(),
-                });
-            }
-            Section::Arc if r.arc.sets == 0 => want.push(format!("Needs {unit}s of 6 or more tracks with BPMs.")),
-            Section::Arc => {
-                want.push(format!("122.0 → {:.1} BPM", r.arc.closing_bpm.unwrap()));
-                want.push(format!("averaged over {}", units(r.arc.sets)));
-                let word = match (r.arc.builds, r.arc.steady, r.arc.winds_down) {
-                    (b, ..) if b >= 0.5 => "builds",
-                    (_, st, _) if st >= 0.5 => "steady",
-                    (_, _, w) if w >= 0.5 => "winds down",
-                    _ => "varies",
-                };
-                assert_eq!(stat(&r, *s), word);
-                let curve: Vec<f64> = r.arc.curve.iter().flatten().copied().collect();
-                if !curve.is_empty() {
-                    let (lo, hi) =
-                        curve.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), x| (l.min(*x), h.max(*x)));
-                    want.push(format!("through a {unit}: {lo:+.1} to {hi:+.1}"));
-                }
-            }
             Section::Energy => match &r.energy {
                 None => want.push("No phrase analysis read".into()),
                 Some(e) => {
@@ -786,42 +638,6 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
             },
             Section::Era if r.era.tracks == 0 => want.push("No release years tagged.".into()),
             Section::Era => want.extend(r.era.decades.iter().map(|d| format!("{}s", d.decade))),
-            Section::Prep => match &r.prep {
-                None => want.push("No cues read".into()),
-                Some(p) => {
-                    want.push("Cues across 12 tracks".into());
-                    let each = p.hot_cues_per_track.map(|n| format!(" · {n:.1} each")).unwrap_or_default();
-                    want.push(format!("{}{each}", pct(p.hot_cue_share)));
-                }
-            },
-            Section::Mixing if r.mixing.transitions == 0 => want.push(format!("Needs {unit}s.")),
-            Section::Mixing => {
-                let m = &r.mixing;
-                // A share unknown is a dash.
-                let share = |x: Option<f64>| x.map_or_else(|| "–".to_string(), pct);
-                if m.keyed > 0 {
-                    want.push(format!(
-                        "{} of {} transitions between keyed tracks are harmonic",
-                        share(m.harmonic_share),
-                        m.keyed
-                    ));
-                }
-                if m.timed > 0 {
-                    let half = if m.half_double > 0 {
-                        format!(" · {} at half or double time", m.half_double)
-                    } else {
-                        String::new()
-                    };
-                    want.push(format!(
-                        "Tempo steps: median 1.2% · {} within 3% · {} within 6%{half}",
-                        share(m.within_3pct),
-                        share(m.within_6pct)
-                    ));
-                }
-                if m.genred > 0 {
-                    want.push(format!("{} of transitions change genre", share(m.genre_change_share)));
-                }
-            }
             Section::Collection => {
                 if let Some(p) = r.collection.played_share {
                     want.push(format!("Played in a {unit}"));
@@ -841,31 +657,28 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
 }
 
 /// The DJ's choices, made from the view with its keys, are kept as a person keeping count
-/// would keep them: m pins and unpins a signature track (not one that's hidden, which says so),
-/// h hides one (unpinning it) and names it again, H does
-/// that for an artist (a signature track's, or one under Artists), i puts the section in the
-/// document or leaves it out, and the numbers go exact or rounded; each says what it did, and
-/// keys used where they mean nothing say where to go.
+/// would keep them: h hides an artist under Artists and names them again, i puts the section in
+/// the document or leaves it out, and the numbers go exact or rounded; each says what it did, and
+/// h used where it means nothing says where to go.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::collections::BTreeSet;
     let (mut app, _dir) = profile_app(tab_of(full_view()));
-    let at = |s: Section| Section::ALL.iter().position(|x| *x == s).unwrap();
-    let (mut pinned, mut hidden, mut artists) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+    let at = |s: Section| SECTIONS.iter().position(|x| *x == s).unwrap();
+    let mut artists = BTreeSet::new();
     let mut published: BTreeSet<Section> = match &app.profile.view {
         Some(Ok(v)) => v.published.iter().copied().collect(),
         _ => unreachable!(),
     };
     let mut exact = false;
-    const SECTIONS: [Section; 3] = [Section::Signature, Section::Artists, Section::Tempo];
-    const ACTS: [Act; 5] =
-        [Act::ProfilePin, Act::ProfileHide, Act::ProfileHideArtist, Act::ProfileInclude, Act::ProfileRounding];
+    const SHOWN: [Section; 3] = [Section::Artists, Section::Genres, Section::Era];
+    const ACTS: [Act; 3] = [Act::ProfileHideArtist, Act::ProfileInclude, Act::ProfileRounding];
     // Every act on a row of every section first (as drawn, they'd seldom meet), then as drawn.
-    for step in 0..15 + tc.draw(gs::integers::<usize>().max_value(10)) {
-        let section = if step < 15 { SECTIONS[step / 5] } else { tc.draw(gs::sampled_from(&SECTIONS[..])) };
+    for step in 0..9 + tc.draw(gs::integers::<usize>().max_value(10)) {
+        let section = if step < 9 { SHOWN[step / 3] } else { tc.draw(gs::sampled_from(&SHOWN[..])) };
         app.profile.select_section(at(section));
-        let detail = (step < 15 || tc.draw(gs::booleans())) && app.profile.detail_len() > 0;
+        let detail = (step < 9 || tc.draw(gs::booleans())) && app.profile.detail_len() > 0;
         app.profile.pane = if detail { Pane::Detail } else { Pane::Sections };
         if detail {
             let n = app.profile.detail_len();
@@ -873,59 +686,26 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
         }
         let Some(Ok(v)) = &app.profile.view else { unreachable!() };
         let row = app.profile.rows.selected().filter(|_| detail);
-        let track =
-            row.and_then(|i| v.report.signature.played.get(i)).filter(|_| section == Section::Signature).cloned();
         let artist = match section {
-            Section::Signature => track.as_ref().map(|t| t.artist.clone()),
             Section::Artists => row.and_then(|i| v.report.artists.top.get(i)).map(|a| a.name.clone()),
             _ => None,
         };
-        let act = if step < 15 { ACTS[step % 5] } else { tc.draw(gs::sampled_from(&ACTS[..])) };
+        let act = if step < 9 { ACTS[step % 3] } else { tc.draw(gs::sampled_from(&ACTS[..])) };
         // Once, or (as often, to take it back) twice.
         for _ in 0..1 + usize::from(tc.draw(gs::booleans())) {
             app.perform(act, None);
             let said = last_message(&app).to_string();
-            let toggle =
-                |set: &mut BTreeSet<String>, x: &str| if set.remove(x) { false } else { set.insert(x.to_string()) };
             match act {
-                Act::ProfilePin => match &track {
-                    // A hidden track isn't pinned: it's to be named again first.
-                    Some(t) if hidden.contains(&t.name) => {
-                        assert!(said.ends_with("is hidden; unhide it before pinning it"), "{said}");
-                    }
-                    Some(t) => {
-                        let on = toggle(&mut pinned, &t.name);
-                        assert_eq!(
-                            said,
-                            if on { format!("pinned {}", t.name) } else { format!("unpinned {}", t.name) }
-                        );
-                    }
-                    None => assert_eq!(said, "select a track under Signature tracks (tab) to pin it"),
-                },
-                Act::ProfileHide | Act::ProfileHideArtist => match (&track, &artist) {
-                    (Some(t), _) if act == Act::ProfileHide => {
-                        let on = toggle(&mut hidden, &t.name);
-                        // Hidden, it's unpinned.
-                        if on {
-                            pinned.remove(&t.name);
-                        }
-                        assert_eq!(
-                            said,
-                            if on {
-                                format!("{} won't be named", t.name)
-                            } else {
-                                format!("{} can be named again", t.name)
-                            }
-                        );
-                    }
-                    (_, Some(a)) if act == Act::ProfileHideArtist || track.is_none() => {
-                        let on = toggle(&mut artists, &locallibrary::model::normalize(a));
+                Act::ProfileHideArtist => match &artist {
+                    Some(a) => {
+                        let key = locallibrary::model::normalize(a);
+                        let on = if artists.remove(&key) { false } else { artists.insert(key) };
                         assert_eq!(
                             said,
                             if on { format!("{a} won't be named") } else { format!("{a} can be named again") }
                         );
                     }
-                    _ => assert!(said.starts_with("select a track under Signature tracks, or an artist"), "{said}"),
+                    None => assert_eq!(said, "select an artist under Artists (tab) to hide them"),
                 },
                 Act::ProfileInclude => {
                     let on = !published.remove(&section) && published.insert(section);
@@ -946,8 +726,6 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
             }
             let Some(Ok(v)) = &app.profile.view else { unreachable!() };
             let p = &v.prefs;
-            assert_eq!(p.pinned.iter().cloned().collect::<BTreeSet<_>>(), pinned);
-            assert_eq!(p.hidden.iter().cloned().collect::<BTreeSet<_>>(), hidden);
             assert_eq!(
                 p.hidden_artists.iter().map(|a| locallibrary::model::normalize(a)).collect::<BTreeSet<_>>(),
                 artists
@@ -960,24 +738,23 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
 
 /// The Profile view answers to its keys and the mouse: the document opens and esc closes it,
 /// then goes back from a section's list to the sections; the arrows move through the list shown
-/// (never past its ends); a click picks a section, or a row of its list; scoped to the open drive
-/// (only with one open) and back to everything, it's built again; w writes the document (once
+/// (never past its ends); a click picks a section, or a row of its list; w writes the document (once
 /// there's one to write); a build replaced since changes nothing; a choice that can't be saved
 /// says why.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = profile_app(tab_of(full_view()));
-    let signature = Section::ALL.iter().position(|s| *s == Section::Signature).unwrap();
-    let turns: Vec<u8> = tc.draw(gs::permutations((0..8).collect::<Vec<_>>()));
-    for step in 0..tc.draw(gs::integers::<usize>().min_value(8).max_value(16)) {
+    let artists = SECTIONS.iter().position(|s| *s == Section::Artists).unwrap();
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(7).max_value(14)) {
         app.view = View::Profile;
         if !matches!(app.profile.view, Some(Ok(_))) {
             (app.profile.view, app.profile.loading) = (Some(Ok(full_view())), false);
         }
         match turns[step % turns.len()] {
             0 => {
-                app.profile.select_section(signature);
+                app.profile.select_section(artists);
                 (app.profile.pane, app.profile.document) = (Pane::Sections, false);
                 press(&mut app, "\t");
                 assert_eq!(app.profile.pane, Pane::Detail);
@@ -988,7 +765,7 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
                 assert!(!super::escape(&mut app), "then it's the app's");
             }
             1 => {
-                app.profile.select_section(signature);
+                app.profile.select_section(artists);
                 app.profile.pane = Pane::Detail;
                 let n = app.profile.detail_len();
                 let start = tc.draw(gs::integers::<usize>().max_value(n - 1));
@@ -1000,13 +777,13 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
             2 => {
                 screen(&mut app, 140, 45);
                 let r = app.profile.sections_area;
-                let i = tc.draw(gs::integers::<usize>().max_value(Section::ALL.len().min(r.height as usize - 2) - 1));
+                let i = tc.draw(gs::integers::<usize>().max_value(SECTIONS.len().min(r.height as usize - 2) - 1));
                 mouse(&mut app, LEFT, (r.x + 2, r.y + 1 + i as u16));
                 assert_eq!(
                     (app.profile.pane, app.profile.section()),
-                    (Pane::Sections, Section::ALL[i + app.profile.sections.offset()])
+                    (Pane::Sections, SECTIONS[i + app.profile.sections.offset()])
                 );
-                app.profile.select_section(signature);
+                app.profile.select_section(artists);
                 screen(&mut app, 140, 45);
                 let d = app.profile.detail_area;
                 let k = tc.draw(gs::integers::<usize>().max_value(2));
@@ -1017,29 +794,6 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
                 );
             }
             3 => {
-                // Scoped to the open drive, if there's one, and back.
-                let drive = tc.draw(gs::booleans());
-                if drive {
-                    let lib = App::with_library(dir.path(), library());
-                    app.loaded = lib.loaded;
-                } else {
-                    app.loaded = None;
-                }
-                app.profile.scope = Scope::Everything;
-                app.perform(Act::ProfileScope, None);
-                if !drive {
-                    assert_eq!(last_message(&app), "open a drive in the library first");
-                    continue;
-                }
-                assert!(last_message(&app).ends_with(" only") && app.profile.loading);
-                let first = app.profile.cancel.clone().unwrap();
-                app.perform(Act::ProfileScope, None);
-                assert!(first.is_cancelled(), "the build replaced is stopped");
-                assert_eq!(last_message(&app), "profile from every drive and the store");
-                // (Its builds report to a tab of their own, which nothing reads.)
-                app.profile.loading = false;
-            }
-            4 => {
                 let none = tc.draw(gs::booleans());
                 if none {
                     app.profile.view = None;
@@ -1054,7 +808,7 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
                     );
                 }
             }
-            5 => {
+            4 => {
                 // What an older build sends back is dropped.
                 let (generation, view) = (app.profile.generation, app.profile.view.take());
                 app.profile.loading = true;
@@ -1065,10 +819,11 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
                 assert!(screen(&mut app, 120, 30).contains("it fell over"));
                 app.profile.view = view;
             }
-            6 => {
+            5 => {
                 // The store's folder a file: a choice can't be saved, nor the document written.
                 let store = std::mem::replace(&mut app.store_root, dir.path().join("a file"));
                 std::fs::write(&app.store_root, "not a folder").unwrap();
+                app.profile.select_section(SECTIONS.iter().position(|s| *s == Section::Genres).unwrap());
                 press(&mut app, "i");
                 assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
                 press(&mut app, "w");

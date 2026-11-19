@@ -33,7 +33,7 @@ flowchart TD
     library --> cache["Sidecar: parsed libraries of the last 4 drives,<br/>read again when a database changes"]
 ```
 
-Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
+Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/loclib-anlz/src/lib.rs`](../../../../crates/loclib-anlz/src/lib.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
 
 ## My Settings
 
@@ -81,13 +81,15 @@ flowchart TD
     read --> reads["collection info, tracks, playlists"]
     read --> diff["collection diff:<br/>what a drive lacks"]
     read --> export["collection export"]
+    read --> player["The player: every file as a full path on this<br/>computer, cloud tracks in Dropbox or Google Drive"]
+    master -.->|"rekordbox saves: the open<br/>collection is read again"| player
     export --> write["Copy what differs, build both databases,<br/>swap them in"]
     write --> target["A drive, or a folder laid out like one"]
     target -->|"pull"| store[("Store")]
     store -->|"library push"| drive["Any drive"]
 ```
 
-Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
+Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
 
 ## Exporting a collection
 
@@ -161,17 +163,20 @@ Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/s
 
 ## The DJ profile
 
-What the report is built from, and what's allowed out of it.
+What the report is built from, and what's allowed out of it. Genres, artists, era and energy count the collection, each track once; the rest count plays.
 
 ```mermaid
 flowchart TD
-    sets["Declared sets"] --> report["Profile report: stays on this computer"]
-    sessions["Histories, until sets are declared"] --> report
-    collection["The collection, with neither"] --> report
-    analysis["Analysis and tags, from mounted drives<br/>and the store's snapshots"] --> report
-    settings["The drives' My Settings"] --> report
-    report --> document["Profile document: rounded unless<br/>precision is exact, no paths, list<br/>names or exact dates"]
-    prefs[("profile.json<br/>include, pin, hide, alias, headline, precision")] --> document
+    sets["Declared sets"] --> plays["Plays: sets, tempo, keys, mixing,<br/>signature tracks..."]
+    sessions["Histories, until sets are declared"] --> plays
+    collection["The collection: drives' libraries and<br/>the store's latest snapshots, each track once"] --> owned["Genres, artists, era, energy"]
+    analysis["Analysis and tags, from mounted drives<br/>and the store's snapshots"] --> plays
+    analysis --> owned
+    settings["The drives' My Settings"] --> report["Profile report: stays on this computer"]
+    plays --> report
+    owned --> report
+    report -->|"only the publishable sections:<br/>sets, energy, genres, artists, era, collection"| document["Profile document: rounded unless<br/>precision is exact, no paths, list<br/>names or exact dates"]
+    prefs[("profile.json<br/>include, hide artist, alias, precision")] --> document
     document -->|"profile document -o"| file["A file"]
     document -->|"profile publish"| account["computer.localnetwork.dj.profile"]
 ```

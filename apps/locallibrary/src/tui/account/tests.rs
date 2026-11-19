@@ -79,11 +79,10 @@ fn a_session_past_its_end_asks_to_sign_in_again() {
     assert!(bar.contains("the session has likely ended; L signs in again"), "{bar}");
     assert!(!bar.contains("development client"), "a hosted client isn't called that: {bar}");
 
+    // Far off, it isn't said when.
     t.info = Some(signed_in("2099-01-01T00:00:00Z"));
     let bar = shown(&t, 200);
-    let by = local_time(t.info.as_ref().unwrap().sign_in_again_by, "%Y-%m-%d");
-    assert!(bar.contains(&format!("sign in again by {by}")), "{bar}");
-    assert!(!bar.contains("likely ended"), "{bar}");
+    assert!(!bar.contains("sign in again") && !bar.contains("likely ended"), "{bar}");
 }
 
 /// A tab clicked while a handle is typed shows its view and puts the handle away, as esc
@@ -97,10 +96,10 @@ fn a_tab_clicked_while_typing_a_handle_puts_it_away() {
     assert!(screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
     point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "gu");
+    press(&mut app, "gn");
     assert!(!screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
-    press(&mut app, "q");
-    assert!(app.quit, "q quits, not typed");
+    press(&mut app, "Q");
+    assert!(app.quit, "Q quits, not typed");
 }
 
 #[test]
@@ -271,8 +270,8 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
     }
 }
 
-/// Signed in, the bar names the account (as the development client, when it is) and says when
-/// to sign in again, or that the session has likely ended; L once says how to sign out and L
+/// Signed in, the bar names the account (as the development client, when it is) and, as a
+/// warning in the last two days, says when to sign in again, or that the session has likely ended; L once says how to sign out and L
 /// again soon after signs out (only once: a second L while it does waits), L long after asks
 /// again; a tab clicked while a handle is typed puts it away.
 #[hegel::test(test_cases = 100)]
@@ -293,14 +292,16 @@ fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     assert_eq!(bar.contains("as the development client"), loopback, "{bar}");
     if info.expired() {
         assert!(bar.contains("the session has likely ended; L signs in again"), "{bar}");
-    } else {
+    } else if days == 1 {
         let by = local_time(info.sign_in_again_by, "%Y-%m-%d");
         assert!(bar.contains(&format!("sign in again by {by} ({} days)", info.days_left())), "{bar}");
-        // A warning in its last two days, in the colour the terminal draws it with.
+        // In the colour the terminal draws a warning with.
         let line = app.profile.account.line(width);
         let again = line.spans.iter().find(|s| s.content.contains("sign in again by")).unwrap();
         let warning = crate::tui::theme::fg(crate::tui::theme::current().warning);
-        assert_eq!(again.style.fg == warning.fg, days == 1, "{bar}");
+        assert_eq!(again.style.fg, warning.fg, "{bar}");
+    } else {
+        assert!(!bar.contains("sign in again"), "{bar}");
     }
     // A handle being typed is put away when another view is shown.
     if tc.draw(gs::booleans()) {

@@ -25,6 +25,7 @@ flowchart LR
   App -- "first draft saved" --> Backstage["backstage,<br/>one per performer"]
   App -- "SharedSpaces.create or createAct,<br/>no page calls them yet" --> Shared["performer, party, venue"]
   App -- "first planner read or write" --> Planner["planner, under the<br/>person's own DID"]
+  App -- "nothing yet" --> Details["bookingDetails, one per<br/>performer, root only"]
   Four --> Watch["Syncer watches it,<br/>reading with the<br/>root's credential"]
   Booking --> Watch
   Epk --> Watch
@@ -34,7 +35,7 @@ flowchart LR
   Planner --> Session["Read with their session,<br/>no copy kept"]
 ```
 
-Source: [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/atproto/spaces.ts`](../../src/lib/server/atproto/spaces.ts), [`src/lib/server/services/space-members.ts`](../../src/lib/server/services/space-members.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts)
+Source: [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/atproto/spaces.ts`](../../src/lib/server/atproto/spaces.ts), [`src/lib/nsid.ts`](../../src/lib/nsid.ts), [`src/lib/server/services/space-members.ts`](../../src/lib/server/services/space-members.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts)
 
 ## Space credentials
 
@@ -49,12 +50,12 @@ sequenceDiagram
   A->>R: getDelegationToken with the root's session
   R-->>A: Delegation token
   A->>A: New P-256 key, kept in memory
-  A->>H: getSpaceCredential with the token and key id
+  A->>H: authorizeSpaceSync with the token and the key's did:key
   H-->>A: Credential bound to that key
-  A->>H: listRepos, signed with the key
-  H-->>A: Writers and their revs
+  A->>H: listWriters, signed with the key
+  H-->>A: Writers and their revs, and removed writers
   A->>W: listRepoOps, signed, with a one-time KEM share
-  W-->>A: Ops and a commit with a MAC
+  W-->>A: Ops and the commit, with a MAC, on each page
   A->>A: Check the MAC and the LtHash
   alt MAC fails
     A->>A: Refresh the writer's DID document, read once more
@@ -88,11 +89,14 @@ One pass over one space. A second request while it runs queues one more pass.
 
 ```mermaid
 flowchart TD
-  Trigger["Poll, notifyWrite, or watchSpace"] --> List["registerNotify if it's due, then<br/>listRepos from spaceRev, 500 a page"]
+  Trigger["Poll, notifySpaceUpdate, or watchSpace"] --> List["listWriters from spaceRev,<br/>500 a page, 100 pages a pass"]
+  List -- "a repo left<br/>the writer set" --> Keep["Read past it, keep<br/>its synced records"]
   List -- "authority says<br/>it's gone" --> Drop["Drop the local copy<br/>and what came from it"]
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
   List -- "never synced" --> Star["getRepo: verified STAR archive"]
-  Ops -- "fails, not on a MAC<br/>or credential" --> Star
+  Ops -- "fails, not on a MAC or credential,<br/>or runs past 100 pages" --> Star
+  Ops -- "writer taken down,<br/>suspended or deactivated" --> Skip["Skip, retry on backoff"]
+  Star -- "same errors" --> Skip
   Ops --> Apply["Transaction: space_record, pending_projection,<br/>synced_repo"]
   Star --> Apply
   Apply --> Project["Project each change.<br/>A failure stays in pending_projection"]
@@ -103,7 +107,7 @@ Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts)
 
 ## Repo sync lifecycle
 
-One writer's repo in one space. A failure stays in `sync_repo_retry`, since `listRepos` won't list that repo again until it changes.
+One writer's repo in one space. A failure stays in `sync_repo_retry`, since `listWriters` won't list that repo again until it changes.
 
 ```mermaid
 stateDiagram-v2
@@ -123,33 +127,41 @@ Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts), 
 
 ## Write notifications
 
-How a write reaches the app without waiting for the poll, with `SYNC_NOTIFY` on. Without it, or if registering fails, writes wait for the poll.
+How a write reaches the app without waiting for the poll, with `SYNC_NOTIFY` on. Without it, or if the host can't confirm the app's endpoint, writes wait for the poll.
 
 ```mermaid
 sequenceDiagram
   participant W as Writer's PDS
   participant H as Space host
   participant A as App
-  A->>H: registerNotify with the space credential
-  W->>H: notifyWrite, service auth from the writer
-  H->>A: GET /.well-known/did.json to find the syncer
-  H->>A: POST notifyWrite, service auth from the authority
-  A->>A: Check audience, method and issuer
-  alt Bad space
-    A-->>H: 400
-  else Check fails
+  A->>H: authorizeSpaceSync, notify at PUBLIC_URL with the space's token
+  H->>A: POST confirmRegistration with the token and a challenge
+  alt The token is the one kept for that watched space
+    A-->>H: The challenge
+    H-->>A: Credential, registered for as long as it lasts
+  else Any other token
     A-->>H: 401
-  else Space isn't watched
-    A-->>H: 404
-  else Watched
+    H-->>A: RegistrationNotConfirmed
+    A->>H: authorizeSpaceSync without notify, then poll
+  end
+  W->>H: notifyRepoUpdate
+  H->>A: POST notifySpaceUpdate with the token and the update
+  alt Bad body
+    A-->>H: 400
+  else Not the space's token
+    A-->>H: 401
+  else repoWrite or repoRemoved
     A-->>H: 200
     A->>A: Sync the space in the background
+  else spaceDeleted or registrationExpired
+    A-->>H: 200
+    A->>A: Drop the credential, sync in the background
+    A->>H: authorizeSpaceSync for a fresh credential
+    H-->>A: SpaceDeleted if the space is gone, and the app drops its copy
   end
-  H->>A: POST notifySpaceDeleted when a space goes
-  A->>A: Drop the local copy
 ```
 
-Source: [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts), [`src/routes/xrpc/com.atproto.space.notifySpaceDeleted/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifySpaceDeleted/+server.ts), [`src/routes/.well-known/did.json/+server.ts`](../../src/routes/.well-known/did.json/+server.ts), [`src/lib/server/atproto/service-auth.ts`](../../src/lib/server/atproto/service-auth.ts)
+Source: [`src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts`](../../src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts), [`src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts`](../../src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts), [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](../../src/lib/server/atproto/credentials.ts)
 
 ## Record projections
 
@@ -166,14 +178,15 @@ flowchart LR
   Sync -- "booking.inquiry, message, status,<br/>participants and the root" --> A6["booking_thread, booking_event,<br/>inbox items"]
   Sync -- "epk.request, and epk.grant<br/>from the authority only" --> A7["epk_request, epk_grant"]
   Sync -- "epk.draft in a backstage" --> A8["epk_draft"]
-  Sync -- "people.*, listing.status,<br/>performer, root only" --> A9["shared space tables and<br/>performer, then its listing"]
+  Sync -- "people.*, listing.status,<br/>performer, venue,<br/>venue.approval, party, event,<br/>root only" --> A9["shared space tables,<br/>performer, venue or party,<br/>then its listing"]
+  Sync -- "staff.flag, staff.group,<br/>root only" --> A10["feature_flag, flag_group"]
 ```
 
-Source: [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/epk.ts`](../../src/lib/server/services/epk.ts)
+Source: [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/epk.ts`](../../src/lib/server/services/epk.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts)
 
 ## Member list upkeep
 
-What keeps each space's member list right. Manager and shared space runs compare with the live list, so a run that failed part way is finished by the next. The staff run only adds current staff, so a failed removal stays.
+What keeps each space's member list right. Every run compares with the live list, so a run that failed part way is finished by the next.
 
 ```mermaid
 flowchart TD
@@ -186,7 +199,7 @@ flowchart TD
   Managers --> Kits["epk spaces: read,<br/>granted people stay"]
   Hourly --> Shared["SharedSpaces:<br/>members follow people records"]
   People["A change to a space's people"] --> Shared
-  Boot["Startup, System page"] --> Staff["Staff added to audit, moderation,<br/>staff and industry spaces"]
+  Boot["Startup, every 5 minutes,<br/>System page"] --> Staff["audit, moderation, staff and<br/>industry spaces: staff join,<br/>leavers go"]
   Threads -. "only with a root record<br/>naming the performer" .-> Root["Opening record or<br/>booking.create audit entry"]
 ```
 

@@ -48,7 +48,7 @@ fn a_change_fades_and_stops() {
     assert_eq!(done, lit(), "and nothing's touched after");
 }
 
-/// With less motion, in fewer colours, or for a test's app, nothing fades.
+/// With less motion, in 16 colours, or for a test's app, nothing fades.
 #[test]
 fn nothing_fades_without_what_it_takes() {
     let change = |t: &mut Transitions| {
@@ -60,14 +60,41 @@ fn nothing_fades_without_what_it_takes() {
     theme::set_test_reduced_motion(true);
     assert!(!change(&mut t), "less motion");
     theme::set_test_reduced_motion(false);
-    for tier in [Tier::Colors256, Tier::Colors16] {
+    for (tier, fades) in [(Tier::Colors256, true), (Tier::Colors16, false)] {
         theme::set_test_tier(Some(tier));
         let mut t = Transitions { enabled: true, ..Default::default() };
-        assert!(!change(&mut t), "{tier:?}");
+        assert_eq!(change(&mut t), fades, "{tier:?}");
     }
     theme::set_test_tier(None);
     let mut off = Transitions::default();
     assert!(!change(&mut off));
+}
+
+/// In 256 colours a fade draws what's between two colours in the tier's own, and once it's over
+/// no cell holds a 24-bit colour.
+#[test]
+fn a_fade_in_256_colours_leaves_no_24_bit_colour() {
+    let mut t = on();
+    theme::set_test_tier(Some(Tier::Colors256));
+    t.follow(shown(), AREA);
+    t.follow(Shown { help: true, ..shown() }, AREA);
+    assert!(t.active());
+    let lit = || {
+        let mut buf = Buffer::empty(AREA);
+        for cell in &mut buf.content {
+            cell.set_symbol("█").set_fg(Color::Indexed(231));
+        }
+        buf
+    };
+    let rgb = |buf: &Buffer| buf.content.iter().filter(|c| matches!(c.fg, Color::Rgb(..))).count();
+    let mut buf = lit();
+    for _ in 0..8 {
+        t.step(Duration::from_millis(30), &mut buf);
+        assert_eq!(rgb(&buf), 0, "{buf:?}");
+        buf = lit();
+    }
+    assert!(!t.active(), "over");
+    theme::set_test_tier(None);
 }
 
 /// Paused on the deck, nothing moves once the visualisers have settled, so the player goes back to
@@ -108,14 +135,15 @@ fn the_player_goes_idle_after_a_fade() {
     theme::set_test_tier(None);
 }
 
-/// For any run of frames: a fade starts only when what's shown changes, in 24-bit colour without
-/// less motion asked for, and runs its length from the last change. It only ever changes colours
-/// in its own area, never a symbol, and leaves the cells as they were drawn once it's over.
+/// For any run of frames: a fade starts only when what's shown changes, in 24-bit or 256 colours
+/// without less motion asked for, and runs its length from the last change. It only ever changes
+/// colours in its own area, never a symbol, leaves no 24-bit colour there in 256 colours, and
+/// leaves the cells as they were drawn once it's over.
 #[hegel::test(test_cases = 100)]
 fn prop_a_fade_follows_a_change_for_its_length(tc: hegel::TestCase) {
     let tier = tc.draw(gs::sampled_from(vec![Tier::Truecolor, Tier::Colors256, Tier::Colors16]));
     let (enabled, less_motion) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
-    let fades = enabled && !less_motion && tier == Tier::Truecolor;
+    let fades = enabled && !less_motion && tier != Tier::Colors16;
     theme::set_test_tier(Some(tier));
     theme::set_test_reduced_motion(less_motion);
     let page = Rect { width: AREA.width + 4, height: AREA.height + 2, ..AREA };
@@ -146,7 +174,12 @@ fn prop_a_fade_follows_a_change_for_its_length(tc: hegel::TestCase) {
         } else {
             let ms = tc.draw(gs::integers::<u32>().max_value(120));
             let mut buf = lit();
+            let running = t.active();
             t.step(Duration::from_millis(ms.into()), &mut buf);
+            if running && tier == Tier::Colors256 {
+                let left = (AREA.positions()).filter(|&p| matches!(buf[p].fg, Color::Rgb(..))).collect::<Vec<_>>();
+                assert!(left.is_empty(), "24-bit colours left at {left:?}");
+            }
             ran = ran.map(|r| r + ms).filter(|&r| r < FADE_MS);
             let (fresh, outside) = (lit(), |x, y| !AREA.contains(ratatui::layout::Position::new(x, y)));
             for (i, (cell, before)) in buf.content.iter().zip(&fresh.content).enumerate() {
@@ -161,6 +194,118 @@ fn prop_a_fade_follows_a_change_for_its_length(tc: hegel::TestCase) {
             }
         }
         assert_eq!(t.active(), ran.is_some(), "{tier:?}, enabled {enabled}, less motion {less_motion}");
+    }
+    theme::set_test_reduced_motion(false);
+    theme::set_test_tier(None);
+}
+
+fn lit_wash() -> Buffer {
+    let mut buf = Buffer::empty(AREA);
+    for cell in &mut buf.content {
+        cell.set_symbol("▆").set_fg(Color::Rgb(40, 120, 220));
+    }
+    buf
+}
+
+/// The warning of a track's end washes the overview twice as it comes on, all the way into the
+/// warning colour at the height of each pulse, then stops. Staying on starts nothing more; going
+/// off first (a seek back) stops it, and coming on again starts another.
+#[test]
+fn the_end_warning_washes_once_a_crossing() {
+    let mut t = on();
+    let warn = theme::rgb3(theme::current().critical);
+    t.follow_warning(false, AREA);
+    t.follow_warning(true, AREA);
+    assert!(t.active(), "it came on");
+    let mut buf = lit_wash();
+    t.step_wash(Duration::from_millis(180), &mut buf);
+    assert!(buf.content.iter().all(|c| c.fg == warn), "{buf:?}");
+    let mut buf = lit_wash();
+    t.step_wash(Duration::from_millis(180), &mut buf);
+    assert_eq!(buf, lit_wash(), "back between the pulses");
+    t.step_wash(Duration::from_millis(400), &mut lit_wash());
+    assert!(!t.active(), "two pulses, then over");
+    t.follow_warning(true, AREA);
+    assert!(!t.active(), "still on: nothing more");
+    t.follow_warning(false, AREA);
+    t.follow_warning(true, AREA);
+    assert!(t.active(), "on again after a seek back");
+    t.follow_warning(false, AREA);
+    assert!(!t.active(), "a seek back stops it");
+}
+
+/// In 16 colours the wash snaps to the warning colour at the height of a pulse and back; with less
+/// motion, without colours, or for a test's app, there's none.
+#[test]
+fn the_wash_snaps_in_16_colours_and_needs_motion() {
+    let mut t = on();
+    theme::set_test_tier(Some(Tier::Colors16));
+    t.follow_warning(true, AREA);
+    let named = || {
+        let mut buf = Buffer::empty(AREA);
+        buf.content.iter_mut().for_each(|c| {
+            c.set_symbol("▆").set_fg(Color::Blue);
+        });
+        buf
+    };
+    let mut early = named();
+    t.step_wash(Duration::from_millis(40), &mut early);
+    assert_eq!(early, named(), "not yet");
+    let mut peak = named();
+    t.step_wash(Duration::from_millis(140), &mut peak);
+    assert!(peak.content.iter().all(|c| c.fg == theme::rgb3(theme::current().critical)), "{peak:?}");
+    theme::set_test_tier(None);
+
+    let starts = |t: &mut Transitions| {
+        t.follow_warning(false, AREA);
+        t.follow_warning(true, AREA);
+        t.active()
+    };
+    theme::set_test_reduced_motion(true);
+    assert!(!starts(&mut on()), "less motion");
+    theme::set_test_reduced_motion(false);
+    assert!(!starts(&mut Transitions::default()), "a test's app");
+}
+
+/// For any run of frames: a wash starts only as the warning comes on (with motion), stops when it
+/// goes off or two pulses on, and only ever changes colours in the overview, never a symbol.
+#[hegel::test(test_cases = 100)]
+fn prop_the_end_warning_washes_from_each_crossing(tc: hegel::TestCase) {
+    let less_motion = tc.draw(gs::booleans());
+    theme::set_test_reduced_motion(less_motion);
+    let mut t = on();
+    let page = Rect { width: AREA.width + 4, height: AREA.height + 2, ..AREA };
+    let lit = || {
+        let mut buf = Buffer::empty(page);
+        for (i, cell) in buf.content.iter_mut().enumerate() {
+            cell.set_symbol(if i % 2 == 0 { "▆" } else { "a" }).set_fg(Color::Rgb(40, 120, 220));
+        }
+        buf
+    };
+    let (mut warned, mut ran): (bool, Option<Duration>) = (false, None);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(14)) {
+        if tc.draw(gs::booleans()) {
+            let warning = tc.draw(gs::booleans());
+            t.follow_warning(warning, AREA);
+            if !warning {
+                ran = None;
+            } else if !warned && !less_motion {
+                ran = Some(Duration::ZERO);
+            }
+            warned = warning;
+        } else {
+            let by = Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300)));
+            let mut buf = lit();
+            t.step_wash(by, &mut buf);
+            ran = ran.map(|r| r + by).filter(|&r| r < 2 * PULSE);
+            for (i, (cell, before)) in buf.content.iter().zip(&lit().content).enumerate() {
+                let (x, y) = buf.pos_of(i);
+                assert_eq!(cell.symbol(), before.symbol(), "({x}, {y})");
+                let inside = AREA.contains(ratatui::layout::Position::new(x, y));
+                assert!(inside || cell == before, "({x}, {y}) is outside the overview");
+            }
+        }
+        assert_eq!(t.active(), ran.is_some(), "less motion {less_motion}");
     }
     theme::set_test_reduced_motion(false);
     theme::set_test_tier(None);

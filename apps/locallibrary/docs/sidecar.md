@@ -53,7 +53,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   only catch mistakes.
 - [`docs/rpc/schema.json`](../docs/rpc/schema.json) describes every method:
   its `kind` (`read`; `plan` and `apply`, paired; `immediate`, a change with no plan step;
-  `control`, about the sidecar itself), its `aliases`, whether it's `long_running` (sends
+  `control`, about the sidecar itself), whether it's `long_running` (sends
   `progress`, can be cancelled) or `destructive` (can delete or overwrite something), and JSON
   Schemas for its `params` and `result`, with the `progress`, `event` and `serve` notifications. A `read`
   never makes a store: with none, it answers as if the store were empty, or fails with `not_found`
@@ -67,17 +67,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   one list of methods the sidecar dispatches from, and a test fails when the files in `docs/rpc`
   are out of date.
 - Names are `noun.verb` (`drive.info`, `tracks.query`); a change is `<op>.plan` and
-  `<op>.apply`. Older names still work as aliases: `drive.adopt` (now `drive.adopt.apply`, and
-  likewise `drive.adopt_as`, `drive.reidentify`, `drive.rename`, `drive.contact`, `drive.restore`,
-  `edits.clear`, `firmware.remove`, `recordings.collect`, `settings.import`, `art.set`, `art.embed`,
-  `art.unembed`, `store.gc`, `store.prune`, `players.set`, `players.clear`, `player.set`,
-  `playlist.restore`, `drive.eject`, `pull`), `sync_many.*` (`sync.many.*`), `sync_group.*` and
-  `sync_set.*` (`sync.group.*`), `smart.apply.plan` / `smart.apply` (`smart.write.*`),
-  `settings.apply.plan` / `settings.apply` (`settings.write.*`), `drive.sets` (`drive.groups`)
-  and `set.*` (`prep.*`).
-  `drive.restore.preview` is kept as it was; `drive.restore.plan` is the plan `drive.restore.apply`
-  applies (an `undo` plan), as `drive.eject.plan` makes `eject` plans. A few methods are a single
-  verb, as the CLI's commands are: `status`, `compare`, `diff`, `check`, `doctor`, `export`;
+  `<op>.apply`. `drive.restore.preview` is kept as it was; `drive.restore.plan` is the plan
+  `drive.restore.apply` applies (an `undo` plan), as `drive.eject.plan` makes `eject` plans. A few
+  methods are a single verb, as the CLI's commands are: `status`, `compare`, `diff`, `check`, `doctor`, `export`;
   `refresh` and `prep` are jobs of several steps.
 - Every `*.plan` answers with the plan's own fields plus `plan_id`, `operation` (the method's name
   without `.plan`, except `undo`, `eject` and `set` for `drive.restore.plan`, `drive.eject.plan` and
@@ -128,8 +120,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `items` fields above, `cancel`, `jobs.list`, `shutdown.cancel`, `events`, `plan_id`,
   `describe` for `rpc.describe`, `error.detail` for `error.data`'s `reason`, `fields` and
   `actions`, `account` in a build with the Atmosphere account, and `peers` in one with
-  `store.serve` and `store.fetch`); `methods` lists every name,
-  aliases included. `protocol`
+  `store.serve` and `store.fetch`); `methods` lists every name. `protocol`
   changes only when a change would break existing clients. An unknown method gets `-32601`
   (`kind: "method_not_found"`).
 - `$/cancel {id}` stops a request at the next safe point. It then fails with `kind: "cancelled"`.
@@ -186,7 +177,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `choose_library`, `needs_admin`, `not_signed_in`, `session_ended`, `missing_scope`...).
   `fields` holds what it's about (`path`, `needed` and `available` for `no_space`, `drive`,
   `left` and `right`, `libraries` to choose from). Each action is `{label, method, params}`: a
-  button's text and the call it makes, ready to send (`{"method": "pull", "params": {"drive":
+  button's text and the call it makes, ready to send (`{"method": "pull.apply", "params": {"drive":
   "/Volumes/DNA"}}`); one that repeats the request that failed carries its parameters with the
   new ones added (`force: true`, `overwrite_archive: true`, `new_library: true`), and `elevate:
   true` asks for the sidecar to run with administrator rights. A parameter set to `null` is one
@@ -274,11 +265,13 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
   (harmonic matches), `doctor` (`analyze`: the analysis section, after the analyzers for its
   roles run), `doctor.orphans.plan/apply`,
-  `analysis.bench` (scoring rekordbox and the analysis against GiantSteps annotations), `plays.history`, `plays.archive`,
+  `analysis.bench` (scoring rekordbox and the analyzers chosen for key and bpm against GiantSteps annotations), `plays.history`, `plays.archive`,
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),
-  `account.status`, `account.check`, `account.logout`, `account.client_metadata`, `collection.info`,
+  `account.status`, `account.check`, `account.flags` (optional `refresh`: each flag on or off, how
+  fresh the website's answer is, and `needs_sign_in`), `account.logout`,
+  `account.client_metadata`, `collection.info`,
   `collection.library` and `collection.diff` (rekordbox's `master.db`: optional `db` and `key`, and
   `drive` for the diff). Signing in takes two calls: `account.login.begin` (`handle`, optional
   `client_id`, `dev_client`, `session_file`, `scopes`, and `publish: true` to allow publishing)
@@ -333,7 +326,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `drive.recognise`, `drive.adopt_as.plan/apply`, `drive.reidentify.plan/apply`, `drive.groups`,
   `sync.group.plan/apply` (one library a plan: without `library`, the only one with two or more
   drives plugged in, and with several it's refused as `choose_library`, listing them, where
-  `locallibrary sync` syncs each; `watch.start` takes `sync_group`, or `sync_set` as before),
+  `locallibrary sync` syncs each; `watch.start` takes `sync_group`),
   `drive.eject.plan/apply`, `drive.verify`, `drive.repair` (takes the `problems` a verify returned;
   each is checked again first), `drive.fsck` (destructive: `repair: true` unmounts the drive and may
   truncate or remove damaged files), `drive.space`, `tidy.plan/apply`, `recordings.list`,
@@ -377,22 +370,28 @@ the access they're given (see [plugins.md](plugins.md#accounts)). No answer hold
 `accounts.list` answers `{accounts, accesses}`: each account kept (`{type, plugin, subject, name,
 scopes, expires?, refreshes, signs_out?, signed_in}`, `plugin` the account plugin it was signed in
 through, `signs_out` when it signs itself out: as `expires` when it isn't refreshed, else as its
-refresh token runs out when the service said), then each one signed out that a plugin still has
-access to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
+refresh token runs out when the service said), then each one signed out that a plugin had access
+to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
 name, scopes, default, declined?}`, `declined` the scopes the user declined when the plugin asked
 for them, or the service didn't grant at a sign-in for that plugin, until they're given again).
+With any, `remembered` lists the accesses signing out (or a session ending) removed, until they're
+restored or reset, and `restore_automatically` the Automatically Restore Access settings
+(`{account?, on}`, without `account` for every account without one of its own).
 
-`accounts.sign_in.begin {type, with?, for?, account?, scopes?}` starts a sign-in through the
-account plugin `with` (the only one providing the type when it's left out), for the plugin `for`
-when it's given, again as the account `account` (a subject, of one kept or one signed out that a
-plugin still has access to) when it's given, asking for the type's `scopes` besides; signing in
-again asks for what every access to the account needs too. It answers `{id, type, plugin, url,
+`accounts.sign_in.begin {type, with?, for?, account?, scopes?, restore?}` starts a sign-in through
+the account plugin `with` (the only one providing the type when it's left out), for the plugin
+`for` when it's given, again as the account `account` (a subject, of one kept or one signed out
+that a plugin had access to) when it's given, asking for the type's `scopes` besides; signing in
+again asks for what every access to the account needs too. `restore` says what signing in does
+with the access remembered of the account: `restore` gives it all back, `reset` forgets it.
+Without it, Automatically Restore Access decides, else only `for` gets its own back. It answers `{id, type, plugin, url,
 redirect_uri}`. Open `url` in the browser, then `accounts.sign_in.finish {id, timeout_secs?}`
 waits for it to come back (300 seconds unless it says, an hour at most) and answers the account,
 with `instead_of` when the browser signed in to another than `account` (the plugin it was for
 isn't given access then), `access` when it was for a plugin: the access that plugin was given, and
 `declined`: the scopes asked for that plugin that the service didn't grant. The plugin gets those
-it needs all the same, and goes without the others.
+it needs all the same, and goes without the others. `restored` lists the access the sign-in gave
+back, and `remembered` what's still waiting, for the front end to ask about.
 A type signed in to with keys answers `{id, type, plugin, url, keys, named?}` instead: `url` is
 where the user gets them, `keys` what each is called by name, and `named` is true when the user
 names the account. `accounts.sign_in.finish {id, keys, name?}` finishes it at once with what the
@@ -400,20 +399,31 @@ user entered for each key, by name, and the account's `name` when `named`. The h
 and never answers them.
 `accounts.sign_in.paste {id, url}` finishes with the address the browser ended up on, and
 `accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
-subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
+subject}}` answers the account as it was, with `revoked`, and removes every plugin's access to it,
+remembering it.
 
 `accounts.access.list {plugin?}` answers the accesses, `accounts.access.give {plugin, account,
 scopes?}` gives a plugin access to an account (the scopes it needs, and those of `scopes` it can do
 without, which aren't declined any more), `accounts.access.set_default {plugin, account}` makes
 one the plugin's default for its type (giving the access first when it has none), and
-`accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's `account`
+`accounts.access.take_away {plugin, account}` answers the access taken away. Giving access to an
+account signed out, or making it a default, fails as `account` (`not_signed_in`).
+`accounts.access.restore {account, plugins?}` gives back what was remembered of the account,
+answering the accesses: all of it, or with `plugins` (`[{plugin, scopes}]`) those plugins with
+those scopes, forgetting the rest (`[]` resets it, signed out too). The account has to be signed
+in to get any back. `accounts.restore_automatically {account?, on}` turns Automatically Restore
+Access on or off for the account, or for every account without a setting of its own. A plugin's `account`
 error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions calling
 `accounts.sign_in.begin` (again as the account of the plugin's access, for the scopes it's missing,
 when that can help) and `accounts.access.set_default`.
 
 ## Plugins
 
-What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
+What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. A plugin you're writing
+runs in the sidecar as in any command, given as it starts (`locallibrary --dev-plugin
+MANIFEST:PROGRAM rpc`, or `LOCALLIBRARY_DEV_PLUGINS`, see [Writing one](plugins.md#writing-one)):
+it's listed after the plugins locallibrary ships, the sidecar warns on stderr that it's loaded, and
+one that can't run keeps the sidecar from starting, saying why. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, account_types,
 commands, destinations, events, operations, panels, analyzers, checks, exporters, importers,
 providers, services, sources, themes, settings, running, left_out}`, `means` saying in plain words

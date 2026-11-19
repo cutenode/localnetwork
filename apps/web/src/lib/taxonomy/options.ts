@@ -68,6 +68,28 @@ export const CLAIM_RELATIONSHIPS = [
 	{ value: 'agent', label: "I'm their booking agent" }
 ] as const satisfies readonly Option[];
 
+/** How someone claiming a venue is connected to it. Only an owner's claim is taken; booking managers come in through owners. */
+export const VENUE_CLAIM_RELATIONSHIPS = [
+	{ value: 'owner', label: 'I own or run it' }
+] as const satisfies readonly Option[];
+
+/** How a venue takes events that name it (`computer.localnetwork.venue#approval`). */
+export const VENUE_APPROVALS = [
+	{
+		value: 'open',
+		label: 'Anyone can list',
+		hint: 'Events show at once, waiting for the venue until you confirm them.'
+	},
+	{ value: 'approval', label: 'Venue approves', hint: 'Events show only once you confirm them.' }
+] as const satisfies readonly Option[];
+
+/** What a venue's owners can block: someone's profile, an act or a party. */
+export const BLOCK_KINDS = [
+	{ value: 'profile', label: 'Person' },
+	{ value: 'act', label: 'Act' },
+	{ value: 'party', label: 'Party' }
+] as const satisfies readonly Option[];
+
 export const BOOKING_STATUSES = [
 	{ value: 'open', label: 'Open' },
 	{ value: 'negotiating', label: 'Negotiating' },

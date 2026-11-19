@@ -7,6 +7,7 @@ import { playwright } from '@vitest/browser-playwright';
 import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { stubPlayers } from './.storybook/stub-players.ts';
+import { phone } from './src/lib/testing/viewports.ts';
 
 // Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
 // matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
@@ -24,6 +25,22 @@ const BROWSER_TEST_SERVER = { strictPort: false };
 // A media element's clock follows the audio output, and on a Mac that has stopped, a recording sitting at 0:00 while
 // its player says it's playing. Without audio output, Chromium keeps the time itself.
 const browserTests = () => playwright({ launchOptions: { args: ['--disable-audio-output'] } });
+
+const storybookProject = (name: string, options: Parameters<typeof storybookTest>[0] = {}) => ({
+	extends: './vite.config.ts',
+	plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook`, ...options })],
+	server: BROWSER_TEST_SERVER,
+	test: {
+		name,
+		setupFiles: ['./.storybook/vitest.setup.ts'],
+		browser: {
+			enabled: true,
+			provider: browserTests(),
+			instances: [{ browser: 'chromium' as const, headless: true }],
+			commands: { stubPlayers }
+		}
+	}
+});
 
 // The most a module in the client build's shared group (below) may weigh, and our modules, which
 // the group takes with Lucide's icons.
@@ -43,6 +60,42 @@ const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<strin
 
 	return (module.code?.length ?? 0) <= SHARED_MODULE_SIZE && module.importedIds.every((dep) => isSmall(dep, ctx, seen));
 };
+
+// A route's own files, which SvelteKit loads as the route's nodes. The root layout and error page load on every page.
+const ROUTE_NODE = /[\\/]src[\\/]routes[\\/](?:.*[\\/])?\+(?:page|layout|error)(?:@[^.]*)?\.svelte$/;
+
+const ROOT_NODE = /[\\/]src[\\/]routes[\\/]\+(?:layout|error)\.svelte$/;
+
+// The route nodes that import `id`, however far up.
+const nodesUsing = (id: string, ctx: Rolldown.ChunkingContext, nodes = new Set<string>(), seen = new Set<string>()) => {
+	if (seen.has(id)) return nodes;
+	seen.add(id);
+
+	if (ROUTE_NODE.test(id)) nodes.add(id);
+
+	for (const importer of ctx.getModuleInfo(id)?.importers ?? []) nodesUsing(importer, ctx, nodes, seen);
+
+	return nodes;
+};
+
+// The shared file goes to every visitor, so it takes what every page loads anyway (anything a root node imports) and
+// what three or more nodes use. Something only one or two use stays with them. Icons are counted by the bundler
+// instead (the icons group below): every icon's importer is Lucide's index, which every page that shows one imports.
+const isShared = (id: string, ctx: Rolldown.ChunkingContext) => {
+	const nodes = [...nodesUsing(id, ctx)];
+
+	return (
+		(nodes.length >= 3 || nodes.some((node) => ROOT_NODE.test(node))) &&
+		(ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ?? false)
+	);
+};
+
+// Not the Tools pages' own components, the follow button, the mix player, the staff console's table, the booking rules
+// the dashboard's booking pages share, the suggestion lists only the place and handle fields use, or the drafts only
+// long forms keep: only those pages load them, and every page loads the shared file. Nor edit mode, which only people
+// who can edit a page use.
+const SHARED =
+	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|edit[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
 
 export default defineConfig({
 	plugins: [
@@ -102,20 +155,16 @@ export default defineConfig({
 					output: {
 						// The small components and icons that pages share go out as one file. Split by which
 						// pages use them, they were a file each (twenty-odd requests of under 1 KB per page,
-						// which an HTTP/1.1 browser fetches six at a time).
+						// which an HTTP/1.1 browser fetches six at a time). isShared says what goes in it, and the
+						// icons three or more pages show are one more file.
 						codeSplitting: {
 							groups: [
 								{
-									name: (id, ctx) =>
-										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
-									// Not the Tools pages' own components, the staff console's table, the booking rules the
-									// dashboard's booking pages share, the suggestion lists only the place and handle fields use,
-									// the drafts only long forms keep, or the mix player: only those pages load them, and every
-									// page loads this.
-									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide/,
-									minShareCount: 2,
+									name: (id, ctx) => (isShared(id, ctx) ? 'shared' : null),
+									test: SHARED,
 									maxModuleSize: SHARED_MODULE_SIZE
-								}
+								},
+								{ name: 'icons', test: /@lucide/, minShareCount: 3 }
 							]
 						}
 					}
@@ -123,9 +172,14 @@ export default defineConfig({
 			}
 		}
 	},
-	// Under Vite, `#lexicon-files` bundles the lexicons in. Node (the tsx scripts) resolves it through package.json to
-	// a loader that reads them from disk, since tsx has no `import.meta.glob`.
-	resolve: { alias: { '#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts` } },
+	// Under Vite, `#lexicon-files` and `#notification-kinds` bundle their folders in. Node (the tsx scripts) resolves
+	// them through package.json to loaders that read the same files from disk, since tsx has no `import.meta.glob`.
+	resolve: {
+		alias: {
+			'#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts`,
+			'#notification-kinds': `${import.meta.dirname}/src/lib/server/notifications/kind-files.ts`
+		}
+	},
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
@@ -170,7 +224,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 99.6, functions: 99.5, statements: 99.3, branches: 94.6 }
+			thresholds: { lines: 99.7, functions: 99.6, statements: 99.3, branches: 94.6 }
 		},
 		projects: [
 			{
@@ -221,22 +275,11 @@ export default defineConfig({
 				// of the other runs.
 				test: { name: 'docker', environment: 'node', include: ['tests/docker.test.ts'] }
 			},
-			{
-				extends: './vite.config.ts',
-				// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
-				plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook` })],
-				server: BROWSER_TEST_SERVER,
-				test: {
-					name: 'storybook',
-					setupFiles: ['./.storybook/vitest.setup.ts'],
-					browser: {
-						enabled: true,
-						provider: browserTests(),
-						instances: [{ browser: 'chromium', headless: true }],
-						commands: { stubPlayers }
-					}
-				}
-			}
+			// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
+			storybookProject('storybook'),
+			// Every story again at a phone's width, unless it's tagged `desktop-only` (with why beside it). A story
+			// that pins its own width keeps it.
+			storybookProject('storybook-phone', { initialGlobals: phone, tags: { exclude: ['desktop-only'] } })
 		]
 	}
 });
