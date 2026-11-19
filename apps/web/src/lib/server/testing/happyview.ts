@@ -976,10 +976,15 @@ class Engine {
 	}
 }
 
-let engine: Promise<Engine> | undefined;
-
-/** One Postgres for every FakeHappyView in the process. */
-let postgres: Promise<PGlite> | undefined;
+/**
+ * One Lua engine and one Postgres for every FakeHappyView in the process, started as a test file imports this. Started
+ * on the first query instead, the whole start (Postgres's 40 MB data directory and both WASM modules) ran on the
+ * clock of whichever test came first, which on a busy CI runner took seconds.
+ */
+const [engine, postgres] = await Promise.all([
+	new LuaFactory().getLuaModule().then((lua) => new Engine(lua)),
+	startPostgres()
+]);
 
 let schemas = 0;
 
@@ -1063,7 +1068,7 @@ let turns: Promise<unknown> = Promise.resolve();
  * path it set.
  */
 function takeTurn<T>(use: (pg: PGlite) => Promise<T>): Promise<T> {
-	const next = turns.then(async () => use(await (postgres ??= startPostgres())));
+	const next = turns.then(async () => use(postgres));
 	turns = next.catch(() => undefined);
 
 	return next;
@@ -1297,13 +1302,10 @@ export class FakeHappyView {
 	}
 
 	private async execute(trigger: string, call: Call): Promise<ScriptResult> {
-		engine ??= new LuaFactory().getLuaModule().then((lua) => new Engine(lua));
-		const running = await engine;
-
 		const body = this.scripts.get(trigger) ?? '';
 		// A script's first run stands in for its upload, which checks it. Checking only the scripts a test runs keeps
 		// a test that runs one from loading every query.
-		await running.upload(this.db, trigger, body);
+		await engine.upload(this.db, trigger, body);
 
 		try {
 			const web: Web = (url) => {
@@ -1312,9 +1314,9 @@ export class FakeHappyView {
 				return this.web?.(url);
 			};
 
-			return await running.execute(this.db, this.logs, web, trigger, body, call);
+			return await engine.execute(this.db, this.logs, web, trigger, body, call);
 		} finally {
-			this.instructions = running.instructions;
+			this.instructions = engine.instructions;
 		}
 	}
 }
