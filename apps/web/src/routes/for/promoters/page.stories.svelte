@@ -4,15 +4,16 @@
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import { phone } from '#lib/testing/viewports.ts';
-	import { DEMO_PROJECTS } from '../../../scripts/seed-data.ts';
-	import Layout from '../+layout.svelte';
+	import { DEMO_PROJECTS } from '../../../../scripts/seed-data.ts';
+	import Layout from '../../+layout.svelte';
+	import ForLayout from '../+layout.svelte';
 	import type { PageData } from './$types';
 	import Page from './+page.svelte';
 
 	/** The promoters' landing page in the real layout, fed the seed data's projects as the directory would send them. */
 	const { Story } = defineMeta({
 		title: 'Patterns/For promoters',
-		parameters: { layout: 'fullscreen', sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/for-promoters') } } } }
+		parameters: { layout: 'fullscreen', sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/for/promoters'), route: { id: '/for/promoters' } } } } }
 	});
 
 	const listings: ProjectView[] = DEMO_PROJECTS.slice(0, 3).map((profile, index) => ({
@@ -54,7 +55,7 @@
 {#snippet landing(viewer: Viewer | null, state: State)}
 	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META }}
 	<Layout data={layout} params={{}}>
-		<Page data={{ ...layout, geocoder: false, ...state }} params={{}} form={null} />
+		<ForLayout data={layout} params={{}}><Page data={{ ...layout, geocoder: false, ...state }} params={{}} form={null} /></ForLayout>
 	</Layout>
 {/snippet}
 

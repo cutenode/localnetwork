@@ -46,10 +46,10 @@ it('sends someone already signed in on to where they were going', async () => {
 });
 
 it('offers the hosts to make an account at', async () => {
-	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/login/create?next=/for-djs' });
+	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/login/create?next=/for/djs' });
 
 	expect(data).toMatchObject({
-		next: '/for-djs',
+		next: '/for/djs',
 		hosts: expect.arrayContaining([
 			{
 				name: 'Bluesky',
@@ -69,12 +69,12 @@ it('starts sign-up at the chosen host, carrying where to go after', async () => 
 		callRoute(actions.default, {
 			app: app(oauth),
 			url: '/login/create',
-			form: { service: 'https://bsky.social', next: '/for-djs' }
+			form: { service: 'https://bsky.social', next: '/for/djs' }
 		})
 	).rejects.toMatchObject({ status: 303, location: 'https://bsky.social/oauth/authorize?prompt=create' });
 
 	expect(oauth.started).toEqual([
-		{ service: 'https://bsky.social', state: JSON.stringify({ next: '/for-djs' }), prompt: 'create' }
+		{ service: 'https://bsky.social', state: JSON.stringify({ next: '/for/djs' }), prompt: 'create' }
 	]);
 });
 

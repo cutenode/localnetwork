@@ -137,20 +137,103 @@ describe('Notifier', () => {
 		await inbox.notify(message({ key: 'c' }));
 		expect(await inbox.unreadCount(neon)).toBe(3);
 
+		// Opening the newest item reads everything about its thread, which is what its inbox row stood for.
 		const [item] = await inbox.list(neon);
 		expect(await inbox.open(remy, item.id)).toBeNull();
 		expect(await inbox.open(neon, item.id)).toBe('/dashboard/bookings/3mabc');
-		expect(await inbox.unreadCount(neon)).toBe(2);
-		expect(await inbox.unreadCount(remy)).toBe(3);
-
-		await inbox.markReadBySubject(neon, thread);
 		expect(await inbox.unreadCount(neon)).toBe(1);
 		expect(await inbox.unreadCount(remy)).toBe(3);
+
+		await inbox.markReadBySubject(remy, thread);
+		expect(await inbox.unreadCount(remy)).toBe(1);
+		expect(await inbox.unreadCount(neon)).toBe(1);
 
 		await inbox.markAllRead(neon);
 		expect(await inbox.unreadCount(neon)).toBe(0);
 		expect((await inbox.list(neon)).every((listed) => listed.read)).toBe(true);
-		expect(await inbox.unreadCount(remy)).toBe(3);
+		expect(await inbox.unreadCount(remy)).toBe(1);
+	});
+
+	describe('subjects', () => {
+		const other = 'at://did:plc:root/space/computer.localnetwork.booking/other';
+
+		const act = { skey: 'other', title: 'Closing Night', projectName: 'Neon Tide', from: 'act' } as const;
+
+		/** A thread the promoter wrote in twice, then moved on, and an older one where the act wrote. */
+		async function threads() {
+			await inbox.notify(message({ key: 'o1', subject: other, data: act, at: ago(9 * 60_000) }));
+			await inbox.notify(message({ key: 'm1', at: ago(5 * 60_000) }));
+			await inbox.notify(message({ key: 'm2', at: ago(4 * 60_000) }));
+			await inbox.notify({
+				...message({ key: 's1', at: ago(3 * 60_000) }),
+				kind: 'booking.status',
+				data: { ...message().data, status: 'negotiating' }
+			});
+		}
+
+		it('makes a row per thread, the latest first, saying what happened since it was read', async () => {
+			await threads();
+
+			expect(await inbox.subjects(neon)).toEqual([
+				{
+					id: expect.any(String),
+					topic: 'bookings',
+					title: 'Warehouse night',
+					scope: 'Neon Tide',
+					summary: 'The promoter sent 2 messages and changed the status to Negotiating',
+					href: '/dashboard/bookings/3mabc',
+					occurredAt: expect.any(String),
+					unread: true
+				},
+				expect.objectContaining({ title: 'Closing Night', summary: 'Neon Tide sent a message', unread: true })
+			]);
+			expect(await inbox.subjects(pat)).toEqual([]);
+		});
+
+		it('says only the latest thing once a row is read, and starts over from there', async () => {
+			await threads();
+			await inbox.markReadBySubject(neon, thread);
+			await inbox.notify(message({ key: 'm3', subject: other, data: { ...act, from: 'promoter' }, at: ago(60_000) }));
+
+			const [closing, warehouse] = await inbox.subjects(neon);
+
+			expect(closing).toMatchObject({
+				title: 'Closing Night',
+				summary: 'Neon Tide sent a message and the promoter sent a message',
+				unread: true
+			});
+			expect(warehouse).toMatchObject({ summary: 'The promoter changed the status to Negotiating', unread: false });
+		});
+
+		it('opens a row by its newest item, reading the whole thread', async () => {
+			await threads();
+			const [row] = await inbox.subjects(neon);
+
+			expect(await inbox.open(neon, row.id)).toBe('/dashboard/bookings/3mabc');
+			expect((await inbox.subjects(neon)).map((listed) => listed.unread)).toEqual([false, true]);
+		});
+
+		it('pages a row at a time, from the row after the one given', async () => {
+			await threads();
+			const [first] = await inbox.subjects(neon, { limit: 1 });
+			const second = await inbox.subjects(neon, { limit: 1, before: first.id });
+
+			expect(second.map((row) => row.title)).toEqual(['Closing Night']);
+			expect(await inbox.subjects(neon, { limit: 1, before: second[0].id })).toEqual([]);
+			// Someone else's item is no place to start from.
+			const [theirs] = await inbox.subjects(remy);
+			expect(await inbox.subjects(neon, { limit: 1, before: theirs.id })).toEqual([first]);
+		});
+
+		it("words a row of items it doesn't know as something that changed", async () => {
+			await inbox.notify(message());
+			await inbox.notify(message({ key: 'again' }));
+			await db.updateTable('notification').set({ kind: 'event.retired' }).execute();
+
+			expect(await inbox.subjects(neon)).toEqual([
+				expect.objectContaining({ topic: null, title: 'Something changed', summary: '2 things changed' })
+			]);
+		});
 	});
 
 	it('keeps read items for 90 days and unread ones for 180', async () => {

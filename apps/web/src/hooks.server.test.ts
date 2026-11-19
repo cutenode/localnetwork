@@ -354,6 +354,8 @@ it.each([
 	['/dashboard/requests/3k?submitted=1', '/dashboard/account/requests/3k?submitted=1'],
 	['/dashboard/requests/3k/avatar?size=64', '/dashboard/account/requests/3k/avatar?size=64'],
 	['/dashboard/inbox/settings?email=declined', '/dashboard/account/notifications?email=declined'],
+	['/for-djs', '/for/djs'],
+	['/for-promoters?utm_source=email', '/for/promoters?utm_source=email'],
 	['/projects', '/djs'],
 	['/projects?genres=house&sort=recent', '/djs?genres=house&sort=recent']
 ])('sends %s on to where it moved, whatever the method', async (from, to) => {

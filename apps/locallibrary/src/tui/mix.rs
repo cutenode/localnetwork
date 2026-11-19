@@ -1594,11 +1594,14 @@ fn draw_tracklist(
     f.render_stateful_widget(table, area, rows);
 }
 
-/// Phrase spans with times (ms), from the beat grid; one that runs past it ends with the track,
-/// and one that doesn't end after it starts isn't drawn.
+/// Phrase spans with times (ms), from the beat grid (at half tempo where rekordbox counted them
+/// so); one that runs past it ends with the track, and one that doesn't end after it starts isn't
+/// drawn.
 fn phrase_spans(a: &TrackAnalysis, track_ms: f64) -> Vec<(f64, f64, String, [u8; 3])> {
     let Some(st) = &a.structure else { return Vec::new() };
-    let at = |beat: u16| a.beats.get(beat as usize - 1).map(|b| b.time_ms as f64);
+    let scale = st.beat_scale(a.beats.len());
+    let at =
+        |beat: u16| a.beats.get(locallibrary::anlz::SongStructure::grid_index(beat, scale)).map(|b| b.time_ms as f64);
     st.phrases
         .iter()
         .filter(|p| p.start_beat > 0 && p.end_beat > p.start_beat)

@@ -25,7 +25,7 @@ flowchart TD
   Csrf --> Tool["Tool host check"]
   Tool -- "a tool's own host" --> ToolSite["toolSite answers"]
   Tool --> Moved["Moved page check"]
-  Moved -- "an old account address" --> Redirect["308 to its new address<br/>under /dashboard/account"]
+  Moved -- "an old account address,<br/>/for-djs, /for-promoters or /projects" --> Redirect["308 to its new address,<br/>query kept"]
   Moved --> Load["Get the app"]
   Load -- "it can't start" --> Setup["503 setup page"]
   Load --> Limit["Write limit for this address"]
@@ -156,7 +156,7 @@ The pages anyone can read. A performer that isn't active shows only to its manag
 ```mermaid
 flowchart LR
   Public["Public pages"]
-  Public --> Home["/, /for-djs, /for-promoters,<br/>/about, /privacy"]
+  Public --> Home["/, /for, /for/djs, /for/promoters,<br/>/about, /privacy"]
   Public --> Find["/djs, /match"]
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]
@@ -258,7 +258,7 @@ flowchart LR
   Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
   Small -- "/api/actors" --> E["Bluesky's typeahead, kept<br/>10 minutes in memory"]
   Small -- "/healthz" --> F["200, with HappyView<br/>and backup status"]
-  Small -- "/for-djs" --> G["An example listing with the directory's<br/>totals, the next shows and the<br/>month's charts, streamed"]
+  Small -- "/for/djs" --> G["An example listing with the directory's<br/>totals, the next shows and the<br/>month's charts, streamed"]
 ```
 
-Source: [`src/routes/dashboard/account/activity/+page.server.ts`](../../src/routes/dashboard/account/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)
+Source: [`src/routes/dashboard/account/activity/+page.server.ts`](../../src/routes/dashboard/account/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for/djs/+page.server.ts`](../../src/routes/for/djs/+page.server.ts)

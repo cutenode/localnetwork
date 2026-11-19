@@ -9,7 +9,7 @@ export default defineConfig({
 		include: ['tools/**/*.test.ts'],
 		coverage: {
 			provider: 'v8',
-			reporter: ['text', 'json-summary'],
+			reporter: ['text', 'json-summary', 'lcov'],
 			thresholds: {
 				'!tools/oxlint/**': { perFile: true, statements: 100, branches: 100, functions: 100, lines: 100 },
 				// The vendored anti-slop rules unwrap parentheses Oxlint's parser never keeps and guard AST

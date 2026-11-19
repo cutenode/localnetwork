@@ -68,7 +68,7 @@
 			</div>
 			<button class="btn-primary">Find DJs</button>
 		</form>
-		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for-djs">For DJs</a></p>
+		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for/djs">For DJs</a></p>
 	</div>
 </Section>
 
