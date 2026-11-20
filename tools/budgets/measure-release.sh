@@ -33,6 +33,17 @@ counted() {
   "$(dirname "$0")/cachegrind.sh" LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" \
     HOME="$scratch/home" "$@" 2>/dev/null
 }
+# Plugins' checks off in that store, so the commands count locallibrary's own code. With one on,
+# check and doctor start its plugin and page the whole library to it, which CI counted as about 460M
+# of doctor's 710M instructions, moving by a million or more from one run to the next (LOC-836).
+plugin_checks() {
+  LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" HOME="$scratch/home" \
+    "$target/dist/locallibrary" plugin checks "$@" 2>/dev/null
+}
+for check in $(plugin_checks --json | jq -r '.checks[] | select(.on) | "\(.plugin).\(.name)"'); do
+  plugin_checks "$check" --off --yes >/dev/null
+done
+[[ $(plugin_checks --json | jq '[.checks[] | select(.on)] | length') == 0 ]] || { echo "couldn't turn the plugins' checks off" >&2; exit 1; }
 # Each command's instructions less a run of /bin/true, which leaves out the loader's and libc's start.
 # libc's start looks up the CPU's features and caches, which takes some thousands more instructions on
 # some runners' CPUs than on others', so a base measured on one runner and a head on another differed by
