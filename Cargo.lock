@@ -4135,6 +4135,7 @@ dependencies = [
  "console",
  "crossterm",
  "ctrlc",
+ "directories",
  "filetime",
  "form_urlencoded",
  "hegeltest",

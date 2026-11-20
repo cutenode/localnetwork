@@ -147,6 +147,8 @@ image = { workspace = true, optional = true }
 # The short fades of panels and tracks.
 tachyonfx = { version = "0.25", default-features = false, features = ["std"], optional = true }
 locallibrary-plugin-rekordbox-backup = { version = "0.1.0", path = "../../plugins/rekordbox-backup" }
+# Where the copy drive writes run from on macOS is kept (`launchd.rs`).
+directories.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the
