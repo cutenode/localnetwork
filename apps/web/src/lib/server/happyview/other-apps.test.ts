@@ -73,34 +73,19 @@ describe('verification record script', () => {
 describe('profile record script', () => {
 	const profile = { displayName: 'Neon Tide', description: 'Rolling techno', pronouns: 'they/them' };
 
-	it('keeps the display names and pronouns of accounts with a profile, the root verified or that manage its projects, at the key self only', async () => {
+	it("keeps every account's profile as written, at the key self only", async () => {
 		const hv = new FakeHappyView(ROOT);
-		await project(hv, 'harbour', ['did:plc:manager']);
-		await ingest(hv, 'did:plc:person', COLLECTION.profile, 'self', {
-			basics: { name: 'Person' },
-			createdAt: '2026-01-01T00:00:00.000Z',
-			updatedAt: '2026-01-01T00:00:00.000Z'
-		});
-		// A project in someone else's repo doesn't make its managers count, nor does their verification.
-		await ingest(hv, 'did:plc:other', COLLECTION.project, 'fake', { managers: ['did:plc:faker'] });
-		await ingest(hv, 'did:plc:other', VERIFICATION, '3kv', verification('did:plc:faker'));
-		await ingest(hv, ROOT, VERIFICATION, '3kv', verification(DJ));
+		// An ordinary account, with no profile here, no verification and no project, is kept like any other.
+		const stranger = await ingest(hv, 'did:plc:stranger', BSKY_PROFILE, 'self', profile);
+		const other = await ingest(hv, DJ, BSKY_PROFILE, 'other', profile);
 
-		const uris = [];
+		expect((await stored(hv, [stranger, other])).map((record) => record.uri)).toEqual([stranger]);
+		expect(await values(hv, [stranger])).toEqual([{ $type: BSKY_PROFILE, ...profile }]);
 
-		for (const did of [DJ, 'did:plc:manager', 'did:plc:person', 'did:plc:faker', 'did:plc:stranger'])
-			uris.push(await ingest(hv, did, BSKY_PROFILE, 'self', profile));
-		uris.push(await ingest(hv, DJ, BSKY_PROFILE, 'other', profile));
-
-		expect((await stored(hv, uris)).map((record) => record.uri)).toEqual(uris.slice(0, 3));
-		expect(await values(hv, [uris[0]])).toEqual([
-			{ $type: BSKY_PROFILE, displayName: 'Neon Tide', pronouns: 'they/them' }
-		]);
-
-		await ingest(hv, DJ, BSKY_PROFILE, 'self', { description: 'No name' });
-		expect(await values(hv, [uris[0]])).toEqual([{ $type: BSKY_PROFILE }]);
-		await hv.ingest({ did: DJ, collection: BSKY_PROFILE, rkey: 'self', cid: '', record: null });
-		expect(await stored(hv, [uris[0]])).toEqual([]);
+		await ingest(hv, 'did:plc:stranger', BSKY_PROFILE, 'self', { description: 'No name' });
+		expect(await values(hv, [stranger])).toEqual([{ $type: BSKY_PROFILE, description: 'No name' }]);
+		await hv.ingest({ did: 'did:plc:stranger', collection: BSKY_PROFILE, rkey: 'self', cid: '', record: null });
+		expect(await stored(hv, [stranger])).toEqual([]);
 	});
 });
 

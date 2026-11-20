@@ -7,6 +7,7 @@
 	import { pluralize, shortDid, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
+	import type { ScriptHealth } from '#lib/server/happyview/client.ts';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -21,6 +22,18 @@
 		!!space.lastError || space.repos.some((repo) => repo.lastError) || space.stuck.length > 0;
 
 	const nextTry = (at: string) => (Date.parse(at) > Date.now() ? `next try ${timeAgo(at)}` : 'due on the next sync');
+
+	// Jetstream runs about a second behind; a minute means HappyView's index is falling behind the network.
+	const LAGGING_MS = 60_000;
+
+	const count = new Intl.NumberFormat('en');
+
+	const unit = (name: 'millisecond' | 'second') =>
+		new Intl.NumberFormat('en', { style: 'unit', unit: name, unitDisplay: 'narrow', maximumFractionDigits: 1 });
+
+	const [millis, seconds] = [unit('millisecond'), unit('second')];
+
+	const duration = (ms: number) => (ms < 1000 ? millis.format(ms) : seconds.format(ms / 1000));
 
 	// Spaces with errors first, so a problem isn't lost among the healthy ones.
 	const spaces = $derived(data.sync.toSorted((a, b) => Number(failing(b)) - Number(failing(a))));
@@ -79,6 +92,11 @@
 				<dt class="text-label text-fg-subtle">Geocoder</dt><dd class="max-sm:mb-2">{data.config.geocoder}</dd>
 				<dt class="text-label text-fg-subtle">HappyView</dt><dd class="break-all max-sm:mb-2">{data.happyView.url} · {#if data.happyView.reachable}<span class="text-good">answering</span>{:else}<span class="text-critical">not answering</span>{/if}</dd>
 				<dt class="text-label text-fg-subtle">Directory scripts</dt><dd class="max-sm:mb-2">{#if !data.happyView.sync}managed outside this app (no API key){:else if data.happyView.sync.error}<span class="text-critical">sync failed {timeAgo(data.happyView.sync.at)}: {data.happyView.sync.error}</span>{:else}synced {timeAgo(data.happyView.sync.at)}{/if}</dd>
+				{#if data.happyView.stats}
+					{@const { jetstream, deadLetters } = data.happyView.stats}
+					<dt class="text-label text-fg-subtle">Jetstream</dt><dd class="max-sm:mb-2">{#await jetstream}{@render ghost('Loading Jetstream status')}{:then status}{#if !status}unavailable{:else if !status.connected}<span class="text-critical">disconnected</span>{:else}connected{#if status.lagMs !== null}{' · '}<span class={status.lagMs >= LAGGING_MS ? 'text-warning' : ''}>{duration(status.lagMs)} behind</span>{/if}{/if}{/await}</dd>
+					<dt class="text-label text-fg-subtle">Dead letters</dt><dd class="max-sm:mb-2">{#await deadLetters}{@render ghost('Loading dead letters')}{:then letters}{#if letters === null}unavailable{:else if letters}<span class="font-mono text-warning">{count.format(letters)}</span>{:else}none{/if}{/await}</dd>
+				{/if}
 				<dt class="text-label text-fg-subtle">Backups</dt><dd>{#if !data.backups}off (no bucket set){:else}{#if data.backups.lastAttempt?.error}<span class="text-critical">failed {timeAgo(data.backups.lastAttempt.at)}: {data.backups.lastAttempt.error}</span>{' · '}{/if}{#if !data.backups.latestAt}<span class={data.backups.stale ? 'text-critical' : ''}>none yet</span>{:else if data.backups.stale}<span class="text-critical">last backed up {timeAgo(data.backups.latestAt)}</span>{:else}backed up {timeAgo(data.backups.latestAt)}{/if}{/if}</dd>
 			</dl>
 		</Card>
@@ -148,4 +166,43 @@
 			{/each}
 		</ul>
 	</Card>
+
+	{#if data.happyView.stats}
+		<!-- Last on the page, so its rows arriving don't move anything below them. -->
+		<section class="flex flex-col gap-3">
+			<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+				<h2 class="section-title">HappyView scripts</h2>
+				<p class="text-label text-fg-subtle">last 24 hours</p>
+			</div>
+			<div class="card">
+				{#await data.happyView.stats.scripts}
+					<div role="status" aria-label="Loading HappyView scripts">{@render scriptTable([])}</div>
+				{:then metrics}
+					{#if !metrics}<p class="px-3 py-2.5 text-small text-fg-muted">Script runs are unavailable.</p>
+					{:else if !metrics.enabled}<p class="px-3 py-2.5 text-small text-fg-muted">Script metrics are off in HappyView.</p>
+					{:else if !metrics.scripts.length}<p class="px-3 py-2.5 text-small text-fg-muted">No scripts ran.</p>
+					{:else}{@render scriptTable(metrics.scripts)}{/if}
+				{/await}
+			</div>
+		</section>
+	{/if}
 </div>
+
+{#snippet ghost(label: string)}
+	<span class="inline-flex h-lh w-24 items-center align-top"><span class="h-3.5 w-full animate-pulse rounded-md bg-well"></span><span class="sr-only">{label}</span></span>
+{/snippet}
+
+<!-- With no scripts, the ghost rows of a table still loading. -->
+{#snippet scriptTable(scripts: ScriptHealth[])}
+	<table class="table-base">
+		<thead><tr><th>Trigger</th><th class="text-right">Runs</th><th class="text-right">Failed</th><th class="text-right">p95</th></tr></thead>
+		<tbody>
+			{#each scripts as script (script.trigger)}
+				<!-- Triggers wrap after their dots and colons on a phone, not mid-word. -->
+				<tr><td class="font-mono text-label wrap-anywhere">{#each script.trigger.split(/(?<=[.:])/) as part, index (index)}{part}<wbr />{/each}</td><td class="text-right tabular-nums">{count.format(script.runs)}</td><td class={['text-right tabular-nums', script.failures > 0 && 'text-critical']}>{count.format(script.failures)}</td><td class="text-right whitespace-nowrap tabular-nums">{duration(script.p95Ms)}</td></tr>
+			{:else}
+				{#each { length: 3 }, row (row)}<tr aria-hidden="true"><td colspan="4"><span class="flex h-lh items-center"><span class="h-3.5 w-full animate-pulse rounded-md bg-well"></span></span></td></tr>{/each}
+			{/each}
+		</tbody>
+	</table>
+{/snippet}

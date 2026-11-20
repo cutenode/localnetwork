@@ -119,9 +119,8 @@ export class ProfileService {
 	}
 
 	/**
-	 * The display name and pronouns `did` set on Bluesky, for their pages. Only the directory is asked, which keeps them
-	 * for accounts with a profile, that manage a project or that the root verified; a public page never asks the
-	 * account's own PDS. A directory that's down reads as neither.
+	 * The display name and pronouns `did` set on Bluesky, for their pages, and nothing else from the profile. Only the
+	 * directory is asked; a public page never asks the account's own PDS. A directory that's down reads as neither.
 	 */
 	async bluesky(did: string): Promise<{ name: string | null; pronouns: string | null }> {
 		const found = bskyProfile.safeParse((await this.repos.getRecord(did, BSKY_PROFILE, 'self'))?.value).data;
@@ -140,8 +139,8 @@ export class ProfileService {
 		if (!client) return null;
 
 		try {
-			// Their own Bluesky profile, read from their own repo with their session for the profile form: the directory
-			// keeps only display names and pronouns, only for some accounts, and only once it has caught up.
+			// Their own Bluesky profile, read from their own repo with their session for the profile form, so it's current
+			// and has the description and picture, which the directory's profile gate drops.
 			// ast-grep-ignore: no-direct-pds-read
 			const found = await client.getRecord({ collection: BSKY_PROFILE, rkey: 'self' });
 			const parsed = bskyProfile.safeParse(found?.value).data;

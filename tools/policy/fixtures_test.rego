@@ -103,10 +103,12 @@ repo := [
 	{"path": ".github/labels.yml", "contents": {"name": "site"}},
 	{"path": ".github/labels.yml", "contents": {"name": "tool"}},
 	{"path": ".github/labels.yml", "contents": {"name": "docs"}},
+	{"path": ".github/labels.yml", "contents": {"name": "tool: core"}},
 	{"path": ".github/labeler.yml", "contents": {
 		"site": [{"changed-files": [{"any-glob-to-any-file": ["apps/site/**"]}]}],
 		"tool": [{"changed-files": [{"any-glob-to-any-file": "apps/tool/**"}]}],
-		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-any-file": "docs/**/*.txt"}]}],
+		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-all-files": "docs/**/*.txt"}]}],
+		"tool: core": [{"changed-files": [{"any-glob-to-any-file": ["crates/**"]}]}],
 	}},
 	{"path": ".github/dependabot.yml", "contents": {"updates": [
 		{"package-ecosystem": "cargo", "directory": "/"},
@@ -129,6 +131,7 @@ repo := [
 	{"path": "lexicons/computer/localnetwork/toolPublishing.json", "contents": {"id": "computer.localnetwork.toolPublishing"}},
 	{"path": "lexicons/computer/localnetwork/dj/set.json", "contents": {"id": "computer.localnetwork.dj.set"}},
 	{"path": "lexicons/community/lexicon/location/address.json", "contents": {"id": "community.lexicon.location.address"}},
+	{"path": "lexicons/network.json", "contents": {"version": 2, "lexicons": ["community.lexicon.calendar.event"]}},
 	{"path": "/scratch/reads.json", "contents": {"reads": [
 		{"from": "crates/x/src/lib.rs", "path": "lexicons/computer/localnetwork/dj/set.json"},
 		{"from": "apps/locallibrary/src/plugins.rs", "path": "plugins/p/locallibrary-plugin.toml"},

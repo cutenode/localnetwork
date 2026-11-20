@@ -143,3 +143,17 @@ it('keeps fonts as files, which the CSP allows', () => {
 		expect(readFileSync(file, 'utf8'), file).not.toContain('data:font');
 	}
 });
+
+it("bundles every other authority's lexicon the manifest pins, from the installed set", () => {
+	// Vite's import.meta.glob skips dot-directories, so a lexicon folder that starts with one builds as nothing.
+	const server = join(ROOT, '.svelte-kit/output/server');
+
+	const bundled = readdirSync(server, { recursive: true, withFileTypes: true })
+		.filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+		.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf8'))
+		.join('\n');
+
+	const pinned: { lexicons: string[] } = JSON.parse(readFileSync(join(ROOT, '../../lexicons/network.json'), 'utf8'));
+
+	expect(pinned.lexicons.filter((nsid) => !bundled.includes(`"${nsid}"`))).toEqual([]);
+});

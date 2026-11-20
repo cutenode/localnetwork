@@ -31,19 +31,48 @@ const signIn = async () => {
 
 type DirectorySync = { at: string; error: string | null };
 
+/** How HappyView answers its admin health reads, by path. */
+type AdminAnswers = Record<string, () => Response>;
+
+const refused = () => new Response('missing permission', { status: 403 });
+
+const HEALTHY = {
+	'/admin/jetstream/status': () => Response.json({ protocol: 'v2', connected: true, lag_ms: 956, idle_ms: 781 }),
+	'/admin/dead-letters/count': () => Response.json({ count: 2 }),
+	'/admin/metrics/scripts': () =>
+		Response.json({
+			enabled: true,
+			overflow: 0,
+			window: '24h',
+			scripts: [
+				{
+					trigger: 'xrpc.query:computer.localnetwork.probe.sql',
+					kind: 'xrpc_query',
+					runs: 17,
+					outcomes: { ok: 15, trap: 2 },
+					wall_ms: { max: 80.94, mean: 16.43, p50: 9.128, p95: 71.577, p99: 71.577 }
+				}
+			]
+		})
+} satisfies AdminAnswers;
+
 /**
  * The app as it runs with the root on its own PDS and HappyView answering, holding HappyView's API key when it
  * `managesHappyView`. Resyncing bootstraps the root's spaces for real; syncing the directory records `directory` as
- * how it went, the way the app keeps the last outcome.
+ * how it went, the way the app keeps the last outcome. HappyView answers its admin reads with `admin`, and `asked`
+ * keeps the paths it was asked for.
  */
 function systemApp(
 	directory: DirectorySync = { at: '2026-11-02T12:00:00.000Z', error: null },
-	managesHappyView = true
+	managesHappyView = true,
+	admin: AdminAnswers = HEALTHY
 ) {
 	let directorySync: DirectorySync | null = null;
+	const asked: string[] = [];
 
 	return {
 		...t,
+		asked,
 		rootDid: ROOT,
 		rootAccount: { handle: 'localnetwork.test', service: 'https://pds.localnetwork.test' },
 		syncer: {
@@ -51,8 +80,16 @@ function systemApp(
 		},
 		happyView: new HappyViewClient({
 			url: 'http://happyview.test',
-			fetch: async (input) =>
-				new Response('ok', { status: new URL(new Request(input).url).pathname === '/health' ? 200 : 404 })
+			apiKey: managesHappyView ? 'hv_test' : undefined,
+			fetch: async (input) => {
+				const path = new URL(new Request(input).url).pathname;
+
+				asked.push(path);
+
+				if (path === '/health') return new Response('ok');
+
+				return admin[path]?.() ?? new Response('not found', { status: 404 });
+			}
 		}),
 		backupStatus: { lastAt: '2026-11-02T03:00:00.000Z', lastError: null },
 		config: {
@@ -90,7 +127,9 @@ it("shows an admin the root account, its spaces' policies, sync, HappyView, back
 	expect(data.sync).toHaveLength(1);
 	expect(data.audit).toMatchObject({ total: 6, pending: 0, failed: 0 });
 	expect(data.failed).toEqual([]);
-	expect(data.happyView).toEqual({ url: 'http://happyview.test', reachable: true, sync: null });
+	const { stats, ...happyView } = data.happyView;
+	expect(happyView).toEqual({ url: 'http://happyview.test', reachable: true, sync: null });
+	expect(stats).not.toBeNull();
 	expect(data.backups).toEqual({ lastAt: '2026-11-02T03:00:00.000Z', lastError: null });
 	expect(data.config).toEqual({
 		publicUrl: 'https://localnetwork.test',
@@ -99,6 +138,34 @@ it("shows an admin the root account, its spaces' policies, sync, HappyView, back
 		pollMs: 60_000,
 		geocoder: 'open-meteo'
 	});
+});
+
+it("streams HappyView's Jetstream lag, dead letters and script runs", async () => {
+	const { stats } = (await loadRoute<PageServerData>(load, await as(ADMIN))).happyView;
+
+	expect(await stats?.jetstream).toEqual({ connected: true, lagMs: 956 });
+	expect(await stats?.deadLetters).toBe(2);
+	expect(await stats?.scripts).toEqual({
+		enabled: true,
+		scripts: [{ trigger: 'xrpc.query:computer.localnetwork.probe.sql', runs: 17, failures: 2, p95Ms: 71.577 }]
+	});
+});
+
+it('leaves a read HappyView refuses unavailable, and still shows the others', async () => {
+	const app = systemApp(undefined, true, { ...HEALTHY, '/admin/dead-letters/count': refused });
+	const { stats } = (await loadRoute<PageServerData>(load, await as(ADMIN, { app }))).happyView;
+
+	expect(await stats?.deadLetters).toBeNull();
+	expect(await stats?.jetstream).toEqual({ connected: true, lagMs: 956 });
+	expect((await stats?.scripts)?.scripts).toHaveLength(1);
+});
+
+it('makes no admin call to HappyView without an API key', async () => {
+	const app = systemApp(undefined, false);
+	const data = await loadRoute<PageServerData>(load, await as(ADMIN, { app }));
+
+	expect(data.happyView.stats).toBeNull();
+	expect(app.asked).toEqual(['/health']);
 });
 
 it("lists audit entries whose copies haven't been written yet, newest first", async () => {

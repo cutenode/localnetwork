@@ -387,12 +387,11 @@ export class ShowService {
 	}
 
 	/**
-	 * Has HappyView re-read each manager's shows from their PDS, one account at a time, for any that Jetstream never
-	 * brought (while HappyView was down, say). Runs when the app boots.
+	 * Has HappyView re-read every manager's shows from their PDS, in one job per 500 managers, for any that Jetstream
+	 * never brought (while HappyView was down, say). Runs when the app boots.
 	 */
 	async reindexManagers(): Promise<void> {
-		for (const did of await this.projects.managers())
-			await reindex(this.directory, this.core.logger, COLLECTION.show, did);
+		await reindex(this.directory, this.core.logger, COLLECTION.show, await this.projects.managers());
 	}
 
 	/**
@@ -425,7 +424,7 @@ export class ShowService {
 	private async awaitServed(did: string, served: () => Promise<boolean>): Promise<void> {
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
 		this.core.logger.warn('the directory has not caught up with a show write yet', { did });
-		await reindex(this.directory, this.core.logger, COLLECTION.show, did);
+		await reindex(this.directory, this.core.logger, COLLECTION.show, [did]);
 	}
 
 	/** The app's view of a directory show, or null (logged) when it or its project doesn't validate. */

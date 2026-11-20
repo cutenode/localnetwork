@@ -1,6 +1,3 @@
-import { AtUri } from '@atproto/syntax';
-import { USERINPUT } from '#lib/bug-report.ts';
-import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { ActorSearch } from './actor-search';
@@ -22,7 +19,7 @@ import { Backfills } from './happyview/backfills';
 import { happyViewBundle } from './happyview/bundle';
 import { HappyViewClient } from './happyview/client';
 import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
-import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
+import { refreshForScript, refreshTargets } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
 import { NotificationChannels } from './notifications/channels';
@@ -510,28 +507,19 @@ export async function createApp(options: CreateAppOptions) {
 
 		/**
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
-		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
-		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
-		 * root's verifications, DJ listings and listings, and the bug report space. A failure is logged and tried again on
-		 * the next round, without marking the directory sync failed.
+		 * got), the older records the site reads from other repos (refreshTargets), with the follows of the accounts press
+		 * kits' audience checks read. A failure is logged and tried again on the next round, without marking the directory
+		 * sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
 			const { scripts } = bundle();
-			let managers: Promise<string[]> | undefined;
-			const spaceOwner = config.userinputSpace && new AtUri(config.userinputSpace).host;
 
-			const refreshes = [
-				...MANAGER_COLLECTIONS.map((collection) => ({
-					collection,
-					accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
-				})),
-				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
-				{ collection: VERIFICATION, accounts: async () => [rootDid] },
-				{ collection: COLLECTION.listingProfile, accounts: async () => [rootDid] },
-				{ collection: COLLECTION.listing, accounts: async () => [rootDid] },
-				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
-			];
+			const refreshes = refreshTargets(rootDid, {
+				managers: () => projects.managers(),
+				followReaders: () => epks.followReaders(),
+				userinputSpace: config.userinputSpace
+			});
 
 			for (const refresh of refreshes) {
 				const id = `record.index:${refresh.collection}`;

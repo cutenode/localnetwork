@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import PQueue from 'p-queue';
-import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
+import { AtUri } from '@atproto/syntax';
+import { USERINPUT } from '#lib/bug-report.ts';
+import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { Core } from '../core';
 import type { HappyViewClient } from './client';
 
@@ -19,15 +20,41 @@ export const MANAGER_COLLECTIONS = [
 	BSKY_PROFILE
 ];
 
-/** How many accounts' re-reads start at once after a new record script. */
-const CONCURRENCY = 4;
+/** A collection HappyView re-reads after a new record script, and the accounts it re-reads it from. */
+export type RefreshTarget = { collection: string; accounts: () => Promise<string[]> };
+
+/**
+ * What the app has HappyView re-read for older records: each of MANAGER_COLLECTIONS from the root and every manager
+ * (`managers`, asked once), the follows `followReaders` names, the root's verifications, DJ listings and listings, and
+ * the bug report space from its owner when there is one.
+ */
+export function refreshTargets(
+	rootDid: string,
+	sources: { managers: () => Promise<string[]>; followReaders: () => Promise<string[]>; userinputSpace?: string }
+): RefreshTarget[] {
+	let managers: Promise<string[]> | undefined;
+	const root = async () => [rootDid];
+	const spaceOwner = sources.userinputSpace && new AtUri(sources.userinputSpace).host;
+
+	return [
+		...MANAGER_COLLECTIONS.map((collection) => ({
+			collection,
+			accounts: () => (managers ??= sources.managers().then((dids) => [rootDid, ...dids]))
+		})),
+		{ collection: BSKY_FOLLOW, accounts: sources.followReaders },
+		{ collection: VERIFICATION, accounts: root },
+		{ collection: COLLECTION.listingProfile, accounts: root },
+		{ collection: COLLECTION.listing, accounts: root },
+		...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
+	];
+}
 
 /**
  * Has HappyView re-read `collection` from each account `accounts` lists, once per version of its record script
  * (`script`), which only applies to records HappyView reads after it. The version is kept in the app's database once
  * every re-read has started, so a failure or a restart before then tries again, and a later boot doesn't. `uploaded` says
  * HappyView was just given the script, so it needs the re-reads even if this app made them for the same version before.
- * Starts a few at a time and doesn't wait for them to finish.
+ * Starts one job per 500 accounts and doesn't wait for them to finish.
  */
 export async function refreshForScript(
 	core: Pick<Core, 'db' | 'logger'>,
@@ -47,26 +74,20 @@ export async function refreshForScript(
 
 	if (done?.value === version) return;
 	const dids = await accounts();
-	const queue = new PQueue({ concurrency: CONCURRENCY });
 	core.logger.info('having HappyView re-read a collection for a new script', { collection, accounts: dids.length });
 
-	const started = await Promise.all(
-		dids.map((did) =>
-			queue.add(async () => {
-				try {
-					await directory.backfill(collection, did);
+	try {
+		await directory.backfill(collection, dids);
+	} catch (error) {
+		core.logger.warn('could not have HappyView re-read a collection', {
+			err: error,
+			collection,
+			accounts: dids.length
+		});
 
-					return true;
-				} catch (error) {
-					core.logger.warn('could not have HappyView re-read a repo', { err: error, collection, did });
+		return;
+	}
 
-					return false;
-				}
-			})
-		)
-	);
-
-	if (!started.every(Boolean)) return;
 	await core.db
 		.insertInto('kv')
 		.values({ key, value: version })

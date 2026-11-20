@@ -118,6 +118,6 @@ export class FollowService {
 
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
 		this.core.logger.warn('the directory has not caught up with a follow yet', { subject: subject.uri, actor });
-		await reindex(this.directory, this.core.logger, COLLECTION.follow, actor);
+		await reindex(this.directory, this.core.logger, COLLECTION.follow, [actor]);
 	}
 }

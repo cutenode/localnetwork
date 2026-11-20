@@ -424,16 +424,19 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
         let library = device.library()?;
         let scanned = device.scan_fingerprinted(Some(&library), ctx)?;
         done.fingerprint = scanned.fingerprint;
-        device.finish(scanned.fingerprint.map(|fp| LineageEntry {
-            fingerprint: fp,
-            at: Utc::now(),
-            op: opts.op,
-            snapshot: None,
-            source: opts.source,
-            tracks: library.tracks.len(),
-        }))?;
+        device.finish(
+            scanned.fingerprint.map(|fp| LineageEntry {
+                fingerprint: fp,
+                at: Utc::now(),
+                op: opts.op,
+                snapshot: None,
+                source: opts.source,
+                tracks: library.tracks.len(),
+            }),
+            ctx,
+        )?;
     } else {
-        device.finish(None)?;
+        device.finish(None, ctx)?;
     }
     if let Some((edits, changes)) = opts.journal
         && !edits.is_empty()

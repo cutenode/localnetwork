@@ -8,6 +8,9 @@
 -- A set whose date isn't a YYYY-MM-DD day isn't kept at all. HappyView keeps the event's CID either way.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
+local log = require('internal.logging')
+local json = require('internal.json')
+
 local ADDRESS = 'community.lexicon.location.address'
 
 local UUID = '^'
@@ -74,7 +77,7 @@ local function credits(value, credit)
 	end
 	local key = credit and normalize(credit)
 	if #out == 0 and key and key ~= '' and not PLACEHOLDER[key] then out[1] = { artistName = credit, key = key } end
-	return toarray(out)
+	return json.to_array(out)
 end
 
 -- What the support queries need of a track, or nil for one without a real title and artist, which nobody could be
@@ -130,14 +133,14 @@ local function view(value)
 		venue = text(value.venue, 1000),
 		trackCount = #value.tracks,
 		-- The app reads these leniently, a section at a time, so they're kept as written.
-		tracks = toarray(value.tracks),
-		playedWith = type(value.playedWith) == 'table' and toarray(value.playedWith) or nil,
-		links = type(value.links) == 'table' and toarray(value.links) or nil,
+		tracks = json.to_array(value.tracks),
+		playedWith = type(value.playedWith) == 'table' and json.to_array(value.playedWith) or nil,
+		links = type(value.links) == 'table' and json.to_array(value.links) or nil,
 		recording = type(value.recording) == 'table' and value.recording or nil,
-		sources = type(value.sources) == 'table' and toarray(value.sources) or nil,
+		sources = type(value.sources) == 'table' and json.to_array(value.sources) or nil,
 		event = text(value.event),
 		createdAt = text(value.createdAt),
-		namedTracks = toarray(named),
+		namedTracks = json.to_array(named),
 	}
 	local place = value.location
 	local isAddress = type(place) == 'table' and place['$type'] == ADDRESS
@@ -147,16 +150,16 @@ local function view(value)
 	return out
 end
 
-local function gate()
-	if action == 'delete' then return true end
-	local out, why = view(record)
-	if not out then log('skipped ' .. uri .. ': ' .. why) end
+local function gate(input)
+	if input.action == 'delete' then return true end
+	local out, why = view(input.record)
+	if not out then log.info('skipped ' .. input.uri .. ': ' .. why) end
 	return out
 end
 
-function handle()
-	local ok, result = pcall(gate)
+function handle(input)
+	local ok, result = pcall(gate, input)
 	if ok then return result end
-	log('skipped ' .. uri .. ': ' .. tostring(result))
+	log.info('skipped ' .. input.uri .. ': ' .. tostring(result))
 	return nil
 end

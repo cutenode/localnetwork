@@ -16,5 +16,8 @@
   the same answer from both. See [ADR 0006](./docs/adr/0006-locallibrary-asks-the-website-for-flags.md).
 - **Grant and access**: the website's grant lets an account read a press kit. locallibrary's
   access lets a plugin use an account. They're unrelated.
+- **Listing and listing**: the website's directory lists the DJs, acts and parties staff approved,
+  and locallibrary's plugin registry lists the plugin releases they reviewed. Both start from a
+  review request.
 - **Plan and plan**: the website's plan is an event someone's going to or a show they're on.
   locallibrary's plan is what a command will change, shown before it's applied. They're unrelated.

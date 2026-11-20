@@ -68,6 +68,11 @@ _Avoid_: skipped file, excluded file
 
 ## Plugins
 
+**Plugin**:
+Something that adds to locallibrary, such as commands, analyzers, formats or an account type: a
+program locallibrary runs, or for an account plugin, a manifest alone.
+_Avoid_: extension, add-on, integration
+
 **Built-in plugin**:
 A plugin that ships with locallibrary. Its publisher is Local Network.
 _Avoid_: first-party, bundled, core plugin
@@ -99,6 +104,29 @@ _Avoid_: tab, widget, card
 **Suggestion**:
 An action a plugin proposes, offered and never applied by itself.
 _Avoid_: recommendation, auto-fix, hint
+
+## The plugin registry
+
+**Plugin registry**:
+Where plugins are published, reviewed, found and installed from, newer releases of built-in
+plugins included. What's published there lives in each publisher's Atmosphere account.
+_Avoid_: store (the vault's folder), marketplace, catalogue, directory (the website's)
+
+**Release**:
+One version of a plugin as its publisher published it: its manifest, and its program for each
+target it supports. A version is never published twice.
+_Avoid_: version (a release's number), build, package
+
+**Listing**:
+A release's place in the plugin registry's search and on its plugin's page, which it gets once
+staff have reviewed it. A release can be published without one, and then installs only from its
+link.
+_Avoid_: approval (what staff give, which may come before it), published (every release is)
+
+**Install**:
+A release put on this computer from the plugin registry, with the capabilities you agreed to,
+recorded in your Atmosphere account. Rolling back or pinning changes which release it is.
+_Avoid_: download, enable (whether an installed plugin runs)
 
 ## Accounts
 
