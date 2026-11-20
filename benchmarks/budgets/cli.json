@@ -3,9 +3,9 @@
 	"job": "release",
 	"metrics": {
 		"version": {
-			"allowance": 1321,
+			"allowance": 10000,
 			"unit": "instructions",
-			"measures": "Instructions `--version` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
+			"measures": "Instructions `--version` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind. The binary's layout alone moves the count by up to 4,808 on CI's runners, with no change to what runs (LOC-852), so the allowance is twice that, rounded up."
 		},
 		"drive_ls": {
 			"allowance": 111031,
