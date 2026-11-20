@@ -32,6 +32,7 @@
 		{ "path": "/dashboard/inbox", "account": "dj" },
 		{ "path": "/dashboard/account/notifications", "account": "dj" },
 		{ "path": "/dashboard/planner", "account": "dj" },
+		{ "path": "/dashboard/promoter", "account": "dj" },
 		{ "path": "/dashboard/account/requests", "account": "dj" },
 		{ "path": "/report", "account": "dj" },
 		{ "path": "/dashboard/projects/new", "account": "dj" },

@@ -5,7 +5,10 @@
 	import { phone } from '#lib/testing/viewports.ts';
 	import Page from './+page.svelte';
 
-	/** The profile editor of a DJ Find DJs lists, with Take inquiries off and on. */
+	/**
+	 * The profile editor of a DJ Find DJs lists, with Take inquiries off and on, and right after a save, which points to
+	 * the Promoter section when the save turned promoting on.
+	 */
 	const { Story } = defineMeta({
 		title: 'Patterns/Profile editor',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard/profile') } } } }
@@ -43,6 +46,24 @@
 	};
 
 	const on = { ...off, profile: { ...profile, record: { ...profile.record, takesInquiries: true } }, values: { ...off.values, takesInquiries: true } };
+
+	/** Pat, who promotes and isn't listed. */
+	const promoting = {
+		...off,
+		viewer: { ...viewer, did: 'did:plc:pat', handle: 'pat.test' },
+		sections: Promise.resolve({ performer: false, promoter: true }),
+		profile: {
+			...profile,
+			did: 'did:plc:pat',
+			uri: 'at://did:plc:pat/computer.localnetwork.profile/self',
+			record: { basics: { name: 'Pat' }, promoter: {}, createdAt: '2026-10-30T00:00:00Z', updatedAt: '2026-11-12T00:00:00Z' }
+		},
+		values: { name: 'Pat' },
+		sectionsOn: { performer: false, promoter: true },
+		listing: null
+	};
+
+	const at = (search: string) => ({ sveltekit_experimental: { state: { page: { url: new URL(`https://localnetwork.computer/dashboard/profile${search}`) } } } });
 </script>
 
 <Story
@@ -68,3 +89,7 @@
 </Story>
 
 <Story name="Taking inquiries on a phone" asChild globals={phone}><Page data={on} params={{}} form={null} /></Story>
+
+<Story name="Saved" asChild parameters={at('?saved=1')}><Page data={promoting} params={{}} form={null} /></Story>
+
+<Story name="Saved, promoting just turned on" asChild parameters={at('?saved=1&promoting=1')}><Page data={promoting} params={{}} form={null} /></Story>
