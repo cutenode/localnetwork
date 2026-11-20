@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use locallibrary::anlz::Cue;
-use locallibrary::anlz::{PhraseKind, TrackAnalysis, TrackWaves};
+use locallibrary::anlz::{PhraseKind, SongStructure, TrackAnalysis, TrackWaves};
 use locallibrary::{Library, Track};
 use loclib_waveform::{Art, Wave};
 
@@ -67,12 +67,13 @@ pub struct PhraseSpan {
     pub bars: u16,
 }
 
-/// Phrases with times: a phrase's beats are 1-based indexes into the grid; one that runs past the
-/// grid ends with the track. One that doesn't end after it starts isn't drawn (the reader drops
-/// those, but made-up data can hold them).
-pub(super) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<PhraseSpan> {
+/// Phrases with times: a phrase's beats are 1-based indexes into the grid, or into it at half
+/// tempo ([`SongStructure::beat_scale`]); one that runs past the grid ends with the track. One that
+/// doesn't end after it starts isn't drawn (the reader drops those, but made-up data can hold them).
+pub(in crate::tui) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<PhraseSpan> {
     let Some(st) = &analysis.structure else { return Vec::new() };
-    let at = |beat: u16| analysis.beats.get(beat as usize - 1).map(|b| b.time_ms as f64);
+    let scale = st.beat_scale(analysis.beats.len());
+    let at = |beat: u16| analysis.beats.get(SongStructure::grid_index(beat, scale)).map(|b| b.time_ms as f64);
     let end_of_track = duration.as_secs_f64() * 1000.0;
     st.phrases
         .iter()
@@ -82,7 +83,7 @@ pub(super) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<
                 kind: p.kind,
                 start_ms: at(p.start_beat)?,
                 end_ms: at(p.end_beat).unwrap_or(end_of_track),
-                bars: (p.end_beat - p.start_beat).div_ceil(4),
+                bars: SongStructure::bars(p, scale),
             })
         })
         .collect()

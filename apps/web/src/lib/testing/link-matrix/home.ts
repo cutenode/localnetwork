@@ -29,6 +29,6 @@ export default {
 			{ name: 'Neon Tide', href: '/projects/neon-tide', within: "Who's playing near Berlin" },
 			{ name: /^Tidal Hours/, href: '/projects/neon-tide/mixes/1' }
 		],
-		'For promoters': [{ name: 'Local Network for promoters', href: '/for-promoters' }]
+		'For promoters': [{ name: 'Local Network for promoters', href: '/for/promoters' }]
 	}
 } satisfies LinkChecks;

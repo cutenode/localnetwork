@@ -1,6 +1,3 @@
-import { AtUri } from '@atproto/syntax';
-import { USERINPUT } from '#lib/bug-report.ts';
-import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { ActorSearch } from './actor-search';
@@ -22,7 +19,7 @@ import { Backfills } from './happyview/backfills';
 import { happyViewBundle } from './happyview/bundle';
 import { HappyViewClient } from './happyview/client';
 import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
-import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
+import { refreshForScript, refreshTargets } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
 import { NotificationChannels } from './notifications/channels';
@@ -39,13 +36,17 @@ import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
 import { performerListingSource } from './services/performer-index';
+import { partyListingSource } from './services/party-index';
+import { PartyService } from './services/parties';
 import { venueListingSource } from './services/venue-index';
 import { VenueService } from './services/venues';
 import { VenueRules } from './services/venue-rules';
+import { EventService } from './services/events';
 import { PerformerService } from './services/performer-registry';
 import { ProjectMigration } from './services/project-migration';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
+import { RsvpService } from './services/rsvps';
 import { EpkService } from './services/epk';
 import { moveKitSpaces } from './services/epk-space-move';
 import { EpkViews } from './services/epk-views';
@@ -80,6 +81,11 @@ export type CreateAppOptions = {
 	background?: boolean;
 	/** What each kind's listing shows, over the acts' own. Parties and venues have no public page yet. */
 	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
+	/**
+	 * Where space hosts send updates, in place of PUBLIC_URL (tests: a host won't call an IP address, and a loopback
+	 * PUBLIC_URL has to be one for the OAuth client).
+	 */
+	notifyEndpoint?: string;
 };
 
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
@@ -172,7 +178,9 @@ export async function createApp(options: CreateAppOptions) {
 	const credentials = new SpaceCredentialManager({
 		source: async () => rootClient,
 		identity,
-		logger: logger.child({ component: 'credentials' })
+		logger: logger.child({ component: 'credentials' }),
+		// Only watched spaces register, so a host's notice names a space the syncer has a token for.
+		notify: (space) => syncer.registration(space)
 	});
 
 	const core: Core = {
@@ -269,6 +277,7 @@ export async function createApp(options: CreateAppOptions) {
 	const listings = new ListingWriter(core, flags, {
 		performer: performerListingSource(db),
 		venue: venueListingSource(db),
+		party: partyListingSource(db),
 		...options.listingSources
 	});
 
@@ -289,8 +298,22 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const parties = new PartyService(core, sharedSpaces);
 	const venues = new VenueService(core, sharedSpaces, limits.write);
 	const venueRules = new VenueRules(core);
+
+	const events = new EventService(
+		core,
+		sharedSpaces,
+		venues,
+		venueRules,
+		performerRegistry,
+		parties,
+		profiles,
+		config.publicUrl
+	);
+
+	const rsvps = new RsvpService(core, happyView, config.publicUrl);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
@@ -303,7 +326,7 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'bug-reports' })
 	});
 
-	const syncer = new SpaceSyncer({
+	const syncer: SpaceSyncer = new SpaceSyncer({
 		db,
 		logger: logger.child({ component: 'sync' }),
 		identity,
@@ -324,7 +347,7 @@ export async function createApp(options: CreateAppOptions) {
 			await bookings.forget(space);
 			await sharedSpaces.forget(space);
 		},
-		notifyService: config.syncNotify ? config.syncService : null
+		notifyEndpoint: config.syncNotify ? (options.notifyEndpoint ?? config.publicUrl) : null
 	});
 
 	const sessions = new WebSessions(db, config.sessionDays);
@@ -409,6 +432,9 @@ export async function createApp(options: CreateAppOptions) {
 		projectMigration,
 		venues,
 		venueRules,
+		events,
+		rsvps,
+		parties,
 		recordings,
 		supports,
 		epks,
@@ -481,28 +507,19 @@ export async function createApp(options: CreateAppOptions) {
 
 		/**
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
-		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
-		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
-		 * root's verifications, DJ listings and listings, and the bug report space. A failure is logged and tried again on
-		 * the next round, without marking the directory sync failed.
+		 * got), the older records the site reads from other repos (refreshTargets), with the follows of the accounts press
+		 * kits' audience checks read. A failure is logged and tried again on the next round, without marking the directory
+		 * sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
 			const { scripts } = bundle();
-			let managers: Promise<string[]> | undefined;
-			const spaceOwner = config.userinputSpace && new AtUri(config.userinputSpace).host;
 
-			const refreshes = [
-				...MANAGER_COLLECTIONS.map((collection) => ({
-					collection,
-					accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
-				})),
-				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
-				{ collection: VERIFICATION, accounts: async () => [rootDid] },
-				{ collection: COLLECTION.listingProfile, accounts: async () => [rootDid] },
-				{ collection: COLLECTION.listing, accounts: async () => [rootDid] },
-				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
-			];
+			const refreshes = refreshTargets(rootDid, {
+				managers: () => projects.managers(),
+				followReaders: () => epks.followReaders(),
+				userinputSpace: config.userinputSpace
+			});
 
 			for (const refresh of refreshes) {
 				const id = `record.index:${refresh.collection}`;
@@ -529,6 +546,8 @@ export async function createApp(options: CreateAppOptions) {
 			// After the sync, so the index has every space's people, and the requests and grants left in press kit spaces.
 			await listings.reconcile();
 			await venues.reconcileBlocks();
+			// After the blocks, which decide which events are listed.
+			await events.reconcileCalendarCopies();
 			await moveKitSpaces(core, epks);
 		},
 
@@ -567,6 +586,9 @@ export async function createApp(options: CreateAppOptions) {
 			every(60 * 60_000, () => listings.reconcile(), 'listings');
 			// Indexes the root's venue blocks and drops ones that are gone: one listRecords of the root's own repo.
 			every(60 * 60_000, () => venues.reconcileBlocks(), 'venue-blocks');
+			// Takes down the calendar copies of events whose night ended while they waited for the venue, and fixes any that
+			// drifted: one listRecords of the root's own repo, and writes only where a copy differs.
+			every(60 * 60_000, () => events.reconcileCalendarCopies(), 'calendar-copies');
 			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');

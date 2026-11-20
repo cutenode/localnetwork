@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Line } from './kind';
 
 /**
  * Something in a booking thread, the data every booking kind keeps. It names the act, never the manager who wrote,
@@ -15,7 +16,15 @@ export const booking = z.object({
 	from: z.enum(['promoter', 'act'])
 });
 
+/** Who acted, as the middle of a sentence says it. */
 export const who = ({ from, projectName }: z.output<typeof booking>) =>
-	from === 'act' ? (projectName ?? 'The DJ') : 'The promoter';
+	from === 'act' ? (projectName ?? 'the DJ') : 'the promoter';
 
 export const show = ({ title }: z.output<typeof booking>) => title ?? 'Booking inquiry';
+
+export const bookingLine = (data: z.output<typeof booking>, did: Line['did']): Line => ({
+	subject: show(data),
+	scope: data.projectName ?? show(data),
+	who: who(data),
+	did
+});

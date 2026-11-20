@@ -22,6 +22,8 @@ concurrency:
 defaults:
   run:
     working-directory: apps/web
+    # Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+    shell: bash
 
 # Pinned the same way as web-ci.yml.
 jobs:
@@ -85,8 +87,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The phones run in Chromium (Pixel 7) and WebKit (iPhone 14).
       - run: pnpm exec playwright install --with-deps chromium firefox webkit
-      - name: Pull the HappyView image (scripts/lib/happyview.ts)
-        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - name: Pull the HappyView and Postgres images (scripts/lib/happyview.ts)
+        run: |
+          docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
+          docker pull postgres:17.11-alpine
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
@@ -120,8 +124,10 @@ jobs:
       - run: pnpm exec playwright install chromium
       # As in web-ci.yml's Lighthouse job: lets Chromium's sandbox create its user namespaces.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Pull the HappyView image (scripts/lib/happyview.ts)
-        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - name: Pull the HappyView and Postgres images (scripts/lib/happyview.ts)
+        run: |
+          docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
+          docker pull postgres:17.11-alpine
       - run: pnpm build
       - run: pnpm exec tsx scripts/lighthouse.ts --form-factor "$FORM_FACTOR"
         env:

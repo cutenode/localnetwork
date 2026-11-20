@@ -117,7 +117,8 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	let upstream: Response;
 
 	try {
-		// Blobs come from the account's PDS until HappyView serves them (2.16 can't serve blob bytes).
+		// Blobs come from the account's PDS: HappyView serves blob bytes only with its happyview-blobs plugin, which
+		// ours doesn't run.
 		// ast-grep-ignore: no-direct-pds-read
 		const url = new URL('/xrpc/com.atproto.sync.getBlob', (await request.identity.resolve(did)).pds);
 		url.searchParams.set('did', did);

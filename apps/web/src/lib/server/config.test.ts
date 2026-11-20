@@ -15,7 +15,6 @@ describe('loadConfig', () => {
 			dev: true,
 			publicUrl: 'http://127.0.0.1:5173',
 			serviceDid: 'did:web:localhost%3A5173',
-			syncService: 'did:web:localhost%3A5173#localnetwork_syncer',
 			allowPrivateNetwork: true,
 			syncNotify: true,
 			logLevel: 'debug',
@@ -106,6 +105,15 @@ describe('loadConfig', () => {
 			epkViewRetentionDays: 30,
 			happyView: { apiKey: 'hv_key' }
 		});
+	});
+
+	it('takes a HappyView API client as its key and secret together', () => {
+		expect(loadConfig(base).happyView.client).toBeUndefined();
+		expect(
+			loadConfig({ ...base, HAPPYVIEW_CLIENT_KEY: 'hvc_key', HAPPYVIEW_CLIENT_SECRET: 'hvs_secret' }).happyView.client
+		).toEqual({ key: 'hvc_key', secret: 'hvs_secret' });
+		expect(() => loadConfig({ ...base, HAPPYVIEW_CLIENT_KEY: 'hvc_key' })).toThrow(/HAPPYVIEW_CLIENT_SECRET/);
+		expect(() => loadConfig({ ...base, HAPPYVIEW_CLIENT_SECRET: 'hvs_secret' })).toThrow(/HAPPYVIEW_CLIENT_SECRET/);
 	});
 
 	it('takes a userinput.app space URI, treating an empty one as unset', () => {

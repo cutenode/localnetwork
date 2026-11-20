@@ -3,7 +3,8 @@ name: Repo scheduled
 # The repository-wide checks that ask other sites, weekly and by hand rather than on every pull
 # request: the links in the Markdown to other sites (repo-checks.yml checks the relative ones on
 # each pull request), and zizmor's online audits of the workflows (workflow-lint.yml runs the
-# offline ones), which look up each pinned action's tags and advisories through the GitHub API.
+# offline ones), which look up each pinned action's tags and advisories through the GitHub API. And
+# the week's growth of the performance budgets (benchmarks/README.md), from the CI runs' artifacts.
 on:
   schedule:
     - cron: "37 5 * * 1"
@@ -15,6 +16,11 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   # Loopback and private addresses are the local network's own (pnpm dev). The lychee cache keeps
@@ -53,10 +59,45 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  # How much main's budgets grew this week, and whose pull requests grew them, from what the merge
+  # queue's and main's runs measured: each pull request is held to its own growth, so many small
+  # ones can still add up. Fails a metric whose growth no Budget-Raise declared passed five
+  # allowances (tools/budgets/creep.ts).
+  budget-creep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # The runs' artifacts.
+      actions: read
+    steps:
+      # The week's first-parent history, and a little before it for the starting point.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '7 days ago' +%FT%TZ)
+          status=0
+          for pair in release-budgets:release budgets:pull-request web-budgets:web; do
+            artifact=${pair%%:*} job=${pair#*:}
+            tools/budgets/points.sh "$artifact" "$since" "$RUNNER_TEMP/$artifact"
+            { echo "## $job budgets since $since"; echo; } >> "$GITHUB_STEP_SUMMARY"
+            node tools/budgets/cli.ts creep "$job" "$RUNNER_TEMP/$artifact" | tee -a "$GITHUB_STEP_SUMMARY" || status=1
+          done
+          exit "$status"
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
   # that passes closes it (scheduled-issue.yml).
   report:
-    needs: [links, zizmor]
+    needs: [links, zizmor, budget-creep]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
@@ -65,5 +106,6 @@ jobs:
     with:
       label: tooling
       details: >-
-        The links job's log lists each broken link with the file and line it's on, and the zizmor
-        job's annotations each finding in the workflow it's in.
+        The links job's log lists each broken link with the file and line it's on, the zizmor
+        job's annotations each finding in the workflow it's in, and the budget-creep job's summary
+        each budget that grew, with the pull requests that grew it.

@@ -4,6 +4,8 @@ use ratatui::style::Color;
 use super::super::app::testing::*;
 use super::*;
 
+mod stories;
+
 #[test]
 fn clips_and_fits() {
     assert_eq!(clip("Friday", 10), "Friday");
@@ -641,11 +643,12 @@ fn player_mode_says_what_a_set_needs() {
     app.deck_layout = true;
     let s = screen(&mut app, 160, 45);
     for said in [
-        "INTRO",
+        " Intro ",
         "high mood",
-        "phrase  Chorus  1.0 bars",
-        "Delsin · 2016",
-        "cue  B  15.0 bars",
+        "1.0 bar  till  Chorus ",
+        "Daft Punk  2016",
+        "Delsin  high mood",
+        "15.0 bars till cue  B ",
         "open this drive to see suggestions",
         "+ 3 more",
     ] {
@@ -658,7 +661,7 @@ fn player_mode_says_what_a_set_needs() {
     }
     // In the last phrase there's no next one.
     app.resume = Some(std::time::Duration::from_secs(200));
-    assert!(screen(&mut app, 160, 45).contains("phrase last"));
+    assert!(screen(&mut app, 160, 45).contains("  last phrase"));
 }
 
 /// The hot cue the playhead last passed is underlined, and only that one: none before the first.

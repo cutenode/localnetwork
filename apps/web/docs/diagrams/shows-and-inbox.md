@@ -41,7 +41,7 @@ Source: [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows
 
 ## Follows and the shows list
 
-Following a performer or a person, and what that does to `/shows` and the home page.
+Following a performer or a person, and what that does to `/shows` and the home page. `/shows` also lists parties' events beside the shows while `spacePages` is on.
 
 ```mermaid
 flowchart TD
@@ -55,14 +55,17 @@ flowchart TD
   Wait --> Audit["Audit follow.create"]
   Shows["/shows"] --> View{"Which view?"}
   View -- "default" --> Near["listShows near a city,<br/>kept in a cookie"]
-  View -- "Following" --> Followed["listShows of followed performers"]
+  View -- "default, spacePages" --> Events["Parties' listed events near it<br/>until their night ends"]
+  Near --> Merged["Merged by start, 30 a page"]
+  Events --> Merged
+  View -- "Following" --> Followed["listShows of followed performers,<br/>no events"]
   Write -. "performer follows read by" .-> Followed
   Home["/ with socialHome on"] -- "signed out" --> Near
   Home -- "signed in" --> Followed
   Home -- "signed in, then" --> HomeCity["listShows near their home city,<br/>else the city in the cookie"]
 ```
 
-Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/@[handle]/+page.server.ts`](../../src/routes/@[handle]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`src/lib/server/social-home.ts`](../../src/lib/server/social-home.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua)
+Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/@[handle]/+page.server.ts`](../../src/routes/@[handle]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`src/lib/server/social-home.ts`](../../src/lib/server/social-home.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua), [`src/lib/server/events-list.ts`](../../src/lib/server/events-list.ts)
 
 ## Inbox delivery
 
@@ -73,7 +76,7 @@ flowchart TD
   Event["Booking record indexed,<br/>from a write or a sync"]
   Event -- "over 14 days old" --> Skip["Nothing"]
   Event --> Item["notification: one per other<br/>participant, once per record"]
-  Item --> Site["/dashboard/inbox and<br/>the sidebar count"]
+  Item --> Site["/dashboard/inbox, one row per thread,<br/>and the sidebar dot"]
   Item -- "over 6 hours old, or<br/>no active channel on the topic" --> Stays["Stays on the site"]
   Item --> Delivery["notification_delivery,<br/>due after the channel's window"]
   Delivery --> Batch["Outbox: up to 20 items per person<br/>and channel, read ones left out"]
@@ -105,7 +108,7 @@ Source: [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifica
 
 ## Inbox and delivery retention
 
-How long inbox items and deliveries last. The hourly `inbox-retention` job deletes them. An item's age counts from when it was made, and opening it or its thread marks it read.
+How long inbox items and deliveries last. The hourly `inbox-retention` job deletes them. An item's age counts from when it was made, and opening its inbox row or its thread marks it read.
 
 ```mermaid
 flowchart LR

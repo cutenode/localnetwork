@@ -1,18 +1,17 @@
--- Records by URI, in the order asked for, each once. Ones HappyView doesn't have are left out.
+-- Records by URI, in the order asked for, each once. One HappyView doesn't have is read from its account's PDS when
+-- its collection is one the reads go through for (lib/pds.lua), and left out otherwise.
 
-function handle()
-	local uris = list(params.uris, 25)
-	local byUri = {}
-	local rows = db.raw('SELECT uri, cid, record FROM happyview_records WHERE uri IN (' .. marks(#uris) .. ')', uris)
-	for _, row in ipairs(rows) do
-		byUri[row.uri] = row
-	end
+local json = require('internal.json')
+
+function handle(input)
+	local uris = input.uris
+	local byUri = fetchThrough(uris)
 	local out = {}
 	for _, uri in ipairs(uris) do
 		if byUri[uri] then
-			out[#out + 1] = recordView(byUri[uri])
+			out[#out + 1] = byUri[uri]
 			byUri[uri] = nil
 		end
 	end
-	return { records = toarray(out) }
+	return { records = json.to_array(out) }
 end

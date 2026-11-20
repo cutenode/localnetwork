@@ -1,0 +1,17 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Components without a story",
+	"description": "Components in src/lib that no story imports, each with a one-line reason: see scripts/story-coverage.ts.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["$schema", "exemptions"],
+	"properties": {
+		"$schema": { "const": "./story-exemptions.schema.json" },
+		"exemptions": {
+			"description": "Each component's path under src/lib, and why it has no story of its own.",
+			"type": "object",
+			"propertyNames": { "pattern": "^[^/\\\\].*\\.svelte$" },
+			"additionalProperties": { "type": "string", "pattern": "^\\S[^\\n]*\\S$" }
+		}
+	}
+}

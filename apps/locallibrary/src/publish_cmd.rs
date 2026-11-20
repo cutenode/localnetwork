@@ -120,8 +120,9 @@ fn publish_flow(
             return Ok(unchanged(out, &p, what));
         }
     }
-    let account = p.account.as_ref().map_or_else(|| account.name(), |a| a.name());
-    if let Some(o) = out.decide(false, &format!("Publish {what} as {account}? Anyone can read it")) {
+    // The plan's heading named the account (and signing in again says who as): the question, on
+    // stderr, doesn't.
+    if let Some(o) = out.decide(false, "Publish it? Anyone can read it") {
         return Ok(stop(&p, o));
     }
     let published = p.apply(None, ctx)?;
@@ -652,9 +653,8 @@ pub fn set_upload(
             bail!("{} didn't allow publishing (it wasn't granted when you signed in)", signed_in.name());
         }
     }
-    let account = p.account.as_ref().map_or_else(|| account.name(), |a| a.name());
-    let question = format!("Upload the recording and publish this set as {account}? Anyone can read them");
-    if let Some(o) = out.decide(false, &question) {
+    // The upload's heading named the account: the question, on stderr, doesn't.
+    if let Some(o) = out.decide(false, "Upload the recording and publish this set? Anyone can read them") {
         return Ok(out.not_applied(&p, o));
     }
     let uploaded = p.apply(None, ctx)?;

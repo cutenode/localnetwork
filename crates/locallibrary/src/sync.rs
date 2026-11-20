@@ -327,7 +327,7 @@ fn copy_library(
     if holds.library_id.is_some() {
         state.library_id = holds.library_id;
     }
-    target.finish(None)?;
+    target.finish(None, ctx)?;
     Ok(report)
 }
 

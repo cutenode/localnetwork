@@ -40,6 +40,18 @@ deny contains msg if {
 	msg := sprintf(".github/rulesets/protect-main.json: no workflow reports %q, so nothing can merge", [name])
 }
 
+# GitHub Actions' app, which reports every workflow's checks. A required check that names no app
+# passes on a status of that name from any app or token that can write statuses.
+actions_app := 15368
+
+deny contains msg if {
+	some rule in rules
+	rule.type == "required_status_checks"
+	some check in rule.parameters.required_status_checks
+	object.get(check, "integration_id", null) != actions_app
+	msg := sprintf(".github/rulesets/protect-main.json: give %q `\"integration_id\": %d`, so only GitHub Actions can pass it", [check.context, actions_app])
+}
+
 # The merge queue waits for the required checks on each group's merge_group event, and takes the
 # group out when one never reports.
 deny contains msg if {

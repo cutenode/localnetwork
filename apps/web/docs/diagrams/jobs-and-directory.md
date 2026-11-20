@@ -27,7 +27,8 @@ flowchart TD
   Members --> Sync["syncAll"]
   Sync --> Listings["listings.reconcile"]
   Listings --> Blocks["venues.reconcileBlocks"]
-  Blocks --> Moves["moveKitSpaces"]
+  Blocks --> Copies["events.reconcileCalendarCopies"]
+  Copies --> Moves["moveKitSpaces"]
 ```
 
 Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/db/migrations.ts`](../../src/lib/server/db/migrations.ts)
@@ -48,6 +49,7 @@ flowchart LR
   Hour --> H3["shared-spaces"]
   Hour --> H4["listings"]
   Hour --> H5["venue-blocks"]
+  Hour --> H9["calendar-copies"]
   Hour --> H6["epk-view-expiry"]
   Hour --> H7["inbox-retention"]
   Hour --> H8["db-backup, with a bucket:<br/>once a UTC day"]
@@ -62,9 +64,10 @@ What `syncDirectory` does with `HAPPYVIEW_API_KEY` set, at boot and from the Sys
 ```mermaid
 flowchart TD
   Compare["Compare scripts and lexicons<br/>with what HappyView stores"] --> Scripts["Upload changed scripts first,<br/>so the gate is in place"]
-  Scripts --> Lexicons["Upload changed lexicons,<br/>one at a time"]
+  Scripts --> Network["Have HappyView track other authorities'<br/>lexicons from the network"]
+  Network --> Lexicons["Upload our changed lexicons,<br/>one at a time"]
   Lexicons --> Root["Re-read the root's performers,<br/>wait up to 30 s"]
-  Root --> Shows["Each manager's shows,<br/>one repo at a time, in the background"]
+  Root --> Shows["Every manager's shows,<br/>one batch, in the background"]
   Root --> Refresh["refreshRecords: older records,<br/>once per script version"]
   Refresh --> Kv["Version kept in kv<br/>once every re-read has started"]
 ```
@@ -73,12 +76,12 @@ Source: [`src/lib/server/happyview/sync.ts`](../../src/lib/server/happyview/sync
 
 ## HappyView re-reads
 
-What makes the app ask HappyView to read a repo again through `/admin/backfill`. Jetstream only brings new writes, so these fill the gaps.
+What makes the app ask HappyView to read repos again through `/admin/backfill`, up to 500 accounts a job. Jetstream only brings new writes, so these fill the gaps; on the hosted instance's shared Network store, they run the record script over what the store holds.
 
 ```mermaid
 flowchart LR
   Backfill["/admin/backfill"]
-  Backfill -- "new record script" --> R1["That collection, per<br/>manager and root"]
+  Backfill -- "new record script" --> R1["That collection, for the<br/>managers and root"]
   Backfill -- "new record script" --> R2["Follows press kits read,<br/>root's verifications, DJ listings<br/>and listings, bug report space"]
   Backfill -- "a performer gains a manager,<br/>once HappyView serves it" --> R3["Their records and follows"]
   Backfill -- "boot" --> R4["The root's performers,<br/>each manager's shows"]
@@ -117,12 +120,13 @@ Source: [`src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.t
 
 ## HappyView record gates
 
-What each record script keeps of what Jetstream sends. Anyone can write these collections, so the gates decide what the directory holds.
+What each record script keeps of what Jetstream, or on the hosted instance the shared Network store, sends. Anyone can write these collections, so the gates decide what the directory holds. On the store a gate hides what it skips, and only from records it has run over.
 
 ```mermaid
 flowchart LR
-  Jet["Jetstream"]
+  Jet["Jetstream or<br/>the Network store"]
   Jet -- "the root's only" --> Root["project, listing, listing.profile,<br/>verification"]
+  Jet -- "the root's, as party events'<br/>public copies" --> Copies["calendar event"]
   Jet -- "every account's" --> All["profile, dj.set, dj.recording,<br/>dj.profile, locallibrary.settings"]
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]
   Jet -- "managers, accounts the root<br/>verified, and accounts with a profile" --> Names["Bluesky display names<br/>and pronouns"]
@@ -130,9 +134,10 @@ flowchart LR
   Jet -- "of the root's performers,<br/>and of others' profiles" --> Follows["computer.localnetwork.follow"]
   Jet -- "managers of a performer whose<br/>press kit reads follows" --> Bsky["Bluesky follows"]
   Jet -- "USERINPUT_SPACE alone" --> Input["app.userinput.space"]
+  Jet -- "any app's, answering the<br/>root's calendar events" --> Rsvps["community.lexicon.calendar.rsvp"]
 ```
 
-Source: [`lua/computer/localnetwork/project.lua`](../../lua/computer/localnetwork/project.lua), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`lua/computer/localnetwork/show.lua`](../../lua/computer/localnetwork/show.lua), [`lua/computer/localnetwork/epk.lua`](../../lua/computer/localnetwork/epk.lua), [`lua/computer/localnetwork/follow.lua`](../../lua/computer/localnetwork/follow.lua), [`lua/app/bsky/actor/profile.lua`](../../lua/app/bsky/actor/profile.lua), [`lua/app/bsky/graph/follow.lua`](../../lua/app/bsky/graph/follow.lua), [`lua/app/userinput/space.lua`](../../lua/app/userinput/space.lua), [`src/lib/server/happyview/bundle.ts`](../../src/lib/server/happyview/bundle.ts)
+Source: [`lua/computer/localnetwork/project.lua`](../../lua/computer/localnetwork/project.lua), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`lua/computer/localnetwork/show.lua`](../../lua/computer/localnetwork/show.lua), [`lua/computer/localnetwork/epk.lua`](../../lua/computer/localnetwork/epk.lua), [`lua/computer/localnetwork/follow.lua`](../../lua/computer/localnetwork/follow.lua), [`lua/app/bsky/actor/profile.lua`](../../lua/app/bsky/actor/profile.lua), [`lua/app/bsky/graph/follow.lua`](../../lua/app/bsky/graph/follow.lua), [`lua/app/userinput/space.lua`](../../lua/app/userinput/space.lua), [`lua/community/lexicon/calendar/event.lua`](../../lua/community/lexicon/calendar/event.lua), [`lua/community/lexicon/calendar/rsvp.lua`](../../lua/community/lexicon/calendar/rsvp.lua), [`src/lib/server/happyview/bundle.ts`](../../src/lib/server/happyview/bundle.ts)
 
 ## Directory queries
 
@@ -141,17 +146,18 @@ Which query answers which page. All of them are Lua scripts on HappyView, and `g
 ```mermaid
 flowchart LR
   Pages["Pages and services"]
-  Pages -- "home, /for-djs, /for-promoters,<br/>staff overview" --> Q1["getStats"]
-  Pages -- "home, /for-djs, /for-promoters,<br/>dashboard sidebar, staff's performers" --> Q10["searchProjects"]
+  Pages -- "home, /for, /for/djs, /for/promoters,<br/>staff overview" --> Q1["getStats"]
+  Pages -- "home, /for/djs, /for/promoters,<br/>dashboard sidebar, staff's performers" --> Q10["searchProjects"]
   Pages -- "/djs" --> Q2["searchPerformers"]
-  Pages -- "/match, /for-promoters" --> Q3["matchProjects"]
+  Pages -- "/match, /for/promoters" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
-  Pages -- "home, /shows, /for-djs, performer pages" --> Q5["listShows"]
+  Pages -- "home, /shows, /for/djs, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
   Pages -- "mixes, the set picker" --> Q6["getSets, listSets"]
   Pages -- "Follow on performers<br/>and profiles" --> Q7["getFollowStatus"]
-  Pages -- "home, /charts, /artists, /for-djs" --> Q8["getCharts, getArtist,<br/>searchArtists"]
+  Pages -- "Going and Interested<br/>on event pages" --> Q12["getRsvpStatus"]
+  Pages -- "home, /charts, /artists, /for/djs" --> Q8["getCharts, getArtist,<br/>searchArtists"]
   Pages -- "stats, press kits, profiles,<br/>verifications, bug report space,<br/>dashboard checklist, set pages" --> Q9["getRecords, listRecords"]
 ```
 
-Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/+page.server.ts`](../../src/routes/+page.server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts), [`src/lib/server/landing.ts`](../../src/lib/server/landing.ts), [`src/routes/for-promoters/+page.server.ts`](../../src/routes/for-promoters/+page.server.ts)
+Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/lib/server/services/rsvps.ts`](../../src/lib/server/services/rsvps.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/+page.server.ts`](../../src/routes/+page.server.ts), [`src/routes/for/+page.server.ts`](../../src/routes/for/+page.server.ts), [`src/routes/for/djs/+page.server.ts`](../../src/routes/for/djs/+page.server.ts), [`src/lib/server/landing.ts`](../../src/lib/server/landing.ts), [`src/routes/for/promoters/+page.server.ts`](../../src/routes/for/promoters/+page.server.ts)

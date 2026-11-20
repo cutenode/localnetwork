@@ -14,11 +14,13 @@
 			"ignoreBinaries": ["fuzz", "playwright", "tsx"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
+			// tools/policy.sh runs it, and the workflows that run the other tools/*/cli.ts don't.
+			"entry": ["tools/reads/cli.ts"],
 			// The repo's own tooling: nothing here ships.
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
 		"apps/web": {
-			// Vite's `#lexicon-files` and `#notification-kinds` aliases (vite.config.ts); package.json's imports point Node
+			// Vite's `#lexicon-files`, `#notification-kinds` and `#lua-files` aliases (vite.config.ts); package.json's imports point Node
 			// elsewhere.
 			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
 			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
@@ -26,6 +28,7 @@
 			"entry": [
 				"src/lib/server/atproto/lexicon-files.ts!",
 				"src/lib/server/notifications/kind-files.ts!",
+				"src/lib/server/happyview/lua-files.ts!",
 				"scripts/db-backup.ts!",
 				"fuzz/*.fuzz.ts"
 			],
@@ -38,14 +41,11 @@
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
 				"!src/lib/og/cards/CardPreview.svelte!",
-				// The venue picker ships dark: the event editor will be the first form to use it, and until then
-				// only its stories and tests reach it. Drop this line when a page imports it.
-				"!src/lib/components/VenuePicker.svelte!",
-				// Edit mode ships dark: the party page will be the first to use it, and until then only its stories and
-				// tests reach it. When a page imports EditMode, narrow this to EditBarFrame.svelte and EditPageHarness.svelte
-				// (story and test helpers) and drop the server line.
-				"!src/lib/components/edit/**!",
-				"!src/lib/server/edit-mode.ts!"
+				// locallibrary's terminal widgets, which only their stories show.
+				"!src/lib/tui/**!",
+				// Edit mode's story and test helpers.
+				"!src/lib/components/edit/EditBarFrame.svelte!",
+				"!src/lib/components/edit/EditPageHarness.svelte!"
 			],
 			// src/lib/server/og/render.ts resolves their font files by path at runtime.
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]

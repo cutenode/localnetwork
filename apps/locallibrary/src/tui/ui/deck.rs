@@ -7,7 +7,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::output::clock;
 use crate::tui::app::{App, NowPlaying, Repeat, Vis};
@@ -17,11 +17,12 @@ use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
 
-/// From this tall, the head has its art, tempo frame and visualiser, and the panels show.
+/// From this tall, the head has its art, titled tempo and visualiser, and the panels show.
 const ROOMY: u16 = 34;
 const SPACIOUS: u16 = 28;
-/// The head's rows where it's roomy: the large tempo and time, a row between, and their frame.
-const TALL_HEAD: u16 = 9;
+/// The head's rows where it's roomy: the tempo's title, the large tempo and time and a row between.
+/// The art and the visualiser are as tall.
+const TALL_HEAD: u16 = 8;
 /// The zoomed view stops growing here, and the overview has the rest.
 const ZOOM_MOST: u16 = 28;
 
@@ -90,10 +91,11 @@ struct Rows {
 impl Rows {
     /// The head, the panels and the readout take what they need, and the overview the least it
     /// can. The zoomed view has what's left, up to [`ZOOM_MOST`], then the overview grows.
-    fn of(height: u16, width: u16, has_cues: bool) -> Rows {
+    fn of(height: u16, has_cues: bool) -> Rows {
         let head = if height >= ROOMY { TALL_HEAD } else { 3 };
         let panels = if height >= ROOMY { ((height - 2) / 6).min(10) } else { 0 };
-        let readout = if width >= ONE_READOUT { 1 } else { 2 };
+        // Where the head's tall the readout is in it, and its row keeps the panels off the status line.
+        let readout = 1;
         let cues = if height >= SPACIOUS { 2 } else { 1 };
         let zoom_cues = if has_cues { cues } else { 0 };
         let least_overview = match height {
@@ -120,7 +122,7 @@ pub(super) fn draw_deck(f: &mut Frame, app: &mut App, area: Rect) {
     keep_waves(app);
     // One edge for everything on the deck, the one the header's text keeps.
     let area = area.inner(Margin::new(1, 0));
-    let rows = Rows::of(area.height, area.width, !app.waves.cues.is_empty());
+    let rows = Rows::of(area.height, !app.waves.cues.is_empty());
     // Only once the analysis is read, so the rows don't jump while it loads.
     let mode = app.band_mode();
     let no_zoom = app.now.as_ref().is_some_and(|n| !n.loading && n.zoom_wave(mode).is_none());
@@ -141,7 +143,9 @@ pub(super) fn draw_deck(f: &mut Frame, app: &mut App, area: Rect) {
     if panels.height > 0 {
         draw_details(f, app, panels);
     }
-    draw_readout(f, app, readout);
+    if rows.head < TALL_HEAD {
+        draw_readout(f, app, readout);
+    }
 }
 
 /// The art, what's known of the track, a visualiser where there's room, and the tempo at the right
@@ -164,9 +168,13 @@ fn draw_head(f: &mut Frame, app: &mut App, area: Rect) {
     if art_w > 0 {
         draw_art(f, app, Rect { width: art_w, ..art });
     }
-    match tall {
-        true => draw_info(f, app, info),
-        false => draw_brief(f, app, info),
+    if tall {
+        // Playing or not and what's next sit under the track's names, level with the art's foot.
+        let [about, readout] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(info);
+        draw_info(f, app, about);
+        draw_readout(f, app, readout);
+    } else {
+        draw_brief(f, app, info);
     }
     draw_tempo(f, app, tempo);
     if vis_w > 0 {
@@ -175,7 +183,7 @@ fn draw_head(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// What three rows have room for: the track, where the beat and phrase are, its cues.
+/// What three rows have room for: the track and what it's from. Where it is is the readout's.
 fn draw_brief(f: &mut Frame, app: &App, area: Rect) {
     let Some(now) = &app.now else {
         let line = app.resumable().map_or_else(
@@ -194,38 +202,10 @@ fn draw_brief(f: &mut Frame, app: &App, area: Rect) {
         return f.render_widget(Paragraph::new(lines), area);
     };
     let t = &now.track;
-    let pos_ms = app.position_ms();
     let title = if t.title.is_empty() { "Untitled" } else { t.title.as_str() };
-    let mut lines = vec![
-        Line::styled(title.to_string(), bold(theme::current().text)),
-        Line::styled(t.artist.clone(), bold(theme::current().accent)),
-    ];
-    let mut beat = beat_spans(now, pos_ms);
-    if let Some((_, p, bar)) = now.phrase_at(pos_ms) {
-        beat.extend([
-            Span::raw(" "),
-            chip(p.kind.name().to_uppercase(), theme::current().phrase(p.kind)),
-            Span::styled(format!(" {bar}/{}", p.bars), dim()),
-        ]);
-    }
-    lines.push(Line::from(beat));
+    let mut lines = vec![Line::styled(title.to_string(), bold(theme::current().text)), artist_line(now)];
+    lines.extend(about_line(now));
     f.render_widget(Paragraph::new(lines), area);
-}
-
-/// Where the beat is in the bar, in four squares, and the bar and beat.
-pub(super) fn beat_spans(now: &NowPlaying, pos_ms: f64) -> Vec<Span<'static>> {
-    let Some((_, n, bar)) = now.beat_at(pos_ms) else { return Vec::new() };
-    let mut spans = Vec::with_capacity(5);
-    for k in 1..=4u16 {
-        let (sym, c) = match (k == n, n == 1) {
-            (true, true) => (icons::SQUARE.get(), theme::current().accent),
-            (true, false) => (icons::SQUARE.get(), theme::current().info),
-            _ => (icons::HOLLOW.get(), theme::current().faint),
-        };
-        spans.push(Span::styled(sym, bold(c)));
-    }
-    spans.push(Span::styled(format!(" {bar}.{n}"), dim()));
-    spans
 }
 
 /// How wide the tempo's large digits are, the key's block, and the two with a column between.
@@ -244,7 +224,7 @@ const WIDE_TEMPO: u16 = 76;
 /// nothing moves as the time counts down.
 fn tempo_width(app: &App, area: Rect) -> u16 {
     if area.height >= TALL_HEAD {
-        return TEMPO + 4;
+        return TEMPO;
     }
     if area.width < WIDE_TEMPO {
         return TEMPO;
@@ -256,24 +236,12 @@ fn tempo_width(app: &App, area: Rect) -> u16 {
     DIGITS + 1 + UNIT + 2 + 4 + time + 1 + KEY
 }
 
-/// The tempo and the time left, large, with the key loud beside them. They're in a frame as a
-/// CDJ-3000X frames the master's where there's room. Where only three rows are left and the width's
+/// The tempo and the time left, large, with the key loud beside them. They're under a title, as the
+/// visualiser is, where there's room. Where only three rows are left and the width's
 /// narrow too, the time drops to a line beside the digits.
 fn draw_tempo(f: &mut Frame, app: &App, area: Rect) {
     let framed = area.height >= TALL_HEAD;
-    let inner = if framed {
-        let frame = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(faint())
-            .padding(Padding::horizontal(1))
-            .title(Line::styled(" BPM ", dim()));
-        let inner = frame.inner(area);
-        f.render_widget(frame, area);
-        inner
-    } else {
-        area
-    };
+    let inner = if framed { section_with(f, area, Line::styled("BPM ", dim())) } else { area };
     let beside = [Constraint::Length(DIGITS), Constraint::Length(1), Constraint::Min(0)];
     let (digits, time, key) = if framed {
         let [top, _, time] =
@@ -360,14 +328,12 @@ fn lit(less_motion: bool, playing: bool, ms: u32) -> bool {
     less_motion || !playing || ms < 500
 }
 
-/// From this wide the readout fits on one row, and from this wide it spells out what its numbers
-/// are.
-const ONE_READOUT: u16 = 76;
-const WORDY_READOUT: u16 = 100;
+/// From this wide the readout spells out what its numbers are.
+const WORDY_READOUT: u16 = 60;
 
-/// Where the readout's columns end, in terse and in spelled out, so nothing moves as its numbers
-/// change: playing or not, the next cue and the next phrase.
-const STOPS: [[usize; 3]; 2] = [[3, 13, 29], [3, 23, 53]];
+/// The gap between the readout's phrases and its next cue. Their numbers are padded, so the cue
+/// only moves when the phrase changes.
+const GAP: &str = "   ";
 
 /// `spans` padded out to `to` columns.
 fn pad_to(spans: &mut Vec<Span<'static>>, to: usize) {
@@ -377,43 +343,50 @@ fn pad_to(spans: &mut Vec<Span<'static>>, to: usize) {
     }
 }
 
-/// Under the waveforms, in columns: playing or not, how far the next cue and phrase are in bars,
-/// and at the right the modes that are on. On two rows where one won't take it. The time is the
-/// large one beside the tempo.
+/// Under the track's names (or the waveforms, where the head's short), in columns: playing or not,
+/// and how far the next cue and phrase are in bars. The time is the large one beside the tempo, and
+/// the modes that are on are the status line's.
 fn draw_readout(f: &mut Frame, app: &mut App, area: Rect) {
     let width = area.width as usize;
     let wordy = area.width >= WORDY_READOUT;
-    let [to_time, to_cue, to_phrase] = STOPS[usize::from(wordy)];
     let mut left = transport(app);
-    pad_to(&mut left, to_time);
+    pad_to(&mut left, 2);
     if let Some(now) = &app.now {
         let pos_ms = app.position_ms();
+        // How far, right-aligned so the name after it doesn't move as it counts down.
         let away = |to_ms: f64| match (now.bars_to(pos_ms, to_ms), wordy) {
-            (Some((bars, beats)), true) => format!(" {bars}.{beats} bars"),
-            (Some((bars, beats)), false) => format!(" {bars}.{beats}"),
-            (None, _) => format!(" {}", clock((to_ms - pos_ms) / 1000.0)),
+            (Some((bars, beats)), true) => {
+                format!("{:>4} {}", format!("{bars}.{beats}"), if (bars, beats) == (1, 0) { "bar " } else { "bars" })
+            }
+            (Some((bars, beats)), false) => format!("{:>4}", format!("{bars}.{beats}")),
+            (None, true) => format!("{:>4}     ", clock((to_ms - pos_ms) / 1000.0)),
+            (None, false) => format!("{:>4}", clock((to_ms - pos_ms) / 1000.0)),
         };
-        if let Some(c) = now.next_cue(pos_ms) {
-            let mark = loclib_waveform::cue_letter(c).map_or(icons::DIAMOND.get().to_string(), |l| l.to_string());
-            if wordy {
-                left.push(Span::styled("cue ", faint()));
-            }
-            left.extend([chip(mark, theme::palette().cue_color(c)), Span::styled(away(f64::from(c.start_ms)), text())]);
-        }
-        pad_to(&mut left, to_cue);
-        if let Some((i, _, _)) = now.phrase_at(pos_ms) {
-            if wordy {
-                left.push(Span::styled("phrase ", faint()));
-            }
+        let till = |what: &'static str| Span::styled(if wordy { what } else { " " }, faint());
+        left.extend(beat_squares(now, pos_ms));
+        // The phrase playing beside the next one, then the next cue. A column that has nothing to
+        // say takes no room: what's after it moves up.
+        if let Some((i, p, bar)) = now.phrase_at(pos_ms) {
+            left.extend(phrase_chip(p, bar));
             match now.phrases.get(i + 1) {
                 Some(next) => left.extend([
-                    chip(next.kind.name(), theme::current().phrase(next.kind)),
                     Span::styled(away(next.start_ms), text()),
+                    till(" till "),
+                    chip(next.kind.name(), theme::current().phrase(next.kind)),
                 ]),
-                None => left.push(Span::styled("last", dim())),
+                None => left.push(Span::styled(if wordy { "   last phrase" } else { "   last" }, dim())),
             }
+            left.push(Span::raw(GAP));
         }
-        pad_to(&mut left, to_phrase);
+        if let Some(c) = now.next_cue(pos_ms) {
+            let mark = loclib_waveform::cue_letter(c).map_or(icons::DIAMOND.get().to_string(), |l| l.to_string());
+            left.extend([
+                Span::styled(away(f64::from(c.start_ms)), text()),
+                till(" till cue "),
+                chip(mark, theme::palette().cue_color(c)),
+            ]);
+            left.push(Span::raw(GAP));
+        }
     }
     if end_style(app).is_some() {
         left.extend([chip("END".into(), theme::current().critical), Span::raw(" ")]);
@@ -425,19 +398,24 @@ fn draw_readout(f: &mut Frame, app: &mut App, area: Rect) {
         left.push(c);
         w
     });
-    let right = deck_states(app);
-    let room =
-        if area.height > 1 { width } else { width.saturating_sub(right.iter().map(Span::width).sum::<usize>() + 1) };
-    if let Some(w) = chip_w.filter(|w| chip_at + w < room) {
+    if let Some(w) = chip_w.filter(|w| chip_at + w < width) {
         app.areas.loop_chip = Rect { x: area.x + chip_at as u16, y: area.y, width: w as u16, height: 1 };
     }
-    if area.height > 1 {
-        let [first, second] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
-        f.render_widget(Line::from(fit(left, width)), first);
-        return f.render_widget(spread(Vec::new(), right, area.width), second);
-    }
-    let rw: usize = right.iter().map(Span::width).sum();
-    f.render_widget(spread(fit(left, width.saturating_sub(rw + 1)), right, area.width), area);
+    f.render_widget(Line::from(fit(left, width)), area);
+}
+
+/// Where the beat is in the bar, in four squares: the downbeat in the accent, the others in blue.
+pub(super) fn beat_squares(now: &NowPlaying, pos_ms: f64) -> Vec<Span<'static>> {
+    let Some((_, n, _)) = now.beat_at(pos_ms) else { return Vec::new() };
+    let mut spans: Vec<Span> = (1..=4u16)
+        .map(|k| match (k == n, n == 1) {
+            (true, true) => Span::styled(icons::SQUARE.get(), bold(theme::current().accent)),
+            (true, false) => Span::styled(icons::SQUARE.get(), bold(theme::current().info)),
+            _ => Span::styled(icons::HOLLOW.get(), bold(theme::current().faint)),
+        })
+        .collect();
+    spans.push(Span::raw(" "));
+    spans
 }
 
 /// The readout's first column: playing or not.
@@ -452,9 +430,9 @@ fn transport(app: &App) -> Vec<Span<'static>> {
     vec![glyph]
 }
 
-/// The readout's right side: the volume when it's turned down, and the modes that are on. What's
-/// off, and the waveform's colours (which `w` says as they change), aren't said.
-fn deck_states(app: &App) -> Vec<Span<'static>> {
+/// The volume when it's turned down, and the modes that are on, for the status line while the deck
+/// shows. What's off, and the waveform's colours (which `w` says as they change), aren't said.
+pub(super) fn deck_states(app: &App) -> Vec<Span<'static>> {
     let on = fg(theme::current().info);
     let mut spans = Vec::new();
     let mut state = |shown: String, style| {

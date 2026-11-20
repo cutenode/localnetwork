@@ -152,17 +152,14 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		expect((await t.profiles.get(DJ))?.record.basics.avatar).toBeUndefined();
 	});
 
-	it("has the directory read the account's Bluesky profile once they have a profile here, for its pronouns", async () => {
+	it("has the directory read any account's Bluesky profile for its pronouns, before they have a profile here", async () => {
 		await t.net.client(DJ).putRecord({
 			collection: BSKY_PROFILE,
 			rkey: 'self',
 			record: { $type: BSKY_PROFILE, displayName: 'Neon', pronouns: 'they/them' }
 		});
-		// Without a profile here, the directory skipped it.
-		expect(await t.profiles.bluesky(DJ)).toEqual({ name: null, pronouns: null });
-
-		await t.profiles.save(await t.viewer(DJ), { basics: { name: 'Neon' }, avatar: 'keep', swap: null });
 		await expect.poll(() => t.profiles.bluesky(DJ)).toEqual({ name: 'Neon', pronouns: 'they/them' });
+		expect(await t.profiles.get(DJ)).toBeNull();
 	});
 
 	it('asks an account whose session lapsed to sign in again', async () => {

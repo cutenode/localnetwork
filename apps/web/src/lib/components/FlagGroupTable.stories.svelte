@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { FlagGroupView } from '#lib/types.ts';
 	import FlagGroupTable from './FlagGroupTable.svelte';
 
@@ -15,6 +16,6 @@
 
 <Story name="Groups" args={{ groups }} />
 
-<Story name="Groups on a phone" args={{ groups }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Groups on a phone" args={{ groups }} globals={phone} />
 
 <Story name="No groups" args={{ groups: [] }} />

@@ -1,5 +1,6 @@
 use super::*;
 
+use loclib_testkit::audio::{be, mp4_atom, mp4_full};
 pub use loclib_testkit::audio::{wav, wav_of};
 
 #[test]
@@ -90,6 +91,46 @@ fn an_m4a_cut_short_is_truncated() {
         assert!(matches!(health(&junk, 20.0, bytes), Some(AudioProblem::Unreadable { .. })));
     }
     assert_eq!(mp4_len(&junk), None);
+}
+
+/// Regression: an M4A `vet_container` refuses, smaller than the database's size, was handed to
+/// symphonia unvetted to see whether it was cut short, and a tag claiming 16 TiB aborted the
+/// process. It's a file that won't open.
+#[test]
+fn a_refused_m4a_smaller_than_it_should_be_is_unreadable() {
+    let data = [be(&[1]), b"data".to_vec(), (1u64 << 44).to_be_bytes().to_vec(), be(&[1, 0])].concat();
+    let moov =
+        mp4_atom(b"moov", &mp4_atom(b"udta", &mp4_full(b"meta", &mp4_atom(b"ilst", &mp4_atom(b"\xa9nam", &data)))));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, [&b"\0\0\0\x14ftypM4A \0\0\0\0M4A "[..], &moov].concat()).unwrap();
+    match health(&path, 20.0, 1000) {
+        Some(AudioProblem::Unreadable { error }) => {
+            assert!(error.ends_with("an atom runs past the one holding it"), "{error}")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Regression: an M4A whose `stsz` gives every sample a size larger than the file had symphonia
+/// allocate that size for each packet it read. `silence-alac.m4a` with a size of 0xFFFFFFFF asked
+/// for 4 GiB; the other two are inputs the mp4 fuzz target crashed on. Each is refused, and won't
+/// open for its health.
+#[test]
+fn an_m4a_with_samples_larger_than_the_file_is_refused() {
+    let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio");
+    let dir = tempfile::tempdir().unwrap();
+    let max = dir.path().join("sample-size-ffffffff.m4a");
+    let mut alac = std::fs::read(audio.join("silence-alac.m4a")).unwrap();
+    alac[593..597].copy_from_slice(&[0xff; 4]);
+    std::fs::write(&max, alac).unwrap();
+    for path in [max, audio.join("sample-size-aaaaaaaa.m4a"), audio.join("sample-size-ff000004.m4a")] {
+        match vet_container(&path) {
+            Err(loclib_audio::Error::Parse { message, .. }) => assert_eq!(message, "a sample is larger than the file"),
+            other => panic!("{}: {other:?}", path.display()),
+        }
+        assert!(matches!(health(&path, 1.0, 0), Some(AudioProblem::Unreadable { .. })), "{}", path.display());
+    }
 }
 
 /// A WAV cut short in its header doesn't open: it's truncated when it's smaller than the

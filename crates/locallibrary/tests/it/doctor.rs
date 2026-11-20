@@ -183,7 +183,7 @@ fn orphans_are_left_alone_when_a_database_is_unreadable_or_an_operation_was_inte
     assert!(doctor::plan_orphans(&d, &Ctx::silent()).is_err_and(|e| matches!(e.inner(), Error::Conflict(_))));
     let r = doctor::run(&d, &DoctorOptions::default(), &Ctx::silent()).unwrap();
     assert!(r.warnings.iter().any(|w| w.contains("interrupted")));
-    d.finish(None).unwrap();
+    d.finish(None, &Ctx::silent()).unwrap();
 
     // OneLibrary can't be read: what it references is unknown.
     fs::write(root.join(paths::LIBRARY_PLUS_DB), b"not sqlcipher").unwrap();

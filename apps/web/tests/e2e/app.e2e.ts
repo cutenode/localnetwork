@@ -353,8 +353,9 @@ test.describe('public pages', () => {
 		for (const path of [
 			'/',
 			'/about',
-			'/for-djs',
-			'/for-promoters',
+			'/for',
+			'/for/djs',
+			'/for/promoters',
 			'/privacy',
 			'/match',
 			'/djs',
@@ -429,14 +430,14 @@ test.describe('public pages', () => {
 		}
 	});
 
-	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
+	test('serves OAuth client metadata and the DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
 		const { scope } = await metadata.json();
 		expect(scope).toContain('include:computer.localnetwork.permissions');
 		// Asked for only when someone first sends a bug report, but the PDS refuses any scope not listed here.
 		expect(scope).toContain('repo:app.userinput.discussion?action=create');
 		const did = await (await request.get('/.well-known/did.json')).json();
-		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
+		expect(did).toEqual({ '@context': ['https://www.w3.org/ns/did/v1'], id: 'did:web:localhost%3A5199' });
 	});
 });
 
@@ -547,7 +548,7 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: 'Neon', exact: true }).click();
 		await expect(page).toHaveURL('/@neon.test');
 		await page.getByRole('link', { name: 'Send inquiry' }).click();
-		await expect(page.getByRole('heading', { level: 1, name: 'Neon', exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { level: 1, name: 'Inquire with Neon', exact: true })).toBeVisible();
 		await expectAccessible(page);
 		await page.locator('#title').fill('Listed Night');
 		await page.locator('#message').fill('Would you play our listed night?');
@@ -880,7 +881,6 @@ test.describe('signed in', () => {
 		// Once it's confirmed, the DJ can announce it, starting from the inquiry's details.
 		await signIn(page, 'neon.test', 'neon-pass', thread);
 		await expect(page.getByRole('link', { name: 'Announce this show' })).toHaveCount(0);
-		await page.getByRole('button', { name: 'Change status' }).click();
 		// Confirming settles the booking, so it asks once more before it goes.
 		await page.getByRole('button', { name: 'Confirm booking' }).click();
 		await page.getByRole('button', { name: 'Confirm booking' }).click();

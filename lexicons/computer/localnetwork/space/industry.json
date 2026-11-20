@@ -6,7 +6,7 @@
 			"type": "space",
 			"description": "Private booking details for projects. Only staff can read it; the app shows the details to a project's managers and to people granted one of its press kits.",
 			"key": "literal:main",
-			"name": "Local Network industry details",
+			"title": "Local Network industry details",
 			"collections": ["computer.localnetwork.project.details"]
 		}
 	}

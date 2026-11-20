@@ -254,6 +254,15 @@ pub struct App {
     pub collection_db: Option<PathBuf>,
     /// The collection's row is what's selected in the Library view's sources, rather than a drive.
     pub collection_row: bool,
+    /// The drives holding a copy of the whole collection (`collection export`), with when it was
+    /// made. The collection itself is read as it is now, so a copy is never opened in its place
+    /// by default.
+    pub collection_copies: FxHashMap<PathBuf, chrono::DateTime<chrono::Utc>>,
+    /// `master.db` as it was when last read, and a change to it seen since, waiting for rekordbox
+    /// to finish saving (see `watch_collection`).
+    pub(super) collection_seen: Option<drives::CollectionStamp>,
+    pub(super) collection_change: Option<(drives::CollectionStamp, Instant)>,
+    last_collection_poll: Instant,
     /// How far the Library view's sources are scrolled.
     pub source_offset: usize,
     /// The Drives view's rows, scrolled.
@@ -502,6 +511,10 @@ impl App {
             drive_header: None,
             collection_db: None,
             collection_row: false,
+            collection_copies: FxHashMap::default(),
+            collection_seen: None,
+            collection_change: None,
+            last_collection_poll: Instant::now(),
             source_offset: 0,
             drive_rows: ListState::default(),
             drive_pane: DrivePane::List,

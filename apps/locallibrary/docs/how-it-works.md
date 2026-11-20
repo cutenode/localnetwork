@@ -24,6 +24,9 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
                             exportLibrary.db and master.db are decrypted and written
+crates/loclib-anlz/         rekordbox's analysis files (ANLZ0000.DAT, .EXT, .2EX): path rewriting, beat grid,
+                            cues (read and write), waveforms, phrases, decoded into loclib-model's analysis
+                            types; the writers keep every section they don't change byte for byte
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
@@ -79,6 +82,9 @@ plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track'
                             and artist IDs, looked up by its ISRC and kept where they fit the track
 plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
                             in parts as a track, its tracklist the description, the track's page its link
+plugins/rekordbox-backup/   the rekordbox-backup plugin: backups of rekordbox's library on this computer as
+                            rekordbox's Backup Library writes them, listed and checked, made every few
+                            days by its service; built on the SDK alone, as a third party's would be
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
@@ -141,9 +147,9 @@ crates/locallibrary/src/    the library, built on the crates above
                gives for a run, held to a third party's rules) and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
-  sound/       tempo, key and loudness as the analyzers chosen for those roles kept them: doctor's
-               analysis section, how sure each key is for the set planner and the check's loudness
-               item; and `analysis bench` (bench.rs), which runs loclib-analysis itself
+  sound/       tempo, key and loudness from the analyzers chosen for those roles: doctor's analysis
+               section, how sure each key is for the set planner, the check's loudness item, and
+               `analysis bench` (bench.rs, scored with loclib-analysis's benchmark, without its DSP)
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
                store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and
@@ -161,8 +167,7 @@ crates/locallibrary/src/    the library, built on the crates above
   settings.rs  My Settings on drives and in rekordbox's folder (the files' codec is loclib-mysettings),
                and the settings profile
   artwork.rs   drive artwork rows/thumbnails, audio tag embedding
-  anlz.rs      analysis files (anlz/write.rs writes them): path rewriting, beat grid, cues (read and write),
-               waveforms, phrases, decoded into loclib-model's analysis types
+  anlz.rs      a track's analysis files on a drive, read through loclib-anlz (which it re-exports)
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
   onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the

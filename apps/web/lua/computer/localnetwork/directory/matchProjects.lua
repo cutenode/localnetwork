@@ -1,6 +1,8 @@
 -- Rank active projects by how well they fit a show. Each factor scores 0..1 and the weighted sum makes the score;
 -- notes say why in codes that clients turn into text (see computer.localnetwork.directory.defs#matchNote).
 
+local json = require('internal.json')
+
 -- Fee tiers by rank, cheapest first.
 local TIER = {}
 for rank, tier in ipairs(TAXONOMY.feeTiers) do
@@ -165,18 +167,18 @@ local function score(show, profile)
 		km
 end
 
-function handle()
-	local capacity = integer(params.capacity)
-	local wanted = normalizeGenres(list(params.genres, 12), 12)
+function handle(input)
+	local capacity = integer(input.capacity)
+	local wanted = normalizeGenres(input.genres or {}, 12)
 	local show = {
-		near = point(params.latE6, params.lngE6),
-		radius = math.max(1, integer(params.radiusKm) or 50),
+		near = point(input.latE6, input.lngE6),
+		radius = math.max(1, integer(input.radiusKm) or 50),
 		count = #wanted,
 		related = {},
-		tier = TIER[params.budgetTier],
+		tier = TIER[input.budgetTier],
 		capacity = capacity and capacity > 0 and capacity or nil,
-		setType = text(params.setType),
-		formats = list(params.formats, 10),
+		setType = text(input.setType),
+		formats = input.formats or {},
 	}
 	for i, want in ipairs(wanted) do
 		for genre, value in pairs(similarities(want)) do
@@ -186,10 +188,10 @@ function handle()
 			show.related[genre] = related
 		end
 	end
-	local includeOutOfRange = params.includeOutOfRange == true
+	local includeOutOfRange = input.includeOutOfRange == true
 
 	local ranked = {}
-	for i, project in ipairs(projects(" AND json_extract(record, '$.status') = 'active'", {})) do
+	for i, project in ipairs(projects(" AND record::jsonb ->> 'status' = 'active'", {})) do
 		local result, km = score(show, project.record.profile)
 		if includeOutOfRange or result.inRange then
 			project.distanceM = km and meters(km)
@@ -211,7 +213,7 @@ function handle()
 
 	-- Only the page gets percentages and note lists.
 	local matches = {}
-	for i = 1, math.min(#ranked, pageSize(params.limit, 30, 50)) do
+	for i = 1, math.min(#ranked, pageSize(input.limit, 30, 50)) do
 		local result, breakdown = ranked[i].result, {}
 		for factor, value in pairs(result.factors) do
 			breakdown[factor] = percent(value)
@@ -221,9 +223,9 @@ function handle()
 			score = ranked[i].score,
 			inRange = result.inRange,
 			breakdown = breakdown,
-			reasons = toarray(result.reasons),
-			warnings = toarray(result.warnings),
+			reasons = json.to_array(result.reasons),
+			warnings = json.to_array(result.warnings),
 		}
 	end
-	return { matches = toarray(matches) }
+	return { matches = json.to_array(matches) }
 end

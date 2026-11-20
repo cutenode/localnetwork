@@ -293,8 +293,9 @@ describe('EpkDrafts', () => {
 				const request = new Request(url, init);
 
 				if (new URL(request.url).pathname !== '/admin/backfill') return f.t.happyView.fetch(request);
-				const { collection, did } = z.object({ collection: z.string(), did: z.string() }).parse(await request.json());
-				backfilled.push(`${collection} ${did}`);
+				const backfill = z.object({ collection: z.string(), dids: z.array(z.string()) });
+				const { collection, dids } = backfill.parse(await request.json());
+				backfilled.push(...dids.map((did) => `${collection} ${did}`));
 
 				return Response.json({ id: 'job', status: 'running' });
 			}

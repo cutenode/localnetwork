@@ -1,0 +1,20 @@
+{
+	"$schema": "./story-exemptions.schema.json",
+	"exemptions": {
+		"components/edit/AddSlot.svelte": "edit/EditBar.stories.svelte draws it in every editing state, through EditBarFrame",
+		"components/edit/ConflictPanel.svelte": "edit/EditBar.stories.svelte draws it in its Conflict stories, through EditBarFrame",
+		"components/edit/EditBar.svelte": "edit/EditBar.stories.svelte draws it in every edit-mode state, through EditBarFrame",
+		"components/edit/EditMenu.svelte": "edit/EditBar.stories.svelte draws it in its Menu stories, through EditBarFrame",
+		"components/edit/EditMode.svelte": "the edit-mode parts it moves between are drawn still by edit/EditBar.stories.svelte; edit-mode.svelte.test.ts runs it in a browser through EditPageHarness",
+		"components/edit/EditPageHarness.svelte": "a page for edit-mode.svelte.test.ts to run EditMode on, not a part of the site",
+		"components/edit/EditSession.svelte": "EditMode loads it when editing starts; edit-mode.svelte.test.ts runs it in a browser through EditPageHarness",
+		"components/edit/InlineText.svelte": "edit/EditBar.stories.svelte draws it in every editing state, through EditBarFrame",
+		"components/edit/LeaveDialog.svelte": "edit/EditBar.stories.svelte draws it in its Leaving with changes stories, through EditBarFrame",
+		"components/edit/SaveToast.svelte": "edit/EditBar.stories.svelte draws it in its Saved, Published and Discarded stories, through EditBarFrame",
+		"components/home/BookingHome.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in every story not named Social",
+		"components/home/EventCard.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in the Social stories with shows",
+		"components/home/SocialHome.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in the stories named Social",
+		"tui/Cast.svelte": "the tui/*.stories.svelte stories that move draw it, through TuiStory",
+		"tui/Terminal.svelte": "every still in tui/*.stories.svelte draws it, through TuiStory"
+	}
+}

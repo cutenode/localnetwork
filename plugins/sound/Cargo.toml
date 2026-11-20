@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-loclib-analysis.workspace = true
+loclib-analysis = { workspace = true, features = ["dsp"] }
 loclib-plugin.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true

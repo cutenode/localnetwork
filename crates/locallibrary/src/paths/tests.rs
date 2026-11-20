@@ -128,3 +128,31 @@ fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
     assert_eq!(classify(&format!("{key}/{hidden}")), None);
     assert_eq!(classify(&format!("{}/{key}", shout(STATE_DIR, &tc))), None);
 }
+
+/// Two tracks whose paths hash alike (from the large fixture, where rekordbox numbered them so)
+/// share a folder: the first free stem goes to each in turn.
+#[test]
+fn colliding_paths_get_the_next_free_stem() {
+    use crate::anlz::AnalysisFolder;
+    let first =
+        AnalysisFolder::of("/Contents/Andreas Gehm/The Worst of Gehm/9840607_My_So_Called_Robot_Life_Part_2_Origi.mp3");
+    let second = AnalysisFolder::of("/Contents/Miki craven/0 Kelvin EP/5510349_Rusty_Mountain_Original_Mix.aiff");
+    assert_eq!(first, second);
+    let stem = analysis_stem(first, |_| false);
+    assert_eq!(stem.to_string(), "PIONEER/USBANLZ/P05F/0001CAFF/ANLZ0000");
+    assert_eq!(analysis_stem(second, |s| s == stem).to_string(), "PIONEER/USBANLZ/P05F/0001CAFF/ANLZ0001");
+}
+
+/// Every analysed track of a real rekordbox export has its files in rekordbox's folder for its
+/// audio path.
+#[test]
+fn a_rekordbox_export_puts_every_track_s_analysis_in_its_folder() {
+    let pdb = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/large/export.pdb");
+    let lib = crate::pdb::read_library(&pdb).unwrap();
+    let analysed: Vec<_> = lib.tracks.iter().filter(|t| !t.analyze_path.is_empty()).collect();
+    assert_eq!(analysed.len(), 3886);
+    for t in analysed {
+        let folder = key(&t.analyze_path).rsplit_once('/').unwrap().0.to_string();
+        assert_eq!(folder, crate::anlz::AnalysisFolder::of(&t.file_path).to_string(), "{}", t.file_path);
+    }
+}

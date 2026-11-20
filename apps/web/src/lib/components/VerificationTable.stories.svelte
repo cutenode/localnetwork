@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { IssuedVerification, LiveIdentity } from '#lib/types.ts';
 	import VerificationTable from './VerificationTable.svelte';
 
@@ -33,7 +34,7 @@
 
 <Story name="Verified and out of date" args={{ verifications, live }} />
 
-<Story name="Verified and out of date on a phone" args={{ verifications, live }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
+<Story name="Verified and out of date on a phone" args={{ verifications, live }} globals={phone} />
 
 <Story name="Out of date, with no name left" args={{ verifications: verifications.slice(0, 1), live: { 'did:plc:neon': { handle: null, displayName: null } } }} />
 

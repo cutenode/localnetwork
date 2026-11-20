@@ -557,6 +557,67 @@ export const migrations = {
 		async up(db) {
 			await sql.raw('ALTER TABLE epk_request DROP COLUMN role').execute(db);
 		}
+	},
+	// Space hosts send a watched space's updates with the token the syncer registered them under.
+	'019_space_notify_token': {
+		async up(db) {
+			await sql.raw(`ALTER TABLE space_watch ADD COLUMN notify_token TEXT NOT NULL DEFAULT ''`).execute(db);
+			await sql.raw('UPDATE space_watch SET notify_token = hex(randomblob(32))').execute(db);
+		}
+	},
+	'020_parties': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE party (
+						space_uri TEXT PRIMARY KEY,
+						skey TEXT NOT NULL,
+						name TEXT NOT NULL,
+						published_at TEXT,
+						record TEXT NOT NULL,
+						cid TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX party_skey ON party (skey)').execute(db);
+		}
+	},
+	'021_events': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE event (
+						uri TEXT PRIMARY KEY,
+						space_uri TEXT NOT NULL,
+						rkey TEXT NOT NULL,
+						venue_space TEXT,
+						starts_at TEXT,
+						status TEXT NOT NULL,
+						audience TEXT NOT NULL,
+						published_at TEXT,
+						record TEXT NOT NULL,
+						cid TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX event_space ON event (space_uri)').execute(db);
+			await sql.raw('CREATE INDEX event_venue ON event (venue_space, starts_at)').execute(db);
+			await sql
+				.raw(
+					`CREATE TABLE venue_approval (
+						space_uri TEXT NOT NULL,
+						rkey TEXT NOT NULL,
+						event_uri TEXT NOT NULL,
+						approved_by TEXT NOT NULL,
+						created_at TEXT NOT NULL,
+						PRIMARY KEY (space_uri, rkey)
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX venue_approval_event ON venue_approval (event_uri)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

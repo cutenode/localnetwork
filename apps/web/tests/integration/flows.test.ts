@@ -658,7 +658,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		// A token for another method, as a PDS signs one for any lxm it's asked for, is turned away.
 		const other = await kai.agent.com.atproto.server.getServiceAuth({
 			aud: audience,
-			lxm: 'com.atproto.space.notifyWrite'
+			lxm: 'com.atproto.space.notifySpaceUpdate'
 		});
 
 		expect((await call(other.data.token)).status).toBe(401);
@@ -725,17 +725,23 @@ describe('Local Network on a real atproto spaces network', () => {
 					repo: neon.did,
 					collection: BSKY_PROFILE,
 					rkey: 'self',
-					record: { $type: BSKY_PROFILE, displayName, description: 'Not kept' }
+					record: { $type: BSKY_PROFILE, displayName, description: 'Rolling techno' }
 				})
 			).data;
 
-		// A manager's Bluesky profile reaches HappyView over Jetstream, keeping only the display name.
+		// A manager's Bluesky profile reaches HappyView over Jetstream, kept as written.
 		const named = await name('Neon');
 		await expect
 			.poll(async () => (await net.app.happyView.query('getRecords', { uris: [named.uri] })).records, {
 				timeout: 10_000
 			})
-			.toEqual([{ uri: named.uri, cid: named.cid, value: { $type: BSKY_PROFILE, displayName: 'Neon' } }]);
+			.toEqual([
+				{
+					uri: named.uri,
+					cid: named.cid,
+					value: { $type: BSKY_PROFILE, displayName: 'Neon', description: 'Rolling techno' }
+				}
+			]);
 
 		await net.app.verifications.grant(ada, neon.did);
 		const [record] = await root.listRecords(VERIFICATION);
@@ -1160,9 +1166,10 @@ describe('Local Network on a real atproto spaces network', () => {
 			net.app.core.readSpaceRecord!({ space, repo: lee.did, collection: inquiry.collection, rkey: inquiry.rkey })
 		).resolves.toMatchObject({ cid: inquiry.cid });
 
+		// The host's notice alone isn't proof: the authority confirms it by refusing a fresh credential.
 		await root.deleteSpace(space);
-		await net.app.syncer.onSpaceDeleted(space);
-		await net.app.syncer.onSpaceDeleted(space);
+		await net.app.syncer.reauthorize(space);
+		await net.app.syncer.reauthorize(space);
 		expect(await writers()).toEqual([]);
 		await expect(net.app.bookings.thread(lee, space)).rejects.toThrow(NotFoundError);
 

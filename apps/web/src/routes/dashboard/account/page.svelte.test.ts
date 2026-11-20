@@ -31,7 +31,7 @@ it('links each page with where things stand there', async () => {
 		.toHaveAttribute('href', '/dashboard/account/data');
 	await expect.element(page.getByText('1 record held for you')).toBeVisible();
 	await expect
-		.element(page.getByRole('link', { name: 'Requests to staff' }))
+		.element(page.getByRole('link', { name: 'Review requests' }))
 		.toHaveAttribute('href', '/dashboard/account/requests');
 	await expect.element(page.getByText('1 needs you · 1 with staff')).toBeVisible();
 });

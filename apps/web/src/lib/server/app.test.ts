@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { P256Keypair } from '@atproto/crypto';
 import { cidForLex } from '@atproto/lex-cbor';
 import { jsonToLex } from '@atproto/lex-json';
-import { createSpaceToken } from '@atproto/space';
+import { createSpaceCredential } from '@atproto/space';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION, DIRECTORY, VERIFICATION } from '#lib/nsid.ts';
 import { type App, createApp, getApp } from './app';
@@ -70,15 +70,16 @@ function stubNetwork() {
 		],
 		['GET /xrpc/com.atproto.space.getDelegationToken', () => Response.json({ token: 'delegation' })],
 		[
-			'POST /xrpc/com.atproto.space.getSpaceCredential',
+			'POST /xrpc/com.atproto.space.authorizeSpaceSync',
 			async (request) => {
-				const { space, credentialKid } = await request.json();
+				const { space, credentialKey } = await request.json();
 
-				const credential = await createSpaceToken(
-					'credential',
-					{ iss: ROOT, sub: space, keyId: credentialKid },
-					authorityKey
-				);
+				const credential = await createSpaceCredential({
+					iss: ROOT,
+					sub: space,
+					keyId: credentialKey,
+					keypair: authorityKey
+				});
 
 				return Response.json({ credential });
 			}
@@ -86,6 +87,8 @@ function stubNetwork() {
 		['GET /admin/scripts', () => Response.json([])],
 		['POST /admin/scripts', () => Response.json({}, { status: 201 })],
 		['POST /admin/lexicons', () => Response.json({})],
+		['GET /admin/network-lexicons', () => Response.json([])],
+		['POST /admin/network-lexicons', () => Response.json({}, { status: 201 })],
 		['POST /admin/backfill', () => Response.json({ id: 'job', status: 'running' }, { status: 201 })],
 		['GET /admin/backfill/status', () => Response.json([{ id: 'job', status: 'completed' }])]
 	]);
@@ -306,21 +309,38 @@ describe('createApp', () => {
 		expect(net.seen.some((call) => call.host === 'hv.test' && call.path.startsWith('/xrpc/'))).toBe(true);
 	});
 
-	it('registers for write notifications from space hosts when SYNC_NOTIFY is on', async () => {
-		const registered: unknown[] = [];
+	it.each([
+		['true', true],
+		['false', false]
+	])("registers at its public URL for a watched space's updates when SYNC_NOTIFY is %s", async (notify, registers) => {
+		const authorizing = net.routes.get('POST /xrpc/com.atproto.space.authorizeSpaceSync')!;
+		const asked: { notify?: unknown }[] = [];
 
-		net.routes.set('POST /xrpc/com.atproto.space.registerNotify', async (request) => {
-			registered.push(await request.json());
+		net.routes.set('POST /xrpc/com.atproto.space.authorizeSpaceSync', async (request, url) => {
+			asked.push(await request.clone().json());
 
-			return Response.json({});
+			return authorizing(request, url);
 		});
 
-		const app = await start({ ...NO_KEY, SYNC_NOTIFY: 'true' });
+		const app = await start({ ...NO_KEY, SYNC_NOTIFY: notify });
 		const space = app.spaces.staff;
 		await app.syncer.watch(space);
 		await app.syncer.sync(space).catch(() => undefined);
 
-		expect(registered).toEqual([{ space, service: app.config.syncService }]);
+		const { notifyToken } = await app.db
+			.selectFrom('spaceWatch')
+			.select('notifyToken')
+			.where('spaceUri', '=', space)
+			.executeTakeFirstOrThrow();
+
+		expect(asked).toEqual([
+			{
+				space,
+				credentialKey: expect.any(String),
+				delegationToken: 'delegation',
+				...(registers && { notify: { endpoint: app.config.publicUrl, token: notifyToken } })
+			}
+		]);
 	});
 
 	it('reads the recordings of a manager of an active project', async () => {
@@ -530,7 +550,7 @@ describe('start', () => {
 		net.routes.set('GET /xrpc/com.atproto.space.getSpace', (_request, url) => {
 			const uri = url.searchParams.get('space')!;
 
-			return Response.json({ uri, policy: policies.get(uri) });
+			return Response.json({ space: uri, policy: policies.get(uri) });
 		});
 		net.routes.set('GET /xrpc/com.atproto.space.listSpaces', () => Response.json({ spaces: [] }));
 		net.routes.set('GET /xrpc/com.atproto.memberspace.listMembers', () => Response.json({ members: [] }));
@@ -543,7 +563,7 @@ describe('start', () => {
 		for (const { uri, policy } of rootSpacePolicies(app.spaces)) policies.set(uri, policy);
 		app.start();
 
-		const lists = () => net.seen.filter((call) => call.path === '/xrpc/com.atproto.space.listRepos').length;
+		const lists = () => net.seen.filter((call) => call.path === '/xrpc/com.atproto.space.listWriters').length;
 
 		// The first round bootstraps, which syncs every root space once.
 		await vi.advanceTimersByTimeAsync(1_000);

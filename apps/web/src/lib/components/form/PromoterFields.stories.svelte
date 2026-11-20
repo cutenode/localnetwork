@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { phone } from '#lib/testing/viewports.ts';
 	import PromoterFields from './PromoterFields.svelte';
 
 	const { Story } = defineMeta({ title: 'Patterns/Promoter fields', component: PromoterFields, tags: ['autodocs'] });
@@ -10,8 +11,6 @@
 			{ city: 'Leipzig', region: 'Saxony', country: 'DE' }
 		]
 	};
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="No cities yet" />

@@ -5,7 +5,7 @@
 	import type { Flags } from '#lib/types.ts';
 
 	/**
-	 * The dashboard home's checklist: one step per piece of a profile, each saying what it gets you and linking to where
+	 * Overview's checklist: one step per piece of a profile, each saying what it gets you and linking to where
 	 * it's filled in. Nothing shows once every step is done.
 	 */
 	let { data, flags, steps = STEPS }: { data: OnboardingData; flags: Flags | undefined; steps?: OnboardingStep[] } = $props();

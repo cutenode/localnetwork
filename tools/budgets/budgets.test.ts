@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Budget, type Measured, compared, declared, loosened, problems, run, table } from './budgets.ts';
+import { type Budget, type Measured, compared, declared, loosened, problems, run, spread, table } from './budgets.ts';
 
 const budget = (allowance = 10): Budget => ({
 	$schema: '../budget.schema.json',
@@ -114,6 +114,20 @@ describe('table', () => {
 	});
 });
 
+describe('spread', () => {
+	it("gives a count's range, and the names not in every run", () => {
+		expect(spread([1000, 1003, 998])).toBe(5);
+		expect(
+			spread([
+				['a', 'b'],
+				['a', 'c'],
+				['a', 'b']
+			])
+		).toBe(2);
+		expect(spread([])).toBe(0);
+	});
+});
+
 describe('loosened', () => {
 	it('names a widened allowance, and a metric or area that went', () => {
 		expect(loosened('size', budget(10), budget(11))).toEqual(['size/binary']);
@@ -196,6 +210,32 @@ describe('the commands', () => {
 		});
 	});
 
+	describe('noise', () => {
+		it("fails a metric whose runs spread over half its allowance, and lists every metric's spread", () => {
+			for (const [dir, binary] of [
+				['one', 1000],
+				['two', 1005],
+				['three', 1002]
+			] as const) {
+				mkdirSync(dir);
+				write(`${dir}/size.json`, { binary });
+			}
+
+			// A run that didn't measure the metric doesn't count.
+			mkdirSync('four');
+			write('four/size.json', {});
+
+			expect(run(['noise', 'pull-request', 'one', 'two', 'three', 'four'])).toEqual({
+				lines: ['| Metric | Spread | Allowance |', '| --- | --- | --- |', '| size/binary | 5 | 10 bytes |', ''],
+				ok: true
+			});
+			write('benchmarks/budgets/size.json', budget(9));
+			expect(run(['noise', 'pull-request', 'one', 'two', 'three', 'none']).lines.at(-1)).toBe(
+				'size/binary: runs of one commit spread 5 bytes, over half its allowance of 9'
+			);
+		});
+	});
+
 	describe('raises', () => {
 		it('fails a widened allowance the body leaves out, and passes it declared', () => {
 			git('init', '-q');
@@ -224,6 +264,7 @@ describe('the commands', () => {
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '0']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '1.5']],
 		[['raises', 'HEAD']],
+		[['noise', 'pull-request', 'one']],
 		[['other', 'a', 'b']]
 	])('%j prints how to use it', (args) => {
 		expect(run(args).ok).toBe(false);

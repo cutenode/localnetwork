@@ -24,6 +24,11 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
 # Pinned the same way as locallibrary-ci.yml.
 jobs:
   # Whether anything the benchmarks build from changed since the last weekly or hand-started run on
@@ -206,10 +211,55 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # The noise probe: this commit's budgets measured five times over, one build each, and every
+  # metric's spread against its allowance (tools/budgets/cli.ts noise). An allowance under twice a
+  # metric's noise can't tell a pull request's change from a rerun, so the job fails until the
+  # allowance in benchmarks/budgets/ is widened.
+  noise:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # The release builds and the test archive once, then five rounds of measuring.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev strace valgrind
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
+      # The same archive locallibrary-ci.yml's budgets job measures from.
+      - run: cargo llvm-cov nextest-archive --workspace --locked --archive-file tests.tar.zst
+      # Each round after the first rebuilds nothing.
+      - run: |
+          for round in 1 2 3 4 5; do
+            tools/budgets/measure-archive.sh tests.tar.zst "$PWD/target/noise/$round"
+            tools/budgets/measure-release.sh "$PWD/target/noise/$round"
+          done
+      # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
+      - shell: bash
+        run: |
+          status=0
+          for job in pull-request release; do
+            { echo "## Noise of the $job budgets over five runs"; echo; } >> "$GITHUB_STEP_SUMMARY"
+            node tools/budgets/cli.ts noise "$job" target/noise/{1..5} | tee -a "$GITHUB_STEP_SUMMARY" || status=1
+          done
+          exit "$status"
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
   # that passes closes it (scheduled-issue.yml). A skipped run counts as passed.
   report:
-    needs: [changes, codspeed-build, codspeed, budgets]
+    needs: [changes, codspeed-build, codspeed, budgets, noise]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read

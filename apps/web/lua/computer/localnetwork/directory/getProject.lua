@@ -14,9 +14,9 @@ local function pressKits(project)
 	for _, did in ipairs(managers) do
 		args[#args + 1] = did
 	end
-	return db.raw(
+	return query(
 		'SELECT count(DISTINCT rkey) AS n FROM happyview_records'
-			.. " WHERE collection = ? AND json_extract(record, '$.project') = ? AND did IN ("
+			.. " WHERE collection = ? AND record::jsonb ->> 'project' = ? AND did IN ("
 			.. marks(#args - 2)
 			.. ')',
 		args
@@ -30,7 +30,7 @@ local function djs(project)
 	for _, did in ipairs(managers) do
 		args[#args + 1] = did
 	end
-	return db.raw(
+	return query(
 		'SELECT count(DISTINCT did) AS n FROM happyview_records WHERE collection IN (?, ?) AND did IN ('
 			.. marks(#managers)
 			.. ')',
@@ -38,23 +38,24 @@ local function djs(project)
 	)[1].n
 end
 
-function handle()
-	local uri, slug = text(params.uri), text(params.slug)
+function handle(input)
+	local uri, slug = text(input.uri), text(input.slug)
 	local found
 	if uri then
-		found = projects(' AND uri = ?', { uri })[1]
+		local where, values = atUris({ uri }, '')
+		found = projects(' AND ' .. where, values)[1]
 	elseif slug then
 		found = projects(
-			" AND json_extract(record, '$.slug') = ?",
+			" AND record::jsonb ->> 'slug' = ?",
 			{ slug },
-			" ORDER BY json_extract(record, '$.createdAt'), uri LIMIT 1"
+			' ORDER BY (record::jsonb ->> \'createdAt\') COLLATE "C", uri COLLATE "C" LIMIT 1'
 		)[1]
 	end
-	if not found or params.counts ~= true then return { project = found } end
+	if not found or input.counts ~= true then return { project = found } end
 	return {
 		project = found,
 		pressKits = pressKits(found),
-		upcomingShows = showCount(UPCOMING .. " AND json_extract(s.record, '$.project') = ?", { found.uri }),
+		upcomingShows = showCount(UPCOMING .. " AND s.record::jsonb ->> 'project' = ?", { found.uri }),
 		djs = djs(found),
 	}
 end

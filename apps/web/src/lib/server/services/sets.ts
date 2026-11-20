@@ -112,11 +112,11 @@ export class SetService {
 	}
 
 	/**
-	 * Has HappyView re-read each account's sets from its PDS (when this app has an API key, and at most every ten
-	 * minutes per account), for sets Jetstream never brought: ones published before HappyView kept every account's, or
-	 * while it was down.
+	 * Has HappyView re-read the accounts' sets from their PDS, together (when this app has an API key, and at most every
+	 * ten minutes per account), for sets Jetstream never brought: ones published before HappyView kept every account's,
+	 * or while it was down.
 	 */
 	async refresh(accounts: string[]): Promise<void> {
-		await Promise.all(accounts.map((did) => this.backfills.backfill(COLLECTION.djSet, did)));
+		await this.backfills.backfill(COLLECTION.djSet, accounts);
 	}
 }

@@ -19,9 +19,10 @@ RUN pnpm install --frozen-lockfile --filter localnetwork
 COPY lexicons lexicons/
 COPY flags flags/
 COPY packages/tokens packages/tokens/
-# apps/web, and the tools' READMEs and docs for their pages (.dockerignore sends only those).
+# apps/web, and the tools' READMEs, docs and changelogs for their pages (.dockerignore sends only those).
 COPY apps apps/
-RUN pnpm --filter localnetwork build
+# The other authorities' lexicons come from the network as lexicons/network.json pins them, and the build bundles them in.
+RUN pnpm --filter localnetwork lexicons:install && pnpm --filter localnetwork build
 # Its own step, so a failure's log is its own; the build stage's layers never ship.
 # hadolint ignore=DL3059
 RUN pnpm --filter localnetwork deploy --prod --ignore-scripts /prod

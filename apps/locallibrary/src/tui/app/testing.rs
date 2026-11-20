@@ -108,6 +108,36 @@ pub fn demo_drive_in(dir: &Path, name: &str) -> PathBuf {
     device.root().to_path_buf()
 }
 
+/// What a frame writes, kept where the test can read it.
+#[derive(Clone, Default)]
+pub struct Written(pub std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Written {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Whether `LOCALLIBRARY_BLESS=1` asks for the files tests check to be written instead.
+pub fn blessing() -> bool {
+    std::env::var_os("LOCALLIBRARY_BLESS").is_some_and(|v| v == "1")
+}
+
+/// `path` holds `made`, or with `LOCALLIBRARY_BLESS=1` now does. `rerun` says how to update it.
+pub fn holds(path: &Path, made: &str, rerun: &str) {
+    if blessing() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        return std::fs::write(path, made).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+    assert!(on_disk == made, "{} isn't what the player makes: update it with\n  {rerun}", path.display());
+}
+
 /// A hot cue (`hot`: 0 is A), or a memory cue, at `start_ms`; a loop when it has an end.
 pub fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>) -> Cue {
     Cue {
@@ -613,6 +643,11 @@ const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/ec
 /// named by `LOCALLIBRARY_TEST_PLUGINS`, which the host reads once, as it's first used. Call it
 /// before anything opens the palette or a menu.
 pub fn echo_plugin(dir: &Path) {
+    echo_plugin_with(dir, "");
+}
+
+/// [`echo_plugin`], its manifest ending with `more`.
+pub fn echo_plugin_with(dir: &Path, more: &str) {
     let params = r#"params = { type = "object", required = ["name"], properties = { name = { type = "string", minLength = 2, description = "Who to greet" }, times = { type = "integer" }, loud = { type = "boolean" }, mood = { type = "string", enum = ["calm", "wild"] }, file = { type = "string", x-path = true }, tags = { type = "array", items = { type = "string" } }, log = { type = "string" }, context = { type = "boolean" } } }"#;
     let operation = r#"params = { type = "object", properties = { name = { type = "string" }, tracks = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" } }, required = ["name"] }"#;
     let manifest = ECHO
@@ -643,7 +678,7 @@ choices = ["calm", "wild"]
 default = "calm"
 "#;
     let file = dir.join("echo.toml");
-    std::fs::write(&file, manifest + settings).unwrap();
+    std::fs::write(&file, manifest + settings + more).unwrap();
     // SAFETY: nextest runs each test in a process of its own, and this runs before the test
     // starts a thread.
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };

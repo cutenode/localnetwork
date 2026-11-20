@@ -5,42 +5,42 @@
 		"version": {
 			"allowance": 1321,
 			"unit": "instructions",
-			"measures": "Instructions `--version` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `--version` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"drive_ls": {
 			"allowance": 111031,
 			"unit": "instructions",
-			"measures": "Instructions `drive ls` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `drive ls` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"tracks_filter": {
 			"allowance": 82277,
 			"unit": "instructions",
-			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"tracks_search": {
 			"allowance": 103581,
 			"unit": "instructions",
-			"measures": "Instructions `tracks --search` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `tracks --search` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"tracks_sort": {
 			"allowance": 204903,
 			"unit": "instructions",
-			"measures": "Instructions `tracks --sort` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `tracks --sort` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"diff": {
 			"allowance": 145250,
 			"unit": "instructions",
-			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `diff` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"check": {
 			"allowance": 1432316,
 			"unit": "instructions",
-			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `check` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		},
 		"doctor": {
 			"allowance": 708541,
 			"unit": "instructions",
-			"measures": "Instructions `doctor` runs on the 3,886-track fixture, under cachegrind."
+			"measures": "Instructions `doctor` runs on the 3,886-track fixture beyond what `/bin/true` runs (the loader and libc starting), under cachegrind."
 		}
 	}
 }
