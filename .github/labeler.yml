@@ -92,6 +92,7 @@ atstore:
           - "apps/web/src/routes/dashboard/bookings/**"
           - "apps/web/src/lib/server/services/bookings.*"
           - "apps/web/src/lib/components/BookingDetails.svelte"
+          - "apps/web/src/routes/dashboard/promoter/**"
           - "lexicons/computer/localnetwork/booking/**"
 
 "web: planner":
