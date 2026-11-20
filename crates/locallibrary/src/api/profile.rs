@@ -1,5 +1,5 @@
-//! A DJ's profile, built from their sets (or, until they declare some, their sessions), drives and
-//! the store, and the choices about what it shows.
+//! A DJ's profile, built from their sets (or, until they declare some, their sessions), rekordbox's
+//! collection on this computer, drives and the store, and the choices about what it shows.
 
 use chrono::{Datelike, NaiveDate};
 use schemars::JsonSchema;
@@ -46,6 +46,11 @@ pub struct ProfileRequest {
     /// Skip analysis files: no phrase mood or cue statistics, but much faster.
     #[serde(default)]
     pub no_analysis: bool,
+    /// Leave out rekordbox's collection on this computer (`master.db`). It's read only when no
+    /// drive or library is named: then it's the collection the profile describes, as rekordbox
+    /// shows it now, rather than the copies on drives and in the store.
+    #[serde(default)]
+    pub no_collection: bool,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -158,13 +163,17 @@ pub fn profile_report(
         }
         Some(_) => None,
     };
-    if drives.is_empty() && store.is_none() {
+    let collection = match req.no_collection || !req.drives.is_empty() || !req.libraries.is_empty() {
+        true => None,
+        false => crate::masterdb::default_path().filter(|p| p.is_file()),
+    };
+    if drives.is_empty() && store.is_none() && collection.is_none() {
         return Err(Error::NotFound(
             "no rekordbox drive is mounted and there's no store (pulling a drive starts one)".into(),
         )
         .because(Reason::NoStore));
     }
-    profile::build(&Sources { drives, store, libraries }, &options, ctx)
+    profile::build(&Sources { drives, store, libraries, collection }, &options, ctx)
 }
 
 /// The report, the DJ's preferences, and the document they allow.
