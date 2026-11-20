@@ -107,6 +107,17 @@ locallibrary drive recordings SD --copy-to ~/Music/Sets --tracklist latest [--de
   Information` and locallibrary's own folder are left alone. Every write already removes the
   `._*` files in `PIONEER/` and `Contents/`: macOS makes one beside each file a write creates on
   a FAT or exFAT drive.
+- On macOS, a command that writes drives, run from a terminal, runs as a launchd job so macOS
+  writes no `._*` files at all. macOS adds them because the installed `locallibrary` carries a
+  `com.apple.provenance` attribute, which its writes pass to every file they make. The job runs a
+  copy of `locallibrary` that launchd wrote, in
+  `~/Library/Application Support/locallibrary-launchd/bin/`, which has no such attribute, so by
+  design macOS doesn't attribute that copy's writes to the app that installed locallibrary. This
+  relies on behaviour Apple doesn't document. The copy is made again whenever it isn't the
+  installed binary's exact bytes. Output, prompts, the exit status and Ctrl-C work as before. When
+  launchd or the copy fails, the command writes from the terminal itself and says so, and the
+  write removes the `._*` files it made, as above. `LOCALLIBRARY_LAUNCHD_JOB=1` does that on
+  purpose.
 - `drive recordings` lists the WAV files MASTER REC writes on the XDJ-AZ (`ALPHATHETA REC`) and
   OPUS-QUAD (`PIONEER REC`), with their length. `--copy-to` copies them (verified), names them by
   when they started, writes a tracklist from a history list next to them (`--tracklist latest`, or

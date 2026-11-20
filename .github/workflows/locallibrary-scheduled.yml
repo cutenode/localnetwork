@@ -226,6 +226,13 @@ jobs:
           # losetup, sfdisk and mkfs need root on Linux, so the test binary runs under sudo there.
           # Only the Linux target reads this.
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo --preserve-env
+      # Drive writes run as a launchd job, end to end: a terminal, launchd and a FAT32 disk image
+      # (apps/locallibrary/tests/it/launchd_writes.rs). They need the runner's logged-in session,
+      # and say so when there's none.
+      - if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: cargo test --locked -p locallibrary-cli --test it -- launchd_writes --nocapture
+        env:
+          LOCALLIBRARY_DISK_IMAGE_TESTS: "1"
 
   # format::apply and eject on a real disk: each test creates a small disk image, attaches it
   # (hdiutil, a loop device, a VHD), formats or ejects it, and detaches it

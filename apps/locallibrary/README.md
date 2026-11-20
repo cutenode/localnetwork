@@ -329,12 +329,14 @@ flowchart TD
     kind -->|"nothing, elsewhere"| help["Usage, exit 2"]
     kind -->|"a plugin's command"| contributed["Run it through<br/>the plugin host"]
     kind -->|"a command"| run["Run it"]
+    kind -->|"on macOS, a command that writes drives,<br/>from a terminal"| job["Run it as a launchd job of the copy<br/>launchd wrote, in this terminal;<br/>here if that fails"]
     tui --> stop["Stop plugins it started,<br/>exit with the outcome"]
     contributed --> stop
     run --> stop
+    job --> stop
 ```
 
-Source: [`src/main.rs`](src/main.rs), [`src/help.rs`](src/help.rs), [`src/completion.rs`](src/completion.rs), [`src/plugins.rs`](src/plugins.rs), [`src/plugin_cmd/contributed.rs`](src/plugin_cmd/contributed.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/launchd.rs`](src/launchd.rs), [`src/help.rs`](src/help.rs), [`src/completion.rs`](src/completion.rs), [`src/plugins.rs`](src/plugins.rs), [`src/plugin_cmd/contributed.rs`](src/plugin_cmd/contributed.rs)
 
 ### Exit status
 
