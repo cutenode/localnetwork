@@ -101,7 +101,7 @@ flowchart LR
         direction TB
         swap["Swap in files,<br/>then databases"] --> delete["Delete what nothing<br/>references"]
         delete --> seal["Note in the backup<br/>what the write left"]
-        seal --> lineage["Record the lineage,<br/>clear the marker"]
+        seal --> lineage["Record the lineage, remove the ._ files<br/>macOS made, clear the marker"]
         lineage --> journal["Add to the journal,<br/>prune old backups"]
     end
     before -->|"all staged"| after
@@ -132,7 +132,7 @@ flowchart LR
         swap["Remove OneLibrary's old WAL,<br/>swap the databases in"] --> delete["Delete database files<br/>the source lacks, then stale files"]
         delete --> index["Save the hash index,<br/>put the player name back"]
         index --> carry["Carry the journal over,<br/>or forget it for a snapshot"]
-        carry --> lineage["Take on the source's lineage,<br/>clear the marker"]
+        carry --> lineage["Take on the source's lineage, remove the<br/>._ files macOS made, clear the marker"]
     end
     before --> after
 ```

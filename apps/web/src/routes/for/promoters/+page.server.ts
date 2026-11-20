@@ -46,7 +46,7 @@ export const load: PageServerLoad = ({ locals }) => {
 			title: 'For promoters',
 			description:
 				'Find DJs by sound, distance and budget, get a shortlist for your night, and book them in private threads.',
-			path: '/for-promoters'
+			path: '/for/promoters'
 		})
 	};
 };

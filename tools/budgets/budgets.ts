@@ -8,6 +8,11 @@
 //       queue group holds) and the raises <raises-file> declares for it
 //   node tools/budgets/cli.ts baseline <sha> <filter> <artifact> <dir>
 //       see baseline.ts
+//   node tools/budgets/cli.ts noise <job> <dir> <dir>...
+//       fails on a metric whose measurements of one commit, one per <dir>, spread over half its
+//       allowance, which then can't tell a change from noise
+//   node tools/budgets/cli.ts creep <job> <points-dir>
+//       see creep.ts
 //   node tools/budgets/cli.ts raises <base-ref> <raises-file>
 //       fails on an allowance widened or a metric dropped that no raise names
 //
@@ -53,7 +58,7 @@ const newNames = (base: Value, head: Value) =>
 	Array.isArray(head) && Array.isArray(base) ? head.filter((name) => !base.includes(name)) : [];
 
 /** How much `head` grew over `base`: the difference of two counts, or how many names are new. */
-function grownBy(base: Value, head: Value): number {
+export function grownBy(base: Value, head: Value): number {
 	if (!Array.isArray(head) && !Array.isArray(base)) return head - base;
 
 	return newNames(base, head).length;
@@ -130,6 +135,20 @@ export function table(rows: Row[]): string[] {
 	return ['| Metric | Base | Head | Growth | Allowance |', '| --- | --- | --- | --- | --- |', ...lines];
 }
 
+/** How far apart repeated measurements of one commit are: the range of a count, or how many names aren't in every run. */
+export function spread(values: Value[]): number {
+	const counts = values.flatMap((value) => (Array.isArray(value) ? [] : [value]));
+	const lists = values.flatMap((value) => (Array.isArray(value) ? [value] : []));
+
+	if (lists.length > 0) {
+		const names = new Set(lists.flat());
+
+		return [...names].filter((name) => !lists.every((list) => list.includes(name))).length;
+	}
+
+	return counts.length === 0 ? 0 : Math.max(...counts) - Math.min(...counts);
+}
+
 /** What makes `after` looser than `before`, each as the metric it's about (`<area>/<name>`). */
 export function loosened(area: string, before: Budget, after: Budget | undefined): string[] {
 	const widened = Object.entries(before.metrics).filter(([name, { allowance }]) => {
@@ -142,7 +161,7 @@ export function loosened(area: string, before: Budget, after: Budget | undefined
 }
 
 /** The areas `job` measures, each with its budget. */
-function areasOf(job: string): [string, Budget][] {
+export function areasOf(job: string): [string, Budget][] {
 	const areas = readdirSync(BUDGETS).map((file) => file.replace(/\.json$/, ''));
 	const budgets = areas.map((area): [string, Budget] => [area, readJson<Budget>(join(BUDGETS, `${area}.json`))]);
 
@@ -179,6 +198,33 @@ function check(job: string, baseDir: string, headDir: string, raisesFile: string
 	}
 
 	return { lines: [...table(rows), '', ...found], ok: found.length === 0 };
+}
+
+/** Fails a metric whose repeated measurements in `dirs` spread over half its allowance: the allowance is too tight. */
+function noise(job: string, dirs: string[]): Outcome {
+	const lines: string[] = ['| Metric | Spread | Allowance |', '| --- | --- | --- |'];
+	const found: string[] = [];
+
+	for (const [area, budget] of areasOf(job)) {
+		const runs = dirs.flatMap((dir) => {
+			const measured = measuredIn(dir, area);
+
+			return measured === undefined ? [] : [measured];
+		});
+
+		for (const [name, { allowance, unit }] of Object.entries(budget.metrics)) {
+			const width = spread(runs.flatMap((run) => (run[name] === undefined ? [] : [run[name]])));
+
+			lines.push(`| ${area}/${name} | ${width} | ${allowance} ${unit} |`);
+
+			if (width * 2 > allowance)
+				found.push(
+					`${area}/${name}: runs of one commit spread ${width} ${unit}, over half its allowance of ${allowance}`
+				);
+		}
+	}
+
+	return { lines: [...lines, '', ...found], ok: found.length === 0 };
 }
 
 function raises(base: string, raisesFile: string): Outcome {
@@ -222,6 +268,13 @@ export function run([command, ...args]: string[]): Outcome {
 		if (Number.isInteger(groupSize) && groupSize > 0) return check(job, baseDir, headDir, raisesFile, groupSize);
 	}
 
+	if (command === 'noise' && args.length >= 3) {
+		// SAFETY: the length is checked just above.
+		const [job, ...dirs] = args as [string, ...string[]];
+
+		return noise(job, dirs);
+	}
+
 	if (command === 'raises' && args.length === 2) {
 		// SAFETY: the length is checked just above.
 		const [base, raisesFile] = args as [string, string];
@@ -232,6 +285,7 @@ export function run([command, ...args]: string[]): Outcome {
 	return {
 		lines: [
 			'usage: cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]',
+			'       cli.ts noise <job> <dir> <dir>...',
 			'       cli.ts raises <base-ref> <raises-file>'
 		],
 		ok: false

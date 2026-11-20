@@ -1,0 +1,23 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Patch coverage",
+	"description": "How much of the lines a pull request adds or changes its tests have to cover, in every project: .github/actions/patch-coverage reads it.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["$schema", "lines_percent", "exclude"],
+	"properties": {
+		"$schema": { "const": "./patch.schema.json" },
+		"lines_percent": {
+			"description": "The share of the changed lines the coverage report counts that the tests run, at least.",
+			"type": "number",
+			"minimum": 0,
+			"maximum": 100
+		},
+		"exclude": {
+			"description": "Files whose changed lines no test can run where CI measures, as globs from the repository's root, each with the reason beside it in the pull request that adds it. Code compiled only for another platform needs no entry: a Linux report doesn't count it.",
+			"type": "array",
+			"items": { "type": "string", "minLength": 1 },
+			"uniqueItems": true
+		}
+	}
+}

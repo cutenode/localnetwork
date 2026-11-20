@@ -28,7 +28,7 @@ const opened = async (did?: string, projects?: ProjectService) =>
 	loadRoute<PageServerData>(load, {
 		app: app(projects),
 		viewer: did ? await f.t.viewer(did) : null,
-		url: '/for-promoters'
+		url: '/for/promoters'
 	});
 
 it("describes the page for search engines and link previews at the site's own address", async () => {
@@ -38,7 +38,7 @@ it("describes the page for search engines and link previews at the site's own ad
 			title: 'For promoters',
 			description:
 				'Find DJs by sound, distance and budget, get a shortlist for your night, and book them in private threads.',
-			url: 'https://localnetwork.test/for-promoters'
+			url: 'https://localnetwork.test/for/promoters'
 		}
 	});
 });

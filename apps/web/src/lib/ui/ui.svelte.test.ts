@@ -237,7 +237,7 @@ describe('SiteHeader', () => {
 	];
 
 	const signedOut = [
-		{ href: '/for-djs', label: 'For DJs' },
+		{ href: '/for/djs', label: 'For DJs' },
 		{ href: '/login', label: 'Sign in' }
 	];
 
@@ -264,7 +264,7 @@ describe('SiteHeader', () => {
 		const menu = page.getByRole('navigation', { name: 'Menu' });
 
 		await expect.element(menu.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
-		await expect.element(menu.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
+		await expect.element(menu.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for/djs');
 		await expect.element(menu.getByRole('link', { name: 'Shows' })).toHaveAttribute('aria-current', 'page');
 		await userEvent.keyboard('{Escape}');
 		await expect.element(menu).not.toBeInTheDocument();
@@ -291,7 +291,7 @@ describe('SiteHeader', () => {
 		await expect.element(nav.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('aria-current', 'page');
 		await expect.element(nav.getByRole('link', { name: 'Shows' })).not.toHaveAttribute('aria-current');
 
-		await rerender({ current: '/for-djs' });
+		await rerender({ current: '/for/djs' });
 		await expect.element(page.getByRole('link', { name: 'For DJs' })).toHaveAttribute('aria-current', 'page');
 		await expect.element(nav.getByRole('link', { name: 'Find DJs' })).not.toHaveAttribute('aria-current');
 	});

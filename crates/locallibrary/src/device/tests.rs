@@ -647,7 +647,7 @@ fn prop_a_drive_whose_identity_cant_be_kept_refuses_to_change(tc: hegel::TestCas
     let writable = std::fs::write(d.state_dir().join("probe"), b"").is_ok();
     let old = serde_json::to_value(d.state()).unwrap();
     let attempts = [
-        d.finish(None),
+        d.finish(None, &Ctx::silent()),
         d.begin(LineageOp::Sync, "sync", None),
         d.adopt(Some("Other")).map(drop),
         d.reset_identity(&DeviceState::new("Again")),

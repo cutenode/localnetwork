@@ -57,7 +57,7 @@ it('links the mix preview, and the profile records are published to', async () =
 	const signedIn = publishingHtml(await locallibraryPage(PAT));
 
 	expect(signedOut).toContain('<a href="/mixes/preview">');
-	expect(signedOut).toContain('<a href="/for-djs">your Local Network profile</a>');
+	expect(signedOut).toContain('<a href="/for/djs">your Local Network profile</a>');
 	expect(signedIn).toContain('<a href="/@pat.test">your Local Network profile</a>');
 	expect(signedIn).not.toContain('/@me');
 });

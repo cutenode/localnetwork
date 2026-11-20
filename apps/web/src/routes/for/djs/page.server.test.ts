@@ -24,13 +24,13 @@ const app = (projects: ProjectService = f.t.projects) => ({
 });
 
 it("describes the page for search engines and link previews at the site's own address", async () => {
-	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/for-djs' });
+	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/for/djs' });
 
 	expect(data).toMatchObject({
 		meta: {
 			title: 'For DJs',
 			description: 'Get listed, or claim the listing an admin made, so promoters near you can find and book you.',
-			url: 'https://localnetwork.test/for-djs'
+			url: 'https://localnetwork.test/for/djs'
 		}
 	});
 });
@@ -54,14 +54,14 @@ it('shows a listing with enough filled in, and the directory totals', async () =
 		profile: { name: 'Bare', kind: 'solo', genres: ['house'], location: { city: 'Leeds', country: 'GB' } }
 	});
 
-	const directory = await (await loadRoute<PageServerData>(load, { app: app(), url: '/for-djs' })).directory;
+	const directory = await (await loadRoute<PageServerData>(load, { app: app(), url: '/for/djs' })).directory;
 
 	expect(directory?.example?.profile.name).toBe('Filled In');
 	expect(directory).toMatchObject({ djs: 3, cities: 2, unclaimed: 2 });
 });
 
 it('falls back to the newest listing when none is filled in', async () => {
-	const directory = await (await loadRoute<PageServerData>(load, { app: app(), url: '/for-djs' })).directory;
+	const directory = await (await loadRoute<PageServerData>(load, { app: app(), url: '/for/djs' })).directory;
 
 	expect(directory?.example?.slug).toBe(f.project.slug);
 });
@@ -74,14 +74,14 @@ it('still opens while HappyView is down', async () => {
 
 	const data = await loadRoute<PageServerData>(load, {
 		app: app(new ProjectService(f.t.core, offline)),
-		url: '/for-djs'
+		url: '/for/djs'
 	});
 
 	expect(await data.directory).toBeNull();
 });
 
 it("streams the next shows and the month's most played tracks, with two locallibrary captures", async () => {
-	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/for-djs' });
+	const data = await loadRoute<PageServerData>(load, { app: app(), url: '/for/djs' });
 
 	expect(await data.shows).toEqual([]);
 	expect(await data.tracks).toEqual([]);

@@ -1204,6 +1204,13 @@ describe('BookingService', () => {
 			await t.bookings.setStatus({ actor: await t.viewer(DJ), space, status: 'confirmed' });
 
 			expect(await titles(PROMOTER)).toEqual(['Neon marked the booking confirmed', 'Neon sent a message']);
+			// One inbox row per thread on each side, naming the DJ as an act's manager would be named.
+			expect(await t.notifications.subjects(PROMOTER)).toMatchObject([
+				{ title: 'Night', scope: 'Neon', summary: 'Neon sent a message and changed the status to Confirmed' }
+			]);
+			expect(await t.notifications.subjects(DJ)).toMatchObject([
+				{ title: 'Night', scope: 'Neon', summary: 'The promoter sent a booking inquiry' }
+			]);
 			expect(await t.bookings.threadsFor(PROMOTER)).toMatchObject([
 				{ space, status: 'confirmed', project: { name: 'Neon' } }
 			]);

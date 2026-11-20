@@ -16,7 +16,7 @@ it merges into, so main's own growth never turns it red and it never edits these
 | `tui` | allocations and bytes of a frame of the player, for the Library view, the Deck layout, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
 | `deps` | the names of the packages linked into the default CLI on Linux, whatever their version | `cargo tree`, in `.github/actions/release-budgets` | weekly, by hand, merge queue groups, and pull requests that change a manifest, the lockfile or the Rust that ships |
 | `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | the same |
-| `cli` | instructions of everyday commands on the 3,886-track fixture | the same | the same |
+| `cli` | instructions of everyday commands on the 3,886-track fixture, less a run of `/bin/true` on the same runner: the loader and libc starting, which counts differently on different runners' CPUs | the same | the same |
 | `tui-instructions` | instructions of a frame of the player, for the same views | the same, running the `tui` test | the same |
 | `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and pushes to main |
 | `web` | the website's JavaScript every page loads, the largest page's own on top of it, and all its CSS, uncompressed | `apps/web/scripts/bundle-sizes.ts`, after `pnpm test:build` in the `verify` job of `web-ci.yml` | pull requests and merge queue groups that change the website, and pushes to main |
@@ -65,6 +65,21 @@ gh run download <run> -n budgets -D target/budgets
 gh run download <base-run> -n budgets -D target/budgets-base
 node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets /dev/null
 ```
+
+## Creep and noise
+
+Each pull request is held to its own growth, so many small ones can still add up. The weekly
+`budget-creep` job in `repo-scheduled.yml` lays out what the merge queue's and main's runs measured
+over the week (`tools/budgets/points.sh`) and sums each metric's growth with `tools/budgets/cli.ts
+creep`: how much `Budget-Raise` trailers declared, how much came in under allowances, and the pull
+requests that grew it most. It fails, which opens a `scheduled-failure` issue, when a metric's
+undeclared growth passes five allowances.
+
+An allowance is only as good as the noise under it. The weekly `noise` job in
+`locallibrary-bench.yml` measures one commit five times over (`tools/budgets/measure-archive.sh`
+and `tools/budgets/measure-release.sh`) and fails a metric whose runs spread over half its
+allowance, with `tools/budgets/cli.ts noise`. Widen that allowance, with a `Budget-Raise: <metric>
++0: <why>` trailer.
 
 ## Adding a metric
 

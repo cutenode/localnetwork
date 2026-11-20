@@ -31,7 +31,7 @@ export const load: PageServerLoad = ({ locals }) => {
 		meta: pageMeta(config.publicUrl, {
 			title: 'For DJs',
 			description: 'Get listed, or claim the listing an admin made, so promoters near you can find and book you.',
-			path: '/for-djs'
+			path: '/for/djs'
 		})
 	};
 };

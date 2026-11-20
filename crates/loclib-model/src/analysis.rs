@@ -200,6 +200,31 @@ pub struct SongStructure {
     pub phrases: Vec<Phrase>,
 }
 
+impl SongStructure {
+    /// How many beats of a grid `grid_beats` long each of the phrases' beats is: 1, or 2 where
+    /// rekordbox counted the phrases at half tempo. It does on some fast tracks (seen from 141 BPM
+    /// up) and says so nowhere: their phrases end halfway through the grid, and doubled they end
+    /// with it. The latest end of those that end after they start decides, in any order: rekordbox
+    /// keeps its phrases in order, but a plugin's needn't.
+    pub fn beat_scale(&self, grid_beats: usize) -> usize {
+        let ends = self.phrases.iter().filter(|p| p.end_beat > p.start_beat).map(|p| usize::from(p.end_beat));
+        let Some(end) = ends.max() else { return 1 };
+        let doubled = 2 * end - 1;
+        if doubled <= grid_beats + 1 && doubled * 10 >= grid_beats * 9 { 2 } else { 1 }
+    }
+
+    /// A phrase's 1-based `beat` as an index into the grid, at `scale` ([`Self::beat_scale`]).
+    pub fn grid_index(beat: u16, scale: usize) -> usize {
+        usize::from(beat).saturating_sub(1) * scale
+    }
+
+    /// How many bars of four of the grid's beats `phrase` runs, at `scale`.
+    pub fn bars(phrase: &Phrase, scale: usize) -> u16 {
+        let beats = usize::from(phrase.end_beat.saturating_sub(phrase.start_beat)) * scale;
+        u16::try_from(beats.div_ceil(4)).unwrap_or(u16::MAX)
+    }
+}
+
 /// Everything a player shows about a track, from its analysis files.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

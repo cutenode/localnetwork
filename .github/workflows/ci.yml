@@ -51,8 +51,8 @@ jobs:
       actions: write
       # Submitting main's npm packages to the dependency graph.
       contents: write
-      # Labelling the pull request.
-      pull-requests: write
+      # Reading the pull request and the files it changes.
+      pull-requests: read
     outputs:
       locallibrary: ${{ steps.scope.outputs.locallibrary }}
       locallibrary_linux: ${{ steps.scope.outputs.locallibrary_linux }}
@@ -149,6 +149,7 @@ jobs:
               - '.github/actions/pr-comment/**'
               - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
+              - '.github/actions/patch-coverage/**'
               # The budgets and coverage jobs run tools/*/cli.ts on this Node.
               - '.node-version'
               # What the tests read from other tools' folders: the bug report form, and the
@@ -259,11 +260,13 @@ jobs:
               - '.github/actions/main-artifact/**'
               - '.github/actions/size-report/**'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
             # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
             # of the above but the Markdown and labels that the tool pages and
             # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs and
-            # the root's tools, which only verify reads, and what only the e2e tests, Lighthouse and
-            # the Docker image use.
+            # the root's tools, which only verify reads (patch.json stays, for the patch coverage),
+            # and what only the e2e tests, Lighthouse and the Docker image use.
             web_integration:
               - *web
               - '!apps/*/README.md'
@@ -275,7 +278,9 @@ jobs:
               - '!.github/labels.yml'
               - '!.oxlintrc.json'
               - '!.oxfmtrc.json'
-              - '!tools/**'
+              - '!tools/budgets/**'
+              - '!tools/oxlint/**'
+              - '!tools/**/*.ts'
               - '!.dockerignore'
               - '!apps/web/Dockerfile'
               - '!apps/web/tests/docker.test.ts'
@@ -384,8 +389,12 @@ jobs:
               - '.github/actions/main-artifact/**'
               - '.github/actions/size-report/**'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
             atstore:
               - 'packages/atstore/**'
+              - '.github/actions/patch-coverage/**'
+              - 'tools/coverage/patch.json'
               - 'apps/locallibrary/assets/icon.svg'
               - 'apps/locallibrary/bombadil/lib.mjs'
               # The playlist page's markup, which the marks capture draws from.
@@ -631,11 +640,6 @@ jobs:
       # dependency-review.yml's review, which looks for a snapshot of the exact base commit.
       - if: github.event_name == 'push'
         uses: ./.github/actions/npm-snapshot
-      # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
-      # A fork's pull request gets a read-only token here, so pr-labels.yml labels those instead.
-      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
       # A merge queue group the queue rebuilt or took out gets a new branch name, so concurrency
       # never cancels the run for the old one, and its macOS and Windows jobs would hold those
       # runners to the end. Each group's run cancels this workflow's runs whose group branch GitHub

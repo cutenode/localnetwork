@@ -3,7 +3,9 @@ const MOVED = [
 	['/dashboard/activity', '/dashboard/account/activity'],
 	['/dashboard/data', '/dashboard/account/data'],
 	['/dashboard/requests', '/dashboard/account/requests'],
-	['/dashboard/inbox/settings', '/dashboard/account/notifications']
+	['/dashboard/inbox/settings', '/dashboard/account/notifications'],
+	['/for-djs', '/for/djs'],
+	['/for-promoters', '/for/promoters']
 ] as const;
 
 /** Pages that moved while what's under them stayed: Find DJs left `/projects`, where project pages still are. */

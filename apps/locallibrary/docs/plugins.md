@@ -11,7 +11,8 @@ and journaled.
 
 There's no way to install a plugin yet: those built into locallibrary run, and one you're writing
 runs for as long as one command, the player or the sidecar does (see [Writing one](#writing-one)).
-The built-in ones are:
+Installing and updating plugins from a registry is planned (see
+[the decision](adr/0008-plugins-install-from-a-reviewed-registry.md)). The built-in ones are:
 
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the

@@ -52,10 +52,13 @@
   description: Spaces, sync, HappyView, the database and the server around them
 - name: "web: ui"
   color: "a5cfbd"
-  description: Shared components, design tokens, layout and the static pages
+  description: Shared components, design tokens, layout, the static pages and social cards
 - name: "web: events"
   color: "a5cfbd"
   description: Venues, parties, events and their guests
+- name: "web: notifications"
+  color: "a5cfbd"
+  description: Email and in-app notifications, the inbox and unsubscribing
 - name: "locallibrary: cli"
   color: "c9adef"
   description: The locallibrary command line
@@ -67,7 +70,16 @@
   description: The JSON-RPC sidecar and the api module it serves
 - name: "locallibrary: core"
   color: "c9adef"
-  description: The core crate, the data model and rekordbox's formats
+  description: The core crate's data model, rekordbox's formats and the shared crates
+- name: "locallibrary: drives"
+  color: "c9adef"
+  description: Syncing, packing, checking and exporting drives, and their snapshots
+- name: "locallibrary: limbs"
+  color: "c9adef"
+  description: Head and limb mode, pairing, peers and the remote API
+- name: "locallibrary: release"
+  color: "c9adef"
+  description: Release builds, installers, Homebrew, signing and updates
 - name: "locallibrary: analysis"
   color: "c9adef"
   description: Tempo, key and loudness from tracks' audio
@@ -108,14 +120,30 @@
   color: "efc29b"
   description: The third-party downloads tool
 
-# Across the tools. pr-labels.yml adds these, and documentation, dependencies and github_actions
-# below, from the files a pull request changes.
+# Across the tools. pr-labels.yml adds these but design, and documentation and dependencies below,
+# from the files a pull request changes. tests and documentation only when every file it changes
+# is one.
+- name: ci
+  color: "6e7781"
+  description: CI workflows, required checks, the merge queue and scheduled runs
 - name: tests
   color: "c2e0c6"
   description: Tests, fixtures and test harnesses
 - name: tooling
   color: "ededed"
   description: Repo config, lint and build tooling, and GitHub settings
+- name: security
+  color: "e99695"
+  description: Hardening, permissions, untrusted input and the supply chain
+- name: performance
+  color: "f9d0c4"
+  description: Speed, memory, size budgets and benchmarks
+- name: accessibility
+  color: "bfd4f2"
+  description: Contrast, keyboard use and screen readers
+- name: design
+  color: "d4c5f9"
+  description: Visual design, design reviews and interface copy
 
 - name: bug
   color: "d73a4a"
@@ -123,32 +151,22 @@
 - name: enhancement
   color: "a2eeef"
   description: New feature or request
-- name: question
-  color: "d876e3"
-  description: Further information is requested
 - name: documentation
   color: "0075ca"
   description: Improvements or additions to documentation
-- name: duplicate
-  color: "cfd3d7"
-  description: This issue or pull request already exists
 - name: good first issue
   color: "7057ff"
   description: Good for newcomers
-- name: no-issue
-  color: "cfd3d7"
-  description: No issue to link, so the PR issue check passes
-- name: help wanted
-  color: "008672"
-  description: Extra attention is needed
-- name: invalid
-  color: "e4e669"
-  description: This doesn't seem right
-- name: wontfix
-  color: "ffffff"
-  description: This will not be worked on
 
-# Dependabot's.
+# Why an issue is waiting. Never together with bot-ready.
+- name: needs decision
+  color: "fbca04"
+  description: Waiting on a maintainer's decision
+- name: blocked
+  color: "d93f0b"
+  description: Waiting on something outside the repo, like an upstream release, hardware, an account or a key
+
+# Dependabot's. It adds github_actions to its own pull requests; the labeler adds ci instead.
 - name: dependencies
   color: "0366d6"
   description: Pull requests that update a dependency file
@@ -161,6 +179,12 @@
 - name: github_actions
   color: "000000"
   description: Pull requests that update GitHub Actions code
+
+# no-issue and all-os are for pull requests only, so Linear doesn't mirror them.
+# Read by .github/workflows/pr-issue.yml: a pull request with it needs no linked issue.
+- name: no-issue
+  color: "cfd3d7"
+  description: No issue to link, so the PR issue check passes
 
 # Read by .github/workflows/ci.yml: a pull request with it runs locallibrary's macOS and Windows
 # jobs too, which otherwise wait for the merge queue. Re-run CI after adding it.

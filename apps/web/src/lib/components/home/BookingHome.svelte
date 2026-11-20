@@ -42,7 +42,7 @@
 			</div>
 			<button class="btn-primary">Find DJs</button>
 		</form>
-		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for-djs">Get listed</a></p>
+		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for/djs">Get listed</a></p>
 	</div>
 </section>
 
@@ -113,7 +113,7 @@
 					<p class="m-0 font-semibold">No DJs listed yet.</p>
 					<p class="m-0 mt-1 text-fg-muted">Be the first on the map.</p>
 				</div>
-				<Button size="sm" href="/for-djs">Get listed</Button>
+				<Button size="sm" href="/for/djs">Get listed</Button>
 			</Card>
 		{:else}
 			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
@@ -198,6 +198,6 @@
 
 <Section tone="grid" labelledby="closing-title">
 	<SectionHeader id="closing-title" align="center" title="You play out? Get on the map." lede="List yourself, a b2b duo or a whole crew. Already listed by an admin? Claim it. A moderator reviews every change.">
-		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">Get listed</Button><Button size="lg" variant="secondary" href="/djs?unclaimed=on">Claim yours</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
+		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">Get listed</Button><Button size="lg" variant="secondary" href="/djs?unclaimed=on">Claim yours</Button><Button size="lg" variant="ghost" href="/for/djs">How it works for DJs</Button>{/snippet}
 	</SectionHeader>
 </Section>

@@ -50,3 +50,22 @@ test_file_without_label if {
 	"apps/x/README.md: no label in .github/labeler.yml matches it" in denied
 	not "apps/site/a.ts: no label in .github/labeler.yml matches it" in denied
 }
+
+test_all_files_entry_labels_its_file if {
+	files := {"files": ["docs/b.txt"]}
+	count(labels.deny) == 0 with input as fixtures.with_file("/scratch/tracked-files.json", files)
+}
+
+test_area_label_without_rule if {
+	repo := array.concat(fixtures.repo, [{"path": ".github/labels.yml", "contents": {"name": "tool: cli"}}])
+	".github/labeler.yml: add a rule for the \"tool: cli\" label" in labels.deny with input as repo
+}
+
+test_code_file_without_area if {
+	files := {"files": ["crates/x/src/lib.rs", "plugins/p/src/lib.rs", "apps/web/src/lib/testing/a.ts", "apps/site/src/app.ts"]}
+	denied := labels.deny with input as fixtures.with_file("/scratch/tracked-files.json", files)
+	"plugins/p/src/lib.rs: no area label in .github/labeler.yml matches it" in denied
+	not "crates/x/src/lib.rs: no area label in .github/labeler.yml matches it" in denied
+	not "apps/web/src/lib/testing/a.ts: no area label in .github/labeler.yml matches it" in denied
+	not "apps/site/src/app.ts: no area label in .github/labeler.yml matches it" in denied
+}
