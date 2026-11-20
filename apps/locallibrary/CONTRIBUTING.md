@@ -344,6 +344,24 @@ synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
 print where the trace went; add Bombadil options after the script name (`node tui.mjs --columns 80`).
 
+## The widgets in Storybook
+
+The web app's Storybook has the player's widgets under **Terminal**: the waveforms, cue lane,
+phrase strip, spectrum, scope and pictures from loclib-waveform, and the deck's beat and phrase.
+`src/tui/ui/tests/stories.rs` draws each one alone, from the demo drive's second track, through crossterm,
+and keeps the bytes in `apps/web/src/lib/tui/captures/` (`.ansi` for a still, an asciicast `.cast`
+for one that moves, in the dark and light palettes). Storybook writes them into xterm.js and
+asciinema-player. The test fails when a capture isn't what the widget draws now, or when a
+loclib-waveform widget has no story, so a change to how one draws shows up as a capture diff.
+Update them with:
+
+```bash
+LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'
+```
+
+A new story is an entry in `stories()` there and a `<Story>` in `apps/web/src/lib/tui/`, which
+`pnpm lint` checks for.
+
 ## Releasing
 
 [dist](https://axodotdev.github.io/cargo-dist/) builds releases (`dist-workspace.toml` at the

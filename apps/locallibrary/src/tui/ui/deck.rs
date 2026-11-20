@@ -367,10 +367,7 @@ fn draw_readout(f: &mut Frame, app: &mut App, area: Rect) {
         // The phrase playing beside the next one, then the next cue. A column that has nothing to
         // say takes no room: what's after it moves up.
         if let Some((i, p, bar)) = now.phrase_at(pos_ms) {
-            left.extend([
-                chip(p.kind.name(), theme::current().phrase(p.kind)),
-                Span::styled(format!(" {:<5}", format!("{bar}/{}", p.bars)), dim()),
-            ]);
+            left.extend(phrase_chip(p, bar));
             match now.phrases.get(i + 1) {
                 Some(next) => left.extend([
                     Span::styled(away(next.start_ms), text()),
@@ -408,7 +405,7 @@ fn draw_readout(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// Where the beat is in the bar, in four squares: the downbeat in the accent, the others in blue.
-fn beat_squares(now: &NowPlaying, pos_ms: f64) -> Vec<Span<'static>> {
+pub(super) fn beat_squares(now: &NowPlaying, pos_ms: f64) -> Vec<Span<'static>> {
     let Some((_, n, _)) = now.beat_at(pos_ms) else { return Vec::new() };
     let mut spans: Vec<Span> = (1..=4u16)
         .map(|k| match (k == n, n == 1) {

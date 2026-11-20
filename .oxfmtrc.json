@@ -15,6 +15,7 @@
 		"test-results",
 		"playwright-report",
 		"apps/web/src/lib/tools/captures",
+		"apps/web/src/lib/tui/captures",
 		"tools/oxlint/anti-slop"
 	]
 }

@@ -220,6 +220,7 @@ atstore:
           - "apps/locallibrary/docs/player{.md,/**}"
           - "apps/locallibrary/bombadil/**"
           - "crates/loclib-waveform/**"
+          - "apps/web/src/lib/tui/**"
 
 "locallibrary: sidecar":
   - changed-files:

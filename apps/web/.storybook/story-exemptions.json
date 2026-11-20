@@ -13,6 +13,8 @@
 		"components/edit/SaveToast.svelte": "edit/EditBar.stories.svelte draws it in its Saved, Published and Discarded stories, through EditBarFrame",
 		"components/home/BookingHome.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in every story not named Social",
 		"components/home/EventCard.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in the Social stories with shows",
-		"components/home/SocialHome.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in the stories named Social"
+		"components/home/SocialHome.svelte": "routes/page.stories.svelte draws it through the real +page.svelte, in the stories named Social",
+		"tui/Cast.svelte": "the tui/*.stories.svelte stories that move draw it, through TuiStory",
+		"tui/Terminal.svelte": "every still in tui/*.stories.svelte draws it, through TuiStory"
 	}
 }

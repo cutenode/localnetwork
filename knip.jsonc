@@ -41,6 +41,8 @@
 				"!src/**/*fixtures.ts!",
 				"!src/lib/components/form/FormActionsHarness.svelte!",
 				"!src/lib/og/cards/CardPreview.svelte!",
+				// locallibrary's terminal widgets, which only their stories show.
+				"!src/lib/tui/**!",
 				// Edit mode's story and test helpers.
 				"!src/lib/components/edit/EditBarFrame.svelte!",
 				"!src/lib/components/edit/EditPageHarness.svelte!"
