@@ -32,6 +32,8 @@ mod drives;
 mod hangup;
 mod interop;
 mod jobs;
+#[cfg(target_os = "macos")]
+mod launchd_writes;
 #[cfg(feature = "peers")]
 mod peers;
 // A release has no test plugin to serve, or to read through.

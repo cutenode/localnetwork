@@ -126,8 +126,7 @@ fn only_a_job_launchd_knows_is_waited_for() {
 /// executable changes. Skipped where there's no launchd session to run the job in.
 #[test]
 fn the_copy_is_launchd_s_and_follows_the_executable() {
-    let session = format!("gui/{}", crate::autostart::uid());
-    if launchctl(&[OsStr::new("print"), OsStr::new(&session)]).is_err() {
+    if !session() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -143,4 +142,47 @@ fn the_copy_is_launchd_s_and_follows_the_executable() {
     std::fs::remove_dir_all(home.join("jobs")).unwrap();
     assert_eq!(copy_of(&exe, &home).unwrap(), copy);
     assert!(!home.join("jobs").exists());
+}
+
+/// Whether there's a launchd session to run jobs in: a Mac someone's logged in to (GitHub's
+/// macOS runners log their user in). Tests that need one say so and skip where there's none.
+fn session() -> bool {
+    let there = launchctl(&[OsStr::new("print"), OsStr::new(&format!("gui/{}", crate::autostart::uid()))]).is_ok();
+    if !there {
+        eprintln!("skipped: no launchd GUI session to run jobs in");
+    }
+    there
+}
+
+/// A job that isn't done by the time given isn't waited for longer, and is taken out of launchd
+/// once dropped.
+#[test]
+fn a_job_that_isn_t_done_in_time_is_given_up_on() {
+    if !session() {
+        return;
+    }
+    let label = format!("local.locallibrary.test.slow.{}", std::process::id());
+    let dir = tempfile::tempdir().unwrap();
+    let job =
+        Job::start(dir.path(), &label, &plist(&label, &os(&["/bin/sleep", "30"]), &[], dir.path(), None)).unwrap();
+    let started = Instant::now();
+    assert_eq!(job.wait(Some(Duration::from_millis(200))), None);
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    let target = job.target.clone();
+    drop(job);
+    assert!(launchctl(&[OsStr::new("print"), OsStr::new(&target)]).is_err(), "{target} is gone");
+}
+
+/// A copy the job made that isn't the executable's bytes, or a job that failed, is never run.
+#[test]
+fn a_copy_that_isn_t_the_executable_is_refused() {
+    if !session() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (exe, home) = (dir.path().join("locallibrary"), dir.path().join("home"));
+    std::fs::write(&exe, b"build 1").unwrap();
+    let corrupt = copy_with(&exe, &home, r#"printf corrupt > "$2""#).unwrap_err();
+    assert_eq!(corrupt, "the copy isn't this executable, or carries provenance");
+    assert_eq!(copy_with(&exe, &home, "exit 3").unwrap_err(), "making the copy failed (3)");
 }

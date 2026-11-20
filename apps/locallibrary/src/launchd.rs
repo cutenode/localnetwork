@@ -191,24 +191,34 @@ pub(crate) fn clean_copy() -> Result<PathBuf, String> {
     copy_of(&exe, &home().ok_or("no folder for the copy")?)
 }
 
+/// How a launchd job writes the copy: `cat` writes the bytes alone, and as launchd started it,
+/// the file carries no provenance (`cp` would copy the attribute). Each job writes a part of its
+/// own and renames it into place, so two commands making the copy at once never share a file.
+const COPY_SCRIPT: &str =
+    r#"umask 077 && /bin/cat "$1" > "$2.$$.part" && /bin/chmod 700 "$2.$$.part" && /bin/mv -f "$2.$$.part" "$2""#;
+
 /// [`clean_copy`] of `exe`, kept in `home`.
 fn copy_of(exe: &Path, home: &Path) -> Result<PathBuf, String> {
+    copy_with(exe, home, COPY_SCRIPT)
+}
+
+/// [`copy_of`], the copy written by `script` (`sh -c`, given `exe` and the copy's path).
+fn copy_with(exe: &Path, home: &Path, script: &str) -> Result<PathBuf, String> {
     let copy = home.join("bin/locallibrary");
     let want = Hash::of(&std::fs::read(exe).map_err(|e| format!("reading {}: {e}", exe.display()))?);
     if is_current(&copy, &want) {
         return Ok(copy);
     }
     std::fs::create_dir_all(copy.parent().expect("a file in a folder")).map_err(|e| e.to_string())?;
-    // `cat` writes the bytes alone, and as launchd started it, the file carries no provenance.
-    // (`cp` would copy the attribute.)
-    let script = r#"umask 077 && /bin/cat "$1" > "$2.part" && /bin/chmod 700 "$2.part" && /bin/mv -f "$2.part" "$2""#;
     let args: Vec<OsString> = ["/bin/sh", "-c", script, "sh"]
         .map(OsString::from)
         .into_iter()
         .chain([exe.into(), copy.clone().into()])
         .collect();
     let cwd = copy.parent().expect("a file in a folder");
-    let job = Job::start(home, "local.locallibrary.copy", &plist("local.locallibrary.copy", &args, &[], cwd, None))?;
+    // A label of this process's own: starting a job takes out any other of its label first.
+    let label = format!("local.locallibrary.copy.{}", std::process::id());
+    let job = Job::start(home, &label, &plist(&label, &args, &[], cwd, None))?;
     match job.wait(Some(COPY_TIMEOUT)) {
         Some(0) if is_current(&copy, &want) => Ok(copy),
         Some(0) => Err("the copy isn't this executable, or carries provenance".into()),
