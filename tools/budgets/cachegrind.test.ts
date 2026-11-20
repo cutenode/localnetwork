@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const hasValgrind = (() => {
@@ -14,8 +15,10 @@ const hasValgrind = (() => {
 // `env` prints its environment, so what it runs grows with the environment's size. Where valgrind runs:
 // Linux, as in CI's tools tests, not macOS.
 describe.runIf(hasValgrind)('cachegrind.sh', () => {
+	const script = join(import.meta.dirname, 'cachegrind.sh');
+
 	const counted = (pad: string, ...args: string[]) =>
-		execFileSync('tools/budgets/cachegrind.sh', args, {
+		execFileSync(script, args, {
 			encoding: 'utf8',
 			env: { ...process.env, PAD: pad },
 			stdio: ['ignore', 'pipe', 'ignore']
