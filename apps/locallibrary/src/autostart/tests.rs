@@ -113,3 +113,13 @@ fn unit_arguments_read_back(tc: TestCase) {
     let line = u.lines().find_map(|l| l.strip_prefix("ExecStart=")).unwrap_or_else(|| panic!("{u}"));
     assert_eq!(exec_words(line), want, "{u}");
 }
+
+/// The launchd domain the agent and drive writes' jobs go in is the user running locallibrary's:
+/// the owner of what it makes.
+#[cfg(unix)]
+#[test]
+fn uid_is_the_user_running_locallibrary() {
+    use std::os::unix::fs::MetadataExt;
+    let made = tempfile::NamedTempFile::new().unwrap();
+    assert_eq!(made.as_file().metadata().unwrap().uid(), uid());
+}
