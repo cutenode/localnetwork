@@ -58,9 +58,9 @@ instructions() {
   echo "doctor $(instructions doctor LARGE)"
 } | jq -Rn '[inputs | split(" ") | {(.[0]): (.[1] | tonumber)}] | add' > "$measured/cli.json"
 
-# A frame of the player: the frame test's instructions over many frames, less a run of none, which
-# leaves out reading the fixture. It's the release profile, as dist's test binary would take a
-# second fat LTO link.
-unit=$(cargo test --release -p locallibrary-cli --test unit --locked --no-run --message-format=json-render-diagnostics |
+# A frame of the player, in the release profile, as dist's test binary would take a second fat LTO
+# link. Unstripped, for frame-instructions.sh to find the frame by its name: the symbols aren't loaded
+# when it runs, so it runs the same instructions.
+unit=$(CARGO_PROFILE_RELEASE_STRIP=false cargo test --release -p locallibrary-cli --test unit --locked --no-run --message-format=json-render-diagnostics |
   jq -r 'select(.executable != null and .target.name == "unit") | .executable')
 "$(dirname "$0")/frame-instructions.sh" "$unit" 600 tui-instructions "$measured"
