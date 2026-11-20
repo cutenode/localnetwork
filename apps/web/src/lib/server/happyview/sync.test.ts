@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLLECTION } from '#lib/nsid.ts';
+import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, NS } from '#lib/nsid.ts';
 import { happyViewBundle } from './bundle';
 import { HappyViewClient } from './client';
 import { syncHappyView } from './sync';
@@ -12,6 +12,8 @@ const API_KEY = 'hv_test';
 class FakeAdmin {
 	readonly lexicons = new Map<string, { revision: number; json: string; backfill: boolean }>();
 	readonly scripts = new Map<string, string>();
+	/** The network lexicons HappyView tracks, and whether it ingests each one's records. */
+	readonly network = new Map<string, boolean>();
 	readonly backfills: { collection: string; dids: string[] }[] = [];
 	readonly uploads: string[] = [];
 	/** How many status checks a backfill job reports `running` before it finishes. */
@@ -33,6 +35,10 @@ class FakeAdmin {
 			if (!stored) return Response.json({ error: 'NotFound' }, { status: 404 });
 
 			return Response.json({ id, revision: stored.revision, lexicon_json: JSON.parse(stored.json) });
+		}
+
+		if (request.method === 'GET' && path === '/admin/network-lexicons') {
+			return Response.json([...this.network].map(([nsid, indexed]) => ({ nsid, indexed, declared: false })));
 		}
 
 		if (request.method === 'GET' && path === '/admin/scripts') {
@@ -64,6 +70,13 @@ class FakeAdmin {
 			return Response.json({ id: body.lexicon_json.id, revision });
 		}
 
+		if (path === '/admin/network-lexicons') {
+			this.network.set(body.nsid, body.indexed);
+			this.uploads.push(`network:${body.nsid}`);
+
+			return Response.json({ nsid: body.nsid, authority_did: 'did:plc:authority', revision: 1 }, { status: 201 });
+		}
+
 		if (path === '/admin/backfill') {
 			this.backfills.push(body);
 			this.polls = 0;
@@ -87,9 +100,10 @@ describe('syncHappyView', () => {
 
 		expect(await syncHappyView(client, bundle, ROOT)).toEqual({
 			lexicons: bundle.lexicons.map((doc) => doc.id),
+			network: bundle.network.map(({ nsid }) => nsid),
 			scripts: bundle.scripts.map((script) => script.id)
 		});
-		expect(await syncHappyView(client, bundle, ROOT)).toEqual({ lexicons: [], scripts: [] });
+		expect(await syncHappyView(client, bundle, ROOT)).toEqual({ lexicons: [], network: [], scripts: [] });
 
 		const [script, ...scripts] = bundle.scripts;
 		const [lexicon, ...lexicons] = bundle.lexicons;
@@ -99,9 +113,13 @@ describe('syncHappyView', () => {
 			scripts: [{ ...script, body: `${script.body}\n-- edited` }, ...scripts]
 		};
 
-		expect(await syncHappyView(client, edited, ROOT)).toEqual({ lexicons: [lexicon.id], scripts: [script.id] });
+		expect(await syncHappyView(client, { ...bundle, ...edited }, ROOT)).toEqual({
+			lexicons: [lexicon.id],
+			network: [],
+			scripts: [script.id]
+		});
 		// The record script is in place before the record lexicon starts ingestion.
-		const first = admin.uploads.slice(0, bundle.lexicons.length + bundle.scripts.length);
+		const first = admin.uploads.slice(0, bundle.lexicons.length + bundle.network.length + bundle.scripts.length);
 		expect(first.indexOf(`record.index:${COLLECTION.project}`)).toBeLessThan(first.indexOf(COLLECTION.project));
 		expect(admin.scripts.get(script.id)).toMatch(/-- edited$/);
 		expect([...admin.lexicons].map(([id, stored]) => [id, stored.revision])).toEqual(
@@ -112,6 +130,41 @@ describe('syncHappyView', () => {
 		expect(admin.backfills).toEqual(
 			Array.from({ length: 3 }, () => ({ collection: COLLECTION.project, dids: [ROOT] }))
 		);
+	});
+
+	it("has HappyView track the other authorities' lexicons from the network, and never uploads one", async () => {
+		const admin = new FakeAdmin();
+		const client = new HappyViewClient({ url: 'http://happyview.test', apiKey: API_KEY, fetch: admin.fetch });
+		const bundle = happyViewBundle(ROOT);
+		const indexing = (nsid: string) => bundle.network.find((lexicon) => lexicon.nsid === nsid)?.indexed;
+
+		// What a record script handles is ingested; what's only referred to is just known.
+		expect([indexing(BSKY_PROFILE), indexing(CALENDAR_EVENT), indexing('com.atproto.repo.strongRef')]).toEqual([
+			true,
+			true,
+			false
+		]);
+		// Exactly the other authorities' collections a record script handles, so adding one (rsvp.lua) turns it on.
+		const handled = bundle.scripts.flatMap(({ id }) => (id.startsWith('record.index:') ? [id.split(':')[1]] : []));
+		expect(
+			bundle.network
+				.filter((lexicon) => lexicon.indexed)
+				.map(({ nsid }) => nsid)
+				.toSorted()
+		).toEqual(handled.filter((nsid) => !nsid.startsWith(`${NS}.`)).toSorted());
+
+		// Tracked already, as wanted: left alone. Tracked without the indexing wanted: tracked again.
+		admin.network.set(BSKY_PROFILE, true);
+		admin.network.set(CALENDAR_EVENT, false);
+		const { network } = await syncHappyView(client, bundle, ROOT);
+
+		expect(network).not.toContain(BSKY_PROFILE);
+		expect(network).toContain(CALENDAR_EVENT);
+		expect(Object.fromEntries(admin.network)).toEqual(
+			Object.fromEntries(bundle.network.map(({ nsid, indexed }) => [nsid, indexed]))
+		);
+		expect([...admin.lexicons.keys()].every((id) => id.startsWith(`${NS}.`))).toBe(true);
+		expect(bundle.lexicons.every((doc) => doc.id.startsWith(`${NS}.`))).toBe(true);
 	});
 
 	it('waits for the backfill, and fails when it fails', async () => {

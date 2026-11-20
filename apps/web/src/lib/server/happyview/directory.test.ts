@@ -107,6 +107,7 @@ describe('record script', () => {
 		const bundle = happyViewBundle(ROOT);
 
 		const hv = new FakeHappyView(ROOT, {
+			network: bundle.network,
 			lexicons: [
 				...bundle.lexicons,
 				parseLexiconDoc({ lexicon: 1, id: 'test.fake.stored', defs: { main: { type: 'query' } } })
@@ -1649,6 +1650,7 @@ describe('show record script', () => {
 		const bundle = happyViewBundle(ROOT);
 
 		const hv = new FakeHappyView(ROOT, {
+			network: bundle.network,
 			lexicons: [
 				...bundle.lexicons,
 				parseLexiconDoc({ lexicon: 1, id: 'test.fake.stored', defs: { main: { type: 'query' } } })

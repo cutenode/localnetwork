@@ -119,6 +119,7 @@ end`;
 function fake(): FakeHappyView {
 	return new FakeHappyView('did:plc:root', {
 		lexicons: [probe, thing],
+		network: [],
 		scripts: [
 			{ id: 'xrpc.query:test.fake.probe', body: PROBE },
 			{ id: 'record.index:test.fake.thing', body: INDEX }
@@ -411,6 +412,7 @@ describe('FakeHappyView', () => {
 	it('refuses a script that still reads a global HappyView 3 removed, as its upload does', () => {
 		const bundle = (body: string, id = 'xrpc.query:test.fake.probe') => ({
 			lexicons: [probe],
+			network: [],
 			scripts: [{ id, body }]
 		});
 
@@ -435,6 +437,7 @@ function handle() return { first = FIRST } end`;
 
 		const hv = new FakeHappyView('did:plc:root', {
 			lexicons: [probe],
+			network: [],
 			scripts: [{ id: 'xrpc.query:test.fake.probe', body }]
 		});
 

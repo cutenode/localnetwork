@@ -225,7 +225,7 @@ The app is a space syncer. For each watched space it asks the space host (the au
 
 ### Directory
 
-Published projects, the DJ stats, sets, press kits, shows, calendar events, follows and RSVPs the site reads from other repos, and the other apps' records it reads are served by [HappyView](https://happyview.dev) 3, not the app. Production uses Local Network's hosted instance, on 3.0.0-beta.14 for now; the host picks its upgrades. The scripts follow v3's contract: each defines `handle(input, ctx)` and loads JSON, SQL and record reads with `require("internal.json")`, `require("happyview.sql")` and `require("happyview.db")`, so the instance needs the `happyview-lua` interpreter and the `happyview-sql` and `happyview-db` library plugins. On the hosted instance, HappyProto's shared Network store holds the records of every collection we index and runs our record scripts over them, and SQL over `happyview_records` runs on its Postgres. Reads there are fast only by account, so every query filters on `did`, and SQL its parser can't read (`WITH ... AS MATERIALIZED`) is refused. Each `lua/<nsid path>.lua` script is collected: a record script has HappyView follow Jetstream for that collection and decides what it keeps, and a query script answers that `computer.localnetwork.directory.*` query ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)). Indexing another collection is one record script there, with its lexicon in the repo's [`lexicons/`](../../lexicons/) (another authority's copied in with `tools/lexicons.sh pull <nsid>`); the app picks up every file there. The scripts today:
+Published projects, the DJ stats, sets, press kits, shows, calendar events, follows and RSVPs the site reads from other repos, and the other apps' records it reads are served by [HappyView](https://happyview.dev) 3, not the app. Production uses Local Network's hosted instance, on 3.0.0-beta.14 for now; the host picks its upgrades. The scripts follow v3's contract: each defines `handle(input, ctx)` and loads JSON, SQL and record reads with `require("internal.json")`, `require("happyview.sql")` and `require("happyview.db")`, so the instance needs the `happyview-lua` interpreter and the `happyview-sql` and `happyview-db` library plugins. On the hosted instance, HappyProto's shared Network store holds the records of every collection we index and runs our record scripts over them, and SQL over `happyview_records` runs on its Postgres. Reads there are fast only by account, so every query filters on `did`, and SQL its parser can't read (`WITH ... AS MATERIALIZED`) is refused. Each `lua/<nsid path>.lua` script is collected: a record script has HappyView follow Jetstream for that collection and decides what it keeps, and a query script answers that `computer.localnetwork.directory.*` query ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)). Indexing another collection is one record script there. Our lexicons are in [`lexicons/computer/`](../../lexicons/computer/); another authority's comes from the network, pinned in [`lexicons/network.json`](../../lexicons/network.json) and installed by `pnpm lexicons:install` ([`lexicons/README.md`](../../lexicons/README.md)). The app uploads only ours to HappyView, and on boot has it track the other authorities' it needs as network lexicons, ingesting the records of those a record script handles; the app picks up every file in both. The scripts today:
 
 - `project.lua` runs on every incoming project record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
 - `dj/set.lua` keeps every account's sets (anyone can come to manage a project), and stores what the site shows (title, date, kind, venue, address, who it was played with, links, and the tracklist as written, with tempo, keys and transitions) plus each named track's title, artists, IDs and start, which the support queries count. Its address, sources and `createdAt` are kept as written, since locallibrary reads its own sets back before replacing them; set views leave out the sources and `createdAt`. The queries only read sets by accounts that manage one of the root's projects. MusicBrainz IDs are stored as bare lowercase UUIDs whether a set writes `mbid:<uuid>` or the UUID; placeholder credits (ID, Unknown Artist, Various Artists) aren't, and a set whose date isn't YYYY-MM-DD isn't kept.
@@ -242,7 +242,7 @@ Published projects, the DJ stats, sets, press kits, shows, calendar events, foll
 - `getCharts`, `getArtist`, and `searchArtists` count supports. They group every stored play by track and artist in SQL on each request (about a third of a second for 2,000 sets of 25 tracks on a laptop, measured on SQLite), so no counts are kept anywhere; the app reuses an answer for a minute, and the pages may be cached for as long.
 - The genre taxonomy and fee tiers are generated into the scripts from `src/lib/taxonomy/`, so TypeScript stays the source of truth.
 
-With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), then has HappyView re-read the root's repo and waits for that to finish, and then every manager's shows in one batch. After publishing a project, a show, a follow, an RSVP, or a press kit it waits (up to 5 seconds) for HappyView to index it, so the next page shows it; when a show or its calendar event, a follow, an RSVP, or a press kit doesn't show up in time, HappyView re-reads that collection from that one account's repo. The directory queries are lexicons too, so `pnpm lexicons:publish` publishes a new one with the rest (see [Deploying](#deploying)).
+With `HAPPYVIEW_API_KEY` set, the app uploads whichever of its scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), has HappyView track the other authorities' lexicons it needs that it doesn't yet (`POST /admin/network-lexicons`, which resolves them from the network and replaces a copy uploaded by hand), then has HappyView re-read the root's repo and waits for that to finish, and then every manager's shows in one batch. After publishing a project, a show, a follow, an RSVP, or a press kit it waits (up to 5 seconds) for HappyView to index it, so the next page shows it; when a show or its calendar event, a follow, an RSVP, or a press kit doesn't show up in time, HappyView re-reads that collection from that one account's repo. The directory queries are lexicons too, so `pnpm lexicons:publish` publishes a new one with the rest (see [Deploying](#deploying)).
 
 The app reads public records only from HappyView, never straight from a PDS (`com.atproto.repo.getRecord` or `listRecords`, `com.atproto.sync.getRecord` or `getRepo`) or from Bluesky's AppView. The reads that can't go through it:
 
@@ -281,32 +281,34 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 
 ## Scripts
 
-| Script                              | What it does                                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                         |
-| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
-| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
-| `pnpm check`                        | `svelte-check` with TypeScript 6, after `pnpm lexicons:types`                                |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin, then the story check       |
-| `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
-| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
-| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container                        |
-| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`                      |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and measured for the client bundle budgets          |
-| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                                            |
-| `pnpm test:storybook`               | Every story in Chromium, then again at a phone's width; a WCAG 2.2 AA violation fails it     |
-| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                                      |
-| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe                         |
-| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                                   |
-| `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
-| `pnpm fuzz`                         | Jazzer.js on the byte parsers, 30 seconds a target ([Fuzzing](#fuzzing))                     |
-| `pnpm -w knip`                      | Unused files, exports, and dependencies across the repo (the root `knip.jsonc`)              |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
-| `pnpm lexicons:types`               | Types from the lexicons in `src/lib/lexicons` (git-ignored), to check the readers against    |
-| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                 |
-| `pnpm db:backups`                   | List the bucket's backups                                                                    |
-| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                               |
-| `pnpm verify`                       | CI's quick checks, in order                                                                  |
+| Script                              | What it does                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                           |
+| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                      |
+| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                       |
+| `pnpm check`                        | `svelte-check` with TypeScript 6, after `pnpm lexicons:types`                                  |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin, then the story check         |
+| `pnpm format` / `pnpm format:check` | Oxfmt                                                                                          |
+| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                            |
+| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container                          |
+| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`                        |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and measured for the client bundle budgets            |
+| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                                              |
+| `pnpm test:storybook`               | Every story in Chromium, then again at a phone's width; a WCAG 2.2 AA violation fails it       |
+| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                                        |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe                           |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                                     |
+| `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse))   |
+| `pnpm fuzz`                         | Jazzer.js on the byte parsers, 30 seconds a target ([Fuzzing](#fuzzing))                       |
+| `pnpm -w knip`                      | Unused files, exports, and dependencies across the repo (the root `knip.jsonc`)                |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                              |
+| `pnpm lexicons:install`             | Install the other authorities' lexicons from the network, as `lexicons/network.json` pins them |
+| `pnpm lexicons:update`              | Move those pins to what their authorities publish now                                          |
+| `pnpm lexicons:types`               | Types from the lexicons in `src/lib/lexicons` (git-ignored), to check the readers against      |
+| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                   |
+| `pnpm db:backups`                   | List the bucket's backups                                                                      |
+| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                                 |
+| `pnpm verify`                       | CI's quick checks, in order                                                                    |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
 

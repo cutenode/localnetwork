@@ -11,6 +11,7 @@ import { isCidForBytes, parseCid } from '@atproto/lex-data';
 import { z } from 'zod';
 import { HAPPYVIEW_PERMISSIONS } from '../../src/lib/server/happyview/client.ts';
 import { startJetstream } from './jetstream.ts';
+import { startPlcProxy } from './plc-proxy.ts';
 
 /** Also pulled by the jobs that start it in .github/workflows/web-ci.yml and web-scheduled.yml. */
 const IMAGE = 'ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14';
@@ -59,9 +60,9 @@ const execFileAsync = promisify(execFile);
 export type HappyView = { url: string; apiKey: string; stop(): Promise<void> };
 
 /**
- * Runs a real HappyView in Docker for development and tests: host networking so it reaches the
- * local PLC and PDS, Postgres in a container of its own, a Jetstream stand-in fed by the PDS
- * firehose, and the PLUGINS the scripts need.
+ * Runs a real HappyView in Docker for development and tests: host networking so it reaches the local PLC (through a
+ * proxy that asks plc.directory for any other DID, so it can track network lexicons) and PDS, Postgres in a container
+ * of its own, a Jetstream stand-in fed by the PDS firehose, and the PLUGINS the scripts need.
  * Resolves once it answers, with an admin API key. `stop()` removes both containers and their data.
  */
 export async function startHappyView(options: { plcUrl: string; pdsUrl: string }): Promise<HappyView> {
@@ -84,6 +85,7 @@ export async function startHappyView(options: { plcUrl: string; pdsUrl: string }
 	const name = `localnetwork-happyview-${randomBytes(4).toString('hex')}`;
 	const database = `${name}-postgres`;
 	const jetstream = await startJetstream(options);
+	const plc = await startPlcProxy(options.plcUrl);
 	const port = await freePort();
 	const databasePort = await freePort();
 	const url = `http://127.0.0.1:${port}`;
@@ -96,6 +98,7 @@ export async function startHappyView(options: { plcUrl: string; pdsUrl: string }
 	const stop = async () => {
 		process.off('exit', remove);
 		await jetstream.close();
+		await plc.close();
 		remove();
 	};
 
@@ -104,7 +107,8 @@ export async function startHappyView(options: { plcUrl: string; pdsUrl: string }
 		PUBLIC_URL: url,
 		HOST: '127.0.0.1',
 		PORT: String(port),
-		PLC_URL: options.plcUrl,
+		// The local PLC for the network's accounts, plc.directory for the network lexicons' authorities.
+		PLC_URL: plc.url,
 		// Only network-wide backfills ask the relay; targeted ones (with a DID) read the PDS.
 		RELAY_URL: options.pdsUrl,
 		JETSTREAM_URL: jetstream.url,

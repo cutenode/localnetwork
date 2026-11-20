@@ -3,6 +3,7 @@ import { parse } from 'libpg-query';
 import { type LexiconDoc, Lexicons, type LexXrpcParameters, ValidationError } from '@atproto/lexicon';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { LUA_REGISTRYINDEX, LuaEventMasks, LuaFactory, LuaReturn, type LuaState, LuaType, type LuaWasm } from 'wasmoon';
+import { REFERENCED_DOCS } from '../atproto/lexicons';
 import type { JsonRecord } from '../atproto/repo-client';
 import { z } from 'zod';
 import { startPostgres } from './pglite';
@@ -1110,6 +1111,9 @@ const BACKFILL = z.object({
 	did: z.string().optional()
 });
 
+/** POST /admin/network-lexicons' body. */
+const NETWORK_LEXICON = z.object({ nsid: z.string(), indexed: z.boolean().optional(), backfill: z.boolean() });
+
 /** A Jetstream commit as HappyView sees it. `record` is null for a delete. */
 export type RecordEvent = { did: string; collection: string; rkey: string; cid: string; record: JsonRecord | null };
 
@@ -1140,6 +1144,8 @@ export class FakeHappyView {
 	private readonly db: Database;
 	private readonly lexicons: Map<string, LexiconDoc>;
 	private readonly checker: Lexicons;
+	/** The other authorities' lexicons it tracks from the network, and whether it ingests each one's records. */
+	private readonly network: Map<string, boolean>;
 	private readonly scripts: Map<string, string>;
 
 	/**
@@ -1155,9 +1161,12 @@ export class FakeHappyView {
 			if (removed.length) throw new Error(`${id}: script references removed globals: ${removed.join(', ')}`);
 		}
 
-		this.lexicons = new Map(bundle.lexicons.map((doc) => [doc.id, doc]));
+		// It starts as a sync leaves it, tracking the bundle's network lexicons, as the installed set has them.
+		this.network = new Map(bundle.network.map(({ nsid, indexed }) => [nsid, indexed]));
+		const tracked = REFERENCED_DOCS.filter((doc) => this.network.has(doc.id));
+		this.lexicons = new Map([...tracked, ...bundle.lexicons].map((doc) => [doc.id, doc]));
 		// Lexicons rewrites the refs in the docs it's given, which the bundle shares with every other caller.
-		this.checker = new Lexicons(structuredClone(bundle.lexicons));
+		this.checker = new Lexicons(structuredClone([...this.lexicons.values()]));
 		this.scripts = new Map(bundle.scripts.map((script) => [script.id, script.body]));
 		this.db = database();
 	}
@@ -1166,7 +1175,7 @@ export class FakeHappyView {
 	async ingest(event: RecordEvent): Promise<void> {
 		const { did, collection, rkey, cid, record } = event;
 
-		if (this.lexicons.get(collection)?.defs.main?.type !== 'record') return;
+		if (this.lexicons.get(collection)?.defs.main?.type !== 'record' || this.network.get(collection) === false) return;
 		const uri = `at://${did}/${collection}/${rkey}`;
 
 		const found = await this.db.query(
@@ -1231,6 +1240,8 @@ export class FakeHappyView {
 
 		if (this.repo && url.pathname === '/admin/backfill/status')
 			return Response.json([...this.jobs].map(([id, status]) => ({ id, status })));
+
+		if (url.pathname === '/admin/network-lexicons') return this.networkLexicons(request);
 		const nsid = /^\/xrpc\/([^/]+)$/.exec(url.pathname)?.[1] ?? '';
 		const main = this.lexicons.get(nsid)?.defs.main;
 		const trigger = `xrpc.query:${nsid}`;
@@ -1283,6 +1294,26 @@ export class FakeHappyView {
 				column(({ record }) => JSON.stringify(record))
 			]
 		);
+	}
+
+	/**
+	 * `GET` and `POST /admin/network-lexicons`: the network lexicons it tracks, or one more to track. The network is the
+	 * installed set (lexicons/network/): an NSID outside it fails, as one HappyView can't resolve does.
+	 */
+	private async networkLexicons(request: Request): Promise<Response> {
+		if (request.method === 'GET')
+			return Response.json([...this.network].map(([nsid, indexed]) => ({ nsid, indexed, declared: false })));
+
+		const { nsid, indexed = true } = NETWORK_LEXICON.parse(await request.json());
+		const doc = REFERENCED_DOCS.find((lexicon) => lexicon.id === nsid);
+
+		if (!doc) return Response.json({ error: 'BadRequest', message: `could not resolve ${nsid}` }, { status: 400 });
+		this.network.set(nsid, indexed);
+		this.lexicons.set(nsid, doc);
+
+		if (!this.checker.get(nsid)) this.checker.add(structuredClone(doc));
+
+		return Response.json({ nsid, authority_did: 'did:plc:authority', revision: 1 }, { status: 201 });
 	}
 
 	/**
