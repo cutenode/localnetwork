@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use loclib_plugin::{Manifest, Pending};
+use loclib_plugin::{Capability, Manifest, Pending};
 use serde_json::json;
 
 use super::*;
@@ -513,6 +513,88 @@ fn a_plugin_calls_only_what_the_spec_lets_it(tc: TestCase) {
         let object = tc.draw(gs::integers::<u8>().max_value(15)) > 0;
         as_the_spec_says(&m, &granted_ones, method, &params, object);
     }
+}
+
+/// The table the host checks a plugin's reads against ([`READS`]) is the spec, read for read:
+/// the same capability, library params and other params, in the same order.
+#[test]
+fn the_table_of_reads_is_the_spec() {
+    // A read as both list it: method, capability, whether it reads a library, its other params.
+    type Row<'a> = (&'a str, String, bool, &'a [(&'a str, Param)]);
+    let table: Vec<Row> = READS.iter().map(|r| (r.method, r.capability.to_string(), r.library, r.others)).collect();
+    let spec: Vec<Row> = SPEC
+        .iter()
+        .map(|&(method, capability, library, others)| (method, capability.into(), library, others))
+        .collect();
+    assert_eq!(table, spec);
+}
+
+/// Each read a plugin may call is one of the sidecar's reads (as `docs/rpc/schema.json` has
+/// them), and takes each param listed for it; but for rekordbox's files, which the host answers
+/// itself and the sidecar doesn't have.
+#[test]
+fn each_read_is_the_sidecars() {
+    /// The params `schema` (or any schema it's made of) has.
+    fn names(schema: &Value, defs: &Value, out: &mut Vec<String>) {
+        if let Some(name) = schema["$ref"].as_str().and_then(|r| r.strip_prefix("#/$defs/")) {
+            return names(&defs[name], defs, out);
+        }
+        out.extend(schema["properties"].as_object().into_iter().flat_map(|p| p.keys().cloned()));
+        for made_of in ["allOf", "anyOf", "oneOf"] {
+            schema[made_of].as_array().into_iter().flatten().for_each(|s| names(s, defs, out));
+        }
+    }
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/locallibrary/docs/rpc/schema.json");
+    let schema: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let methods = schema["methods"].as_array().unwrap();
+    for read in READS {
+        let sidecars = methods.iter().find(|m| m["name"] == read.method);
+        if collection::answers(read.method) {
+            assert!(sidecars.is_none(), "{} is the host's own", read.method);
+            continue;
+        }
+        let m = sidecars.unwrap_or_else(|| panic!("the sidecar has no {}", read.method));
+        assert_eq!(m["kind"], "read", "{}", read.method);
+        let mut takes = Vec::new();
+        names(&m["params"], &schema["$defs"], &mut takes);
+        for (name, _) in read.params() {
+            assert!(takes.iter().any(|t| t == name), "{} takes no `{name}`", read.method);
+        }
+    }
+}
+
+/// Whatever a plugin calls, granted every capability, with any params (all null, which every
+/// kind of param takes), the host lets through only a read [`READS`] lists, and only with params
+/// listed for it.
+#[hegel::test(test_cases = 200)]
+fn prop_only_the_tables_reads_and_params_get_through(tc: TestCase) {
+    let names: Vec<String> = Capability::NAMED.iter().map(Capability::to_string).collect();
+    let all = granted(&names.iter().map(String::as_str).collect::<Vec<_>>());
+    // A read's name, one a little off it, or any text.
+    let near = tc.draw(gs::sampled_from(READS.iter().map(|r| r.method).collect::<Vec<_>>()));
+    let method = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => tc.draw(gs::text().max_size(16)),
+        1 => format!("{near}{}", tc.draw(gs::text().min_size(1).max_size(2))),
+        2 => near[..near.len() - 1].to_string(),
+        _ => near.to_string(),
+    };
+    let read = READS.iter().find(|r| r.method == method);
+    let mut params = serde_json::Map::new();
+    for (name, _) in read.into_iter().flat_map(|r| r.params()) {
+        if tc.draw(gs::booleans()) {
+            params.insert(name.into(), Value::Null);
+        }
+    }
+    for name in tc.draw(gs::vecs(gs::text().max_size(8)).max_size(2)) {
+        params.insert(name, Value::Null);
+    }
+    let result = check(&all, &method, Value::Object(params.clone()));
+    let Some(read) = read else {
+        assert_eq!(result.unwrap_err().kind, "method_not_found", "{method:?}");
+        return;
+    };
+    let unlisted = params.keys().any(|k| !read.params().any(|(name, _)| name == k));
+    assert_eq!(result.is_err(), unlisted, "{method} {params:?}: {result:?}");
 }
 
 /// Roots here as [`known_roots`] has them, longest first: a store below the home folder, both
