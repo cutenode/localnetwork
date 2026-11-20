@@ -68,7 +68,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     # What locallibrary-ci.yml's jobs ask for, which a call has to grant even to the ones it skips
-    # (its report job's comment), or GitHub won't start the run.
+    # (its report job's comment, and the artifacts its budgets and fuzz jobs download), or GitHub
+    # won't start the run.
     permissions:
       actions: read
       contents: read
@@ -85,6 +86,7 @@ jobs:
       other-os: true
       semver: false
       commands: false
+      fuzz: false
 
   # Each set of apt packages a workflow installs (.github/actions/apt-packages), restored or saved
   # on main every night. A pull request reads main's caches but can't see another pull request's,
