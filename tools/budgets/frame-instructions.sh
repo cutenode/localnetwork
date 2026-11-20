@@ -5,16 +5,14 @@
 #   frame-instructions.sh <unit-test-binary> <frames> <area> <measured-dir>
 set -euo pipefail
 unit=$1 frames=$2 area=$3 measured=$4
+cachegrind=$(dirname "$0")/cachegrind.sh
 
-# The frame test would otherwise write its tui.json over the budgets job's, for one view.
-unset LOCALLIBRARY_BUDGETS_OUT
-# A binary from the coverage archive would otherwise leave a profile in the checkout.
-export LLVM_PROFILE_FILE=/dev/null
-
+# Only the variables given reach the test, so the frame test doesn't write its tui.json over the
+# budgets job's, and LLVM_PROFILE_FILE keeps a binary from the coverage archive from leaving a profile
+# in the checkout.
 instructions() {
-  LOCALLIBRARY_TUI_VIEW="$1" LOCALLIBRARY_TUI_FRAMES="$2" valgrind --tool=cachegrind --cache-sim=no \
-    --cachegrind-out-file=/dev/null "$unit" --exact tui::frames::tests::frames_allocate_what_their_budgets_say 2>&1 |
-    tee /dev/stderr | sed -n 's/.*I *refs: *//p' | tr -d ,
+  "$cachegrind" LOCALLIBRARY_TUI_VIEW="$1" LOCALLIBRARY_TUI_FRAMES="$2" LLVM_PROFILE_FILE=/dev/null \
+    "$unit" --exact tui::frames::tests::frames_allocate_what_their_budgets_say
 }
 
 view_instructions() {
@@ -25,7 +23,7 @@ view_instructions() {
 
 # A view at a time: reading the fixture takes most of a debug binary's run, twice for each view, and
 # what's counted doesn't depend on what else the machine is running. SHELLOPTS carries `set -e`.
-export SHELLOPTS unit frames
+export SHELLOPTS unit frames cachegrind
 export -f instructions view_instructions
 jq -r '.metrics | keys_unsorted[]' "benchmarks/budgets/$area.json" |
   xargs -P 0 -I {} bash -c "view_instructions {}" |

@@ -30,15 +30,19 @@ for drive in LARGE LARGE2; do
 done
 mkdir -p "$scratch/home"
 counted() {
-  LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" HOME="$scratch/home" \
-    valgrind --tool=cachegrind --cache-sim=no --cachegrind-out-file=/dev/null "$@" 2>&1 >/dev/null |
-    sed -n 's/.*I *refs: *//p' | tr -d ,
+  "$(dirname "$0")/cachegrind.sh" LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" \
+    HOME="$scratch/home" "$@" 2>/dev/null
 }
 # Each command's instructions less a run of /bin/true, which leaves out the loader's and libc's start.
 # libc's start looks up the CPU's features and caches, which takes some thousands more instructions on
 # some runners' CPUs than on others', so a base measured on one runner and a head on another differed by
-# that much with the same code (LOC-827). The CPU goes in the log, to tell runners apart.
+# that much with the same code (LOC-827). The CPU goes in the log, to tell runners apart: its model, the
+# features the kernel shows and what glibc made of them, which picks its string functions by them.
 grep -m1 '^model name' /proc/cpuinfo || true
+grep -m1 '^flags' /proc/cpuinfo || true
+echo '::group::glibc cpu_features'
+/lib64/ld-linux-x86-64.so.2 --list-diagnostics | grep '^x86\.cpu_features\.' || true
+echo '::endgroup::'
 start=$(counted /bin/true)
 instructions() {
   echo $(($(counted "$target/dist/locallibrary" "$@") - start))
