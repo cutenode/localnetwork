@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "List the records of one collection in one account's repo that the directory indexed, by record key, last first, like com.atproto.repo.listRecords.",
+			"description": "List the records of one collection in one account's repo that the directory indexed, by record key, last first, like com.atproto.repo.listRecords. For calendar events, bug report spaces and DJ stats it has none of, the account's own PDS answers.",
 			"parameters": {
 				"type": "params",
 				"required": ["actor", "collection"],

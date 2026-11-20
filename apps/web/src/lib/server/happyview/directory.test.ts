@@ -2,7 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
-import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { BSKY_PROFILE, CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
 import type { DjSetView, ProfileRecord, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -29,13 +29,18 @@ type Page = Omit<DirectoryOutputs['searchProjects'], 'projects'> & { projects: V
 
 type Params = Record<string, string | number | boolean | string[]>;
 
-/** Calls a directory query the way an XRPC client does, and checks the answer against the query's lexicon. */
-async function query<T>(hv: FakeHappyView, name: keyof typeof DIRECTORY, params: Params = {}): Promise<T> {
+/** Calls a directory query the way an XRPC client does. */
+function call(hv: FakeHappyView, name: keyof typeof DIRECTORY, params: Params = {}): Promise<Response> {
 	const search = Object.entries(params)
 		.flatMap(([key, value]) => [value].flat().map((item) => `${key}=${encodeURIComponent(item)}`))
 		.join('&');
 
-	const response = await hv.fetch(`http://happyview.test/xrpc/${DIRECTORY[name]}?${search}`);
+	return hv.fetch(`http://happyview.test/xrpc/${DIRECTORY[name]}?${search}`);
+}
+
+/** Calls a directory query, and checks the answer against the query's lexicon. */
+async function query<T>(hv: FakeHappyView, name: keyof typeof DIRECTORY, params: Params = {}): Promise<T> {
+	const response = await call(hv, name, params);
 	const body: unknown = await response.json();
 	expect({ status: response.status, body }).toMatchObject({ status: 200 });
 	lexicons.assertValidXrpcOutput(DIRECTORY[name], body);
@@ -110,7 +115,7 @@ describe('record script', () => {
 				...bundle.scripts,
 				{
 					id: 'xrpc.query:test.fake.stored',
-					body: "function handle() return db.raw('SELECT uri FROM happyview_records') end"
+					body: "local sql = require('happyview.sql') function handle() return sql.raw('SELECT uri FROM happyview_records ORDER BY rkey') end"
 				}
 			]
 		});
@@ -538,6 +543,152 @@ describe('getRecords and listRecords', () => {
 		expect(second.uris).toEqual([sets[2], sets[1]]);
 		expect(await page({ limit: 2, cursor: second.cursor! })).toEqual({ uris: [sets[0]], cursor: undefined });
 		expect((await page()).uris).toEqual(sets.toReversed());
+	});
+});
+
+describe('reading through to the PDS', () => {
+	const PLC_DID = 'did:plc:abcdefghijklmnopqrstuvwx';
+	const WEB_DID = 'did:web:dj.example.com';
+
+	/** The DID documents and PDS records `web` answers with: `records` by the URL of their DID's PDS. */
+	async function network(hv: FakeHappyView, records: Record<string, (JsonObject & { rkey: string })[]>) {
+		const answers = new Map<string, string>([
+			[`https://plc.directory/${PLC_DID}`, didDocument(PLC_DID, 'https://pds.example.com/')],
+			['https://dj.example.com/.well-known/did.json', didDocument(WEB_DID, 'https://web.example.com')]
+		]);
+
+		for (const [pds, values] of Object.entries(records)) {
+			const did = pds === 'https://pds.example.com' ? PLC_DID : WEB_DID;
+			const listed = [];
+
+			for (const value of values) {
+				const { rkey } = value;
+				const record = { uri: `at://${did}/${COLLECTION.djProfile}/${rkey}`, cid: await recordCid(value), value };
+				const search = `repo=${encodeURIComponent(did)}&collection=${COLLECTION.djProfile}&rkey=${rkey}`;
+				// ast-grep-ignore: no-direct-pds-read (a URL the fake PDS answers in the emulator; nothing is fetched)
+				answers.set(`${pds}/xrpc/com.atproto.repo.getRecord?${search}`, JSON.stringify(record));
+				listed.push(record);
+			}
+
+			// A PDS lists newest first, and pages by the last record key it listed.
+			listed.reverse();
+
+			for (const [limit, cursor, page] of [
+				[3, undefined, listed.slice(0, 3)],
+				[3, listed[1]?.uri.split('/').at(-1), listed.slice(2, 5)]
+			] as const) {
+				const search =
+					`repo=${encodeURIComponent(did)}&collection=${COLLECTION.djProfile}&limit=${limit}&reverse=false` +
+					(cursor ? `&cursor=${cursor}` : '');
+
+				// ast-grep-ignore: no-direct-pds-read (a URL the fake PDS answers in the emulator; nothing is fetched)
+				answers.set(`${pds}/xrpc/com.atproto.repo.listRecords?${search}`, JSON.stringify({ records: page }));
+			}
+		}
+
+		hv.web = (url) => {
+			const body = answers.get(url);
+
+			return body === undefined ? { status: 404, body: '{"error":"RecordNotFound"}' } : { status: 200, body };
+		};
+	}
+
+	function didDocument(did: string, pds: string) {
+		return JSON.stringify({
+			id: did,
+			service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pds }]
+		});
+	}
+
+	async function recordCid(value: JsonObject) {
+		return (await cidForLex(jsonToLex(value))).toString();
+	}
+
+	const uris = async (hv: FakeHappyView, wanted: string[]) =>
+		(await query<Records>(hv, 'getRecords', { uris: wanted })).records.map((record) => [record.uri, record.value]);
+
+	it('answers from the index without asking any PDS', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await network(hv, {});
+		await ingest(hv, PLC_DID, COLLECTION.djProfile, 'self', { generatedAt: '2026-10-01T00:00:00.000Z' });
+
+		expect(await uris(hv, [`at://${PLC_DID}/${COLLECTION.djProfile}/self`])).toEqual([
+			[
+				`at://${PLC_DID}/${COLLECTION.djProfile}/self`,
+				{ $type: COLLECTION.djProfile, generatedAt: '2026-10-01T00:00:00.000Z' }
+			]
+		]);
+		expect(hv.requests).toEqual([]);
+	});
+
+	it("reads what the index lacks from the account's PDS, by did:plc or did:web, as written", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const fromPlc = { rkey: 'self', generatedAt: '2026-10-01T00:00:00.000Z', unchecked: 1 };
+		const fromWeb = { rkey: 'self', generatedAt: '2026-10-02T00:00:00.000Z' };
+		await network(hv, { 'https://pds.example.com': [fromPlc], 'https://web.example.com': [fromWeb] });
+		const plc = `at://${PLC_DID}/${COLLECTION.djProfile}/self`;
+		const web = `at://${WEB_DID}/${COLLECTION.djProfile}/self`;
+
+		expect(await uris(hv, [web, plc, web])).toEqual([
+			[web, fromWeb],
+			[plc, fromPlc]
+		]);
+		// Each DID's document once, then its record.
+		expect(hv.requests).toHaveLength(4);
+		expect(hv.logs).toEqual([]);
+	});
+
+	it("leaves out a record neither has, an account with no readable PDS, and a collection it doesn't read through for", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await network(hv, { 'https://pds.example.com': [] });
+
+		expect(
+			await uris(hv, [
+				`at://${PLC_DID}/${COLLECTION.djProfile}/self`,
+				`at://did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK/${COLLECTION.djProfile}/self`,
+				`at://did:plc:NOT-BASE32/${COLLECTION.djProfile}/self`,
+				`at://did:web:gone.example.com/${COLLECTION.djProfile}/self`
+			])
+		).toEqual([]);
+		expect(hv.requests).toEqual([
+			`https://plc.directory/${PLC_DID}`,
+			// ast-grep-ignore: no-direct-pds-read (a URL the fake PDS answers in the emulator; nothing is fetched)
+			`https://pds.example.com/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(PLC_DID)}&collection=${COLLECTION.djProfile}&rkey=self`,
+			'https://gone.example.com/.well-known/did.json'
+		]);
+
+		hv.requests.length = 0;
+		expect(
+			await uris(hv, [
+				`at://${PLC_DID}/${COLLECTION.djSet}/3set`,
+				`at://${PLC_DID}/${COLLECTION.project}/3p`,
+				`at://${PLC_DID}/${BSKY_PROFILE}/self`
+			])
+		).toEqual([]);
+		expect(hv.requests).toEqual([]);
+	});
+
+	it("lists what the index lacks from the account's PDS, last record key first, a page at a time", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const records = ['3a', '3b', '3c', '3d', '3e'].map((rkey) => ({ rkey, generatedAt: '2026-10-01T00:00:00.000Z' }));
+		await network(hv, { 'https://pds.example.com': records });
+
+		const page = async (cursor?: string) => {
+			const first = { actor: PLC_DID, collection: COLLECTION.djProfile, limit: 2 };
+			const result = await query<Records>(hv, 'listRecords', cursor ? { ...first, cursor } : first);
+
+			return { rkeys: result.records.map((record) => record.uri.split('/').at(-1)), cursor: result.cursor };
+		};
+
+		const first = await page();
+		expect(first).toEqual({ rkeys: ['3e', '3d'], cursor: '3d' });
+		expect(await page(first.cursor)).toEqual({ rkeys: ['3c', '3b'], cursor: '3b' });
+		// A collection the reads don't go through for stays on the index alone.
+		hv.requests.length = 0;
+		expect((await query<Records>(hv, 'listRecords', { actor: PLC_DID, collection: COLLECTION.djSet })).records).toEqual(
+			[]
+		);
+		expect(hv.requests).toEqual([]);
 	});
 });
 
@@ -978,9 +1129,9 @@ describe('searchProjects', () => {
 		expect(await search({ includeInactive: true, kinds: ['duo', 'group'] })).toEqual(['Shown']);
 		expect(await search({ includeInactive: true, manager: 'did:plc:dj', sort: 'name' })).toEqual(['Hidden', 'Shown']);
 		expect(await search({ includeInactive: true, unclaimed: true })).toEqual(['Archived']);
-		// HappyView doesn't enforce a list's maxLength, so the script reads only the first 10 kinds.
+		// HappyView refuses a list longer than the lexicon's maxLength, 10 kinds.
 		const kinds = [...Array.from({ length: 10 }, (_, i) => `kind${i}`), 'duo'];
-		expect(await search({ kinds })).toEqual([]);
+		expect((await call(hv, 'searchProjects', { kinds })).status).toBe(400);
 		expect(await search({ kinds: kinds.slice(1) })).toEqual(['Shown']);
 	});
 
@@ -1011,11 +1162,13 @@ describe('searchProjects', () => {
 		const last = await query<Page>(hv, 'searchProjects', { limit: 2, cursor: first.cursor ?? '' });
 		expect(last.cursor).toBeUndefined();
 		expect(names(last)).toEqual(['One']);
-		expect(names(await query<Page>(hv, 'searchProjects', { limit: 99, cursor: 'nonsense' }))).toEqual([
+		expect(names(await query<Page>(hv, 'searchProjects', { limit: 60, cursor: 'nonsense' }))).toEqual([
 			'Three',
 			'Two',
 			'One'
 		]);
+		// HappyView refuses a limit past the lexicon's maximum, 60.
+		expect((await call(hv, 'searchProjects', { limit: 99 })).status).toBe(400);
 	});
 });
 
@@ -1504,7 +1657,7 @@ describe('show record script', () => {
 				...bundle.scripts,
 				{
 					id: 'xrpc.query:test.fake.stored',
-					body: `function handle() return db.raw("SELECT uri FROM happyview_records WHERE collection = '${COLLECTION.show}'") end`
+					body: `local sql = require('happyview.sql') function handle() return sql.raw("SELECT uri FROM happyview_records WHERE collection = '${COLLECTION.show}' ORDER BY rkey") end`
 				}
 			]
 		});
@@ -1563,6 +1716,27 @@ describe('show record script', () => {
 		// Only web links stay: listings make the ticket link clickable.
 		const [unsafe] = (await query<ShowPage>(hv, 'getShows', { uris: scripted.uri })).shows;
 		expect(unsafe.record).not.toHaveProperty('tickets');
+	});
+
+	it("keeps only times Postgres reads as instants, since one it can't read would fail every listing", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const year = new Date().getUTCFullYear() + 1;
+
+		const skipped = [];
+
+		for (const startsAt of [`${year}-02-30T20:00:00Z`, 'tomorrow', `${year}-05-01T20:00:00`, `${year}-05-01T24:00:00Z`])
+			skipped.push(await publishShow(hv, 'did:plc:dj', project, { startsAt }));
+
+		const kept = await publishShow(hv, 'did:plc:dj', project, {
+			startsAt: `${year}-05-01T20:00:00.5+02:00`,
+			endsAt: 'late'
+		});
+
+		expect(hv.logs).toEqual(skipped.map(({ uri }) => `skipped ${uri}: bad name or times`));
+		const { shows } = await query<ShowPage>(hv, 'listShows');
+		expect(shows.map((show) => show.uri)).toEqual([kept.uri]);
+		expect(shows[0].record).not.toHaveProperty('endsAt');
 	});
 
 	it('removes a deleted show', async () => {
@@ -1672,6 +1846,37 @@ describe('follow record script and getFollowStatus', () => {
 			followers: 1,
 			follows: [second]
 		});
+	});
+
+	it('counts followers across pages of follows, each account once, with a self-follow left out', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:mara'] });
+		await ingest(hv, 'did:plc:mara', COLLECTION.profile, 'self', profileRecord('Mara'));
+		const mara = `at://did:plc:mara/${COLLECTION.profile}/self`;
+		// 150 accounts, the first 80 with two follows each: 230 follows, three pages of the script's 100.
+		const fans = Array.from({ length: 150 }, (_, i) => `did:plc:fan${i}`);
+
+		await hv.seed(
+			[...fans, ...fans.slice(0, 80)].map((did, i) => ({
+				did,
+				collection: COLLECTION.follow,
+				rkey: `3f${String(i).padStart(11, '0')}`,
+				cid: 'bafyfollow',
+				record: { $type: COLLECTION.follow, subject: mara, createdAt: '2026-10-01T00:00:00.000Z' }
+			}))
+		);
+		await publishFollow(hv, 'did:plc:mara', mara);
+		const own = await publishFollow(hv, 'did:plc:fan0', mara);
+
+		expect(await query(hv, 'getFollowStatus', { subject: mara, actor: 'did:plc:fan0' })).toEqual({
+			followers: 150,
+			// In URI order, as the script sorts them.
+			follows: [0, 150]
+				.map((n) => `at://did:plc:fan0/${COLLECTION.follow}/3f${String(n).padStart(11, '0')}`)
+				.concat(own)
+				.toSorted()
+		});
+		expect(await query(hv, 'getFollowStatus', { subject: project })).toEqual({ followers: 0, follows: [] });
 	});
 
 	it('keeps follows of profiles it keeps, apart from project follows, and not of your own', async () => {
@@ -1833,7 +2038,9 @@ describe('instruction budget', () => {
 		// One real CID for them all: the queries return it, and nothing here tells records apart by it.
 		const cid = (await cidForLex(jsonToLex(records[0].value))).toString();
 
-		hv.seed(records.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value })));
+		await hv.seed(
+			records.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value }))
+		);
 
 		return hv;
 	}
@@ -1868,7 +2075,7 @@ describe('instruction budget', () => {
 		const hv = await directory(1);
 		const cid = 'bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm';
 
-		hv.seed(
+		await hv.seed(
 			Array.from({ length: 1000 }, (_unused, i) => {
 				const did = `did:plc:dj${i}`;
 
@@ -1987,7 +2194,7 @@ describe('instruction budget', () => {
 		}));
 
 		const cid = (await cidForLex(jsonToLex(projects[0].value))).toString();
-		hv.seed([
+		await hv.seed([
 			...projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value })),
 			...[...shows, ...follows].map((record) => ({ ...record, cid }))
 		]);
@@ -2058,7 +2265,7 @@ describe('instruction budget', () => {
 
 			const projects = djs.slice(1).map((did) => projectRecord({}, { managers: [did] }));
 
-			hv.seed(
+			await hv.seed(
 				projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value }))
 			);
 
@@ -2084,9 +2291,9 @@ describe('instruction budget', () => {
 				}
 			}));
 
-			hv.seed(long);
+			await hv.seed(long);
 
-			hv.seed(
+			await hv.seed(
 				djs.flatMap((did, d) =>
 					Array.from({ length: 40 }, (_set, s) => {
 						const tracks = Array.from({ length: 25 }, (_track, t) => ({

@@ -242,7 +242,7 @@ describe('RsvpService', () => {
 				if (new URL(request.url).pathname !== '/admin/backfill') return t.happyView.fetch(request);
 				backfills.push(await request.json());
 
-				return Response.json({ id: 'job' });
+				return Response.json({ id: 'job', status: 'running' }, { status: 201 });
 			}
 		});
 
@@ -250,6 +250,6 @@ describe('RsvpService', () => {
 		t.net.onRecord = async () => {};
 
 		await new RsvpService(t.core, directory, PUBLIC_URL, 0).answer(fan, event, 'going');
-		expect(backfills).toEqual([{ collection: CALENDAR_RSVP, did: FAN }]);
+		expect(backfills).toEqual([{ collection: CALENDAR_RSVP, dids: [FAN] }]);
 	});
 });

@@ -1,9 +1,12 @@
 -- Projects by URI in any status, in the order asked for, each once. Unknown URIs are left out.
 
-function handle()
-	local uris = list(params.uris, 25)
+local json = require('internal.json')
+
+function handle(input)
+	local uris = input.uris
+	local where, values = atUris(uris, '')
 	local byUri = {}
-	for _, project in ipairs(projects(' AND uri IN (' .. marks(#uris) .. ')', uris)) do
+	for _, project in ipairs(projects(' AND ' .. where, values)) do
 		byUri[project.uri] = project
 	end
 	local out = {}
@@ -13,5 +16,5 @@ function handle()
 			byUri[uri] = nil
 		end
 	end
-	return { projects = toarray(out) }
+	return { projects = json.to_array(out) }
 end

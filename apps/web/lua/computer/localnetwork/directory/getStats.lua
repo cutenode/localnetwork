@@ -1,33 +1,43 @@
 -- Directory totals across every status, and the genres and cities of active projects, most common first.
 
 local WHERE = ' WHERE collection = ? AND did = ?'
-local ACTIVE = WHERE .. " AND json_extract(record, '$.status') = 'active'"
+local ACTIVE = WHERE .. " AND record::jsonb ->> 'status' = 'active'"
+
+local CITY = "(record::jsonb #>> '{profile,location,city}')"
+local COUNTRY = 'upper((record::jsonb #>> \'{profile,location,country}\') COLLATE "C")'
 
 function handle()
 	local base = { PROJECT, ROOT_DID }
-	local stats = db.raw(
-		'SELECT COUNT(*) AS total,'
-			.. " COUNT(CASE WHEN json_extract(record, '$.status') = 'active' THEN 1 END) AS active,"
-			.. " COUNT(CASE WHEN json_array_length(record, '$.managers') = 0 THEN 1 END) AS unclaimed,"
-			.. " COUNT(DISTINCT json_extract(record, '$.profile.location.city') || '|'"
-			.. " || upper(json_extract(record, '$.profile.location.country'))) AS cityCount"
+	local stats = query(
+		'SELECT count(*) AS total,'
+			.. " count(CASE WHEN record::jsonb ->> 'status' = 'active' THEN 1 END) AS active,"
+			.. " count(CASE WHEN record::jsonb -> 'managers' = '[]' THEN 1 END) AS unclaimed,"
+			.. ' count(DISTINCT '
+			.. CITY
+			.. " || '|' || "
+			.. COUNTRY
+			.. ') AS "cityCount"'
 			.. ' FROM happyview_records'
 			.. WHERE,
 		base
 	)[1]
-	stats.genres = db.raw(
-		'SELECT genre.value AS value, COUNT(*) AS count'
-			.. " FROM happyview_records, json_each(record, '$.profile.genres') AS genre"
+	stats.genres = query(
+		'SELECT genre AS value, count(*) AS count'
+			.. " FROM happyview_records, jsonb_array_elements_text(CASE WHEN left((record::jsonb #> '{profile,genres}')::text, 1)"
+			.. " = '[' THEN record::jsonb #> '{profile,genres}' ELSE '[]' END) AS genre"
 			.. ACTIVE
-			.. ' GROUP BY genre.value ORDER BY count DESC, lower(value), value',
+			.. ' GROUP BY genre ORDER BY count DESC, lower(genre COLLATE "C"), genre COLLATE "C"',
 		base
 	)
-	stats.cities = db.raw(
-		"SELECT json_extract(record, '$.profile.location.city') AS city,"
-			.. " upper(json_extract(record, '$.profile.location.country')) AS country, COUNT(*) AS count"
-			.. ' FROM happyview_records'
+	stats.cities = query(
+		'SELECT city, country, count(*) AS count FROM (SELECT '
+			.. CITY
+			.. ' AS city, '
+			.. COUNTRY
+			.. ' AS country FROM happyview_records'
 			.. ACTIVE
-			.. ' GROUP BY city, country ORDER BY count DESC, lower(city), city, country',
+			.. ') AS active GROUP BY city, country'
+			.. ' ORDER BY count DESC, lower(city COLLATE "C"), city COLLATE "C", country COLLATE "C"',
 		base
 	)
 	return stats

@@ -3,16 +3,18 @@
 -- by the DID they name, since searchPerformers finds the profile by the key.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
-local function gate()
-	if did ~= ROOT_DID then return nil end
-	if action == 'delete' then return true end
-	if not (record.subject == rkey and type(record.createdAt) == 'string') then return nil end
+local log = require('internal.logging')
+
+local function gate(input)
+	if input.did ~= ROOT_DID then return nil end
+	if input.action == 'delete' then return true end
+	if not (input.record.subject == input.rkey and type(input.record.createdAt) == 'string') then return nil end
 	return true
 end
 
-function handle()
-	local ok, result = pcall(gate)
+function handle(input)
+	local ok, result = pcall(gate, input)
 	if ok then return result end
-	log('skipped ' .. uri .. ': ' .. tostring(result))
+	log.info('skipped ' .. input.uri .. ': ' .. tostring(result))
 	return nil
 end

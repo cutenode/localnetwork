@@ -98,6 +98,8 @@ const envSchema = z.object({
 	HANDLE_RESOLVER_URL: absoluteUrl.optional(),
 	HAPPYVIEW_URL: z.string('set HAPPYVIEW_URL to the HappyView instance that indexes projects').pipe(absoluteUrl),
 	HAPPYVIEW_API_KEY: z.string().min(1).optional(),
+	HAPPYVIEW_CLIENT_KEY: z.string().min(1).optional(),
+	HAPPYVIEW_CLIENT_SECRET: z.string().min(1).optional(),
 	USERINPUT_SPACE: userinputSpace,
 	SERVICE_DID: z.string().startsWith('did:').optional(),
 	SYNC_POLL_INTERVAL_MS: intString(60_000, 1_000),
@@ -127,8 +129,12 @@ export type Config = {
 	adminDids: string[];
 	plcUrl: string;
 	handleResolverUrl?: string;
-	/** The HappyView instance that indexes published projects. With an API key, the app uploads its lexicons and scripts. */
-	happyView: { url: string; apiKey?: string };
+	/**
+	 * The HappyView instance that indexes published projects. With an API key, the app uploads its lexicons and scripts.
+	 * With an API client, its directory queries count as that client's, which an instance that refuses anonymous XRPC
+	 * calls needs.
+	 */
+	happyView: { url: string; apiKey?: string; client?: { key: string; secret: string } };
 	/** The userinput.app space signed-in people post bug reports to. Unset, every report goes to GitHub instead. */
 	userinputSpace?: string;
 	/** did:web identity of this app, the audience of the service auth it accepts. */
@@ -204,6 +210,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		);
 	}
 
+	const { HAPPYVIEW_CLIENT_KEY: clientKey, HAPPYVIEW_CLIENT_SECRET: clientSecret } = value;
+
+	// HappyView only counts a server's calls as its client's when they carry the secret too.
+	if (Boolean(clientKey) !== Boolean(clientSecret)) {
+		throw new Error('Invalid configuration:\n  HAPPYVIEW_CLIENT_KEY: set it and HAPPYVIEW_CLIENT_SECRET together');
+	}
+
 	const isHttps = value.PUBLIC_URL.startsWith('https:');
 	const serviceDid = value.SERVICE_DID ?? serviceDidFor(value.PUBLIC_URL);
 
@@ -224,7 +237,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		adminDids: value.ADMIN_DIDS,
 		plcUrl: value.PLC_URL,
 		handleResolverUrl: value.HANDLE_RESOLVER_URL,
-		happyView: { url: value.HAPPYVIEW_URL, apiKey: value.HAPPYVIEW_API_KEY },
+		happyView: {
+			url: value.HAPPYVIEW_URL,
+			apiKey: value.HAPPYVIEW_API_KEY,
+			client: clientKey && clientSecret ? { key: clientKey, secret: clientSecret } : undefined
+		},
 		userinputSpace: value.USERINPUT_SPACE,
 		serviceDid,
 		syncPollIntervalMs: value.SYNC_POLL_INTERVAL_MS,

@@ -1,5 +1,5 @@
 import type { Logger } from '../logger';
-import type { HappyViewClient } from './client';
+import { BACKFILL_FAILED, type HappyViewClient } from './client';
 
 /** How long a caller waits for HappyView to read an account's records before going on without them. */
 const WAIT_MS = 5_000;
@@ -8,7 +8,7 @@ const WAIT_MS = 5_000;
 const EVERY_MS = 10 * 60_000;
 
 /**
- * Has HappyView re-read one account's records of a collection from its PDS, for records Jetstream never brought (ones
+ * Has HappyView re-read accounts' records of a collection from their PDS, for records Jetstream never brought (ones
  * written before HappyView kept that collection, or while it was down). Only with an API key, and at most every ten
  * minutes per account and collection: a caller that comes while a re-read runs, or soon after, gets that re-read's
  * outcome instead of crawling the repo again. A failed one is forgotten, so the next caller tries again.
@@ -22,35 +22,46 @@ export class Backfills {
 	) {}
 
 	/**
-	 * Whether HappyView finished re-reading within five seconds: false without an API key, after a failure, or while it
-	 * carries on reading.
+	 * Whether HappyView finished re-reading every account in `dids` within five seconds: false without an API key, after
+	 * a failure, or while it carries on reading. The accounts not read lately are read together, in one job per 500.
 	 */
-	async backfill(collection: string, did: string): Promise<boolean> {
+	async backfill(collection: string, dids: string[]): Promise<boolean> {
 		if (!this.directory.admin) return false;
-		const key = `${collection} ${did}`;
-		const last = this.last.get(key);
+		const reads: Promise<boolean>[] = [];
+		const due: string[] = [];
 
-		if (last && Date.now() - last.at < EVERY_MS) return last.done;
-		const done = this.read(key, collection, did);
-		this.last.set(key, { at: Date.now(), done });
+		for (const did of new Set(dids)) {
+			const last = this.last.get(`${collection} ${did}`);
 
-		return done;
+			if (last && Date.now() - last.at < EVERY_MS) reads.push(last.done);
+			else due.push(did);
+		}
+
+		if (due.length) {
+			const done = this.read(collection, due);
+			reads.push(done);
+
+			for (const did of due) this.last.set(`${collection} ${did}`, { at: Date.now(), done });
+		}
+
+		return (await Promise.all(reads)).every(Boolean);
 	}
 
-	private async read(key: string, collection: string, did: string): Promise<boolean> {
+	private async read(collection: string, dids: string[]): Promise<boolean> {
 		try {
-			const job = await this.directory.backfill(collection, did);
-			const status = await this.directory.awaitBackfill(job, WAIT_MS);
+			const jobs = await this.directory.backfill(collection, dids);
+			const statuses = await Promise.all(jobs.map((job) => this.directory.awaitBackfill(job, WAIT_MS)));
+			const failed = statuses.find((status) => BACKFILL_FAILED.has(status ?? ''));
 
-			if (status === 'failed' || status === 'cancelled') throw new Error(`HappyView's re-read ${status}`);
+			if (failed) throw new Error(`HappyView's re-read ${failed}`);
 
-			if (status === 'completed') return true;
-			this.logger.info('HappyView is still re-reading a repo', { collection, did, backfillStatus: status });
+			if (statuses.every((status) => status === 'completed')) return true;
+			this.logger.info('HappyView is still re-reading repos', { collection, dids, backfillStatus: statuses });
 
 			return false;
 		} catch (error) {
-			this.last.delete(key);
-			this.logger.warn('could not have HappyView re-read a repo', { err: error, collection, did });
+			for (const did of dids) this.last.delete(`${collection} ${did}`);
+			this.logger.warn('could not have HappyView re-read repos', { err: error, collection, dids });
 
 			return false;
 		}

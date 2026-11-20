@@ -3,6 +3,8 @@
 -- as written, but only when every field the site reads has the type it expects.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
+local log = require('internal.logging')
+
 local function isString(value)
 	return type(value) == 'string'
 end
@@ -104,20 +106,20 @@ local function problem(value)
 	end
 end
 
-local function gate()
-	if rkey ~= 'self' then return nil end
-	if action == 'delete' then return true end
-	local why = problem(record)
+local function gate(input)
+	if input.rkey ~= 'self' then return nil end
+	if input.action == 'delete' then return true end
+	local why = problem(input.record)
 	if why then
-		log('skipped ' .. uri .. ': ' .. why)
+		log.info('skipped ' .. input.uri .. ': ' .. why)
 		return nil
 	end
 	return true
 end
 
-function handle()
-	local ok, result = pcall(gate)
+function handle(input)
+	local ok, result = pcall(gate, input)
 	if ok then return result end
-	log('skipped ' .. uri .. ': ' .. tostring(result))
+	log.info('skipped ' .. input.uri .. ': ' .. tostring(result))
 	return nil
 end

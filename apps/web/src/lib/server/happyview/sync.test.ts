@@ -12,7 +12,7 @@ const API_KEY = 'hv_test';
 class FakeAdmin {
 	readonly lexicons = new Map<string, { revision: number; json: string; backfill: boolean }>();
 	readonly scripts = new Map<string, string>();
-	readonly backfills: { collection: string; did: string }[] = [];
+	readonly backfills: { collection: string; dids: string[] }[] = [];
 	readonly uploads: string[] = [];
 	/** How many status checks a backfill job reports `running` before it finishes. */
 	backfillPolls = 0;
@@ -109,7 +109,9 @@ describe('syncHappyView', () => {
 		);
 		// A backfill on upload would crawl the whole network; the targeted one covers the root.
 		expect([...admin.lexicons.values()].every((stored) => !stored.backfill)).toBe(true);
-		expect(admin.backfills).toEqual(Array.from({ length: 3 }, () => ({ collection: COLLECTION.project, did: ROOT })));
+		expect(admin.backfills).toEqual(
+			Array.from({ length: 3 }, () => ({ collection: COLLECTION.project, dids: [ROOT] }))
+		);
 	});
 
 	it('waits for the backfill, and fails when it fails', async () => {
@@ -124,6 +126,10 @@ describe('syncHappyView', () => {
 
 		admin.backfillResult = 'failed';
 		await expect(syncHappyView(client, bundle, ROOT)).rejects.toThrow(`HappyView's backfill of ${ROOT} failed`);
+
+		// HappyView 3 pauses a job with repos still queued instead of completing it.
+		admin.backfillResult = 'paused';
+		await expect(syncHappyView(client, bundle, ROOT)).rejects.toThrow(`HappyView's backfill of ${ROOT} paused`);
 	});
 
 	it('fails without a backfill when HappyView refuses the key', async () => {

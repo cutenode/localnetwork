@@ -20,7 +20,7 @@
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
 		"apps/web": {
-			// Vite's `#lexicon-files` and `#notification-kinds` aliases (vite.config.ts); package.json's imports point Node
+			// Vite's `#lexicon-files`, `#notification-kinds` and `#lua-files` aliases (vite.config.ts); package.json's imports point Node
 			// elsewhere.
 			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
 			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
@@ -28,6 +28,7 @@
 			"entry": [
 				"src/lib/server/atproto/lexicon-files.ts!",
 				"src/lib/server/notifications/kind-files.ts!",
+				"src/lib/server/happyview/lua-files.ts!",
 				"scripts/db-backup.ts!",
 				"fuzz/*.fuzz.ts"
 			],

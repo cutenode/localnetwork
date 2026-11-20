@@ -131,6 +131,6 @@ export class RsvpService {
 
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
 		this.core.logger.warn('the directory has not caught up with an RSVP yet', { subject, actor });
-		await reindex(this.directory, this.core.logger, CALENDAR_RSVP, actor);
+		await reindex(this.directory, this.core.logger, CALENDAR_RSVP, [actor]);
 	}
 }

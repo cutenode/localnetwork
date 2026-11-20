@@ -35,7 +35,7 @@ export async function requestIndex(authorization: string | null, options: Reques
 		return Response.json({ error: 'AuthenticationRequired', message: 'Invalid service auth' }, { status: 401 });
 	}
 
-	const done = await Promise.all(LOCALLIBRARY_COLLECTIONS.map((collection) => backfills.backfill(collection, did)));
+	const done = await Promise.all(LOCALLIBRARY_COLLECTIONS.map((collection) => backfills.backfill(collection, [did])));
 	const indexed = done.every(Boolean);
 	log.info("had HappyView re-read an account's locallibrary records", { did, indexed });
 

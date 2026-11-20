@@ -16,7 +16,7 @@ const DJ = 'did:plc:dj';
 
 const LOCALLIBRARY = [COLLECTION.djSet, COLLECTION.djRecording, COLLECTION.djProfile, COLLECTION.locallibrarySettings];
 
-const backfillInput = z.object({ collection: z.string(), did: z.string() });
+const backfillInput = z.object({ collection: z.string(), dids: z.array(z.string()) });
 
 describe('requestIndex', () => {
 	let key: Secp256k1Keypair;
@@ -35,8 +35,8 @@ describe('requestIndex', () => {
 				const { pathname } = new URL(request.url);
 
 				if (pathname === '/admin/backfill') {
-					const { collection, did } = backfillInput.parse(await request.json());
-					backfilled.push(`${collection} ${did}`);
+					const { collection, dids } = backfillInput.parse(await request.json());
+					backfilled.push(...dids.map((did) => `${collection} ${did}`));
 
 					return Response.json({ id: collection, status: 'running' });
 				}
@@ -121,9 +121,9 @@ describe('requestIndex', () => {
 		expect(backfilled).toHaveLength(2 * LOCALLIBRARY.length);
 	});
 
-	it('says a failed re-read is not done, and tries it again on the next call', async () => {
+	it.each(['failed', 'paused'])('says a %s re-read is not done, and tries it again on the next call', async (ended) => {
 		const backfills = new Backfills(happyView(), silentLogger);
-		status = (collection) => (collection === COLLECTION.djProfile ? 'failed' : 'completed');
+		status = (collection) => (collection === COLLECTION.djProfile ? ended : 'completed');
 
 		expect(await call(backfills, await token())).toEqual({ status: 200, body: { indexed: false } });
 		status = () => 'completed';
