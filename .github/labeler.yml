@@ -101,6 +101,7 @@ atstore:
           - "apps/web/src/lib/server/services/{bookings,booking-performers}.*"
           - "apps/web/src/lib/components/BookingDetails.svelte"
           - "lexicons/computer/localnetwork/booking/**"
+          - "apps/web/src/routes/dashboard/calendar/**"
 
 "web: planner":
   - changed-files:
