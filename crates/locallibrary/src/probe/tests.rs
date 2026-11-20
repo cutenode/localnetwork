@@ -112,6 +112,27 @@ fn a_refused_m4a_smaller_than_it_should_be_is_unreadable() {
     }
 }
 
+/// Regression: an M4A whose `stsz` gives every sample a size larger than the file had symphonia
+/// allocate that size for each packet it read. `silence-alac.m4a` with a size of 0xFFFFFFFF asked
+/// for 4 GiB; the other two are inputs the mp4 fuzz target crashed on. Each is refused, and won't
+/// open for its health.
+#[test]
+fn an_m4a_with_samples_larger_than_the_file_is_refused() {
+    let audio = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio");
+    let dir = tempfile::tempdir().unwrap();
+    let max = dir.path().join("sample-size-ffffffff.m4a");
+    let mut alac = std::fs::read(audio.join("silence-alac.m4a")).unwrap();
+    alac[593..597].copy_from_slice(&[0xff; 4]);
+    std::fs::write(&max, alac).unwrap();
+    for path in [max, audio.join("sample-size-aaaaaaaa.m4a"), audio.join("sample-size-ff000004.m4a")] {
+        match vet_container(&path) {
+            Err(loclib_audio::Error::Parse { message, .. }) => assert_eq!(message, "a sample is larger than the file"),
+            other => panic!("{}: {other:?}", path.display()),
+        }
+        assert!(matches!(health(&path, 1.0, 0), Some(AudioProblem::Unreadable { .. })), "{}", path.display());
+    }
+}
+
 /// A WAV cut short in its header doesn't open: it's truncated when it's smaller than the
 /// database's size, and otherwise a file that won't open.
 #[test]

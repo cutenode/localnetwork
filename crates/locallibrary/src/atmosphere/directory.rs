@@ -29,7 +29,7 @@ use crate::export::one_line;
 use crate::{Error, Result};
 
 /// Local Network's HappyView, which serves the directory's queries.
-pub const HAPPYVIEW_URL: &str = "https://happyview.localnetwork.computer";
+pub const HAPPYVIEW_URL: &str = "https://localnetwork.hpy.at";
 
 /// The environment variable that names another HappyView (a development or test one).
 pub const HAPPYVIEW_ENV: &str = "LOCALLIBRARY_HAPPYVIEW_URL";

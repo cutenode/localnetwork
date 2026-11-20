@@ -24,6 +24,8 @@ const neon = {
 	profile: { name: 'Neon Tide' }
 } as ProjectView;
 
+const calendarOn = { ...flagsOff, dashboardCalendar: true };
+
 const menu = async () => {
 	await page.getByRole('button', { name: 'Dashboard menu' }).click();
 
@@ -41,7 +43,8 @@ it("lists the sections and everything that is the viewer's own", async () => {
 			needs: [],
 			access: Promise.resolve([]),
 			projects: Promise.resolve([neon]),
-			sections: Promise.resolve(null)
+			sections: Promise.resolve(null),
+			flags: calendarOn
 		},
 		children
 	});
@@ -51,6 +54,7 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		['Overview', '/dashboard'],
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
+		['Calendar', '/dashboard/calendar'],
 		['Planner', '/dashboard/planner'],
 		['Account', '/dashboard/account']
 	]) {
@@ -234,4 +238,25 @@ it('shows a DJ their projects and a promoter their Promoter section, by the sect
 	// Projects someone manages stay, whatever their profile says.
 	nav = await open({ performer: false, promoter: false }, [neon]);
 	await expect.element(nav.getByRole('link', { name: 'Neon Tide' })).toBeInTheDocument();
+});
+
+it('leaves Calendar out while dashboardCalendar is off', async () => {
+	await render(Layout, {
+		params: {},
+		data: {
+			viewer: viewer(false),
+			pendingRequests: 0,
+			unread: 0,
+			waiting: 0,
+			needs: [],
+			access: Promise.resolve([]),
+			projects: Promise.resolve([]),
+			sections: Promise.resolve(null)
+		},
+		children
+	});
+	const nav = await menu();
+
+	await expect.element(nav.getByRole('link', { name: 'Bookings', exact: true })).toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'Calendar', exact: true })).not.toBeInTheDocument();
 });

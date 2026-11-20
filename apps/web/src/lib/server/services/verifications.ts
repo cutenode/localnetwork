@@ -61,8 +61,7 @@ export class VerificationService {
 	async live(did: string, { strict = false } = {}): Promise<LiveIdentity> {
 		const [identity, profile] = await Promise.all([
 			this.identity.resolve(did).catch(() => null),
-			// HappyView re-reads one it doesn't have yet, in case Jetstream brought no change since the account came to
-			// manage a project or since HappyView kept profiles.
+			// HappyView re-reads one it doesn't have yet, such as a profile the store hasn't backfilled.
 			this.indexed.getRecordOrReindex(did, BSKY_PROFILE, 'self', { strict })
 		]);
 
@@ -101,8 +100,7 @@ export class VerificationService {
 
 	/**
 	 * Verifies `subject` under its current handle and display name, replacing an earlier verification of it in place:
-	 * apps count one per issuer and account. Only a project manager, or an account verified already, can be: HappyView
-	 * keeps no one else's display name.
+	 * apps count one per issuer and account. Only a project manager, or an account verified already, can be.
 	 */
 	async grant(actor: Viewer, subject: string): Promise<{ handle: string; displayName: string }> {
 		await this.requireAdmin(actor, 'verification.grant', subject);

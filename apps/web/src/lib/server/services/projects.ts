@@ -435,7 +435,7 @@ export class ProjectService {
 			void this.sets.refresh(added);
 
 			for (const collection of [...MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet), BSKY_FOLLOW])
-				for (const did of added) void reindex(this.directory, this.core.logger, collection, did);
+				void reindex(this.directory, this.core.logger, collection, added);
 		}
 
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };

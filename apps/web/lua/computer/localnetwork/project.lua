@@ -2,6 +2,8 @@
 -- account, and anyone can write this collection to their own repo, so only the root account's records get in.
 -- HappyView stores a record anyway when this script errors, so it checks types instead of trusting them.
 
+local log = require('internal.logging')
+
 local STATUSES = { active = true, hidden = true, archived = true }
 
 local function isString(value)
@@ -68,12 +70,12 @@ local function problem(value)
 	end
 end
 
-function handle()
-	if did ~= ROOT_DID then return nil end
-	if action == 'delete' then return true end
-	local why = problem(record)
+function handle(input)
+	if input.did ~= ROOT_DID then return nil end
+	if input.action == 'delete' then return true end
+	local why = problem(input.record)
 	if why then
-		log('skipped ' .. uri .. ': ' .. why)
+		log.info('skipped ' .. input.uri .. ': ' .. why)
 		return nil
 	end
 	return true

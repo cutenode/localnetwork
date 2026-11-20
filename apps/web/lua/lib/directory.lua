@@ -1,8 +1,11 @@
 -- Shared by every directory script. The bundle (src/lib/server/happyview/bundle.ts) puts this after the prelude
 -- that defines ROOT_DID and TAXONOMY and before the script itself, all in one chunk, so these locals are in scope
--- there. HappyView runs each request in a fresh VM, and runs top-level code at upload too, without `db` and under
--- its 1,000,000-instruction limit, so top-level code only builds lookups. handle() is held to the same budget by
--- the tests, which is why SQL narrows the rows before Lua touches them.
+-- there, with every file's requires moved to the top. HappyView runs each request in a fresh VM, and runs top-level
+-- code at upload too, with stand-ins for every module, so top-level code only builds lookups. Loading and handle()
+-- each get HappyView's 1,000,000-instruction budget, which is why SQL narrows the rows before Lua touches them.
+
+local json = require('internal.json')
+local sql = require('happyview.sql')
 
 local PROJECT = 'computer.localnetwork.project'
 
@@ -16,17 +19,12 @@ local FOLLOW = 'computer.localnetwork.follow'
 local EARTH_RADIUS_KM = 6371.0088
 
 -- Newest first, then by URI so ties have a stable order.
-local RECENT = " ORDER BY json_extract(record, '$.createdAt') DESC, uri"
+local RECENT = ' ORDER BY (record::jsonb ->> \'createdAt\') COLLATE "C" DESC, uri COLLATE "C"'
 
 -- Params ----------------------------------------------------------------------------------------------------------
 
--- HappyView passes a param given once as a string and a repeated one as a list. It doesn't enforce the lexicon's
--- maxLength, so the list is cut to `max` here.
-local function list(value, max)
-	if value == nil then return {} end
-	if type(value) ~= 'table' then return { value } end
-	return table.move(value, 1, math.min(#value, max), 1, {})
-end
+-- HappyView checks each param against the lexicon before a script sees it: an array param is a list even when it's
+-- given once, and no longer than its maxLength, an integer an integer, and a missing one with a default the default.
 
 local function contains(values, wanted)
 	for _, value in ipairs(values) do
@@ -35,12 +33,12 @@ local function contains(values, wanted)
 	return false
 end
 
--- A string param, or nil when it's missing, empty, or repeated.
+-- A string param, or nil when it's missing or empty.
 local function text(value)
 	return type(value) == 'string' and value ~= '' and value or nil
 end
 
--- An integer param (HappyView coerces those the lexicon declares), or nil.
+-- An integer param, or nil when it's missing.
 local function integer(value)
 	return math.type(value) == 'integer' and value or nil
 end
@@ -92,12 +90,21 @@ local function boundingBox(center, radiusKm)
 	}
 end
 
--- An SQL condition keeping the latE6 and lngE6 under `location` (a JSON path into `column`) inside a boundingBox
--- around `center`, and its placeholders' values. A box that crosses the antimeridian takes longitudes on both sides.
+-- `column`'s JSON number at `path` (a Postgres path, like 'location,latE6'), or NULL when it's anything else. A JSON
+-- value's type is told by the first character of its text, since HappyView's raw SQL may only call the functions on
+-- its allowlist, and jsonb_typeof isn't one.
+local function number(column, path)
+	local value = column .. "::jsonb #> '{" .. path .. "}'"
+	return "(CASE WHEN strpos('-0123456789', left((" .. value .. ')::text, 1)) > 0 THEN (' .. value .. ')::numeric END)'
+end
+
+-- An SQL condition keeping the latE6 and lngE6 under `location` (a Postgres path into `column`, like
+-- 'profile,location') inside a boundingBox around `center`, and its placeholders' values. A box that crosses the
+-- antimeridian takes longitudes on both sides.
 local function withinBox(center, radiusKm, column, location)
 	local box = boundingBox(center, radiusKm)
-	local lat = 'json_extract(' .. column .. ", '" .. location .. ".latE6')"
-	local lng = 'json_extract(' .. column .. ", '" .. location .. ".lngE6')"
+	local lat = number(column, location .. ',latE6')
+	local lng = number(column, location .. ',lngE6')
 	local clause = lat .. ' BETWEEN ? AND ?'
 	local values = { math.floor(box.minLat * 1e6), math.ceil(box.maxLat * 1e6) }
 	local ranges = { { box.minLng, box.maxLng } }
@@ -117,23 +124,77 @@ local function withinBox(center, radiusKm, column, location)
 	return clause .. ' AND (' .. table.concat(either, ' OR ') .. ')', values
 end
 
+-- SQL -------------------------------------------------------------------------------------------------------------
+
+-- HappyView reads the records from its record store, which is Postgres, keeps each record as JSON text (so SQL reads it
+-- through record::jsonb), and answers within its time limit only when a query names the accounts it reads: one that
+-- narrows by collection alone, or by uri, which the store computes from did, collection and rkey when it's read, reads
+-- every record. So every query here starts from the root's own records, or from accounts those name. Text is compared
+-- and sorted COLLATE "C", byte by byte, the order Lua's own comparisons use, and lowered that way too (Postgres's
+-- lower() would also lower non-ASCII letters, which Lua's doesn't).
+
+-- Runs `statement` with `args`. Postgres numbers its placeholders, and the statements here are built from fragments
+-- that each use ?, so this numbers them in order. No other ? appears in their SQL. Postgres also folds unquoted names
+-- to lowercase, so a column Lua reads by a camelCase name is aliased in quotes.
+local function query(statement, args)
+	local n = 0
+	local numbered = statement:gsub('%?', function()
+		n = n + 1
+		return '$' .. n
+	end)
+	return sql.raw(numbered, json.to_array(args))
+end
+
+-- `values` and then `more`, as one list of placeholder values.
+local function append(values, more)
+	return table.move(more, 1, #more, #values + 1, values)
+end
+
 -- Records ---------------------------------------------------------------------------------------------------------
+
+-- An SQL condition keeping the records at `uris` (with columns named `prefix` .. 'did' and so on, '' or an alias and a
+-- dot) and its placeholders' values. It matches each URI's did, collection and rkey, which the store finds by its
+-- index, so a URI without all three matches nothing. It's an OR per URI, so it's for lists as short as the lexicons' 25.
+local function atUris(uris, prefix)
+	local either, values = {}, {}
+	for _, uri in ipairs(uris) do
+		local did, collection, rkey = uri:match('^at://([^/]+)/([^/]+)/([^/]+)$')
+		if did then
+			either[#either + 1] = '(' .. prefix .. 'did = ? AND ' .. prefix .. 'collection = ? AND ' .. prefix .. 'rkey = ?)'
+			append(values, { did, collection, rkey })
+		end
+	end
+	return '(' .. (either[1] and table.concat(either, ' OR ') or 'false') .. ')', values
+end
 
 -- The root account's project records, as projectViews ({ uri, cid, record }), narrowed by `where` (SQL starting
 -- with ' AND ', its placeholders filled from `args`) and sorted by `order` (newest first by default).
 local function projects(where, args, order)
-	local values = { PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do
-		values[#values + 1] = arg
-	end
-	local rows = db.raw(
-		'SELECT uri, cid, record FROM happyview_records WHERE collection = ? AND did = ?' .. where .. (order or RECENT),
-		values
+	local rows = query(
+		'SELECT uri, cid, record FROM happyview_records WHERE did = ? AND collection = ?' .. where .. (order or RECENT),
+		append({ ROOT_DID, PROJECT }, args)
 	)
 	for _, row in ipairs(rows) do
 		row.record = json.decode(row.record)
 	end
 	return rows
+end
+
+-- The accounts that manage one of the root's projects (an active one, with `active`), each once: the accounts whose
+-- records the directory reads beyond the root's own.
+local function managers(active)
+	local rows = query(
+		"SELECT DISTINCT m AS did FROM happyview_records, jsonb_array_elements_text(record::jsonb -> 'managers') AS m"
+			.. ' WHERE did = ? AND collection = ?'
+			.. (active and " AND record::jsonb ->> 'status' = 'active'" or '')
+			.. ' ORDER BY 1',
+		{ ROOT_DID, PROJECT }
+	)
+	local out = {}
+	for i, row in ipairs(rows) do
+		out[i] = row.did
+	end
+	return out
 end
 
 -- A happyview_records row (uri, cid, and record JSON) as a recordView, its value as its record script stored it.
@@ -151,73 +212,82 @@ end
 -- SQL for a stored set's view fields: its record without the tracklist, who it was played with, where to listen and
 -- its event, which only the DJ sets block reads, the named tracks the support queries count, or the sources and
 -- createdAt only locallibrary reads (through getRecords).
-local SET_FIELDS = "json_remove(record, '$.tracks', '$.playedWith', '$.links', '$.recording', '$.event',"
-	.. " '$.namedTracks', '$.sources', '$.createdAt') AS record"
+local SET_FIELDS = "(record::jsonb - 'tracks' - 'playedWith' - 'links' - 'recording' - 'event' - 'namedTracks'"
+	.. " - 'sources' - 'createdAt')::text AS record"
 
 -- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields, tracklist,
 -- and named tracks. It keeps every account's, so only sets by accounts that manage one of the root's projects, in any
--- status, are read here. Narrowed and sorted like projects(), with `order` required.
+-- status, are read here. Narrowed (with `where` on a set aliased s) and sorted like projects(), with `order` required.
 local function sets(where, args, order)
-	local values = { SET, PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do
-		values[#values + 1] = arg
-	end
-	local rows = db.raw(
+	local djs = managers(false)
+	if #djs == 0 then return json.to_array({}) end
+	local rows = query(
 		'SELECT uri, cid, '
 			.. SET_FIELDS
-			.. ' FROM happyview_records AS s WHERE s.collection = ?'
-			.. " AND s.did IN (SELECT m.value FROM happyview_records AS p, json_each(p.record, '$.managers') AS m"
-			.. ' WHERE p.collection = ? AND p.did = ?)'
+			.. ' FROM happyview_records AS s WHERE s.did IN ('
+			.. marks(#djs)
+			.. ') AND s.collection = ?'
 			.. where
 			.. order,
-		values
+		append(append(djs, { SET }), args)
 	)
 	local out = {}
 	for i, row in ipairs(rows) do
 		out[i] = setView(row.record, row.uri, row.cid)
 	end
-	return toarray(out)
+	return json.to_array(out)
 end
 
 -- Shows -------------------------------------------------------------------------------------------------------------
 
 -- SQL (starting with ' AND ') for a show, aliased s, that hasn't ended. One without an end stays on for 12 hours after
--- it starts, through the night. datetime() reads each time's UTC offset, so this compares instants.
-local UPCOMING = " AND coalesce(datetime(json_extract(s.record, '$.endsAt')),"
-	.. " datetime(json_extract(s.record, '$.startsAt'), '+12 hours')) > datetime('now')"
+-- it starts, through the night. The show record script keeps only times Postgres reads, with their UTC offsets, so
+-- this compares instants.
+local UPCOMING = " AND coalesce((s.record::jsonb ->> 'endsAt')::timestamptz,"
+	.. " (s.record::jsonb ->> 'startsAt')::timestamptz + interval '12 hours') > now()"
 
--- The FROM and WHERE of showRows and showCount.
-local SHOWS_FROM = " FROM happyview_records s JOIN happyview_records p ON p.uri = json_extract(s.record, '$.project')"
-	.. " WHERE s.collection = ? AND p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'"
-	.. " AND EXISTS (SELECT 1 FROM json_each(p.record, '$.managers') WHERE value = s.did)"
+-- What every one of the root's project URIs starts with.
+local ROOT_PROJECTS = 'at://' .. ROOT_DID .. '/' .. PROJECT .. '/'
+
+-- The FROM and WHERE of showRows and showCount, for shows by `djs`, and its placeholders' values. A show names its
+-- project by URI, so the join takes the project's rkey from the end of it and checks the rest is the root's.
+local function showsFrom(djs)
+	return ' FROM happyview_records s JOIN happyview_records p ON p.did = ? AND p.collection = ?'
+		.. " AND p.rkey = substr(s.record::jsonb ->> 'project', length(?) + 1)"
+		.. " AND s.record::jsonb ->> 'project' = ? || p.rkey"
+		.. ' WHERE s.did IN ('
+		.. marks(#djs)
+		.. ") AND s.collection = ? AND p.record::jsonb ->> 'status' = 'active'"
+		.. " AND p.record::jsonb -> 'managers' @> jsonb_build_array(s.did)",
+		append(append({ ROOT_DID, PROJECT, ROOT_PROJECTS, ROOT_PROJECTS }, djs), { SHOW })
+end
 
 -- Shows (aliased s) by a current manager of the active root project they name (aliased p), narrowed by `where` (SQL
 -- starting with ' AND ') and followed by `order` (ORDER BY and LIMIT, or ''), their placeholders filled from `args`.
 -- Each row has the show's uri, cid, and record JSON, its latE6 and lngE6, and the project's projectUri, projectCid,
 -- and project JSON, so callers decode only the rows they return.
 local function showRows(where, args, order)
-	local values = { SHOW, PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do
-		values[#values + 1] = arg
-	end
-	return db.raw(
+	local djs = managers(true)
+	if #djs == 0 then return {} end
+	local from, values = showsFrom(djs)
+	return query(
 		'SELECT s.uri, s.cid, s.record,'
-			.. " json_extract(s.record, '$.location.latE6') AS latE6, json_extract(s.record, '$.location.lngE6') AS lngE6,"
-			.. ' p.uri AS projectUri, p.cid AS projectCid, p.record AS project'
-			.. SHOWS_FROM
+			.. ' (s.record::jsonb #>> \'{location,latE6}\')::bigint AS "latE6",'
+			.. ' (s.record::jsonb #>> \'{location,lngE6}\')::bigint AS "lngE6",'
+			.. ' p.uri AS "projectUri", p.cid AS "projectCid", p.record AS project'
+			.. from
 			.. where
 			.. order,
-		values
+		append(values, args)
 	)
 end
 
 -- How many shows showRows would return for `where` and `args`, without reading them.
 local function showCount(where, args)
-	local values = { SHOW, PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do
-		values[#values + 1] = arg
-	end
-	return db.raw('SELECT count(*) AS n' .. SHOWS_FROM .. where, values)[1].n
+	local djs = managers(true)
+	if #djs == 0 then return 0 end
+	local from, values = showsFrom(djs)
+	return query('SELECT count(*) AS n' .. from .. where, append(values, args))[1].n
 end
 
 -- A showRows row as a showView, `km` from the searched place when there was one.
@@ -261,35 +331,31 @@ end
 
 -- The accounts that manage an active root project, each with their act: the first such project (by URI), so a
 -- crew's managers count as one DJ. Checked on every query, since the record script only checks when a set arrives.
--- Its placeholders are the project collection and the root DID.
-local DJS = [[djs AS MATERIALIZED (
-	SELECT m.value AS did, min(p.uri) AS act FROM happyview_records AS p, json_each(p.record, '$.managers') AS m
-	WHERE p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'
-	GROUP BY m.value
+-- Its placeholders are the root DID and the project collection.
+local DJS = [[djs AS (
+	SELECT m AS did, min(p.uri COLLATE "C") AS act
+	FROM happyview_records AS p, jsonb_array_elements_text(p.record::jsonb -> 'managers') AS m
+	WHERE p.did = ? AND p.collection = ? AND p.record::jsonb ->> 'status' = 'active'
+	GROUP BY m
 )]]
 
--- Every named track of the current DJs' sets as a play: a row per play and artist it credits, with the track and
--- the artist it counts for. A track is its recording MBID, else its ISRC, else its credit and title; an artist is
--- their MBID, else their name. A play without an ID takes the one other plays have when only one fits (an ISRC's
--- recording, a title's recording or ISRC, a name's artist), so sets published before their writer filled in IDs
--- count with the ones after. It reads every set each time, which is why each query builds it once (MATERIALIZED).
--- Each set's named tracks are pulled out of its record once, and each play keeps its track's JSON (`track`), since
--- going back to a record for a track means SQLite parsing the whole record, tracklist and all, again: dozens of
--- times slower over long sets. playsArgs() gives its placeholders.
-local PLAYS = 'WITH '
-	.. DJS
-	.. [[, sets AS (
-	SELECT s.uri, s.did, d.act, json_extract(s.record, '$.namedTracks') AS named,
-		json_extract(s.record, '$.date') AS date,
-		json_extract(s.record, '$.location.locality') AS city, upper(json_extract(s.record, '$.location.country')) AS country
-	FROM happyview_records AS s JOIN djs AS d ON d.did = s.did WHERE s.collection = ?
-), credits AS MATERIALIZED (
-	SELECT s.uri AS setUri, t.key AS position, s.did, s.act, s.date, s.city, s.country,
-		json_extract(t.value, '$.startSeconds') AS startSeconds, json_extract(t.value, '$.recordingMbId') AS mbid,
-		json_extract(t.value, '$.isrc') AS isrc, json_extract(t.value, '$.key') AS name,
-		json_extract(a.value, '$.artistMbId') AS artistMbid, json_extract(a.value, '$.key') AS artistKey,
-		json_extract(a.value, '$.artistName') AS artistName, t.value AS track
-	FROM sets AS s, json_each(s.named) AS t, json_each(t.value, '$.artists') AS a
+-- What follows the sets CTE in queryPlays(): every named track of the current DJs' sets as a play, a row per play
+-- and artist it credits, with the track and the artist it counts for. A track is its recording MBID, else its ISRC,
+-- else its credit and title; an artist is their MBID, else their name. A play without an ID takes the one other
+-- plays have when only one fits (an ISRC's recording, a title's recording or ISRC, a name's artist), so sets
+-- published before their writer filled in IDs count with the ones after. It reads every set each time, so each query
+-- builds it once: Postgres materializes a CTE used more than once. Writing MATERIALIZED would fail, since HappyView
+-- parses raw SQL with sqlparser's generic dialect and refuses what it can't parse as a write. Each play keeps its
+-- track's JSON (`track`), since going back to a record for a track means Postgres parsing the whole record text,
+-- tracklist and all, again: dozens of times slower over long sets. A named track or its artists that aren't a list count for nothing, where SQLite read whatever was there.
+local PLAYS = [[, credits AS (
+	SELECT s.uri AS setUri, t.position, s.did, s.act, s.date, s.city, s.country,
+		(t.value ->> 'startSeconds')::bigint AS startSeconds, t.value ->> 'recordingMbId' AS mbid,
+		t.value ->> 'isrc' AS isrc, t.value ->> 'key' AS name,
+		a.value ->> 'artistMbId' AS artistMbid, a.value ->> 'key' AS artistKey,
+		a.value ->> 'artistName' AS artistName, t.value AS track
+	FROM sets AS s, jsonb_array_elements(s.named) WITH ORDINALITY AS t(value, position),
+		jsonb_array_elements(CASE WHEN left((t.value -> 'artists')::text, 1) = '[' THEN t.value -> 'artists' END) AS a
 ), isrcMbids AS (
 	SELECT isrc, min(mbid) AS mbid FROM credits WHERE isrc IS NOT NULL AND mbid IS NOT NULL
 	GROUP BY isrc HAVING count(DISTINCT mbid) = 1
@@ -300,7 +366,7 @@ local PLAYS = 'WITH '
 ), artistMbids AS (
 	SELECT artistKey, min(artistMbid) AS mbid FROM credits WHERE artistMbid IS NOT NULL
 	GROUP BY artistKey HAVING count(DISTINCT artistMbid) = 1
-), plays AS MATERIALIZED (
+), plays AS (
 	SELECT c.setUri, c.position, c.did, c.act, c.date, c.city, c.country, c.startSeconds, c.artistKey, c.artistName,
 		c.track,
 		coalesce(
@@ -316,30 +382,46 @@ local PLAYS = 'WITH '
 	LEFT JOIN artistMbids AS am ON am.artistKey = c.artistKey
 )]]
 
--- PLAYS' placeholders, then `...`.
-local function playsArgs(...)
-	local args = { PROJECT, ROOT_DID, SET }
-	for _, arg in ipairs({ ... }) do
-		args[#args + 1] = arg
-	end
-	return args
+-- Runs the plays CTEs, then `statement` (more CTEs, then a SELECT) with `args` for its placeholders, and returns its
+-- rows and the current DJs (managers(true)), with no rows when there are none. The sets are read by those DJs' DIDs,
+-- which the store finds by its index. Each set's record is parsed once, in a subquery that OFFSET 0 keeps Postgres from
+-- folding into the one that reads it, which would parse it again for every field.
+local function queryPlays(statement, args)
+	local djs = managers(true)
+	if #djs == 0 then return json.to_array({}), djs end
+	local rows = query(
+		'WITH '
+			.. DJS
+			.. ', sets AS (SELECT uri, did, act,'
+			.. " CASE WHEN left((r -> 'namedTracks')::text, 1) = '[' THEN r -> 'namedTracks' END AS named,"
+			.. " r ->> 'date' AS date, r #>> '{location,locality}' AS city,"
+			.. ' upper((r #>> \'{location,country}\') COLLATE "C") AS country'
+			.. ' FROM (SELECT s.uri, s.did, d.act, s.record::jsonb AS r'
+			.. ' FROM happyview_records AS s JOIN djs AS d ON d.did = s.did WHERE s.did IN ('
+			.. marks(#djs)
+			.. ') AND s.collection = ? OFFSET 0) AS parsed)'
+			.. PLAYS
+			.. statement,
+		append(append({ ROOT_DID, PROJECT }, djs), append({ SET }, args))
+	)
+	return rows, djs
 end
 
--- Continues PLAYS, once `source` (a CTE of plays rows) is defined, with `topArtists` (the artists in it by supports:
--- each act's distinct tracks of theirs, at most MAX_SUPPORTS_PER_DJ, summed; its placeholder is the limit) and
--- `artistNames` (each one's name as plays credit it most).
+-- Continues queryPlays' CTEs, once `source` (a CTE of plays rows) is defined, with `topArtists` (the artists in it
+-- by supports: each act's distinct tracks of theirs, at most MAX_SUPPORTS_PER_DJ, summed; its placeholder is the
+-- limit) and `artistNames` (each one's name as plays credit it most).
 local function rankArtists(source)
-	return ', perAct AS (SELECT artistId, act, min(count(DISTINCT trackId), '
+	return ', perAct AS (SELECT artistId, act, least(count(DISTINCT trackId), '
 		.. MAX_SUPPORTS_PER_DJ
 		.. ') AS n'
 		.. ' FROM '
 		.. source
 		.. ' GROUP BY artistId, act)'
-		.. ', topArtists AS (SELECT artistId, sum(n) AS supports, count(*) AS djCount FROM perAct GROUP BY artistId'
-		.. ' ORDER BY supports DESC, djCount DESC, artistId LIMIT ?)'
-		.. ', artistNames AS (SELECT artistId, artistName FROM (SELECT artistId, artistName,'
-		.. ' row_number() OVER (PARTITION BY artistId ORDER BY count(*) DESC, max(date) DESC, artistName) AS rank'
-		.. ' FROM plays WHERE artistId IN (SELECT artistId FROM topArtists) GROUP BY artistId, artistName)'
+		.. ', topArtists AS (SELECT artistId, sum(n)::bigint AS supports, count(*) AS djCount FROM perAct'
+		.. ' GROUP BY artistId ORDER BY supports DESC, djCount DESC, artistId COLLATE "C" LIMIT ?)'
+		.. ', artistNames AS (SELECT artistId, artistName FROM (SELECT artistId, artistName, row_number() OVER'
+		.. ' (PARTITION BY artistId ORDER BY count(*) DESC, max(date COLLATE "C") DESC, artistName COLLATE "C") AS rank'
+		.. ' FROM plays WHERE artistId IN (SELECT artistId FROM topArtists) GROUP BY artistId, artistName) AS ranked'
 		.. ' WHERE rank = 1)'
 end
 
@@ -358,7 +440,7 @@ local function trackView(id, encoded, supports)
 		id = id,
 		title = track.title,
 		artist = track.artist,
-		artists = toarray(artists),
+		artists = json.to_array(artists),
 		recordingMbId = id:match('^mbid:(.+)$'),
 		isrc = id:match('^isrc:(.+)$') or track.isrc,
 		supports = supports,
@@ -491,21 +573,22 @@ local function overlaps(wanted, offered)
 	return false
 end
 
--- An SQL condition keeping records with a fee level (the objects at `fees`, a JSON path into `column`) in one of
--- `tiers`, or whose one fee from before fee levels (at `legacy`, when given) is, and its placeholders' values.
+-- An SQL condition keeping records with a fee level (the objects at `fees`, a Postgres path into `column`, like
+-- 'profile,fees') in one of `tiers`, or whose one fee from before fee levels (at `legacy`, when given) is, and its
+-- placeholders' values. Fees that aren't a list count as none, rather than failing the query.
 local function inFeeTiers(column, fees, tiers, legacy)
 	local inTiers, values = ' IN (' .. marks(#tiers) .. ')', table.move(tiers, 1, #tiers, 1, {})
-	local clause = 'EXISTS (SELECT 1 FROM json_each('
-		.. column
-		.. ", '"
-		.. fees
-		.. "')"
-		.. " WHERE json_extract(value, '$.tier')"
+	local list = column .. "::jsonb #> '{" .. fees .. "}'"
+	local clause = 'EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN left(('
+		.. list
+		.. ")::text, 1) = '[' THEN "
+		.. list
+		.. " ELSE '[]' END) AS fee WHERE fee ->> 'tier'"
 		.. inTiers
 		.. ')'
 	if not legacy then return clause, values end
 	table.move(tiers, 1, #tiers, #tiers + 1, values)
-	return '(' .. clause .. ' OR json_extract(' .. column .. ", '" .. legacy .. ".tier')" .. inTiers .. ')', values
+	return '(' .. clause .. ' OR ' .. column .. "::jsonb #>> '{" .. legacy .. ",tier}'" .. inTiers .. ')', values
 end
 
 -- The filters SQL can't apply, short of distance and search words, from the genres, formats and setTypes params: a
@@ -513,13 +596,13 @@ end
 -- and set types, each only when the params ask for any.
 local function performerFilter(params)
 	local close = {}
-	for _, want in ipairs(normalizeGenres(list(params.genres, 20), 20)) do
+	for _, want in ipairs(normalizeGenres(params.genres or {}, 20)) do
 		for genre, value in pairs(similarities(want)) do
 			if value >= 0.6 then close[genre] = true end
 		end
 	end
 	local wantsGenres = next(close) ~= nil
-	local formats, setTypes = list(params.formats, 10), list(params.setTypes, 10)
+	local formats, setTypes = params.formats or {}, params.setTypes or {}
 	return function(performer)
 		if not (overlaps(formats, performer.formats) and overlaps(setTypes, performer.setTypes)) then return false end
 		if not wantsGenres then return true end
@@ -572,5 +655,5 @@ local function searchPage(items, sort, params, needles)
 	for i = offset + 1, math.min(#items, offset + limit) do
 		page[#page + 1] = items[i].view
 	end
-	return toarray(page), #items, offset + limit < #items and tostring(offset + limit) or nil
+	return json.to_array(page), #items, offset + limit < #items and tostring(offset + limit) or nil
 end

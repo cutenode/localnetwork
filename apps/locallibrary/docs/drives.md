@@ -104,7 +104,9 @@ locallibrary drive recordings SD --copy-to ~/Music/Sets --tracklist latest [--de
   list them as broken tracks), `.DS_Store`, `Thumbs.db`, `.TemporaryItems`, `.Spotlight-V100`,
   `.fseventsd`, and the `.locallibrary-tmp-*` and part-written files a cut-off write left (up to a whole track each).
   `--empty-trash` also deletes what's in the Finder or Explorer trash, for good. `System Volume
-  Information` and locallibrary's own folder are left alone.
+  Information` and locallibrary's own folder are left alone. Every write already removes the
+  `._*` files in `PIONEER/` and `Contents/`: macOS makes one beside each file a write creates on
+  a FAT or exFAT drive.
 - `drive recordings` lists the WAV files MASTER REC writes on the XDJ-AZ (`ALPHATHETA REC`) and
   OPUS-QUAD (`PIONEER REC`), with their length. `--copy-to` copies them (verified), names them by
   when they started, writes a tracklist from a history list next to them (`--tracklist latest`, or

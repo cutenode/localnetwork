@@ -5,5 +5,6 @@
 mod common;
 mod cues;
 mod edges;
+mod folders;
 mod phrases;
 mod write;

@@ -59,3 +59,52 @@ fn a_new_files_key_is_the_first_free_one(tc: hegel::TestCase) {
         assert_ne!(unique_key(&key, &mut taken, &disk), got, "taken now");
     }
 }
+
+/// A track's analysis files go where rekordbox puts them on the target, each keeping its own
+/// extension, even when their names differ from the row's in case and their lower case is longer
+/// (`İ` is two bytes, its lower case three).
+#[test]
+fn analysis_files_named_in_another_case_keep_their_extensions() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("PIONEER/USBANLZ/P001/00000001");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("ANLZ\u{130}.DAT"), b"d").unwrap();
+    std::fs::write(folder.join("anlzi\u{307}.EXT"), b"e").unwrap();
+    let tree = crate::tree::scan(dir.path(), &crate::tree::ScanOptions::default(), &Ctx::silent()).unwrap();
+    let t = Track { analyze_path: "/PIONEER/USBANLZ/P001/00000001/ANLZ\u{130}.DAT".into(), ..Track::default() };
+    let (pairs, analyze_path) =
+        plan_analysis(&t, &tree, "Contents/a.mp3", &mut FxHashSet::default(), &mut String::new());
+    let stem = paths::analysis_stem(crate::anlz::AnalysisFolder::of("/Contents/a.mp3"), |_| false);
+    let to: Vec<&str> = pairs.iter().map(|(_, d)| d.as_str()).collect();
+    assert_eq!(to, [format!("{stem}.DAT"), format!("{stem}.EXT")]);
+    assert_eq!(analyze_path, format!("{stem}.DAT"));
+}
+
+/// A place on the target is taken by any of a track's file names, one whose extension isn't
+/// ASCII included: the track then goes to the next `ANLZ000n`.
+#[test]
+fn a_place_taken_by_any_file_name_goes_to_the_next_number() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("PIONEER/USBANLZ/P001/00000001");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("ANLZ0000.DAT"), b"d").unwrap();
+    std::fs::write(folder.join("ANLZ0000.\u{c9}XT"), b"e").unwrap();
+    let tree = crate::tree::scan(dir.path(), &crate::tree::ScanOptions::default(), &Ctx::silent()).unwrap();
+    let t = Track { analyze_path: "/PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT".into(), ..Track::default() };
+    let first = paths::analysis_stem(crate::anlz::AnalysisFolder::of("/Contents/a.mp3"), |_| false);
+    let mut taken: FxHashSet<String> = [fold(&format!("{first}.\u{c9}XT"))].into_iter().collect();
+    let (_, analyze_path) = plan_analysis(&t, &tree, "Contents/a.mp3", &mut taken, &mut String::new());
+    assert_eq!(analyze_path, format!("{}/ANLZ0001.DAT", first.folder));
+}
+
+/// A track whose analysis files aren't on the source brings none, and gets no analysis path.
+#[test]
+fn a_track_whose_analysis_is_missing_brings_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let tree = crate::tree::scan(dir.path(), &crate::tree::ScanOptions::default(), &Ctx::silent()).unwrap();
+    let t = Track { analyze_path: "/PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT".into(), ..Track::default() };
+    let (pairs, analyze_path) =
+        plan_analysis(&t, &tree, "Contents/a.mp3", &mut FxHashSet::default(), &mut String::new());
+    assert!(pairs.is_empty());
+    assert_eq!(analyze_path, "");
+}

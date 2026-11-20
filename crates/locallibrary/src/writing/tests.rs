@@ -77,7 +77,7 @@ fn a_finished_write_leaves_nothing_noted() {
     note(&d, [("Contents/a.mp3".to_string(), 4, TIME)].into_iter()).unwrap();
     put(&d, "Contents/a.mp3", b"ab", TIME + 500);
     assert_eq!(unfinished(&d), ["Contents/a.mp3"]);
-    d.finish(None).unwrap();
+    d.finish(None, &Ctx::silent()).unwrap();
     assert_eq!(unfinished(&d), Vec::<String>::new(), "not without the mark");
     forget(&d).unwrap();
     assert!(!file(&d).exists());
@@ -110,7 +110,7 @@ fn a_stale_note_leaves_a_later_writes_files(tc: hegel::TestCase) {
     note(&d, [(key.to_string(), 4, TIME)].into_iter()).unwrap();
     put(&d, key, b"old!", TIME);
     // The write finished, but the note's removal was lost (not `forget`).
-    d.finish(None).unwrap();
+    d.finish(None, &Ctx::silent()).unwrap();
     d.begin(LineageOp::Sync, "replace it", None).unwrap();
     put(&d, key, b"new audio", TIME + 300);
     // Cut off here: the next run finds the drive marked, and the first write's note.

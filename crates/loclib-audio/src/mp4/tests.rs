@@ -57,7 +57,8 @@ fn sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase) {
     let constant_size = tc.draw(gs::booleans());
     let constant = constant_size && kind == b"stsz";
     let junk = tc.draw(gs::integers::<usize>().max_value(32));
-    let entries = vec![0x11; held * entry];
+    // Sizes, offsets and counts of 0: as `stsz` sizes, none is larger than the file.
+    let entries = vec![0; held * entry];
     let sized = match kind {
         b"stsz" => mp4_full(kind, &[be(&[u32::from(constant), count]), entries].concat()),
         _ => mp4_full(kind, &[be(&[count]), entries].concat()),
@@ -79,6 +80,155 @@ fn sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase) {
             }
         }
         Err(e) => panic!("{e}"),
+    }
+}
+
+/// Where symphonia reads a sample's size from: `stsz` (one size for every sample, or each
+/// sample's), and a fragmented MP4's default (`trex`, `tfhd`) or each sample's in a run (`trun`).
+const SIZES: [&str; 5] = ["stsz", "stsz entry", "trex", "tfhd", "trun"];
+
+/// An M4A giving a sample any size, in any place a size is read from: one larger than the file
+/// (symphonia reads each packet into a buffer of its size, 4 GiB for `u32::MAX`) is refused by
+/// every way of reading it, and any other passes. The optional fields of `tfhd` and `trun` move
+/// the size, and each comes without a size when it isn't the drawn place.
+#[hegel::test(test_cases = 200)]
+#[hegel::explicit_test_case(place = 0usize, size = u32::MAX, tfhd_fields = 0u32, trun_fields = 0u32)]
+#[hegel::explicit_test_case(place = 4usize, size = 1_000_000u32, tfhd_fields = 0xbu32, trun_fields = 0xd05u32)]
+fn samples_larger_than_the_file_are_refused(tc: TestCase) {
+    let place = tc.draw(gs::integers::<usize>().max_value(SIZES.len() - 1));
+    let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
+    let tfhd_fields = tc.draw(gs::integers::<u32>().max_value(0xf));
+    let trun_fields = tc.draw(gs::integers::<u32>().max_value(0xfff));
+    let file = sized_m4a(place, size, tfhd_fields, trun_fields);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, &file).unwrap();
+
+    let too_big = u64::from(size) > file.len() as u64;
+    match vet_container(&path) {
+        Ok(()) => assert!(!too_big, "a sample of {size} bytes in {} passed", SIZES[place]),
+        Err(Error::Parse { message, .. }) => {
+            assert!(too_big, "{size} in {}: {message}", SIZES[place]);
+            assert_eq!(message, TOO_BIG);
+            for read in read_all(&path) {
+                assert_eq!(read.as_deref(), Some(TOO_BIG));
+            }
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// An M4A with every table and fragment atom a sample size is read from, `place` (an index into
+/// [`SIZES`]) giving a sample `size` bytes; each other place has none. `tfhd_fields` and
+/// `trun_fields` are the optional fields of `tfhd` and `trun` before the size, which move it.
+fn sized_m4a(place: usize, size: u32, tfhd_fields: u32, trun_fields: u32) -> Vec<u8> {
+    let size_in = |at: usize| if place == at { size } else { 0 };
+    let stsz = match place {
+        0 => be(&[size, 0]),
+        1 => be(&[0, 2, 1, size]),
+        _ => be(&[0, 0]),
+    };
+    let tables = [
+        mp4_full(b"stts", &be(&[0])),
+        mp4_full(b"stsc", &be(&[0])),
+        mp4_full(b"stsz", &stsz),
+        mp4_full(b"stco", &be(&[0])),
+    ]
+    .concat();
+    let trex = mp4_full(b"trex", &be(&[1, 1, 0, size_in(2), 0]));
+    let mut file = m4a(8_000, &tables, &mp4_atom(b"mvex", &trex));
+
+    let field = |flags: u32, bit: u32, value: Vec<u8>| if flags & bit == 0 { vec![] } else { value };
+    // The base data offset, sample description and duration, and the default size when drawn.
+    let tfhd_flags = tfhd_fields & 0xb | if place == 3 { 0x10 } else { 0 };
+    let tfhd = [
+        be(&[tfhd_flags, 1]),
+        field(tfhd_flags, 0x1, vec![0; 8]),
+        field(tfhd_flags, 0x2, be(&[1])),
+        field(tfhd_flags, 0x8, be(&[0])),
+        field(tfhd_flags, 0x10, be(&[size])),
+    ]
+    .concat();
+    // The data offset and first sample's flags, each sample's duration, flags and composition
+    // offset, and each sample's size when drawn.
+    let trun_flags = trun_fields & 0xd05 | if place == 4 { 0x200 } else { 0 };
+    let sample = |size: u32| {
+        [0x100, 0x200, 0x400, 0x800]
+            .map(|bit| field(trun_flags, bit, be(&[if bit == 0x200 { size } else { 0 }])))
+            .concat()
+    };
+    let trun = [
+        be(&[trun_flags, 2]),
+        field(trun_flags, 0x1, be(&[0])),
+        field(trun_flags, 0x4, be(&[0])),
+        sample(1),
+        sample(size),
+    ]
+    .concat();
+    file.extend(mp4_atom(b"moof", &mp4_atom(b"traf", &[mp4_atom(b"tfhd", &tfhd), mp4_atom(b"trun", &trun)].concat())));
+    file
+}
+
+/// A file read through `Cursor` whose `fails_at`th read or seek (counting from 0) fails, once: an
+/// error swallowed anywhere would let the walk go on as if nothing happened.
+struct Failing {
+    file: io::Cursor<Vec<u8>>,
+    fails_at: usize,
+    calls: usize,
+}
+
+impl Failing {
+    fn call(&mut self) -> io::Result<()> {
+        let this = self.calls;
+        self.calls += 1;
+        if this == self.fails_at { Err(io::Error::other("unreadable")) } else { Ok(()) }
+    }
+}
+
+impl Read for Failing {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.call()?;
+        self.file.read(buf)
+    }
+}
+
+impl Seek for Failing {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        self.call()?;
+        self.file.seek(to)
+    }
+}
+
+/// A read or seek failing anywhere in an M4A's atoms is that error: the file is never passed, or
+/// refused for what the reads before it found.
+#[hegel::test(test_cases = 200)]
+fn a_read_failing_partway_through_the_tables_is_its_error(tc: TestCase) {
+    let place = tc.draw(gs::integers::<usize>().max_value(SIZES.len() - 1));
+    let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
+    let tfhd_fields = tc.draw(gs::integers::<u32>().max_value(0xf));
+    let trun_fields = tc.draw(gs::integers::<u32>().max_value(0xfff));
+    let file = sized_m4a(place, size, tfhd_fields, trun_fields);
+    let len = file.len() as u64;
+    // The whole walk's verdict, and how many reads and seeks it takes: one of them fails.
+    let mut counting = Failing { file: io::Cursor::new(file.clone()), fails_at: usize::MAX, calls: 0 };
+    assert!(walk(&mut counting, 0, len, len, Level::Top).is_ok());
+    let fails_at = tc.draw(gs::integers::<usize>().max_value(counting.calls - 1));
+    let mut failing = Failing { file: io::Cursor::new(file), fails_at, calls: 0 };
+    let read = walk(&mut failing, 0, len, len, Level::Top);
+    assert_eq!(read.unwrap_err().to_string(), "unreadable", "call {fails_at} of {}", counting.calls);
+}
+
+/// A `trun` claiming more samples than it holds is refused: symphonia would read the rest of
+/// them from the atoms after it.
+#[test]
+fn a_run_claiming_more_samples_than_it_holds_is_refused() {
+    let trun = mp4_atom(b"trun", &be(&[0x200, 5, 1]));
+    let moof = mp4_atom(b"moof", &mp4_atom(b"traf", &trun));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, [m4a(8_000, &mp4_empty_tables(), &[]), moof].concat()).unwrap();
+    for read in read_all(&path) {
+        assert_eq!(read.as_deref(), Some(TOO_MANY));
     }
 }
 

@@ -5,11 +5,10 @@
 # doesn't know the spaces alpha yet (the `space` type, and `space` permissions), so the space/
 # lexicons and the permission set that grants them are left out of both. `lint` also fails on any
 # string in our lexicons, those included, without a format, a maxLength or a maxGraphemes: goat only
-# reports those at info level, beside lints we don't hold to, and without naming the field. The
-# other authorities' lexicons beside ours are theirs to check: `pull` fetches them again as they publish them now,
-# plus any NSIDs named after it (see lexicons/README.md).
+# reports those at info level, beside lints we don't hold to, and without naming the field. Other
+# authorities' lexicons are theirs to check: the web app installs them from the network (see lexicons/README.md).
 # It runs goat's pinned version with `go run`, so it needs Go 1.27 or newer.
-# Usage: tools/lexicons.sh lint|breaking|pull [nsid...]
+# Usage: tools/lexicons.sh lint|breaking
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,18 +36,8 @@ case "${1:-}" in
     fi
     ;;
   breaking) goat lex breaking "${lexicons[@]}" ;;
-  pull)
-    shift
-    others=()
-    while IFS= read -r file; do
-      nsid=${file#lexicons/}
-      nsid=${nsid%.json}
-      others+=("${nsid//\//.}")
-    done < <(git ls-files --cached --others --exclude-standard -- ':(glob)lexicons/**/*.json' ':(exclude)lexicons/computer/**')
-    goat lex pull --update --lexicons-dir lexicons "${others[@]}" "$@"
-    ;;
   *)
-    echo "usage: $0 lint|breaking|pull [nsid...]" >&2
+    echo "usage: $0 lint|breaking" >&2
     exit 2
     ;;
 esac

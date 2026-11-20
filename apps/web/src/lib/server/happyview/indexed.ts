@@ -34,19 +34,25 @@ export async function awaitIndexed(served: () => Promise<boolean>, waitMs: numbe
 }
 
 /**
- * Has HappyView re-read one account's records of `collection` from its PDS, for a write it didn't serve in time, in
- * case Jetstream never brought it. Only with an API key. It waits up to `waitMs` for the job to finish, which then runs
- * on in HappyView; a failure is only logged.
+ * Has HappyView re-read the accounts' records of `collection` from their PDS, in one job per 500 accounts, for a write
+ * it didn't serve in time, in case Jetstream never brought it. Only with an API key. It waits up to `waitMs` for the
+ * jobs to finish, which then run on in HappyView; a failure is only logged.
  */
-export async function reindex(directory: HappyViewClient, logger: Logger, collection: string, did: string, waitMs = 0) {
+export async function reindex(
+	directory: HappyViewClient,
+	logger: Logger,
+	collection: string,
+	dids: string[],
+	waitMs = 0
+) {
 	if (!directory.admin) return;
 
 	try {
-		const job = await directory.backfill(collection, did);
+		const jobs = await directory.backfill(collection, dids);
 
-		if (waitMs) await directory.awaitBackfill(job, waitMs);
+		if (waitMs) await Promise.all(jobs.map((job) => directory.awaitBackfill(job, waitMs)));
 	} catch (error) {
-		logger.warn('could not have HappyView re-read a repo', { err: error, collection, did });
+		logger.warn('could not have HappyView re-read repos', { err: error, collection, dids });
 	}
 }
 
@@ -156,7 +162,7 @@ export class IndexedRepo {
 
 	/** Has HappyView re-read one account's records of `collection` from its PDS, waiting up to `waitMs` (see reindex). */
 	reindex(did: string, collection: string, waitMs = 0): Promise<void> {
-		return reindex(this.directory, this.logger, collection, did, waitMs);
+		return reindex(this.directory, this.logger, collection, [did], waitMs);
 	}
 
 	private read<T>({ strict }: ReadOptions, query: () => Promise<T>): Promise<T | null> {

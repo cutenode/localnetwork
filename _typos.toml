@@ -12,11 +12,12 @@ extend-exclude = [
     # Test fixtures: real exports and recorded API responses
     "**/fixtures/**",
     "!crates/locallibrary/tests/fixtures/README.md",
-    # Generated: vitest snapshots, the RPC docs emitted from Rust, screenshot captures
+    # Generated: vitest snapshots, the RPC docs emitted from Rust, screenshot and terminal captures
     "*.snap",
     "apps/locallibrary/docs/rpc/",
     "apps/locallibrary/docs/player/*.svg",
     "apps/web/src/lib/tools/captures/",
+    "apps/web/src/lib/tui/captures/",
 ]
 
 [default]
@@ -56,8 +57,9 @@ ratatui = "ratatui"
 # A column cut to its width in the TUI's tests ("CLOS" for CLOSING), and keys pressed ("ueN")
 clos = "clos"
 ue = "ue"
-# MP4's track box
+# MP4's track box, and a fragment's track run
 trak = "trak"
+trun = "trun"
 # SanDisk's drive model
 cruzer = "cruzer"
 # b-to-a beside ab, and rekordbox's rbDevLibBaInfo files
