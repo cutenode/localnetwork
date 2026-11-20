@@ -12,8 +12,8 @@
 //! That copy has no provenance by design: macOS doesn't attribute what it writes to the app that
 //! installed locallibrary. It relies on behaviour Apple doesn't document. The copy runs only while
 //! its hash is the installed binary's, and when anything here fails (no launchd, a copy that can't
-//! be made or checked) the command runs in this process as before, saying so, and `drive tidy`
-//! removes the `._` files.
+//! be made or checked) the command runs in this process as before, saying so, and the write
+//! removes the `._` files it made when it finishes (`tidy::remove_apple_double`).
 
 use std::ffi::{CString, OsStr, OsString};
 use std::io::IsTerminal;
@@ -254,7 +254,7 @@ pub(crate) fn run_as_job(writes_drives: bool) -> Option<ExitCode> {
         Ok(job) => job,
         Err(e) => {
             eprintln!(
-                "locallibrary: writing from here, not a launchd job ({e}), so macOS adds ._ files: `drive tidy` removes them"
+                "locallibrary: writing from here, not a launchd job ({e}): macOS adds ._ files, which the write removes as it finishes"
             );
             return None;
         }
