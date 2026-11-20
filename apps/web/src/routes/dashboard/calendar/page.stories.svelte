@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { NightRow } from '#lib/home.ts';
+	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
@@ -45,8 +46,6 @@
 	const promoter = { ...base, sections: Promise.resolve({ performer: false, promoter: true }), projects: Promise.resolve([]), nights: empty };
 
 	const dj = { ...base, sections: Promise.resolve({ performer: true, promoter: false }), nights: empty };
-
-	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
 <Story name="Nights ahead" asChild>
