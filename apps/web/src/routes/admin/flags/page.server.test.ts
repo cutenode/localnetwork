@@ -130,6 +130,29 @@ it('turns a flag off for everyone and keeps who it was for', async () => {
 	expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: true, percentage: 30 });
 });
 
+it('turns signed-out visitors on only once every account has the flag', async () => {
+	// Arrange
+	const key = 'dashboardCalendar';
+
+	const save = async (form: Record<string, string>) =>
+		callRoute(flagActions.save, {
+			app: app(),
+			viewer: await t.viewer(ADMIN),
+			url: `/admin/flags/${key}`,
+			params: { key },
+			form
+		});
+
+	// Act
+	const early = await save({ percentage: '50', signedOut: 'on' });
+	const last = await save({ percentage: '100', signedOut: 'on' });
+
+	// Assert
+	expect(early).toMatchObject({ status: 400, data: { error: 'Turn it on for every account first' } });
+	expect(last).toEqual({ success: 'Flag saved' });
+	expect(await t.flags.flag(key)).toMatchObject({ percentage: 100, signedOut: true });
+});
+
 it('says which account it could not find, and saves nothing', async () => {
 	const viewer = await t.viewer(ADMIN);
 

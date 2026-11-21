@@ -1,7 +1,7 @@
 {
 	"$schema": "../flag.schema.json",
 	"key": "spacePages",
-	"description": "The public act, party, venue and event pages. Off, they answer 404, and no listing is written until it's on for everyone, since a listing points at a public page.",
+	"description": "The public act, party, venue and event pages. Off, they answer 404, and no listing is written until it's on for signed-out visitors, since a listing points at a public page.",
 	"type": "release",
 	"removeBy": "2027-02-12",
 	"showsOn": ["act", "party", "venue", "event"]

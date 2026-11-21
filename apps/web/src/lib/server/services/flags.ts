@@ -19,6 +19,7 @@ import type { StaffService } from './staff';
 export const flagRecord = z.object({
 	key: z.string(),
 	enabled: z.boolean().optional(),
+	signedOut: z.boolean().optional(),
 	everyone: z.boolean(),
 	percentage: z.number().int().min(0).max(100),
 	groups: z.array(z.string()),
@@ -44,12 +45,18 @@ type FlagGroupRecord = z.infer<typeof flagGroupRecord>;
 /** What getFlags tells a caller about a flag. */
 export type FlagAnswer = FlagGates & { key: FlagKey };
 
-export type FlagInput = Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids'> & { enabled: boolean };
+/** Who a flag is on for, as staff save it. `signedOut` left out is off. */
+export type FlagInput = Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids' | 'signedOut'> & {
+	enabled: boolean;
+};
+
+/** A flag's gates as they're held, with `signedOut` already worked out by signedOutFor. */
+type StoredFlag = Required<FlagInput>;
 
 export type FlagGroupInput = Pick<FlagGroupRecord, 'name' | 'description' | 'members'>;
 
 type Loaded = {
-	flags: Map<string, FlagInput & Pick<FlagRecord, 'updatedAt'>>;
+	flags: Map<string, StoredFlag & Pick<FlagRecord, 'updatedAt'>>;
 	groups: Map<string, Omit<FlagGroupRecord, 'members'> & { members: Set<string> }>;
 };
 
@@ -57,8 +64,19 @@ const list = (items: string[]) => items.toSorted().join(', ');
 
 const inCatalog = (key: string) => FLAGS.some((flag) => flag.key === key);
 
-/** The flags that change a public page, which signed-out visitors see too. */
-const SHOWN = new Set(FLAGS.filter((flag) => flag.showsOn).map((flag) => flag.key));
+const isOps = (key: string) => FLAGS.some((flag) => flag.key === key && flag.type === 'ops');
+
+/**
+ * Whether signed-out visitors have `key`, from what a record says or a save asks for. A kill switch has to work where
+ * there's no account (xrpc routes, background rounds, signed-out locallibrary), so an ops flag has no setting of its
+ * own: it follows `everyone`. A release flag's is off unless staff turn it on, and only holds while every account has
+ * the flag, so lowering it for accounts turns it off for signed-out visitors too.
+ */
+function signedOutFor(key: string, gates: Pick<FlagInput, 'everyone' | 'percentage'>, asked: boolean | undefined) {
+	if (isOps(key)) return gates.everyone;
+
+	return !!asked && (gates.everyone || gates.percentage === 100);
+}
 
 /**
  * How long a release flag has to be fully on, untouched, before the console says to remove it. PostHog uses the same.
@@ -74,11 +92,12 @@ const changed = (fields: [string, string, string][]): AuditChange[] =>
 		.toArray();
 
 /** The audit changes between two flags' gates. */
-const flagChanges = (before: FlagInput, after: FlagInput) =>
+const flagChanges = (before: StoredFlag, after: StoredFlag) =>
 	changed([
 		['enabled', String(before.enabled), String(after.enabled)],
 		['everyone', String(before.everyone), String(after.everyone)],
 		['percentage', String(before.percentage), String(after.percentage)],
+		['signedOut', String(before.signedOut), String(after.signedOut)],
 		['groups', list(before.groups), list(after.groups)],
 		['accounts', list(before.dids), list(after.dids)]
 	]);
@@ -131,6 +150,11 @@ export class FlagService {
 					row.key,
 					{
 						enabled: row.enabled === 1,
+						signedOut: signedOutFor(
+							row.key,
+							{ everyone: row.everyone === 1, percentage: row.percentage },
+							row.signedOut === null ? undefined : row.signedOut === 1
+						),
 						everyone: row.everyone === 1,
 						percentage: row.percentage,
 						groups: parseJson<string[]>(row.groupRkeys, []),
@@ -168,6 +192,7 @@ export class FlagService {
 			const answer = {
 				key,
 				enabled: flag?.enabled ?? true,
+				signedOut: flag?.signedOut ?? false,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,
 				targeted
@@ -177,29 +202,16 @@ export class FlagService {
 
 			if (override === undefined) return answer;
 
-			return override ? { ...answer, enabled: true, everyone: true } : { ...answer, enabled: false };
+			return override ? { ...answer, enabled: true, signedOut: true, everyone: true } : { ...answer, enabled: false };
 		});
 	}
 
-	/**
-	 * Every flag for `id`: an account's DID, a signed-out visitor's id from flagVisitor, or null for a caller with
-	 * neither, who only gets what's on for everyone.
-	 */
-	async evaluate(id: string | null): Promise<Flags> {
-		const answers = await this.answers(id);
+	/** Every flag as `did` sees it, or as a signed-out visitor does when it's null. */
+	async evaluate(did: string | null): Promise<Flags> {
+		const answers = await this.answers(did);
 
 		// SAFETY: answers has one entry for every FlagKey.
-		return Object.fromEntries(answers.map((answer) => [answer.key, isOn(answer, answer.key, id)])) as Flags;
-	}
-
-	/**
-	 * Whether a flag that changes a public page is on for a percentage now, which a signed-out visitor needs an id of
-	 * their own to be counted in. A flag with no `showsOn` changes only what accounts see, so it never needs one.
-	 */
-	async hasPublicPercentage(): Promise<boolean> {
-		return (await this.answers(null)).some(
-			({ key, enabled, everyone, percentage }) => SHOWN.has(key) && enabled && !everyone && percentage > 0
-		);
+		return Object.fromEntries(answers.map((answer) => [answer.key, isOn(answer, answer.key, did)])) as Flags;
 	}
 
 	/** Every flag in the catalog, with who it's on for. A flag nobody has set yet is off. */
@@ -210,14 +222,18 @@ export class FlagService {
 
 		return FLAGS.map(({ key, description, showsOn = [], type, removeBy }) => {
 			const flag = flags.get(key);
-			const fullyOn = !!flag?.enabled && (flag.everyone || flag.percentage === 100);
+			// On for every caller, so taking it out of the code changes nothing. signedOut only holds while every account
+			// has it.
+			const fullyOn = !!flag?.enabled && flag.signedOut;
 
 			return {
 				key,
 				description,
+				type,
 				showsOn,
 				removeBy,
 				enabled: flag?.enabled ?? true,
+				signedOut: flag?.signedOut ?? false,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,
 				groups: (flag?.groups ?? []).map((rkey) => ({ rkey, name: groups.get(rkey)?.name ?? rkey })),
@@ -263,7 +279,10 @@ export class FlagService {
 		await this.core.audit.record({ actor: actor.did, actorRole: actorRole(actor), ...event });
 	}
 
-	/** Sets who `key` is on for. Saving what's already set writes nothing. */
+	/**
+	 * Sets who `key` is on for. Saving what's already set writes nothing. Signed-out visitors come last: a release flag
+	 * can't be turned on for them until it's on for every account, and lowering it for accounts turns them off.
+	 */
 	async updateFlag(actor: Viewer, key: string, input: FlagInput): Promise<void> {
 		await this.requireGrant(actor, 'flags');
 
@@ -274,12 +293,26 @@ export class FlagService {
 		const { flags, groups } = await this.load();
 
 		if (input.groups.some((rkey) => !groups.has(rkey))) throw new UserError('That group no longer exists');
-		const before = flags.get(key) ?? { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
-		const changes = flagChanges(before, input);
+
+		const before = flags.get(key) ?? {
+			enabled: true,
+			signedOut: false,
+			everyone: false,
+			percentage: 0,
+			groups: [],
+			dids: []
+		};
+
+		const after = { ...input, signedOut: signedOutFor(key, input, input.signedOut) };
+
+		if (input.signedOut && !before.signedOut && !after.signedOut && !isOps(key))
+			throw new UserError('Turn it on for every account first');
+
+		const changes = flagChanges(before, after);
 
 		if (changes.length === 0) return;
 		const root = await this.core.root();
-		const value: FlagRecord = { key, ...input, updatedBy: actor.did, updatedAt: nowIso() };
+		const value: FlagRecord = { key, ...after, updatedBy: actor.did, updatedAt: nowIso() };
 		const record = validateRecord(COLLECTION.staffFlag, value);
 
 		const ref = await root.putSpaceRecord({
@@ -435,6 +468,8 @@ export class FlagService {
 	async indexFlag(uri: string, record: FlagRecord): Promise<void> {
 		const values = {
 			enabled: record.enabled === false ? 0 : 1,
+			// Left null when the record doesn't say, which reads differently for ops and release flags.
+			signedOut: record.signedOut === undefined ? null : Number(record.signedOut),
 			everyone: record.everyone ? 1 : 0,
 			percentage: record.percentage,
 			groupRkeys: JSON.stringify(record.groups),

@@ -17,7 +17,7 @@ const OTHER: &str = "did:plc:other";
 const FLAG: &str = keys::PARITY_CANARY;
 const GET_SERVICE_AUTH: &str = "com.atproto.server.getServiceAuth";
 
-const NOTHING_ON: Gates = Gates { enabled: true, everyone: false, percentage: 0, targeted: false };
+const NOTHING_ON: Gates = Gates { enabled: true, signed_out: false, everyone: false, percentage: 0, targeted: false };
 
 /// A store, and a pretend data server that's Local Network's website too.
 struct World {
@@ -140,7 +140,7 @@ fn a_flag_turned_off_is_off_for_the_account_it_targets() {
     let now = Utc::now();
     assert!(!check_at(w.root(), FLAG, now));
     assert_eq!(w.asked(), [false, true]);
-    let gates = Gates { enabled: false, everyone: true, percentage: 100, targeted: true };
+    let gates = Gates { enabled: false, signed_out: false, everyone: true, percentage: 100, targeted: true };
     assert_eq!(Cache::load(w.root()).flags, [Flag { key: FLAG.into(), gates }]);
     assert!(!shown(&all_at(w.root(), false, now + TimeDelta::minutes(1))));
 }
@@ -152,12 +152,13 @@ fn a_check_now_reads_a_fresh_answer(tc: TestCase) {
     let w = world();
     let gates = Gates {
         enabled: tc.draw(gs::booleans()),
+        signed_out: tc.draw(gs::booleans()),
         everyone: tc.draw(gs::booleans()),
         percentage: tc.draw(gs::sampled_from(vec![0u32, 100])),
         targeted: tc.draw(gs::booleans()),
     };
     save(w.root(), &cached(None, TimeDelta::zero(), gates, Utc::now()));
-    let expected = gates.enabled && gates.everyone;
+    let expected = gates.enabled && gates.signed_out && (gates.everyone || gates.percentage == 100);
     assert_eq!(crate::flags::check(w.root(), FLAG), expected);
     let report = crate::flags::all(w.root(), false);
     assert_eq!((shown(&report), report.freshness), (expected, Freshness::Fresh));
@@ -169,7 +170,7 @@ fn a_check_now_reads_a_fresh_answer(tc: TestCase) {
 fn a_website_thats_down_leaves_the_last_answer_and_waits() {
     let w = world();
     let now = Utc::now();
-    save(w.root(), &cached(None, TimeDelta::hours(2), Gates { everyone: true, ..NOTHING_ON }, now));
+    save(w.root(), &cached(None, TimeDelta::hours(2), Gates { everyone: true, signed_out: true, ..NOTHING_ON }, now));
     w.pds.set_flags_answers(Some((503, json!({ "error": "Down" }))), None);
     assert!(check_at(w.root(), FLAG, now));
     assert!(check_at(w.root(), FLAG, now + RETRY_AFTER_FAILURE - TimeDelta::seconds(1)));
@@ -194,7 +195,7 @@ fn a_website_thats_down_leaves_the_last_answer_and_waits() {
 fn an_answer_over_two_weeks_old_is_off() {
     let w = world();
     let now = Utc::now();
-    let gates = Gates { everyone: true, ..NOTHING_ON };
+    let gates = Gates { everyone: true, signed_out: true, ..NOTHING_ON };
     let mut cache = cached(None, LAST_KNOWN_GOOD, gates, now);
     cache.last_attempt_at = Some(now);
     save(w.root(), &cache);
@@ -525,7 +526,8 @@ fn a_check_ends_as_the_cache_and_the_servers_say(tc: TestCase) {
         Session::Ended => sign_in_ended(root, &pds.url),
     }
     let last = age.map(|age| {
-        let gates = Gates { enabled: true, everyone: was.0, percentage: was.1, targeted: was.2 };
+        // Signed-out callers follow everyone, as the website answers for an ops flag like this one.
+        let gates = Gates { enabled: true, signed_out: was.0, everyone: was.0, percentage: was.1, targeted: was.2 };
         let mut cache = cached(said_of, TimeDelta::minutes(age), gates, now);
         cache.last_attempt_at = Some(now - TimeDelta::minutes(attempted));
         cache

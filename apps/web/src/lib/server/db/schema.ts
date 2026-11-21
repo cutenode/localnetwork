@@ -210,6 +210,8 @@ export interface FeatureFlagTable {
 	key: string;
 	/** 0 when it's turned off for everyone, with its gates kept. */
 	enabled: number;
+	/** 1 when signed-out visitors have it, or null when its record doesn't say. */
+	signedOut: number | null;
 	everyone: number;
 	percentage: number;
 	/** Record keys of its groups, as a JSON array. */

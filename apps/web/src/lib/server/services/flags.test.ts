@@ -54,7 +54,7 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
 		expect(await t.flags.answers(DJ)).toEqual(
-			answersWith(FLAG, { enabled: true, everyone: false, percentage: 0, targeted: false })
+			answersWith(FLAG, { enabled: true, signedOut: false, everyone: false, percentage: 0, targeted: false })
 		);
 	});
 
@@ -66,7 +66,7 @@ describe('FlagService', () => {
 
 		expect(await forcedOff.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
 		expect(await forcedOff.answers(null)).toEqual(
-			answersWith(FLAG, { enabled: false, everyone: true, percentage: 0, targeted: false })
+			answersWith(FLAG, { enabled: false, signedOut: true, everyone: true, percentage: 0, targeted: false })
 		);
 
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, enabled: false });
@@ -112,7 +112,7 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
-	it('gives a caller with no id only what is on for everyone', async () => {
+	it('gives a signed-out visitor an ops flag only while it is on for everyone', async () => {
 		const admin = await t.viewer(ADMIN);
 		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 100, dids: [DJ] });
 
@@ -124,47 +124,127 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
-	it('says whether a flag on public pages is on for a percentage, which signed-out visitors need an id for', async () => {
-		const admin = await t.viewer(ADMIN);
+	describe('signed-out visitors', () => {
+		it('start without a release flag, even once every account has it', async () => {
+			// Arrange
+			const admin = await t.viewer(ADMIN);
 
-		expect(await t.flags.hasPublicPercentage()).toBe(false);
+			// Act
+			await t.flags.updateFlag(admin, RELEASE, { ...off, everyone: true });
 
-		await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 5 });
+			// Assert
+			expect(await t.flags.evaluate(DJ)).toMatchObject({ [RELEASE]: true });
+			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: false });
+			expect(await t.flags.flag(RELEASE)).toMatchObject({ signedOut: false });
+		});
 
-		expect(await t.flags.hasPublicPercentage()).toBe(true);
-		expect(await new FlagService(t.core, t.staff, { [PAGE_FLAG]: true }).hasPublicPercentage()).toBe(false);
-		expect(await new FlagService(t.core, t.staff, { [PAGE_FLAG]: false }).hasPublicPercentage()).toBe(false);
+		it('get a release flag only once it is on for every account', async () => {
+			const admin = await t.viewer(ADMIN);
 
-		await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 5, enabled: false });
+			await expect(t.flags.updateFlag(admin, RELEASE, { ...off, percentage: 99, signedOut: true })).rejects.toThrow(
+				'Turn it on for every account first'
+			);
+			expect(stored(COLLECTION.staffFlag, RELEASE)).toBeUndefined();
 
-		expect(await t.flags.hasPublicPercentage()).toBe(false);
+			await t.flags.updateFlag(admin, RELEASE, { ...off, percentage: 100, signedOut: true });
 
-		await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 5, everyone: true });
+			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: true });
+			expect(stored(COLLECTION.staffFlag, RELEASE)?.value).toMatchObject({ signedOut: true });
+		});
 
-		expect(await t.flags.hasPublicPercentage()).toBe(false);
-	});
+		it('lose a release flag when a save takes it below every account, and keep it through turning it off', async () => {
+			const admin = await t.viewer(ADMIN);
+			await t.flags.updateFlag(admin, RELEASE, { ...off, everyone: true, signedOut: true });
+			await t.flags.updateFlag(admin, RELEASE, { ...off, everyone: true, signedOut: true, enabled: false });
 
-	it('needs no visitor id for a flag that changes only what accounts see, whatever its percentage', async () => {
-		const admin = await t.viewer(ADMIN);
+			expect(await t.flags.flag(RELEASE)).toMatchObject({ signedOut: true });
 
-		for (const key of [FLAG, 'inboxEmail', 'inboxDm', 'userinputReports'] as const) {
-			await t.flags.updateFlag(admin, key, { ...off, percentage: 50 });
-		}
+			await t.flags.updateFlag(admin, RELEASE, { ...off, percentage: 50, signedOut: true });
+			await t.audit.idle();
 
-		expect(await t.flags.hasPublicPercentage()).toBe(false);
+			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: false });
+			expect(await t.flags.flag(RELEASE)).toMatchObject({ signedOut: false });
+			expect(stored(COLLECTION.staffFlag, RELEASE)?.value).toMatchObject({ signedOut: false });
+			expect(JSON.parse((await t.audit.list({ action: 'flag.update' }))[0].changes ?? '')).toEqual([
+				{ field: 'enabled', before: 'false', after: 'true' },
+				{ field: 'everyone', before: 'true', after: 'false' },
+				{ field: 'percentage', before: '0', after: '50' },
+				{ field: 'signedOut', before: 'true', after: 'false' }
+			]);
+
+			// Back at every account, they stay out until someone turns them on again.
+			await t.flags.updateFlag(admin, RELEASE, { ...off, everyone: true });
+
+			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: false });
+		});
+
+		it('follow everyone for an ops flag, whatever a save asks, so a kill switch works with no account', async () => {
+			const admin = await t.viewer(ADMIN);
+			await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, everyone: true });
+
+			expect(await t.flags.evaluate(null)).toMatchObject({ [PAGE_FLAG]: true });
+			expect(stored(COLLECTION.staffFlag, PAGE_FLAG)?.value).toMatchObject({ signedOut: true });
+
+			await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 100, signedOut: true });
+
+			expect(await t.flags.evaluate(null)).toMatchObject({ [PAGE_FLAG]: false });
+			expect(await t.flags.flag(PAGE_FLAG)).toMatchObject({ signedOut: false });
+		});
+
+		it('read a record that does not say as off for a release flag and as everyone for an ops flag', async () => {
+			const at = '2026-11-01T00:00:00.000Z';
+			const record = { everyone: true, percentage: 0, groups: [], dids: [], updatedBy: ADMIN, updatedAt: at };
+
+			for (const key of [RELEASE, PAGE_FLAG]) {
+				const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, key);
+				await t.flags.indexFlag(uri, { ...record, key });
+			}
+
+			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: false, [PAGE_FLAG]: true });
+			expect(await t.flags.answers(null)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ key: RELEASE, signedOut: false }),
+					expect.objectContaining({ key: PAGE_FLAG, signedOut: true })
+				])
+			);
+		});
+
+		it('never have a release flag a record says they have while it is below every account', async () => {
+			const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, RELEASE);
+			const at = '2026-11-01T00:00:00.000Z';
+
+			await t.flags.indexFlag(uri, {
+				key: RELEASE,
+				signedOut: true,
+				everyone: false,
+				percentage: 99,
+				groups: [],
+				dids: [],
+				updatedBy: ADMIN,
+				updatedAt: at
+			});
+
+			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: false });
+		});
+
+		it('get every flag an override turns on', async () => {
+			expect(await new FlagService(t.core, t.staff, { [RELEASE]: true }).evaluate(null)).toMatchObject({
+				[RELEASE]: true
+			});
+		});
 	});
 
 	it('tells a caller its own targeting and never who else', async () => {
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, percentage: 25, dids: [DJ] });
 
 		expect(await t.flags.answers(DJ)).toEqual(
-			answersWith(FLAG, { enabled: true, everyone: false, percentage: 25, targeted: true })
+			answersWith(FLAG, { enabled: true, signedOut: false, everyone: false, percentage: 25, targeted: true })
 		);
 		expect(await t.flags.answers(OTHER)).toEqual(
-			answersWith(FLAG, { enabled: true, everyone: false, percentage: 25, targeted: false })
+			answersWith(FLAG, { enabled: true, signedOut: false, everyone: false, percentage: 25, targeted: false })
 		);
 		expect(await t.flags.answers(null)).toEqual(
-			answersWith(FLAG, { enabled: true, everyone: false, percentage: 25, targeted: false })
+			answersWith(FLAG, { enabled: true, signedOut: false, everyone: false, percentage: 25, targeted: false })
 		);
 	});
 
@@ -180,7 +260,7 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: false });
 		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 		expect(await t.flags.answers(DJ)).toEqual(
-			answersWith(FLAG, { enabled: false, everyone: true, percentage: 30, targeted: true })
+			answersWith(FLAG, { enabled: false, signedOut: true, everyone: true, percentage: 30, targeted: true })
 		);
 		expect(stored(COLLECTION.staffFlag, FLAG)?.value).toMatchObject({ enabled: false, ...targeting });
 		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true, percentage: 30 });
@@ -324,10 +404,10 @@ describe('FlagService', () => {
 		expect((await t.flags.flag(FLAG))?.removeBy).toBeUndefined();
 	});
 
-	it('says a release flag is ready to remove once it has been on for everyone or every account for 30 days', async () => {
+	it('says a release flag is ready to remove once every account and signed-out visitors have had it for 30 days', async () => {
 		const uri = (key: string) => spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, key);
 		const dids: string[] = [];
-		const record = { everyone: false, percentage: 0, groups: [], dids, updatedBy: ADMIN };
+		const record = { everyone: false, percentage: 0, groups: [], dids, updatedBy: ADMIN, signedOut: true };
 
 		const ready = async (gates: Partial<typeof record & { enabled: boolean }>, updatedAt: string, key = RELEASE) => {
 			await t.flags.indexFlag(uri(key), { ...record, key, ...gates, updatedAt });
@@ -343,6 +423,8 @@ describe('FlagService', () => {
 			expect(await ready({ everyone: true }, '2026-11-01T12:00:00.001Z')).toBe(false);
 			expect(await ready({ percentage: 99, dids: [DJ] }, '2026-01-01T00:00:00.000Z')).toBe(false);
 			expect(await ready({ everyone: true, enabled: false }, '2026-01-01T00:00:00.000Z')).toBe(false);
+			// Deleting it would hand it to signed-out visitors, who staff haven't given it to.
+			expect(await ready({ everyone: true, signedOut: false }, '2026-01-01T00:00:00.000Z')).toBe(false);
 			// An ops flag stays, however long it's been on.
 			expect(await ready({ everyone: true }, '2026-01-01T00:00:00.000Z', FLAG)).toBe(false);
 		} finally {

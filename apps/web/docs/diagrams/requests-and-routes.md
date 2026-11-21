@@ -31,7 +31,7 @@ flowchart TD
   Load --> Limit["Write limit for this address"]
   Limit -- "over it" --> Slow["429"]
   Limit --> Session["ln_session to a viewer,<br/>skipped on /xrpc/"]
-  Session --> Flags["Flags for the viewer, a signed-out visitor's<br/>ln_flag_visitor id while a flag with showsOn<br/>is on for a percentage, no id on /xrpc/, and a staff<br/>preview from ln_flag_preview off it"]
+  Session --> Flags["Flags for the viewer, a signed-out<br/>visitor's on /xrpc/, and a staff preview<br/>from ln_flag_preview off it"]
   Flags --> Guard["guardArea by route"]
   Guard -- "/dashboard or /admin,<br/>signed out" --> Login["303 to /login?next="]
   Guard -- "/admin, not staff" --> Refused["403"]
@@ -68,7 +68,7 @@ Source: [`src/routes/+layout.server.ts`](../../src/routes/+layout.server.ts), [`
 
 ## Response caching
 
-What each response lets a browser or a shared cache keep. Pages that show the same thing to everyone use `cacheBriefly`. While a flag that changes a public page is on for a percentage, the server hook turns `public` into `private` on every response to a signed-out visitor outside `/xrpc/`, since their flags come from their own `ln_flag_visitor` cookie.
+What each response lets a browser or a shared cache keep. Pages that show the same thing to everyone use `cacheBriefly`.
 
 ```mermaid
 flowchart LR
@@ -87,7 +87,7 @@ flowchart LR
   Responses -- "/healthz, token exchange, audit export,<br/>getFlags with a token, paused cards<br/>and recordings" --> Never["no-store"]
 ```
 
-Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`src/routes/venue/[key]/[[name]]/+page.server.ts`](../../src/routes/venue/[key]/[[name]]/+page.server.ts), [`src/routes/projects/[slug]/mixes/[n]/+page.server.ts`](../../src/routes/projects/[slug]/mixes/[n]/+page.server.ts), [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/lib/server/og/serve.ts`](../../src/lib/server/og/serve.ts), [`src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts`](../../src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts), [`src/routes/api/places/+server.ts`](../../src/routes/api/places/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
+Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`src/routes/venue/[key]/[[name]]/+page.server.ts`](../../src/routes/venue/[key]/[[name]]/+page.server.ts), [`src/routes/projects/[slug]/mixes/[n]/+page.server.ts`](../../src/routes/projects/[slug]/mixes/[n]/+page.server.ts), [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/lib/server/og/serve.ts`](../../src/lib/server/og/serve.ts), [`src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts`](../../src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts), [`src/routes/api/places/+server.ts`](../../src/routes/api/places/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
 
 ## Error paths
 

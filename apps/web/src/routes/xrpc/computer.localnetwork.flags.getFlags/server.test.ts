@@ -54,7 +54,13 @@ async function ask(authorization?: string) {
 
 it('tells anyone the public gates, and targets nobody', async () => {
 	expect(await ask()).toEqual({
-		flags: answersWith('parityCanary', { enabled: true, everyone: false, percentage: 10, targeted: false })
+		flags: answersWith('parityCanary', {
+			enabled: true,
+			signedOut: false,
+			everyone: false,
+			percentage: 10,
+			targeted: false
+		})
 	});
 });
 
@@ -67,7 +73,13 @@ it('tells an account its own targeting, with a token from its server', async () 
 	});
 
 	expect(await ask(token)).toEqual({
-		flags: answersWith('parityCanary', { enabled: true, everyone: false, percentage: 10, targeted: true })
+		flags: answersWith('parityCanary', {
+			enabled: true,
+			signedOut: false,
+			everyone: false,
+			percentage: 10,
+			targeted: true
+		})
 	});
 });
 
@@ -81,6 +93,12 @@ it('says a flag is off for everyone, with the gates it keeps for when it is back
 	});
 
 	expect(await ask()).toEqual({
-		flags: answersWith('parityCanary', { enabled: false, everyone: false, percentage: 10, targeted: false })
+		flags: answersWith('parityCanary', {
+			enabled: false,
+			signedOut: false,
+			everyone: false,
+			percentage: 10,
+			targeted: false
+		})
 	});
 });

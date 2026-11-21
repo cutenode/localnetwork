@@ -46,6 +46,11 @@ pub struct Gates {
     /// flag off is on, and so is an answer from a website that predates it.
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    /// Signed out, it's on only with this, and only once it's on for every account: `everyone` or
+    /// 100%. A website from before it doesn't send it, which is off.
+    #[serde(default, rename = "signedOut")]
+    pub signed_out: bool,
+    /// Every signed-in account.
     pub everyone: bool,
     /// How much of the accounts it's on for, 0 to 100.
     pub percentage: u32,
@@ -72,9 +77,16 @@ pub fn bucket(key: &str, did: &str) -> u32 {
     u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]) % 100
 }
 
-/// Whether `key` is on for `did`, given its gates. Signed out, there's no DID to bucket.
+/// Whether `key` is on for `did`, given its gates. Signed out, there's no DID to bucket, and the
+/// flag comes last: only with `signed_out`, once every account has it.
 pub fn decide(gates: &Gates, key: &str, did: Option<&str>) -> bool {
-    gates.enabled && (gates.everyone || gates.targeted || did.is_some_and(|did| bucket(key, did) < gates.percentage))
+    if !gates.enabled {
+        return false;
+    }
+    match did {
+        Some(did) => gates.everyone || gates.targeted || bucket(key, did) < gates.percentage,
+        None => gates.signed_out && (gates.everyone || gates.percentage >= 100),
+    }
 }
 
 /// How much an answer can be gone by.

@@ -1,5 +1,5 @@
 {
-	"$comment": "Computed answers both the website and locallibrary test themselves against. `did` is the id the rule buckets: an account's DID, a signed-out visitor's `visitor:` id from the website's cookie, or null for a caller with neither. A case without `enabled` is a record that doesn't say, which counts as true. Add cases freely; changing one means the rule changed, and every account can move.",
+	"$comment": "Computed answers both the website and locallibrary test themselves against. `did` is null for a caller with no account, like a signed-out visitor. A case without `enabled` is a record that doesn't say, which counts as true. A case without `signedOut` is a flag signed-out visitors don't have. Add cases freely; changing one means the rule changed, and every account can move.",
 	"cases": [
 		{
 			"key": "parityCanary",
@@ -139,6 +139,7 @@
 		{
 			"key": "parityCanary",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -292,6 +293,7 @@
 		{
 			"key": "newPlanner",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -445,6 +447,7 @@
 		{
 			"key": "a",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -598,6 +601,7 @@
 		{
 			"key": "mixUploads2",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -697,6 +701,7 @@
 			"key": "parityCanary",
 			"did": null,
 			"enabled": true,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -745,56 +750,93 @@
 		},
 		{
 			"key": "parityCanary",
-			"did": "visitor:00000000-0000-4000-8000-000000000000",
-			"everyone": false,
+			"did": null,
+			"signedOut": false,
+			"everyone": true,
 			"targeted": false,
-			"percentage": 16,
-			"bucket": 16,
+			"percentage": 0,
+			"bucket": null,
 			"on": false
 		},
 		{
 			"key": "parityCanary",
-			"did": "visitor:00000000-0000-4000-8000-000000000000",
-			"everyone": false,
-			"targeted": false,
-			"percentage": 17,
-			"bucket": 16,
-			"on": true
-		},
-		{
-			"key": "parityCanary",
-			"did": "visitor:00000008-0000-4000-8000-000000000000",
-			"everyone": false,
-			"targeted": false,
-			"percentage": 99,
-			"bucket": 99,
-			"on": false
-		},
-		{
-			"key": "parityCanary",
-			"did": "visitor:00000008-0000-4000-8000-000000000000",
+			"did": null,
+			"signedOut": true,
 			"everyone": false,
 			"targeted": false,
 			"percentage": 100,
-			"bucket": 99,
+			"bucket": null,
 			"on": true
 		},
 		{
-			"key": "spacePages",
-			"did": "visitor:00000000-0000-4000-8000-000000000000",
+			"key": "parityCanary",
+			"did": null,
+			"signedOut": true,
 			"everyone": false,
 			"targeted": false,
-			"percentage": 57,
-			"bucket": 57,
+			"percentage": 99,
+			"bucket": null,
 			"on": false
 		},
 		{
-			"key": "spacePages",
-			"did": "visitor:00000000-0000-4000-8000-000000000000",
+			"key": "parityCanary",
+			"did": null,
+			"signedOut": true,
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": false,
+			"signedOut": true,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": true,
 			"everyone": false,
 			"targeted": false,
-			"percentage": 58,
-			"bucket": 57,
+			"percentage": 48,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 49,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
 			"on": true
 		}
 	]

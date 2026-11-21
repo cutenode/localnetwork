@@ -520,18 +520,23 @@ export type FlagAccount = { did: string; handle: string | null };
 export type FlagView = {
 	key: FlagKey;
 	description: string;
+	/** A release flag goes once it's rolled out; an ops flag stays, and has no signed-out setting of its own. */
+	type: 'release' | 'ops';
 	/** The kinds of page it changes, from its catalog file. Empty when the file names none. */
 	showsOn: ShowsOn[];
 	/** When a release flag should be gone from the code, as YYYY-MM-DD. Ops flags stay, so they have none. */
 	removeBy?: string;
 	/** False when it's turned off for everyone. The gates below are kept for when it's back on. */
 	enabled: boolean;
+	/** Signed-out visitors have it too. Only ever true while every account does. */
+	signedOut: boolean;
+	/** Every signed-in account. */
 	everyone: boolean;
 	percentage: number;
 	groups: { rkey: string; name: string }[];
 	accounts: FlagAccount[];
 	updatedAt: string | null;
-	/** A release flag on for everyone, or every account, and unchanged for 30 days: time to take it out of the code. */
+	/** A release flag on for every caller, signed out too, and unchanged for 30 days: time to take it out of the code. */
 	readyToRemove: boolean;
 };
 

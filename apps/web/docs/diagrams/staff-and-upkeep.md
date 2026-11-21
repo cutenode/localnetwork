@@ -160,7 +160,7 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue reaches the directory. Acts, published parties and venues have something to list, from the root's performer, party or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and a draft party have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for everyone. HappyView keeps only the root's listings.
+How a listed act, party or venue reaches the directory. Acts, published parties and venues have something to list, from the root's performer, party or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and a draft party have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for signed-out visitors. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD

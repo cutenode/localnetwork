@@ -19,7 +19,14 @@ beforeAll(async () => {
 
 const flags = {
 	answers: async (did: string | null) => [
-		{ key: 'parityCanary' as const, enabled: true, everyone: false, percentage: 25, targeted: did === DJ }
+		{
+			key: 'parityCanary' as const,
+			enabled: true,
+			everyone: false,
+			percentage: 25,
+			signedOut: false,
+			targeted: did === DJ
+		}
 	]
 };
 

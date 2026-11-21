@@ -27,19 +27,47 @@ it('says so when the flag lists no kind of page', async () => {
 	await expect.element(page.getByText('Shows on: None listed', { exact: true })).toBeVisible();
 });
 
-const CRAWLERS = 'Crawlers see it about this share of the time.';
+/** The signed-out switch, whose label also holds its hint. */
+const SIGNED_OUT = /^Signed-out visitors/;
 
-it('warns that crawlers see a flag that shows on public pages about as often as its percentage', async () => {
-	await renderFlag({ key: 'spacePages', showsOn: ['act', 'party', 'venue', 'event'] });
+it('counts the percentage in accounts', async () => {
+	await renderFlag({ percentage: 25 });
 
-	await expect.element(page.getByText(CRAWLERS, { exact: false })).toBeVisible();
+	await expect.element(page.getByLabelText('Percentage of accounts')).toHaveValue(25);
 });
 
-it('leaves crawlers out of the percentage hint for a flag that shows on no public page', async () => {
-	await renderFlag({ showsOn: [] });
+it('starts signed-out visitors off for a release flag, and holds the switch until every account has it', async () => {
+	await renderFlag({ key: 'socialHome', type: 'release', percentage: 99 });
 
-	await expect.element(page.getByText('anyone in stays in.', { exact: false })).toBeVisible();
-	await expect.element(page.getByText(CRAWLERS, { exact: false })).not.toBeInTheDocument();
+	const signedOut = page.getByRole('checkbox', { name: SIGNED_OUT });
+
+	await expect.element(signedOut).not.toBeChecked();
+	await expect.element(signedOut).toBeDisabled();
+	await expect.element(signedOut).toHaveAccessibleDescription("Only once it's on for every account.");
+});
+
+it('lets staff turn signed-out visitors on once every account has the flag', async () => {
+	await renderFlag({ key: 'socialHome', type: 'release', percentage: 100 });
+
+	await expect.element(page.getByRole('checkbox', { name: SIGNED_OUT })).toBeEnabled();
+});
+
+it('says signed-out visitors go when the flag drops below every account', async () => {
+	await renderFlag({ key: 'socialHome', type: 'release', everyone: true, signedOut: true });
+
+	const signedOut = page.getByRole('checkbox', { name: SIGNED_OUT });
+
+	await expect.element(signedOut).toBeChecked();
+	await expect.element(signedOut).toHaveAccessibleDescription('Turns off if it drops below every account.');
+});
+
+it('gives an ops flag no signed-out switch, since everyone takes them in', async () => {
+	await renderFlag({ key: 'pauseRecordingStream', type: 'ops' });
+
+	await expect
+		.element(page.getByRole('checkbox', { name: /^On for everyone/ }))
+		.toHaveAccessibleDescription('Signed-out visitors too.');
+	await expect.element(page.getByRole('checkbox', { name: SIGNED_OUT })).not.toBeInTheDocument();
 });
 
 it("gives a release flag's remove-by date as its catalog file writes it", async () => {
@@ -79,6 +107,17 @@ it("doesn't say to remove a flag that isn't ready", async () => {
 	await expect.element(page.getByText('Ready to remove')).not.toBeInTheDocument();
 });
 
+it('says to save first when the form reaches every account but the saved flag does not', async () => {
+	await renderFlag({ key: 'socialHome', type: 'release', percentage: 60 });
+
+	await page.getByRole('checkbox', { name: /^On for everyone/ }).click();
+
+	await expect.element(page.getByRole('checkbox', { name: SIGNED_OUT })).toBeDisabled();
+	await expect
+		.element(page.getByRole('checkbox', { name: SIGNED_OUT }))
+		.toHaveAccessibleDescription('Save first, then this opens.');
+});
+
 // Helpers
 
 /** The flag page for parityCanary, or the flag `fields` names, on top of a flag nobody has set. */
@@ -86,8 +125,10 @@ function renderFlag(fields: Partial<FlagView>) {
 	const flag: FlagView = {
 		key: 'parityCanary',
 		description: 'Gates nothing.',
+		type: 'ops',
 		showsOn: [],
 		enabled: true,
+		signedOut: false,
 		everyone: false,
 		percentage: 0,
 		groups: [],

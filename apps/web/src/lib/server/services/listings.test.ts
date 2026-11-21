@@ -42,7 +42,7 @@ describe('ListingWriter', () => {
 
 	const list = async () => t.sharedSpaces.setListed(await t.viewer(ADMIN), space, true);
 
-	it('writes listings only while spacePages is on for everyone, and takes them down when it goes off', async () => {
+	it('writes listings only while signed-out visitors have spacePages, and takes them down when it goes off', async () => {
 		const pages = await createTestServices({
 			admins: [ADMIN],
 			listingSources: { party: { publicFields: async () => fields } }
@@ -64,9 +64,13 @@ describe('ListingWriter', () => {
 
 		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true });
 		await pages.listings.reconcile();
+		expect(written()).toBeUndefined();
+
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true, signedOut: true });
+		await pages.listings.reconcile();
 		expect(written()).toMatchObject({ kind: 'party', name: 'Night Shift' });
 
-		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true, enabled: false });
+		await pages.flags.updateFlag(admin, 'spacePages', { ...gates, everyone: true, signedOut: true, enabled: false });
 		await pages.listings.reconcile();
 		expect(written()).toBeUndefined();
 

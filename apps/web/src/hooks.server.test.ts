@@ -9,7 +9,6 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
-import { VISITOR_COOKIE } from '#lib/server/flags/visitor.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { requireFlag } from '#lib/server/http.ts';
@@ -17,7 +16,6 @@ import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import type { Logger } from '#lib/server/logger.ts';
-import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import type { Viewer } from '#lib/types.ts';
 import { flagsOff } from '#lib/testing/flags.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
@@ -197,7 +195,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
 });
 
-it('lets a page behind a flag 404 until the flag is on for the viewer, a staff preview included', async () => {
+it('lets a page behind a flag 404 until the flag is on for the viewer, signed-out visitors last', async () => {
 	const s = await services({ admins: [ADMIN] });
 	const { handle } = hooksWith(async () => s.app);
 	const adminToken = await s.sessions.create(ADMIN, null);
@@ -228,15 +226,14 @@ it('lets a page behind a flag 404 until the flag is on for the viewer, a staff p
 	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(404);
 	expect(await page({})).toBe(404);
 
-	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', {
-		enabled: true,
-		everyone: true,
-		percentage: 0,
-		groups: [],
-		dids: []
-	});
+	const everyAccount = { enabled: true, everyone: true, percentage: 0, groups: [], dids: [] };
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', everyAccount);
 
 	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(200);
+	expect(await page({})).toBe(404);
+
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', { ...everyAccount, signedOut: true });
+
 	expect(await page({})).toBe(200);
 });
 
@@ -288,111 +285,6 @@ it("gives an xrpc call a signed-out visitor's flags, and ignores a staff preview
 	expect(locals.flagPreview).toBeUndefined();
 	expect(cookies.deleted).not.toContain(PREVIEW_COOKIE);
 	expect(resolve).not.toHaveBeenCalled();
-});
-
-it('counts a signed-out visitor in a percentage by their own cookie, the same way on every request', async () => {
-	const s = await services({ admins: [ADMIN] });
-	const { handle } = hooksWith(async () => s.app);
-	await atPercentage(s, 50);
-
-	for (let request = 0; request < 3; request++) {
-		const inside = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: INSIDE_HALF } });
-		const outside = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: OUTSIDE_HALF } });
-
-		expect(inside.locals.flags?.[PAGE_FLAG]).toBe(true);
-		expect(outside.locals.flags?.[PAGE_FLAG]).toBe(false);
-		expect(inside.cookies.options.has(VISITOR_COOKIE)).toBe(false);
-	}
-});
-
-it('gives a signed-out visitor a first-party id on their first request, and keeps their answer with it', async () => {
-	const s = await services({ admins: [ADMIN], publicUrl: 'https://localnetwork.test' });
-	const { handle } = hooksWith(async () => s.app);
-	await atPercentage(s, 50);
-
-	const visits: Record<string, string>[] = [{}, { [VISITOR_COOKIE]: 'not-a-uuid' }];
-
-	for (const cookies of visits) {
-		const first = await handledWithLocals(handle, { url: '/', cookies });
-		const id = first.cookies.get(VISITOR_COOKIE);
-
-		expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-		expect(first.cookies.options.get(VISITOR_COOKIE)).toEqual({
-			path: '/',
-			httpOnly: true,
-			sameSite: 'lax',
-			secure: true,
-			maxAge: 365 * 86_400
-		});
-
-		const again = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: id! } });
-
-		expect(again.locals.flags?.[PAGE_FLAG]).toBe(first.locals.flags?.[PAGE_FLAG]);
-	}
-});
-
-it('gives a visitor no id while no flag is on for a percentage, nor when signed in or over xrpc', async () => {
-	const s = await services({ admins: [ADMIN] });
-	const { handle } = hooksWith(async () => s.app);
-	const token = await s.sessions.create(DJ, null);
-
-	const setsId = async (request: RouteEventInit) =>
-		(await handledWithLocals(handle, request)).cookies.options.has(VISITOR_COOKIE);
-
-	expect(await setsId({ url: '/' })).toBe(false);
-
-	await atPercentage(s, 50, { enabled: false });
-
-	expect(await setsId({ url: '/' })).toBe(false);
-
-	await atPercentage(s, 50, { everyone: true });
-
-	expect(await setsId({ url: '/' })).toBe(false);
-
-	await atPercentage(s, 50);
-
-	expect(await setsId({ url: '/' })).toBe(true);
-	expect(await setsId({ url: '/', cookies: { [SESSION_COOKIE]: token } })).toBe(false);
-
-	const xrpc = await handledWithLocals(handle, {
-		url: '/xrpc/computer.localnetwork.flags.getFlags',
-		cookies: { [VISITOR_COOKIE]: INSIDE_HALF }
-	});
-
-	expect(xrpc.locals.flags?.[PAGE_FLAG]).toBe(false);
-	expect(xrpc.cookies.options.has(VISITOR_COOKIE)).toBe(false);
-});
-
-it("keeps a signed-out page out of shared caches while it depends on the visitor's own bucket", async () => {
-	const s = await services({ admins: [ADMIN] });
-	const { handle } = hooksWith(async () => s.app);
-	const cachedBriefly = { 'cache-control': 'public, max-age=60', vary: 'Cookie' };
-
-	const cacheControl = async (cookies: Record<string, string>) =>
-		(await handledWithLocals(handle, { url: '/artists', cookies }, 200, cachedBriefly)).response.headers.get(
-			'cache-control'
-		);
-
-	expect(await cacheControl({})).toBe('public, max-age=60');
-
-	await atPercentage(s, 50);
-
-	expect(await cacheControl({})).toBe('private, max-age=60');
-	expect(await cacheControl({ [VISITOR_COOKIE]: OUTSIDE_HALF })).toBe('private, max-age=60');
-});
-
-it('gives a visitor no id, and keeps pages shared-cacheable, while only a flag for accounts is on for a percentage', async () => {
-	const s = await services({ admins: [ADMIN] });
-	const { handle } = hooksWith(async () => s.app);
-	await atPercentage(s, 50, {}, ACCOUNT_FLAG);
-
-	const { cookies, response } = await handledWithLocals(handle, { url: '/artists' }, 200, {
-		'cache-control': 'public, max-age=60',
-		vary: 'Cookie'
-	});
-
-	expect(cookies.options.has(VISITOR_COOKIE)).toBe(false);
-	expect(response.headers.get('cache-control')).toBe('public, max-age=60');
 });
 
 it('limits writes by address, and counts an unknown address as one', async () => {
@@ -688,28 +580,6 @@ const DJ = 'did:plc:dj';
 
 const ADMIN = 'did:plc:admin';
 
-/** A flag that changes a public page (its catalog file has `showsOn`), so signed-out visitors are counted in it. */
-const PAGE_FLAG = 'pauseRecordingStream' satisfies FlagKey;
-
-/** A flag with no `showsOn`, which changes only what accounts see. */
-const ACCOUNT_FLAG = 'inboxEmail' satisfies FlagKey;
-
-/** Visitor cookies whose ids sit in PAGE_FLAG's buckets 36 and 59: inside a 50% rollout, and outside it. */
-const INSIDE_HALF = '00000000-0000-4000-8000-000000000000';
-
-const OUTSIDE_HALF = '00000001-0000-4000-8000-000000000000';
-
-/** Puts `key` on for `percentage` of everyone, with `gates` on top, as an admin of `s`. */
-async function atPercentage(
-	s: Awaited<ReturnType<typeof services>>,
-	percentage: number,
-	gates: { enabled?: boolean; everyone?: boolean } = {},
-	key: FlagKey = PAGE_FLAG
-) {
-	const input = { enabled: true, everyone: false, percentage, groups: [], dids: [], ...gates };
-	await s.flags.updateFlag(await s.viewer(ADMIN), key, input);
-}
-
 /** An account whose OAuth grant lacks scopes the app now asks for, so the app has no viewer for it. */
 const STALE = 'did:plc:stale';
 
@@ -720,7 +590,7 @@ type HookApp = {
 	logger?: Logger;
 	sessions?: WebSessions;
 	limits?: { write: RateLimiter };
-	flags?: Pick<FlagService, 'evaluate' | 'preview' | 'hasPublicPercentage'>;
+	flags?: Pick<FlagService, 'evaluate' | 'preview'>;
 	viewer?: (did: string) => Promise<Viewer | null>;
 	config?: { publicUrl: string };
 };

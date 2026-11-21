@@ -41,7 +41,8 @@ const publishedDigest = ({ value }: StoredRecord) => {
  * index what spaces keep from it. A listing holds only what the public page shows, the people in a listed role who
  * haven't hidden, and a performer's managers who haven't; it never holds capabilities, how anyone came in, invites or requests. It's rewritten only when it
  * would change, and deleted when the space isn't listed or its kind has nothing to list. A listing points at a public
- * page, so none is written until the `spacePages` flag is on for everyone, and turning it off takes them down.
+ * page, so none is written until the `spacePages` flag is on for signed-out visitors, and turning it off takes them
+ * down.
  */
 export class ListingWriter {
 	/** The latest refresh of each space, and one that hasn't started yet, which later calls share. */
@@ -133,7 +134,7 @@ export class ListingWriter {
 			.executeTakeFirst();
 
 		const source = status && this.sources[status.kind];
-		// Only once it's on for everyone: with no id, nothing is counted in a percentage.
+		// As a signed-out visitor sees it, since a listing sends them to the page: only once it's on for them.
 		const { spacePages } = await this.flags.evaluate(null);
 		const fields = status?.listed === 1 && source && spacePages ? await source.publicFields(space) : null;
 		const stored = await db.selectFrom('kv').select('value').where('key', '=', digestKey(space)).executeTakeFirst();
