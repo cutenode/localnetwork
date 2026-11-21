@@ -573,6 +573,23 @@ describe('what a click on it does', () => {
 	});
 });
 
+// A fresh install keeps SoundCloud's own buttons until the popup's first-run
+// notice has been read (src/lib/notice.ts), since ours walk the gates it is about.
+describe('before the first-run notice is read', () => {
+	it('leaves SoundCloud’s own buttons, then takes them the moment it is read', async () => {
+		globalThis.chrome = createChrome({ storage: { noticePending: true } });
+		render(likesWithPurchase(), '/dj/likes');
+		await loadContentScript();
+		expect(allOurs()).toEqual([]);
+		expect(hidden(document.querySelector('.soundActions__purchaseLink'))).toBe(false);
+
+		await chrome.storage.local.remove('noticePending');
+		await flush();
+		expect(allOurs()).toHaveLength(1);
+		expect(hidden(document.querySelector('.soundActions__purchaseLink'))).toBe(true);
+	});
+});
+
 describe('the setting behind it', () => {
 	it('leaves the page alone when it is off', async () => {
 		globalThis.chrome = createChrome({ storage: { settings: { replaceDownloadButtons: false } } });

@@ -370,6 +370,11 @@ describe('the settings', () => {
 		expect(content).toContain("const SETTINGS_KEY = 'settings';");
 	});
 
+	it('name the first-run notice flag the same on both sides', () => {
+		expect(read('src/lib/notice.ts')).toContain("export const NOTICE_PENDING = 'noticePending';");
+		expect(content).toContain("const NOTICE_PENDING = 'noticePending';");
+	});
+
 	it('have the same defaults on both sides of that key', () => {
 		// Every setting is a flag, written down twice (once for the popup and
 		// once for the page), and the two lists have to be the same list, in

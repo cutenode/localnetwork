@@ -358,13 +358,14 @@ describe('gates done on their own page', () => {
 // them now (content.ts), so installing this version over an older one clears
 // that key once, and nothing else the extension keeps beside it.
 describe('installed over an older version', () => {
-	const install = async (storage: Seed) => {
+	// An update names the version it replaced; an install has none.
+	const install = async (storage: Seed, reason: 'install' | 'update' = 'update') => {
 		globalThis.chrome = createChrome({ storage });
 		addPageApis(chrome);
 		vi.resetModules();
 		await import('../src/background.ts');
 		const [[installed]] = chrome.runtime.onInstalled.addListener.mock.calls;
-		installed();
+		installed(reason === 'update' ? { reason, previousVersion: '2.11.0' } : { reason });
 		await flush();
 	};
 
@@ -385,5 +386,15 @@ describe('installed over an older version', () => {
 
 		expect(chrome.testStore()).toEqual({ downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' } });
 		expect(chrome.storage.local.set).not.toHaveBeenCalled();
+	});
+
+	// The page's Download buttons wait for the popup's first-run notice on a
+	// fresh install (src/lib/notice.ts); an update leaves them as they were.
+	it('holds the page’s Download buttons back on a fresh install, and only then', async () => {
+		await install({}, 'install');
+		expect(chrome.testStore()).toEqual({ noticePending: true });
+
+		await install({}, 'update');
+		expect(chrome.testStore()).toEqual({});
 	});
 });

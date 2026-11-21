@@ -44,7 +44,8 @@ With **replace SoundCloud's download buttons** on in Settings (it's on to begin 
 Download file item and the uploader's Buy or Free Download link are swapped for localtoolbox's
 own **Download** button. Hover it to see where the file comes from, such as `hypeddit.com` or
 `soundcloud.com`. Clicking it follows the link, or presses SoundCloud's own Download file for
-you, and puts the track in the session queue.
+you, and puts the track in the session queue. Right after you install localtoolbox, the buttons
+stay SoundCloud's own until you've opened the popup once and pressed **continue** on its notice.
 
 A link to Hypeddit is walked there and then, the way the third-party downloader does it: the
 file is saved and the track marked downloaded. If the gate needs you (a CAPTCHA, an email address

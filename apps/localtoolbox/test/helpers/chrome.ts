@@ -171,7 +171,7 @@ export interface ChromeStub {
 	};
 	runtime: {
 		onMessage: StubEvent<MessageListener>;
-		onInstalled: StubEvent<() => void>;
+		onInstalled: StubEvent<(details: chrome.runtime.InstalledDetails) => void>;
 		sendMessage: Mock<RuntimeSendMessage>;
 		getManifest: Mock<GetManifest>;
 		getContexts: Mock<GetContexts>;
@@ -364,8 +364,8 @@ export function createChrome({
 			},
 			// Recorded only: a test fires the worker's listener by calling it.
 			onInstalled: {
-				addListener: vi.fn<Subscribe<() => void>>(),
-				removeListener: vi.fn<Subscribe<() => void>>()
+				addListener: vi.fn<Subscribe<(details: chrome.runtime.InstalledDetails) => void>>(),
+				removeListener: vi.fn<Subscribe<(details: chrome.runtime.InstalledDetails) => void>>()
 			},
 			// By default nobody is listening, which Chrome reports as a rejected
 			// promise.
