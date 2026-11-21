@@ -83,5 +83,15 @@ export const epkGrantSchema = z.object({
 	createdAt: z.string()
 });
 
+/** A press kit request's answer. An outcome this app doesn't know fails to parse, so it changes nothing. */
+export const epkDecisionSchema = z.object({
+	request: z.string(),
+	requester: z.string(),
+	epk: z.string(),
+	outcome: z.enum(['approved', 'declined']),
+	decidedBy: z.string(),
+	createdAt: z.string()
+});
+
 /** A follow record, for the one field the access rules read. */
 export const followSchema = z.object({ subject: z.string() });

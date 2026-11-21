@@ -381,7 +381,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
    docker run -p 3000:3000 -v localnetwork-data:/data --env-file .env localnetwork
    ```
    To try an image first, `pnpm -C apps/web test:docker` runs the one tagged `localnetwork` against the local network with an empty volume and fetches a few pages, as CI does.
-5. Run **one** instance (SQLite and in-process background jobs). Give it a bucket for [backups](#backups) of `/data`: it holds OAuth sessions, the audit outbox, and records that exist nowhere else.
+5. Run **one** instance (SQLite and in-process background jobs). Give it a bucket for [backups](#backups) of `/data`: it holds OAuth sessions, the audit outbox, and records that exist nowhere else ([Where state lives](#where-state-lives)).
 6. Point `locallibrary.localnetwork.computer` at the same deployment (a DNS record, plus the custom domain on your host) for [its client document](#tools-pages-and-hosts).
 
 `/healthz` reports database, root-account, HappyView, and backup status (`backup` is `stale` with no backup in two days, `off` without a bucket). It answers 200 either way.
@@ -591,7 +591,7 @@ Source: [`vite.config.ts`](vite.config.ts), [`src/lib/bug-report.ts`](src/lib/bu
 
 ### Where state lives
 
-Every place the app keeps something, and what rebuilds it.
+Every place the app keeps something, and what rebuilds it. `TABLE_SOURCE` in `schema.ts` marks each SQLite table rebuilt or server-only, and `SERVER_ONLY_COLUMNS` the parts of rebuilt tables a re-sync can't bring back; a test fails when a table has neither.
 
 ```mermaid
 flowchart TD
@@ -600,10 +600,11 @@ flowchart TD
     Spaces["Spaces<br/>each writer's repo in each space"]
   end
   subgraph Server["On the server"]
-    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people,<br/>performers, flags and flag groups")]
-    Only[("SQLite, not rebuilt:<br/>sessions, inboxes, receipts")]
-    Outbox[("SQLite audit log:<br/>rebuilt from the root's copies")]
+    Index[("SQLite, rebuilt by sync:<br/>requests and their answers, threads, grants,<br/>people, performers, flags and flag groups")]
+    Only[("SQLite, not rebuilt:<br/>sessions, accounts, inboxes, email settings,<br/>receipts, the geocode cache, and columns like<br/>deletion marks and booking status as first read")]
+    Outbox[("SQLite audit log:<br/>delivered entries rebuilt from the root's copies")]
     Memory["Memory:<br/>rate limits, credentials, caches"]
+    Config["Environment:<br/>ADMIN_DIDS, secrets"]
   end
   subgraph Elsewhere["Elsewhere"]
     HV[("HappyView:<br/>public records its gates keep")]
@@ -621,7 +622,7 @@ flowchart TD
   Outbox -- "daily" --> Bucket
 ```
 
-Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts), [`src/lib/server/flags/preview.ts`](src/lib/server/flags/preview.ts)
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/config.ts`](src/lib/server/config.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts), [`src/lib/server/flags/preview.ts`](src/lib/server/flags/preview.ts)
 
 ### Local tables: bookings and press kits
 

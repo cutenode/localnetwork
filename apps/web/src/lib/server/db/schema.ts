@@ -4,10 +4,10 @@ import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
 /**
- * Local index. Everything here except sessions, the audit outbox, press kit view receipts and
- * people's inboxes is derived from records stored in atproto repos and spaces, and can be
- * rebuilt by re-syncing, so those need backing up. Published projects aren't
- * here: HappyView indexes them.
+ * Local index. Most of it is derived from records in atproto repos and spaces and rebuilt by
+ * re-syncing them; {@link TABLE_SOURCE} marks which tables, and {@link SERVER_ONLY_COLUMNS} the
+ * parts of rebuilt tables a re-sync can't bring back. Those, and ADMIN_DIDS in the config, are what
+ * backups have to keep. Published projects aren't here: HappyView indexes them.
  * Column names are snake_case in SQLite and camelCase in code.
  */
 export interface Database {
@@ -52,6 +52,81 @@ export interface Database {
 	notificationDelivery: NotificationDeliveryTable;
 }
 
+/**
+ * Where each table's rows come from. `rebuilt` ones come back from records on the network: the space sync, or for venue
+ * blocks, the root's repo at startup. `server-only` ones live only here, so a restore needs them from a backup. A new
+ * table has to pick one to type-check.
+ */
+export const TABLE_SOURCE = {
+	/** The root's session, when the app first started, HappyView script uploads and listing digests. */
+	kv: 'server-only',
+	/** Who signed in, with which grant. Handles resolve again; the grants don't. */
+	account: 'server-only',
+	webSession: 'server-only',
+	oauthState: 'server-only',
+	oauthSession: 'server-only',
+	projectDetails: 'rebuilt',
+	request: 'rebuilt',
+	staffRole: 'rebuilt',
+	featureFlag: 'rebuilt',
+	flagGroup: 'rebuilt',
+	/** The outbox. Entries whose root copy landed come back from it; those still waiting, and every delivery's state, don't. */
+	auditEntry: 'server-only',
+	auditCopy: 'rebuilt',
+	/** Bootstrap watches the root's spaces again; the sync's own bookkeeping starts over with them. */
+	spaceWatch: 'rebuilt',
+	syncedRepo: 'rebuilt',
+	syncRepoRetry: 'rebuilt',
+	pendingProjection: 'rebuilt',
+	spaceRecord: 'rebuilt',
+	bookingThread: 'rebuilt',
+	bookingParticipant: 'rebuilt',
+	bookingEvent: 'rebuilt',
+	epkRequest: 'rebuilt',
+	epkGrant: 'rebuilt',
+	epkDraft: 'rebuilt',
+	sharedSpace: 'rebuilt',
+	spacePerson: 'rebuilt',
+	performer: 'rebuilt',
+	venue: 'rebuilt',
+	venueBlock: 'rebuilt',
+	party: 'rebuilt',
+	venueApproval: 'rebuilt',
+	event: 'rebuilt',
+	spaceInvite: 'rebuilt',
+	spaceInviteLink: 'rebuilt',
+	spaceJoinRequest: 'rebuilt',
+	/** Press kit view receipts, which never go on atproto. */
+	epkView: 'server-only',
+	/** A cache: lookups fetch again, so a restore can go without it. */
+	geocodeCache: 'server-only',
+	notification: 'server-only',
+	/** Where each person's inbox also goes, their email address included. */
+	notificationChannel: 'server-only',
+	notificationDelivery: 'server-only'
+} as const satisfies Record<keyof Database, 'rebuilt' | 'server-only'>;
+
+/** The columns of rebuilt tables that only the server knows, which a re-sync loses or works out differently. */
+export const SERVER_ONLY_COLUMNS = {
+	/**
+	 * A request whose record is gone keeps its row only here: marked deleted after it was decided, or withdrawn. The
+	 * root's decision on it can't come back without the request.
+	 */
+	request: ['deletedAt'],
+	/**
+	 * The thread's status, judged from status records as first read. A status record rewritten since reads differently on
+	 * a re-sync, and so may the moves it allowed.
+	 */
+	bookingThread: ['status'],
+	bookingEvent: ['kind', 'record'],
+	/**
+	 * What the press kit's rules said when the request came in; a re-sync reads them as they are then. A press kit
+	 * request's answer, and the decline that stops its asker asking again, come back from the root's decision record.
+	 */
+	epkRequest: ['rule'],
+	epkDraft: ['publishedRkey']
+} as const satisfies { [T in keyof Database]?: readonly (keyof Database[T] & string)[] };
+
 export interface KvTable {
 	key: string;
 	value: string;
@@ -60,8 +135,6 @@ export interface KvTable {
 export interface AccountTable {
 	did: string;
 	handle: string | null;
-	displayName: string | null;
-	avatarUrl: string | null;
 	pdsUrl: string | null;
 	spacesCapable: number;
 	grantedScope: string | null;

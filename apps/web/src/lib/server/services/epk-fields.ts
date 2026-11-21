@@ -9,7 +9,13 @@ import {
 	type EpkPhoto,
 	type EpkRecord
 } from '#lib/epk.ts';
-import { type epkDraftSchema, epkFieldsSchema, type epkGrantSchema, type epkRequestSchema } from '#lib/epk-schema.ts';
+import {
+	type epkDecisionSchema,
+	type epkDraftSchema,
+	epkFieldsSchema,
+	type epkGrantSchema,
+	type epkRequestSchema
+} from '#lib/epk-schema.ts';
 import type { JsonObject } from '@atproto/lex-json';
 import type { localnetwork } from '#lib/lexicons/computer.ts';
 import type { LexiconRead } from '#lib/types.ts';
@@ -29,7 +35,8 @@ type PressKitRecord =
 	| EpkContent
 	| LexiconRead<z.infer<typeof epkDraftSchema>, localnetwork.epk.draft.Main>
 	| LexiconRead<z.infer<typeof epkGrantSchema>, localnetwork.epk.grant.Main>
-	| LexiconRead<z.infer<typeof epkRequestSchema>, localnetwork.epk.request.Main>;
+	| LexiconRead<z.infer<typeof epkRequestSchema>, localnetwork.epk.request.Main>
+	| LexiconRead<z.infer<typeof epkDecisionSchema>, localnetwork.epk.decision.Main>;
 
 const CONTENT = 'content.';
 

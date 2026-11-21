@@ -330,6 +330,34 @@ describe('EpkService', () => {
 		);
 	});
 
+	it("records every answer to a request as the root's decision in the request space, and an invite as none", async () => {
+		const kit = f.kit(await f.publish(DJ));
+		const open = f.kit(await f.publish(DJ, { title: 'Open', access: preset('open') }));
+		await f.t.epks.request(await f.t.viewer(STRANGER), kit, {});
+		await f.t.epks.request(await f.t.viewer(PROMOTER), kit, {});
+		await f.t.epks.request(await f.t.viewer(NO_SPACES), open, {});
+		const asked = await f.t.db.selectFrom('epkRequest').select(['uri', 'requesterDid']).execute();
+		const uriOf = (did: string) => asked.find((request) => request.requesterDid === did)!.uri;
+		await f.t.epks.decide(await f.t.viewer(CODJ), kit, uriOf(STRANGER), 'decline');
+		await f.t.epks.decide(await f.t.viewer(DJ), kit, uriOf(PROMOTER), 'approve');
+		await f.t.epks.invite(await f.t.viewer(DJ), kit, FRIEND);
+
+		const decisions = f.t.net
+			.spaceRecordsIn(requestSpace(), ROOT)
+			.filter((record) => record.uri.includes(COLLECTION.epkDecision))
+			.map(({ value }) => value);
+
+		expect(decisions).toHaveLength(3);
+		expect(decisions).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ request: uriOf(STRANGER), epk: kit.epk.uri, outcome: 'declined', decidedBy: CODJ }),
+				expect.objectContaining({ request: uriOf(PROMOTER), epk: kit.epk.uri, outcome: 'approved', decidedBy: DJ }),
+				// The press kit's rules approved it, so the root did.
+				expect.objectContaining({ request: uriOf(NO_SPACES), epk: open.epk.uri, outcome: 'approved', decidedBy: ROOT })
+			])
+		);
+	});
+
 	it("writes the request for someone whose PDS can't, on their behalf", async () => {
 		const kit = f.kit(await f.publish(DJ));
 

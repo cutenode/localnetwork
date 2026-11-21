@@ -226,6 +226,10 @@ _Avoid_: edit, revision, review request (those go to staff)
 Letting one account read one press kit's private part.
 _Avoid_: access, approval, permission (that's staff)
 
+**Press kit request**:
+Asking to see one press kit's private part. A manager approves it, which makes a grant, or declines it. The answer stays after a grant is removed, and someone declined can't ask to see that press kit again, though a manager can still invite them.
+_Avoid_: review request (that goes to staff)
+
 ## Music
 
 **Set**:
