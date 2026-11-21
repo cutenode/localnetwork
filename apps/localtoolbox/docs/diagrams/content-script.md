@@ -178,12 +178,12 @@ Source: [`content.ts`](../../content.ts), [`downloaded-store.ts`](../../download
 
 ## Putting the replaced buttons in
 
-One pass over SoundCloud's own controls. Nothing is removed, so turning the setting off shows the page as it was drawn.
+One pass over SoundCloud's own controls. Nothing is removed, so turning the setting off shows the page as it was drawn. After a fresh install the pass also waits for the popup's first-run notice (`noticePending` in `chrome.storage.local`, see `src/lib/notice.ts`).
 
 ```mermaid
 flowchart TD
   Native["Each SoundCloud control<br/>.sc-button-download, purchase link,<br/>Track header's outbound link"]
-  Plan{"setting on, names a track,<br/>a link to a web address?"}
+  Plan{"setting on, notice read,<br/>names a track,<br/>a link to a web address?"}
   Restore["remove ours,<br/>show SoundCloud's"]
   Ours["ours after it, theirs hidden<br/>with tbx-dl-replaced"]
   Fit["height of the controls beside it,<br/>tooltip says the domain"]
@@ -194,7 +194,7 @@ flowchart TD
   Ours --> Fit
 ```
 
-Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts)
+Source: [`content.ts`](../../content.ts), [`content.css`](../../content.css), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/notice.ts`](../../src/lib/notice.ts)
 
 ## Pressing a replaced button
 

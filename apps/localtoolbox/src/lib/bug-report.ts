@@ -14,7 +14,7 @@ import { TOOLS } from './tools.ts';
 
 const NEW_ISSUE = 'https://github.com/cutenode/localnetwork/issues/new';
 
-/** The manifest's version, and the commit it was built from when the build knew it: "2.11.0 (be03543)". */
+/** The manifest's version, and the commit it was built from when the build knew it: "1.0.0 (be03543)". */
 export function extensionVersion(): string {
 	const { version } = chrome.runtime.getManifest();
 	const commit = import.meta.env.VITE_COMMIT;

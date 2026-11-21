@@ -1665,7 +1665,9 @@
 				listViewAsked = false;
 			}
 
-			if (changes[TbxDownloaded.KEY] || changes[SETTINGS_KEY]) {
+			if (changes[NOTICE_PENDING]) noticePending = changes[NOTICE_PENDING].newValue === true;
+
+			if (changes[TbxDownloaded.KEY] || changes[SETTINGS_KEY] || changes[NOTICE_PENDING]) {
 				applyMarkers();
 			}
 		});
@@ -1773,6 +1775,12 @@
 
 	let settings = { ...SETTINGS_DEFAULTS };
 
+	// There from a fresh install until the popup's first-run notice is read
+	// (src/lib/notice.ts): until then SoundCloud's download buttons stay its own,
+	// since ours walk the gates that notice is about.
+	const NOTICE_PENDING = 'noticePending';
+	let noticePending = false;
+
 	// Stored settings are not this version's to trust (an older install, a
 	// later one, or a hand-edited storage), so anything but a boolean, under
 	// any name, is the default.
@@ -1795,6 +1803,13 @@
 		} catch (_e) {
 			// No storage to read: the defaults stand, which is the same answer the
 			// popup's own settings sheet would show.
+		}
+
+		try {
+			const stored: Partial<Record<string, Json>> = await chrome.storage.local.get(NOTICE_PENDING);
+			noticePending = stored[NOTICE_PENDING] === true;
+		} catch (_e) {
+			// Storage that can't be read holds no flag either; only an install sets it.
 		}
 	};
 
@@ -2177,12 +2192,12 @@
 		for (const [kind, selector] of Object.entries(NATIVE)) {
 			// Buttons and links, every one of them (see NATIVE).
 			for (const native of document.querySelectorAll<HTMLElement>(selector)) {
-				const plan = settings.replaceDownloadButtons ? replacementFor(native, kind) : null;
+				const plan = settings.replaceDownloadButtons && !noticePending ? replacementFor(native, kind) : null;
 				const neighbour = native.nextElementSibling;
 				const ours = neighbour instanceof HTMLElement && neighbour.classList.contains(OURS_CLASS) ? neighbour : null;
 
 				if (!plan) {
-					// Off, or nothing to offer: SoundCloud's page, as SoundCloud drew it.
+					// Off, the notice not read yet, or nothing to offer: SoundCloud's page, as SoundCloud drew it.
 					native.classList.remove(NATIVE_HIDDEN_CLASS);
 
 					if (ours) ours.remove();

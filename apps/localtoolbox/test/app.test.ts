@@ -91,7 +91,7 @@ describe('the first-run notice', () => {
 	const continueButton = () =>
 		[...document.querySelectorAll<HTMLButtonElement>('main button')].find((b) => b.textContent.trim() === 'continue');
 
-	beforeEach(() => localStorage.removeItem('pref:notice-seen'));
+	beforeEach(() => localStorage.removeItem('pref:notice-read'));
 
 	it('stands in for the tools until it is read, and says what goes where', async () => {
 		await mountApp();
@@ -99,11 +99,32 @@ describe('the first-run notice', () => {
 		expect(text()).toMatch(/before you start/);
 		expect(text()).toMatch(/Hypeddit shares them with the artist/);
 		expect(text()).toMatch(/your own Spotify account/);
+		expect(text()).toMatch(/Droploud and Laylo pages get the email/);
+		expect(text()).toMatch(/Download buttons this puts on SoundCloud do the same/);
 		expect(text()).toMatch(/Nothing goes to a localtoolbox server/);
 
 		await click(continueButton());
 		expect(names()).toHaveLength(TOOLS.length);
 		expect(text()).not.toMatch(/before you start/);
+	});
+
+	it('lets the page’s Download buttons work once it is read, and not before', async () => {
+		await chrome.storage.local.set({ noticePending: true });
+		await mountApp();
+		expect(chrome.testStore()).toMatchObject({ noticePending: true });
+
+		await click(continueButton());
+		await settle();
+		expect(chrome.testStore()).not.toHaveProperty('noticePending');
+	});
+
+	it('still lets the tools in when storage refuses to clear the flag', async () => {
+		chrome.storage.local.remove.mockRejectedValueOnce(new Error('storage unavailable'));
+		await mountApp();
+
+		await click(continueButton());
+		await settle();
+		expect(names()).toHaveLength(TOOLS.length);
 	});
 
 	it('is read once, not once a popup', async () => {

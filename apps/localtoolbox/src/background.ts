@@ -19,6 +19,7 @@
 // popup's localStorage, so the offscreen page reads them for it.
 
 import { roundTrip } from '$lib/chrome.ts';
+import { NOTICE_PENDING } from '$lib/notice.ts';
 import type {
 	GatePagePrefs,
 	GatePageRequest,
@@ -190,7 +191,12 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 // (content.ts) and profiles as long as the browser session
 // (artists/artists.svelte.ts), so what an older version left on the disk is
 // cleared once, when this one is installed over it.
-chrome.runtime.onInstalled.addListener(() => {
+//
+// A fresh install also waits for the first-run notice before the page's
+// Download buttons do anything (lib/notice.ts).
+chrome.runtime.onInstalled.addListener(({ reason }) => {
 	void chrome.storage.local.remove('details');
 	void dropOldProfiles();
+
+	if (reason === 'install') void chrome.storage.local.set({ [NOTICE_PENDING]: true });
 });

@@ -482,7 +482,7 @@ describe('the popup as a whole', () => {
 	});
 
 	it('reads the first-run notice without sight', async () => {
-		localStorage.removeItem('pref:notice-seen');
+		localStorage.removeItem('pref:notice-read');
 		panelChrome({ response: extraction({ tracks: TRACKS }) });
 		await mountApp();
 		expect(document.querySelector('section[aria-labelledby="first-run"]')).not.toBe(null);
