@@ -492,6 +492,16 @@ describe('getSets and listSets', () => {
 		expect(sets.map((set) => set.title)).toEqual(['B', 'A']);
 	});
 
+	it("leaves out the sets of accounts the app says aren't active", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:a', 'did:plc:b'] });
+		const a = await publishSet(hv, 'did:plc:a', { title: 'A' });
+		const b = await publishSet(hv, 'did:plc:b', { title: 'B' });
+
+		const { sets } = await query<Sets>(hv, 'getSets', { uris: [a.uri, b.uri], inactive: 'did:plc:b' });
+		expect(sets.map((set) => set.title)).toEqual(['A']);
+	});
+
 	it('lists only the accounts asked for, most recently played first, up to the limit', async () => {
 		const hv = new FakeHappyView(ROOT);
 		await publish(hv, {}, { managers: ['did:plc:a', 'did:plc:b', 'did:plc:c'] });
@@ -915,6 +925,22 @@ describe('who counts', () => {
 			'did:plc:b'
 		]);
 		expect((await query<Charts>(hv, 'getCharts')).places).toEqual([{ city: 'Berlin', country: 'DE', count: 2 }]);
+	});
+
+	it("leaves out the sets of accounts the app says aren't active, and counts them again once it doesn't", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+
+		for (const dj of ['a', 'b', 'c']) await publishSet(hv, `did:plc:${dj}`, { tracks: [hit] });
+
+		const inactive = ['did:plc:c'];
+		const artist = await query<Artist>(hv, 'getArtist', { name: 'Ferrule', inactive });
+		const { artists } = await query<{ artists: { djCount: number }[] }>(hv, 'searchArtists', { inactive });
+
+		expect((await query<Charts>(hv, 'getCharts', { inactive })).tracks).toEqual([]);
+		expect(artist.djs.map((dj) => dj.did).sort()).toEqual(['did:plc:a', 'did:plc:b']);
+		expect(artists).toMatchObject([{ djCount: 2 }]);
+		expect(await supports(hv)).toEqual([3]);
 	});
 });
 
@@ -1391,6 +1417,17 @@ describe('searchPerformers', () => {
 		expect(await find()).toEqual(['Ada', 'Ada Duo', 'Bea Solo', 'Nobody Yet', 'Shared Solo']);
 		expect(await find({ kinds: ['duo'] })).toEqual(['Ada Duo']);
 		expect(await find({ unclaimed: true })).toEqual(['Nobody Yet']);
+	});
+
+	it("leaves out a listed DJ the app says isn't active, and the solo project that gives way to them", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, { name: 'Ada Solo' }, { managers: ['did:plc:ada'] });
+		await publish(hv, { name: 'Crew' });
+		await listDj(hv, 'did:plc:ada', 'Ada');
+		const find = async (params: Params = {}) => performerNames(await search(hv, { sort: 'name', ...params }));
+
+		expect(await find({ inactive: 'did:plc:ada' })).toEqual(['Crew']);
+		expect(await find()).toEqual(['Ada', 'Crew']);
 	});
 });
 
@@ -1944,6 +1981,18 @@ describe('listShows and getShows', () => {
 
 		await publish(hv, {}, { managers: ['did:plc:dj'] }, { rkey: 'tide' });
 		expect(await list({ project })).toEqual(['Weekender', 'Tonight', 'Sydney', 'Paris']);
+	});
+
+	it("leaves out the shows of accounts the app says aren't active", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj', 'did:plc:co'] });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Tonight', startsAt: fromNow(6) });
+		await publishShow(hv, 'did:plc:co', project, { name: 'Later', startsAt: fromNow(72) });
+
+		const list = async (params: Params = {}) => showNames(await query<ShowPage>(hv, 'listShows', params));
+
+		expect(await list({ inactive: 'did:plc:co' })).toEqual(['Tonight']);
+		expect(await list()).toEqual(['Tonight', 'Later']);
 	});
 
 	it('finds shows near a place, and nearest first among the projects someone follows', async () => {

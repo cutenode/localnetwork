@@ -44,7 +44,8 @@ async function canonicalAccount(
 /**
  * The account a page under `/@<handle>` is about, redirecting to its canonical address (see canonicalAccount). Each
  * address that names no account counts against `ip`, since resolving it may have meant asking a host the visitor
- * chose; past the limit, the page answers 429 without resolving anything.
+ * chose; past the limit, the page answers 429 without resolving anything. An account that isn't active answers 404,
+ * and a deleted one 410, each saying so without saying why (ADR 0020).
  */
 export async function pageAccount(locals: App.Locals, param: string, rest: string, ip: string): Promise<AccountView> {
 	const misses = locals.app.limits.profileMisses;
@@ -62,6 +63,19 @@ export async function pageAccount(locals: App.Locals, param: string, rest: strin
 	}
 
 	misses.refund(ip);
+	const status = await locals.app.core.accountStatuses.status(account.did);
+
+	if (status === 'deleted') {
+		error(410, { status: 410, title: 'This account was deleted', message: 'Their profile and sets are gone.' });
+	}
+
+	if (status !== 'active') {
+		error(404, {
+			status: 404,
+			title: "This account isn't active",
+			message: 'Their profile and sets come back when the account does.'
+		});
+	}
 
 	return account;
 }

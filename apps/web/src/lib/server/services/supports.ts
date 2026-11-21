@@ -1,9 +1,9 @@
 import type { ChartFilters } from '#lib/supports.ts';
 import type { ArtistSupports, Charts, SupportedArtist } from '#lib/types.ts';
+import type { Core } from '../core';
 import { type DirectoryOutputs, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import type { Logger } from '../logger';
 import { truncateUtf8 } from '../utf8';
-import type { AccountService } from './accounts';
 
 /** Tracks and artists the charts show. */
 const CHART_SIZE = 50;
@@ -25,15 +25,15 @@ type Query = 'getCharts' | 'getArtist' | 'searchArtists';
 
 /**
  * Who played whose tracks, from the sets the directory keeps (lua/computer/localnetwork/directory/getCharts.lua,
- * getArtist.lua and searchArtists.lua count them). Reads only; a HappyViewError means the directory is down, which
- * pages show as such.
+ * getArtist.lua and searchArtists.lua count them), leaving out the sets of accounts that aren't active. Reads only; a
+ * HappyViewError means the directory is down, which pages show as such.
  */
 export class SupportService {
 	private readonly memo = new Map<string, { at: number; answer: Promise<DirectoryOutputs[Query]> }>();
 
 	constructor(
 		private readonly directory: HappyViewClient,
-		private readonly accounts: AccountService,
+		private readonly core: Pick<Core, 'accounts' | 'accountStatuses'>,
 		private readonly logger: Logger,
 		private readonly now: () => number = Date.now
 	) {}
@@ -62,7 +62,7 @@ export class SupportService {
 	async artist(artist: { mbid: string } | { name: string }): Promise<ArtistSupports> {
 		const params = 'mbid' in artist ? artist : { name: truncateUtf8(artist.name, ARTIST_BYTES) };
 		const { djs, ...supports } = await this.query('getArtist', params);
-		const handles = await this.accounts.views(djs.map((dj) => dj.did));
+		const handles = await this.core.accounts.views(djs.map((dj) => dj.did));
 		this.logger.debug('artist supports', { artist, tracks: supports.tracks.length, djs: djs.length });
 
 		return {
@@ -71,11 +71,15 @@ export class SupportService {
 		};
 	}
 
-	/** A directory query, or the same one's answer from the last minute. A failed one isn't kept. */
+	/**
+	 * A directory query, or the same one's answer from the last minute while the same accounts are inactive. A failed one
+	 * isn't kept.
+	 */
 	private query<K extends Query>(
 		name: K,
-		params: Record<string, string | number | undefined>
+		asked: Record<string, string | number | undefined>
 	): Promise<DirectoryOutputs[K]> {
+		const params = { ...asked, inactive: this.core.accountStatuses.inactive() };
 		const key = JSON.stringify([name, params]);
 		const kept = this.memo.get(key);
 

@@ -63,8 +63,8 @@ class Recent<T> {
 /**
  * Where a set's recording plays, decided when someone presses Play: its `recording` record (an `fm.plyr.track`, asked
  * of plyr.fm, or a `computer.localnetwork.dj.recording` on the DJ's PDS, served by /media/audio), then its links.
- * Records are read through HappyView. Recordings on a PDS play only for accounts that manage an active project, since
- * the site streams their bytes, and not at all while pauseRecordingStream is on, which leaves the set's links to play.
+ * Records are read through HappyView. Recordings on a PDS play only for active accounts that manage an active project,
+ * since the site streams their bytes, and not at all while pauseRecordingStream is on, which leaves the set's links to play.
  */
 export class RecordingService {
 	private readonly managers: Recent<boolean>;
@@ -74,7 +74,7 @@ export class RecordingService {
 	constructor(
 		private readonly repos: IndexedRepo,
 		private readonly plyr: PlyrClient,
-		/** Whether the account manages an active project. */
+		/** Whether the account is active and manages an active project. */
 		private readonly manages: (did: string) => Promise<boolean>,
 		private readonly logger: Logger,
 		now: () => number = Date.now
@@ -187,7 +187,10 @@ export class RecordingService {
 		return { kind: 'audio', src: `/media/audio/${did}/${parsed.data.audio.ref.$link}`, from: 'pds' };
 	}
 
-	/** Whether `did` manages an active project. A directory that can't say reads as no, and isn't remembered. */
+	/**
+	 * Whether `did` is active and manages an active project. A directory that can't say reads as no, and isn't
+	 * remembered.
+	 */
 	private async isManager(did: string): Promise<boolean> {
 		try {
 			return await this.managers.get(did, () => this.manages(did));

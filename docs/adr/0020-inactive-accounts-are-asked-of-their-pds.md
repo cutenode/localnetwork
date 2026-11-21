@@ -1,0 +1,17 @@
+# Inactive accounts are asked of their PDS when a page needs to know
+
+An account that's deactivated, taken down, suspended or deleted shouldn't stay on the site: its profile, its listing in Find DJs, the sets the charts count, its shows. The website reads public records only through HappyView, and HappyView already follows Jetstream's `account` events: at the version production runs (3.0.0-beta.14) it removes the records of an account that's deleted, taken down or suspended and keeps a tombstone that refuses later copies ([`account_event` in src/ingest.rs](https://github.com/gamesgamesgamesgamesgames/happyview/blob/v3.0.0-beta.14/src/ingest.rs), [event logs guide](https://github.com/gamesgamesgamesgamesgames/happyview/blob/v3.0.0-beta.14/packages/docs/content/docs/guides/event-logs.md)). It keeps a deactivated account's records, though, and only logs the event, and no script or query can see an account's status. When a taken-down account comes back, its records return only with a new backfill.
+
+So the app asks the account's PDS, the one its DID document names, with `com.atproto.sync.getRepoStatus`. `AccountStatuses` (`src/lib/server/atproto/account-status.ts`) keeps each answer in memory for half an hour. A profile or set page asks for its one account: an inactive account's page answers 404 saying the account isn't active, whatever the reason, and a deleted one's 410. For Find DJs, the charts, artist pages, linked sets and show listings, it checks every account the directory reads (the managers of the root's projects and the DJs staff list), eight at a time, and passes the inactive ones to those queries as an `inactive` param. The queries leave out those accounts' records. Only the first check after a start is waited for. After that a page gets the last list while a fresh one is made in the background, so no page waits on someone else's PDS.
+
+A PDS that can't be asked leaves the account as it was last seen, or active if it was never seen, and the failure is logged: the site fails open. A deleted account stays deleted in memory, and HappyView has removed its records for good, so no table is kept. When an account that was taken down or suspended turns up active again, the app has HappyView re-read its records.
+
+The cost is one request per directory account every half hour, and only while people look at the pages. A deactivated account leaves the lists, and comes back, up to half an hour late.
+
+## Considered options
+
+- Jetstream's `account` events through HappyView: they already handle deletions and takedowns, but HappyView keeps a deactivated account's records and offers no hook or table that tells the app. HappyView is a hosted service we don't develop, so changing that isn't ours to do.
+- A subscriber of our own to Jetstream's or the relay's account events: changes would show at once, but it's a connection to keep up, a cursor to store, and a table of statuses that's cheap to fetch again.
+- Asking a relay's `getRepoStatus` instead of each PDS: one host for every account and it sees a relay's own takedowns, but it ties the site to Bluesky's relay, and the dev network and the integration tests have none.
+- Filtering after each query instead of passing `inactive` in: the charts and artist pages count plays across accounts, so they can't be fixed up afterwards, and Find DJs would page wrong.
+- A table of deleted accounts: HappyView's tombstone already keeps their records out, and a deleted account's PDS keeps answering `RepoNotFound`.

@@ -10,6 +10,8 @@ declare global {
 			status: number;
 			message: string;
 			requestId?: string;
+			/** The error page's heading, when the status alone doesn't say what happened. */
+			title?: string;
 		}
 
 		interface Locals {

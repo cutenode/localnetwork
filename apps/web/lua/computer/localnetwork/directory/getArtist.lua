@@ -33,6 +33,7 @@ local function managed(dids)
 end
 
 function handle(input)
+	skipInactive(input)
 	local id = text(input.mbid) and mbid(input.mbid)
 	local wanted = text(input.name)
 	if not (id or wanted and not input.mbid) then return { tracks = json.to_array({}), djs = json.to_array({}) } end

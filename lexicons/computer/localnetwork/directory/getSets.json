@@ -9,7 +9,13 @@
 				"type": "params",
 				"required": ["uris"],
 				"properties": {
-					"uris": { "type": "array", "maxLength": 25, "items": { "type": "string", "format": "at-uri" } }
+					"uris": { "type": "array", "maxLength": 25, "items": { "type": "string", "format": "at-uri" } },
+					"inactive": {
+						"type": "array",
+						"maxLength": 100,
+						"items": { "type": "string", "format": "did" },
+						"description": "Accounts that aren't active (deactivated, taken down, suspended or deleted), whose sets are left out."
+					}
 				}
 			},
 			"output": {

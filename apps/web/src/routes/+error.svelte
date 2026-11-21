@@ -3,16 +3,19 @@
 	import Button from '#lib/ui/Button.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 
-	const title = $derived(page.status === 404 ? "We couldn't find that page" : page.status === 403 ? 'Not allowed' : page.status === 503 ? 'Directory offline' : 'Something went wrong');
+	const title = $derived(page.error?.title ?? (page.status === 404 ? "We couldn't find that page" : page.status === 403 ? 'Not allowed' : page.status === 503 ? 'Directory offline' : 'Something went wrong'));
+
+	// An error with its own heading, like an account that isn't active, isn't a fault, so no status code heads it.
+	const eyebrow = $derived(page.error?.title ? undefined : `Error ${page.status}`);
 
 	// SvelteKit's own 404 message is just "Not Found", which the title already says.
 	const lede = $derived(page.status === 404 && page.error?.message === 'Not Found' ? 'The link may be out of date, or the page has moved.' : page.error?.message);
 </script>
 
-<svelte:head><title>{page.status} · Local Network</title></svelte:head>
+<svelte:head><title>{page.error?.title ?? page.status} · Local Network</title></svelte:head>
 
 <div class="container-page flex flex-col items-center gap-6 py-20 sm:py-30">
-	<SectionHeader level={1} align="center" eyebrow="Error {page.status}" {title} {lede}>
+	<SectionHeader level={1} align="center" {eyebrow} {title} {lede}>
 		{#snippet actions()}<Button href="/">Back to home</Button><Button variant="secondary" href="/djs">Find DJs</Button>{/snippet}
 	</SectionHeader>
 	<!-- A reference is for reporting a fault, so a missing or refused page doesn't show one. -->

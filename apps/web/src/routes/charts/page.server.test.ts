@@ -95,7 +95,7 @@ it('streams null for the charts while the directory is offline, so the filters s
 		fetch: async () => new Response('Service Unavailable', { status: 503 })
 	});
 
-	const supports = new SupportService(directory, f.t.accounts, silentLogger);
+	const supports = new SupportService(directory, f.t.core, silentLogger);
 	const data = await loadRoute<PageServerData>(load, { app: { ...app(), supports }, url: '/charts' });
 
 	expect(await data.charts).toBeNull();

@@ -135,7 +135,7 @@ describe('SupportService', () => {
 			}
 		});
 
-		const supports = new SupportService(directory, t.accounts, silentLogger, () => now);
+		const supports = new SupportService(directory, t.core, silentLogger, () => now);
 		await supports.search('ferr');
 		await supports.search('ferr');
 		await supports.search('kest');
@@ -161,7 +161,7 @@ describe('SupportService', () => {
 			}
 		});
 
-		const supports = new SupportService(directory, t.accounts, silentLogger, () => 0);
+		const supports = new SupportService(directory, t.core, silentLogger, () => 0);
 
 		for (let i = 0; i <= 200; i++) await supports.search(`artist ${i}`);
 		expect(asked).toBe(201);
@@ -181,7 +181,7 @@ describe('SupportService', () => {
 			fetch: () => new Promise((resolve) => answers.push(resolve))
 		});
 
-		const supports = new SupportService(directory, t.accounts, silentLogger, () => now);
+		const supports = new SupportService(directory, t.core, silentLogger, () => now);
 		const stale = supports.search('ferr');
 		now = 60_000;
 		const fresh = supports.search('ferr');

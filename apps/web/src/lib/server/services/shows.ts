@@ -225,11 +225,12 @@ export class ShowService {
 		private readonly indexWaitMs = INDEX_WAIT_MS
 	) {}
 
-	/** Upcoming shows, a page at a time. */
+	/** Upcoming shows, a page at a time, without those by accounts that aren't active. */
 	async upcoming(query: ShowQuery): Promise<{ items: ShowView[]; cursor?: string }> {
 		const { near } = query;
 
 		const output = await this.directory.query('listShows', {
+			inactive: this.core.accountStatuses.inactive(),
 			project: query.project,
 			follower: query.follower,
 			latE6: near && toE6(near.lat),

@@ -1,3 +1,4 @@
+import { type AccountStatus, AccountStatuses } from '../atproto/account-status';
 import { rootSpaces } from '../atproto/spaces';
 import { AuditLog } from '../audit/log';
 import { ensureRootSpaces } from '../bootstrap';
@@ -86,6 +87,19 @@ export async function createTestServices(
 
 	const notifications = new Notifier({ db, logger: silentLogger });
 
+	/**
+	 * Each account's status as its PDS would answer: active unless a test sets another. Statuses are never fresh, so
+	 * `accountStatuses.refresh()` asks again and the directory's queries then leave the inactive ones out.
+	 */
+	const accountStatus = new Map<string, AccountStatus>();
+
+	const accountStatuses = new AccountStatuses({
+		lookup: async (did) => accountStatus.get(did) ?? 'active',
+		accounts: async () => [...accountStatus.keys()],
+		logger: silentLogger,
+		freshMs: 0
+	});
+
 	const core: Core = {
 		db,
 		logger: silentLogger,
@@ -96,6 +110,7 @@ export async function createTestServices(
 		userClient: async (did) => (capable.has(did) ? net.client(did) : null),
 		audit,
 		accounts,
+		accountStatuses,
 		notify: notifications.notify.bind(notifications),
 		watchSpace: async () => {},
 		fetchSpaceBlob: async (_space, _repo, cid) => {
@@ -129,7 +144,7 @@ export async function createTestServices(
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
-	const supports = new SupportService(directory, accounts, silentLogger);
+	const supports = new SupportService(directory, core, silentLogger);
 
 	// Writes are indexed in-process here, so a write that isn't served at once never will be.
 	const indexedRepo = new IndexedRepo(directory, silentLogger, 0);
@@ -208,6 +223,8 @@ export async function createTestServices(
 		core,
 		audit,
 		accounts,
+		accountStatus,
+		accountStatuses,
 		notifications,
 		projects,
 		requests,

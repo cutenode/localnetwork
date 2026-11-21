@@ -1,6 +1,7 @@
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { ActorSearch } from './actor-search';
+import { AccountStatuses, repoStatusLookup } from './atproto/account-status';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
@@ -19,7 +20,7 @@ import { Backfills } from './happyview/backfills';
 import { happyViewBundle } from './happyview/bundle';
 import { HappyViewClient } from './happyview/client';
 import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
-import { refreshForScript, refreshTargets } from './happyview/refresh';
+import { MANAGER_COLLECTIONS, refreshForScript, refreshTargets } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
 import { NotificationChannels } from './notifications/channels';
@@ -185,6 +186,17 @@ export async function createApp(options: CreateAppOptions) {
 		notify: (space) => syncer.registration(space)
 	});
 
+	// Services built after `core` list the directory's accounts, and only from their methods.
+	const accountStatuses = new AccountStatuses({
+		lookup: repoStatusLookup(identity),
+		accounts: async () => [...(await projects.managers()), ...(await djListings.listed())],
+		logger: logger.child({ component: 'account-status' }),
+		// HappyView drops a taken-down account's records, so a reinstated one's are read again.
+		reinstated: (did) => {
+			for (const collection of MANAGER_COLLECTIONS) void backfills.backfill(collection, [did]);
+		}
+	});
+
 	const core: Core = {
 		db,
 		logger,
@@ -195,6 +207,7 @@ export async function createApp(options: CreateAppOptions) {
 		userClient,
 		audit,
 		accounts,
+		accountStatuses,
 		notify: notifications.notify.bind(notifications),
 		// Services only call this from their methods, which run after `syncer` below exists.
 		watchSpace: async (space) => {
@@ -263,11 +276,13 @@ export async function createApp(options: CreateAppOptions) {
 	const recordings = new RecordingService(
 		indexedRepo,
 		plyr,
-		async (did) => (await projects.managedBy(did)).some((project) => project.status === 'active'),
+		async (did) =>
+			(await accountStatuses.status(did)) === 'active' &&
+			(await projects.managedBy(did)).some((project) => project.status === 'active'),
 		logger.child({ component: 'recordings' })
 	);
 
-	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
+	const supports = new SupportService(happyView, core, logger.child({ component: 'supports' }));
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
 
@@ -429,6 +444,7 @@ export async function createApp(options: CreateAppOptions) {
 		backfills,
 		audit,
 		accounts,
+		accountStatuses,
 		notifications,
 		notificationChannels,
 		outbox,

@@ -8,12 +8,12 @@ import { type ProjectSearch, type ProjectService, searchQuery } from './projects
 export type PerformerSearchResult = { items: PerformerResult[]; total: number; page: number; pageSize: number };
 
 /**
- * Find DJs: active projects and the DJs staff list, searched together by the directory (`searchPerformers`), with each
- * DJ's handle from the accounts this app knows, for links to their profile.
+ * Find DJs: active projects and the DJs staff list, searched together by the directory (`searchPerformers`), without
+ * DJs whose account isn't active, with each DJ's handle from the accounts this app knows, for links to their profile.
  */
 export class PerformerSearch {
 	constructor(
-		private readonly core: Pick<Core, 'accounts'>,
+		private readonly core: Pick<Core, 'accounts' | 'accountStatuses'>,
 		private readonly directory: HappyViewClient,
 		private readonly projects: ProjectService,
 		private readonly profiles: ProfileService
@@ -21,7 +21,12 @@ export class PerformerSearch {
 
 	async search(params: Omit<ProjectSearch, 'manager' | 'status' | 'includeInactive'>): Promise<PerformerSearchResult> {
 		const { page, pageSize, query } = searchQuery(params);
-		const output = await this.directory.query('searchPerformers', query);
+
+		const output = await this.directory.query('searchPerformers', {
+			...query,
+			inactive: this.core.accountStatuses.inactive()
+		});
+
 		const dids = output.performers.flatMap((found) => ('profile' in found ? [new AtUri(found.profile.uri).host] : []));
 		const accounts = await this.core.accounts.views(dids);
 
