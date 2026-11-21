@@ -160,11 +160,13 @@ const MAX_PAGES = 100;
 
 /**
  * The most of a repo export (`getRepo`) one download reads, in bytes. Every record in it is held in memory until the
- * download is applied, and a hostile repo host could send one that never ends. A record is at most 1 MiB
- * (@atproto/space's MAX_RECORD_SIZE), but the records this app writes are a few KiB at most. The largest repo is the
- * root's in the audit space, which gains an entry for every audited action, most well under 1 KiB, so this holds a
- * few hundred thousand of them, many times what any repo here is expected to hold. A repo past it fails and waits
- * for its retry like any other, and the system page shows it.
+ * download is applied, and a hostile repo host could send one that never ends. The largest repo is the root's in the
+ * audit space, which gains an entry for every audited action and never shrinks. On production before launch its 60
+ * entries came to 40,548 bytes, 676 a piece, so this holds about 397,000 of them: a year at 1,000 audited actions a
+ * day. A single entry can reach about 820 KiB under the lexicon's limits (100 changes of two 4,000-byte values, and a
+ * 10,000-byte reason), and any record is at most 1 MiB (@atproto/space's MAX_RECORD_SIZE), so a repo of rare large
+ * entries still fits a few hundred. Members' repos in shared spaces hold a few KiB each. A repo past it fails and
+ * waits for its retry like any other, and the system page shows it.
  */
 const REPO_EXPORT_MAX_BYTES = 256 * 1024 * 1024;
 
