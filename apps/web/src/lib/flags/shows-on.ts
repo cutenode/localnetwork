@@ -1,9 +1,11 @@
 /**
  * The kinds of page a flag can show on (its `showsOn` in flags/catalog), with what the staff console calls each:
- * `global` for every page, or one of the glossary's page types. `act` is `/projects/<slug>` until acts move.
+ * `global` for every page, `home` for the home page, or one of the glossary's page types. `act` is `/projects/<slug>`
+ * until acts move.
  */
 export const SHOWS_ON = {
 	global: 'Every page',
+	home: 'Home page',
 	profile: 'Profile',
 	act: 'Act',
 	party: 'Party',

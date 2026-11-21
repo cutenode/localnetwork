@@ -26,7 +26,7 @@
 					"type": "array",
 					"items": {
 						"type": "string",
-						"enum": ["global", "profile", "act", "party", "venue", "event", "set", "mix", "pressKit"]
+						"enum": ["global", "home", "profile", "act", "party", "venue", "event", "set", "mix", "pressKit"]
 					}
 				},
 				"type": {
@@ -68,7 +68,7 @@
 					"type": "array",
 					"items": {
 						"type": "string",
-						"enum": ["global", "profile", "act", "party", "venue", "event", "set", "mix", "pressKit"]
+						"enum": ["global", "home", "profile", "act", "party", "venue", "event", "set", "mix", "pressKit"]
 					}
 				},
 				"type": {
