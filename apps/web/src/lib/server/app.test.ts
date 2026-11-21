@@ -87,6 +87,8 @@ function stubNetwork() {
 		['GET /admin/scripts', () => Response.json([])],
 		['POST /admin/scripts', () => Response.json({}, { status: 201 })],
 		['POST /admin/lexicons', () => Response.json({})],
+		['GET /admin/network-lexicons', () => Response.json([])],
+		['POST /admin/network-lexicons', () => Response.json({}, { status: 201 })],
 		['POST /admin/backfill', () => Response.json({ id: 'job', status: 'running' }, { status: 201 })],
 		['GET /admin/backfill/status', () => Response.json([{ id: 'job', status: 'completed' }])]
 	]);

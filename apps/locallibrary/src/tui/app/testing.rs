@@ -108,6 +108,36 @@ pub fn demo_drive_in(dir: &Path, name: &str) -> PathBuf {
     device.root().to_path_buf()
 }
 
+/// What a frame writes, kept where the test can read it.
+#[derive(Clone, Default)]
+pub struct Written(pub std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Written {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Whether `LOCALLIBRARY_BLESS=1` asks for the files tests check to be written instead.
+pub fn blessing() -> bool {
+    std::env::var_os("LOCALLIBRARY_BLESS").is_some_and(|v| v == "1")
+}
+
+/// `path` holds `made`, or with `LOCALLIBRARY_BLESS=1` now does. `rerun` says how to update it.
+pub fn holds(path: &Path, made: &str, rerun: &str) {
+    if blessing() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        return std::fs::write(path, made).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+    assert!(on_disk == made, "{} isn't what the player makes: update it with\n  {rerun}", path.display());
+}
+
 /// A hot cue (`hot`: 0 is A), or a memory cue, at `start_ms`; a loop when it has an end.
 pub fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>) -> Cue {
     Cue {

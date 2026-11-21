@@ -725,17 +725,23 @@ describe('Local Network on a real atproto spaces network', () => {
 					repo: neon.did,
 					collection: BSKY_PROFILE,
 					rkey: 'self',
-					record: { $type: BSKY_PROFILE, displayName, description: 'Not kept' }
+					record: { $type: BSKY_PROFILE, displayName, description: 'Rolling techno' }
 				})
 			).data;
 
-		// A manager's Bluesky profile reaches HappyView over Jetstream, keeping only the display name.
+		// A manager's Bluesky profile reaches HappyView over Jetstream, kept as written.
 		const named = await name('Neon');
 		await expect
 			.poll(async () => (await net.app.happyView.query('getRecords', { uris: [named.uri] })).records, {
 				timeout: 10_000
 			})
-			.toEqual([{ uri: named.uri, cid: named.cid, value: { $type: BSKY_PROFILE, displayName: 'Neon' } }]);
+			.toEqual([
+				{
+					uri: named.uri,
+					cid: named.cid,
+					value: { $type: BSKY_PROFILE, displayName: 'Neon', description: 'Rolling techno' }
+				}
+			]);
 
 		await net.app.verifications.grant(ada, neon.did);
 		const [record] = await root.listRecords(VERIFICATION);

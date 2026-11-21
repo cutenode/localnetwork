@@ -2,7 +2,7 @@
 -- only point at Local Network's own (USERINPUT_SPACE, nil when none is configured), so only that one gets in, as
 -- written. Its CID is what a report pins.
 
-function handle()
-	if uri ~= USERINPUT_SPACE then return nil end
+function handle(input)
+	if input.uri ~= USERINPUT_SPACE then return nil end
 	return true
 end

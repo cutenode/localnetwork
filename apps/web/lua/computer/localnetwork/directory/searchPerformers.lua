@@ -4,34 +4,56 @@
 -- it's searched by the genres the DJ plays most, from their computer.localnetwork.dj.profile. A listed DJ who also
 -- manages a solo project alone shows once, as their profile.
 
+local json = require('internal.json')
+
 local PROFILE = 'computer.localnetwork.profile'
 
 local LISTING = 'computer.localnetwork.listing.profile'
 
 local DJ_PROFILE = 'computer.localnetwork.dj.profile'
 
-local NAME = "json_extract(p.record, '$.basics.name')"
+local NAME = "(p.record::jsonb #>> '{basics,name}')"
 
--- The DIDs of the DJs listed (a root listing, and a profile with the performer section on), for SQL. Its placeholders
--- are the profile and listing collections and the root's DID.
-local LISTED_DJS = 'SELECT l.rkey FROM happyview_records AS l'
-	.. " JOIN happyview_records AS p ON p.did = l.rkey AND p.collection = ? AND p.rkey = 'self'"
-	.. " WHERE l.collection = ? AND l.did = ? AND json_type(p.record, '$.performer') = 'object'"
+-- Listed DJs' profiles (aliased p) with the root's listing of each (l, keyed by the DJ's DID) and their DJ stats (d),
+-- up to the IN list of the DJs' DIDs. Its placeholders are the root's DID and the listing, DJ stats and profile
+-- collections. `played` is the DJ stats' genres as JSON.
+local PROFILES = 'SELECT p.uri, p.cid, p.record, l.uri AS listing,'
+	.. ' l.record::jsonb ->> \'createdAt\' AS "listedAt",'
+	.. " CASE WHEN left((d.record::jsonb -> 'genres')::text, 1) = '[' THEN d.record::jsonb ->> 'genres' END AS played"
+	.. ' FROM happyview_records AS p'
+	.. ' JOIN happyview_records AS l ON l.did = ? AND l.collection = ? AND l.rkey = p.did'
+	.. " LEFT JOIN happyview_records AS d ON d.did = p.did AND d.collection = ? AND d.rkey = 'self'"
+	.. " WHERE p.collection = ? AND p.rkey = 'self' AND p.did IN ("
 
-local PROFILES = "SELECT p.uri, p.cid, p.record, l.uri AS listing, json_extract(l.record, '$.createdAt') AS listedAt,"
-	.. " CASE WHEN json_type(d.record, '$.genres') = 'array' THEN json_extract(d.record, '$.genres') END AS played"
-	.. ' FROM happyview_records AS l'
-	.. " JOIN happyview_records AS p ON p.did = l.rkey AND p.collection = ? AND p.rkey = 'self'"
-	.. " LEFT JOIN happyview_records AS d ON d.did = l.rkey AND d.collection = ? AND d.rkey = 'self'"
-	.. " WHERE l.collection = ? AND l.did = ? AND json_type(p.record, '$.performer') = 'object'"
+local PROJECTS_BY_NAME = ' ORDER BY lower((record::jsonb #>> \'{profile,name}\') COLLATE "C"),'
+	.. ' (record::jsonb #>> \'{profile,name}\') COLLATE "C", uri COLLATE "C"'
 
-local PROJECTS_BY_NAME = " ORDER BY lower(json_extract(record, '$.profile.name')),"
-	.. " json_extract(record, '$.profile.name'), uri"
-
-local PROFILES_BY_NAME = ' ORDER BY lower(' .. NAME .. '), ' .. NAME .. ', p.uri'
+local PROFILES_BY_NAME = ' ORDER BY lower(' .. NAME .. ' COLLATE "C"), ' .. NAME .. ' COLLATE "C", p.uri COLLATE "C"'
 
 -- Newest listed first, as projects are newest published first.
-local PROFILES_RECENT = " ORDER BY json_extract(l.record, '$.createdAt') DESC, p.uri"
+local PROFILES_RECENT = ' ORDER BY (l.record::jsonb ->> \'createdAt\') COLLATE "C" DESC, p.uri COLLATE "C"'
+
+-- The DIDs of the DJs listed: the root lists each by their DID as its key, and their profile has the performer
+-- section on. Read first, so the queries after name the accounts they read.
+local function listedDjs()
+	local rows = query('SELECT rkey FROM happyview_records WHERE did = ? AND collection = ?', { ROOT_DID, LISTING })
+	if #rows == 0 then return {} end
+	local listed = {}
+	for i, row in ipairs(rows) do
+		listed[i] = row.rkey
+	end
+	rows = query(
+		'SELECT did FROM happyview_records WHERE did IN ('
+			.. marks(#listed)
+			.. ") AND collection = ? AND rkey = 'self' AND left((record::jsonb -> 'performer')::text, 1) = '{'",
+		append(listed, { PROFILE })
+	)
+	local out = {}
+	for i, row in ipairs(rows) do
+		out[i] = row.did
+	end
+	return out
+end
 
 -- The genres a DJ's profile is searched by: its performer section's, else up to 12 the DJ plays most (`played`, the
 -- shares in their DJ stats as JSON, which their record script keeps as written).
@@ -57,8 +79,8 @@ local function before(a, b, sort)
 	return a.uri < b.uri
 end
 
-function handle()
-	local projectWhere, projectArgs = { " AND json_extract(record, '$.status') = 'active'" }, {}
+function handle(input)
+	local projectWhere, projectArgs = { " AND record::jsonb ->> 'status' = 'active'" }, {}
 	local profileWhere, profileArgs = {}, {}
 	local function filter(where, args, clause, values)
 		where[#where + 1] = ' AND ' .. clause
@@ -73,49 +95,56 @@ function handle()
 		filter(profileWhere, profileArgs, clause, values)
 	end
 
-	local country = text(params.country)
+	local country = text(input.country)
 	if country then
-		project("upper(json_extract(record, '$.profile.location.country')) = upper(?)", { country })
-		profile("upper(json_extract(p.record, '$.basics.location.country')) = upper(?)", { country })
-	end
-	local kinds, tiers = list(params.kinds, 10), list(params.feeTiers, 10)
-	if #kinds > 0 then project("json_extract(record, '$.profile.kind') IN (" .. marks(#kinds) .. ')', kinds) end
-	local profiles = (#kinds == 0 or contains(kinds, 'solo')) and params.unclaimed ~= true
-	if params.unclaimed == true then project("json_array_length(record, '$.managers') = 0") end
-	-- A solo project its one manager stands behind as a listed DJ is them, so it gives way to their profile.
-	if profiles then
 		project(
-			"NOT (json_extract(record, '$.profile.kind') = 'solo' AND json_array_length(record, '$.managers') = 1"
-				.. " AND json_extract(record, '$.managers[0]') IN ("
-				.. LISTED_DJS
+			'upper((record::jsonb #>> \'{profile,location,country}\') COLLATE "C") = upper(?::text COLLATE "C")',
+			{ country }
+		)
+		profile(
+			'upper((p.record::jsonb #>> \'{basics,location,country}\') COLLATE "C") = upper(?::text COLLATE "C")',
+			{ country }
+		)
+	end
+	local kinds, tiers = input.kinds or {}, input.feeTiers or {}
+	if #kinds > 0 then project("record::jsonb #>> '{profile,kind}' IN (" .. marks(#kinds) .. ')', kinds) end
+	local profiles = (#kinds == 0 or contains(kinds, 'solo')) and input.unclaimed ~= true
+	if input.unclaimed == true then project("record::jsonb -> 'managers' = '[]'") end
+	local djs = profiles and listedDjs() or {}
+	-- A solo project its one manager stands behind as a listed DJ is them, so it gives way to their profile.
+	if #djs > 0 then
+		project(
+			"NOT (record::jsonb #>> '{profile,kind}' = 'solo' AND jsonb_array_length(record::jsonb -> 'managers') = 1"
+				.. " AND record::jsonb #>> '{managers,0}' IN ("
+				.. marks(#djs)
 				.. '))',
-			{ PROFILE, LISTING, ROOT_DID }
+			djs
 		)
 	end
 	if #tiers > 0 then
-		project(inFeeTiers('record', '$.profile.fees', tiers, '$.profile.fee'))
-		profile(inFeeTiers('p.record', '$.performer.fees', tiers))
+		project(inFeeTiers('record', 'profile,fees', tiers, 'profile,fee'))
+		profile(inFeeTiers('p.record', 'performer,fees', tiers))
 	end
 
 	local needles = {}
-	for _, term in ipairs(terms(text(params.q) or '')) do
+	for _, term in ipairs(terms(text(input.q) or '')) do
 		needles[#needles + 1] = ' ' .. term
 		-- Every word appears somewhere in the record's JSON (or a DJ's played genres), a superset of the word-prefix
-		-- match below.
+		-- match below. ILIKE under "C" ignores ASCII case only, as terms() lowers.
 		local like = '%' .. term .. '%'
-		project('record LIKE ?', { like })
-		profile("(p.record LIKE ? OR json_extract(d.record, '$.genres') LIKE ?)", { like, like })
+		project('record COLLATE "C" ILIKE ?', { like })
+		profile('(p.record COLLATE "C" ILIKE ? OR (d.record::jsonb ->> \'genres\') COLLATE "C" ILIKE ?)', { like, like })
 	end
 
-	local near = point(params.latE6, params.lngE6)
-	local radius = integer(params.radiusKm) or 50
+	local near = point(input.latE6, input.lngE6)
+	local radius = integer(input.radiusKm) or 50
 	if near then
-		project(withinBox(near, radius, 'record', '$.profile.location'))
-		profile(withinBox(near, radius, 'p.record', '$.basics.location'))
+		project(withinBox(near, radius, 'record', 'profile,location'))
+		profile(withinBox(near, radius, 'p.record', 'basics,location'))
 	end
 
-	local wanted = performerFilter(params)
-	local sort = searchSort(params, needles, near)
+	local wanted = performerFilter(input)
+	local sort = searchSort(input, needles, near)
 	local order = sort == 'name' and 'name' or 'recent'
 
 	-- Each kind's results that pass every filter, in SQL's order by name or newest first, with what merging them reads.
@@ -135,18 +164,21 @@ function handle()
 	end
 
 	local fromProfiles = {}
-	if profiles then
-		local values = { PROFILE, DJ_PROFILE, LISTING, ROOT_DID }
-		table.move(profileArgs, 1, #profileArgs, #values + 1, values)
-		local rows = db.raw(
-			PROFILES .. table.concat(profileWhere) .. (order == 'name' and PROFILES_BY_NAME or PROFILES_RECENT),
-			values
+	if #djs > 0 then
+		local rows = query(
+			PROFILES
+				.. marks(#djs)
+				.. ')'
+				.. table.concat(profileWhere)
+				.. (order == 'name' and PROFILES_BY_NAME or PROFILES_RECENT),
+			append(append({ ROOT_DID, LISTING, DJ_PROFILE, PROFILE }, djs), profileArgs)
 		)
 		for _, row in ipairs(rows) do
 			local record = json.decode(row.record)
 			local basics, performer = record.basics, record.performer
 			local genres = profileGenres(performer, row.played)
-			local view = { uri = row.uri, cid = row.cid, record = record, listing = row.listing, genres = toarray(genres) }
+			local view =
+				{ uri = row.uri, cid = row.cid, record = record, listing = row.listing, genres = json.to_array(genres) }
 			keep(fromProfiles, view, {
 				name = basics.name,
 				tagline = performer.tagline,
@@ -177,6 +209,6 @@ function handle()
 		items[item.i] = item
 	end
 
-	local page, total, cursor = searchPage(items, sort, params, needles)
+	local page, total, cursor = searchPage(items, sort, input, needles)
 	return { performers = page, total = total, cursor = cursor }
 end

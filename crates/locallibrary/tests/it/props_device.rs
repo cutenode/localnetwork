@@ -9,6 +9,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::Hash;
 use locallibrary::device::{Device, DeviceState, LineageEntry, LineageOp, RekordboxSync};
+use locallibrary::progress::Ctx;
 
 const OPS: &[LineageOp] = &[
     LineageOp::Observed,
@@ -50,7 +51,7 @@ fn a_cut_off_operation_says_what_finishes_it(tc: TestCase) {
     let refused = d.finished().unwrap_err();
     assert!(refused.to_string().contains(remedy) && refused.to_string().contains(&said), "{refused}");
     let mut d = d;
-    d.finish(None).unwrap();
+    d.finish(None, &Ctx::silent()).unwrap();
     assert!(Device::open(&root).unwrap().finished().is_ok());
 }
 

@@ -53,7 +53,7 @@ Source: [`src/lib/server/services/sets.ts`](../../src/lib/server/services/sets.t
 
 ## DJ stats on a page
 
-How a performer page, a profile or the dashboard home's locallibrary card gets the stats and recent sets DJs publish. The app stores none of it. A profile link with `?tab=` waits for them, and for the projects the person plays in, so the tab it opens works without scripts.
+How a performer page, a profile or Overview's locallibrary card gets the stats and recent sets DJs publish. The app stores none of it. A profile link with `?tab=` waits for them, and for the projects the person plays in, so the tab it opens works without scripts.
 
 ```mermaid
 flowchart TD

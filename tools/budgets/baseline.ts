@@ -1,5 +1,5 @@
 // Where a pull request's or merge queue group's base measurements come from: the artifact of the CI
-// run of that commit, or of the nearest commit before it on main's first-parent line that ci.yml's
+// run of that commit (a merge queue group's or a push's), or of the nearest commit before it on main's first-parent line that ci.yml's
 // paths filter for the job says is the same, since each group's head becomes main. Loaded only for
 // this command, as it needs the root's dependencies, which the jobs that only check don't install.
 //
@@ -44,26 +44,21 @@ const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8' 
 
 const gh = (...args: string[]) => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
-/** Downloads `artifact` from a CI run of `sha`, of any event, into `dir`: whether one had it. */
-function downloaded(sha: string, artifact: string, dir: string): boolean {
-	const runs = gh(
-		'run',
-		'list',
-		'--workflow',
-		'ci.yml',
-		'--commit',
-		sha,
-		'--json',
-		'databaseId',
-		'--jq',
-		'.[].databaseId'
-	);
+// The events whose runs measure the commit they're of. A pull request's run measures its merge
+// commit, which holds its base branch as it was then, so its artifact isn't its head's numbers.
+const MEASURES_ITS_COMMIT = new Set(['push', 'merge_group']);
 
-	return runs.split('\n').some((id) => {
-		if (id === '') return false;
+/** Downloads `artifact` from a push or merge queue run of `sha` into `dir`: whether one had it. */
+function downloaded(sha: string, artifact: string, dir: string): boolean {
+	const listed = gh('run', 'list', '--workflow', 'ci.yml', '--commit', sha, '--json', 'databaseId,event');
+	// SAFETY: `gh run list --json databaseId,event` prints an array of objects with those two fields.
+	const runs = JSON.parse(listed) as { databaseId: number; event: string }[];
+
+	return runs.some(({ databaseId, event }) => {
+		if (!MEASURES_ITS_COMMIT.has(event)) return false;
 
 		try {
-			gh('run', 'download', id, '--name', artifact, '--dir', dir);
+			gh('run', 'download', String(databaseId), '--name', artifact, '--dir', dir);
 
 			return true;
 		} catch {

@@ -157,7 +157,7 @@ and copied around the network: deleting a record later doesn't delete the copies
 ## Where records are read
 
 Everything locallibrary reads from the network comes from Local Network's directory, the
-[HappyView](https://happyview.localnetwork.computer) AppView the website uses, never from an
+[HappyView](https://localnetwork.hpy.at) AppView the website uses, never from an
 account's data server or Bluesky's: what's published in a record's place before a publish, My
 Settings for `settings import --from-handle` and `--from-account`, and the space bug reports go
 to. Writes still go to your account's data server, which is otherwise only asked to sign you in

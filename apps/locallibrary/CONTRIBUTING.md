@@ -66,6 +66,7 @@ merge, or on a pull request with the `all-os` label (add it, then re-run CI):
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
 | `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
 | `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
+| `fuzz` | on pull requests that change what the fuzz targets reach: every target for a minute (see Fuzzing) |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
 nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
@@ -111,7 +112,7 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - dist's release build of every target, unsigned and without a tag (see Releasing);
-- the fuzz targets, five minutes each (see Fuzzing);
+- every fuzz target, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
 
@@ -287,13 +288,16 @@ times), `mysettings` (the players' settings files), `tracklist`, `mp4` (MP4 and 
 `vet_container` walks them, then symphonia opening and decoding what it lets through, and the
 probe's format, health and length checks), `wav` (WAV headers of recordings, and the WAV and
 AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (Audacity projects:
-the binary XML, the project it builds and its mixdown) and `traktor` (Traktor's `collection.nml`,
-the beat grids it lays down and what an import makes of it). libFuzzer mutates the test fixtures
-(and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
-sequences from nothing) looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz`
-aliases also hand libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values
-the readers branch on), so it gets past a header without guessing four bytes at once. `fuzz/` is a
-workspace of its own and needs nightly:
+the binary XML, the project it builds and its mixdown), `traktor` (Traktor's `collection.nml`,
+the beat grids it lays down and what an import makes of it), `onelibrary` (`exportLibrary.db` and
+its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
+`master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules) and
+`rekordbox_sync` (`playlists3*.sync`). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for
+formats whose tests keep their examples inline; `pdb_edit` grows its edit sequences from nothing)
+looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
+libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values the readers branch
+on), so it gets past a header without guessing four bytes at once. `fuzz/` is a workspace of its
+own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -305,9 +309,25 @@ cargo +nightly fuzz run anlz fuzz/artifacts/anlz/crash-...  # replay a crash
 What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 `fuzz/artifacts/<target>/` (both ignored by git). A crash is a bug in the parser: fix it there
 (in `vendor/rekordbox-pdb`, with an entry in its `PATCHES.md`) and add the minimized input
-(`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
-workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
-input of any crash.
+(`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others.
+
+CI runs every target `cargo fuzz list` names through its `fuzz-<target>` alias, several at once
+(`.github/actions/fuzz`), so a new target needs its alias and nothing in the workflows. The
+scheduled workflow runs each for five minutes, minimizes what it grew and keeps that as the
+`fuzz-corpus` artifact for 90 days, which outlasts the weeks it skips. Pull requests that change
+the code a target reaches run each for a minute from that corpus. Either uploads the input of any
+crash (`fuzz-artifacts`); to start from the kept corpus locally,
+`gh run download <run> -n fuzz-corpus -D fuzz/corpus`.
+
+The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
+plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
+
+```bash
+sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
+sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
+  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
+```
 
 ## Exploring the TUI and the mix report
 
@@ -330,6 +350,24 @@ edits to that copy and checks afterwards that the drive still reads. `report.mjs
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
 print where the trace went; add Bombadil options after the script name (`node tui.mjs --columns 80`).
+
+## The widgets in Storybook
+
+The web app's Storybook has the player's widgets under **Terminal**: the waveforms, cue lane,
+phrase strip, spectrum, scope and pictures from loclib-waveform, and the deck's beat and phrase.
+`src/tui/ui/tests/stories.rs` draws each one alone, from the demo drive's second track, through crossterm,
+and keeps the bytes in `apps/web/src/lib/tui/captures/` (`.ansi` for a still, an asciicast `.cast`
+for one that moves, in the dark and light palettes). Storybook writes them into xterm.js and
+asciinema-player. The test fails when a capture isn't what the widget draws now, or when a
+loclib-waveform widget has no story, so a change to how one draws shows up as a capture diff.
+Update them with:
+
+```bash
+LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'
+```
+
+A new story is an entry in `stories()` there and a `<Story>` in `apps/web/src/lib/tui/`, which
+`pnpm lint` checks for.
 
 ## Releasing
 

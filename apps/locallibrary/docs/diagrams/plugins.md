@@ -66,9 +66,10 @@ flowchart LR
     demos["demos"] --> demoadds["Check tracks, operation clean"]
     tracklist["tracklist"] --> trackadds["Operation import: playlist import<br/>Importer and source for rekordbox XML"]
     interop["interop"] --> interopadds["Exporters traktor, serato, engine, rekordbox<br/>Importer and source for Traktor"]
+    rekordboxbackup["rekordbox-backup"] --> rbadds["Commands collection backup, backups, verify<br/>Service schedule: a backup every few days"]
 ```
 
-Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml)
+Source: [`plugins/sound/locallibrary-plugin.toml`](../../../../plugins/sound/locallibrary-plugin.toml), [`plugins/musicbrainz/locallibrary-plugin.toml`](../../../../plugins/musicbrainz/locallibrary-plugin.toml), [`plugins/coverart/locallibrary-plugin.toml`](../../../../plugins/coverart/locallibrary-plugin.toml), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml), [`plugins/demos/locallibrary-plugin.toml`](../../../../plugins/demos/locallibrary-plugin.toml), [`plugins/tracklist/locallibrary-plugin.toml`](../../../../plugins/tracklist/locallibrary-plugin.toml), [`plugins/interop/locallibrary-plugin.toml`](../../../../plugins/interop/locallibrary-plugin.toml), [`plugins/rekordbox-backup/locallibrary-plugin.toml`](../../../../plugins/rekordbox-backup/locallibrary-plugin.toml)
 
 ## Built-in plugins that publish a set
 
@@ -201,7 +202,7 @@ flowchart LR
     plugin -.->|"no way through the host"| tokens["Tokens, keys, secret settings"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
+Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md), [`crates/loclib-plugin/src/grants.rs`](../../../../crates/loclib-plugin/src/grants.rs)
 
 ## A plugin's net/fetch
 

@@ -22,9 +22,9 @@
 			"regions": 97
 		},
 		"crates/loclib-audio": {
-			"lines": 98.7,
-			"functions": 97.9,
-			"regions": 97.3
+			"lines": 98.8,
+			"functions": 98,
+			"regions": 97.8
 		},
 		"crates/loclib-capacity": {
 			"lines": 96.4,
@@ -125,6 +125,11 @@
 			"lines": 99.8,
 			"functions": 99.8,
 			"regions": 99.5
+		},
+		"plugins/rekordbox-backup": {
+			"lines": 95.5,
+			"functions": 87.6,
+			"regions": 93.6
 		},
 		"plugins/sound": {
 			"lines": 99.8,

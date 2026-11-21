@@ -4,6 +4,8 @@ use ratatui::style::Color;
 use super::super::app::testing::*;
 use super::*;
 
+mod stories;
+
 #[test]
 fn clips_and_fits() {
     assert_eq!(clip("Friday", 10), "Friday");

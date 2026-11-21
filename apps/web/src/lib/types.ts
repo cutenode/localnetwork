@@ -598,6 +598,12 @@ export type BookingThreadView = {
 	createdAt: string;
 };
 
+/** A thread in the bookings list, where a closed one keeps why: `withdrawn` is a cancelled inquiry nobody confirmed. */
+export type BookingListThread = BookingThreadView & { withdrawn: boolean };
+
+/** What the directory adds to threads, by their space. */
+export type ThreadProjects = Map<string, NonNullable<BookingThreadView['project']>>;
+
 /** The shows a booking thread links to, which its page shows beside the details. */
 export type BookingShowLinks = {
 	/** The key of the planner show the inquiry started from. Only the promoter gets it: the planner is their own space. */
@@ -653,6 +659,24 @@ export type NotificationView = {
 	href: string;
 	occurredAt: string;
 	read: boolean;
+};
+
+/**
+ * One row of the inbox: what someone heard about one booking (or other subject) since they last read it, in a
+ * sentence, or the last thing that happened once they have.
+ */
+export type InboxSubjectView = {
+	/** Its newest item, which opening the row opens. */
+	id: string;
+	topic: NotificationTopic | null;
+	/** What the subject is called, like the show's title. */
+	title: string;
+	/** Whose initials stand for it, like the act's name. */
+	scope: string;
+	summary: string;
+	href: string;
+	occurredAt: string;
+	unread: boolean;
 };
 
 export type PlannerSaveView = { rkey: string; project: string; note?: string; createdAt: string };

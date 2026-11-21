@@ -75,8 +75,37 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "onelibrary"
+path = "fuzz_targets/onelibrary.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "masterdb"
+path = "fuzz_targets/masterdb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smartlist"
+path = "fuzz_targets/smartlist.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rekordbox_sync"
+path = "fuzz_targets/rekordbox_sync.rs"
+test = false
+doc = false
+bench = false
+
 [dependencies]
 arbitrary = { version = "1.5", features = ["derive"] }
+chrono = { version = "0.4.45", default-features = false }
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }

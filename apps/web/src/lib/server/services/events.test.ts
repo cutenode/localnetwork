@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COLLECTION } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
+import { parseSpaceUri } from '../atproto/spaces';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { performerUri } from '../performer-uri';
-import { createTestServices, ROOT } from '../testing/core';
-import { type EventInput, ZoneChangeError } from './events';
+import { createTestServices, PUBLIC_URL, ROOT } from '../testing/core';
+import { calendarCopy, type EventInput, ZoneChangeError } from './events';
 import { STALE_PAGE } from './shared-spaces';
 import type { VenueView } from './venues';
 
@@ -454,6 +455,135 @@ describe('EventService', () => {
 
 		await t.events.update(host, uri, { ...input({ start: '21:00' }), swap: stored(uri).cid });
 		expect((await t.events.get(uri))?.record.status).toBe(EVENT_STATUS.cancelled);
+	});
+
+	describe('calendar copy', () => {
+		const copyOf = (uri: string) => t.net.records.get(`${ROOT}|${CALENDAR_EVENT}|${uri.split('/').at(-1)}`)?.value;
+
+		it("keeps a published public event's calendar copy in the root's repo, in step with each save", async () => {
+			const uri = await t.events.create(host, party, input({ publish: false }));
+			const rkey = uri.split('/').at(-1)!;
+			const key = parseSpaceUri(party)!.skey;
+
+			expect(copyOf(uri)).toBeUndefined();
+
+			await t.events.update(host, uri, {
+				...input({ tickets: 'https://tickets.example/winter', description: 'Doors at eleven.' }),
+				swap: stored(uri).cid
+			});
+
+			const copy = copyOf(uri);
+			expect(() => validateRecord(CALENDAR_EVENT, copy!)).not.toThrow();
+			expect(copy).toEqual({
+				$type: CALENDAR_EVENT,
+				name: 'Winter Opening',
+				description: 'Doors at eleven.',
+				startsAt: '2026-12-05T23:00:00+01:00',
+				endsAt: '2026-12-06T06:00:00+01:00',
+				mode: `${CALENDAR_EVENT}#inperson`,
+				status: EVENT_STATUS.scheduled,
+				locations: [
+					{ $type: 'community.lexicon.location.address', country: 'DE', locality: 'Berlin', name: 'Tresor' },
+					{ $type: 'community.lexicon.location.geo', latitude: '52.51', longitude: '13.42', name: 'Tresor' },
+					{
+						$type: `${CALENDAR_EVENT}#uri`,
+						uri: `${PUBLIC_URL}/venue/${venue.skey}/tresor`,
+						name: 'Tresor'
+					}
+				],
+				uris: [
+					{ uri: 'https://tickets.example/winter', name: 'Tickets' },
+					{ uri: `${PUBLIC_URL}/party/${key}/${rkey}/winter-opening`, name: 'Local Network' }
+				],
+				createdAt: stored(uri).value.publishedAt
+			});
+			// The directory keeps the root's, as it does a manager's.
+			expect((await t.indexedRepo.getRecords([`at://${ROOT}/${CALENDAR_EVENT}/${rkey}`])).size).toBe(1);
+
+			await t.events.cancel(host, uri, stored(uri).cid);
+			expect(copyOf(uri)).toMatchObject({ status: EVENT_STATUS.cancelled });
+
+			await t.events.update(host, uri, { ...input({ audience: 'private' }), swap: stored(uri).cid });
+			expect(copyOf(uri)).toBeUndefined();
+		});
+
+		it('reads an event without a status as scheduled, and leaves out coordinates its venue lacks', async () => {
+			const placeless = await t.venues.add(host, { name: 'Nowhere', address: { country: 'DE' } });
+			const { status: _, ...record } = stored(await t.events.create(host, party, input())).value;
+
+			await t.sharedSpaces.index({
+				space: party,
+				collection: COLLECTION.event,
+				rkey: '3e1',
+				value: { ...record, venue: placeless.space }
+			});
+
+			expect(calendarCopy((await t.events.get(`${party}/${ROOT}/${COLLECTION.event}/3e1`))!, PUBLIC_URL)).toMatchObject(
+				{
+					status: EVENT_STATUS.scheduled,
+					locations: [
+						{ $type: 'community.lexicon.location.address', country: 'DE', name: 'Nowhere' },
+						{ $type: `${CALENDAR_EVENT}#uri`, name: 'Nowhere' }
+					]
+				}
+			);
+		});
+
+		it('keeps one only while the venue lists the event: after it confirms, and as its mode and blocks change', async () => {
+			const owner = await t.viewer(OWNER);
+			const partyListing = `at://${ROOT}/${COLLECTION.listing}/${party.split('/').at(-1)}`;
+
+			await t.venues.setApproval(owner, venue.space, 'approval');
+			const uri = await t.events.create(host, party, input());
+
+			// Under Venue approves, waiting for the venue isn't listed, so it has none until it's confirmed.
+			expect(copyOf(uri)).toBeUndefined();
+			await t.events.approve(owner, uri);
+			expect(copyOf(uri)).toMatchObject({ name: 'Winter Opening' });
+
+			// A blocked party's event is never confirmed, so under Venue approves it leaves the list.
+			await t.venues.block(owner, venue.space, partyListing);
+			expect(await t.events.reconcileCalendarCopies(venue.space)).toBe(1);
+			expect(copyOf(uri)).toBeUndefined();
+
+			// Anyone can list shows it waiting for the venue, blocked or not.
+			await t.venues.setApproval(owner, venue.space, 'open');
+			expect(await t.events.reconcileCalendarCopies(venue.space)).toBe(1);
+			expect(copyOf(uri)).toBeDefined();
+
+			await t.venues.setApproval(owner, venue.space, 'approval');
+			const [block] = await t.venues.blocks(venue.space);
+			await t.venues.unblock(owner, venue.space, block.rkey);
+			expect(await t.events.reconcileCalendarCopies()).toBe(0);
+			expect(copyOf(uri)).toBeDefined();
+		});
+
+		it('takes one down once the night ends waiting for the venue, and only writes what differs', async () => {
+			const waiting = await t.events.create(host, party, input());
+			const confirmed = await t.events.create(host, party, input({ name: 'Winter Closing' }));
+			await t.events.approve(await t.viewer(OWNER), confirmed);
+
+			expect(await t.events.reconcileCalendarCopies()).toBe(0);
+
+			// 6:00 on the venue's clock the morning after.
+			vi.setSystemTime(new Date('2026-12-06T05:00:00Z'));
+			expect(await t.events.reconcileCalendarCopies()).toBe(1);
+			expect(copyOf(waiting)).toBeUndefined();
+			// A confirmed one past its night is just a past event, still on calendars.
+			expect(copyOf(confirmed)).toMatchObject({ name: 'Winter Closing' });
+			expect(await t.events.reconcileCalendarCopies()).toBe(0);
+		});
+
+		it('never gives a private event one', async () => {
+			const uri = await t.events.create(host, party, input({ audience: 'private' }));
+
+			await t.events.resetLink(host, uri);
+			await t.events.update(host, uri, {
+				...input({ audience: 'private', name: 'Winter Closing' }),
+				swap: stored(uri).cid
+			});
+			expect([...t.net.records.keys()].filter((record) => record.includes(CALENDAR_EVENT))).toEqual([]);
+		});
 	});
 
 	it("doesn't index an event or an approval that isn't valid", async () => {

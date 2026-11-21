@@ -789,7 +789,8 @@ impl Device {
         .with("operation", &p.description)
     }
 
-    pub fn finish(&mut self, entry: Option<LineageEntry>) -> Result<()> {
+    pub fn finish(&mut self, entry: Option<LineageEntry>, ctx: &Ctx<'_>) -> Result<()> {
+        crate::tidy::remove_apple_double(&self.root, ctx);
         let state = self.state_mut()?;
         state.pending = None;
         if let Some(e) = entry {

@@ -27,8 +27,9 @@ function admin(hv: FakeHappyView) {
 				return hv.fetch(request);
 			}
 
-			const { collection, did } = z.object({ collection: z.string(), did: z.string() }).parse(await request.json());
-			calls.push(`backfill ${collection} ${did}`);
+			const backfill = z.object({ collection: z.string(), dids: z.array(z.string()) });
+			const { collection, dids } = backfill.parse(await request.json());
+			calls.push(`backfill ${collection} ${dids.join(' ')}`);
 
 			return Response.json({ id: 'job', status: 'running' });
 		}

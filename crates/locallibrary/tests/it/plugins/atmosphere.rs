@@ -225,6 +225,20 @@ fn a_session_that_may_not_write_it_says_how_to_sign_in_again() {
     assert!(confirming.asked.lock().unwrap().is_empty());
 }
 
+/// Run without a store (as a front end with none does), a plugin has no Atmosphere session to
+/// write with: its record fails as `account` (`not_signed_in`) before the user is asked.
+#[test]
+fn without_a_store_a_record_isnt_written() {
+    let confirming = Arc::new(Confirming { answer: Mutex::new(Some(true)), ..Confirming::default() });
+    let f = writer(&confirming);
+    let call = json!({ "call": "atmosphere/put_record", "params": { "collection": TRACK, "record": track("A") } });
+    let ran = f.plugins.run_command("echo", "echo", call, f.context(), None, &Ctx::silent(), &|_| {});
+    let CommandOutput::Headless(answer) = ran.unwrap() else { panic!("headless") };
+    let e = &answer["error"];
+    assert_eq!((&e["data"]["kind"], &e["data"]["reason"]), (&json!("account"), &json!("not_signed_in")), "{answer}");
+    assert!(confirming.asked.lock().unwrap().is_empty());
+}
+
 /// For any session's scopes and a record with a key or without: a write without a key needs the
 /// session to create the type, one with a key to create and replace it (`transition:generic`
 /// allows both); allowed, it's written once confirmed, and otherwise it fails as `account`

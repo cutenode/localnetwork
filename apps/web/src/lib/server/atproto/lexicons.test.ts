@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { Agent } from '@atproto/api';
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
@@ -19,18 +20,25 @@ import {
 } from './lexicons.ts';
 import { recordCid } from './repo-client.ts';
 
+/** The network lexicons' manifest, which pins each one. */
+const MANIFEST = new URL('../../../../../../lexicons/network.json', import.meta.url);
+
 describe('the bundled lexicons', () => {
 	// The scripts' loader reads lexicons/ from disk, so this also checks the two loaders agree.
-	const onDisk = LEXICON_FILES.map((file) => z.object({ id: z.string() }).parse(file).id).toSorted();
+	const files = LEXICON_FILES.map((file) => z.object({ id: z.string(), $type: z.string().optional() }).parse(file));
+	const onDisk = files.map(({ id }) => id).toSorted();
 
-	it("are every file in lexicons/, ours apart from other authorities'", () => {
+	it("are ours from lexicons/computer/ and the other authorities' installed from the network, as pinned", () => {
 		const ids = (docs: LexiconDoc[]) => docs.map((doc) => doc.id);
+		const pinned = z.object({ lexicons: z.array(z.string()) }).parse(JSON.parse(readFileSync(MANIFEST, 'utf8')));
 
 		expect([...ids(LEXICON_DOCS), ...ids(REFERENCED_DOCS)].toSorted()).toEqual(onDisk);
 		expect(ids(LEXICON_DOCS).toSorted()).toEqual(onDisk.filter((id) => id.startsWith('computer.localnetwork.')));
 		expect(ids(LEXICON_DOCS)).toContain('computer.localnetwork.locallibraryPublishing');
-		expect(ids(REFERENCED_DOCS)).toEqual(
-			expect.arrayContaining(['app.userinput.discussion', 'com.atproto.repo.strongRef'])
+		expect(ids(REFERENCED_DOCS)).toEqual(pinned.lexicons);
+		// Installed as their authorities' schema records, never the copies locallibrary still compiles in.
+		expect(files.filter(({ id }) => !id.startsWith('computer.')).map(({ $type }) => $type)).toEqual(
+			pinned.lexicons.map(() => 'com.atproto.lexicon.schema')
 		);
 	});
 });

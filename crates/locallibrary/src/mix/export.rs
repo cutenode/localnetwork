@@ -363,8 +363,14 @@ fn play(p: &Play, i: usize, drive: Option<Drive<'_>>, prefs: &ProfilePrefs) -> E
             }
             Overview { heights, colors }
         });
-        let beat_secs =
-            |beat: u16| analysis.beats.get((beat as usize).saturating_sub(1)).map(|b| f64::from(b.time_ms) / 1000.0);
+        // At half tempo where rekordbox counted the phrases so.
+        let scale = analysis.structure.as_ref().map_or(1, |s| s.beat_scale(analysis.beats.len()));
+        let beat_secs = |beat: u16| {
+            analysis
+                .beats
+                .get(crate::anlz::SongStructure::grid_index(beat, scale))
+                .map(|b| f64::from(b.time_ms) / 1000.0)
+        };
         track.phrases = analysis
             .structure
             .iter()

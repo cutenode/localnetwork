@@ -65,7 +65,63 @@ see [commands](#commands)).
    nothing of where things are on the computer: no `root` (where a drive is mounted), nor where
    the store's copies, a set's or a mix's recording or rekordbox's collection are, and any other path said
    from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
-   kind `busy`).
+   kind `busy`). The reads each capability grants, and the params a plugin may give each
+   (`READS`); any other read or param is refused:
+
+   [//]: # (The table of reads is made from READS: see src/grants/tests.rs.)
+
+   | Capability | Read | Params |
+   | --- | --- | --- |
+   | `library:read` | `drive.library` | `drive` (a drive's id or name), `combined`, `offset`, `limit` (at most 500, 500 unless given) |
+   |  | `playlists.tree` | `drive` (a drive's id or name), `combined` |
+   |  | `tracks.get` | `drive` (a drive's id or name), `combined`, `ids` (at most 1000) |
+   |  | `tracks.query` | `drive` (a drive's id or name), `combined`, `filter`, `playlist`, `sort`, `offset`, `limit` (at most 500, 500 unless given) |
+   |  | `track.show` | `drive` (a drive's id or name), `combined`, `ids` (at most 100), `paths` (at most 100) |
+   |  | `cues.list` | `drive` (a drive's id or name), `combined`, `ids` (at most 100), `paths` (at most 100) |
+   |  | `track.matches` | `drive` (a drive's id or name), `combined`, `track`, `limit` (at most 500, 500 unless given) |
+   |  | `tags.list` | `drive` (a drive's id or name) |
+   | `analysis:read` | `track.analysis` | `drive` (a drive's id or name), `combined`, `track`, `waveform` (`none` unless given), `encoding` |
+   |  | `tracks.analysis` | `drive` (a drive's id or name), `combined`, `ids` (at most 100), `waveform`, `encoding` |
+   |  | `track.fields` | `drive` (a drive's id or name), `combined`, `tracks` (at most 1000), `plugin` |
+   | `artwork:read` | `art.get` | `drive` (a drive's id or name), `combined`, `track`, `tracks` (at most 50) |
+   | `drive:info` | `drive.info` | `drive` (a drive's id or name) |
+   |  | `drive.backups` | `drive` (a drive's id or name) |
+   |  | `drive.space` | `drive` (a drive's id or name) |
+   |  | `drives.list` | `all` |
+   |  | `drives.mounted` | none |
+   |  | `drive.groups` | none |
+   |  | `fleet.status` | `all`, `retired` |
+   | `health:read` | `doctor` | `drive` (a drive's id or name), `hash_audio`, `by_sound`, `only`, `audio`, `analyze`, `sure_only` |
+   |  | `check` | `drives` (drives' ids or names), `players`, `audio` |
+   |  | `drive.verify` | `drive` (a drive's id or name), `snapshot` |
+   | `store:read` | `store.info` | none |
+   |  | `store.copies` | none |
+   |  | `library.list` | none |
+   |  | `smart.list` | none |
+   |  | `store.history` | `library`, `limit` (at most 500, 500 unless given) |
+   |  | `snapshot.library` | `snapshot`, `offset`, `limit` (at most 500, 500 unless given) |
+   | `settings:read` | `settings.schema` | none |
+   |  | `settings.profile` | none |
+   |  | `players.models` | none |
+   |  | `players.show` | none |
+   |  | `settings.show` | `drive` (a drive's id or name) |
+   |  | `player.show` | `drive` (a drive's id or name) |
+   | `plays:read` | `plays.stats` | `source` (a drive's id or name), `since`, `limit` (at most 500, 500 unless given) |
+   |  | `sets.played` | `track` |
+   | `sets:read` | `sets.list` | `venue`, `kind`, `since`, `until` |
+   |  | `sets.get` | `set`, `venue` |
+   |  | `sessions.list` | `drive` (a drive's id or name), `unassigned` |
+   |  | `mix.reports.get` | `id` |
+   | `account:status` | `account.status` | none |
+   | `collection:read` | `collection.info` | none |
+   |  | `collection.diff` | `drive` (a drive's id or name), `playlist` |
+   | `collection:files` | `collection.locations` | none |
+   |  | `collection.status` | none |
+   |  | `collection.copy` | `into` (a file in the scratch folder), `with_credentials` |
+   |  | `collection.tracks` | `db` (a file in the scratch folder), `offset`, `limit` (at most 500, 500 unless given) |
+
+   [//]: # (End of the table of reads.)
+
    With `collection:files`, a plugin reads rekordbox's own files on the computer, to back them
    up (`Host::collection`). The host answers these reads itself and never writes to rekordbox's
    folders. `collection.locations` and `collection.tracks` answer paths as they are, not said
@@ -142,10 +198,26 @@ elevated) included.
 ## The manifest
 
 `locallibrary-plugin.toml` says who the plugin is, what it may call back for and what it adds.
-`Manifest::parse` reads it and `Manifest::validate` checks it; `schemars::schema_for!(Manifest)`
-is its JSON Schema. A key it doesn't know is left out (`Manifest::unknown` lists them), so an
-older locallibrary reads a newer plugin's manifest; in a plugin locallibrary ships it's a mistake,
-refused.
+`Manifest::parse` reads it and `Manifest::validate` checks it. A key it doesn't know is left out
+(`Manifest::unknown` lists them), so an older locallibrary reads a newer plugin's manifest; in a
+plugin locallibrary ships it's a mistake, refused.
+
+[`manifest.schema.json`](https://github.com/cutenode/localnetwork/blob/main/crates/loclib-plugin/manifest.schema.json)
+is its JSON Schema, made from `Manifest`, for an editor to check and complete it with. With taplo
+(VS Code's Even Better TOML runs it), start the manifest with a line naming the schema, by a path
+from the manifest or a URL. The plugins in this repository do:
+
+```toml
+#:schema ../../crates/loclib-plugin/manifest.schema.json
+id = "tracklist"
+```
+
+The schema allows keys it doesn't list, as `Manifest::parse` does. `Manifest::validate` checks
+more than it says: what names look like and that each is used once, semver versions, that
+`protocol` takes this protocol, that a `net` limit or an event has its capability, what only
+plugins locallibrary ships may declare, that settings' defaults fit and that params schemas
+compile. A test fails when the file is out of date, and
+`LOCALLIBRARY_BLESS=1 cargo test -p loclib-plugin --test schema` rewrites it.
 
 ```rust
 use loclib_plugin::{Capability, Manifest};

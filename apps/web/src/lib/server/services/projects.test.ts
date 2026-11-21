@@ -66,7 +66,7 @@ describe('ProjectService', () => {
 		const managers = Array.from({ length: 61 }, (_, index) => `did:plc:m${index}`);
 
 		// Stored as they are, since the record script would keep them unchanged and 61 writes only slow the test.
-		t.happyView.seed(
+		await t.happyView.seed(
 			await Promise.all(
 				managers.map(async (did, index) => {
 					const record = projectRecord(`Project ${index}`, [did]);

@@ -23,6 +23,8 @@ mod export_cmd;
 mod help;
 mod hints;
 mod jobs_cmd;
+#[cfg(target_os = "macos")]
+mod launchd;
 mod library_cmd;
 mod mix_cmd;
 mod pager;
@@ -465,6 +467,39 @@ impl Command {
             Command::Tui { .. } => true,
             _ => false,
         }
+    }
+
+    /// The commands that can write to a drive. On macOS, from a terminal, they run as a launchd
+    /// job, so macOS adds no `._` files to the drive (see `launchd`). The player isn't one: it
+    /// draws the terminal itself.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn writes_drives(&self) -> bool {
+        matches!(
+            self,
+            Command::Sync { .. }
+                | Command::Pull { .. }
+                | Command::Refresh(_)
+                | Command::Prep(_)
+                | Command::Setup(_)
+                | Command::Undo { .. }
+                | Command::Doctor(_)
+                | Command::Playlist(_)
+                | Command::Track(_)
+                | Command::DriveManagement(_)
+                | Command::Library(_)
+                | Command::Tags(_)
+                | Command::Cues(_)
+                | Command::Art(_)
+                | Command::Edits(_)
+                | Command::Smart(_)
+                | Command::Settings(_)
+                | Command::Merge { .. }
+                | Command::Pack { .. }
+                | Command::Convert { .. }
+                | Command::Collection(_)
+                | Command::Analyze(_)
+                | Command::Watch(_)
+        )
     }
 
     /// The sidecar and a plugin serving: they handle signals themselves.
@@ -1090,6 +1125,12 @@ fn main() -> ExitCode {
             };
             output::diag(format!("the {} plugin isn't one locallibrary ships: it runs as you, with {with}", m.id));
         }
+    }
+    #[cfg(target_os = "macos")]
+    if contributed.is_none()
+        && let Some(code) = launchd::run_as_job(cli.command.as_ref().is_some_and(Command::writes_drives))
+    {
+        return code;
     }
     let code = run(cli, out, contributed);
     // Plugins started for the command stop with it.

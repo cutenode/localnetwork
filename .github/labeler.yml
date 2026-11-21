@@ -1,7 +1,7 @@
 # Which labels a pull request gets from the files it changes (see .github/workflows/pr-labels.yml).
 web:
   - changed-files:
-      - any-glob-to-any-file: ["apps/web/**", "packages/tokens/**"]
+      - any-glob-to-any-file: ["apps/web/**", "packages/tokens/**", "flags/**"]
 
 locallibrary:
   - changed-files:
@@ -36,11 +36,13 @@ atstore:
 "web: directory":
   - changed-files:
       - any-glob-to-any-file:
-          - "apps/web/src/routes/+page.*"
-          - "apps/web/src/routes/projects/+page.*"
-          - "apps/web/src/routes/match/**"
+          - "apps/web/src/routes/{+page,page}.*"
+          - "apps/web/src/routes/djs/**"
+          - "apps/web/src/routes/{match,charts}/**"
           - "apps/web/src/routes/api/places/**"
-          - "apps/web/src/lib/{matching,places,geo}.*"
+          - "apps/web/src/lib/{matching,places,geo,directory-filters,supports}.*"
+          - "apps/web/src/lib/server/actor-search.*"
+          - "apps/web/src/lib/server/services/{listings,dj-listings,follows,supports}.*"
           - "apps/web/src/lib/taxonomy/**"
           - "apps/web/src/lib/server/geocode.*"
           - "apps/web/src/lib/server/happyview/directory.*"
@@ -52,12 +54,14 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/projects/*/**"
-          - "apps/web/src/routes/dashboard/{claim,projects}/**"
+          - "apps/web/src/routes/{@*,artists,sets}/**"
+          - "apps/web/src/routes/dashboard/{claim,projects,profile}/**"
           - "apps/web/src/lib/server/manage.*"
-          - "apps/web/src/lib/{dj,dj-schema}.*"
-          - "apps/web/src/lib/server/services/{projects,dj,sets}.*"
-          - "apps/web/src/lib/server/project-page.*"
-          - "apps/web/src/lib/server/forms/{claim,project}.*"
+          - "apps/web/src/lib/{dj,dj-schema,performers,project-form,project-migration}.*"
+          - "apps/web/src/lib/profile-tabs/**"
+          - "apps/web/src/lib/server/services/{projects,dj,sets,profiles,performers,performer-*,project-migration}.*"
+          - "apps/web/src/lib/server/{project-page,profile-page,performer-uri,locallibrary}.*"
+          - "apps/web/src/lib/server/forms/{claim,project,profile}.*"
           - "apps/web/src/lib/components/{Project*,ClaimFields,DjSets,DjStats,LinkedSet}.svelte"
           - "apps/web/src/lib/components/profile.svelte.test.ts"
           - "lexicons/computer/localnetwork/project{.json,/**}"
@@ -71,7 +75,9 @@ atstore:
           - "apps/web/src/lib/mix/**"
           - "apps/web/src/lib/components/mix/**"
           - "apps/web/src/lib/components/MixList.svelte"
-          - "apps/web/src/lib/server/services/tracklists.*"
+          - "apps/web/src/lib/server/services/{tracklists,recordings,mix-recordings}.*"
+          - "apps/web/src/lib/server/{audio,plyr}.*"
+          - "apps/web/src/lib/server/media/**"
           - "apps/web/scripts/mix-fixture.ts"
 
 "web: epk":
@@ -83,22 +89,26 @@ atstore:
           - "apps/web/src/routes/dashboard/access/**"
           - "apps/web/src/lib/{epk,epk-schema}.*"
           - "apps/web/src/lib/components/epk/**"
-          - "apps/web/src/lib/server/{epk-page,services/epk,forms/epk}.*"
+          - "apps/web/src/lib/server/{epk-page,forms/epk}.*"
+          - "apps/web/src/lib/server/services/epk{,-*}.*"
           - "lexicons/computer/localnetwork/epk{.json,/**}"
 
 "web: bookings":
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/dashboard/bookings/**"
-          - "apps/web/src/lib/server/services/bookings.*"
+          - "apps/web/src/lib/bookings.*"
+          - "apps/web/src/lib/server/services/{bookings,booking-performers}.*"
           - "apps/web/src/lib/components/BookingDetails.svelte"
+          - "apps/web/src/routes/dashboard/promoter/**"
           - "lexicons/computer/localnetwork/booking/**"
+          - "apps/web/src/routes/dashboard/calendar/**"
 
 "web: planner":
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/dashboard/planner/**"
-          - "apps/web/src/lib/server/services/planner.*"
+          - "apps/web/src/lib/server/{services/planner,planner-page}.*"
           - "lexicons/computer/localnetwork/planner/**"
 
 "web: events":
@@ -106,20 +116,31 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/routes/{venue,party,events}/**"
           - "apps/web/src/routes/dashboard/{venues,parties,events}/**"
-          - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index}.*"
+          - "apps/web/src/lib/server/services/{venue,venues,venue-index,venue-rules,venue-claims,party,parties,party-index,event,events,event-index,rsvps,calendar-event}.*"
           - "apps/web/src/lib/server/{venue-blocks,events-list,party-page,event-page}.*"
           - "apps/web/src/lib/server/forms/{party,event}.*"
-          - "apps/web/src/lib/components/{Venue,Party,Event}*"
+          - "apps/web/src/lib/components/{Venue,Party,Event,Rsvp}*"
           - "lexicons/computer/localnetwork/{venue,party,event}.json"
           - "lexicons/computer/localnetwork/venue/**"
           - "lexicons/computer/localnetwork/space/{venue,party}.json"
+          - "lexicons/computer/localnetwork/directory/getRsvpStatus.json"
+          - "apps/web/lua/community/lexicon/calendar/rsvp.lua"
+          - "apps/web/lua/computer/localnetwork/directory/getRsvpStatus.lua"
+          - "apps/web/src/routes/{shows,api/venues}/**"
+          - "apps/web/src/lib/{shows,home-events,venues,events}.*"
+          - "apps/web/src/lib/server/{shows-place,venue-time}.*"
+          - "apps/web/src/lib/server/services/shows.*"
+          - "apps/web/src/lib/server/forms/{show,announce}.*"
+          - "lexicons/computer/localnetwork/show.json"
 
 "web: staff":
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/admin/**"
-          - "apps/web/src/routes/dashboard/account/requests/**"
-          - "apps/web/src/lib/server/services/{staff,flags,project-admin,requests,diff}.*"
+          - "apps/web/src/routes/{dashboard/account/requests,report}/**"
+          - "apps/web/src/lib/{audit-sentences,requests,request-standing,capabilities,bug-report,verification}.*"
+          - "apps/web/src/lib/server/services/{staff,flags,project-admin,requests,diff,bug-reports,verifications}.*"
+          - "apps/web/src/lib/server/forms/flags.*"
           - "apps/web/src/lib/server/flags/**"
           - "flags/**"
           - "apps/web/src/lib/server/audit/**"
@@ -130,9 +151,13 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/{login,logout,oauth,oauth-client-metadata.json}/**"
-          - "apps/web/src/routes/dashboard/{+layout,+page}.*"
-          - "apps/web/src/routes/dashboard/activity/**"
-          - "apps/web/src/lib/server/auth/**"
+          - "apps/web/src/routes/dashboard/{+layout,+page,layout,page}.*"
+          - "apps/web/src/routes/dashboard/{account,activity}/**"
+          - "apps/web/src/routes/api/{token-exchange,actors}/**"
+          - "apps/web/src/lib/{account,sign-in,signed-out-drafts,actors}.*"
+          - "apps/web/src/lib/onboarding/**"
+          - "apps/web/src/lib/server/{sign-in,onboarding}.*"
+          - "apps/web/src/lib/server/{auth,token-exchange}/**"
           - "apps/web/src/lib/server/atproto/oauth.*"
           - "apps/web/src/lib/server/services/accounts.*"
           - "lexicons/computer/localnetwork/permissions.json"
@@ -145,24 +170,44 @@ atstore:
 "web: server":
   - changed-files:
       - any-glob-to-any-file:
-          - "apps/web/src/hooks.server.ts"
-          - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing}/**"
+          - "apps/web/src/{hooks.server,app.d}.*"
+          - "apps/web/src/lib/{nsid,types,space-paths}.*"
+          - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing,backup}/**"
           - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,edit-mode,http,logger,rate-limit}.*"
+          - "apps/web/src/lib/server/{env-files,crawler-head,images,utf8,moved-pages,meta,meta-records,structured-data}.*"
+          - "apps/web/src/lib/server/services/{shared-spaces,space-joins,space-members,manager-spaces,own-repo,held-records,services}.*"
           - "apps/web/src/routes/{xrpc,.well-known,media,healthz}/**"
           - "apps/web/lua/**"
           - "apps/web/scripts/**"
           - "apps/web/{Dockerfile,.env.example}"
           - "lexicons/computer/localnetwork/space/**"
 
+# Not the components the areas above list.
 "web: ui":
   - changed-files:
+      - all-globs-to-any-file:
+          - "apps/web/src/lib/components/**"
+          - "!apps/web/src/lib/components/{epk,mix}/**"
+          - "!apps/web/src/lib/components/{GenreInput,NearInput,PlacePicker,ScoreBar,Project*,ClaimFields,DjSets,DjStats,LinkedSet,MixList,BookingDetails,DiffTable}.svelte"
+          - "!apps/web/src/lib/components/{Venue,Party,Event}*"
+          - "!apps/web/src/lib/components/profile.svelte.test.ts"
       - any-glob-to-any-file:
-          - "apps/web/src/lib/{ui,components,assets}/**"
-          - "apps/web/src/routes/{+layout.svelte,+error.svelte,layout.css}"
-          - "apps/web/src/routes/{about,for-djs,privacy}/**"
-          - "apps/web/src/{app.html,error.html,lib/format.ts,lib/format.test.ts,lib/hotkeys.svelte.ts}"
+          - "apps/web/src/lib/{ui,assets,og}/**"
+          - "apps/web/src/lib/{format,nav,combobox,form-*,hotkeys,headline,hosts,meta,structured-data,home,resolved,web-url}.*"
+          - "apps/web/src/lib/server/og/**"
+          - "apps/web/src/lib/server/{home,landing,social-home}.*"
+          - "apps/web/src/routes/{+layout,+error,layout,error,heads,link-matrix,listings,stored-images,social-home}.*"
+          - "apps/web/src/routes/{about,for,privacy,og}/**"
+          - "apps/web/src/{app,error}.html"
           - "apps/web/{.storybook,static}/**"
           - "packages/tokens/**"
+
+"web: notifications":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/lib/server/notifications/**"
+          - "apps/web/src/routes/notifications/**"
+          - "apps/web/src/routes/dashboard/{inbox,account/notifications}/**"
 
 "locallibrary: cli":
   - changed-files:
@@ -176,6 +221,7 @@ atstore:
           - "apps/locallibrary/docs/player{.md,/**}"
           - "apps/locallibrary/bombadil/**"
           - "crates/loclib-waveform/**"
+          - "apps/web/src/lib/tui/**"
 
 "locallibrary: sidecar":
   - changed-files:
@@ -184,12 +230,40 @@ atstore:
           - "apps/locallibrary/docs/{sidecar.md,rpc/**}"
           - "crates/locallibrary/src/api{.rs,/**}"
 
+# The core crate but the modules the other areas own.
 "locallibrary: core":
   - changed-files:
+      - all-globs-to-any-file:
+          - "crates/locallibrary/**"
+          - "!crates/locallibrary/src/{api,sound,mix,plugin,atmosphere,publish,sets,profile,peers,fleet,upgrade,sync,pack,check,collection_export,export,eject,format,fscheck,drive_speed,device,tidy,relocate,scrub,staged,track_files,twins,store,backup,retention,offsite,watch}{.rs,/**}"
+          - "!crates/locallibrary/src/bin/test-plugin/**"
       - any-glob-to-any-file:
-          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-capacity,loclib-sqlcipher,loclib-anlz}/**"
+          - "crates/{loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit,loclib-capacity,loclib-sqlcipher,loclib-anlz}/**"
+          - "plugins/rekordbox-backup/**"
           - "vendor/**"
           - "fuzz/**"
+
+"locallibrary: drives":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/locallibrary/src/{sync,pack,check,collection_export,export,eject,format,fscheck,drive_speed,device,tidy,relocate,scrub,staged,track_files,twins,store,backup,retention,offsite,watch}{.rs,/**}"
+          - "apps/locallibrary/src/{check,drive,export,store,relocate,restore,watch}_cmd{.rs,/**}"
+          - "apps/locallibrary/src/each_drive.rs"
+
+"locallibrary: limbs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/locallibrary/src/{peers,fleet}{.rs,/**}"
+
+"locallibrary: release":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "dist-workspace.toml"
+          - "about.{toml,hbs}"
+          - ".github/workflows/locallibrary-release.yml"
+          - "apps/locallibrary/CHANGELOG.md"
+          - "crates/locallibrary/src/upgrade{.rs,/**}"
+          - "apps/locallibrary/src/upgrade_cmd.rs"
 
 "locallibrary: analysis":
   - changed-files:
@@ -218,7 +292,6 @@ atstore:
       - any-glob-to-any-file:
           - "crates/loclib-interop/**"
           - "plugins/interop/**"
-          - "crates/locallibrary/src/interop{.rs,/**}"
           - "apps/locallibrary/docs/other-software.md"
 
 "locallibrary: transcode":
@@ -252,8 +325,13 @@ atstore:
 "localtoolbox: core":
   - changed-files:
       - all-globs-to-any-file: ["apps/localtoolbox/src/**", "!apps/localtoolbox/src/tools/**"]
+      # The tests but the ones for a tool or the content script.
+      - all-globs-to-any-file:
+          - "apps/localtoolbox/test/**"
+          - "!apps/localtoolbox/test/**/{playlist-to-text,manager,artists,third-party-downloads,downloaded,downloaded-store}.*"
+          - "!apps/localtoolbox/test/content/**"
       - any-glob-to-any-file:
-          - "apps/localtoolbox/state-transfer.ts"
+          - "apps/localtoolbox/{state-transfer,gate-page,theme-prepaint}.ts"
           - "apps/localtoolbox/{docs,scripts,icons,test/lib}/**"
 
 "localtoolbox: content script":
@@ -282,15 +360,15 @@ atstore:
           - "apps/localtoolbox/downloaded-store.ts"
           - "apps/localtoolbox/test/**/{third-party-downloads,downloaded,downloaded-store}.*"
 
-# Across the tools.
+# Across the tools. tests and documentation only when every file a pull request changes is one.
 
 documentation:
   - changed-files:
-      - any-glob-to-any-file: ["**/*.{md,mdx}", "apps/*/docs/**", "LICENSE"]
+      - any-glob-to-all-files: ["**/*.{md,mdx}", "apps/*/docs/**", "LICENSE"]
 
 tests:
   - changed-files:
-      - any-glob-to-any-file:
+      - any-glob-to-all-files:
           - "**/{test,tests,__snapshots__}/**"
           - "**/tests.rs"
           - "**/*.{test,e2e}.ts"
@@ -307,15 +385,42 @@ dependencies:
   - changed-files:
       - any-glob-to-any-file: ["pnpm-lock.yaml", "Cargo.lock", "**/package-lock.json"]
 
-github_actions:
+ci:
   - changed-files:
-      - any-glob-to-any-file: [".github/workflows/**", ".github/actions/**", ".github/actionlint.yaml", ".github/codeql/**"]
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/actions/**"
+          - ".github/{actionlint.yaml,zizmor.yml,build-setup.yml}"
+          - ".github/{codeql,rulesets}/**"
+          - "tools/ruleset.sh"
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/{SECURITY.md,zizmor.yml}"
+          - ".github/codeql/**"
+          - ".github/workflows/{codeql,scorecard,dependency-review,npm-advisories}.yml"
+          - "{deny,osv-scanner}.toml"
+          - "fuzz/osv-scanner.toml"
+
+performance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "benchmarks/**"
+          - "crates/*/benches/**"
+          - "tools/budgets/**"
+          - ".github/actions/{release-budgets,size-report}/**"
+          - ".github/workflows/locallibrary-bench.yml"
+          - "apps/web/{lighthouse/**,lighthouserc.cjs}"
+
+accessibility:
+  - changed-files:
+      - any-glob-to-any-file: ["**/a11y*.{ts,mjs}"]
 
 tooling:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/*"
-          - ".github/{rulesets,projects}/**"
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,.railway,.regal,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,.npmrc,lefthook.yml,sgconfig.yml,knip.jsonc,.node-version}"

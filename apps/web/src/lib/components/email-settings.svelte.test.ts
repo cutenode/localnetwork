@@ -10,39 +10,27 @@ const action = (name: string) => page.getByRole('button', { name }).element().cl
 
 describe('EmailSettings', () => {
 	it('offers to turn email on, saying when the last try was declined', async () => {
-		const { rerender } = await render(EmailSettings, { available: true, channel: null, topics: ['bookings'] });
+		const { rerender } = await render(EmailSettings, { available: true, channel: null });
 
 		expect(action('Turn on email')).toBe('?/emailOn');
 		await expect.element(page.getByText("You didn't allow sharing")).not.toBeInTheDocument();
-		await rerender({ available: true, channel: null, topics: ['bookings'], returned: 'declined' });
+		await rerender({ available: true, channel: null, returned: 'declined' });
 		await expect
 			.element(page.getByText("You didn't allow sharing your email address, so email is still off."))
 			.toBeVisible();
 	});
 
-	it('shows where email goes once on, with the topics to pick, a test and a way off', async () => {
-		await render(EmailSettings, { available: true, channel: on, topics: ['bookings'] });
+	it('shows where email goes once on, with a test and a way off', async () => {
+		await render(EmailSettings, { available: true, channel: on });
 
 		await expect.element(page.getByText('On, sending to neon@example.test.')).toBeVisible();
-		await expect
-			.element(
-				page
-					.getByRole('group', { name: 'What to email' })
-					.getByRole('checkbox', { name: 'Booking inquiries, messages and status changes' })
-			)
-			.toBeChecked();
-		expect([action('Save'), action('Send a test'), action('Turn off email')]).toEqual([
-			'?/emailTopics',
-			'?/emailTest',
-			'?/emailOff'
-		]);
+		expect([action('Send a test'), action('Turn off email')]).toEqual(['?/emailTest', '?/emailOff']);
 	});
 
 	it('says why email is paused and what to do next', async () => {
 		const { rerender } = await render(EmailSettings, {
 			available: true,
-			channel: { ...on, status: 'paused', pausedReason: 'email_unverified' },
-			topics: ['bookings']
+			channel: { ...on, status: 'paused', pausedReason: 'email_unverified' }
 		});
 
 		await expect
@@ -54,8 +42,7 @@ describe('EmailSettings', () => {
 
 		await rerender({
 			available: true,
-			channel: { ...on, status: 'paused', pausedReason: 'address_rejected' },
-			topics: ['bookings']
+			channel: { ...on, status: 'paused', pausedReason: 'address_rejected' }
 		});
 		await expect
 			.element(page.getByText("Email to neon@example.test didn't go through.", { exact: false }))
@@ -65,7 +52,6 @@ describe('EmailSettings', () => {
 		await rerender({
 			available: true,
 			channel: { ...on, status: 'paused', pausedReason: 'email_unverified' },
-			topics: ['bookings'],
 			returned: 'limited'
 		});
 		await expect
@@ -74,7 +60,7 @@ describe('EmailSettings', () => {
 	});
 
 	it("says when the site can't send email at all", async () => {
-		await render(EmailSettings, { available: false, channel: null, topics: ['bookings'] });
+		await render(EmailSettings, { available: false, channel: null });
 
 		await expect.element(page.getByText('Not set up on this site.')).toBeVisible();
 		expect(page.getByRole('button').elements()).toHaveLength(0);

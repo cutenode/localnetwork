@@ -12,7 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::{TerminalOptions, Viewport};
 
 use super::super::app::View;
-use super::super::app::testing::blank;
+use super::super::app::testing::{Written, blank};
 use super::super::theme::{self, Tier};
 use super::super::{draw_synchronized, icons};
 use super::*;
@@ -461,21 +461,6 @@ fn prop_asking_a_terminal_that_goes_away_ends_at_once(_tc: TestCase) {
     closing.join().unwrap();
     assert!(started.elapsed() < Duration::from_secs(5), "{asked:?}");
     assert!(!matches!(asked, Ok((_, true))), "{asked:?}");
-}
-
-/// What a frame writes, kept where the test can read it.
-#[derive(Clone, Default)]
-struct Written(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-impl Write for Written {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }
 
 /// A frame goes out between the marks, the whole of it.

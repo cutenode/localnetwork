@@ -20,6 +20,17 @@ export type EventPageView = Pick<EventRecord, 'name' | 'description' | 'startsAt
 	lineup: LineupEntry[];
 };
 
+/** What a guest can say here about an event they'll be at, as the event page offers it. */
+export const RSVP_ANSWERS = ['going', 'interested'] as const;
+
+export type RsvpAnswer = (typeof RSVP_ANSWERS)[number];
+
+/**
+ * How many guests are going to an event and interested in it, from any calendar app, and the viewer's own answer (null
+ * when they're signed out, haven't answered, or answered something else in another app, like not going).
+ */
+export type RsvpState = { going: number; interested: number; answer: RsvpAnswer | null };
+
 /** One of a party's events as its page lists it. Its people also see its drafts, private ones and ones never confirmed, marked. */
 export type EventSummary = Pick<EventRecord, 'name' | 'startsAt' | 'status'> & {
 	href: string;

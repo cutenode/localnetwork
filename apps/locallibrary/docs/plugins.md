@@ -11,7 +11,8 @@ and journaled.
 
 There's no way to install a plugin yet: those built into locallibrary run, and one you're writing
 runs for as long as one command, the player or the sidecar does (see [Writing one](#writing-one)).
-The built-in ones are:
+Installing and updating plugins from a registry is planned (see
+[the decision](adr/0008-plugins-install-from-a-reviewed-registry.md)). The built-in ones are:
 
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
@@ -54,6 +55,15 @@ The built-in ones are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **rekordbox-backup**: backs up rekordbox's library on this computer as rekordbox's own File >
+  Library > Backup Library does (`locallibrary collection backup`, planned first), into your
+  Documents folder unless its `destination` setting says otherwise, with the music copied into
+  `rekordbox_bak/` beside it when `music` is on. `locallibrary collection backups` lists the
+  backups there and `locallibrary collection verify` checks one. Its `schedule` service makes one
+  every `every_days` while the player, the sidecar or `watch` runs. It doesn't restore: rekordbox's
+  File > Library > Restore Library does. It's written as a plugin from outside locallibrary
+  would be, with the SDK alone (see its
+  [README](../../../plugins/rekordbox-backup/README.md)).
 - **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
   the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
   (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
@@ -717,7 +727,7 @@ version, features, problems, outcome}`).
 ## Safety
 
 A plugin is refused if it says it's something other than what locallibrary knows it as. It may
-call only the reads its capabilities grant, naming drives by name or id (never a path), in pages of
+call only the reads its capabilities grant (loclib-plugin's README lists them), naming drives by name or id (never a path), in pages of
 bounded size. Those are the drives known here, and the one a hook under way runs on, a folder
 opened by path too, named as the hook's context names it, until the hook is done. What it gets back, errors too, doesn't say where things are on this computer:
 a drive is said by its name, where the store's copies, a set's or a mix's recording and
