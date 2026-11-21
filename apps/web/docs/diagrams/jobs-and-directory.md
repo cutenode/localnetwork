@@ -12,7 +12,7 @@ Startup, scheduled jobs and HappyView. The rest are listed in the [README](../..
 
 ## Startup
 
-What happens when the process starts. A failed start leaves the setup page up, and the next request tries again.
+What happens when the process starts. A failed start leaves the setup page up, and the next request tries again. While the `pauseReconcilers` flag is on for everyone, bootstrap skips the reconcile steps and `moveKitSpaces`, logging each one it skips.
 
 ```mermaid
 flowchart TD
@@ -35,7 +35,7 @@ Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/app
 
 ## Scheduled jobs
 
-The jobs the app schedules, all in one process. A job still running skips its next turn.
+The jobs the app schedules, all in one process. A job still running skips its next turn. While the `pauseReconcilers` flag is on for everyone, the rounds that write to the root's repo (staff-spaces, manager-spaces, shared-spaces, listings, venue-blocks and calendar-copies) skip their turn and log that they did.
 
 ```mermaid
 flowchart LR
@@ -59,7 +59,7 @@ Source: [`src/lib/server/app.ts`](../../src/lib/server/app.ts), [`src/lib/server
 
 ## Directory sync
 
-What `syncDirectory` does with `HAPPYVIEW_API_KEY` set, at boot and from the System page. A failed upload or root re-read is kept for the System page and retried. The re-reads after it only log a failure.
+What `syncDirectory` does with `HAPPYVIEW_API_KEY` set, at boot and from the System page. A failed upload or root re-read is kept for the System page and retried. The re-reads after it only log a failure. While the `pauseBackfills` flag is on for everyone, the shows and refreshRecords re-reads are skipped and logged, here and on the directory-sync round; the root's performers are still re-read, since the directory lists nothing without them.
 
 ```mermaid
 flowchart TD
@@ -76,7 +76,7 @@ Source: [`src/lib/server/happyview/sync.ts`](../../src/lib/server/happyview/sync
 
 ## HappyView re-reads
 
-What makes the app ask HappyView to read repos again through `/admin/backfill`, up to 500 accounts a job. Jetstream only brings new writes, so these fill the gaps; on the hosted instance's shared Network store, they run the record script over what the store holds.
+What makes the app ask HappyView to read repos again through `/admin/backfill`, up to 500 accounts a job. Jetstream only brings new writes, so these fill the gaps; on the hosted instance's shared Network store, they run the record script over what the store holds. The `pauseBackfills` flag stops the ones for a new record script, the managers' shows at boot, the set picker's and requestIndex's; the ones that follow one change (a new manager, a late write, a first press kit, a DJ listing) still run.
 
 ```mermaid
 flowchart LR
@@ -107,6 +107,8 @@ sequenceDiagram
   A->>A: Check audience,<br/>method and signature
   alt Check fails
     A-->>L: 401
+  else pauseRequestIndex is on
+    A-->>L: indexed: false
   else
     par sets, recordings, stats, settings, all at once
       A->>H: Backfill the issuer's repo,<br/>unless done in the last 10 minutes

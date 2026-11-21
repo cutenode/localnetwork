@@ -72,7 +72,7 @@ What each response lets a browser or a shared cache keep. Pages that show the sa
 ```mermaid
 flowchart LR
   Responses["Cache-Control"]
-  Responses -- "/charts, /artists pages: 60 s" --> Brief["cacheBriefly: public with no session<br/>cookie, else private, Vary: Cookie;<br/>no-store for anyone who can edit it"]
+  Responses -- "/charts, /artists, party, venue<br/>and event pages: 60 s" --> Brief["cacheBriefly: public with no session<br/>cookie, else private, Vary: Cookie;<br/>no-store for anyone who can edit it"]
   Responses -- "an active performer's<br/>mix page: 5 minutes" --> Brief
   Responses -- "/media, recordings, most /og cards" --> Year["public, a year, immutable"]
   Responses -- "/og artist cards, /og/site.png" --> Hour["public, an hour and a day"]
@@ -83,10 +83,10 @@ flowchart LR
   Responses -- "player.json, chapters.json" --> Sets["public, 1 and 5 minutes"]
   Responses -- "client metadata, did.json" --> Docs["public, 10 and 5 minutes"]
   Responses -- "getFlags without a token" --> Flags["public, a minute,<br/>Vary: Authorization"]
-  Responses -- "/healthz, token exchange, audit export,<br/>getFlags with a token" --> Never["no-store"]
+  Responses -- "/healthz, token exchange, audit export,<br/>getFlags with a token, paused cards<br/>and recordings" --> Never["no-store"]
 ```
 
-Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`src/routes/projects/[slug]/mixes/[n]/+page.server.ts`](../../src/routes/projects/[slug]/mixes/[n]/+page.server.ts), [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/lib/server/og/serve.ts`](../../src/lib/server/og/serve.ts), [`src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts`](../../src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts), [`src/routes/api/places/+server.ts`](../../src/routes/api/places/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
+Source: [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`src/routes/venue/[key]/[[name]]/+page.server.ts`](../../src/routes/venue/[key]/[[name]]/+page.server.ts), [`src/routes/projects/[slug]/mixes/[n]/+page.server.ts`](../../src/routes/projects/[slug]/mixes/[n]/+page.server.ts), [`src/routes/media/[did]/[cid]/+server.ts`](../../src/routes/media/[did]/[cid]/+server.ts), [`src/lib/server/og/serve.ts`](../../src/lib/server/og/serve.ts), [`src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts`](../../src/routes/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts), [`src/routes/api/places/+server.ts`](../../src/routes/api/places/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/lib/server/flags/get-flags.ts`](../../src/lib/server/flags/get-flags.ts)
 
 ## Error paths
 

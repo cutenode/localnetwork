@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseRecordingStream",
+	"description": "Stops the site streaming recordings from DJs' servers: the audio route answers 503 without reading anything, and set and mix players play the links instead. plyr.fm recordings still play. Turn it on for everyone: most listeners are signed out.",
+	"type": "ops"
+}

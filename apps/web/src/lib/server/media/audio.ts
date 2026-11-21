@@ -2,6 +2,7 @@ import type { IdentityResolver } from '../atproto/identity';
 import { audioResponse, refuse } from '../audio';
 import type { Logger } from '../logger';
 import type { RecordingAudio } from '../services/recordings';
+import type { Flags } from '#lib/types.ts';
 
 /** A byte range of a file, both ends included. */
 export type ByteRange = { start: number; end: number };
@@ -86,6 +87,8 @@ export type AudioRequest = {
 	 */
 	identity: Pick<IdentityResolver, 'resolve' | 'serviceFetch'>;
 	log: Logger;
+	/** The request's flags, where pauseRecordingStream stops the streaming. Nothing is paused without them. */
+	flags?: Partial<Flags>;
 };
 
 /**
@@ -98,6 +101,14 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	const { did, cid } = request;
 	const { log } = request;
 	log.set({ recording: { did, cid, range: request.range } });
+
+	if (request.flags?.pauseRecordingStream) {
+		log.info('recording stream paused', { flag: 'pauseRecordingStream' });
+
+		// Not kept, so the recording plays again as soon as the flag goes off.
+		return refuse(503, 'Recordings are paused', { 'cache-control': 'no-store' });
+	}
+
 	const audio = await request.audio(did, cid);
 
 	if (!audio) {

@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseReconcilers",
+	"description": "Stops the rounds that fix drift in the root's repo (manager, staff and shared spaces, listings, venue blocks and calendar copies), at start and every round after. Turn it on for everyone: the rounds have no account to check.",
+	"type": "ops"
+}

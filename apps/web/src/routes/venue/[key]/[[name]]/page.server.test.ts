@@ -140,6 +140,29 @@ it('links its dashboard pages for the people who can use them, and claiming it f
 	expect((await opened(path, { did: OWNER, flags: { spacePages: true } })).dashboard).toEqual([]);
 });
 
+it('keeps no copy for its people and staff, who can change what it shows, and lets the browser keep one for anyone else', async () => {
+	const cacheControl = async (did: string, flags = on) => {
+		const { headers, loadData } = routeEvent({
+			app: app(),
+			viewer: await t.viewer(did),
+			url: `/venue/${venue.skey}/tresor`,
+			params: { key: venue.skey, name: 'tresor' },
+			flags
+		});
+
+		await loadData<PageServerData>(load);
+
+		return headers['cache-control'];
+	};
+
+	expect(await cacheControl(OWNER)).toBe('no-store');
+	expect(await cacheControl(BOOKER)).toBe('no-store');
+	expect(await cacheControl(ADMIN)).toBe('no-store');
+	// Its people change it from their dashboard, which they reach without peopleSpaces too.
+	expect(await cacheControl(OWNER, { spacePages: true })).toBe('no-store');
+	expect(await cacheControl(STRANGER)).toBe('private, max-age=60');
+});
+
 it('sends any other name, or none, on to the current one, and is a 404 for an unknown venue or while spacePages is off', async () => {
 	await expect(opened(`/venue/${venue.skey}?ref=x`)).rejects.toMatchObject({
 		status: 308,

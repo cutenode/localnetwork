@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseOgCards",
+	"description": "Stops drawing link-preview cards for performers, mixes, press kits and artists: pages point their preview at the site's card, and a card not already kept in memory redirects there. Turn it on for everyone: crawlers are signed out.",
+	"type": "ops"
+}

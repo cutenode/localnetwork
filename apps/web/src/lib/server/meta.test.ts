@@ -242,4 +242,24 @@ describe('listed', () => {
 		expect(await listed(locals, hidden, { records: lookUp, jsonLd: thing })).toBe(hidden);
 		expect(locals.crawlerHead).toBeUndefined();
 	});
+
+	it("shows the site's card in place of a drawn one while pauseOgCards is on, and keeps a page's own picture", async () => {
+		const paused = { pauseOgCards: true };
+
+		const avatar = profileMeta(
+			SITE,
+			{ did: 'did:plc:neon', handle: 'neon.test' },
+			{ record: { basics: {} }, avatarUrl: '/media/a' },
+			'Neon'
+		);
+
+		expect((await listed({ flags: paused }, performerMeta(SITE, project), {})).image).toEqual(SITE_CARD);
+		expect((await listed({ flags: paused }, mixMeta(SITE, project, { title: 'Late Room' }, 1, 3), {})).image).toEqual(
+			SITE_CARD
+		);
+		expect(await listed({ flags: paused }, avatar, {})).toEqual(avatar);
+		expect((await listed({ flags: { pauseOgCards: false } }, performerMeta(SITE, project), {})).image?.url).toMatch(
+			/\/og\/project\//
+		);
+	});
 });

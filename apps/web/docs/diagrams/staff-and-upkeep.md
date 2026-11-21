@@ -213,9 +213,12 @@ flowchart TD
   Head --> Hook["Server hook swaps it for the<br/>marker in app.html"]
   Meta -- "a profile's picture" --> Avatar["/media/[did]/[cid]"]
   Meta -- "other pages" --> Card["/og/... PNG"]
+  Meta -- "pauseOgCards on" --> Site["/og/site.png"]
   Card --> Cached{"Kept in memory?"}
   Cached -- "yes" --> Png["Served"]
   Cached -- "no" --> Draw["Drawn from a Svelte card, then kept,<br/>or 503 when too many are waiting"]
+  Cached -- "no, pauseOgCards on" --> Site
+  Site --> Png
   Draw --> Png
 ```
 

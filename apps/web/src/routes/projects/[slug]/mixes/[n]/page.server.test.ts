@@ -84,6 +84,21 @@ it("keeps a signed-in viewer's page out of shared caches", async () => {
 	expect(headers['cache-control']).toBe('private, max-age=300');
 });
 
+it('keeps no copy for its managers and staff, who can change it', async () => {
+	for (const did of [DJ, ADMIN]) {
+		const { loadData, headers } = routeEvent({
+			app: app(),
+			viewer: await f.t.viewer(did),
+			params: { slug: project.slug, n: '1' },
+			url: `/projects/${project.slug}/mixes/1`
+		});
+
+		await loadData<PageServerData>(load);
+
+		expect(headers['cache-control']).toBe('no-store');
+	}
+});
+
 it("shows a mix's tracklist, its player and its page's head, cached for five minutes", async () => {
 	const { loadData, headers, locals } = routeEvent({
 		app: app(),

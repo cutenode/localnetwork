@@ -83,7 +83,7 @@ flowchart TD
   Set --> Recording{"Its recording?"}
   Recording -- "fm.plyr.track" --> Plyr["api.plyr.fm: file on audio.plyr.fm,<br/>or plyr's player if it's gated"]
   Recording -- "dj.recording by an<br/>active performer's manager" --> Stream["/media/audio/[did]/[cid]"]
-  Recording -- "none, or it won't resolve" --> Links["Its links: archive.org plays directly,<br/>others in their own players"]
+  Recording -- "none, it won't resolve, or a dj.recording<br/>while pauseRecordingStream is on" --> Links["Its links: archive.org plays directly,<br/>others in their own players"]
   Stream --> Blob["getBlob from the DJ's PDS,<br/>Range answered by the app, nothing stored"]
 ```
 

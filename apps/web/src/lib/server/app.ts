@@ -242,14 +242,14 @@ export async function createApp(options: CreateAppOptions) {
 
 	const happyView = new HappyViewClient(config.happyView);
 	const bundle = () => happyViewBundle(rootDid, config.userinputSpace);
-	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
-	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
-	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const staff = new StaffService(core);
 	const flags = new FlagService(core, staff, config.flagOverrides);
 
 	if (Object.keys(config.flagOverrides).length > 0)
 		logger.warn('flags forced by FLAG_OVERRIDES', { flags: config.flagOverrides });
+	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }), flags);
+	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
@@ -396,6 +396,23 @@ export async function createApp(options: CreateAppOptions) {
 		timers.push(timer);
 	};
 
+	/**
+	 * Whether `flag`, a kill switch for background work that's only ever on for everyone, has paused `round`. It notes
+	 * the skip, so staff can see the switch working.
+	 */
+	const paused = async (flag: 'pauseBackfills' | 'pauseReconcilers', round: string) => {
+		const on = (await flags.evaluate(null))[flag];
+
+		if (on) logger.info('paused by a flag', { flag, round });
+
+		return on;
+	};
+
+	/** Runs one of the rounds that fix drift in the root's repo, unless pauseReconcilers is on. */
+	const reconcile = async (round: string, work: () => Promise<void>) => {
+		if (!(await paused('pauseReconcilers', round))) await work();
+	};
+
 	const app = {
 		config,
 		logger,
@@ -497,9 +514,13 @@ export async function createApp(options: CreateAppOptions) {
 				logger.info('synced the HappyView directory', uploaded);
 				directorySync = { at: nowIso(), error: null };
 				// In the background: the shows Jetstream missed don't hold the app up.
-				void logger.job('reindex-shows', () =>
-					shows.reindexManagers().catch((error) => logger.warn('could not re-read shows', { err: error }))
-				);
+				void logger.job('reindex-shows', async () => {
+					try {
+						if (!(await paused('pauseBackfills', 'reindex-shows'))) await shows.reindexManagers();
+					} catch (error) {
+						logger.warn('could not re-read shows', { err: error });
+					}
+				});
 				await app.refreshRecords(uploaded.scripts);
 			} catch (error) {
 				logger.error('could not sync the HappyView directory', { err: error });
@@ -511,10 +532,10 @@ export async function createApp(options: CreateAppOptions) {
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
 		 * got), the older records the site reads from other repos (refreshTargets), with the follows of the accounts press
 		 * kits' audience checks read. A failure is logged and tried again on the next round, without marking the directory
-		 * sync failed.
+		 * sync failed. pauseBackfills skips it; a script whose version changed gets its re-reads on a round once it's off.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
-			if (!config.happyView.apiKey) return;
+			if (!config.happyView.apiKey || (await paused('pauseBackfills', 'refresh-records'))) return;
 			const { scripts } = bundle();
 
 			const refreshes = refreshTargets(rootDid, {
@@ -540,17 +561,17 @@ export async function createApp(options: CreateAppOptions) {
 			const watched = await ensureRootSpaces(core);
 
 			for (const space of watched) await syncer.watch(space);
-			await staff.reconcileMembership();
-			await projects.reconcileManagerSpaces();
-			await sharedSpaces.reconcile();
+			await reconcile('staff-spaces', () => staff.reconcileMembership());
+			await reconcile('manager-spaces', () => projects.reconcileManagerSpaces());
+			await reconcile('shared-spaces', () => sharedSpaces.reconcile());
 			bootstrapped = true;
 			await syncer.syncAll();
 			// After the sync, so the index has every space's people, and the requests and grants left in press kit spaces.
-			await listings.reconcile();
-			await venues.reconcileBlocks();
+			await reconcile('listings', () => listings.reconcile());
+			await reconcile('venue-blocks', () => venues.reconcileBlocks());
 			// After the blocks, which decide which events are listed.
-			await events.reconcileCalendarCopies();
-			await moveKitSpaces(core, epks);
+			await reconcile('calendar-copies', () => events.reconcileCalendarCopies());
+			await reconcile('press-kit-spaces', () => moveKitSpaces(core, epks));
 		},
 
 		start() {
@@ -574,23 +595,24 @@ export async function createApp(options: CreateAppOptions) {
 				},
 				'oauth-state-cleanup'
 			);
+			// The rounds through calendar-copies fix drift in the root's repo, and pauseReconcilers skips them.
 			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
 			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
-			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
+			every(60 * 60_000, () => reconcile('manager-spaces', () => projects.reconcileManagerSpaces()), 'manager-spaces');
 			// Finishes failed removals from the staff spaces, sooner than the rest because of what those spaces hold. Costs one
 			// listSpaceRecords and four listMembers on the root's own PDS, and writes only where something drifted.
-			every(5 * 60_000, () => staff.reconcileMembership(), 'staff-spaces');
+			every(5 * 60_000, () => reconcile('staff-spaces', () => staff.reconcileMembership()), 'staff-spaces');
 			// Finishes member updates of performers', parties' and venues' spaces that failed part way: a listSpaces per
 			// kind, then one listRecords and one listMembers per space, all on the root's own PDS.
-			every(60 * 60_000, () => sharedSpaces.reconcile(), 'shared-spaces');
+			every(60 * 60_000, () => reconcile('shared-spaces', () => sharedSpaces.reconcile()), 'shared-spaces');
 			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
 			// where one differs.
-			every(60 * 60_000, () => listings.reconcile(), 'listings');
+			every(60 * 60_000, () => reconcile('listings', () => listings.reconcile()), 'listings');
 			// Indexes the root's venue blocks and drops ones that are gone: one listRecords of the root's own repo.
-			every(60 * 60_000, () => venues.reconcileBlocks(), 'venue-blocks');
+			every(60 * 60_000, () => reconcile('venue-blocks', () => venues.reconcileBlocks()), 'venue-blocks');
 			// Takes down the calendar copies of events whose night ended while they waited for the venue, and fixes any that
 			// drifted: one listRecords of the root's own repo, and writes only where a copy differs.
-			every(60 * 60_000, () => events.reconcileCalendarCopies(), 'calendar-copies');
+			every(60 * 60_000, () => reconcile('calendar-copies', () => events.reconcileCalendarCopies()), 'calendar-copies');
 			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');

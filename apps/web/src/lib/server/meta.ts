@@ -4,7 +4,7 @@ import { formatShowDate, kindLabel, placeLabel, pluralize, profileHref, setHref 
 import { type PageImage, type PageMeta, SITE_NAME } from '#lib/meta.ts';
 import { CARD } from '#lib/og/style.ts';
 import { bareMbid } from '#lib/supports.ts';
-import type { AccountView, ProfileRecord, ProfileView, ProjectView } from '#lib/types.ts';
+import type { AccountView, Flags, ProfileRecord, ProfileView, ProjectView } from '#lib/types.ts';
 import { type PageRecords, recordTags } from './meta-records';
 import { isDrawable } from './og/drawable';
 import { cardPaths } from './og/paths';
@@ -34,20 +34,31 @@ const SITE_CARD = card(cardPaths.site, `${SITE_NAME}: find local DJs for your sh
 const performerCard = (project: ProjectView, path: string, alt: string) =>
 	project.status === 'active' && isDrawable(project.profile.name) ? card(path, alt) : undefined;
 
+/** `image`, its address made absolute against `base`. */
+const absolute = ({ path, ...picture }: NonNullable<MetaInput['image']>, base: string): PageImage => ({
+	url: new URL(path, base).href,
+	...picture
+});
+
 /** A page's metadata, its addresses made absolute against the site's public URL so every page names the same host. */
 export function pageMeta(
 	publicUrl: string,
 	{ path, type = 'website', image = SITE_CARD, description, ...rest }: MetaInput
 ): PageMeta {
-	const { path: imagePath, ...picture } = image;
-
 	return {
 		...rest,
 		type,
 		description: clip(description),
 		url: new URL(path, publicUrl).href,
-		image: { url: new URL(imagePath, publicUrl).href, ...picture }
+		image: absolute(image, publicUrl)
 	};
+}
+
+/** Whether `image` is a card the site draws for the page (routes/og), not the site's own or a picture someone uploaded. */
+function isDrawnCard(image: PageImage | undefined): boolean {
+	const path = image && new URL(image.url).pathname;
+
+	return !!path?.startsWith('/og/') && path !== cardPaths.site;
 }
 
 function clip(text: string): string {
@@ -219,17 +230,21 @@ export const mixMeta = (
 /**
  * `meta`, with what only a page search engines may list carries set aside for the server hook to write into its head:
  * the records behind it as at-tags, and its structured data (see crawler-head.ts). A page kept out of search gets
- * neither, and its records aren't even looked up.
+ * neither, and its records aren't even looked up. While pauseOgCards is on, a card drawn for the page gives way to the
+ * site's, since the card routes don't draw then; nothing is paused without `locals.flags`.
  */
 export async function listed(
-	locals: Pick<App.Locals, 'crawlerHead'>,
+	locals: Pick<App.Locals, 'crawlerHead'> & { flags?: Partial<Flags> },
 	meta: PageMeta,
 	{ records, jsonLd }: { records?: () => PageRecords | Promise<PageRecords>; jsonLd?: JsonLdBuilder | null }
 ): Promise<PageMeta> {
-	if (meta.noindex) return meta;
-	const head = [records && recordTags(await records()), jsonLd && jsonLdScript(jsonLdFor(meta, jsonLd))];
+	const shown =
+		locals.flags?.pauseOgCards && isDrawnCard(meta.image) ? { ...meta, image: absolute(SITE_CARD, meta.url) } : meta;
+
+	if (shown.noindex) return shown;
+	const head = [records && recordTags(await records()), jsonLd && jsonLdScript(jsonLdFor(shown, jsonLd))];
 
 	locals.crawlerHead = head.filter(Boolean).join('');
 
-	return meta;
+	return shown;
 }

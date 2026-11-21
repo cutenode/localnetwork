@@ -1,4 +1,5 @@
 import type { Logger } from '../logger';
+import type { FlagService } from '../services/flags';
 import { BACKFILL_FAILED, type HappyViewClient } from './client';
 
 /** How long a caller waits for HappyView to read an account's records before going on without them. */
@@ -11,22 +12,32 @@ const EVERY_MS = 10 * 60_000;
  * Has HappyView re-read accounts' records of a collection from their PDS, for records Jetstream never brought (ones
  * written before HappyView kept that collection, or while it was down). Only with an API key, and at most every ten
  * minutes per account and collection: a caller that comes while a re-read runs, or soon after, gets that re-read's
- * outcome instead of crawling the repo again. A failed one is forgotten, so the next caller tries again.
+ * outcome instead of crawling the repo again. A failed one is forgotten, so the next caller tries again. The pauseBackfills
+ * flag, on for everyone, stops new re-reads without a deploy.
  */
 export class Backfills {
 	private readonly last = new Map<string, { at: number; done: Promise<boolean> }>();
 
 	constructor(
 		private readonly directory: HappyViewClient,
-		private readonly logger: Logger
+		private readonly logger: Logger,
+		/** The app's, for pauseBackfills. Without it, re-reads are never paused. */
+		private readonly flags?: Pick<FlagService, 'evaluate'>
 	) {}
 
 	/**
-	 * Whether HappyView finished re-reading every account in `dids` within five seconds: false without an API key, after
-	 * a failure, or while it carries on reading. The accounts not read lately are read together, in one job per 500.
+	 * Whether HappyView finished re-reading every account in `dids` within five seconds: false without an API key, while
+	 * paused, after a failure, or while it carries on reading. The accounts not read lately are read together, in one job per 500.
 	 */
 	async backfill(collection: string, dids: string[]): Promise<boolean> {
 		if (!this.directory.admin) return false;
+
+		if ((await this.flags?.evaluate(null))?.pauseBackfills) {
+			this.logger.info('HappyView re-reads paused', { collection, accounts: dids.length, flag: 'pauseBackfills' });
+
+			return false;
+		}
+
 		const reads: Promise<boolean>[] = [];
 		const due: string[] = [];
 

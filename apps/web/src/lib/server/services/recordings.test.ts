@@ -155,6 +155,22 @@ describe('RecordingService.source', () => {
 		});
 	});
 
+	it("plays the set's links instead of a PDS recording while pauseRecordingStream is on, and plyr.fm's as before", async () => {
+		const { recordings } = await service([{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording() }], {
+			plyrTrack: {}
+		});
+
+		const paused = { pauseRecordingStream: true };
+		const pds = ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`);
+
+		expect(await recordings.source({ recording: pds, links: [{ uri: SOUNDCLOUD }] }, paused)).toMatchObject({
+			kind: 'embed',
+			platform: 'SoundCloud'
+		});
+		expect(await recordings.source({ recording: pds }, paused)).toBeNull();
+		expect(await recordings.source({ recording: ref(PLYR_URI) }, paused)).toMatchObject({ from: 'plyr.fm' });
+	});
+
 	it('plays a recording without durationSeconds, which the player reads from the audio', async () => {
 		const { recordings } = await service([
 			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording({}, {}) }
@@ -278,6 +294,23 @@ describe('RecordingService.set and forMix', () => {
 		expect(await offline.forMix({ url: SOUNDCLOUD, recording: ref(PLYR_URI) })).toMatchObject({
 			platform: 'SoundCloud'
 		});
+	});
+
+	it("plays a mix's link instead of its own or its set's PDS recording while pauseRecordingStream is on", async () => {
+		const pds = ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`);
+
+		const { recordings } = await service([
+			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording() },
+			set({ recording: pds })
+		]);
+
+		const paused = { pauseRecordingStream: true };
+		const linked = { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' };
+
+		expect(await recordings.forMix({ url: SOUNDCLOUD, recording: pds }, paused)).toMatchObject({
+			platform: 'SoundCloud'
+		});
+		expect(await recordings.forMix({ url: SOUNDCLOUD, set: linked }, paused)).toMatchObject({ platform: 'SoundCloud' });
 	});
 });
 

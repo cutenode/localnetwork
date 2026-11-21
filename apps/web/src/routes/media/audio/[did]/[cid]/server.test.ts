@@ -61,3 +61,23 @@ it("is a 404 for an address that isn't a DID and a blob CID, without looking for
 	await expect(callRoute(GET, { app, params: { did: 'dj.test', cid: CID } })).rejects.toMatchObject({ status: 404 });
 	await expect(callRoute(GET, { app, params: { did: DJ, cid: 'not-a-cid' } })).rejects.toMatchObject({ status: 404 });
 });
+
+it('answers 503 while pauseRecordingStream is on, without looking for the recording or reading it', async () => {
+	const app = {
+		recordings: {
+			audio: async () => {
+				throw new Error('looked for a recording');
+			}
+		},
+		identity: {
+			resolve: async () => {
+				throw new Error('looked for the PDS');
+			}
+		}
+	};
+
+	const response = await callRoute(GET, { app, params: { did: DJ, cid: CID }, flags: { pauseRecordingStream: true } });
+
+	expect(response.status).toBe(503);
+	expect(response.headers.get('cache-control')).toBe('no-store');
+});
