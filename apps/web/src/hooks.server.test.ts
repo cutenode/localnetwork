@@ -11,6 +11,7 @@ import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
 import { VISITOR_COOKIE } from '#lib/server/flags/visitor.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
+import { m } from '#lib/paraglide/messages.js';
 import { requireFlag } from '#lib/server/http.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
@@ -549,6 +550,35 @@ it("writes the page's crawler tags into the head, once, and gzips the page", asy
 	expect(response.headers.get('content-encoding')).toBe('gzip');
 	expect(gunzipSync(Buffer.from(await response.arrayBuffer())).toString()).toBe(
 		`<head><meta name="description" content="DJs"></head><body>${CRAWLER_HEAD}</body>`
+	);
+});
+
+it("renders the page in the locale its cookie names, with the page's lang and dir to match", async () => {
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+
+	const resolve = async (_event: RequestEvent, options?: ResolveOptions) => {
+		const head = `<html lang="%lang%" dir="%dir%"><head>${CRAWLER_HEAD}</head>`;
+		const html = (await options!.transformPageChunk!({ html: head, done: false })) ?? '';
+
+		return new Response(`${html}<body>${m.footer_privacy()}</body>`);
+	};
+
+	const page = async (headers: Record<string, string>) => {
+		const { event } = routeEvent({ url: '/', headers });
+		// SAFETY: as above.
+		const response = await handle({ event: event as never, resolve });
+
+		return { html: await response.text(), vary: response.headers.get('vary') };
+	};
+
+	expect(await page({ cookie: 'ln_locale=en-XA' })).toEqual({
+		html: '<html lang="en-XA" dir="ltr"><head></head><body>[Ƥřīṽȧȧƈẏ]</body>',
+		vary: 'Cookie'
+	});
+	expect((await page({})).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
+	expect((await page({ cookie: 'ln_locale=xx' })).html).toBe(
+		'<html lang="en" dir="ltr"><head></head><body>Privacy</body>'
 	);
 });
 

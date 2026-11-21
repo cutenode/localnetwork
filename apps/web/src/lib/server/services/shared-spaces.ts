@@ -10,6 +10,7 @@ import {
 	isWriter,
 	type SpaceKind
 } from '#lib/capabilities.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ActForm, BasicsSection, PerformerSection, SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -18,6 +19,7 @@ import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind, spaceR
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import { editedLangs, sectionsText, withLangs } from '../langs';
 import type { Upload } from '../forms/project';
 import type { ListingWriter } from './listings';
 import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
@@ -259,6 +261,7 @@ export class SharedSpaces {
 
 			const record = validateRecord(COLLECTION.performer, {
 				subject: { $type: ACT_TYPE, slug, form: input.form, basics: input.basics, performer: input.performer ?? {} },
+				...withLangs(sectionsText(input.basics, input.performer), writerLangs()),
 				createdAt: now,
 				updatedAt: now
 			});
@@ -290,14 +293,18 @@ export class SharedSpaces {
 
 			const avatar = await pageAvatar(live.root, input.avatar, current.subject.basics.avatar);
 
+			const { langs, ...kept } = current;
+			const before = { text: sectionsText(current.subject.basics, current.subject.performer), langs };
+
 			const record = validateRecord(COLLECTION.performer, {
-				...current,
+				...kept,
 				subject: {
 					...current.subject,
 					form: input.form,
 					basics: avatar ? { ...input.basics, avatar } : input.basics,
 					performer: input.performer
 				},
+				...editedLangs(sectionsText(input.basics, input.performer), before, writerLangs()),
 				updatedAt: nowIso()
 			});
 

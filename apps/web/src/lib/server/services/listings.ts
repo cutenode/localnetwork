@@ -10,8 +10,11 @@ import type { Core } from '../core';
 import { nowIso } from '../db';
 import type { FlagService } from './flags';
 
-/** What a listing shows of its space beyond its people, from the kind's {@link ListingSource}. */
-export type ListingFields = { name: string; slug?: string; fields?: JsonObject };
+/**
+ * What a listing shows of its space beyond its people, from the kind's {@link ListingSource}, with the languages its
+ * fields' text is in, as the space's record names them.
+ */
+export type ListingFields = { name: string; slug?: string; fields?: JsonObject; langs?: string[] };
 
 /** Reads what a kind's public page shows, or null when there's nothing to list yet. */
 export type ListingSource = { publicFields(space: string): Promise<ListingFields | null> };

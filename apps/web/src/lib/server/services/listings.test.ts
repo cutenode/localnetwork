@@ -373,6 +373,7 @@ describe("an act's listing", () => {
 			name: 'Crew',
 			slug: 'crew',
 			fields: { form: 'duo', basics: { ...basics, avatar: blob }, performer },
+			langs: ['en'],
 			people: [{ did: ADA, role: 'member' }],
 			managers: [CY],
 			updatedAt: expect.any(String)

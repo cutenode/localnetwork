@@ -295,6 +295,25 @@ describe('RequestService', () => {
 			expect((await t.requests.get(theirs.uri))?.status).toBe('pending');
 		});
 
+		it("publishes a project in the language the requester wrote its bio in, and the decision's reason in the moderator's", async () => {
+			const submitted = await t.requests.submit({
+				actor: await t.viewer(DJ),
+				kind: 'create',
+				profile: profile('Worded', { bio: 'Deep house on Sundays' })
+			});
+
+			expect(submitted.record.langs).toEqual(['en']);
+			// As if the requester had written it in German.
+			const uri = await synced('3worded', { ...submitted.record, langs: ['de'] });
+
+			await t.requests.decide({ actor: await t.viewer(MOD), uri, outcome: 'approved', reason: 'Welcome' });
+
+			const projects = t.net.listed(ROOT, COLLECTION.project).map(({ record }) => record?.langs);
+			expect(projects).toEqual([['de']]);
+			const decisions = t.net.spaceRecordsIn(t.spaces.moderation, ROOT).map(({ value }) => value);
+			expect(decisions).toEqual([expect.objectContaining({ reason: 'Welcome', langs: ['en'] })]);
+		});
+
 		it("won't approve a listing request once the requester's profile is gone", async () => {
 			const uri = await synced('3list', {
 				kind: 'list',

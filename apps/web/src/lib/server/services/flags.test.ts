@@ -244,6 +244,21 @@ describe('FlagService', () => {
 		expect(JSON.parse(entry.changes ?? '')).toEqual([{ field: 'description', before: 'Early', after: 'Testers' }]);
 	});
 
+	it("names the description's language, keeping it through saves that leave the description alone", async () => {
+		const admin = await t.viewer(ADMIN);
+		const rkey = await t.flags.createGroup(admin, { name: 'Beta', description: 'Early', members: [DJ] });
+		expect(stored(COLLECTION.staffGroup, rkey)?.value.langs).toEqual(['en']);
+		// As if the description had been written in German.
+		stored(COLLECTION.staffGroup, rkey)!.value.langs = ['de'];
+
+		await t.flags.updateGroup(admin, rkey, { name: 'Beta', description: 'Early', members: [DJ, OTHER] });
+		expect(stored(COLLECTION.staffGroup, rkey)?.value.langs).toEqual(['de']);
+		await t.flags.updateGroup(admin, rkey, { name: 'Beta', description: 'Testers', members: [DJ, OTHER] });
+		expect(stored(COLLECTION.staffGroup, rkey)?.value.langs).toEqual(['en']);
+		await t.flags.updateGroup(admin, rkey, { name: 'Beta', members: [DJ, OTHER] });
+		expect(stored(COLLECTION.staffGroup, rkey)?.value.langs).toBeUndefined();
+	});
+
 	it('refuses an unknown flag, a bad percentage and a group that is gone', async () => {
 		const admin = await t.viewer(ADMIN);
 

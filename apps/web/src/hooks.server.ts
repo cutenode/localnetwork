@@ -12,6 +12,8 @@ import { clientIp, guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger, type Logger } from '#lib/server/logger.ts';
 import { movedTo } from '#lib/server/moved-pages.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
+import { getTextDirection } from '#lib/paraglide/runtime.js';
+import { paraglideMiddleware } from '#lib/paraglide/server.js';
 
 const fallbackLogger = createLogger({
 	level: process.env.LOG_LEVEL ?? 'info',
@@ -136,24 +138,34 @@ export function serverHooks({
 
 		let headWritten = false;
 
+		// Paraglide's middleware runs the page under the locale its cookie names, so messages and getLocale() read
+		// it. It's handed the request without its body, which it would otherwise clone, keeping a copy of every
+		// upload: the locale only comes from the headers.
+		const localeRequest = new Request(event.request.url, { headers: event.request.headers });
+
 		// The two typefaces set every line and differ in width from the system fallbacks, so arriving after
 		// the first paint they moved the whole page (Lighthouse's CLS). Their Latin files are preloaded with
 		// the CSS; the other subsets load only for pages that need them.
 		const response = gzipped(
 			event.request,
-			await resolve(event, {
-				preload: ({ type, path }) =>
-					type === 'js' ||
-					type === 'css' ||
-					(type === 'font' && /(instrument-sans|jetbrains-mono)-latin-wght-normal\.[\w-]+\.woff2$/.test(path)),
-				// The marker is in the first chunk, app.html's head. Later chunks are left alone, whatever they hold.
-				transformPageChunk: ({ html }) => {
-					if (headWritten || !html.includes(CRAWLER_HEAD)) return html;
-					headWritten = true;
+			await paraglideMiddleware(localeRequest, ({ locale }) =>
+				resolve(event, {
+					preload: ({ type, path }) =>
+						type === 'js' ||
+						type === 'css' ||
+						(type === 'font' && /(instrument-sans|jetbrains-mono)-latin-wght-normal\.[\w-]+\.woff2$/.test(path)),
+					// The marker is in the first chunk, app.html's head, after the html tag's lang and dir. Later chunks are
+					// left alone, whatever they hold.
+					transformPageChunk: ({ html }) => {
+						if (headWritten || !html.includes(CRAWLER_HEAD)) return html;
+						headWritten = true;
 
-					return withCrawlerHead(html, event.locals.crawlerHead);
-				}
-			})
+						return withCrawlerHead(html, event.locals.crawlerHead)
+							.replace('%lang%', locale)
+							.replace('%dir%', getTextDirection(locale));
+					}
+				})
+			)
 		);
 
 		response.headers.set('x-request-id', requestId);

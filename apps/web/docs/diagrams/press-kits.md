@@ -21,12 +21,13 @@ sequenceDiagram
   participant R as Root's repo
   participant K as Press kit's space
   M->>A: Save, over the version<br/>the form opened on
-  A->>B: epk.draft: changed fields<br/>and what they replace
+  A->>B: epk.draft: changed fields, what they<br/>replace, and the writer's languages<br/>when it changes words
   M->>A: Publish
   A->>A: Compare each field<br/>with what's published now
   alt Another manager changed the field
     A-->>M: Conflict, pick a<br/>side per field
   else
+    Note over A,K: epk and epk.content each take the draft's<br/>languages only when it changes their words
     A->>R: Copy new photos,<br/>put epk over the live CID
     A->>A: Wait up to 5 s<br/>for HappyView
     A->>K: Root writes epk.content

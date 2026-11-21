@@ -16,6 +16,12 @@
 						"closed": false,
 						"description": "An act, with what its page shows, or the DJ whose backstage and managers the space holds."
 					},
+					"langs": {
+						"type": "array",
+						"description": "The languages an act's text is written in, like its bio. A DJ's has none: their page is their profile.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"formerly": {
 						"type": "array",
 						"maxLength": 20,

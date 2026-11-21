@@ -27,6 +27,7 @@ import {
 	readRule,
 	ruleFor
 } from '#lib/epk.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
@@ -372,7 +373,7 @@ export class EpkService {
 		const createdAt = nowIso();
 		const draft: JsonObject = { epk: epk.uri, createdAt };
 
-		if (message) draft.message = message;
+		if (message) Object.assign(draft, { message, langs: writerLangs() });
 
 		const space = await this.ensureRequestSpace(kit.project);
 		const { client, onBehalf } = await spaceWriter(this.core, actor);

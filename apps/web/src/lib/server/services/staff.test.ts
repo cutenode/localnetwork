@@ -118,6 +118,19 @@ describe('StaffService', () => {
 		expect(parsed.grants).toEqual(['flags']);
 	});
 
+	it("names the note's language, and keeps it when the moderator's grants change", async () => {
+		const admin = await t.viewer(ADMIN);
+		const role = () => t.net.spaceRecordsIn(t.spaces.staff, t.core.rootDid).find(({ value }) => value.subject === MOD);
+		await t.staff.grant(admin, MOD, 'moderator', 'Weekends');
+		expect(role()?.value.langs).toEqual(['en']);
+		// As if the note had been written in German.
+		role()!.value.langs = ['de'];
+
+		await t.staff.setGrants(admin, MOD, ['flags']);
+
+		expect(role()?.value).toMatchObject({ note: 'Weekends', langs: ['de'], grants: ['flags'] });
+	});
+
 	it('names staff by handle in the audit log, with the note a grant came with', async () => {
 		const admin = await t.viewer(ADMIN);
 		await signIn(DJ, 'dj.test');

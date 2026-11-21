@@ -1,6 +1,7 @@
 import { TID } from '@atproto/common-web';
 import { z } from 'zod';
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { FlagGroupView, FlagPreview, Flags, FlagView, StaffGrant, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -8,6 +9,7 @@ import { rkeyOf } from '../atproto/spaces';
 import type { AuditChange, AuditEvent } from '../audit/log';
 import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import { editedLangs } from '../langs';
 import { FLAGS } from '../flags/catalog';
 import { type FlagGates, isOn } from '../flags/evaluate';
 import { openPreview } from '../flags/preview';
@@ -28,6 +30,7 @@ export const flagRecord = z.object({
 export const flagGroupRecord = z.object({
 	name: z.string(),
 	description: z.string().optional(),
+	langs: z.array(z.string()).optional(),
 	members: z.array(z.string()),
 	createdAt: z.string(),
 	updatedBy: z.string(),
@@ -390,12 +393,27 @@ export class FlagService {
 		});
 	}
 
+	/**
+	 * Writes a group as staff just saved it: a description they changed is in their language, and one they left as it
+	 * was stays in the languages it had.
+	 */
 	private async writeGroup(rkey: string, value: FlagGroupRecord): Promise<void> {
 		const root = await this.core.root();
-		const record = validateRecord(COLLECTION.staffGroup, value);
+		const staff = this.core.spaces.staff;
+		const stored = await root.getSpaceRecord({ space: staff, repo: root.did, collection: COLLECTION.staffGroup, rkey });
+		const current = flagGroupRecord.safeParse(stored?.value).data;
+
+		const record = validateRecord(COLLECTION.staffGroup, {
+			...value,
+			...editedLangs(
+				[value.description],
+				current && { text: [current.description], langs: current.langs },
+				writerLangs()
+			)
+		});
 
 		const ref = await root.putSpaceRecord({
-			space: this.core.spaces.staff,
+			space: staff,
 			collection: COLLECTION.staffGroup,
 			rkey,
 			record

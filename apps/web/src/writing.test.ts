@@ -7,11 +7,15 @@ const root = join(import.meta.dirname, '../../..');
 // The site's copy, code and the lexicons it publishes are written without long dashes.
 const folders = ['apps/web/src', 'lexicons/computer'];
 
+// Paraglide's compiled runtime and messages (src/lib/paraglide, git-ignored) are its code, not ours.
+const PARAGLIDE = join(root, 'apps/web/src/lib/paraglide');
+
 // Files only: some route folders are named like files (`oauth-client-metadata.json/`).
 const files = folders.flatMap((folder) =>
 	readdirSync(join(root, folder), { recursive: true, withFileTypes: true })
 		.filter((entry) => entry.isFile() && /\.(svelte|ts|js|css|html|json)$/.test(entry.name))
 		.map((entry) => join(entry.parentPath, entry.name))
+		.filter((file) => !file.startsWith(PARAGLIDE))
 );
 
 // Built from its code point, so this file doesn't contain one (the formatter unescapes \u escapes).

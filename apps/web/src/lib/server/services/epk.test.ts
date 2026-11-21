@@ -162,6 +162,14 @@ describe('EpkService', () => {
 		expect(await f.t.epks.forProject(f.project)).toHaveLength(MAX_EPKS_PER_PROJECT);
 	});
 
+	it('names the language of the message a request to see the private part comes with', async () => {
+		const epk = await f.publish(DJ);
+
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), { message: 'For a feature' });
+
+		expect(f.t.net.spaceRecordsIn(requestSpace(), STRANGER).map(({ value }) => value.langs)).toEqual([['en']]);
+	});
+
 	it('keeps the private part from people until any manager approves them, and the root writes the grant', async () => {
 		const epk = await f.publish(DJ);
 		const kit = f.kit(epk);

@@ -23,6 +23,12 @@
 					"claim": { "type": "ref", "ref": "#claim" },
 					"listing": { "type": "ref", "ref": "#listingSubject" },
 					"message": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the requester wrote in: the message, the claim's evidence, and the profile's and details' text.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"onBehalfOf": {
 						"type": "string",
 						"format": "did",

@@ -35,11 +35,12 @@ flowchart TD
   Flags --> Guard["guardArea by route"]
   Guard -- "/dashboard or /admin,<br/>signed out" --> Login["303 to /login?next="]
   Guard -- "/admin, not staff" --> Refused["403"]
-  Guard --> Route["Load, action or endpoint,<br/>page CSP with a nonce"]
+  Guard --> Locale["Locale from ln_locale,<br/>English without it"]
+  Locale --> Route["Load, action or endpoint,<br/>page CSP with a nonce,<br/>the page's lang and dir"]
   Route --> Out["gzip, security headers,<br/>noindex on unlisted areas,<br/>the one log line for the request"]
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts), [`project.inlang/paraglide.config.ts`](../../project.inlang/paraglide.config.ts)
 
 ## Page loads and form actions
 

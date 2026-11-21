@@ -13,6 +13,12 @@
 					"basics": { "type": "ref", "ref": "computer.localnetwork.section.defs#basics" },
 					"performer": { "type": "ref", "ref": "computer.localnetwork.section.defs#performer" },
 					"promoter": { "type": "ref", "ref": "computer.localnetwork.section.defs#promoter" },
+					"langs": {
+						"type": "array",
+						"description": "The languages the profile's text is written in, like its bio.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"takesInquiries": {
 						"type": "boolean",
 						"description": "Whether promoters can send this DJ booking inquiries on Local Network. Off unless true, and only counts while the performer section is on."
