@@ -103,7 +103,8 @@ fn compare(c: &mut Criterion) {
 fn play_history(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     write(&dir.path().join(paths::EXPORT_PDB), &with_history(build_pdb(0, 20_000)));
-    let sources = Sources { drives: vec![Device::open(dir.path()).unwrap()], store: None, libraries: None };
+    let sources =
+        Sources { drives: vec![Device::open(dir.path()).unwrap()], store: None, libraries: None, collection: None };
     let options = ProfileOptions { analysis: false, ..Default::default() };
     let ctx = Ctx::silent();
     let mut g = c.benchmark_group("profile");
