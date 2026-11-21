@@ -50,7 +50,7 @@ git commit --allow-empty -m 'chore(budgets): make room for the Opus decoder' \
 
 The failure says the exact trailer it needs. Raises add up, on top of the allowance. In a commit,
 review covers a raise, and the merge queue reads the trailers of every pull request in a group. A
-package name counts as 1, so a new crate takes `Budget-Raise: deps/locallibrary-cli +1: <why>`.
+package name counts as 1, so a new crate takes `Budget-Raise: deps/locallibrary +1: <why>`.
 
 Widening an allowance or dropping a metric takes a trailer naming it too (`+0` will do), which the
 `budgets` job checks with `tools/budgets/cli.ts raises`.

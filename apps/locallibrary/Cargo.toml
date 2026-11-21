@@ -1,8 +1,8 @@
 [package]
-name = "locallibrary-cli"
+name = "locallibrary"
 description = "Command line interface for locallibrary"
-# Released with dist (archives, installers, Homebrew), not to crates.io: the locallibrary crate,
-# the plugins and the vendored rekordbox-pdb it's built from aren't published.
+# Released with dist (archives, installers, Homebrew), not to crates.io: locallibrary-core, the
+# plugins and the vendored rekordbox-pdb it's built from aren't published.
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -29,11 +29,10 @@ bench = false
 name = "unit"
 path = "src/unit.rs"
 
-# Release packaging (see dist-workspace.toml): name the Homebrew formula after the command.
-# `dist = true` because dist leaves out a package with `publish = false` unless told otherwise.
+# Release packaging (see dist-workspace.toml). `dist = true` because dist leaves out a package
+# with `publish = false` unless told otherwise.
 [package.metadata.dist]
 dist = true
-formula = "locallibrary"
 
 # What cargo-shear can't see used. The plugins are linked through the table build.rs writes
 # (src/plugins.rs includes it from OUT_DIR). The test plugin comes in by #[path] from
@@ -70,9 +69,9 @@ default = ["account", "tui", "playback", "peers"]
 # Profile view. It adds only the library's AT Protocol clients and DNS (its `account` feature): the
 # HTTP client, TLS, the async runtime and the keychain are plugins' too, and `peers` and `tui` each
 # bring more of the dependencies than this does.
-account = ["locallibrary/account"]
+account = ["locallibrary-core/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
-peers = ["locallibrary/peers"]
+peers = ["locallibrary-core/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
 tui = ["dep:ratatui", "dep:rodio", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
@@ -80,7 +79,7 @@ tui = ["dep:ratatui", "dep:rodio", "dep:loclib-waveform", "dep:crossterm", "dep:
 playback = ["tui", "rodio/playback"]
 
 [dependencies]
-locallibrary.workspace = true
+locallibrary-core.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 # `string`: the commands, flags and formats plugins add are named at run time.

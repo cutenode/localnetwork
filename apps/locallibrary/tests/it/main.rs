@@ -1,6 +1,6 @@
 //! The CLI's integration tests, in one test binary: each module was a file, and a binary, of its
 //! own. They run `locallibrary` (the binary cargo built for the tests) with a store and drives in
-//! a temporary folder. `cargo test -p locallibrary-cli --test it rpc::` runs one module's.
+//! a temporary folder. `cargo test -p locallibrary --test it rpc::` runs one module's.
 
 use std::path::Path;
 use std::process::{Command, Stdio};

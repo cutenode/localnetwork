@@ -29,7 +29,7 @@ How a planned change is worked out, shown, and made only as it was shown.
 ```mermaid
 sequenceDiagram
     participant F as Front end
-    participant A as Core library
+    participant A as locallibrary-core
     participant G as Plugins' guards
     participant D as Drive
     participant C as Other clones

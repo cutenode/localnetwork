@@ -10,13 +10,17 @@ set -euo pipefail
 measured=$1
 target=${CARGO_TARGET_DIR:-target}
 mkdir -p "$measured"
+# The CLI's package, by its manifest: a base measured in a checkout of its own with this script may
+# be from before it was named `locallibrary` (it was `locallibrary-cli`).
+cli=$(cargo metadata --no-deps --format-version 1 --locked |
+  jq -r '.packages[] | select(.manifest_path | endswith("/apps/locallibrary/Cargo.toml")) | .name')
 
 # By name, whatever the version, so a new crate shows and a version bump doesn't. Without colour:
 # CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
-cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary-cli --prefix none |
-  sed 's/ .*//' | sort -u | jq -R -s '{"locallibrary-cli": split("\n")[:-1]}' > "$measured/deps.json"
+cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p "$cli" --prefix none |
+  sed 's/ .*//' | sort -u | jq -R -s '{"locallibrary": split("\n")[:-1]}' > "$measured/deps.json"
 
-cargo build --profile dist -p locallibrary-cli --locked
+cargo build --profile dist -p "$cli" --locked
 tar -C "$target/dist" -cJf "$measured/archive.tar.xz" locallibrary
 jq -n --argjson binary "$(wc -c < "$target/dist/locallibrary")" --argjson archive "$(wc -c < "$measured/archive.tar.xz")" \
   '{"locallibrary": $binary, "archive": $archive}' > "$measured/size-x86_64-unknown-linux-gnu.json"
@@ -72,6 +76,6 @@ instructions() {
 # A frame of the player, in the release profile, as dist's test binary would take a second fat LTO
 # link. Unstripped, for frame-instructions.sh to find the frame by its name: the symbols aren't loaded
 # when it runs, so it runs the same instructions.
-unit=$(CARGO_PROFILE_RELEASE_STRIP=false cargo test --release -p locallibrary-cli --test unit --locked --no-run --message-format=json-render-diagnostics |
+unit=$(CARGO_PROFILE_RELEASE_STRIP=false cargo test --release -p "$cli" --test unit --locked --no-run --message-format=json-render-diagnostics |
   jq -r 'select(.executable != null and .target.name == "unit") | .executable')
 "$(dirname "$0")/frame-instructions.sh" "$unit" 600 tui-instructions "$measured"
