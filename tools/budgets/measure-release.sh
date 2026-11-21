@@ -34,15 +34,30 @@ for drive in LARGE LARGE2; do
 done
 mkdir -p "$scratch/home"
 counted() {
-  LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" HOME="$scratch/home" \
-    valgrind --tool=cachegrind --cache-sim=no --cachegrind-out-file=/dev/null "$@" 2>&1 >/dev/null |
-    sed -n 's/.*I *refs: *//p' | tr -d ,
+  "$(dirname "$0")/cachegrind.sh" LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" \
+    HOME="$scratch/home" "$@" 2>/dev/null
 }
+# Plugins' checks off in that store, so the commands count locallibrary's own code. With one on,
+# check and doctor start its plugin and page the whole library to it, which CI counted as about 460M
+# of doctor's 710M instructions, moving by a million or more from one run to the next (LOC-836).
+plugin_checks() {
+  LOCALLIBRARY_VOLUMES="$scratch/volumes" LOCALLIBRARY_STORE="$scratch/store" HOME="$scratch/home" \
+    "$target/dist/locallibrary" plugin checks "$@" 2>/dev/null
+}
+for check in $(plugin_checks --json | jq -r '.checks[] | select(.on) | "\(.plugin).\(.name)"'); do
+  plugin_checks "$check" --off --yes >/dev/null
+done
+[[ $(plugin_checks --json | jq '[.checks[] | select(.on)] | length') == 0 ]] || { echo "couldn't turn the plugins' checks off" >&2; exit 1; }
 # Each command's instructions less a run of /bin/true, which leaves out the loader's and libc's start.
 # libc's start looks up the CPU's features and caches, which takes some thousands more instructions on
 # some runners' CPUs than on others', so a base measured on one runner and a head on another differed by
-# that much with the same code (LOC-827). The CPU goes in the log, to tell runners apart.
+# that much with the same code (LOC-827). The CPU goes in the log, to tell runners apart: its model, the
+# features the kernel shows and what glibc made of them, which picks its string functions by them.
 grep -m1 '^model name' /proc/cpuinfo || true
+grep -m1 '^flags' /proc/cpuinfo || true
+echo '::group::glibc cpu_features'
+/lib64/ld-linux-x86-64.so.2 --list-diagnostics | grep '^x86\.cpu_features\.' || true
+echo '::endgroup::'
 start=$(counted /bin/true)
 instructions() {
   echo $(($(counted "$target/dist/locallibrary" "$@") - start))
@@ -58,9 +73,9 @@ instructions() {
   echo "doctor $(instructions doctor LARGE)"
 } | jq -Rn '[inputs | split(" ") | {(.[0]): (.[1] | tonumber)}] | add' > "$measured/cli.json"
 
-# A frame of the player: the frame test's instructions over many frames, less a run of none, which
-# leaves out reading the fixture. It's the release profile, as dist's test binary would take a
-# second fat LTO link.
-unit=$(cargo test --release -p "$cli" --test unit --locked --no-run --message-format=json-render-diagnostics |
+# A frame of the player, in the release profile, as dist's test binary would take a second fat LTO
+# link. Unstripped, for frame-instructions.sh to find the frame by its name: the symbols aren't loaded
+# when it runs, so it runs the same instructions.
+unit=$(CARGO_PROFILE_RELEASE_STRIP=false cargo test --release -p "$cli" --test unit --locked --no-run --message-format=json-render-diagnostics |
   jq -r 'select(.executable != null and .target.name == "unit") | .executable')
 "$(dirname "$0")/frame-instructions.sh" "$unit" 600 tui-instructions "$measured"

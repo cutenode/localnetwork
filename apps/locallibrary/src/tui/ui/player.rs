@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 use ratatui_image::Image;
 
 use crate::output::{clock, plural};
-use crate::tui::app::{App, Matches, NowPlaying, Vis};
+use crate::tui::app::{App, Matches, NowPlaying, PhraseSpan, Vis};
 use crate::tui::art::Picture;
 use crate::tui::icons;
 use crate::tui::keys::Relation as KeyRelation;
@@ -49,6 +49,14 @@ pub(super) fn draw_art(f: &mut Frame, app: &mut App, area: Rect) {
 
 pub(super) fn chip(s: String, c: [u8; 3]) -> Span<'static> {
     Span::styled(format!(" {s} "), theme::chip(c))
+}
+
+/// The phrase `p` as a chip, and which of its bars `bar` is, padded so what follows stays put.
+pub(super) fn phrase_chip(p: &PhraseSpan, bar: u16) -> [Span<'static>; 2] {
+    [
+        chip(p.kind.name(), theme::current().phrase(p.kind)),
+        Span::styled(format!(" {:<5}", format!("{bar}/{}", p.bars)), dim()),
+    ]
 }
 
 /// The loop playing, as a chip.

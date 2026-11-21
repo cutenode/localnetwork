@@ -1,9 +1,11 @@
 -- Upcoming shows, soonest first, or nearest first and then soonest. SQL narrows by project, follower, and a bounding
 -- box around the place, and pages when it can; Lua measures exact distances, then sorts and pages the rest.
 
-local SOONEST = " ORDER BY datetime(json_extract(s.record, '$.startsAt')), s.uri"
+local json = require('internal.json')
 
-function handle()
+local SOONEST = ' ORDER BY (s.record::jsonb ->> \'startsAt\')::timestamptz, s.uri COLLATE "C"'
+
+function handle(input)
 	local where, args = { UPCOMING }, {}
 	local function filter(clause, values)
 		where[#where + 1] = ' AND ' .. clause
@@ -12,23 +14,23 @@ function handle()
 		end
 	end
 
-	local project = text(params.project)
-	if project then filter("json_extract(s.record, '$.project') = ?", { project }) end
-	local follower = text(params.follower)
+	local project = text(input.project)
+	if project then filter("s.record::jsonb ->> 'project' = ?", { project }) end
+	local follower = text(input.follower)
 	if follower then
 		filter(
-			"json_extract(s.record, '$.project') IN"
-				.. " (SELECT json_extract(record, '$.subject') FROM happyview_records WHERE collection = ? AND did = ?)",
-			{ FOLLOW, follower }
+			"s.record::jsonb ->> 'project' IN"
+				.. " (SELECT record::jsonb ->> 'subject' FROM happyview_records WHERE did = ? AND collection = ?)",
+			{ follower, FOLLOW }
 		)
 	end
-	local near = point(params.latE6, params.lngE6)
-	local radius = near and integer(params.radiusKm)
-	if radius then filter(withinBox(near, radius, 's.record', '$.location')) end
-	local byDistance = near and text(params.sort) == 'distance'
+	local near = point(input.latE6, input.lngE6)
+	local radius = near and integer(input.radiusKm)
+	if radius then filter(withinBox(near, radius, 's.record', 'location')) end
+	local byDistance = near and text(input.sort) == 'distance'
 
-	local limit = pageSize(params.limit, 30, 100)
-	local offset = tonumber(text(params.cursor) or '')
+	local limit = pageSize(input.limit, 30, 100)
+	local offset = tonumber(text(input.cursor) or '')
 	offset = math.type(offset) == 'integer' and offset > 0 and offset or 0
 
 	-- Without an exact radius or a distance sort, SQL's order is the answer, so it reads only this page and one more
@@ -60,5 +62,5 @@ function handle()
 	for i = first + 1, math.min(#items, first + limit) do
 		page[#page + 1] = showView(items[i].row, items[i].km)
 	end
-	return { shows = toarray(page), cursor = first + limit < #items and tostring(offset + limit) or nil }
+	return { shows = json.to_array(page), cursor = first + limit < #items and tostring(offset + limit) or nil }
 end

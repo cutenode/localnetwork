@@ -5,8 +5,8 @@
 //! as `tui.json`, for `tools/budgets/cli.ts` to hold to `benchmarks/budgets/tui.json` (see
 //! `benchmarks/README.md`).
 //!
-//! `LOCALLIBRARY_TUI_FRAMES` and `LOCALLIBRARY_TUI_VIEW` narrow a run: a run of no frames against
-//! one of many is how `.github/actions/release-budgets` gets a frame's instructions. It draws in
+//! `LOCALLIBRARY_TUI_FRAMES` and `LOCALLIBRARY_TUI_VIEW` narrow a run, as
+//! `tools/budgets/frame-instructions.sh` does to count a frame's instructions. It draws in
 //! `LOCALLIBRARY_COLOR`'s tier, or as the environment says without it.
 
 use std::path::Path;
@@ -131,6 +131,20 @@ fn play_on(app: &mut App, out: &mut MixerSource) {
     app.analyzer.update(app.tap_reader.read(&tap, true), tap.sample_rate(), &counts, 1.0 / 60.0);
 }
 
+/// One frame's draw, which is what it allocates. Never inlined, so
+/// `tools/budgets/frame-instructions.sh` can count its instructions alone under callgrind: not
+/// setting up the player, whose waits on the fixture's workers poll a clock, nor the audio before
+/// it, which reads what the mixer's threads have made by then.
+#[inline(never)]
+fn frame(app: &mut App, terminal: &mut Terminal<TestBackend>, fade: bool) -> (u64, u64) {
+    let before = (ALLOCATIONS.load(Ordering::Relaxed), BYTES.load(Ordering::Relaxed));
+    if fade {
+        app.transitions.start(ratatui::layout::Rect::new(0, 0, SIZE.0, SIZE.1));
+    }
+    terminal.draw(|f| ui::draw(f, app)).unwrap();
+    (ALLOCATIONS.load(Ordering::Relaxed) - before.0, BYTES.load(Ordering::Relaxed) - before.1)
+}
+
 /// What drawing `frames` frames after the first allocates in all, and the last one's text. With
 /// `fade`, a fade over the whole screen starts with each frame, as one does after a change.
 fn draw_frames(app: &mut App, out: &mut MixerSource, frames: u64, fade: bool) -> (u64, u64, String) {
@@ -139,13 +153,9 @@ fn draw_frames(app: &mut App, out: &mut MixerSource, frames: u64, fade: bool) ->
     let (mut allocations, mut bytes) = (0, 0);
     for _ in 0..frames {
         play_on(app, out);
-        let before = (ALLOCATIONS.load(Ordering::Relaxed), BYTES.load(Ordering::Relaxed));
-        if fade {
-            app.transitions.start(ratatui::layout::Rect::new(0, 0, SIZE.0, SIZE.1));
-        }
-        terminal.draw(|f| ui::draw(f, app)).unwrap();
-        allocations += ALLOCATIONS.load(Ordering::Relaxed) - before.0;
-        bytes += BYTES.load(Ordering::Relaxed) - before.1;
+        let (a, b) = frame(app, &mut terminal, fade);
+        allocations += a;
+        bytes += b;
     }
     let text = terminal.backend().buffer().content().iter().map(|c| c.symbol()).collect();
     (allocations, bytes, text)

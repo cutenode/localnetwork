@@ -89,7 +89,7 @@ describe('VerificationService', () => {
 		await expect(t.verifications.grant(admin, DJ)).rejects.toThrow('@neon.example is already verified');
 	});
 
-	it('verifies only project managers, the only accounts whose display names HappyView keeps', async () => {
+	it("verifies only project managers, even when HappyView has the account's display name", async () => {
 		t.handles.set(MOD, 'mod.example');
 		await t.net
 			.client(MOD)
@@ -99,7 +99,7 @@ describe('VerificationService', () => {
 			new UserError('Only project managers can be verified')
 		);
 		expect(rootRecords()).toEqual([]);
-		expect(await t.verifications.live(MOD)).toEqual({ handle: 'mod.example', displayName: null });
+		expect(await t.verifications.live(MOD)).toEqual({ handle: 'mod.example', displayName: 'Mod' });
 	});
 
 	it("refuses an account Bluesky wouldn't show a badge on", async () => {

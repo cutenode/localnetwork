@@ -20,3 +20,8 @@ test_group_of_no_tool if {
 	repo := array.concat(fixtures.repo, [{"path": "lexicons/computer/localnetwork/gig/offer.json", "contents": {"id": "computer.localnetwork.gig.offer"}}])
 	"lexicons/computer/localnetwork/gig/offer.json: put a tool's records under computer.localnetwork.<tool>, or add \"gig\" to the shared groups in tools/policy/lexicons.rego" in lexicons.deny with input as repo
 }
+
+test_vendored_third_party_lexicon if {
+	repo := array.concat(fixtures.repo, [{"path": "lexicons/community/lexicon/calendar/rsvp.json", "contents": {"id": "community.lexicon.calendar.rsvp"}}])
+	"lexicons/community/lexicon/calendar/rsvp.json: other authorities' lexicons come from the network, not the repo: add the NSID to the lexicon manifest instead" in lexicons.deny with input as repo
+}

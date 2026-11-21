@@ -12,9 +12,10 @@
 //! ([`crate::smart`], kept in the store), which `smart apply` keeps up to date, and the plan says
 //! which are only their tracks as they are now. One whose rules can't be read stays behind. Audio goes in
 //! `Contents/<artist>/<album>/`, and each track's analysis files (`.DAT`, `.EXT`, `.2EX`) are
-//! rekordbox's own from its `share` folder, in a `PIONEER/USBANLZ` folder named from the audio
-//! path, with that path written into them. Artwork keeps rekordbox's export layout
-//! (`PIONEER/Artwork/00001/a1.jpg`, with its `_m` copy), shared by both databases.
+//! rekordbox's own from its `share` folder, in the `PIONEER/USBANLZ` folder rekordbox gives that
+//! audio path ([`crate::anlz::AnalysisFolder`]), with the path written into them. Artwork keeps
+//! rekordbox's export layout (`PIONEER/Artwork/00001/a1.jpg`, with its `_m` copy), shared by both
+//! databases.
 //!
 //! Tracks Cloud Library Sync keeps in Dropbox or Google Drive are read from the service's folder
 //! (see [`crate::masterdb::CloudFolders`]). An online-only file downloads when it's read, a few
@@ -42,7 +43,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis_edit::{self, NewAnalysis};
-use crate::anlz::{Bands, Beat, CuePoint, PathSlot};
+use crate::anlz::{AnalysisFolder, Bands, Beat, CuePoint, PathSlot};
 use crate::artwork::{image_key, medium_variant};
 use crate::device::{Device, LineageEntry, LineageOp};
 use crate::error::IoContext;
@@ -614,8 +615,10 @@ struct Layout {
     /// The exported tracks, their paths the target's.
     tracks: Vec<Track>,
     files: IndexMap<String, Source>,
-    /// Keys (lower-cased) taken on the target.
+    /// Audio keys (lower-cased) taken on the target.
     taken: FxHashSet<String>,
+    /// The places tracks' analysis files went.
+    stems: FxHashSet<paths::AnalysisStem>,
     /// Artwork key on the target by image path in the `share` folder (lower-cased): the last
     /// export's, then new ones.
     artwork: IndexMap<String, String>,
@@ -667,15 +670,10 @@ impl Layout {
         key
     }
 
-    /// A folder no other track's analysis files have, for those of the track at `device_path`.
-    fn analysis_dir(&self, device_path: &str) -> String {
-        let mut attempt = 0;
-        let mut dir = merge::analysis_dir(device_path, attempt);
-        while self.taken.contains(&format!("{dir}/anlz0000.dat").to_lowercase()) {
-            attempt += 1;
-            dir = merge::analysis_dir(device_path, attempt);
-        }
-        dir
+    /// Where the analysis files of the track at `device_path` go, without their extension:
+    /// rekordbox's place for them, one no other track's files have ([`paths::analysis_stem`]).
+    fn analysis_stem(&self, device_path: &str) -> paths::AnalysisStem {
+        paths::analysis_stem(AnalysisFolder::of(device_path), |s| self.stems.contains(&s))
     }
 
     /// `t` as it goes on the target, its audio at `device_path`: no analysis or artwork yet.
@@ -698,19 +696,19 @@ impl Layout {
         let mut track = Layout::placed(t, &device_path);
         let (mut syncing, mut unreadable) = (false, false);
         if let Some((stem, _)) = t.analyze_path.rsplit_once('.').filter(|_| !t.analyze_path.is_empty()) {
-            let dir = self.analysis_dir(&device_path);
+            let to_stem = self.analysis_stem(&device_path);
             for ext in ANALYSIS_EXTENSIONS {
                 let share = format!("{stem}.{ext}");
                 syncing |= collection.still_syncing(&share);
                 let path = collection.share_file(&share);
                 let Ok(meta) = std::fs::metadata(&path) else { continue };
-                let to = format!("{dir}/ANLZ0000.{ext}");
+                let to = format!("{to_stem}.{ext}");
                 let Some(slot) = self.slots.get(&path).copied().flatten() else {
                     unreadable = true;
                     continue;
                 };
                 let source = Source::analysed(path, mtime(&meta), &device_path, slot);
-                self.taken.insert(to.to_lowercase());
+                self.stems.insert(to_stem);
                 self.files.insert(to.clone(), source);
                 if ext == "DAT" {
                     track.analyze_path = format!("/{to}");
@@ -743,14 +741,14 @@ impl Layout {
             let a = NewAnalysis { beats: c.beats.clone(), ..NewAnalysis::default() };
             match analysis_edit::new_files(&track, &c.cues, &a, c.waveform.as_ref()) {
                 Ok((made, warnings)) => {
-                    let dir = self.analysis_dir(&device_path);
+                    let stem = self.analysis_stem(&device_path);
                     for (ext, bytes) in ["DAT", "EXT"].into_iter().zip(made) {
-                        let to = format!("{dir}/ANLZ0000.{ext}");
+                        let to = format!("{stem}.{ext}");
                         let source = self.made(&to, &bytes, target)?;
-                        self.taken.insert(to.to_lowercase());
+                        self.stems.insert(stem);
                         self.files.insert(to, source);
                     }
-                    track.analyze_path = format!("/{dir}/ANLZ0000.DAT");
+                    track.analyze_path = format!("/{stem}.DAT");
                     self.analysis_warnings.extend(warnings);
                 }
                 Err(e) => self.unreadable.push(format!("{}: {e}", t.display_name())),

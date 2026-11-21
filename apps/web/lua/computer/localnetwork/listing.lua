@@ -3,6 +3,8 @@
 -- the root's get in, and only when every field the directory reads has the type it expects.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
+local log = require('internal.logging')
+
 local KINDS = { act = true, party = true, venue = true }
 
 local function isPerson(value)
@@ -28,23 +30,23 @@ local function problem(value)
 	if type(value.updatedAt) ~= 'string' then return 'bad updatedAt' end
 end
 
-local function gate()
-	if did ~= ROOT_DID then
-		log('skipped ' .. uri .. ': not the root')
+local function gate(input)
+	if input.did ~= ROOT_DID then
+		log.info('skipped ' .. input.uri .. ': not the root')
 		return nil
 	end
-	if action == 'delete' then return true end
-	local why = problem(record)
+	if input.action == 'delete' then return true end
+	local why = problem(input.record)
 	if why then
-		log('skipped ' .. uri .. ': ' .. why)
+		log.info('skipped ' .. input.uri .. ': ' .. why)
 		return nil
 	end
 	return true
 end
 
-function handle()
-	local ok, result = pcall(gate)
+function handle(input)
+	local ok, result = pcall(gate, input)
 	if ok then return result end
-	log('skipped ' .. uri .. ': ' .. tostring(result))
+	log.info('skipped ' .. input.uri .. ': ' .. tostring(result))
 	return nil
 end

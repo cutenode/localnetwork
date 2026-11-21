@@ -188,6 +188,7 @@ flowchart LR
   Account --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
   Dash -- "308 from /activity, /data,<br/>/requests, /inbox/settings" --> Account
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
+  Dash --> Promoter["/promoter, in the sidebar<br/>once promoting is on"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
   Dash --> Claim["/claim/[slug], /projects/new,<br/>/venues/[key]/claim, /settings<br/>and /events (peopleSpaces)"]
   Dash --> Access["/access/[slug]/[rkey]"]

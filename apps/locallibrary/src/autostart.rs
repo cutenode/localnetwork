@@ -52,6 +52,13 @@ pub fn install(args: &[String]) -> Result<PathBuf> {
              `locallibrary watch --pull --sync-group` at log on"
         );
     };
+    // On macOS the agent runs the copy drive writes run from, so its writes leave no `._` files
+    // (see `launchd`); this executable when there's none.
+    #[cfg(target_os = "macos")]
+    let exe = crate::launchd::clean_copy()
+        .or_else(|_| std::env::current_exe())
+        .context("finding the locallibrary executable")?;
+    #[cfg(not(target_os = "macos"))]
     let exe = std::env::current_exe().context("finding the locallibrary executable")?;
     let definition = match log_file() {
         Some(log) => plist(&exe, args, &log),
@@ -92,7 +99,7 @@ fn launchd_target() -> String {
 }
 
 #[cfg(unix)]
-fn uid() -> u32 {
+pub(crate) fn uid() -> u32 {
     // SAFETY: getuid has no preconditions and can't fail.
     unsafe { libc::getuid() }
 }

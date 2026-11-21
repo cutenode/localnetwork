@@ -45,14 +45,16 @@ export const actions: Actions = {
 			async () => {
 				const swap = text(form, 'cid', 200) || null;
 				const previous = await app.profiles.get(viewer.did);
-				await app.profiles.save(viewer, { ...(await parseProfileForm(form, previous?.record)), swap });
+				const profile = await parseProfileForm(form, previous?.record);
+				await app.profiles.save(viewer, { ...profile, swap });
 
-				return { saved: true };
+				// Turning the promoter section on adds the dashboard's Promoter section, which the saved page points to.
+				return { saved: true, promoting: !!profile.promoter && !previous?.record.promoter };
 			},
 			{ ...formValues(form), takesInquiries: form.get('takesInquiries') === 'on' }
 		);
 
-		if ('saved' in result) redirect(303, '/dashboard/profile?saved=1');
+		if ('saved' in result) redirect(303, `/dashboard/profile?saved=1${result.promoting ? '&promoting=1' : ''}`);
 
 		return result;
 	},

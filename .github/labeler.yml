@@ -100,7 +100,9 @@ atstore:
           - "apps/web/src/lib/bookings.*"
           - "apps/web/src/lib/server/services/{bookings,booking-performers}.*"
           - "apps/web/src/lib/components/BookingDetails.svelte"
+          - "apps/web/src/routes/dashboard/promoter/**"
           - "lexicons/computer/localnetwork/booking/**"
+          - "apps/web/src/routes/dashboard/calendar/**"
 
 "web: planner":
   - changed-files:
@@ -219,6 +221,7 @@ atstore:
           - "apps/locallibrary/docs/player{.md,/**}"
           - "apps/locallibrary/bombadil/**"
           - "crates/loclib-waveform/**"
+          - "apps/web/src/lib/tui/**"
 
 "locallibrary: sidecar":
   - changed-files:

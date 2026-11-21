@@ -50,6 +50,8 @@ it('says when it opens right after a press kit was deleted', async () => {
 	const data = await listed('?deleted=1');
 
 	expect(data.deleted).toBe(true);
+	// The page streams the list, which reads HappyView, so it has to finish before afterEach closes the database.
+	await data.dashboard;
 });
 
 it('sends someone signed out to sign in', async () => {

@@ -1,9 +1,12 @@
 -- Sets by URI, in the order asked for, each once. Ones the record script kept out are left out.
 
-function handle()
-	local uris = list(params.uris, 25)
+local json = require('internal.json')
+
+function handle(input)
+	local uris = input.uris
+	local where, values = atUris(uris, 's.')
 	local byUri = {}
-	for _, set in ipairs(sets(' AND uri IN (' .. marks(#uris) .. ')', uris, '')) do
+	for _, set in ipairs(sets(' AND ' .. where, values, '')) do
 		byUri[set.uri] = set
 	end
 	local out = {}
@@ -13,5 +16,5 @@ function handle()
 			byUri[uri] = nil
 		end
 	end
-	return { sets = toarray(out) }
+	return { sets = json.to_array(out) }
 end

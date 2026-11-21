@@ -1,0 +1,68 @@
+name: Fuzz
+description: >-
+  Runs every cargo-fuzz target `cargo fuzz list` names through its fuzz-<target> alias (.cargo/config.toml) for
+  the same time, as many at once as the runner has CPUs, from the corpus the last weekly run on main kept. Fails
+  when a target crashed, with its input in fuzz/artifacts/<target>/. The job needs `actions: read` to restore the
+  corpus.
+
+inputs:
+  seconds:
+    description: How long each target runs.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The pinned toolchain for cargo-fuzz's own build, and nightly for the targets (libFuzzer's
+    # instrumentation and the sanitizer need it).
+    - shell: bash
+      run: rustup toolchain install && rustup toolchain install nightly --profile minimal --component rust-src
+    # One cache for the weekly run and pull requests' smoke runs, which only main's runs save, as
+    # locallibrary-ci.yml's do.
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: fuzz
+        shared-key: fuzz
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    # install-action has no cargo-fuzz of its own. Its cargo-install fallback builds it from
+    # crates.io with the lockfile (rust-cache keeps the binary), where the default would have
+    # cargo-binstall download one using the job's token.
+    - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      with:
+        tool: cargo-fuzz@0.13.2
+        fallback: cargo-install
+    # An artifact lasts 90 days, where the Actions cache evicts what nothing read for a week, and
+    # the weekly run is skipped on weeks nothing it tests changed. The newest one from main, so a
+    # branch's hand-started run can't swap in its own.
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        run=$(gh api "repos/$GH_REPO/actions/artifacts?name=fuzz-corpus&per_page=100" \
+          --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")][0].workflow_run.id // empty')
+        if [ -n "$run" ]; then
+          gh run download "$run" --name fuzz-corpus --dir fuzz/corpus
+        else
+          echo "No kept corpus: the targets start from their seeds."
+        fi
+    # Built once up front, so the runs don't queue on cargo's lock to build the same thing. Each
+    # target's log is printed whole once they've all finished.
+    - shell: bash
+      env:
+        SECONDS_EACH: ${{ inputs.seconds }}
+      run: |
+        cargo +nightly fuzz build
+        logs=$RUNNER_TEMP/fuzz-logs
+        mkdir -p "$logs"
+        status=0
+        cargo fuzz list | xargs -P "$(nproc)" -I{} bash -c '
+          cargo +nightly "fuzz-$1" -max_total_time="$SECONDS_EACH" -timeout=10 -rss_limit_mb=2048 >"$2/$1.log" 2>&1 ||
+            { echo "::error::fuzz target $1 crashed: its input is in fuzz/artifacts/$1/"; exit 1; }
+        ' _ {} "$logs" || status=1
+        for log in "$logs"/*.log; do
+          echo "::group::$(basename "$log" .log)"
+          cat "$log"
+          echo "::endgroup::"
+        done
+        exit "$status"

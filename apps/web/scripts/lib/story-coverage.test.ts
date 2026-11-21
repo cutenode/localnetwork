@@ -69,6 +69,18 @@ describe('storyCoverage', () => {
 		]);
 	});
 
+	it('fails a terminal capture no story shows', () => {
+		write(
+			'src/lib/tui/captures/stories.json',
+			JSON.stringify({ pages: {}, stories: { 'beat/one': {}, 'beat/two': {} } })
+		);
+		write('src/lib/tui/Beat.stories.svelte', `<Story name="Beat 1" args={{ id: 'beat/one' }} />`);
+
+		expect(storyCoverage(root)).toEqual([
+			'tui/captures/beat/two: no story shows it; add one to a tui/*.stories.svelte'
+		]);
+	});
+
 	it('ignores components outside src/lib', () => {
 		write('src/lib/ui/Mark.svelte');
 		write('src/lib/ui/Mark.stories.svelte', `import Mark from './Mark.svelte';`);

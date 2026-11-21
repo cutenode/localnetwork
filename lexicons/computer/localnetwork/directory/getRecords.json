@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "Get records the directory indexed, by URI, in the order asked for. Records it doesn't have are left out.",
+			"description": "Get records the directory indexed, by URI, in the order asked for. Calendar events, bug report spaces and DJ stats it doesn't have are read from the account's own PDS; other records it doesn't have are left out.",
 			"parameters": {
 				"type": "params",
 				"required": ["uris"],

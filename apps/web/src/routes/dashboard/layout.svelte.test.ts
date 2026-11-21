@@ -24,6 +24,8 @@ const neon = {
 	profile: { name: 'Neon Tide' }
 } as ProjectView;
 
+const calendarOn = { ...flagsOff, dashboardCalendar: true };
+
 const menu = async () => {
 	await page.getByRole('button', { name: 'Dashboard menu' }).click();
 
@@ -41,7 +43,8 @@ it("lists the sections and everything that is the viewer's own", async () => {
 			needs: [],
 			access: Promise.resolve([]),
 			projects: Promise.resolve([neon]),
-			sections: Promise.resolve(null)
+			sections: Promise.resolve(null),
+			flags: calendarOn
 		},
 		children
 	});
@@ -51,6 +54,7 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		['Overview', '/dashboard'],
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
+		['Calendar', '/dashboard/calendar'],
 		['Planner', '/dashboard/planner'],
 		['Account', '/dashboard/account']
 	]) {
@@ -73,6 +77,8 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		.toHaveAttribute('href', '/dashboard/projects/new');
 	await expect.element(nav.getByRole('link', { name: /Staff console/ })).not.toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'View site' })).not.toBeInTheDocument();
+	// Without a profile the planner shows on its own; the Promoter section waits until it's turned on.
+	await expect.element(nav.getByRole('list', { name: 'Promoter' })).not.toBeInTheDocument();
 });
 
 it('adds the staff console, with the requests waiting, for staff', async () => {
@@ -194,7 +200,7 @@ it('offers to start a party while spacePages is on', async () => {
 	await expect.element((await open(false)).getByRole('link', { name: 'Start a party' })).not.toBeInTheDocument();
 });
 
-it('shows a DJ their projects and a promoter their planner, by the sections their profile has on', async () => {
+it('shows a DJ their projects and a promoter their Promoter section, by the sections their profile has on', async () => {
 	const open = async (sections: { performer: boolean; promoter: boolean }, projects: ProjectView[] = []) => {
 		cleanup();
 
@@ -217,15 +223,40 @@ it('shows a DJ their projects and a promoter their planner, by the sections thei
 	};
 
 	let nav = await open({ performer: false, promoter: true });
+	const promoter = nav.getByRole('list', { name: 'Promoter' });
+	await expect.element(promoter.getByRole('link', { name: 'Book DJs' })).toHaveAttribute('href', '/dashboard/promoter');
+	await expect.element(promoter.getByRole('link', { name: 'Planner' })).toHaveAttribute('href', '/dashboard/planner');
 	await expect.element(nav.getByRole('link', { name: 'You', exact: true })).toBeInTheDocument();
-	await expect.element(nav.getByRole('link', { name: 'Planner' })).toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'List a project' })).not.toBeInTheDocument();
 
 	nav = await open({ performer: true, promoter: false });
 	await expect.element(nav.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
+	await expect.element(nav.getByRole('list', { name: 'Promoter' })).not.toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'Book DJs' })).not.toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'Planner' })).not.toBeInTheDocument();
 
 	// Projects someone manages stay, whatever their profile says.
 	nav = await open({ performer: false, promoter: false }, [neon]);
 	await expect.element(nav.getByRole('link', { name: 'Neon Tide' })).toBeInTheDocument();
+});
+
+it('leaves Calendar out while dashboardCalendar is off', async () => {
+	await render(Layout, {
+		params: {},
+		data: {
+			viewer: viewer(false),
+			pendingRequests: 0,
+			unread: 0,
+			waiting: 0,
+			needs: [],
+			access: Promise.resolve([]),
+			projects: Promise.resolve([]),
+			sections: Promise.resolve(null)
+		},
+		children
+	});
+	const nav = await menu();
+
+	await expect.element(nav.getByRole('link', { name: 'Bookings', exact: true })).toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'Calendar', exact: true })).not.toBeInTheDocument();
 });

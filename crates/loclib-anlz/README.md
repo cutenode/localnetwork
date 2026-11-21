@@ -38,6 +38,16 @@ std::fs::write("ANLZ0000.EXT", write_cue_points(&ext, CueFile::Ext, &cues)?)?;
 # }
 ```
 
+## Where the files go
+
+`AnalysisFolder` is the folder rekordbox puts a track's files in, from the track's path as
+`export.pdb` stores it: `AnalysisFolder::of("/Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3")`
+writes as `PIONEER/USBANLZ/P016/0000875E`. It's a hash of the path's UTF-16 code units, and it
+places every analysed track of the rekordbox exports it was checked on. It stays two numbers until
+it's written out, and `of_parts` hashes a path from its parts without joining them. An XDJ-RX3 only
+looks there, so files written anywhere else show no waveforms or beat grid on it. When two paths hash alike, rekordbox
+puts the second track's files in the same folder as `ANLZ0001.*`, and so on.
+
 ## How it writes
 
 A file is a `PMAI` header followed by tagged sections, each starting with `tag[4] header_len:u32
@@ -72,11 +82,15 @@ part of the DJ Link ecosystem analysis that began with
 puts over phrases comes from. rekordcrate is a second, independent reading of those layouts,
 which the tests check this one against. How `PWV6` and `PWV7` heights scale follows
 [beat-link](https://github.com/Deep-Symmetry/beat-link). The rekordbox 7 cue lists were observed
-by baken (MIT), whose byte-level fixtures the cue tests reproduce.
+by baken (MIT), whose byte-level fixtures the cue tests reproduce. The analysis folder hash was
+reported by [rekordbox_converter](https://github.com/ModeAxe/rekordbox_converter/pull/2) and
+[rbxport](https://github.com/chrisle/rbxport/issues/616), and checked here against rekordbox's own
+exports.
 
 ## What it doesn't do
 
-- Find a track's analysis files on a drive. locallibrary does that (`anlz::load`).
+- Find a track's analysis files on a drive, or pick a free `ANLZ000n` for new ones. locallibrary
+  does that (`anlz::load`, `paths::analysis_stem`).
 - Write `PQT2` or work out `PWV4`, whose bytes aren't all understood.
 - Analyse audio. loclib-analysis works out tempo and 3-band waveforms from a track's sound.
 
