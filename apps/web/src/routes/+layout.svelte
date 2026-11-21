@@ -97,8 +97,8 @@
 		<a class="menu-link" href="/for" aria-keyshortcuts={shortcut('I')}>{m.footer_who_its_for()}</a>
 		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>{m.footer_privacy()}</a>
 		<a class="menu-link" href="/tools">{m.footer_tools()}</a>
-		<!-- Signed out, /report sends people on to GitHub, so the link says so. -->
-		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">{data.viewer ? m.footer_report_bug() : m.footer_report_bug_github()}</a>
+		<!-- Signed out, or when reports don't go to userinput.app for them, /report sends people on to GitHub, so the link says so. -->
+		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">{data.viewer && data.reportsToUserinput ? m.footer_report_bug() : m.footer_report_bug_github()}</a>
 		<button type="button" class="menu-link inline-flex min-h-9 items-center gap-2" aria-pressed={hotkeys.enabled} onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>{hotkeys.enabled ? m.footer_shortcuts_on() : m.footer_shortcuts_off()}</button>
 		<span class="text-fg-subtle sm:ms-auto">{m.footer_tagline()}</span>
 	</div>

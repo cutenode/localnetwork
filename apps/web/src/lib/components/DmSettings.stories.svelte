@@ -45,6 +45,9 @@
 
 <Story name="Not set up here" args={{ available: false, channel: null, availability: null, root }} />
 
+<!-- The site sends DMs, but they aren't rolled out to this account. -->
+<Story name="Not on for you yet" args={{ available: false, notYet: true, channel: null, availability: null, root }} />
+
 <!-- Turned on before DMs stopped being offered to them, so they can still be turned off. -->
 <Story name="No longer offered, still on" args={{ available: false, channel: on, availability: null, root }} />
 

@@ -46,14 +46,19 @@ describe('an account that stops being active, on a real PDS', () => {
 	it("leaves a deactivated DJ out of Find DJs and says their page isn't active, until they come back", async () => {
 		const neon = net.user('neon');
 
-		const page = () =>
-			callRoute(profilePage, { app: net.app, params: { handle: neon.handle }, url: `/@${neon.handle}` });
+		const page = (address = neon.handle) =>
+			callRoute(profilePage, { app: net.app, params: { handle: address }, url: `/@${address}` });
 
 		await neon.agent.com.atproto.server.deactivateAccount({});
 		await net.app.accountStatuses.refresh();
 
 		expect(await listed()).toEqual([]);
-		await expect(page()).rejects.toMatchObject({ status: 404, body: { title: "This account isn't active" } });
+		// A deactivated account's PDS stops answering for its handle, so that address finds nobody; its DID still says why.
+		await expect(page()).rejects.toMatchObject({ status: 404 });
+		await expect(page(neon.did)).rejects.toMatchObject({
+			status: 404,
+			body: { title: expect.stringMatching(/isn't active$/) }
+		});
 
 		await neon.agent.com.atproto.server.activateAccount();
 		await checkLater();

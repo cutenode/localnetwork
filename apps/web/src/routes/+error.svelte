@@ -14,7 +14,7 @@
 
 <svelte:head><title>{page.error?.title ?? page.status} · Local Network</title></svelte:head>
 
-<div class="container-page flex flex-col items-center gap-6 py-20 sm:py-30">
+<div class="container-page flex flex-col gap-6 py-20 text-center sm:py-30">
 	<SectionHeader level={1} align="center" {eyebrow} {title} {lede}>
 		{#snippet actions()}<Button href="/">Back to home</Button><Button variant="secondary" href="/djs">Find DJs</Button>{/snippet}
 	</SectionHeader>

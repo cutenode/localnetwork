@@ -314,6 +314,23 @@ describe('RequestService', () => {
 			expect(decisions).toEqual([expect.objectContaining({ reason: 'Welcome', langs: ['en'] })]);
 		});
 
+		it("doesn't give a project the languages of a request whose only prose is its message", async () => {
+			// Arrange
+			const uri = await synced('3unworded', {
+				kind: 'create',
+				profile: profile('Unworded'),
+				message: 'Wir spielen sonntags',
+				langs: ['de']
+			});
+
+			// Act
+			await t.requests.decide({ actor: await t.viewer(MOD), uri, outcome: 'approved' });
+
+			// Assert
+			const [project] = t.net.listed(ROOT, COLLECTION.project).map(({ record }) => record);
+			expect(project).not.toHaveProperty('langs');
+		});
+
 		it("won't approve a listing request once the requester's profile is gone", async () => {
 			const uri = await synced('3list', {
 				kind: 'list',

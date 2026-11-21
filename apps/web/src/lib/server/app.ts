@@ -186,15 +186,26 @@ export async function createApp(options: CreateAppOptions) {
 		notify: (space) => syncer.registration(space)
 	});
 
+	/**
+	 * Has HappyView re-read a reinstated account's records, which it dropped at the takedown. Nothing tries again later,
+	 * so a re-read that's paused, failed or still going after its wait is logged for staff to run by hand.
+	 */
+	const rereadReinstated = async (did: string) => {
+		const done = await Promise.all(
+			MANAGER_COLLECTIONS.map((collection) => backfills.backfill(collection, [did]).catch(() => false))
+		);
+
+		const unread = MANAGER_COLLECTIONS.filter((_, index) => !done[index]);
+
+		if (unread.length) logger.warn("a reinstated account's records may not all be back", { did, collections: unread });
+	};
+
 	// Services built after `core` list the directory's accounts, and only from their methods.
 	const accountStatuses = new AccountStatuses({
 		lookup: repoStatusLookup(identity),
 		accounts: async () => [...(await projects.managers()), ...(await djListings.listed())],
 		logger: logger.child({ component: 'account-status' }),
-		// HappyView drops a taken-down account's records, so a reinstated one's are read again.
-		reinstated: (did) => {
-			for (const collection of MANAGER_COLLECTIONS) void backfills.backfill(collection, [did]);
-		}
+		reinstated: (did) => void rereadReinstated(did)
 	});
 
 	const core: Core = {
@@ -262,11 +273,11 @@ export async function createApp(options: CreateAppOptions) {
 		logger.warn('flags forced by FLAG_OVERRIDES', { flags: config.flagOverrides });
 	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }), flags);
 	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
-	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr, flags);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
-	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
+	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }), INDEX_WAIT_MS, flags);
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
@@ -287,8 +298,8 @@ export async function createApp(options: CreateAppOptions) {
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
 
 	const epkViews = new EpkViews(core, epks, config.epkViewRetentionDays);
-	const shows = new ShowService(core, projects, happyView, indexedRepo);
-	const follows = new FollowService(core, happyView);
+	const shows = new ShowService(core, projects, happyView, indexedRepo, INDEX_WAIT_MS, flags);
+	const follows = new FollowService(core, happyView, INDEX_WAIT_MS, flags);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
 
 	const listings = new ListingWriter(core, flags, {
@@ -330,7 +341,7 @@ export async function createApp(options: CreateAppOptions) {
 		config.publicUrl
 	);
 
-	const rsvps = new RsvpService(core, happyView, config.publicUrl);
+	const rsvps = new RsvpService(core, happyView, config.publicUrl, INDEX_WAIT_MS, flags);
 	const requests = new RequestService(core, projects, profiles, djListings, venues, sharedSpaces);
 	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
@@ -424,7 +435,7 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	/** Runs one of the rounds that fix drift in the root's repo, unless pauseReconcilers is on. */
-	const reconcile = async (round: string, work: () => Promise<void>) => {
+	const reconcile = async <T>(round: string, work: () => Promise<T>) => {
 		if (!(await paused('pauseReconcilers', round))) await work();
 	};
 
@@ -584,7 +595,9 @@ export async function createApp(options: CreateAppOptions) {
 			await syncer.syncAll();
 			// After the sync, so the index has every space's people, and the requests and grants left in press kit spaces.
 			await reconcile('listings', () => listings.reconcile());
-			await reconcile('venue-blocks', () => venues.reconcileBlocks());
+			// Not paused by pauseReconcilers: it only reads the root's blocks into the index, and an index left empty
+			// after a restore would show blocked promoters as confirmed (ADR 0014).
+			await venues.reconcileBlocks();
 			// After the blocks, which decide which events are listed.
 			await reconcile('calendar-copies', () => events.reconcileCalendarCopies());
 			await reconcile('press-kit-spaces', () => moveKitSpaces(core, epks));
@@ -624,11 +637,12 @@ export async function createApp(options: CreateAppOptions) {
 			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
 			// where one differs.
 			every(60 * 60_000, () => reconcile('listings', () => listings.reconcile()), 'listings');
-			// Indexes the root's venue blocks and drops ones that are gone: one listRecords of the root's own repo.
-			every(60 * 60_000, () => reconcile('venue-blocks', () => venues.reconcileBlocks()), 'venue-blocks');
 			// Takes down the calendar copies of events whose night ended while they waited for the venue, and fixes any that
 			// drifted: one listRecords of the root's own repo, and writes only where a copy differs.
 			every(60 * 60_000, () => reconcile('calendar-copies', () => events.reconcileCalendarCopies()), 'calendar-copies');
+			// Indexes the root's venue blocks and drops ones that are gone: one listRecords of the root's own repo. It writes
+			// nothing there, so pauseReconcilers leaves it running.
+			every(60 * 60_000, () => venues.reconcileBlocks(), 'venue-blocks');
 			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');

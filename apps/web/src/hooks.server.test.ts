@@ -17,6 +17,7 @@ import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import type { Logger } from '#lib/server/logger.ts';
+import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import type { Viewer } from '#lib/types.ts';
 import { flagsOff } from '#lib/testing/flags.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
@@ -298,8 +299,8 @@ it('counts a signed-out visitor in a percentage by their own cookie, the same wa
 		const inside = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: INSIDE_HALF } });
 		const outside = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: OUTSIDE_HALF } });
 
-		expect(inside.locals.flags?.parityCanary).toBe(true);
-		expect(outside.locals.flags?.parityCanary).toBe(false);
+		expect(inside.locals.flags?.[PAGE_FLAG]).toBe(true);
+		expect(outside.locals.flags?.[PAGE_FLAG]).toBe(false);
 		expect(inside.cookies.options.has(VISITOR_COOKIE)).toBe(false);
 	}
 });
@@ -309,7 +310,9 @@ it('gives a signed-out visitor a first-party id on their first request, and keep
 	const { handle } = hooksWith(async () => s.app);
 	await atPercentage(s, 50);
 
-	for (const cookies of [{}, { [VISITOR_COOKIE]: 'not-a-uuid' }]) {
+	const visits: Record<string, string>[] = [{}, { [VISITOR_COOKIE]: 'not-a-uuid' }];
+
+	for (const cookies of visits) {
 		const first = await handledWithLocals(handle, { url: '/', cookies });
 		const id = first.cookies.get(VISITOR_COOKIE);
 
@@ -324,7 +327,7 @@ it('gives a signed-out visitor a first-party id on their first request, and keep
 
 		const again = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: id! } });
 
-		expect(again.locals.flags?.parityCanary).toBe(first.locals.flags?.parityCanary);
+		expect(again.locals.flags?.[PAGE_FLAG]).toBe(first.locals.flags?.[PAGE_FLAG]);
 	}
 });
 
@@ -356,7 +359,7 @@ it('gives a visitor no id while no flag is on for a percentage, nor when signed 
 		cookies: { [VISITOR_COOKIE]: INSIDE_HALF }
 	});
 
-	expect(xrpc.locals.flags?.parityCanary).toBe(false);
+	expect(xrpc.locals.flags?.[PAGE_FLAG]).toBe(false);
 	expect(xrpc.cookies.options.has(VISITOR_COOKIE)).toBe(false);
 });
 
@@ -376,6 +379,20 @@ it("keeps a signed-out page out of shared caches while it depends on the visitor
 
 	expect(await cacheControl({})).toBe('private, max-age=60');
 	expect(await cacheControl({ [VISITOR_COOKIE]: OUTSIDE_HALF })).toBe('private, max-age=60');
+});
+
+it('gives a visitor no id, and keeps pages shared-cacheable, while only a flag for accounts is on for a percentage', async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	await atPercentage(s, 50, {}, ACCOUNT_FLAG);
+
+	const { cookies, response } = await handledWithLocals(handle, { url: '/artists' }, 200, {
+		'cache-control': 'public, max-age=60',
+		vary: 'Cookie'
+	});
+
+	expect(cookies.options.has(VISITOR_COOKIE)).toBe(false);
+	expect(response.headers.get('cache-control')).toBe('public, max-age=60');
 });
 
 it('limits writes by address, and counts an unknown address as one', async () => {
@@ -582,6 +599,30 @@ it("renders the page in the locale its cookie names, with the page's lang and di
 	);
 });
 
+it("keeps the locale cookie out of a public immutable answer's Vary, so caches share an OG card or avatar", async () => {
+	// Arrange
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+	const image = { 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' };
+	const request = { url: '/og/project/3proj.png', cookies: { ln_locale: 'en' } };
+
+	// Act
+	const { response } = await handledWithLocals(handle, request, 200, image);
+	const page = await handledWithLocals(handle, { url: '/artists' }, 200, { 'cache-control': 'public, max-age=60' });
+
+	const gzipped = await handledWithLocals(handle, { ...request, headers: { 'accept-encoding': 'gzip' } }, 200, {
+		...image,
+		'content-type': 'application/json'
+	});
+
+	// Assert
+	expect({
+		image: response.headers.get('vary'),
+		page: page.response.headers.get('vary'),
+		gzipped: gzipped.response.headers.get('vary')
+	}).toEqual({ image: null, page: 'Cookie', gzipped: 'accept-encoding' });
+});
+
 it("preloads the scripts, styles and the two typefaces' Latin files, and nothing else", async () => {
 	const s = await services();
 	const { handle } = hooksWith(async () => s.app);
@@ -647,19 +688,26 @@ const DJ = 'did:plc:dj';
 
 const ADMIN = 'did:plc:admin';
 
-/** Visitor cookies whose ids sit in parityCanary's buckets 16 and 55: inside a 50% rollout, and outside it. */
+/** A flag that changes a public page (its catalog file has `showsOn`), so signed-out visitors are counted in it. */
+const PAGE_FLAG = 'pauseRecordingStream' satisfies FlagKey;
+
+/** A flag with no `showsOn`, which changes only what accounts see. */
+const ACCOUNT_FLAG = 'inboxEmail' satisfies FlagKey;
+
+/** Visitor cookies whose ids sit in PAGE_FLAG's buckets 36 and 59: inside a 50% rollout, and outside it. */
 const INSIDE_HALF = '00000000-0000-4000-8000-000000000000';
 
 const OUTSIDE_HALF = '00000001-0000-4000-8000-000000000000';
 
-/** Puts parityCanary on for `percentage` of everyone, with `gates` on top, as an admin of `s`. */
+/** Puts `key` on for `percentage` of everyone, with `gates` on top, as an admin of `s`. */
 async function atPercentage(
 	s: Awaited<ReturnType<typeof services>>,
 	percentage: number,
-	gates: { enabled?: boolean; everyone?: boolean } = {}
+	gates: { enabled?: boolean; everyone?: boolean } = {},
+	key: FlagKey = PAGE_FLAG
 ) {
 	const input = { enabled: true, everyone: false, percentage, groups: [], dids: [], ...gates };
-	await s.flags.updateFlag(await s.viewer(ADMIN), 'parityCanary', input);
+	await s.flags.updateFlag(await s.viewer(ADMIN), key, input);
 }
 
 /** An account whose OAuth grant lacks scopes the app now asks for, so the app has no viewer for it. */
@@ -672,7 +720,7 @@ type HookApp = {
 	logger?: Logger;
 	sessions?: WebSessions;
 	limits?: { write: RateLimiter };
-	flags?: Pick<FlagService, 'evaluate' | 'preview' | 'hasPercentage'>;
+	flags?: Pick<FlagService, 'evaluate' | 'preview' | 'hasPublicPercentage'>;
 	viewer?: (did: string) => Promise<Viewer | null>;
 	config?: { publicUrl: string };
 };

@@ -10,6 +10,7 @@ import { recordCid, xrpcErrorName } from '../atproto/repo-client';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
+import type { BackfillFlags } from '../happyview/backfills';
 import type { DirectoryShow, HappyViewClient } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, type IndexedRepo, reindex } from '../happyview/indexed';
 import { atVenue, venueEnd, venueTime, zoneOf } from '../venue-time';
@@ -222,7 +223,9 @@ export class ShowService {
 		private readonly projects: ProjectService,
 		private readonly directory: HappyViewClient,
 		private readonly indexed: IndexedRepo,
-		private readonly indexWaitMs = INDEX_WAIT_MS
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		/** The app's, for pauseBackfills. */
+		private readonly flags?: BackfillFlags
 	) {}
 
 	/** Upcoming shows, a page at a time, without those by accounts that aren't active. */
@@ -392,7 +395,7 @@ export class ShowService {
 	 * never brought (while HappyView was down, say). Runs when the app boots.
 	 */
 	async reindexManagers(): Promise<void> {
-		await reindex(this.directory, this.core.logger, COLLECTION.show, await this.projects.managers());
+		await reindex(this.directory, this.core.logger, this.flags, COLLECTION.show, await this.projects.managers());
 	}
 
 	/**
@@ -425,7 +428,7 @@ export class ShowService {
 	private async awaitServed(did: string, served: () => Promise<boolean>): Promise<void> {
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
 		this.core.logger.warn('the directory has not caught up with a show write yet', { did });
-		await reindex(this.directory, this.core.logger, COLLECTION.show, [did]);
+		await reindex(this.directory, this.core.logger, this.flags, COLLECTION.show, [did]);
 	}
 
 	/** The app's view of a directory show, or null (logged) when it or its project doesn't validate. */

@@ -16,7 +16,14 @@ const DJ = 'did:plc:dj';
 
 const OTHER = 'did:plc:other';
 
+/** An ops flag. */
 const FLAG = 'parityCanary';
+
+/** An ops flag that changes public pages, which its catalog file lists in `showsOn`. */
+const PAGE_FLAG = 'pauseRecordingStream';
+
+/** A release flag, which goes once it's rolled out. */
+const RELEASE = 'dashboardCalendar';
 
 const off = { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
 
@@ -117,24 +124,34 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
-	it('says whether a flag is on for a percentage, which signed-out visitors need an id for', async () => {
+	it('says whether a flag on public pages is on for a percentage, which signed-out visitors need an id for', async () => {
 		const admin = await t.viewer(ADMIN);
 
-		expect(await t.flags.hasPercentage()).toBe(false);
+		expect(await t.flags.hasPublicPercentage()).toBe(false);
 
-		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 5 });
+		await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 5 });
 
-		expect(await t.flags.hasPercentage()).toBe(true);
-		expect(await new FlagService(t.core, t.staff, { [FLAG]: true }).hasPercentage()).toBe(false);
-		expect(await new FlagService(t.core, t.staff, { [FLAG]: false }).hasPercentage()).toBe(false);
+		expect(await t.flags.hasPublicPercentage()).toBe(true);
+		expect(await new FlagService(t.core, t.staff, { [PAGE_FLAG]: true }).hasPublicPercentage()).toBe(false);
+		expect(await new FlagService(t.core, t.staff, { [PAGE_FLAG]: false }).hasPublicPercentage()).toBe(false);
 
-		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 5, enabled: false });
+		await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 5, enabled: false });
 
-		expect(await t.flags.hasPercentage()).toBe(false);
+		expect(await t.flags.hasPublicPercentage()).toBe(false);
 
-		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 5, everyone: true });
+		await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 5, everyone: true });
 
-		expect(await t.flags.hasPercentage()).toBe(false);
+		expect(await t.flags.hasPublicPercentage()).toBe(false);
+	});
+
+	it('needs no visitor id for a flag that changes only what accounts see, whatever its percentage', async () => {
+		const admin = await t.viewer(ADMIN);
+
+		for (const key of [FLAG, 'inboxEmail', 'inboxDm', 'userinputReports'] as const) {
+			await t.flags.updateFlag(admin, key, { ...off, percentage: 50 });
+		}
+
+		expect(await t.flags.hasPublicPercentage()).toBe(false);
 	});
 
 	it('tells a caller its own targeting and never who else', async () => {
@@ -298,19 +315,24 @@ describe('FlagService', () => {
 	});
 
 	it('lists the kinds of page a flag shows on from its catalog file, and none when it names none', async () => {
-		expect((await t.flags.flag(FLAG))?.showsOn).toEqual(['profile']);
-		expect((await t.flags.flag('pauseGoogleTokenExchange'))?.showsOn).toEqual([]);
+		expect((await t.flags.flag(PAGE_FLAG))?.showsOn).toEqual(['set', 'mix']);
+		expect((await t.flags.flag(FLAG))?.showsOn).toEqual([]);
 	});
 
-	it('says a flag is ready to remove once it has been on for everyone or every account for 30 days', async () => {
-		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);
+	it('gives a release flag the date its catalog file says to remove it by, and an ops flag none', async () => {
+		expect((await t.flags.flag(RELEASE))?.removeBy).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		expect((await t.flags.flag(FLAG))?.removeBy).toBeUndefined();
+	});
+
+	it('says a release flag is ready to remove once it has been on for everyone or every account for 30 days', async () => {
+		const uri = (key: string) => spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, key);
 		const dids: string[] = [];
-		const record = { key: FLAG, everyone: false, percentage: 0, groups: [], dids, updatedBy: ADMIN };
+		const record = { everyone: false, percentage: 0, groups: [], dids, updatedBy: ADMIN };
 
-		const ready = async (gates: Partial<typeof record & { enabled: boolean }>, updatedAt: string) => {
-			await t.flags.indexFlag(uri, { ...record, ...gates, updatedAt });
+		const ready = async (gates: Partial<typeof record & { enabled: boolean }>, updatedAt: string, key = RELEASE) => {
+			await t.flags.indexFlag(uri(key), { ...record, key, ...gates, updatedAt });
 
-			return (await t.flags.flag(FLAG))?.readyToRemove;
+			return (await t.flags.flag(key))?.readyToRemove;
 		};
 
 		vi.useFakeTimers({ now: new Date('2026-12-01T12:00:00.000Z'), toFake: ['Date'] });
@@ -321,13 +343,15 @@ describe('FlagService', () => {
 			expect(await ready({ everyone: true }, '2026-11-01T12:00:00.001Z')).toBe(false);
 			expect(await ready({ percentage: 99, dids: [DJ] }, '2026-01-01T00:00:00.000Z')).toBe(false);
 			expect(await ready({ everyone: true, enabled: false }, '2026-01-01T00:00:00.000Z')).toBe(false);
+			// An ops flag stays, however long it's been on.
+			expect(await ready({ everyone: true }, '2026-01-01T00:00:00.000Z', FLAG)).toBe(false);
 		} finally {
 			vi.useRealTimers();
 		}
 
-		await t.flags.removeFlagByUri(uri);
+		await t.flags.removeFlagByUri(uri(RELEASE));
 
-		expect((await t.flags.flag(FLAG))?.readyToRemove).toBe(false);
+		expect((await t.flags.flag(RELEASE))?.readyToRemove).toBe(false);
 	});
 
 	it('shows a group that has gone by its key, so a flag still naming it can be fixed', async () => {

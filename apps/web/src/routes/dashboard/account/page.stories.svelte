@@ -4,7 +4,7 @@
 	import AccountNav from '#lib/components/AccountNav.svelte';
 	import { accountLayout, auditEntry } from '#lib/testing/account.ts';
 	import { request } from '#lib/testing/requests.ts';
-	import type { ChannelView, HeldRecordView } from '#lib/types.ts';
+	import type { HeldRecordView } from '#lib/types.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import Activity from './activity/+page.svelte';
 	import Data from './data/+page.svelte';
@@ -46,9 +46,7 @@
 
 	const held = (kind: HeldRecordView['kind'], uri: string): HeldRecordView => ({ uri, kind, title: 'A record', excerpt: null, createdAt: hoursAgo(4) });
 
-	const email: ChannelView = { status: 'active', pausedReason: null, address: null, topics: [] };
-
-	const landing: ComponentProps<typeof Landing>['data'] = { ...accountLayout, channels: [email, null], latest: [entries[1]], requests, held: [held('booking', 'a'), held('booking', 'b')] };
+	const landing: ComponentProps<typeof Landing>['data'] = { ...accountLayout, channels: ['on', 'off'], latest: [entries[1]], requests, held: [held('booking', 'a'), held('booking', 'b')] };
 
 	const activity = (value: ComponentProps<typeof Activity>['data']['activity']) => ({ ...accountLayout, activity: value });
 
@@ -58,6 +56,7 @@
 </script>
 
 <Story name="Landing" asChild><Landing params={{}} form={null} data={landing} /></Story>
+<Story name="Landing, DMs paused here" asChild><Landing params={{}} form={null} data={{ ...landing, channels: ['on', 'paused'] }} /></Story>
 <Story name="Landing, phone" asChild globals={phone}><Landing params={{}} form={null} data={landing} /></Story>
 <Story name="Landing, loading" asChild><Landing params={{}} form={null} data={{ ...landing, channels: loading, latest: loading, requests: loading, held: loading }} /></Story>
 <Story name="Landing, a line failed" asChild><Landing params={{}} form={null} data={{ ...landing, channels: null, latest: null, requests: null, held: null }} /></Story>

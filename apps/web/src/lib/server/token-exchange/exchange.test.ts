@@ -1,5 +1,6 @@
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { silentLogger } from '../logger';
 import { remoteObject } from '../testing/remote-bodies';
 import { writtenLog } from '../testing/written-log';
@@ -93,7 +94,12 @@ describe('exchangeToken', () => {
 		const { sent, fetch } = services();
 		const { lines, log } = capture();
 
-		const answer = await exchangeToken('soundcloud', post({ ...code, client_id: 'the-plugins' }), { log, env, fetch });
+		const answer = await exchangeToken('soundcloud', post({ ...code, client_id: 'the-plugins' }), {
+			log,
+			env,
+			fetch,
+			flags: flagsOff
+		});
 
 		expect(answer.status).toBe(200);
 		expect(answer.headers.get('cache-control')).toBe('no-store');
@@ -115,7 +121,7 @@ describe('exchangeToken', () => {
 		const { lines, log } = capture();
 		const refresh = (token: string) => post({ grant_type: 'refresh_token', refresh_token: token });
 
-		const fresh = await exchangeToken('soundcloud', refresh('rt-1'), { log, env, fetch });
+		const fresh = await exchangeToken('soundcloud', refresh('rt-1'), { log, env, fetch, flags: flagsOff });
 		expect(await fresh.json()).toMatchObject({ access_token: 'at-2', refresh_token: 'rt-2' });
 		expect(Object.fromEntries(sent[0].form)).toEqual({
 			grant_type: 'refresh_token',
@@ -124,13 +130,14 @@ describe('exchangeToken', () => {
 			client_secret: 'sc-secret'
 		});
 
-		const spent = await exchangeToken('soundcloud', refresh('rt-0'), { log, env, fetch });
+		const spent = await exchangeToken('soundcloud', refresh('rt-0'), { log, env, fetch, flags: flagsOff });
 		expect([spent.status, await spent.json()]).toEqual([400, { error: 'invalid_grant', error_description: 'spent' }]);
 
 		const wrong = await exchangeToken('soundcloud', refresh('rt-1'), {
 			log,
 			env: { ...env, SOUNDCLOUD_CLIENT_SECRET: 'stale' },
-			fetch
+			fetch,
+			flags: flagsOff
 		});
 
 		expect([wrong.status, await wrong.json()]).toEqual([401, { error: 'invalid_client' }]);
@@ -141,7 +148,7 @@ describe('exchangeToken', () => {
 		const { sent, fetch } = services();
 		const { log } = capture();
 
-		const answer = await exchangeToken('mixcloud', post(code), { log, env, fetch });
+		const answer = await exchangeToken('mixcloud', post(code), { log, env, fetch, flags: flagsOff });
 
 		expect(await answer.json()).toEqual({ access_token: 'at-1', token_type: 'bearer' });
 		expect(sent.map((s) => [s.method, s.url.origin + s.url.pathname, Object.fromEntries(s.form)])).toEqual([
@@ -155,7 +162,8 @@ describe('exchangeToken', () => {
 		const refused = await exchangeToken('mixcloud', post({ grant_type: 'refresh_token', refresh_token: 'rt-1' }), {
 			log,
 			env,
-			fetch
+			fetch,
+			flags: flagsOff
 		});
 
 		expect([refused.status, await refused.json()]).toEqual([
@@ -166,7 +174,8 @@ describe('exchangeToken', () => {
 		const unknown = await exchangeToken('mixcloud', post(code), {
 			log,
 			env: { ...env, MIXCLOUD_CLIENT_ID: 'x' },
-			fetch
+			fetch,
+			flags: flagsOff
 		});
 
 		expect([unknown.status, await unknown.json()]).toEqual([400, { error: 'incorrect_client_credentials' }]);
@@ -178,7 +187,7 @@ describe('exchangeToken', () => {
 		async (id) => {
 			const { sent, fetch } = services();
 
-			const answer = await exchangeToken(id, post(code), { log: capture().log, env, fetch });
+			const answer = await exchangeToken(id, post(code), { log: capture().log, env, fetch, flags: flagsOff });
 
 			expect([answer.status, await answer.json()]).toEqual([
 				404,
@@ -193,7 +202,7 @@ describe('exchangeToken', () => {
 		const { lines, log } = capture();
 
 		for (const missing of [{}, { GOOGLE_CLIENT_ID: 'g-client' }, { GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: '' }]) {
-			const answer = await exchangeToken('google', post(code), { log, env: missing, fetch });
+			const answer = await exchangeToken('google', post(code), { log, env: missing, fetch, flags: flagsOff });
 
 			expect([answer.status, await answer.json()]).toEqual([
 				503,
@@ -209,7 +218,7 @@ describe('exchangeToken', () => {
 	it('answers 503 for a service whose pause flag is on, sending it nothing, while the others still trade', async () => {
 		const { sent, fetch } = services();
 		const { lines, log } = capture();
-		const flags = { pauseMixcloudTokenExchange: true };
+		const flags = { ...flagsOff, pauseMixcloudTokenExchange: true };
 
 		const paused = await exchangeToken('mixcloud', post(code), { log, env, fetch, flags });
 
@@ -235,7 +244,7 @@ describe('exchangeToken', () => {
 	])('refuses %s', async (_, body) => {
 		const { sent, fetch } = services();
 
-		const answer = await exchangeToken('soundcloud', posted(body), { log: capture().log, env, fetch });
+		const answer = await exchangeToken('soundcloud', posted(body), { log: capture().log, env, fetch, flags: flagsOff });
 
 		expect([answer.status, (await answer.json()).error]).toEqual([400, 'invalid_request']);
 		expect(sent).toEqual([]);
@@ -249,7 +258,8 @@ describe('exchangeToken', () => {
 			const answer = await exchangeToken('mixcloud', post({ ...code, redirect_uri: redirect }), {
 				log: capture().log,
 				env,
-				fetch
+				fetch,
+				flags: flagsOff
 			});
 
 			expect(answer.status).toBe(200);
@@ -275,7 +285,12 @@ describe('exchangeToken', () => {
 		const { lines, log } = capture();
 
 		for (const service of ['mixcloud', 'soundcloud']) {
-			const answer = await exchangeToken(service, post({ ...code, redirect_uri: redirect }), { log, env, fetch });
+			const answer = await exchangeToken(service, post({ ...code, redirect_uri: redirect }), {
+				log,
+				env,
+				fetch,
+				flags: flagsOff
+			});
 
 			expect([answer.status, await answer.json()]).toEqual([
 				400,
@@ -297,11 +312,23 @@ describe('exchangeToken', () => {
 		const refresh = (redirect: string) =>
 			post({ grant_type: 'refresh_token', refresh_token: 'rt-1', redirect_uri: redirect });
 
-		const elsewhere = await exchangeToken('soundcloud', refresh('https://attacker.example/cb'), { log, env, fetch });
+		const elsewhere = await exchangeToken('soundcloud', refresh('https://attacker.example/cb'), {
+			log,
+			env,
+			fetch,
+			flags: flagsOff
+		});
+
 		expect(elsewhere.status).toBe(400);
 		expect(sent).toEqual([]);
 
-		const home = await exchangeToken('soundcloud', refresh('http://127.0.0.1:47110/callback'), { log, env, fetch });
+		const home = await exchangeToken('soundcloud', refresh('http://127.0.0.1:47110/callback'), {
+			log,
+			env,
+			fetch,
+			flags: flagsOff
+		});
+
 		expect(await home.json()).toMatchObject({ access_token: 'at-2' });
 	});
 
@@ -309,7 +336,7 @@ describe('exchangeToken', () => {
 		const { sent, fetch } = services();
 		const huge = post({ ...code, code: 'c'.repeat(70_000) });
 
-		const answer = await exchangeToken('soundcloud', huge, { log: capture().log, env, fetch });
+		const answer = await exchangeToken('soundcloud', huge, { log: capture().log, env, fetch, flags: flagsOff });
 
 		expect([answer.status, (await answer.json()).error_description]).toEqual([413, 'The token request is too large']);
 		expect(sent).toEqual([]);
@@ -324,7 +351,7 @@ describe('exchangeToken', () => {
 			throw Object.assign(new TypeError('fetch failed', { cause }), { request: new Request(input).url });
 		};
 
-		const unreachable = await exchangeToken('mixcloud', post(code), { log, env, fetch: down });
+		const unreachable = await exchangeToken('mixcloud', post(code), { log, env, fetch: down, flags: flagsOff });
 		expect([unreachable.status, await unreachable.json()]).toEqual([
 			502,
 			{ error: 'temporarily_unavailable', error_description: "Mixcloud isn't answering" }
@@ -335,7 +362,7 @@ describe('exchangeToken', () => {
 			throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
 		};
 
-		const late = await exchangeToken('soundcloud', post(code), { log, env, fetch: slow });
+		const late = await exchangeToken('soundcloud', post(code), { log, env, fetch: slow, flags: flagsOff });
 
 		expect(late.status).toBe(502);
 		expect(JSON.stringify(lines)).toContain('"reason":"The operation was aborted due to timeout"');
@@ -344,7 +371,9 @@ describe('exchangeToken', () => {
 			throw 'mc-secret';
 		};
 
-		expect((await exchangeToken('mixcloud', post(code), { log, env, fetch: thrown })).status).toBe(502);
+		expect((await exchangeToken('mixcloud', post(code), { log, env, fetch: thrown, flags: flagsOff })).status).toBe(
+			502
+		);
 		expect(JSON.stringify(lines)).toContain('"reason":"unknown"');
 
 		// The last is nested deeper than answering it could stringify, though it's well under the size cap.
@@ -358,7 +387,7 @@ describe('exchangeToken', () => {
 			deep
 		]) {
 			const odd = async () => new Response(body, { status: body === null ? 502 : 200 });
-			const answer = await exchangeToken('soundcloud', post(code), { log, env, fetch: odd });
+			const answer = await exchangeToken('soundcloud', post(code), { log, env, fetch: odd, flags: flagsOff });
 
 			expect([answer.status, (await answer.json()).error_description]).toEqual([
 				502,
@@ -430,7 +459,12 @@ describe('exchangeToken, for anything sent to it', () => {
 					return Response.json({ access_token: 'at-1', token_type: 'bearer' });
 				};
 
-				const answer = await exchangeToken(id, posted(body), { log: silentLogger, env: everywhere, fetch });
+				const answer = await exchangeToken(id, posted(body), {
+					log: silentLogger,
+					env: everywhere,
+					fetch,
+					flags: flagsOff
+				});
 
 				expect([200, 400, 404, 413]).toContain(answer.status);
 				// Only an id no service is registered under, "constructor" and "__proto__" among them, is a 404.
@@ -478,7 +512,7 @@ describe('exchangeToken, for anything sent to it', () => {
 					const body = BODILESS.has(status) ? null : text;
 					const fetch = async () => new Response(body, { status, headers: { 'content-type': type } });
 
-					const answer = await exchangeToken(id, post(code), { log: silentLogger, env, fetch });
+					const answer = await exchangeToken(id, post(code), { log: silentLogger, env, fetch, flags: flagsOff });
 					const answered: unknown = await answer.json();
 
 					expect(answered).toBeTypeOf('object');

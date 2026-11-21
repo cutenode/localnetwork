@@ -4,6 +4,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import { SHOWS_ON } from '#lib/flags/shows-on.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
+	import { formatShowDate } from '#lib/format.ts';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
@@ -34,7 +35,15 @@
 	<a href="/admin/flags" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Flags</a>
 	<div class="flex flex-col gap-3">
 		<SectionHeader level={1} title={flag.key} lede={flag.description} />
-		<p class="text-small text-fg-muted">Shows on: <span class="text-fg">{showsOn}</span></p>
+		{#if flag.readyToRemove}
+			<p class="flex flex-wrap items-center gap-2 text-small text-fg-muted"><span class="pill bg-warning/10 text-warning">Ready to remove</span><span>Delete <code class="font-mono break-all text-fg">flags/catalog/{flag.key}.json</code> and the code it gates.</span></p>
+		{/if}
+		<div class="flex flex-col items-start gap-1 text-small text-fg-muted">
+			<p>Shows on: <span class="text-fg">{showsOn}</span></p>
+			<!-- removeBy is a calendar date, so it's read in UTC: local time would show it a day early west of Greenwich. -->
+			{#if flag.removeBy}<p>Remove by: <span class="text-fg">{formatShowDate(flag.removeBy)}</span></p>{/if}
+			<a class="link" href="/admin/audit?action=flag&q={flag.key}">Changes in the audit log</a>
+		</div>
 	</div>
 	<FormMessage {form} />
 	<form method="POST" action="?/save" class="card flex max-w-2xl flex-col gap-5 p-5" use:enhance={() => ({ update }) => update({ reset: false })}>
@@ -52,7 +61,7 @@
 			<div>
 				<label class="label" for="percentage">Percentage of people</label>
 				<input id="percentage" name="percentage" type="number" min="0" max="100" step="1" class="input max-w-32" bind:value={fields.percentage} aria-describedby="percentage-hint" />
-				<p id="percentage-hint" class="hint">Signed-out visitors count once per browser. Everyone in stays in as it grows.</p>
+				<p id="percentage-hint" class="hint">Counts signed-out browsers too; anyone in stays in.{#if flag.showsOn.length > 0}{' '}Crawlers see it about this share of the time.{/if}</p>
 			</div>
 			<fieldset>
 				<legend class="label">Groups</legend>

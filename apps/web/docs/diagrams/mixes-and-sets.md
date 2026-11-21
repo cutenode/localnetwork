@@ -118,7 +118,7 @@ Support counts come straight from the sets HappyView keeps, and nothing stores t
 ```mermaid
 flowchart TD
   Sets["dj.set records of active performers' managers,<br/>each named track kept by the gate"] --> Sql
-  Inactive["The app's list of inactive accounts"] -- "inactive param" --> Sql["Lua queries group plays in SQL"]
+  Inactive["The app's list of deactivated,<br/>taken-down and suspended accounts"] -- "inactive param" --> Sql["Lua queries group plays in SQL"]
   Sql --> Charts["getCharts"]
   Sql --> Artist["getArtist"]
   Sql --> Search["searchArtists"]

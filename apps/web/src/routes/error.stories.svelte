@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
 	import ErrorPage from './+error.svelte';
+	import { phone } from '#lib/testing/viewports.ts';
 
 	/**
 	 * The site's error page, for a page that isn't there, an account that isn't active, and a fault. Only a fault shows a
@@ -36,18 +37,42 @@
 
 <Story
 	name="Account isn't active"
-	parameters={at(404, 'Their profile and sets come back when the account does.', "This account isn't active")}
+	parameters={at(404, 'Their profile and sets come back when the account does.', "@mara.test isn't active")}
 	play={async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(canvas.getByRole('heading', { level: 1, name: "This account isn't active" })).toBeVisible();
+		await expect(canvas.getByRole('heading', { level: 1, name: "@mara.test isn't active" })).toBeVisible();
 		await expect(canvas.queryByText('Error 404')).toBeNull();
 	}}
 />
 
 <Story
 	name="Account deleted"
-	parameters={at(410, 'Their profile and sets are gone.', 'This account was deleted')}
+	parameters={at(410, 'Their profile and sets are gone.', '@mara.test was deleted')}
 	play={async ({ canvasElement }) => {
-		await expect(within(canvasElement).getByRole('heading', { level: 1, name: 'This account was deleted' })).toBeVisible();
+		await expect(within(canvasElement).getByRole('heading', { level: 1, name: '@mara.test was deleted' })).toBeVisible();
+	}}
+/>
+
+<!-- A handle has few places to break, so a long one has to wrap rather than push the page sideways on a phone. -->
+<Story
+	name="Account isn't active, long handle, on a phone"
+	globals={phone}
+	parameters={at(404, 'Their profile and sets come back when the account does.', "@djmarathonsoundsystem.berlin isn't active")}
+	play={async ({ canvasElement }) => {
+		await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(canvasElement.ownerDocument.documentElement.clientWidth);
+	}}
+/>
+
+<!-- On a phone the actions fill the page's width, however short the heading above them is. -->
+<Story
+	name="Account deleted, on a phone"
+	globals={phone}
+	parameters={at(410, 'Their profile and sets are gone.', '@mara.test was deleted')}
+	play={async ({ canvasElement }) => {
+		const page = canvasElement.querySelector('.container-page');
+		const home = within(canvasElement).getByRole('link', { name: 'Back to home' });
+		const gutters = page ? Number.parseFloat(getComputedStyle(page).paddingLeft) * 2 : 0;
+
+		await expect(home.getBoundingClientRect().width).toBe((page?.clientWidth ?? 0) - gutters);
 	}}
 />

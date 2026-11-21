@@ -194,7 +194,7 @@ it('is a 404 for an address that names no account, and a 429 once a visitor has 
 
 it("says an account isn't active, the same way whatever the reason, and that a deleted one was deleted", async () => {
 	const loadMara = () => callRoute(load, { app: app(), params: { handle: 'mara.test' }, url: '/@mara.test' });
-	const inactive = { status: 404, body: { title: "This account isn't active" } };
+	const inactive = { status: 404, body: { title: "@mara.test isn't active" } };
 
 	t.accountStatus.set(MARA, 'deactivated');
 	await expect(loadMara()).rejects.toMatchObject(inactive);
@@ -206,7 +206,7 @@ it("says an account isn't active, the same way whatever the reason, and that a d
 
 	t.accountStatus.set(MARA, 'deleted');
 	await t.accountStatuses.refresh();
-	await expect(loadMara()).rejects.toMatchObject({ status: 410, body: { title: 'This account was deleted' } });
+	await expect(loadMara()).rejects.toMatchObject({ status: 410, body: { title: '@mara.test was deleted' } });
 });
 
 it("shows the profile again once its account is active again, and refuses to follow it while it isn't", async () => {

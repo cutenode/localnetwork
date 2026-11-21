@@ -4,7 +4,7 @@ import { formatShowDate, kindLabel, placeLabel, pluralize, profileHref, setHref 
 import { type PageImage, type PageMeta, SITE_NAME } from '#lib/meta.ts';
 import { CARD } from '#lib/og/style.ts';
 import { bareMbid } from '#lib/supports.ts';
-import type { AccountView, Flags, ProfileRecord, ProfileView, ProjectView } from '#lib/types.ts';
+import type { AccountView, ProfileRecord, ProfileView, ProjectView } from '#lib/types.ts';
 import { type PageRecords, recordTags } from './meta-records';
 import { isDrawable } from './og/drawable';
 import { cardPaths } from './og/paths';
@@ -231,15 +231,15 @@ export const mixMeta = (
  * `meta`, with what only a page search engines may list carries set aside for the server hook to write into its head:
  * the records behind it as at-tags, and its structured data (see crawler-head.ts). A page kept out of search gets
  * neither, and its records aren't even looked up. While pauseOgCards is on, a card drawn for the page gives way to the
- * site's, since the card routes don't draw then; nothing is paused without `locals.flags`.
+ * site's, since the card routes don't draw then.
  */
 export async function listed(
-	locals: Pick<App.Locals, 'crawlerHead'> & { flags?: Partial<Flags> },
+	locals: Pick<App.Locals, 'crawlerHead' | 'flags'>,
 	meta: PageMeta,
 	{ records, jsonLd }: { records?: () => PageRecords | Promise<PageRecords>; jsonLd?: JsonLdBuilder | null }
 ): Promise<PageMeta> {
 	const shown =
-		locals.flags?.pauseOgCards && isDrawnCard(meta.image) ? { ...meta, image: absolute(SITE_CARD, meta.url) } : meta;
+		locals.flags.pauseOgCards && isDrawnCard(meta.image) ? { ...meta, image: absolute(SITE_CARD, meta.url) } : meta;
 
 	if (shown.noindex) return shown;
 	const head = [records && recordTags(await records()), jsonLd && jsonLdScript(jsonLdFor(shown, jsonLd))];

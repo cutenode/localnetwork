@@ -242,6 +242,24 @@ it("doesn't offer email or DMs to someone they aren't rolled out to, on a site t
 	expect(neither.dm).toMatchObject({ available: false, availability: null });
 });
 
+it("says a channel isn't on for them yet only when the site sends by it", async () => {
+	const viewer = await t.viewer(DJ);
+	const url = '/dashboard/account/notifications';
+
+	const bare = app({
+		outbox: new Outbox({ db: t.db, logger: silentLogger, channels, flags: t.flags, senders: {} }),
+		dm: null
+	});
+
+	const notRolledOut = await loadRoute<PageServerData>(load, { app: app(), viewer, url });
+	const rolledOut = await loadRoute<PageServerData>(load, { app: app(), viewer, url, flags: ROLLED_OUT });
+	const notSetUp = await loadRoute<PageServerData>(load, { app: bare, viewer, url });
+
+	expect([notRolledOut.email.notYet, notRolledOut.dm.notYet]).toEqual([true, true]);
+	expect([rolledOut.email.notYet, rolledOut.dm.notYet]).toEqual([false, false]);
+	expect([notSetUp.email.notYet, notSetUp.dm.notYet]).toEqual([false, false]);
+});
+
 it("won't turn on, save or test a channel for a post while it isn't rolled out to them, but turns it off", async () => {
 	await signedIn(WITH_EMAIL);
 	await run('emailOn');

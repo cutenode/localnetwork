@@ -8,6 +8,26 @@ const WAIT_MS = 5_000;
 /** How often one account's records of one collection are re-read at most. Jetstream keeps them current in between. */
 const EVERY_MS = 10 * 60_000;
 
+/** The app's flags, for pauseBackfills. A caller without them never pauses its re-reads. */
+export type BackfillFlags = Pick<FlagService, 'evaluate'> | undefined;
+
+/**
+ * Whether the pauseBackfills flag, on for everyone, stops a re-read of `collection` for `dids` now. It notes the skip,
+ * so staff can see the switch working.
+ */
+export async function backfillsPaused(
+	flags: BackfillFlags,
+	logger: Logger,
+	collection: string,
+	dids: string[]
+): Promise<boolean> {
+	const paused = !!(await flags?.evaluate(null))?.pauseBackfills;
+
+	if (paused) logger.info('HappyView re-reads paused', { collection, accounts: dids.length, flag: 'pauseBackfills' });
+
+	return paused;
+}
+
 /**
  * Has HappyView re-read accounts' records of a collection from their PDS, for records Jetstream never brought (ones
  * written before HappyView kept that collection, or while it was down). Only with an API key, and at most every ten
@@ -21,8 +41,7 @@ export class Backfills {
 	constructor(
 		private readonly directory: HappyViewClient,
 		private readonly logger: Logger,
-		/** The app's, for pauseBackfills. Without it, re-reads are never paused. */
-		private readonly flags?: Pick<FlagService, 'evaluate'>
+		private readonly flags?: BackfillFlags
 	) {}
 
 	/**
@@ -32,11 +51,7 @@ export class Backfills {
 	async backfill(collection: string, dids: string[]): Promise<boolean> {
 		if (!this.directory.admin) return false;
 
-		if ((await this.flags?.evaluate(null))?.pauseBackfills) {
-			this.logger.info('HappyView re-reads paused', { collection, accounts: dids.length, flag: 'pauseBackfills' });
-
-			return false;
-		}
+		if (await backfillsPaused(this.flags, this.logger, collection, dids)) return false;
 
 		const reads: Promise<boolean>[] = [];
 		const due: string[] = [];

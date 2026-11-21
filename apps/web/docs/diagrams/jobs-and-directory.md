@@ -12,7 +12,7 @@ Startup, scheduled jobs and HappyView. The rest are listed in the [README](../..
 
 ## Startup
 
-What happens when the process starts. A failed start leaves the setup page up, and the next request tries again. While the `pauseReconcilers` flag is on for everyone, bootstrap skips the reconcile steps and `moveKitSpaces`, logging each one it skips.
+What happens when the process starts. A failed start leaves the setup page up, and the next request tries again. While the `pauseReconcilers` flag is on for everyone, bootstrap skips the reconcile steps that write to the root's repo and `moveKitSpaces`, logging each one it skips. `reconcileBlocks` still runs: it only reads the root's blocks into the index. On a new or restored database the member steps run before `syncAll` has read the flag's record, so they read it as the database had it: off on a fresh one, as the backup had it after a restore.
 
 ```mermaid
 flowchart TD
@@ -35,7 +35,7 @@ Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/app
 
 ## Scheduled jobs
 
-The jobs the app schedules, all in one process. A job still running skips its next turn. While the `pauseReconcilers` flag is on for everyone, the rounds that write to the root's repo (staff-spaces, manager-spaces, shared-spaces, listings, venue-blocks and calendar-copies) skip their turn and log that they did.
+The jobs the app schedules, all in one process. A job still running skips its next turn. While the `pauseReconcilers` flag is on for everyone, the rounds that write to the root's repo (staff-spaces, manager-spaces, shared-spaces, listings and calendar-copies) skip their turn and log that they did. venue-blocks only reads the root's blocks into the index, so it keeps running: a block index left empty would show blocked promoters as confirmed.
 
 ```mermaid
 flowchart LR
@@ -76,7 +76,7 @@ Source: [`src/lib/server/happyview/sync.ts`](../../src/lib/server/happyview/sync
 
 ## HappyView re-reads
 
-What makes the app ask HappyView to read repos again through `/admin/backfill`, up to 500 accounts a job. Jetstream only brings new writes, so these fill the gaps; on the hosted instance's shared Network store, they run the record script over what the store holds. The `pauseBackfills` flag stops the ones for a new record script, the managers' shows at boot, the set picker's and requestIndex's; the ones that follow one change (a new manager, a late write, a first press kit, a DJ listing) still run.
+What makes the app ask HappyView to read repos again through `/admin/backfill`, up to 500 accounts a job. Jetstream only brings new writes, so these fill the gaps; on the hosted instance's shared Network store, they run the record script over what the store holds. The `pauseBackfills` flag stops all of them but the root's performers at boot, which the directory needs to list anything.
 
 ```mermaid
 flowchart LR

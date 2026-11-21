@@ -106,13 +106,13 @@ export type ExchangeOptions = {
 	/** Where the services' client ids and secrets are read from. */
 	env?: Record<string, string | undefined>;
 	fetch?: typeof fetch;
-	/** The request's flags, where a service's pauseFlag stops its exchange. Nothing is paused without them. */
-	flags?: Partial<Flags>;
+	/** The request's flags, where a service's pauseFlag stops its exchange. */
+	flags: Flags;
 };
 
 /** Trades a code or refresh token for tokens at the service `id` names, with Local Network's client there. */
 export async function exchangeToken(id: string, request: Request, options: ExchangeOptions): Promise<Response> {
-	const { log, env = process.env, fetch: send = fetch, flags = {} } = options;
+	const { log, env = process.env, fetch: send = fetch, flags } = options;
 	const service = Object.hasOwn(services, id) ? services[id] : undefined;
 
 	if (!service) return refuse(404, 'invalid_request', `Local Network doesn't sign in to "${id.slice(0, 64)}"`);

@@ -202,6 +202,15 @@ describe('AuditLog', () => {
 		expect(await log.verifyChain()).toEqual({ ok: true, checked: 1 });
 	});
 
+	it('filters by an action, or by its group without taking in a group that starts the same', async () => {
+		await log.record({ actor: ALICE, action: 'flag.update', summary: 'on' });
+		await log.record({ actor: ALICE, action: 'flagGroup.create', summary: 'group' });
+
+		expect((await log.list({ action: 'flag' })).map((entry) => entry.action)).toEqual(['flag.update']);
+		expect((await log.list({ action: 'flag.update' })).map((entry) => entry.action)).toEqual(['flag.update']);
+		expect((await log.list({ action: 'flagGroup' })).map((entry) => entry.action)).toEqual(['flagGroup.create']);
+	});
+
 	it('reports orphan copies that have no root entry', async () => {
 		await log.onSyncedCopy({ uri: 'at://x', repoDid: BOB, rkey: 'zzz', cid: 'c', value: { actor: BOB } });
 		expect((await log.orphans()).map((o) => o.repoDid)).toEqual([BOB]);

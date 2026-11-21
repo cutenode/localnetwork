@@ -57,7 +57,12 @@ const list = (items: string[]) => items.toSorted().join(', ');
 
 const inCatalog = (key: string) => FLAGS.some((flag) => flag.key === key);
 
-/** How long a flag has to be fully on, untouched, before the console says to remove it. PostHog uses the same. */
+/** The flags that change a public page, which signed-out visitors see too. */
+const SHOWN = new Set(FLAGS.filter((flag) => flag.showsOn).map((flag) => flag.key));
+
+/**
+ * How long a release flag has to be fully on, untouched, before the console says to remove it. PostHog uses the same.
+ */
 const READY_TO_REMOVE_MS = 30 * 86_400_000;
 
 /** The audit changes among `[field, before, after]` values. Empty when saving changes nothing. */
@@ -187,10 +192,13 @@ export class FlagService {
 		return Object.fromEntries(answers.map((answer) => [answer.key, isOn(answer, answer.key, id)])) as Flags;
 	}
 
-	/** Whether a flag is on for a percentage now, which a signed-out visitor needs an id of their own to be counted in. */
-	async hasPercentage(): Promise<boolean> {
+	/**
+	 * Whether a flag that changes a public page is on for a percentage now, which a signed-out visitor needs an id of
+	 * their own to be counted in. A flag with no `showsOn` changes only what accounts see, so it never needs one.
+	 */
+	async hasPublicPercentage(): Promise<boolean> {
 		return (await this.answers(null)).some(
-			({ enabled, everyone, percentage }) => enabled && !everyone && percentage > 0
+			({ key, enabled, everyone, percentage }) => SHOWN.has(key) && enabled && !everyone && percentage > 0
 		);
 	}
 
@@ -200,7 +208,7 @@ export class FlagService {
 		const accounts = await this.core.accounts.views([...flags.values()].flatMap((flag) => flag.dids));
 		const settled = new Date(Date.now() - READY_TO_REMOVE_MS).toISOString();
 
-		return FLAGS.map(({ key, description, showsOn = [] }) => {
+		return FLAGS.map(({ key, description, showsOn = [], type, removeBy }) => {
 			const flag = flags.get(key);
 			const fullyOn = !!flag?.enabled && (flag.everyone || flag.percentage === 100);
 
@@ -208,13 +216,15 @@ export class FlagService {
 				key,
 				description,
 				showsOn,
+				removeBy,
 				enabled: flag?.enabled ?? true,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,
 				groups: (flag?.groups ?? []).map((rkey) => ({ rkey, name: groups.get(rkey)?.name ?? rkey })),
 				accounts: (flag?.dids ?? []).map((did) => ({ did, handle: accounts.get(did).handle })),
 				updatedAt: flag?.updatedAt ?? null,
-				readyToRemove: fullyOn && flag.updatedAt <= settled
+				// An ops flag stays in the code however long it's been on.
+				readyToRemove: type === 'release' && fullyOn && flag.updatedAt <= settled
 			};
 		});
 	}

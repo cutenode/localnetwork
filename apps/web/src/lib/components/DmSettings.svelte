@@ -18,17 +18,19 @@
 	/**
 	 * Someone's Bluesky DM setting for their inbox. DMs come from the root account (`root`, its handle), so whether they
 	 * can arrive depends on the person's chat settings, which `availability` reports once Bluesky chat answers. `available`
-	 * is false when the site doesn't send DMs, or hasn't rolled them out to this person; DMs they turned on before that can
-	 * still be turned off.
+	 * is false when the site doesn't send DMs, or hasn't rolled them out to this person (`notYet` says it's the second);
+	 * DMs they turned on before that can still be turned off.
 	 */
 	let {
 		available,
+		notYet = false,
 		channel,
 		availability,
 		root,
 		form
 	}: {
 		available: boolean;
+		notYet?: boolean;
 		channel: ChannelView | null;
 		availability: Promise<DmAvailability> | null;
 		root: string;
@@ -38,7 +40,7 @@
 	const id = $props.id();
 
 	const status = $derived(
-		!available ? (channel ? 'Paused on this site for now.' : 'Not set up on this site.') : !channel ? `Get your inbox as DMs from @${root} too.` : channel.status === 'paused' ? 'Paused.' : `On, from @${root}.`
+		!available ? (channel ? 'Paused on this site for now.' : notYet ? 'Not on for your account yet.' : 'Not set up on this site.') : !channel ? `Get your inbox as DMs from @${root} too.` : channel.status === 'paused' ? 'Paused.' : `On, from @${root}.`
 	);
 </script>
 
@@ -78,7 +80,7 @@
 	{/if}
 	{#if !available}
 		<!-- The status line says so; the inbox itself still gets everything, as the page says. -->
-		{#if channel}<form method="POST" action="?/dmOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off DMs</button></form>{/if}
+		{#if channel}<form method="POST" action="?/dmOff" use:enhance><button type="submit" class="btn-secondary btn-sm">Turn off DMs</button></form>{/if}
 	{:else if !channel}
 		<form method="POST" action="?/dmOn" use:enhance><button type="submit" class="btn-primary">Turn on DMs</button></form>
 	{:else if channel.status === 'paused'}

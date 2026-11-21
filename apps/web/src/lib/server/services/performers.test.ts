@@ -111,7 +111,7 @@ describe('PerformerSearch', () => {
 		expect(await found()).toEqual(['project', 'dj']);
 	});
 
-	it('leaves out a deleted DJ for good, even once their PDS says otherwise', async () => {
+	it("shows a DJ found deleted once their PDS says they're active, as after moving PDS", async () => {
 		const found = async () => (await t.performers.search({ sort: 'name' })).items.map((item) => item.kind);
 
 		t.accountStatus.set(DJ, 'deleted');
@@ -119,6 +119,6 @@ describe('PerformerSearch', () => {
 		t.accountStatus.set(DJ, 'active');
 		await t.accountStatuses.refresh();
 
-		expect(await found()).toEqual(['project']);
+		expect(await found()).toEqual(['project', 'dj']);
 	});
 });

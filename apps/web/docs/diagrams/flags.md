@@ -34,13 +34,13 @@ Source: [`src/lib/server/flags/evaluate.ts`](../../src/lib/server/flags/evaluate
 
 ## Flags on a page request
 
-Every request gets every flag decided once, held in memory between record changes. An `/xrpc` call never reads a cookie, so it only gets flags on for everyone. A signed-out visitor gets an id of their own while a flag is on for a percentage, and their response stays out of shared caches. A staff member's preview changes only their own browser.
+Every request gets every flag decided once, held in memory between record changes. An `/xrpc` call never reads a cookie, so it only gets flags on for everyone. A signed-out visitor gets an id of their own while a flag that changes a public page (one with `showsOn`) is on for a percentage, and their response stays out of shared caches. A staff member's preview changes only their own browser.
 
 ```mermaid
 flowchart TD
   Request["A request"] -- "/xrpc" --> Route["Every flag with no id,<br/>locals.flags for the route, no preview"]
   Request -- "signed in" --> Decide["Decide every flag for the viewer"]
-  Request -- "signed out" --> Share{"A flag on for<br/>a percentage?"}
+  Request -- "signed out" --> Share{"A flag with showsOn<br/>on for a percentage?"}
   Share -- "no" --> Nobody["Decide every flag with no id"]
   Share -- "yes" --> Visitor["ln_flag_visitor, set if missing:<br/>decide for its visitor id,<br/>no public caching"]
   Decide --> Cookie{"ln_flag_preview set?"}

@@ -81,3 +81,10 @@ export class BugReportService {
 		return discussionUrl(uri);
 	}
 }
+
+/**
+ * Whether a signed-in viewer's report goes to userinput.app: the site has a space to post to, and it's rolled out to
+ * them. Off, it goes to GitHub, which is also how staff send everyone there while userinput.app is down.
+ */
+export const postsToUserinput = ({ app, flags }: Pick<App.Locals, 'app' | 'flags'>): boolean =>
+	app.bugReports.enabled && flags.userinputReports;

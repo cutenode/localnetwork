@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { silentLogger } from '../logger';
 import { type AccountStatus, AccountStatuses, repoStatusLookup } from './account-status';
 import type { ResolvedIdentity } from './identity';
+import { writtenLog } from '../testing/written-log';
 
 const MARA = 'did:plc:mara';
 
 const OSKAR = 'did:plc:oskar';
 
 const PDS = 'https://pds.test';
+
+const NEW_PDS = 'https://new-pds.test';
 
 const HALF_HOUR = 30 * 60_000;
 
@@ -40,6 +43,23 @@ describe('repoStatusLookup', () => {
 
 		expect(await repoStatusLookup(pdsAnswering(MARA, answer))(MARA)).toBe('active');
 	});
+
+	it.each([
+		['RepoNotFound', Response.json({ error: 'RepoNotFound', message: 'Could not find repo' }, { status: 400 })],
+		['deactivated', Response.json({ did: MARA, active: false, status: 'deactivated' })]
+	])(
+		'should ask the PDS an account moved to when the one its cached DID document names answers %s',
+		async (_, answer) => {
+			// Arrange
+			const lookup = repoStatusLookup(movedAccount(MARA, answer));
+
+			// Act
+			const status = await lookup(MARA);
+
+			// Assert
+			expect(status).toBe('active');
+		}
+	);
 
 	it("should throw when the PDS can't say", async () => {
 		const lookup = repoStatusLookup(pdsAnswering(MARA, new Response('down', { status: 502 })));
@@ -95,7 +115,7 @@ describe('AccountStatuses', () => {
 		expect(await statuses.status(MARA)).toBe('deactivated');
 	});
 
-	it('should keep a deleted account deleted', async () => {
+	it('should ask about a deleted account again once its answer is old, as an account that just moved can look deleted', async () => {
 		const pds = new Map<string, AccountStatus>([[MARA, 'deleted']]);
 		const { statuses, clock } = tracked(pds);
 		await statuses.status(MARA);
@@ -104,7 +124,7 @@ describe('AccountStatuses', () => {
 
 		await statuses.refresh();
 
-		expect(await statuses.status(MARA)).toBe('deleted');
+		expect(await statuses.status(MARA)).toBe('active');
 	});
 
 	it.each(['takendown', 'suspended'] as const)('should say when a %s account is active again', async (inactive) => {
@@ -156,6 +176,35 @@ describe('AccountStatuses', () => {
 		expect({ before, after: statuses.inactive() }).toEqual({ before: [MARA], after: [] });
 	});
 
+	it("should leave deleted accounts out of the directory's inactive list, since HappyView dropped their records", async () => {
+		const pds = new Map<string, AccountStatus>([
+			[MARA, 'deleted'],
+			[OSKAR, 'deactivated']
+		]);
+
+		const { statuses } = tracked(pds);
+
+		await statuses.refresh();
+
+		expect(statuses.inactive()).toEqual([OSKAR]);
+	});
+
+	it('should send the directory queries at most 100 inactive accounts, saying how many there were', async () => {
+		const pds = new Map<string, AccountStatus>(
+			Array.from({ length: 101 }, (_, index) => [`did:plc:inactive${index}`, 'deactivated'] as const)
+		);
+
+		const { logger, notes } = writtenLog('warn');
+		const { statuses } = tracked(pds, { logger });
+
+		await statuses.refresh();
+
+		expect(statuses.inactive()).toHaveLength(100);
+		expect(notes()).toContainEqual(
+			expect.objectContaining({ message: 'more inactive accounts than the directory queries take', inactive: 101 })
+		);
+	});
+
 	it("should keep the last list when the directory can't list its accounts", async () => {
 		const pds = new Map<string, AccountStatus>([[MARA, 'deactivated']]);
 		let down = false;
@@ -195,6 +244,29 @@ function pdsAnswering(did: string, answer: Response) {
 			const asks = url.origin === PDS && url.pathname === '/xrpc/com.atproto.sync.getRepoStatus';
 
 			return asks && url.searchParams.get('did') === did ? answer : new Response('not found', { status: 404 });
+		}
+	};
+}
+
+/**
+ * An account that moved from PDS to NEW_PDS, which has it active, while the resolver's cached DID document still names
+ * PDS, which answers `before`. Only a forced refresh reads the current document.
+ */
+function movedAccount(did: string, before: Response) {
+	return {
+		resolve: async (asked: string, forceRefresh = false): Promise<ResolvedIdentity> => ({
+			did: asked,
+			handle: null,
+			pds: forceRefresh ? NEW_PDS : PDS,
+			signingKey: 'did:key:z',
+			kemKey: null
+		}),
+		serviceApiFetch: async (input: string | URL | Request) => {
+			const url = new URL(input instanceof Request ? input.url : input);
+
+			if (url.searchParams.get('did') !== did) return new Response('not found', { status: 404 });
+
+			return url.origin === PDS ? before : Response.json({ did, active: true });
 		}
 	};
 }

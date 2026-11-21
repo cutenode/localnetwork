@@ -95,8 +95,11 @@ export class RecordingService {
 		return parsed.success ? { ...parsed.data, uri: record.uri } : null;
 	}
 
-	/** What a set plays: its recording record, then its links, audio first. Nothing is paused without `flags`. */
-	async source(set: Pick<DjSet, 'recording' | 'links'>, flags: Partial<Flags> = {}): Promise<PlayerSource | null> {
+	/**
+	 * What a set plays: its recording record, then its links, audio first. `flags` is the request's, for
+	 * pauseRecordingStream.
+	 */
+	async source(set: Pick<DjSet, 'recording' | 'links'>, flags: Flags): Promise<PlayerSource | null> {
 		const recording = set.recording ? await this.recording(set.recording.uri, flags) : null;
 
 		return preferred([recording, ...linkSources(set.links)]);
@@ -104,12 +107,9 @@ export class RecordingService {
 
 	/**
 	 * What a mix on a profile plays: its own recording record, then its linked set's recording or links, else the mix's
-	 * own link. Never rejects, since the mix's page streams it. Nothing is paused without `flags`.
+	 * own link. Never rejects, since the mix's page streams it. `flags` is the request's, for pauseRecordingStream.
 	 */
-	async forMix(
-		mix: Pick<ProjectMix, 'url' | 'set' | 'recording'>,
-		flags: Partial<Flags> = {}
-	): Promise<PlayerSource | null> {
+	async forMix(mix: Pick<ProjectMix, 'url' | 'set' | 'recording'>, flags: Flags): Promise<PlayerSource | null> {
 		const own = linkSources([{ uri: mix.url }]);
 
 		try {
@@ -146,7 +146,7 @@ export class RecordingService {
 		});
 	}
 
-	private async recording(uri: string, flags: Partial<Flags>): Promise<PlayerSource | null> {
+	private async recording(uri: string, flags: Flags): Promise<PlayerSource | null> {
 		const ref = parsePublicRecordUri(uri);
 
 		if (ref?.collection === PLYR_TRACK) return this.plyrTrack(uri);

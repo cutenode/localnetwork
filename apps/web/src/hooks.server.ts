@@ -113,9 +113,9 @@ export function serverHooks({
 
 		// An xrpc call never reads a cookie, so it only gets flags on for everyone. A route that has checked a service
 		// token can evaluate flags for that token's DID itself. A signed-out visitor gets an id of their own while a flag
-		// is on for a percentage, so they're in or out of it the same way on every request.
+		// that changes a public page is on for a percentage, so they're in or out of it the same way on every request.
 		const { viewer } = event.locals;
-		const needsVisitorId = !viewer && !isXrpc && (await app.flags.hasPercentage());
+		const needsVisitorId = !viewer && !isXrpc && (await app.flags.hasPublicPercentage());
 		const visitor = needsVisitorId ? flagVisitor(event.cookies, isHttps) : null;
 		event.locals.flags = await app.flags.evaluate(viewer?.did ?? visitor?.id ?? null);
 
@@ -175,6 +175,16 @@ export function serverHooks({
 
 		if (isUnlisted(event.route.id)) response.headers.set('x-robots-tag', 'noindex');
 		const cacheControl = response.headers.get('cache-control');
+
+		// Paraglide varies every answer on Cookie, for the locale cookie. A public immutable one (an OG card, an avatar, a
+		// recording) is the same in every language, and varying it would have caches keep a copy per cookie, or none.
+		if (cacheControl?.includes('public') && cacheControl.includes('immutable')) {
+			const fields = (response.headers.get('vary') ?? '').split(',').map((field) => field.trim());
+			const kept = fields.filter((field) => field && field.toLowerCase() !== 'cookie');
+
+			if (kept.length) response.headers.set('vary', kept.join(', '));
+			else response.headers.delete('vary');
+		}
 
 		// The answer now depends on this browser's own cookie, so a shared cache mustn't keep it for the next visitor,
 		// or hand them the cookie it set. The browser's own cache still can.

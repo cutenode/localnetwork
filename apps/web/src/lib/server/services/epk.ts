@@ -850,9 +850,8 @@ export class EpkService {
 	}
 
 	private async grant(kit: PressKit, grant: Omit<GrantInput, 'createdAt'>, actor: Viewer | null): Promise<void> {
-		await this.writeGrant(kit.project, kit.epk, { ...grant, createdAt: nowIso() });
-
-		// Revoking deletes the grant, so the request's answer needs a record of its own.
+		// Revoking deletes the grant, so the request's answer needs a record of its own. It goes first: a space host that
+		// refuses it (before the decision lexicon is published there) leaves nobody let in and the request open to approve again.
 		if (grant.request)
 			await this.writeDecision(
 				kit,
@@ -860,6 +859,7 @@ export class EpkService {
 				'approved',
 				actor?.did ?? this.core.rootDid
 			);
+		await this.writeGrant(kit.project, kit.epk, { ...grant, createdAt: nowIso() });
 		await this.core.audit.record({
 			actor: actor?.did ?? this.core.rootDid,
 			actorRole: actor ? actorRole(actor) : 'system',
@@ -900,9 +900,9 @@ export class EpkService {
 	}
 
 	/**
-	 * Sets a request's answer. A decision synced before its request, or one that outlived it, makes the row: marked
-	 * deleted, as an answered request whose record is gone is, until the request syncs. So a re-sync keeps a decline,
-	 * and with it the rule that the asker can't ask again, even when the asker deleted their request.
+	 * Sets a request's answer. A decision synced before its request, or one that outlived it, makes the row, with
+	 * `deletedAt` saying the request's record hasn't been seen until it syncs (saveRequest). So a re-sync keeps a
+	 * decline, and with it the rule that the asker can't ask again, even when the asker deleted their request.
 	 */
 	private async saveDecision(space: string, decision: EpkDecision): Promise<void> {
 		const answer = { status: decision.outcome, decidedAt: decision.createdAt };

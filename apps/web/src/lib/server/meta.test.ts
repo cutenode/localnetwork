@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { ProjectView } from '#lib/types.ts';
 import { artistMeta, listed, mixMeta, pageMeta, performerMeta, pressKitMeta, pressKitsMeta, profileMeta } from './meta';
 
@@ -216,7 +217,7 @@ describe('listed', () => {
 	const thing = () => ({ '@type': 'Thing', name: 'x' });
 
 	it("sets a listed page's at-tags and structured data aside for the head, and leaves its metadata as it was", async () => {
-		const locals: Pick<App.Locals, 'crawlerHead'> = {};
+		const locals: Pick<App.Locals, 'crawlerHead' | 'flags'> = { flags: flagsOff };
 		const meta = performerMeta(SITE, project);
 
 		expect(await listed(locals, meta, { records: () => records, jsonLd: thing })).toBe(meta);
@@ -226,13 +227,13 @@ describe('listed', () => {
 		);
 
 		// A page with nothing to say gets nothing.
-		const plain: Pick<App.Locals, 'crawlerHead'> = {};
+		const plain: Pick<App.Locals, 'crawlerHead' | 'flags'> = { flags: flagsOff };
 		await listed(plain, meta, { jsonLd: null });
 		expect(plain.crawlerHead ?? '').toBe('');
 	});
 
 	it('leaves a page kept out of search as it was, without even looking its records up', async () => {
-		const locals: Pick<App.Locals, 'crawlerHead'> = {};
+		const locals: Pick<App.Locals, 'crawlerHead' | 'flags'> = { flags: flagsOff };
 		const hidden = performerMeta(SITE, { ...project, status: 'hidden' });
 
 		const lookUp = () => {
@@ -244,7 +245,7 @@ describe('listed', () => {
 	});
 
 	it("shows the site's card in place of a drawn one while pauseOgCards is on, and keeps a page's own picture", async () => {
-		const paused = { pauseOgCards: true };
+		const paused = { ...flagsOff, pauseOgCards: true };
 
 		const avatar = profileMeta(
 			SITE,
@@ -258,8 +259,6 @@ describe('listed', () => {
 			SITE_CARD
 		);
 		expect(await listed({ flags: paused }, avatar, {})).toEqual(avatar);
-		expect((await listed({ flags: { pauseOgCards: false } }, performerMeta(SITE, project), {})).image?.url).toMatch(
-			/\/og\/project\//
-		);
+		expect((await listed({ flags: flagsOff }, performerMeta(SITE, project), {})).image?.url).toMatch(/\/og\/project\//);
 	});
 });

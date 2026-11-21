@@ -55,7 +55,7 @@ export interface Database {
 /**
  * Where each table's rows come from. `rebuilt` ones come back from records on the network: the space sync, or for venue
  * blocks, the root's repo at startup. `server-only` ones live only here, so a restore needs them from a backup. A new
- * table has to pick one to type-check.
+ * table has to pick one to type-check, and db.test.ts holds the migrated database to it. @internal
  */
 export const TABLE_SOURCE = {
 	/** The root's session, when the app first started, HappyView script uploads and listing digests. */
@@ -106,7 +106,9 @@ export const TABLE_SOURCE = {
 	notificationDelivery: 'server-only'
 } as const satisfies Record<keyof Database, 'rebuilt' | 'server-only'>;
 
-/** The columns of rebuilt tables that only the server knows, which a re-sync loses or works out differently. */
+/**
+ * The columns of rebuilt tables that only the server knows, which a re-sync loses or works out differently. @internal
+ */
 export const SERVER_ONLY_COLUMNS = {
 	/**
 	 * A request whose record is gone keeps its row only here: marked deleted after it was decided, or withdrawn. The
@@ -365,7 +367,10 @@ export interface EpkRequestTable {
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
-	/** When its asker deleted the root's record of it, after it was answered. The row stays, without its message. */
+	/**
+	 * Set while the request's record isn't there to read: its decision synced first (cleared once the request syncs),
+	 * or its asker deleted the root's copy after it was answered (the row stays, without its message).
+	 */
 	deletedAt: string | null;
 }
 

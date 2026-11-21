@@ -39,11 +39,13 @@ const INACTIVE_PARAM_MAX = 100;
 
 /**
  * `com.atproto.sync.getRepoStatus` from the PDS the account's DID document names, through the guarded fetch. A PDS
- * answers `RepoNotFound` for an account it deleted.
+ * answers `RepoNotFound` for an account it deleted. The resolver caches DID documents, and the PDS an account just
+ * moved away from answers `RepoNotFound` or deactivated, so an inactive answer is checked against a fresh document and,
+ * when that names another PDS, asked of that one.
  */
 export function repoStatusLookup(identity: Pick<IdentityResolver, 'resolve' | 'serviceApiFetch'>): StatusLookup {
-	return async (did) => {
-		const url = new URL('/xrpc/com.atproto.sync.getRepoStatus', (await identity.resolve(did)).pds);
+	const statusAt = async (pds: string, did: string): Promise<AccountStatus> => {
+		const url = new URL('/xrpc/com.atproto.sync.getRepoStatus', pds);
 		url.searchParams.set('did', did);
 
 		const response = await identity.serviceApiFetch(url, {
@@ -62,6 +64,16 @@ export function repoStatusLookup(identity: Pick<IdentityResolver, 'resolve' | 's
 
 		return !active && isInactive(status) ? status : 'active';
 	};
+
+	return async (did) => {
+		const { pds } = await identity.resolve(did);
+		const status = await statusAt(pds, did);
+
+		if (status === 'active') return status;
+		const current = (await identity.resolve(did, true)).pds;
+
+		return current === pds ? status : statusAt(current, did);
+	};
 }
 
 type AccountStatusOptions = {
@@ -79,7 +91,8 @@ type AccountStatusOptions = {
  * Which accounts are inactive, asked of their PDS when a page needs to know and kept for half an hour (ADR 0020).
  * HappyView keeps a deactivated account's records, so the directory queries are told which accounts to leave out, and
  * the account's own pages say it isn't active. A PDS that can't be asked leaves the account as it was last seen, or
- * active when it never was: the site fails open. A deleted account stays deleted, since deletion can't be undone.
+ * active when it never was: the site fails open. A deleted account is asked again like any other, since one whose
+ * PDS changed can look deleted for a moment, and HappyView's tombstone keeps a really deleted one's records out anyway.
  */
 export class AccountStatuses {
 	private readonly known = new Map<string, { status: AccountStatus; at: number }>();
@@ -91,7 +104,7 @@ export class AccountStatuses {
 
 	constructor(private readonly options: AccountStatusOptions) {
 		this.freshMs = options.freshMs ?? FRESH_MS;
-		this.now = options.now ?? Date.now;
+		this.now = options.now ?? (() => Date.now());
 	}
 
 	/**
@@ -109,7 +122,8 @@ export class AccountStatuses {
 	}
 
 	/**
-	 * The directory's accounts last found inactive, for the queries to leave out: none until the first check is done.
+	 * The directory's accounts last found deactivated, taken down or suspended, for the queries to leave out: none until
+	 * the first check is done.
 	 * When the answer is older than half an hour, refresh() starts in the background, so no page waits on a PDS.
 	 */
 	inactive(): string[] {
@@ -159,7 +173,8 @@ export class AccountStatuses {
 			)
 		);
 
-		let dids = accounts.filter((_, index) => statuses[index] !== 'active');
+		// HappyView already dropped a deleted account's records, so it isn't sent to take one of the param's places.
+		let dids = accounts.filter((_, index) => statuses[index] !== 'active' && statuses[index] !== 'deleted');
 
 		if (dids.length > INACTIVE_PARAM_MAX) {
 			this.options.logger.warn('more inactive accounts than the directory queries take', { inactive: dids.length });
@@ -188,15 +203,11 @@ export class AccountStatuses {
 		const before = this.known.get(did)?.status;
 		let status: AccountStatus;
 
-		if (before === 'deleted') {
-			status = before;
-		} else {
-			try {
-				status = await this.options.lookup(did);
-			} catch (error) {
-				status = before ?? 'active';
-				this.options.logger.warn("could not check an account's status", { err: error, did, assumed: status });
-			}
+		try {
+			status = await this.options.lookup(did);
+		} catch (error) {
+			status = before ?? 'active';
+			this.options.logger.warn("could not check an account's status", { err: error, did, assumed: status });
 		}
 
 		this.known.delete(did);

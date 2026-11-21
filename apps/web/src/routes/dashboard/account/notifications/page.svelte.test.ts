@@ -9,14 +9,15 @@ import Page from './+page.svelte';
 const data = (available: boolean, channel: ChannelView | null = null): PageProps['data'] => ({
 	...accountLayout,
 	topics: ['bookings'],
-	email: { available, channel, returned: null },
-	dm: { available, channel, availability: Promise.resolve('ok'), root: 'localnetwork.computer' }
+	email: { available, notYet: false, channel, returned: null },
+	dm: { available, notYet: false, channel, availability: Promise.resolve('ok'), root: 'localnetwork.computer' }
 });
 
 it('offers the grid while email or Bluesky DM can be set up', async () => {
 	await render(Page, { params: {}, form: null, data: data(true) });
 
 	await expect.element(page.getByRole('heading', { name: 'What goes where' })).toBeVisible();
+	await expect.element(page.getByText('Pick what else goes by email or Bluesky DM.', { exact: false })).toBeVisible();
 });
 
 it('leaves the grid out when neither can be set up here', async () => {
@@ -24,6 +25,21 @@ it('leaves the grid out when neither can be set up here', async () => {
 
 	await expect.element(page.getByRole('heading', { name: 'Notifications', level: 1 })).toBeVisible();
 	await expect.element(page.getByRole('heading', { name: 'What goes where' })).not.toBeInTheDocument();
+	await expect.element(page.getByText('Your inbox here gets everything.')).toBeVisible();
+	await expect.element(page.getByText('Pick what else', { exact: false })).not.toBeInTheDocument();
+});
+
+it("says when email and DMs aren't on for their account yet", async () => {
+	const off = data(false);
+
+	await render(Page, {
+		params: {},
+		form: null,
+		data: { ...off, email: { ...off.email, notYet: true }, dm: { ...off.dm, notYet: true } }
+	});
+
+	await expect.element(page.getByText('Not on for your account yet.').first()).toBeVisible();
+	expect(page.getByText('Not on for your account yet.').elements()).toHaveLength(2);
 });
 
 it('lets someone turn off a channel they turned on before it stopped being offered to them', async () => {

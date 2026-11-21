@@ -522,6 +522,8 @@ export type FlagView = {
 	description: string;
 	/** The kinds of page it changes, from its catalog file. Empty when the file names none. */
 	showsOn: ShowsOn[];
+	/** When a release flag should be gone from the code, as YYYY-MM-DD. Ops flags stay, so they have none. */
+	removeBy?: string;
 	/** False when it's turned off for everyone. The gates below are kept for when it's back on. */
 	enabled: boolean;
 	everyone: boolean;
@@ -529,7 +531,7 @@ export type FlagView = {
 	groups: { rkey: string; name: string }[];
 	accounts: FlagAccount[];
 	updatedAt: string | null;
-	/** On for everyone, or every account, and unchanged for 30 days: time to take it out of the code. */
+	/** A release flag on for everyone, or every account, and unchanged for 30 days: time to take it out of the code. */
 	readyToRemove: boolean;
 };
 

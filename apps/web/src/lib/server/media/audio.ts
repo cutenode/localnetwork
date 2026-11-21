@@ -87,8 +87,8 @@ export type AudioRequest = {
 	 */
 	identity: Pick<IdentityResolver, 'resolve' | 'serviceFetch'>;
 	log: Logger;
-	/** The request's flags, where pauseRecordingStream stops the streaming. Nothing is paused without them. */
-	flags?: Partial<Flags>;
+	/** The request's flags, where pauseRecordingStream stops the streaming. */
+	flags: Flags;
 };
 
 /**
@@ -102,7 +102,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	const { log } = request;
 	log.set({ recording: { did, cid, range: request.range } });
 
-	if (request.flags?.pauseRecordingStream) {
+	if (request.flags.pauseRecordingStream) {
 		log.info('recording stream paused', { flag: 'pauseRecordingStream' });
 
 		// Not kept, so the recording plays again as soon as the flag goes off.

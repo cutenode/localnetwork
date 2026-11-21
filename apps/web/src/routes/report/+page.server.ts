@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { githubIssueUrl, REPORT_LIMITS, type ReportFacts, reportBody } from '#lib/bug-report.ts';
 import { OptionalScopeUnsupported } from '#lib/server/atproto/oauth.ts';
-import { browserLabel } from '#lib/server/services/bug-reports.ts';
+import { browserLabel, postsToUserinput } from '#lib/server/services/bug-reports.ts';
 import { requireViewer, safeNext, text } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -10,12 +10,6 @@ const factsOf = (request: Request, from: string | null): ReportFacts => ({
 	page: safeNext(from, '') || undefined,
 	browser: browserLabel(request.headers.get('user-agent'))
 });
-
-/**
- * Whether a signed-in viewer's report goes to userinput.app: the site has a space to post to, and it's rolled out to
- * them. Off, it goes to GitHub, which is also how staff send everyone there while userinput.app is down.
- */
-const postsToUserinput = ({ app, flags }: App.Locals) => app.bugReports.enabled && flags.userinputReports;
 
 export const load: PageServerLoad = async ({ locals, request, url }) => {
 	const facts = factsOf(request, url.searchParams.get('from'));

@@ -101,11 +101,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		topics: KIND_TOPICS,
 		email: {
 			available: offered.email,
+			notYet: !offered.email && app.outbox.configured.includes('email'),
 			channel: await app.notificationChannels.view(viewer.did, 'email'),
 			returned: returned(url.searchParams.get('email'))
 		},
 		dm: {
 			available: Boolean(offered.dm),
+			notYet: !offered.dm && app.outbox.configured.includes('dm'),
 			channel: dm,
 			// Streamed: Bluesky chat can be slow, and the rest of the page doesn't wait on it.
 			availability: offered.dm ? offered.dm.availability(viewer.did) : null,

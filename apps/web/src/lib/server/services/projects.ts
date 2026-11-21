@@ -20,7 +20,7 @@ import { type JsonRecord, type RecordRef, xrpcErrorName } from '../atproto/repo-
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
-import type { Backfills } from '../happyview/backfills';
+import type { BackfillFlags, Backfills } from '../happyview/backfills';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
@@ -146,16 +146,18 @@ export class ProjectService {
 	/**
 	 * `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it).
 	 * `plyr` finds the records of plyr.fm tracks that mixes link; without it, only recordings already published stay.
+	 * `flags` are the app's, for pauseBackfills.
 	 */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
 		private readonly indexWaitMs = INDEX_WAIT_MS,
 		backfills?: Backfills,
-		private readonly plyr?: PlyrClient
+		private readonly plyr?: PlyrClient,
+		private readonly flags?: BackfillFlags
 	) {
 		this.sets = new SetService(core, directory, backfills);
-		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
+		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs, flags));
 	}
 
 	/**
@@ -450,7 +452,7 @@ export class ProjectService {
 			void this.sets.refresh(added);
 
 			for (const collection of [...MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet), BSKY_FOLLOW])
-				void reindex(this.directory, this.core.logger, collection, added);
+				void reindex(this.directory, this.core.logger, this.flags, collection, added);
 		}
 
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };

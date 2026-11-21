@@ -25,4 +25,4 @@ New CSS uses logical directions (`ms-`, `pe-`, `start-` rather than `ml-`, `pr-`
 
 ## Consequences
 
-Each message ships its en-XA text to every visitor next to the English, a few bytes a message. Once most of the site's text is in the catalog, a production build can leave en-XA out. A visitor's browser writes the locale cookie on their first page. Until the rest of the text moves to the catalog, en-XA shows it in plain English, which is what en-XA is for.
+Each message ships its en-XA text to every visitor next to the English, a few bytes a message. Once most of the site's text is in the catalog, a production build can leave en-XA out. A visitor's browser writes the locale cookie on their first page, and every answer varies on Cookie for it, except public immutable ones (OG cards, avatars, recordings), which `src/hooks.server.ts` keeps shareable by caches. Until the rest of the text moves to the catalog, en-XA shows it in plain English, which is what en-XA is for.
