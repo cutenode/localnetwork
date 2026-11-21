@@ -398,7 +398,7 @@ const xrpcErrorBody = z
  * recursion goes, a key lex JSON refuses, the wrong shape, a credential that isn't a space token) is the host's
  * failure, so it rejects as one, naming the method.
  */
-function readAnswer<T>(nsid: string, read: () => T): T {
+export function readAnswer<T>(nsid: string, read: () => T): T {
 	try {
 		return read();
 	} catch (error) {

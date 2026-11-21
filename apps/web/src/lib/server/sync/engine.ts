@@ -1,15 +1,8 @@
-import { ComAtprotoSpaceDefs } from '@atproto/api';
+import { fetchResponseMaxSizeChecker } from '@atproto-labs/fetch';
 import { type Cid, isLexMap, isObject, type LexMap, parseCid } from '@atproto/lex-data';
 import { type JsonObject, type JsonValue, jsonToLex, lexToJson } from '@atproto/lex-json';
 import { isDidString, isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
-import {
-	COMMIT_MAC_PROFILE,
-	type RecordPathParts,
-	RepoCommit,
-	type SpaceCommit,
-	verifyCommit,
-	verifyRepoStarFull
-} from '@atproto/space';
+import { COMMIT_MAC_PROFILE, type RecordPathParts, RepoCommit, type SpaceCommit, verifyCommit } from '@atproto/space';
 import { isSpaceRefString } from '@atproto/syntax';
 import { timingSafeEqual } from 'node:crypto';
 import PQueue from 'p-queue';
@@ -19,6 +12,7 @@ import {
 	type SpaceCredentialManager,
 	isCredentialRejected,
 	isMacFailure,
+	readAnswer,
 	XrpcResponseError
 } from '../atproto/credentials';
 import type { IdentityResolver } from '../atproto/identity';
@@ -27,6 +21,7 @@ import { isTooDeep, TOO_DEEP } from '../atproto/lexicons';
 import { parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
 import { type Db, nowIso, parseJson } from '../db';
 import type { Logger } from '../logger';
+import { isSpaceCommit, readRepoArchive } from './repo-archive';
 
 export type SyncedChange =
 	| {
@@ -70,7 +65,7 @@ const listRepoOpsOutput = z.object({
 			value: z.custom<LexMap>(isLexMap).optional()
 		})
 	),
-	commit: z.custom<SpaceCommit>((value) => ComAtprotoSpaceDefs.validateCommit(value).success),
+	commit: z.custom<SpaceCommit>(isSpaceCommit),
 	cursor: z.string().optional()
 });
 
@@ -96,10 +91,14 @@ export type SyncStatus = {
 };
 
 /**
- * A listRepoOps page decoded from its JSON, with the indexes of the ops whose values are nested deeper than
- * validateRecord allows. jsonToLex recurses, so those values are taken out before it decodes the rest.
+ * A listRepoOps page read from its text, with the indexes of the ops whose values are nested deeper than
+ * validateRecord allows. jsonToLex recurses, so those values are taken out before it decodes the rest. A page that
+ * doesn't read (not JSON, the wrong shape, or nested too deep anywhere else) is the host's failure, so it rejects as
+ * one, and syncRepo downloads the repo in full instead. @internal
  */
-function readOpsPage(json: JsonValue) {
+export function readOpsPage(text: string) {
+	const nsid = 'com.atproto.space.listRepoOps';
+	const json: JsonValue = readAnswer(nsid, () => JSON.parse(text));
 	const tooDeep = new Set<number>();
 	const ops = isObject(json) && !Array.isArray(json) && Array.isArray(json.ops) ? json.ops : [];
 
@@ -109,7 +108,7 @@ function readOpsPage(json: JsonValue) {
 		delete op.value;
 	}
 
-	return { page: listRepoOpsOutput.parse(jsonToLex(json)), tooDeep };
+	return { page: readAnswer(nsid, () => listRepoOpsOutput.parse(jsonToLex(json))), tooDeep };
 }
 
 // SAFETY: lexToJson only rewrites the CIDs and bytes inside a map, so a LexMap always comes back as a JSON object.
@@ -159,6 +158,19 @@ const isRepoUnavailable = (cause: unknown) =>
  */
 const MAX_PAGES = 100;
 
+/**
+ * The most of a repo export (`getRepo`) one download reads, in bytes. Every record in it is held in memory until the
+ * download is applied, and a hostile repo host could send one that never ends. A record is at most 1 MiB
+ * (@atproto/space's MAX_RECORD_SIZE), but the records this app writes are a few KiB at most. The largest repo is the
+ * root's in the audit space, which gains an entry for every audited action, most well under 1 KiB, so this holds a
+ * few hundred thousand of them, many times what any repo here is expected to hold. A repo past it fails and waits
+ * for its retry like any other, and the system page shows it.
+ */
+const REPO_EXPORT_MAX_BYTES = 256 * 1024 * 1024;
+
+/** What the response cap @atproto-labs/fetch applies (serviceApiFetch's too) fails a body past it with. */
+const TOO_LARGE = 'Response too large';
+
 /** How long a repo waits after its `attempts`th failure in a row: 1 minute, doubling up to an hour. */
 const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1), 3_600_000);
 
@@ -200,6 +212,8 @@ export class SpaceSyncer {
 			notifyEndpoint: string | null;
 			/** The most pages of a listing one pass reads, MAX_PAGES unless a test needs a host's endless listing short. */
 			maxPages?: number;
+			/** The most bytes of a repo export one download reads, REPO_EXPORT_MAX_BYTES unless a test needs it small. */
+			maxRepoBytes?: number;
 		}
 	) {}
 
@@ -550,8 +564,7 @@ export class SpaceSyncer {
 				mac: { profile: COMMIT_MAC_PROFILE, kemKey }
 			});
 
-			const json: JsonValue = JSON.parse(await response.text());
-			const { page, tooDeep } = readOpsPage(json);
+			const { page, tooDeep } = readOpsPage(await response.text());
 
 			for (const [index, op] of page.ops.entries()) {
 				state.applyOp({ collection: op.collection, rkey: op.rkey, cid: asCid(op.cid), prev: asCid(op.prev) });
@@ -616,6 +629,9 @@ export class SpaceSyncer {
 	}
 
 	private async recover(space: string, repoDid: string, pds: string, kemKey: string) {
+		const { logger } = this.deps;
+		const maxBytes = this.deps.maxRepoBytes ?? REPO_EXPORT_MAX_BYTES;
+
 		const { response, mac } = await this.deps.credentials.macRequest({
 			space,
 			service: pds,
@@ -625,10 +641,23 @@ export class SpaceSyncer {
 			mac: { profile: COMMIT_MAC_PROFILE, kemKey }
 		});
 
-		if (!response.body) throw new Error('Empty repo response');
+		let archive: Awaited<ReturnType<typeof readRepoArchive>>;
 
-		// A STAR archive: the commit, checked against its MAC, then every record, which must fold into its data.
-		const { commit, records } = await verifyRepoStarFull(response.body, { ...commitScope(space, repoDid), ...mac });
+		try {
+			// Capped the way serviceApiFetch caps an answer read whole, at what a repo export can reach.
+			const { body } = fetchResponseMaxSizeChecker(response, maxBytes);
+
+			if (!body) throw new Error('Empty repo response');
+
+			// A STAR archive: the commit, checked against its MAC, then every record, which must fold into its data.
+			archive = await readRepoArchive(body, { ...commitScope(space, repoDid), ...mac });
+		} catch (error) {
+			if (error instanceof Error && error.message === TOO_LARGE) {
+				logger.warn('repo export ran past the size cap; giving up on it', { space, repoDid, maxBytes });
+			}
+
+			throw error;
+		}
 
 		const existing = await this.deps.db
 			.selectFrom('spaceRecord')
@@ -641,22 +670,20 @@ export class SpaceSyncer {
 		const changes: SyncedChange[] = [];
 		const known = new Map(existing.map((row) => [`${row.collection}/${row.rkey}`, row.cid]));
 
-		for (const record of records) {
-			const path = `${record.collection}/${record.rkey}`;
-			present.add(path);
-			const cid = record.cid.toString();
+		for (const { collection, rkey, cid, value } of archive.records) {
+			const uri = spaceRecordUri(space, repoDid, collection, rkey);
 
-			if (known.get(path) === cid) continue;
-			changes.push({
-				kind: 'upsert',
-				space,
-				repoDid,
-				collection: record.collection,
-				rkey: record.rkey,
-				uri: spaceRecordUri(space, repoDid, record.collection, record.rkey),
-				cid,
-				value: toJson(record.record)
-			});
+			// A record too deep to read is dropped from the local copy, as the oplog drops one.
+			if (value === null) {
+				logger.warn(`dropping a synced record ${TOO_DEEP}`, { uri });
+				continue;
+			}
+
+			const path = `${collection}/${rkey}`;
+			present.add(path);
+
+			if (known.get(path) === cid.toString()) continue;
+			changes.push({ kind: 'upsert', space, repoDid, collection, rkey, uri, cid: cid.toString(), value });
 		}
 
 		for (const row of existing) {
@@ -672,7 +699,7 @@ export class SpaceSyncer {
 			}
 		}
 
-		await this.apply(space, repoDid, pds, commit, RepoCommit.fromRecords(records), changes);
+		await this.apply(space, repoDid, pds, archive.commit, archive.state, changes);
 	}
 
 	private async apply(

@@ -399,6 +399,9 @@ importers:
       '@atproto-labs/did-resolver':
         specifier: 0.0.0-spaces-alpha-20261113224550
         version: 0.0.0-spaces-alpha-20261113224550
+      '@atproto-labs/fetch':
+        specifier: 0.4.2
+        version: 0.4.2
       '@atproto-labs/fetch-node':
         specifier: 0.0.0-spaces-alpha-20261113224550
         version: 0.0.0-spaces-alpha-20261113224550
@@ -436,6 +439,9 @@ importers:
         specifier: 0.0.0-spaces-alpha-20261113224550
         version: 0.0.0-spaces-alpha-20261113224550
       '@atproto/space':
+        specifier: 0.0.0-spaces-alpha-20261113224550
+        version: 0.0.0-spaces-alpha-20261113224550
+      '@atproto/star':
         specifier: 0.0.0-spaces-alpha-20261113224550
         version: 0.0.0-spaces-alpha-20261113224550
       '@atproto/syntax':

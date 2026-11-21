@@ -93,7 +93,7 @@ flowchart TD
   List -- "a repo left<br/>the writer set" --> Keep["Read past it, keep<br/>its synced records"]
   List -- "authority says<br/>it's gone" --> Drop["Drop the local copy<br/>and what came from it"]
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
-  List -- "never synced" --> Star["getRepo: verified STAR archive"]
+  List -- "never synced" --> Star["getRepo: verified STAR archive,<br/>256 MiB at most"]
   Ops -- "fails, not on a MAC or credential,<br/>or runs past 100 pages" --> Star
   Ops -- "writer taken down,<br/>suspended or deactivated" --> Skip["Skip, retry on backoff"]
   Star -- "same errors" --> Skip
@@ -103,7 +103,7 @@ flowchart TD
   Project --> Due["Repos and projections whose retry<br/>is due, then save spaceRev"]
 ```
 
-Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts)
+Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts), [`src/lib/server/sync/repo-archive.ts`](../../src/lib/server/sync/repo-archive.ts)
 
 ## Repo sync lifecycle
 

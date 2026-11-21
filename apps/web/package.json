@@ -53,6 +53,7 @@
 	},
 	"dependencies": {
 		"@atproto-labs/did-resolver": "0.0.0-spaces-alpha-20261113224550",
+		"@atproto-labs/fetch": "0.4.2",
 		"@atproto-labs/fetch-node": "0.0.0-spaces-alpha-20261113224550",
 		"@atproto-labs/handle-resolver-node": "0.0.0-spaces-alpha-20261113224550",
 		"@atproto/api": "0.0.0-spaces-alpha-20261113224550",
@@ -66,6 +67,7 @@
 		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20261113224550",
 		"@atproto/oauth-scopes": "0.0.0-spaces-alpha-20261113224550",
 		"@atproto/space": "0.0.0-spaces-alpha-20261113224550",
+		"@atproto/star": "0.0.0-spaces-alpha-20261113224550",
 		"@atproto/syntax": "0.0.0-spaces-alpha-20261113224550",
 		"@atproto/xrpc-server": "0.0.0-spaces-alpha-20261113224550",
 		"@aws-sdk/client-s3": "^3.1159.0",

@@ -1,16 +1,93 @@
+import { encode } from '@atproto/lex-cbor';
+import type { LexMap } from '@atproto/lex-data';
+import { type JsonObject, type JsonValue, jsonToLex, lexToJson } from '@atproto/lex-json';
 import { RepoCommit } from '@atproto/space';
+import * as fc from 'fast-check';
 import { SPACE_TYPE } from '#lib/nsid.ts';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { SpaceCredentialManager, XrpcResponseError } from '../atproto/credentials';
 import { IdentityResolver } from '../atproto/identity';
+import { RecordValidationError, TOO_DEEP, validateRecord } from '../atproto/lexicons';
 import { bookingSpace } from '../atproto/spaces';
 import { type Db, nowIso, openDatabase } from '../db';
 import { type Logger, silentLogger } from '../logger';
+import { anyRecord, RECORD_COLLECTIONS, recordKey, validRecord } from '../testing/lexicon-arbitraries';
 import { FakeSpaceHost } from '../testing/space-host';
 import { writtenLog } from '../testing/written-log';
-import { type ChangeHandler, type SyncedChange, SpaceSyncer } from './engine';
+import { type ChangeHandler, readOpsPage, type SyncedChange, SpaceSyncer } from './engine';
 
 const SPACE = bookingSpace('did:plc:root', 'gig');
+
+// Stands in for arrays nested this deep, written into a listRepoOps page's text: JSON.stringify overflows the stack on
+// them long before JSON.parse does.
+const nested = (levels: number) => `\u0000nested:${levels}`;
+
+const NESTED = /"\\u0000nested:(\d+)"/g;
+
+/** A listRepoOps page as its text, with the arrays `nested` stands in for written out. */
+const write = (page: JsonValue) =>
+	JSON.stringify(page).replace(
+		NESTED,
+		(_, levels: string) => `${'['.repeat(Number(levels))}0${']'.repeat(Number(levels))}`
+	);
+
+/** Anything a repo could hold, or a valid record with arrays nested around the depth limit or far past the stack. */
+const opValue = (collection: string) =>
+	fc.oneof(
+		anyRecord(collection),
+		fc
+			.tuple(
+				validRecord(collection),
+				fc.oneof(fc.integer({ min: 28, max: 36 }), fc.integer({ min: 1_000, max: 30_000 }))
+			)
+			.map(([record, levels]): JsonObject => ({ ...record, nested: nested(levels) }))
+	);
+
+/** Whether validateRecord refuses `value` as too deep. It throws nothing but RecordValidationError, which this rethrows. */
+function isTooDeepFor(collection: string, value: JsonObject): boolean {
+	try {
+		validateRecord(collection, value);
+
+		return false;
+	} catch (error) {
+		if (!(error instanceof RecordValidationError)) throw error;
+
+		return error.message === `Invalid ${collection} record: ${TOO_DEEP}`;
+	}
+}
+
+/** A listRepoOps page as JSON. */
+type OpsPageJson = JsonObject & { ops: JsonObject[]; commit: JsonObject };
+
+/** The fields of a listRepoOps page, each with what holds it: the page, its commit, or its first op. */
+const FIELDS = [
+	['page', 'ops'],
+	['page', 'commit'],
+	['page', 'cursor'],
+	['commit', 'rev'],
+	['commit', 'data'],
+	['op', 'collection'],
+	['op', 'rkey'],
+	['op', 'cid'],
+	['op', 'prev'],
+	['op', 'value']
+] as const;
+
+// SAFETY: lexToJson only rewrites the CIDs and bytes inside a map, so a LexMap always comes back as a JSON object.
+const asJson = (value: LexMap) => lexToJson(value) as JsonObject;
+
+/** A copy of `page` with `field` set to `value`, or taken out without one, where the page has it. */
+function withFieldSet(page: OpsPageJson, [holder, key]: (typeof FIELDS)[number], value: JsonValue | undefined) {
+	const copy: OpsPageJson = JSON.parse(JSON.stringify(page));
+	const fields = holder === 'page' ? copy : holder === 'commit' ? copy.commit : copy.ops.at(0);
+
+	if (!fields) return copy;
+
+	if (value === undefined) delete fields[key];
+	else fields[key] = value;
+
+	return copy;
+}
 
 describe('SpaceSyncer', () => {
 	let db: Db;
@@ -207,7 +284,7 @@ describe('SpaceSyncer against a repo host', () => {
 	const syncer = async (
 		onChange: ChangeHandler = async (change) => void changes.push(change),
 		notifyEndpoint: string | null = null,
-		maxPages?: number
+		options: { maxPages?: number; maxRepoBytes?: number; logger?: Logger } = {}
 	) => {
 		const credentials = new SpaceCredentialManager({
 			source: async () => ({ getDelegationToken: async () => 'token' }),
@@ -218,13 +295,14 @@ describe('SpaceSyncer against a repo host', () => {
 
 		const s: SpaceSyncer = new SpaceSyncer({
 			db,
-			logger: silentLogger,
+			logger: options.logger ?? silentLogger,
 			notifyEndpoint,
 			onChange,
 			onSpaceDropped: async (space) => void dropped.push(space),
 			identity: host.identity,
 			credentials,
-			maxPages
+			maxPages: options.maxPages,
+			maxRepoBytes: options.maxRepoBytes
 		});
 
 		await s.watch(SPACE);
@@ -280,6 +358,36 @@ describe('SpaceSyncer against a repo host', () => {
 		expect(changes.findLast((change) => change.rkey === 'a')).toMatchObject({ kind: 'delete' });
 		expect((await repoRow())?.lastError).toBeNull();
 	});
+
+	it.each([32, 4_000])(
+		'downloads a repo holding a record nested in %i arrays, logging and leaving out that one',
+		async (levels) => {
+			const { logger, notes } = writtenLog();
+			const s = await syncer(undefined, null, { logger });
+			await host.put(DJ, NOTE, 'a', note('one'));
+			// Written as DRISL by hand, since the encoder overflows its stack on a record this deep: { deep: [[...0...]] }.
+			const deep = Uint8Array.of(0xa1, 0x64, ...Buffer.from('deep'), ...Array<number>(levels).fill(0x81), 0x00);
+			await host.putEncoded(DJ, NOTE, 'b', deep);
+			await host.put(DJ, NOTE, 'c', note('three'));
+
+			await s.sync(SPACE);
+			expect(await records()).toEqual([
+				['a', 'one'],
+				['c', 'three']
+			]);
+			expect((await repoRow())?.lastError).toBeNull();
+			const warnings = notes().filter(({ level }) => level === 'warn');
+			expect(warnings.map(({ message, uri }) => [message, uri])).toEqual([
+				['dropping a synced record nested deeper than 32 levels', `${SPACE}/${DJ}/${NOTE}/b`]
+			]);
+
+			// The record still counts toward the repo's commit, so the oplog picks up from there.
+			await host.put(DJ, NOTE, 'd', note('four'));
+			await s.sync(SPACE);
+			expect((await records()).at(-1)).toEqual(['d', 'four']);
+			expect(calls('getRepo')).toHaveLength(1);
+		}
+	);
 
 	describe('with one failing repo among good ones', () => {
 		const BAD = 'did:plc:bad';
@@ -566,14 +674,14 @@ describe('SpaceSyncer against a repo host', () => {
 	});
 
 	/** Has the host answer the methods in `nsids` with `edit(response)` instead, as a broken or hostile host could. */
-	const tamper = (nsids: string[], edit: (response: Response) => Promise<Response>) => {
+	const tamper = (nsids: string[], edit: (response: Response, url: URL) => Promise<Response>) => {
 		const real = host.fetch;
 		vi.spyOn(host, 'fetch').mockImplementation(async (input, init) => {
 			const url = new URL(input instanceof Request ? input.url : input);
 			const nsid = url.pathname.replace('/xrpc/com.atproto.space.', '');
 			const response = await real(input, init);
 
-			return nsids.includes(nsid) ? edit(response) : response;
+			return nsids.includes(nsid) ? edit(response, url) : response;
 		});
 	};
 
@@ -585,6 +693,126 @@ describe('SpaceSyncer against a repo host', () => {
 
 			return new Response(JSON.stringify(page), { headers: response.headers });
 		});
+
+	describe('a listRepoOps page from a broken or hostile host', () => {
+		/** What the oplog's first page is swapped for: any text, other values for its ops, one field changed, or cut off. */
+		type PageEdit =
+			| { kind: 'text'; text: string }
+			| { kind: 'values'; values: JsonValue[] }
+			| { kind: 'field'; field: (typeof FIELDS)[number]; value: JsonValue | undefined }
+			| { kind: 'cut'; at: number };
+
+		const pageEdit = (collection: string): fc.Arbitrary<PageEdit> =>
+			fc.oneof(
+				fc.record({ kind: fc.constant('text' as const), text: fc.oneof(fc.string(), fc.json()) }),
+				fc.record({ kind: fc.constant('values' as const), values: fc.array(opValue(collection), { minLength: 1 }) }),
+				fc.record({
+					kind: fc.constant('field' as const),
+					field: fc.constantFrom(...FIELDS),
+					value: fc.option(fc.jsonValue(), { nil: undefined })
+				}),
+				fc.record({ kind: fc.constant('cut' as const), at: fc.nat() })
+			);
+
+		function serve(edit: PageEdit, text: string): string {
+			switch (edit.kind) {
+				case 'text':
+					return edit.text;
+				case 'cut':
+					return text.slice(0, edit.at % text.length);
+				case 'field':
+					return write(withFieldSet(JSON.parse(text), edit.field, edit.value));
+				case 'values': {
+					const page: { ops: { value?: JsonValue }[] } = JSON.parse(text);
+					page.ops.forEach((op, index) => {
+						if (index < edit.values.length) op.value = edit.values[index];
+					});
+
+					return write(page);
+				}
+			}
+		}
+
+		const stored = async () =>
+			Object.fromEntries(
+				(await db.selectFrom('spaceRecord').select(['rkey', 'value']).execute()).map(({ rkey, value }) => [
+					rkey,
+					JSON.parse(value)
+				])
+			);
+
+		it('stores the ops of a page it reads, falls back to a full download otherwise, and keeps nothing too deep to validate', async () => {
+			await fc.assert(
+				fc.asyncProperty(
+					fc
+						.constantFrom(...RECORD_COLLECTIONS)
+						.chain((collection) => fc.tuple(fc.constant(collection), pageEdit(collection))),
+					async ([collection, edit]) => {
+						await db.destroy();
+						db = await openDatabase(':memory:');
+						host = await FakeSpaceHost.create(SPACE);
+						changes = [];
+						const record = (text: string) => ({ $type: collection, text });
+
+						const s = await syncer();
+						await host.put(DJ, collection, 'a', record('one'));
+						await s.sync(SPACE);
+						await host.put(DJ, collection, 'b', record('two'));
+						await host.put(DJ, collection, 'a', record('three'));
+
+						// The pages of the last read of the oplog. Only its first page is swapped, every time it's read, so a cursor
+						// the swap makes up reaches the real host and ends there.
+						let served: string[] = [];
+						tamper(['listRepoOps'], async (response, url) => {
+							const text = await response.text();
+
+							if (url.searchParams.has('cursor')) served.push(text);
+							else served = [serve(edit, text)];
+
+							return new Response(served.at(-1), { headers: response.headers });
+						});
+
+						const failed = await s.syncRepo(SPACE, DJ).then(
+							() => null,
+							(error: Error) => error
+						);
+
+						// Whatever went in, nothing comes out too deep for validateRecord to read.
+						const deep = changes.filter(
+							(change) => change.kind === 'upsert' && isTooDeepFor(change.collection, change.value)
+						);
+
+						expect(deep).toEqual([]);
+
+						// Only a MAC that fails twice fails the repo, which keeps what it had and waits for its retry. Any other page
+						// it can't use, it downloads in full instead. A page it reads is the local copy's ops, with a value too deep
+						// to validate dropped.
+						const read = () => {
+							const copy = new Map<string, unknown>([['a', record('one')]]);
+
+							for (const page of served) {
+								const { ops }: { ops: { collection: string; rkey: string; cid: string | null; value?: JsonObject }[] } =
+									JSON.parse(page);
+
+								for (const op of ops) {
+									if (op.cid === null || (op.value && isTooDeepFor(op.collection, op.value))) copy.delete(op.rkey);
+									else copy.set(op.rkey, op.value && lexToJson(jsonToLex(op.value)));
+								}
+							}
+
+							return Object.fromEntries(copy);
+						};
+
+						const downloaded = calls('getRepo').length > 1;
+						const kept = failed ? { a: record('one') } : downloaded && { a: record('three'), b: record('two') };
+						expect(await stored()).toEqual(kept || read());
+						expect((await repoRow())?.lastError).toBe(failed?.message ?? null);
+					}
+				),
+				{ numRuns: 50 }
+			);
+		}, 60_000);
+	});
 
 	it('reports each watched space with its repos, and skips repos already up to date when listing from the start', async () => {
 		const s = await syncer();
@@ -676,7 +904,7 @@ describe('SpaceSyncer against a repo host', () => {
 
 		// A cap of 3 keeps these to a few round trips to the host; 'reads 100 pages of a repo list a pass' pins the default.
 		it('downloads the repo in full once its oplog runs past the page cap', async () => {
-			const s = await syncer(undefined, null, 3);
+			const s = await syncer(undefined, null, { maxPages: 3 });
 			await host.put(DJ, NOTE, 'a', note('one'));
 			await s.sync(SPACE);
 			await host.put(DJ, NOTE, 'b', note('two'));
@@ -693,7 +921,7 @@ describe('SpaceSyncer against a repo host', () => {
 		});
 
 		it('reads its repo list up to the page cap a pass, keeping its place for the next', async () => {
-			const s = await syncer(undefined, null, 3);
+			const s = await syncer(undefined, null, { maxPages: 3 });
 			await host.put(DJ, NOTE, 'a', note('one'));
 			await s.sync(SPACE);
 			endless('listWriters');
@@ -741,6 +969,10 @@ describe('SpaceSyncer against a repo host', () => {
 			return new Response(new Uint8Array(archive), { headers: response.headers });
 		});
 
+	/** `archive` with the first `text` in it replaced, byte for byte. */
+	const replaced = (archive: Buffer, text: string, by: string) =>
+		Buffer.from(archive.toString('latin1').replace(text, by), 'latin1');
+
 	it('reads a repo archive framed with control bytes, as the alpha host has sent since Nov 5', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));
@@ -764,6 +996,16 @@ describe('SpaceSyncer against a repo host', () => {
 				'has a record path that is not one',
 				(archive: Buffer) => archive.fill('&', archive.indexOf(PATH), archive.indexOf(PATH) + 1),
 				`invalid NSID in record path: &${PATH.slice(1)}`
+			],
+			[
+				'has a record that does not fold into its commit',
+				(archive: Buffer) => replaced(archive, 'text\x63one', 'text\x63onf'),
+				'records do not match the commit data'
+			],
+			[
+				'is another kind of archive',
+				(archive: Buffer) => replaced(archive, 'atproto-space-repo', 'atproto-space-rapo'),
+				'invalid atproto-space-repo metadata'
 			]
 		])("fails the repo when it %s, with the reader's error, and keeps the KEM key", async (_, edit, message) => {
 			const s = await syncer();
@@ -774,6 +1016,103 @@ describe('SpaceSyncer against a repo host', () => {
 			expect(host.identity.refreshed).toEqual([]);
 			expect(calls('getRepo')).toHaveLength(1);
 			expect(await db.selectFrom('syncRepoRetry').select('lastError').execute()).toEqual([{ lastError: message }]);
+		});
+
+		it('fails the repo when it lists its records out of order', async () => {
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await host.put(DJ, NOTE, 'b', note('two'));
+			// Each record's path swapped for the other's, by way of a third, so b's comes first.
+			const [OTHER, SWAP] = [`${NOTE}/b`, `${NOTE}/x`];
+			editArchive((archive) => replaced(replaced(replaced(archive, PATH, SWAP), OTHER, PATH), SWAP, OTHER));
+
+			await expect(s.sync(SPACE)).rejects.toThrow(`records out of order at ${PATH}`);
+			expect(await records()).toEqual([]);
+		});
+
+		it.each([
+			['is not a map', encode(['one']), `invalid record at ${PATH}`],
+			['is not DRISL', Uint8Array.of(0xa1, 0x64), `invalid record cbor at ${PATH}`]
+		])('fails the repo when a record %s', async (_, bytes, message) => {
+			const s = await syncer();
+			await host.putEncoded(DJ, NOTE, 'a', bytes);
+
+			await expect(s.sync(SPACE)).rejects.toThrow(message);
+			expect(await records()).toEqual([]);
+		});
+	});
+
+	describe('a repo export that runs past the size cap', () => {
+		const MAX_BYTES = 64 * 1024;
+
+		/** Has the host's getRepo archive go on past its last record with records forever, counting the bytes sent. */
+		const endless = () => {
+			let sent = 0;
+			tamper(['getRepo'], async (response) => {
+				const archive = new Uint8Array(await response.arrayBuffer());
+				const value = encode(note('more'));
+				let count = 0;
+
+				const body = new ReadableStream<Uint8Array>({
+					pull(controller) {
+						// The archive without its end byte, then one record after another, in path order. Each length fits
+						// a one-byte varint.
+						const key = Buffer.from(`${NOTE}/z${String(count).padStart(12, '0')}`);
+
+						const chunk =
+							count++ === 0 ? archive.subarray(0, -1) : Uint8Array.of(1, key.length, ...key, value.length, ...value);
+
+						sent += chunk.length;
+						controller.enqueue(chunk);
+					}
+				});
+
+				return new Response(body, { headers: response.headers });
+			});
+
+			return () => sent;
+		};
+
+		it('stops reading it, logs the repo, and keeps the local copy and its place until a retry works', async () => {
+			const NOON = new Date('2026-11-04T12:00:00.000Z').getTime();
+			vi.useFakeTimers({ toFake: ['Date'], now: NOON });
+			onTestFinished(() => void vi.useRealTimers());
+			const { logger, notes } = writtenLog();
+			const s = await syncer(undefined, null, { logger, maxRepoBytes: MAX_BYTES });
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			// A local set hash that has drifted from the records, so the next pass downloads the repo in full.
+			const drifted = RepoCommit.fromState(null).setHash.state();
+			await db.updateTable('syncedRepo').set({ ltHash: drifted }).execute();
+			const synced = await repoRow();
+			await host.put(DJ, NOTE, 'b', note('two'));
+			const sent = endless();
+
+			await expect(s.sync(SPACE)).rejects.toThrow('Response too large');
+			expect(sent()).toBeLessThan(2 * MAX_BYTES);
+			expect(notes()).toContainEqual(
+				expect.objectContaining({
+					level: 'warn',
+					message: 'repo export ran past the size cap; giving up on it',
+					repoDid: DJ,
+					maxBytes: MAX_BYTES
+				})
+			);
+			expect(await records()).toEqual([['a', 'one']]);
+			expect(await repoRow()).toEqual({ ...synced, lastError: 'Response too large' });
+			expect(await db.selectFrom('syncRepoRetry').select(['repoDid', 'attempts']).execute()).toEqual([
+				{ repoDid: DJ, attempts: 1 }
+			]);
+
+			vi.mocked(host.fetch).mockRestore();
+			vi.setSystemTime(NOON + 60_000);
+			await s.sync(SPACE);
+			expect(await records()).toEqual([
+				['a', 'one'],
+				['b', 'two']
+			]);
+			expect(await db.selectFrom('syncRepoRetry').selectAll().execute()).toEqual([]);
+			expect((await db.selectFrom('spaceWatch').select('lastError').executeTakeFirstOrThrow()).lastError).toBeNull();
 		});
 	});
 
@@ -1008,5 +1347,100 @@ describe('SpaceSyncer against a repo host', () => {
 			expect(state.seen).toMatchObject([{ kind: 'delete', rkey: 'a' }]);
 			expect(await pending()).toEqual([]);
 		});
+	});
+});
+
+describe('readOpsPage', () => {
+	const NSID = 'com.atproto.space.listRepoOps';
+	const CID = 'bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm';
+	const commit = { ver: 1, repo: 'did:plc:dj', space: SPACE, rev: '3m5qbpbz4ws2c', data: { $bytes: 'AAAA' } };
+
+	const op = fc.constantFrom(...RECORD_COLLECTIONS).chain((collection) =>
+		fc.record({
+			collection: fc.constant(collection),
+			rkey: recordKey(collection),
+			cid: fc.constant(CID),
+			prev: fc.constant(null),
+			value: opValue(collection)
+		})
+	);
+
+	const page = fc.record({
+		ops: fc.array(op),
+		commit: fc.constant(commit),
+		cursor: fc.option(fc.string(), { nil: undefined })
+	});
+
+	const withField = fc
+		.tuple(page, fc.constantFrom(...FIELDS), fc.option(fc.jsonValue(), { nil: undefined }))
+		.map(([body, field, value]) => withFieldSet(body, field, value));
+
+	it('reads any text as a page, or rejects it as the host failing listRepoOps', () => {
+		const text = fc.oneof(
+			fc.string(),
+			fc.json(),
+			page.map(write),
+			withField.map(write),
+			// Cut off anywhere.
+			fc.tuple(page.map(write), fc.nat()).map(([whole, at]) => whole.slice(0, at % whole.length)),
+			// Nested past the stack somewhere other than a record.
+			fc
+				.tuple(page, fc.integer({ min: 1_000, max: 30_000 }))
+				.map(([body, levels]) => write({ ...body, extra: nested(levels) }))
+		);
+
+		/** What readOpsPage makes of `body`: how many ops it read and how many values among them are too deep, or how it failed. */
+		function outcome(body: string) {
+			try {
+				const { ops } = readOpsPage(body).page;
+
+				return {
+					ops: ops.length,
+					deep: ops.filter(({ collection, value }) => value && isTooDeepFor(collection, asJson(value))).length
+				};
+			} catch (error) {
+				return {
+					rejected:
+						error instanceof XrpcResponseError ? { status: error.status, error: error.error, nsid: error.nsid } : error
+				};
+			}
+		}
+
+		fc.assert(
+			fc.property(text, (body) => {
+				const read = outcome(body);
+
+				expect(read).toEqual(
+					'rejected' in read
+						? { rejected: { status: 502, error: 'InvalidResponse', nsid: NSID } }
+						: { ops: JSON.parse(body).ops.length, deep: 0 }
+				);
+			})
+		);
+	});
+
+	it('keeps every op of a page that reads, holding back only the values validateRecord refuses as too deep', () => {
+		fc.assert(
+			fc.property(page.map(write), (text) => {
+				const sent: { collection: string; value: JsonObject }[] = JSON.parse(text).ops;
+
+				const { page: read, tooDeep } = readOpsPage(text);
+
+				// Each op as it went out, with its value held back exactly when it was too deep, and every value kept readable.
+				expect(
+					read.ops.map(({ collection, value }, index) => ({
+						index,
+						held: tooDeep.has(index),
+						kept: value === undefined ? null : isTooDeepFor(collection, asJson(value))
+					}))
+				).toEqual(
+					sent.map(({ collection, value }, index) => {
+						const deep = isTooDeepFor(collection, value);
+
+						return { index, held: deep, kept: deep ? null : false };
+					})
+				);
+			})
+		);
 	});
 });
