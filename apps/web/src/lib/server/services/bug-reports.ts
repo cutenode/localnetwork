@@ -25,8 +25,8 @@ export function browserLabel(userAgent: string | null | undefined): string | und
 
 /**
  * Bug reports from signed-in people, posted from their own account into Local Network's space on
- * userinput.app (a feedback board on the AT Protocol). Without a space configured, the site sends
- * everyone to GitHub's issue form instead.
+ * userinput.app (a feedback board on the AT Protocol). Without a space configured, or for someone the
+ * `userinputReports` flag is off for, the report page sends them to GitHub's issue form instead.
  */
 export class BugReportService {
 	constructor(

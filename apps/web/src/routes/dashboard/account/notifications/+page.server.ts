@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { grantsEmail, OptionalScopeUnsupported } from '#lib/server/atproto/oauth.ts';
 import { requireViewer } from '#lib/server/http.ts';
 import { KIND_TOPICS } from '#lib/server/notifications/kinds.ts';
+import { offeredChannels } from '#lib/server/notifications/outbox.ts';
 import type { NotificationChannel, NotificationTopic } from '#lib/types.ts';
 import type { Action, Actions, PageServerLoad } from './$types';
 
@@ -31,6 +32,24 @@ const WORDS: Record<NotificationChannel, { picked: string; none: string; test: s
 		off: 'DMs are off.'
 	}
 };
+
+/** What a post about a channel the page doesn't offer the viewer gets back. */
+const MISSING: Record<NotificationChannel, string> = {
+	email: "Email isn't set up on this site.",
+	dm: "Bluesky DMs aren't set up on this site."
+};
+
+/**
+ * Refuses `action` while the page doesn't offer `channel` to the viewer, so a forged post can't turn on or change a
+ * channel that isn't rolled out to them. Turning one off needs no check: it only forgets.
+ */
+const whenOffered =
+	(channel: NotificationChannel, action: Action): Action =>
+	(event) => {
+		requireViewer(event.locals, event.url);
+
+		return offeredChannels(event.locals)[channel] ? action(event) : failed(400, channel, MISSING[channel]);
+	};
 
 const topicsFor =
 	(channel: NotificationChannel): Action =>
@@ -75,20 +94,21 @@ const offFor =
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const viewer = requireViewer(locals, url);
 	const { app } = locals;
+	const offered = offeredChannels(locals);
 	const dm = await app.notificationChannels.view(viewer.did, 'dm');
 
 	return {
 		topics: KIND_TOPICS,
 		email: {
-			available: app.outbox.configured.includes('email'),
+			available: offered.email,
 			channel: await app.notificationChannels.view(viewer.did, 'email'),
 			returned: returned(url.searchParams.get('email'))
 		},
 		dm: {
-			available: Boolean(app.dm),
+			available: Boolean(offered.dm),
 			channel: dm,
 			// Streamed: Bluesky chat can be slow, and the rest of the page doesn't wait on it.
-			availability: app.dm ? app.dm.availability(viewer.did) : null,
+			availability: offered.dm ? offered.dm.availability(viewer.did) : null,
 			root: app.rootAccount.handle ?? app.rootDid
 		}
 	};
@@ -99,7 +119,7 @@ export const actions: Actions = {
 	 * Reads the viewer's address with the session they have when it already allows that, and otherwise sends them to
 	 * their account's host to allow it, coming back through the sign-in callback.
 	 */
-	emailOn: async ({ locals, url }) => {
+	emailOn: whenOffered('email', async ({ locals, url }) => {
 		const viewer = requireViewer(locals, url);
 		const { app, log } = locals;
 
@@ -147,24 +167,25 @@ export const actions: Actions = {
 		}
 
 		redirect(303, to, { external: true });
-	},
+	}),
 
-	emailTopics: topicsFor('email'),
-	emailTest: testFor('email'),
+	emailTopics: whenOffered('email', topicsFor('email')),
+	emailTest: whenOffered('email', testFor('email')),
 	emailOff: offFor('email'),
 
 	/** Turns DMs on, or holds them until the viewer's Bluesky chat settings let the root's DMs through. */
 	dmOn: async ({ locals, url }) => {
 		const viewer = requireViewer(locals, url);
 		const { app } = locals;
+		const chat = offeredChannels(locals).dm;
 
-		if (!app.dm) return failed(400, 'dm', "Bluesky DMs aren't set up on this site.");
+		if (!chat) return failed(400, 'dm', MISSING.dm);
 
 		if (!app.limits.optIn.take(`optIn:${viewer.did}`)) {
 			return failed(429, 'dm', 'Too many tries. Wait a few minutes, then try again.');
 		}
 
-		const availability = await app.dm.availability(viewer.did);
+		const availability = await chat.availability(viewer.did);
 
 		if (availability === 'unavailable')
 			return failed(502, 'dm', "We couldn't reach Bluesky chat. Try again in a minute.");
@@ -174,7 +195,7 @@ export const actions: Actions = {
 			? done('dm', 'DMs are on.')
 			: failed(400, 'dm', "Bluesky chat won't deliver our DMs to you yet.");
 	},
-	dmTopics: topicsFor('dm'),
-	dmTest: testFor('dm'),
+	dmTopics: whenOffered('dm', topicsFor('dm')),
+	dmTest: whenOffered('dm', testFor('dm')),
 	dmOff: offFor('dm')
 };

@@ -11,22 +11,31 @@ const factsOf = (request: Request, from: string | null): ReportFacts => ({
 	browser: browserLabel(request.headers.get('user-agent'))
 });
 
+/**
+ * Whether a signed-in viewer's report goes to userinput.app: the site has a space to post to, and it's rolled out to
+ * them. Off, it goes to GitHub, which is also how staff send everyone there while userinput.app is down.
+ */
+const postsToUserinput = ({ app, flags }: App.Locals) => app.bugReports.enabled && flags.userinputReports;
+
 export const load: PageServerLoad = async ({ locals, request, url }) => {
 	const facts = factsOf(request, url.searchParams.get('from'));
 	const github = githubIssueUrl(facts);
 	const { app, viewer } = locals;
 
-	// Signed out, or with no space to post to, a report goes to GitHub.
-	if (!viewer || !app.bugReports.enabled) redirect(303, github, { external: true });
+	// Signed out, or with reports to userinput.app off for them, a report goes to GitHub.
+	if (!viewer || !postsToUserinput(locals)) redirect(303, github, { external: true });
 
 	return { github, facts, canPost: await app.bugReports.canPost(viewer.did) };
 };
 
 export const actions: Actions = {
 	/** Sends the viewer through sign-in to approve posting to userinput.app, then back here. */
-	allow: async ({ locals, url }) => {
+	allow: async ({ locals, request, url }) => {
 		const viewer = requireViewer(locals, url);
 		const from = url.searchParams.get('from');
+
+		if (!postsToUserinput(locals)) redirect(303, githubIssueUrl(factsOf(request, from)), { external: true });
+
 		const next = `/report${from ? `?from=${encodeURIComponent(from)}` : ''}`;
 		let to: URL;
 		const account = await locals.app.accounts.get(viewer.did);
@@ -51,6 +60,9 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const values = { title: text(form, 'title', REPORT_LIMITS.title), body: text(form, 'body', REPORT_LIMITS.body) };
 		const facts = factsOf(request, url.searchParams.get('from'));
+
+		// What they wrote goes with them.
+		if (!postsToUserinput(locals)) redirect(303, githubIssueUrl(facts, values), { external: true });
 
 		if (!values.title) return fail(400, { error: 'Add a title.', values, github: githubIssueUrl(facts, values) });
 

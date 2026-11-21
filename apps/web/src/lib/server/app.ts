@@ -170,6 +170,8 @@ export async function createApp(options: CreateAppOptions) {
 		db,
 		logger: logger.child({ component: 'outbox' }),
 		channels: notificationChannels,
+		// The outbox only sends from its timers, which start after `flags` below exists.
+		flags: { evaluate: (did) => flags.evaluate(did) },
 		senders
 	});
 

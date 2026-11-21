@@ -15,9 +15,10 @@
 	import FormMessage from './FormMessage.svelte';
 
 	/**
-	 * Someone's email setting for their inbox. `available` is false when the site can't send email. `returned` says how
-	 * asking their account's host for the address just went, when it didn't go through. Turning email on (or checking
-	 * again) is a full page POST: it goes on to their account's host, which client-side navigation can't follow.
+	 * Someone's email setting for their inbox. `available` is false when the site can't send email, or hasn't rolled it
+	 * out to them; email they turned on before that can still be turned off. `returned` says how asking their account's
+	 * host for the address just went, when it didn't go through. Turning email on (or checking again) is a full page
+	 * POST: it goes on to their account's host, which client-side navigation can't follow.
 	 */
 	let {
 		available,
@@ -39,7 +40,9 @@
 
 	const status = $derived(
 		!available
-			? 'Not set up on this site.'
+			? channel
+				? 'Paused on this site for now.'
+				: 'Not set up on this site.'
 			: !channel
 				? 'Get your inbox by email too.'
 				: channel.pausedReason === 'email_unverified'
@@ -61,7 +64,8 @@
 	<FormMessage {form} />
 	{#if returned === 'limited' && !form}<p class="notice m-0">We can't send a confirmation link to that address right now. Try again tomorrow.</p>{/if}
 	{#if !available}
-		<!-- The status line says so; the inbox itself still gets everything, as the page says. -->
+		<!-- The status line says so; the inbox itself still gets everything, as the page says. Turning it off deletes the address. -->
+		{#if channel}<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off email</button></form>{/if}
 	{:else if !channel}
 		{#if returned === 'declined'}<p class="notice m-0">You didn't allow sharing your email address, so email is still off.</p>{/if}
 		<form method="POST" action="?/emailOn" class="flex flex-col items-start gap-2">

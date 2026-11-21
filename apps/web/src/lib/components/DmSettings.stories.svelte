@@ -45,6 +45,9 @@
 
 <Story name="Not set up here" args={{ available: false, channel: null, availability: null, root }} />
 
+<!-- Turned on before DMs stopped being offered to them, so they can still be turned off. -->
+<Story name="No longer offered, still on" args={{ available: false, channel: on, availability: null, root }} />
+
 <Story name="Phone, not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root }} globals={phone} />
 
 <Story

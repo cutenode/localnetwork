@@ -38,6 +38,9 @@
 
 <Story name="Not set up here" args={{ available: false, channel: null }} />
 
+<!-- Turned on before email stopped being offered to them, so it can still be turned off. -->
+<Story name="No longer offered, still on" args={{ available: false, channel: on }} />
+
 <Story name="Phone, on" args={{ available: true, channel: on }} globals={phone} />
 
 <Story name="Phone, waiting on the link" args={{ available: true, channel: paused('email_unverified') }} globals={phone} />

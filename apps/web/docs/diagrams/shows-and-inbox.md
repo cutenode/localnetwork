@@ -93,7 +93,7 @@ One item on its way out by one channel. A batch keeps its items and key through 
 ```mermaid
 stateDiagram-v2
   [*] --> pending
-  pending --> skipped: read already, or channel off or paused
+  pending --> skipped: read already, channel off or paused, or its flag off for them
   pending --> sending: claimed in a batch
   sending --> sent: service took it
   sending --> pending: retryable, under 8 attempts

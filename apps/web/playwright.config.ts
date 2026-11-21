@@ -44,6 +44,8 @@ export default defineConfig({
 			DEV_ENV_FILE: '',
 			GEOCODER: 'none',
 			ACTOR_SEARCH: 'none',
+			// The bug report tests post to the stand-in userinput.app space, which is rolled out behind this flag.
+			FLAG_OVERRIDES: 'userinputReports=on',
 			LOG_LEVEL: 'warn'
 		}
 	}

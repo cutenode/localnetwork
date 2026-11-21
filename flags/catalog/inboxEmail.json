@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "inboxEmail",
+	"description": "Inbox email through Resend. Off for an account, its settings don't offer email and the outbox skips what would have gone to it, which stays in the site inbox. Turning it back on sends only what comes after.",
+	"type": "ops"
+}
