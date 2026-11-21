@@ -6,6 +6,7 @@ import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { gzipped } from '#lib/server/compress.ts';
 import { PREVIEW_COOKIE } from '#lib/server/flags/preview.ts';
+import { flagVisitor } from '#lib/server/flags/visitor.ts';
 import { CRAWLER_HEAD, withCrawlerHead } from '#lib/server/crawler-head.ts';
 import { clientIp, guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger, type Logger } from '#lib/server/logger.ts';
@@ -86,6 +87,7 @@ export function serverHooks({
 
 		const { requestId } = event.locals;
 		const isXrpc = event.url.pathname.startsWith('/xrpc/');
+		const isHttps = app.config.publicUrl.startsWith('https:');
 
 		if (MUTATING.has(event.request.method) && !isXrpc && !app.limits.write.take(`ip:${clientIp(event)}`)) {
 			return new Response('Too many requests. Slow down a little.', { status: 429, headers: { 'retry-after': '30' } });
@@ -107,10 +109,15 @@ export function serverHooks({
 			}
 		}
 
-		// An xrpc call never reads the sign-in cookie, so it gets the flags a signed-out visitor does. A route that has
-		// checked a service token can evaluate flags for that token's DID itself.
+		// An xrpc call never reads a cookie, so it only gets flags on for everyone. A route that has checked a service
+		// token can evaluate flags for that token's DID itself. A signed-out visitor gets an id of their own while a flag
+		// is on for a percentage, so they're in or out of it the same way on every request.
 		const { viewer } = event.locals;
-		event.locals.flags = await app.flags.evaluate(viewer?.did ?? null);
+		const needsVisitorId = !viewer && !isXrpc && (await app.flags.hasPercentage());
+		const visitor = needsVisitorId ? flagVisitor(event.cookies, isHttps) : null;
+		event.locals.flags = await app.flags.evaluate(viewer?.did ?? visitor?.id ?? null);
+
+		if (visitor) log.set({ flagVisitor: visitor.isNew ? 'new' : 'returning' });
 
 		if (!isXrpc) {
 			const cookie = event.cookies.get(PREVIEW_COOKIE);
@@ -155,8 +162,15 @@ export function serverHooks({
 		response.headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
 
 		if (isUnlisted(event.route.id)) response.headers.set('x-robots-tag', 'noindex');
+		const cacheControl = response.headers.get('cache-control');
 
-		if (app.config.publicUrl.startsWith('https:')) {
+		// The answer now depends on this browser's own cookie, so a shared cache mustn't keep it for the next visitor,
+		// or hand them the cookie it set. The browser's own cache still can.
+		if (visitor && cacheControl?.includes('public')) {
+			response.headers.set('cache-control', cacheControl.replace('public', 'private'));
+		}
+
+		if (isHttps) {
 			response.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
 		}
 

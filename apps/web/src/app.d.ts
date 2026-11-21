@@ -15,7 +15,7 @@ declare global {
 		interface Locals {
 			app: ServerApp;
 			viewer: Viewer | null;
-			/** Every feature flag for this viewer, or for a signed-out visitor. Not set on XRPC requests. */
+			/** Every feature flag for this viewer or signed-out visitor. On XRPC requests, only those on for everyone. */
 			flags: Flags;
 			/** The flags a staff member is previewing in this browser, already in `flags`. */
 			flagPreview?: FlagPreview;

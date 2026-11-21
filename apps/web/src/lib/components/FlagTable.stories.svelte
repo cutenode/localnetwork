@@ -10,6 +10,7 @@
 	const flag = (key: string, description: string, gates: Partial<FlagView>): FlagView => ({
 		key: key as FlagView['key'],
 		description,
+		showsOn: [],
 		enabled: true,
 		everyone: false,
 		percentage: 0,

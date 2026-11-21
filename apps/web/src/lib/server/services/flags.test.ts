@@ -105,7 +105,7 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
-	it('shows signed-out visitors only what is on for everyone', async () => {
+	it('gives a caller with no id only what is on for everyone', async () => {
 		const admin = await t.viewer(ADMIN);
 		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 100, dids: [DJ] });
 
@@ -115,6 +115,26 @@ describe('FlagService', () => {
 		await t.flags.updateFlag(admin, FLAG, { ...off, everyone: true });
 
 		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
+	});
+
+	it('says whether a flag is on for a percentage, which signed-out visitors need an id for', async () => {
+		const admin = await t.viewer(ADMIN);
+
+		expect(await t.flags.hasPercentage()).toBe(false);
+
+		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 5 });
+
+		expect(await t.flags.hasPercentage()).toBe(true);
+		expect(await new FlagService(t.core, t.staff, { [FLAG]: true }).hasPercentage()).toBe(false);
+		expect(await new FlagService(t.core, t.staff, { [FLAG]: false }).hasPercentage()).toBe(false);
+
+		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 5, enabled: false });
+
+		expect(await t.flags.hasPercentage()).toBe(false);
+
+		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 5, everyone: true });
+
+		expect(await t.flags.hasPercentage()).toBe(false);
 	});
 
 	it('tells a caller its own targeting and never who else', async () => {
@@ -260,6 +280,11 @@ describe('FlagService', () => {
 		});
 		expect(await t.flags.flag('noSuchFlag')).toBeNull();
 		expect(await t.flags.group('nope')).toBeNull();
+	});
+
+	it('lists the kinds of page a flag shows on from its catalog file, and none when it names none', async () => {
+		expect((await t.flags.flag(FLAG))?.showsOn).toEqual(['profile']);
+		expect((await t.flags.flag('pauseGoogleTokenExchange'))?.showsOn).toEqual([]);
 	});
 
 	it('says a flag is ready to remove once it has been on for everyone or every account for 30 days', async () => {

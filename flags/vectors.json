@@ -1,5 +1,5 @@
 {
-	"$comment": "Computed answers both the website and locallibrary test themselves against. A case without `enabled` is a record that doesn't say, which counts as true. Add cases freely; changing one means the rule changed, and every account can move.",
+	"$comment": "Computed answers both the website and locallibrary test themselves against. `did` is the id the rule buckets: an account's DID, a signed-out visitor's `visitor:` id from the website's cookie, or null for a caller with neither. A case without `enabled` is a record that doesn't say, which counts as true. Add cases freely; changing one means the rule changed, and every account can move.",
 	"cases": [
 		{
 			"key": "parityCanary",
@@ -742,6 +742,60 @@
 			"percentage": 100,
 			"bucket": null,
 			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "visitor:00000000-0000-4000-8000-000000000000",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 16,
+			"bucket": 16,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "visitor:00000000-0000-4000-8000-000000000000",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 17,
+			"bucket": 16,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "visitor:00000008-0000-4000-8000-000000000000",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 99,
+			"bucket": 99,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "visitor:00000008-0000-4000-8000-000000000000",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 99,
+			"on": true
+		},
+		{
+			"key": "spacePages",
+			"did": "visitor:00000000-0000-4000-8000-000000000000",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 57,
+			"bucket": 57,
+			"on": false
+		},
+		{
+			"key": "spacePages",
+			"did": "visitor:00000000-0000-4000-8000-000000000000",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 58,
+			"bucket": 57,
+			"on": true
 		}
 	]
 }

@@ -147,7 +147,7 @@ export class FlagService {
 		};
 	}
 
-	/** Every flag as `did` sees it, or as a signed-out visitor does when it's null. */
+	/** Every flag as `did` sees it, or with nothing targeted when it's null. */
 	async answers(did: string | null): Promise<FlagAnswer[]> {
 		const { flags, groups } = await this.load();
 
@@ -173,11 +173,22 @@ export class FlagService {
 		});
 	}
 
-	async evaluate(did: string | null): Promise<Flags> {
-		const answers = await this.answers(did);
+	/**
+	 * Every flag for `id`: an account's DID, a signed-out visitor's id from flagVisitor, or null for a caller with
+	 * neither, who only gets what's on for everyone.
+	 */
+	async evaluate(id: string | null): Promise<Flags> {
+		const answers = await this.answers(id);
 
 		// SAFETY: answers has one entry for every FlagKey.
-		return Object.fromEntries(answers.map((answer) => [answer.key, isOn(answer, answer.key, did)])) as Flags;
+		return Object.fromEntries(answers.map((answer) => [answer.key, isOn(answer, answer.key, id)])) as Flags;
+	}
+
+	/** Whether a flag is on for a percentage now, which a signed-out visitor needs an id of their own to be counted in. */
+	async hasPercentage(): Promise<boolean> {
+		return (await this.answers(null)).some(
+			({ enabled, everyone, percentage }) => enabled && !everyone && percentage > 0
+		);
 	}
 
 	/** Every flag in the catalog, with who it's on for. A flag nobody has set yet is off. */
@@ -186,13 +197,14 @@ export class FlagService {
 		const accounts = await this.core.accounts.views([...flags.values()].flatMap((flag) => flag.dids));
 		const settled = new Date(Date.now() - READY_TO_REMOVE_MS).toISOString();
 
-		return FLAGS.map(({ key, description }) => {
+		return FLAGS.map(({ key, description, showsOn = [] }) => {
 			const flag = flags.get(key);
 			const fullyOn = !!flag?.enabled && (flag.everyone || flag.percentage === 100);
 
 			return {
 				key,
 				description,
+				showsOn,
 				enabled: flag?.enabled ?? true,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,

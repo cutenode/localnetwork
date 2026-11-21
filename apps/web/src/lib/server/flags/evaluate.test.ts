@@ -5,6 +5,9 @@ import { bucket, isOn } from './evaluate';
 
 const did = fc.stringMatching(/^did:plc:[a-z2-7]{24}$/);
 
+/** A signed-out visitor's id, as flagVisitor makes it from their cookie. */
+const visitor = fc.uuid({ version: 4 }).map((uuid) => `visitor:${uuid}`);
+
 const key = fc.stringMatching(/^[a-z][a-zA-Z0-9]{0,20}$/);
 
 const percentage = fc.integer({ min: 0, max: 100 });
@@ -62,12 +65,29 @@ describe('rollouts', () => {
 		);
 	});
 
-	it('never counts a signed-out visitor', () => {
+	it('never counts a caller with no id', () => {
 		fc.assert(
 			fc.property(key, percentage, (flag, share) => {
 				expect(isOn({ enabled: true, everyone: false, targeted: false, percentage: share }, flag, null)).toBe(false);
 			})
 		);
+	});
+
+	it('takes in every visitor at 100 and none at 0', () => {
+		fc.assert(
+			fc.property(key, visitor, (flag, id) => {
+				const gates = { enabled: true, everyone: false, targeted: false };
+
+				expect(isOn({ ...gates, percentage: 100 }, flag, id)).toBe(true);
+				expect(isOn({ ...gates, percentage: 0 }, flag, id)).toBe(false);
+			})
+		);
+	});
+
+	it('puts a visitor somewhere in the rollout, not where every visitor goes', () => {
+		const visitors = fc.sample(visitor, { numRuns: 50, seed: 1 });
+
+		expect(new Set(visitors.map((id) => bucket('parityCanary', id))).size).toBeGreaterThan(10);
 	});
 
 	it('moves an account to a different bucket for a different flag', () => {

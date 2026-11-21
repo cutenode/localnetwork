@@ -15,6 +15,7 @@ afterEach(() => {
 const flag = (gates: Partial<FlagView>): FlagView => ({
 	key: 'parityCanary',
 	description: 'Gates nothing.',
+	showsOn: [],
 	enabled: true,
 	everyone: false,
 	percentage: 0,

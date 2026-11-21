@@ -130,7 +130,7 @@ export class ListingWriter {
 			.executeTakeFirst();
 
 		const source = status && this.sources[status.kind];
-		// As a signed-out visitor sees it, who only gets flags that are on for everyone.
+		// Only once it's on for everyone: with no id, nothing is counted in a percentage.
 		const { spacePages } = await this.flags.evaluate(null);
 		const fields = status?.listed === 1 && source && spacePages ? await source.publicFields(space) : null;
 		const stored = await db.selectFrom('kv').select('value').where('key', '=', digestKey(space)).executeTakeFirst();

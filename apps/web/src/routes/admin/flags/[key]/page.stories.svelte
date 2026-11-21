@@ -12,6 +12,7 @@
 	const flag: FlagView = {
 		key: 'parityCanary',
 		description: 'Gates nothing. Turn it on for an account to check that the website and locallibrary give it the same answer.',
+		showsOn: ['profile'],
 		enabled: true,
 		everyone: false,
 		percentage: 25,
@@ -40,7 +41,7 @@
 	asChild
 	play={async ({ canvasElement }) => {
 		await expect(within(canvasElement).getByRole('switch', { name: /^Off for everyone/ })).toBeChecked();
-		await expect(within(canvasElement).getByLabelText('Percentage of accounts')).toHaveValue(25);
+		await expect(within(canvasElement).getByLabelText('Percentage of people')).toHaveValue(25);
 	}}
 >
 	<FlagPage data={data({ enabled: false })} params={{ key: 'parityCanary' }} form={null} />
@@ -62,5 +63,9 @@
 <Story name="Previewing, on a phone" asChild globals={phone}><FlagPage data={data({}, { parityCanary: false })} params={{ key: 'parityCanary' }} form={null} /></Story>
 
 <Story name="Couldn't save" asChild><FlagPage data={data()} params={{ key: 'parityCanary' }} form={{ error: 'Could not resolve @nobody.example', values: undefined, reauth: false }} /></Story>
+
+<Story name="Shows on every page" asChild><FlagPage data={data({ showsOn: ['global'] })} params={{ key: 'parityCanary' }} form={null} /></Story>
+
+<Story name="Shows on no page kind" asChild><FlagPage data={data({ showsOn: [] })} params={{ key: 'parityCanary' }} form={null} /></Story>
 
 <Story name="No groups yet" asChild><FlagPage data={{ ...data(), groups: [] }} params={{ key: 'parityCanary' }} form={null} /></Story>

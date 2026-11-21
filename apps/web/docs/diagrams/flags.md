@@ -14,7 +14,7 @@ Whether one flag is on for one caller. Only flags in `flags/catalog/` exist: a r
 
 ```mermaid
 flowchart TD
-  Ask["A catalog flag, for a DID<br/>or a signed-out visitor"] --> Forced{"In FLAG_OVERRIDES?"}
+  Ask["A catalog flag, for a DID, a signed-out<br/>visitor's id, or no id"] --> Forced{"In FLAG_OVERRIDES?"}
   Forced -- "forced on" --> On["On"]
   Forced -- "forced off" --> Off["Off"]
   Forced -- "no" --> Record{"A staff.flag record?"}
@@ -25,22 +25,27 @@ flowchart TD
   Everyone -- "yes" --> On
   Everyone -- "no" --> Targeted{"The DID is in its accounts<br/>or one of its groups?"}
   Targeted -- "yes" --> On
-  Targeted -- "no" --> Bucket{"Signed in, and SHA-256 of key + DID,<br/>mod 100, under percentage?"}
+  Targeted -- "no" --> Bucket{"An id, and SHA-256 of key + id,<br/>mod 100, under percentage?"}
   Bucket -- "yes" --> On
   Bucket -- "no" --> Off
 ```
 
-Source: [`src/lib/server/flags/evaluate.ts`](../../src/lib/server/flags/evaluate.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/flags/catalog.ts`](../../src/lib/server/flags/catalog.ts), [`src/lib/server/config.ts`](../../src/lib/server/config.ts)
+Source: [`src/lib/server/flags/evaluate.ts`](../../src/lib/server/flags/evaluate.ts), [`src/lib/server/flags/visitor.ts`](../../src/lib/server/flags/visitor.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/flags/catalog.ts`](../../src/lib/server/flags/catalog.ts), [`src/lib/server/config.ts`](../../src/lib/server/config.ts)
 
 ## Flags on a page request
 
-Every request gets every flag decided once, held in memory between record changes. An `/xrpc` call never reads the sign-in cookie, so it gets a signed-out visitor's flags. A staff member's preview changes only their own browser.
+Every request gets every flag decided once, held in memory between record changes. An `/xrpc` call never reads a cookie, so it only gets flags on for everyone. A signed-out visitor gets an id of their own while a flag is on for a percentage, and their response stays out of shared caches. A staff member's preview changes only their own browser.
 
 ```mermaid
 flowchart TD
-  Request["A request"] --> Decide["Decide every flag for the viewer,<br/>or for a signed-out visitor"]
-  Decide -- "/xrpc, always signed out" --> Route["locals.flags for the route,<br/>no preview"]
-  Decide -- "not /xrpc" --> Cookie{"ln_flag_preview set?"}
+  Request["A request"] -- "/xrpc" --> Route["Every flag with no id,<br/>locals.flags for the route, no preview"]
+  Request -- "signed in" --> Decide["Decide every flag for the viewer"]
+  Request -- "signed out" --> Share{"A flag on for<br/>a percentage?"}
+  Share -- "no" --> Nobody["Decide every flag with no id"]
+  Share -- "yes" --> Visitor["ln_flag_visitor, set if missing:<br/>decide for its visitor id,<br/>no public caching"]
+  Decide --> Cookie{"ln_flag_preview set?"}
+  Nobody --> Cookie
+  Visitor --> Cookie
   Cookie -- "no" --> Locals["locals.flags, passed to<br/>every page by the root layout"]
   Cookie -- "yes" --> Valid{"Signed with this session, for this viewer,<br/>under an hour old, and they hold flags?"}
   Valid -- "yes" --> Merge["Previewed flags replace theirs,<br/>with a banner on every page"]
@@ -49,7 +54,7 @@ flowchart TD
   Drop --> Locals
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/flags/preview.ts`](../../src/lib/server/flags/preview.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/routes/+layout.server.ts`](../../src/routes/+layout.server.ts), [`src/routes/+layout.svelte`](../../src/routes/+layout.svelte)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/flags/visitor.ts`](../../src/lib/server/flags/visitor.ts), [`src/lib/server/flags/preview.ts`](../../src/lib/server/flags/preview.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/routes/+layout.server.ts`](../../src/routes/+layout.server.ts), [`src/routes/+layout.svelte`](../../src/routes/+layout.svelte)
 
 ## getFlags
 

@@ -1,4 +1,5 @@
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import type { ShowsOn } from '#lib/flags/shows-on.ts';
 /** View models shared between server and browser code. */
 
 import type { BlobRef } from '@atproto/lex-data';
@@ -505,6 +506,8 @@ export type FlagAccount = { did: string; handle: string | null };
 export type FlagView = {
 	key: FlagKey;
 	description: string;
+	/** The kinds of page it changes, from its catalog file. Empty when the file names none. */
+	showsOn: ShowsOn[];
 	/** False when it's turned off for everyone. The gates below are kept for when it's back on. */
 	enabled: boolean;
 	everyone: boolean;

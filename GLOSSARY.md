@@ -56,6 +56,10 @@ _Avoid_: admin dashboard, admin panel
 A switch that turns a feature on for some people before everyone. The website and locallibrary share its key and give an account the same answer. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
 _Avoid_: feature toggle, experiment, setting
 
+**Shows on**:
+The kinds of page a flag changes: profiles, acts, parties, venues, events, sets, mixes or press kits, or every page. Each flag lists its own in the catalog, and its page in the staff console shows them.
+_Avoid_: contexts, placement, scope
+
 **Flag group**:
 A named list of accounts a flag can be turned on for. It has nothing to do with an act, and the people in it don't know they're in it.
 _Avoid_: segment, cohort, group (on its own)
@@ -69,7 +73,7 @@ A flag that stops something that already works while it's on. It's named for the
 _Avoid_: circuit breaker, pause flag
 
 **Rollout**:
-The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted.
+The share of people a flag is on for: accounts, and signed-out visitors once per browser. Anyone in stays in as the share grows, and has the same chance of being in on every flag. A visitor who signs in counts as their account from then on.
 _Avoid_: percentage (in copy), canary, staged release
 
 ## People and acts

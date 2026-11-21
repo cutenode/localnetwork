@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
+import { VISITOR_COOKIE } from '#lib/server/flags/visitor.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { requireFlag } from '#lib/server/http.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
@@ -287,6 +288,95 @@ it("gives an xrpc call a signed-out visitor's flags, and ignores a staff preview
 	expect(resolve).not.toHaveBeenCalled();
 });
 
+it('counts a signed-out visitor in a percentage by their own cookie, the same way on every request', async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	await atPercentage(s, 50);
+
+	for (let request = 0; request < 3; request++) {
+		const inside = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: INSIDE_HALF } });
+		const outside = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: OUTSIDE_HALF } });
+
+		expect(inside.locals.flags?.parityCanary).toBe(true);
+		expect(outside.locals.flags?.parityCanary).toBe(false);
+		expect(inside.cookies.options.has(VISITOR_COOKIE)).toBe(false);
+	}
+});
+
+it('gives a signed-out visitor a first-party id on their first request, and keeps their answer with it', async () => {
+	const s = await services({ admins: [ADMIN], publicUrl: 'https://localnetwork.test' });
+	const { handle } = hooksWith(async () => s.app);
+	await atPercentage(s, 50);
+
+	for (const cookies of [{}, { [VISITOR_COOKIE]: 'not-a-uuid' }]) {
+		const first = await handledWithLocals(handle, { url: '/', cookies });
+		const id = first.cookies.get(VISITOR_COOKIE);
+
+		expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		expect(first.cookies.options.get(VISITOR_COOKIE)).toEqual({
+			path: '/',
+			httpOnly: true,
+			sameSite: 'lax',
+			secure: true,
+			maxAge: 365 * 86_400
+		});
+
+		const again = await handledWithLocals(handle, { url: '/', cookies: { [VISITOR_COOKIE]: id! } });
+
+		expect(again.locals.flags?.parityCanary).toBe(first.locals.flags?.parityCanary);
+	}
+});
+
+it('gives a visitor no id while no flag is on for a percentage, nor when signed in or over xrpc', async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	const token = await s.sessions.create(DJ, null);
+
+	const setsId = async (request: RouteEventInit) =>
+		(await handledWithLocals(handle, request)).cookies.options.has(VISITOR_COOKIE);
+
+	expect(await setsId({ url: '/' })).toBe(false);
+
+	await atPercentage(s, 50, { enabled: false });
+
+	expect(await setsId({ url: '/' })).toBe(false);
+
+	await atPercentage(s, 50, { everyone: true });
+
+	expect(await setsId({ url: '/' })).toBe(false);
+
+	await atPercentage(s, 50);
+
+	expect(await setsId({ url: '/' })).toBe(true);
+	expect(await setsId({ url: '/', cookies: { [SESSION_COOKIE]: token } })).toBe(false);
+
+	const xrpc = await handledWithLocals(handle, {
+		url: '/xrpc/computer.localnetwork.flags.getFlags',
+		cookies: { [VISITOR_COOKIE]: INSIDE_HALF }
+	});
+
+	expect(xrpc.locals.flags?.parityCanary).toBe(false);
+	expect(xrpc.cookies.options.has(VISITOR_COOKIE)).toBe(false);
+});
+
+it("keeps a signed-out page out of shared caches while it depends on the visitor's own bucket", async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	const cachedBriefly = { 'cache-control': 'public, max-age=60', vary: 'Cookie' };
+
+	const cacheControl = async (cookies: Record<string, string>) =>
+		(await handledWithLocals(handle, { url: '/artists', cookies }, 200, cachedBriefly)).response.headers.get(
+			'cache-control'
+		);
+
+	expect(await cacheControl({})).toBe('public, max-age=60');
+
+	await atPercentage(s, 50);
+
+	expect(await cacheControl({})).toBe('private, max-age=60');
+	expect(await cacheControl({ [VISITOR_COOKIE]: OUTSIDE_HALF })).toBe('private, max-age=60');
+});
+
 it('limits writes by address, and counts an unknown address as one', async () => {
 	const s = await services({ writes: 1 });
 	const { handle } = hooksWith(async () => s.app);
@@ -527,6 +617,21 @@ const DJ = 'did:plc:dj';
 
 const ADMIN = 'did:plc:admin';
 
+/** Visitor cookies whose ids sit in parityCanary's buckets 16 and 55: inside a 50% rollout, and outside it. */
+const INSIDE_HALF = '00000000-0000-4000-8000-000000000000';
+
+const OUTSIDE_HALF = '00000001-0000-4000-8000-000000000000';
+
+/** Puts parityCanary on for `percentage` of everyone, with `gates` on top, as an admin of `s`. */
+async function atPercentage(
+	s: Awaited<ReturnType<typeof services>>,
+	percentage: number,
+	gates: { enabled?: boolean; everyone?: boolean } = {}
+) {
+	const input = { enabled: true, everyone: false, percentage, groups: [], dids: [], ...gates };
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'parityCanary', input);
+}
+
 /** An account whose OAuth grant lacks scopes the app now asks for, so the app has no viewer for it. */
 const STALE = 'did:plc:stale';
 
@@ -537,7 +642,7 @@ type HookApp = {
 	logger?: Logger;
 	sessions?: WebSessions;
 	limits?: { write: RateLimiter };
-	flags?: Pick<FlagService, 'evaluate' | 'preview'>;
+	flags?: Pick<FlagService, 'evaluate' | 'preview' | 'hasPercentage'>;
 	viewer?: (did: string) => Promise<Viewer | null>;
 	config?: { publicUrl: string };
 };
@@ -575,12 +680,17 @@ async function services(
 	return { app: parts, sessions, logs, flags: t.flags, viewer: t.viewer };
 }
 
-/** Runs the handle hook on a request built from `init`, with a page that answers `status`. */
-async function handledWithLocals(handle: Hooks['handle'], request: RouteEventInit, status = 200) {
+/** Runs the handle hook on a request built from `init`, with a page that answers `status` with `headers`. */
+async function handledWithLocals(
+	handle: Hooks['handle'],
+	request: RouteEventInit,
+	status = 200,
+	headers: Record<string, string> = {}
+) {
 	const { event, cookies } = routeEvent(request);
 	// The hook sets these itself, so they start out unset as SvelteKit leaves them.
 	const locals: Partial<App.Locals> = {};
-	const resolve = async () => new Response('page', { status, headers: { 'content-type': 'text/plain' } });
+	const resolve = async () => new Response('page', { status, headers: { 'content-type': 'text/plain', ...headers } });
 
 	// SAFETY: the hook reads the request, URL, route, cookies and client address, all set by routeEvent.
 	const response = await handle({ event: { ...event, locals } as never, resolve });
