@@ -77,3 +77,25 @@ fn the_collection_on_this_computer_is_the_one_counted() {
     assert_eq!(err.reason(), Some(Reason::NoStore), "{err}");
     unsafe { std::env::remove_var(crate::masterdb::PATH_ENV) };
 }
+
+/// A `master.db` that won't open (rekordbox mid-write, or another key) leaves the collection to the
+/// drives, with a warning naming the file.
+#[test]
+fn a_collection_that_wont_open_leaves_the_drives_to_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("master.db");
+    std::fs::write(&db, b"not a database").unwrap();
+    let drive = dir.path().join("volumes/USB");
+    copy_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks"), &drive);
+    crate::testing::volumes_on_this_thread(Some(vec![dir.path().join("volumes")]));
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var(crate::masterdb::PATH_ENV, &db) };
+
+    let v = profile(None, &ProfileRequest { no_analysis: true, ..Default::default() }, &Ctx::silent()).unwrap();
+    assert_eq!(v.report.sources.iter().map(|s| s.kind).collect::<Vec<_>>(), ["drive"]);
+    let on_drive = crate::pdb::read_library(&drive.join(crate::paths::EXPORT_PDB)).unwrap().tracks.len();
+    assert_eq!(v.report.collection.tracks, on_drive);
+    let named = format!("rekordbox's collection ({}): ", db.display());
+    assert!(v.report.warnings.iter().any(|w| w.starts_with(&named)), "{:?}", v.report.warnings);
+    unsafe { std::env::remove_var(crate::masterdb::PATH_ENV) };
+}

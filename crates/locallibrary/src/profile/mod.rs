@@ -530,10 +530,10 @@ impl<'a> Files<'a> {
             }
             Origin::Collection => {
                 // A key has lost the path's leading `/`; on Windows it starts with the drive (`C:/`).
-                let path = match cfg!(windows) {
-                    true => std::path::PathBuf::from(key),
-                    false => std::path::Path::new("/").join(key),
-                };
+                #[cfg(windows)]
+                let path = std::path::PathBuf::from(key);
+                #[cfg(not(windows))]
+                let path = std::path::Path::new("/").join(key);
                 let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file())?;
                 let mtime = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok());
                 let content = mtime.map(|m| format!("{}\u{1f}{}\u{1f}{}", path.display(), meta.len(), m.as_nanos()));
