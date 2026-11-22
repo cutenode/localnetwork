@@ -596,10 +596,12 @@ jobs:
           # A merge queue group: the quick static checks again on the commit that goes on main, so
           # two pull requests that each passed alone can't break it together. The Rust ones are in
           # other-os below, beside the release budgets, which hold the group's pull requests' growth
-          # together and measure what main becomes, and Lighthouse's assertions that don't depend on
-          # the runner's speed. Integration, e2e and Docker stay on pull requests.
+          # together and measure what main becomes, as the budgets job does with the workspace, so a
+          # pull request has its base's numbers when that lands, and Lighthouse's assertions that
+          # don't depend on the runner's speed. Integration, e2e and Docker stay on pull requests.
           if [ "$EVENT" = merge_group ]; then
             set_if locallibrary_release changed locallibrary_release
+            set_if locallibrary_budgets changed locallibrary
             set_if web_lighthouse changed web_lighthouse
             set_if web_verify changed web
             set_if localtoolbox changed localtoolbox
@@ -610,11 +612,10 @@ jobs:
             out[repo_checks_text]=true
           fi
           # A push to main: what main's runs keep for pull requests. The sizes and coverage the
-          # reports compare with change only with the code (web_integration's paths), the Rust
-          # caches (locallibrary's and the mix report's) only with what they're keyed on, and the
-          # budgets job's numbers with the workspace.
+          # reports compare with change only with the code (web_integration's paths), and the Rust
+          # caches (locallibrary's and the mix report's) only with what they're keyed on. The
+          # budgets job measured the commit already, in its merge queue group.
           if [ "$linux" = true ] && [ "$EVENT" = push ]; then
-            set_if locallibrary_budgets changed locallibrary
             set_if locallibrary_cache changed rust_cache
             set_if mix_report changed rust_cache
             set_if web_verify changed web_integration

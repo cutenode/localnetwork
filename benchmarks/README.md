@@ -11,14 +11,14 @@ it merges into, so main's own growth never turns it red and it never edits these
 
 | area | what it holds | measured by | when |
 | --- | --- | --- | --- |
-| `alloc` | allocations and bytes of reading, filtering, comparing and planning | `crates/locallibrary/tests/counters.rs`, in the `budgets` job of `locallibrary-ci.yml` | every pull request that runs the Linux jobs, and pushes to main |
+| `alloc` | allocations and bytes of reading, filtering, comparing and planning | `crates/locallibrary/tests/counters.rs`, in the `budgets` job of `locallibrary-ci.yml` | every pull request that runs the Linux jobs, and merge queue groups |
 | `export` | what writing a library to a blank drive asks of the filesystem: files and folders made, renames, flushes, writes and their size | `crates/locallibrary/tests/export_counters.rs`, in the same job, under `strace` | the same |
 | `tui` | allocations and bytes of a frame of the player, for the Library view, the Deck layout, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
 | `deps` | the names of the packages linked into the default CLI on Linux, whatever their version | `cargo tree`, in `.github/actions/release-budgets` | weekly, by hand, merge queue groups, and pull requests that change a manifest, the lockfile or the Rust that ships |
 | `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | the same |
 | `cli` | instructions of everyday commands on the 3,886-track fixture, less a run of `/bin/true` on the same runner: the loader and libc starting, which counts differently on different runners' CPUs. Each runs with only the environment it needs (`tools/budgets/cachegrind.sh`), since the environment's size moves the count by thousands | the same | the same |
 | `tui-instructions` | instructions of a frame of the player, for the same views | the same, running the `tui` test | the same |
-| `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and pushes to main |
+| `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and merge queue groups |
 | `web` | the website's JavaScript every page loads, the largest page's own on top of it, and all its CSS, uncompressed | `apps/web/scripts/bundle-sizes.ts`, after `pnpm test:build` in the `verify` job of `web-ci.yml` | pull requests and merge queue groups that change the website, and pushes to main |
 | `size-<other target>` | release binary and archive, recorded in the run's summary with no base to compare with | `locallibrary-scheduled.yml`'s `release-build` | weekly and by hand |
 
@@ -32,9 +32,10 @@ are new.
 
 The base's numbers come from the CI run that measured that commit, or the nearest commit before it
 on main that changed none of what the job measures (`tools/budgets/baseline.ts`, which reads
-`ci.yml`'s paths filter for the job). Pushes to main measure what the `budgets` job does, and merge
-queue groups run `release-budgets`, whose head becomes main. When no run measured the base, the job
-measures it too and says so in a notice.
+`ci.yml`'s paths filter for the job and lists the job's artifacts once). Merge queue groups measure
+what the `budgets` job does and run `release-budgets`, and a group's head becomes main, so a commit
+has its numbers when it lands. The artifacts keep the repository's default retention. When no run
+measured the base, the job measures it too and says so in a notice.
 
 A merge queue group runs `release-budgets` on its pull requests together, against the group's base,
 and allows each pull request in it its allowance, so two that each passed alone can't land over

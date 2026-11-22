@@ -178,10 +178,11 @@ jobs:
       # The base's measurements, from its run's artifact.
       actions: read
     steps:
+      # main's history, for the baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 30
+          fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -209,7 +210,6 @@ jobs:
           name: release-budgets
           path: target/budgets
           if-no-files-found: ignore
-          retention-days: 14
 
   # The noise probe: this commit's budgets measured five times over, one build each, and every
   # metric's spread against its allowance (tools/budgets/cli.ts noise). An allowance under twice a

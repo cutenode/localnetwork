@@ -31,7 +31,7 @@ on:
         type: boolean
         required: true
       budgets:
-        description: Whether to measure the budgets job's numbers alone, for a push to main that changed the workspace, so pull requests have their base's.
+        description: Whether to measure the budgets job's numbers alone, for a merge queue group that changed the workspace, so pull requests have their base's.
         type: boolean
         required: true
       dist:
@@ -290,9 +290,10 @@ jobs:
   # benchmarks/README.md): what everyday operations and a frame of the player allocate, what writing
   # a library asks of the filesystem, and the instructions of a frame, from the shards' archive, so
   # no build of its own. A pull request is held to how much it grows each over the commit its merge
-  # commit sits on (HEAD^1), whose numbers a push to main measures here; only when none did is the
-  # base built here too. And that no allowance was widened without a `budget-raise:` line in the
-  # pull request's body.
+  # commit sits on (HEAD^1), whose numbers the merge queue group that made it measured here; only
+  # when none did is the base built here too. And that no allowance was widened without a
+  # `Budget-Raise` trailer on one of its commits (or, from before trailers, a `budget-raise:` line in
+  # its body).
   budgets:
     needs: build
     if: inputs.linux || inputs.budgets
@@ -303,14 +304,14 @@ jobs:
       contents: read
       # The base's measurements, from its run's artifact.
       actions: read
-      # The pull request's body.
+      # The pull request's body, for budget-raise lines from before trailers.
       pull-requests: read
     steps:
-      # The base, and enough of main before it for the baseline to look back through.
+      # The base, and main's history before it for the baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 30
+          fetch-depth: 0
       - run: rustup toolchain install
       # The build job's cache, which a key per job would miss, for a base built here. Never saved.
       - if: github.event_name == 'pull_request'
@@ -370,14 +371,15 @@ jobs:
           } > "$RUNNER_TEMP/raises.md"
           node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" | tee -a "$GITHUB_STEP_SUMMARY"
           node tools/budgets/cli.ts raises HEAD^1 "$RUNNER_TEMP/raises.md"
-      # Under the run's own commit: for a push to main, main's measurement.
+      # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
+      # The repository's default retention, so a quiet stretch on main doesn't leave pull requests
+      # without a base.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: budgets
           path: target/budgets
           if-no-files-found: ignore
-          retention-days: 14
 
   # What only a release build can tell, against benchmarks/budgets/ (see benchmarks/README.md): when a
   # manifest, the lockfile or the Rust that ships changed (ci.yml's locallibrary_release paths).
@@ -400,12 +402,12 @@ jobs:
       # The bodies of the pull requests, for budget-raise lines from before trailers.
       pull-requests: read
     steps:
-      # The base and a group's pull requests' merge commits, and enough of main before them for the
+      # The base and a group's pull requests' merge commits, and main's history before them for the
       # baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 30
+          fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -467,13 +469,13 @@ jobs:
           ENTRIES: ${{ steps.base.outputs.entries }}
         run: node tools/budgets/cli.ts check release target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
       # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
+      # The repository's default retention, as the budgets job's.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-budgets
           path: target/budgets
           if-no-files-found: ignore
-          retention-days: 14
 
   # The Hegel property tests alone, under coverage and held to the same thresholds
   # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
