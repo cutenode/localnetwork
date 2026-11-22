@@ -12,9 +12,9 @@ rekordbox ──Export──▶ USB A ──locallibrary sync──▶ USB B, US
 
 ```text
 crates/loclib-progress/     progress events and cooperative cancellation, shared by every long-running operation
-crates/loclib-model/        the library model (tracks, playlists, the differences between libraries), Camelot
-                            keys, harmonic matches, mix costs and the set planner, a track's decoded analysis,
-                            path keys
+crates/loclib-model/        the library model (tracks, playlists, the differences between libraries and
+                            between their playlists, entry by entry), Camelot keys, harmonic matches, mix
+                            costs and the set planner, a track's decoded analysis, path keys
 crates/loclib-equipment/    what each player, all-in-one system and mixer reads (databases, file systems, audio
                             formats, sample rates, bit depths), with the manual each value comes from;
                             equipment.json is the table for other languages
@@ -161,7 +161,6 @@ crates/locallibrary/src/    the library, built on the crates above
                `account` feature)
   opener.rs    handing an https address to the browser, or a file to its app
   export.rs    playlists as M3U8, CSV and text
-  diff.rs      playlist differences between drives and snapshots
   check.rs     the check before a set, down to the tracks each player won't load
   probe.rs     reading audio files through symphonia: their headers, and whether their ends decode
   convert.rs   building export.pdb from OneLibrary or the reverse

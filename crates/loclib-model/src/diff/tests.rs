@@ -1,6 +1,6 @@
 use super::*;
 use crate::model::Playlist;
-use loclib_model::test_util::track;
+use crate::test_util::track;
 use std::collections::BTreeSet;
 
 fn lib(lists: &[(&str, &[u32])]) -> Library {

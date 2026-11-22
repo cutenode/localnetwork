@@ -26,6 +26,7 @@ serde.workspace = true
 unicode-normalization.workspace = true
 hegeltest = { workspace = true, optional = true }
 tempfile.workspace = true
+thiserror.workspace = true
 
 [features]
 schemars = ["dep:schemars"]

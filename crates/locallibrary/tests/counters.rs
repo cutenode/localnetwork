@@ -10,12 +10,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use indexmap::IndexMap;
 use locallibrary::check::{self, CheckOptions};
-use locallibrary::diff;
 use locallibrary::merge::{self, MergeOptions};
 use locallibrary::pdb;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{Filter, QueryContext};
 use locallibrary::sync::{self, SyncOptions};
+use loclib_model::diff;
 use synthetic::{build_pdb, drive_in, library};
 
 #[path = "../benches/synthetic/mod.rs"]

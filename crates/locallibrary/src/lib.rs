@@ -72,7 +72,6 @@ pub mod compare;
 pub mod convert;
 pub mod cue_edit;
 pub mod device;
-pub mod diff;
 pub mod doctor;
 pub mod drive_speed;
 pub mod edit;

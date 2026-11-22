@@ -4,6 +4,7 @@
 
 pub mod analysis;
 pub mod audio;
+pub mod diff;
 pub mod finding;
 pub mod harmony;
 pub mod model;

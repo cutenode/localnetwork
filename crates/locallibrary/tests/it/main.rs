@@ -114,7 +114,6 @@ mod props_cues_more;
 mod props_demos;
 mod props_destinations;
 mod props_device;
-mod props_diff;
 mod props_disk2_check;
 mod props_disk2_demos;
 mod props_disk2_device;

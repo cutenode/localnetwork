@@ -3835,8 +3835,11 @@ export type RestorePreview = {
   missing_audio: string[];
 };
 
+/** How the playlists and tracks of one library differ from another's. */
 export type PlaylistDiff = {
+  /** What the left side is called (a drive's name, `snapshot 1a2b3c`). */
   left: string;
+  /** What the right side is called. */
   right: string;
   /** Tracks (in the collection) only on the right. */
   added_tracks: TrackRef[];
@@ -3854,17 +3857,23 @@ export type PlaylistDiff = {
   unchanged_playlists: number;
 };
 
+/** How the entries of one playlist on both sides differ. */
 export type PlaylistChanges = {
+  /** The playlist's path, as people read it (`Shows/Friday`). */
   path: string;
   /** Entries only on the right, at their (1-based) position there. */
   added: DiffEntry[];
   /** Entries only on the left, at their position there. */
   removed: DiffEntry[];
+  /** Entries on both sides that changed place relative to the others. */
   moved: MoveOutput[];
 };
 
+/** A playlist entry only one side has. */
 export type DiffEntry = {
+  /** The entry's track. */
   track: TrackRef;
+  /** Its 1-based position in the playlist on its side. */
   position: number;
 };
 
@@ -3926,7 +3935,9 @@ export type JournalEntry = {
   backup?: string | null;
 };
 
+/** A playlist entry both sides have, in a different place. */
 export type MoveOutput = {
+  /** The entry's track. */
   track: TrackRef;
   /** 1-based position on the left. */
   from: number;

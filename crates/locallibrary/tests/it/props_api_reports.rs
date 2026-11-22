@@ -23,7 +23,8 @@ use locallibrary::error::Reason;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
-use locallibrary::{Library, diff, plays};
+use locallibrary::{Library, plays};
+use loclib_model::diff;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------------------------

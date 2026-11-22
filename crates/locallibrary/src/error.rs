@@ -462,6 +462,13 @@ impl From<loclib_equipment::UnknownModels> for Error {
     }
 }
 
+impl From<loclib_model::diff::NoSuchPlaylist> for Error {
+    fn from(e: loclib_model::diff::NoSuchPlaylist) -> Self {
+        // NotFound's own message starts "not found: ".
+        Error::NotFound(format!("playlist {:?} on either side", e.0))
+    }
+}
+
 impl From<loclib_progress::Cancelled> for Error {
     fn from(_: loclib_progress::Cancelled) -> Self {
         Error::Cancelled

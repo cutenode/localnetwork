@@ -21,7 +21,8 @@ use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter, QueryContext, TrackSelector};
-use locallibrary::{Library, Store, Track, diff, paths};
+use locallibrary::{Library, Store, Track, paths};
+use loclib_model::diff;
 
 /// The twelve-track export with a playlist and two history lists, in a folder of its own.
 fn fresh(dir: &Path, name: &str) -> PathBuf {

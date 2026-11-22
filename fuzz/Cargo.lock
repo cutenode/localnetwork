@@ -2397,6 +2397,7 @@ dependencies = [
  "schemars",
  "serde",
  "tempfile",
+ "thiserror 2.0.21",
  "unicode-normalization",
 ]
 

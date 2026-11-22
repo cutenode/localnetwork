@@ -16092,10 +16092,12 @@
       "type": "object",
       "properties": {
         "left": {
-          "type": "string"
+          "type": "string",
+          "description": "What the left side is called (a drive's name, `snapshot 1a2b3c`)."
         },
         "right": {
-          "type": "string"
+          "type": "string",
+          "description": "What the right side is called."
         },
         "added_tracks": {
           "type": "array",
@@ -16156,13 +16158,15 @@
         "removed_playlists",
         "changed_playlists",
         "unchanged_playlists"
-      ]
+      ],
+      "description": "How the playlists and tracks of one library differ from another's."
     },
     "PlaylistChanges": {
       "type": "object",
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "The playlist's path, as people read it (`Shows/Friday`)."
         },
         "added": {
           "type": "array",
@@ -16182,7 +16186,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/MoveOutput"
-          }
+          },
+          "description": "Entries on both sides that changed place relative to the others."
         }
       },
       "required": [
@@ -16190,24 +16195,28 @@
         "added",
         "removed",
         "moved"
-      ]
+      ],
+      "description": "How the entries of one playlist on both sides differ."
     },
     "DiffEntry": {
       "type": "object",
       "properties": {
         "track": {
-          "$ref": "#/$defs/TrackRef"
+          "$ref": "#/$defs/TrackRef",
+          "description": "The entry's track."
         },
         "position": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Its 1-based position in the playlist on its side."
         }
       },
       "required": [
         "track",
         "position"
-      ]
+      ],
+      "description": "A playlist entry only one side has."
     },
     "PhraseOutput": {
       "type": "object",
@@ -16376,7 +16385,8 @@
       "type": "object",
       "properties": {
         "track": {
-          "$ref": "#/$defs/TrackRef"
+          "$ref": "#/$defs/TrackRef",
+          "description": "The entry's track."
         },
         "from": {
           "type": "integer",
@@ -16395,7 +16405,8 @@
         "track",
         "from",
         "to"
-      ]
+      ],
+      "description": "A playlist entry both sides have, in a different place."
     },
     "UndoList": {
       "type": "object",

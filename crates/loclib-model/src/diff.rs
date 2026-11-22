@@ -1,7 +1,7 @@
 //! Entry-level differences between the playlists of two libraries: two drives, a drive and a
-//! store snapshot, or two snapshots (or a drive and one of its backups, to preview a restore).
+//! snapshot of one, or two snapshots (or a drive and one of its backups, to preview a restore).
 //!
-//! Playlists are matched by their place in the folder tree (`model::PlaylistKey`), tracks by
+//! Playlists are matched by their place in the folder tree ([`PlaylistKey`]), tracks by
 //! file (as everywhere: rekordbox keeps paths stable across exports of one library). Within a
 //! playlist each entry is *added*, *removed* or *moved*: the k-th occurrence of a file on one side
 //! pairs with its k-th occurrence on the other, and of the paired entries, the longest run that
@@ -10,16 +10,18 @@
 use indexmap::IndexMap;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::model::{Library, LibraryDiff, PlaylistKey, Track, TrackChange, TrackRef};
 use crate::paths;
-use crate::{Error, Result};
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// How the playlists and tracks of one library differ from another's.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PlaylistDiff {
+    /// What the left side is called (a drive's name, `snapshot 1a2b3c`).
     pub left: String,
+    /// What the right side is called.
     pub right: String,
     /// Tracks (in the collection) only on the right.
     pub added_tracks: Vec<TrackRef>,
@@ -70,6 +72,7 @@ impl PlaylistDiff {
         self.unchanged = unchanged;
     }
 
+    /// Whether the two sides hold the same tracks and playlists.
     pub fn is_empty(&self) -> bool {
         self.added_tracks.is_empty()
             && self.removed_tracks.is_empty()
@@ -80,25 +83,35 @@ impl PlaylistDiff {
     }
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// How the entries of one playlist on both sides differ.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PlaylistChanges {
+    /// The playlist's path, as people read it (`Shows/Friday`).
     pub path: String,
     /// Entries only on the right, at their (1-based) position there.
     pub added: Vec<Entry>,
     /// Entries only on the left, at their position there.
     pub removed: Vec<Entry>,
+    /// Entries on both sides that changed place relative to the others.
     pub moved: Vec<Move>,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-#[schemars(rename = "DiffEntry")]
+/// A playlist entry only one side has.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(rename = "DiffEntry"))]
 pub struct Entry {
+    /// The entry's track.
     pub track: TrackRef,
+    /// Its 1-based position in the playlist on its side.
     pub position: usize,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// A playlist entry both sides have, in a different place.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Move {
+    /// The entry's track.
     pub track: TrackRef,
     /// 1-based position on the left.
     pub from: usize,
@@ -106,9 +119,11 @@ pub struct Move {
     pub to: usize,
 }
 
-/// [`PlaylistDiff::add`] for a [`LibraryDiff`].
-pub(crate) fn add_library_diff(into: &mut LibraryDiff, other: LibraryDiff) {
-    add_new!(into, other, |p| p);
+impl LibraryDiff {
+    /// [`PlaylistDiff::add`] for a [`LibraryDiff`]: add what `other` shows that this one doesn't.
+    pub fn add(&mut self, other: LibraryDiff) {
+        add_new!(self, other, |p| p);
+    }
 }
 
 /// Append the items of `from` whose `key` none in `into` has.
@@ -137,12 +152,17 @@ fn within(path: &str, filter: &str) -> bool {
     p == f || p.trim_end_matches('/') == f || p.starts_with(&format!("{f}/"))
 }
 
+/// A `playlist` filter for [`between`] that keeps nothing on either side: the filter as given.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("no playlist {0:?} on either side")]
+pub struct NoSuchPlaylist(pub String);
+
 /// Refuse a `playlist` filter for [`between`] that keeps nothing on either side: it would show as
 /// no differences.
-pub fn check_playlist(left: &Library, right: &Library, playlist: Option<&str>) -> Result<()> {
+pub fn check_playlist(left: &Library, right: &Library, playlist: Option<&str>) -> Result<(), NoSuchPlaylist> {
     let has = |lib: &Library, p: &str| playlists(lib).values().any(|(path, _)| within(path, p));
     match playlist {
-        Some(p) if !has(left, p) && !has(right, p) => Err(Error::NotFound(format!("playlist {p:?} on either side"))),
+        Some(p) if !has(left, p) && !has(right, p) => Err(NoSuchPlaylist(p.to_string())),
         _ => Ok(()),
     }
 }
@@ -249,5 +269,7 @@ fn longest_increasing(v: &[usize]) -> Vec<bool> {
     out
 }
 
+#[cfg(test)]
+mod props;
 #[cfg(test)]
 mod tests;

@@ -55,7 +55,6 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::anlz::{self, Cue};
-use crate::diff::{self, PlaylistDiff};
 use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::import::{self, MatchKind, Matcher, Status};
@@ -64,6 +63,7 @@ use crate::onelibrary::{self, cipher, wal};
 use crate::paths;
 use crate::tags::TagsByTrack;
 use crate::{Error, Result};
+use loclib_model::diff::{self, PlaylistDiff};
 pub use smartlist::SmartList;
 
 /// The SQLCipher passphrase every rekordbox 6 and 7 installation uses for `master.db`, as

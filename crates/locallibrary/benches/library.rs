@@ -24,7 +24,8 @@ use locallibrary::progress::Ctx;
 use locallibrary::query::{Filter, QueryContext, TrackSelector, parse_sort, sort_tracks};
 use locallibrary::store::Store;
 use locallibrary::sync::{self, SyncOptions};
-use locallibrary::{diff, export, paths, pdb};
+use locallibrary::{export, paths, pdb};
+use loclib_model::diff;
 use rekordbox_pdb::PdbEditor;
 use synthetic::{KEYS, build_pdb, drive, library, write, write_covers};
 

@@ -2,12 +2,12 @@
 
 use std::collections::BTreeSet;
 
+use crate::diff::{self, PlaylistDiff};
+use crate::model::LibraryDiff;
+use crate::test_util;
+use crate::{Library, Playlist, Track, paths};
 use hegel::TestCase;
 use hegel::generators as gs;
-use locallibrary::diff::{self, PlaylistDiff};
-use locallibrary::model::LibraryDiff;
-use locallibrary::{Library, Playlist, Track, paths};
-use loclib_model::test_util;
 
 /// Files both sides draw from, so libraries overlap.
 const FILES: &[&str] = &["a", "b", "c", "d", "e", "F", "g", "h"];
@@ -80,7 +80,7 @@ fn entries(lib: &Library, path: &str) -> Vec<String> {
     p.track_ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::file_key(&t.file_path)).collect()
 }
 
-fn names(v: &[locallibrary::model::TrackRef]) -> BTreeSet<String> {
+fn names(v: &[crate::model::TrackRef]) -> BTreeSet<String> {
     v.iter().map(|t| t.file_path.clone()).collect()
 }
 
@@ -143,13 +143,13 @@ fn prop_swapping_sides_swaps_the_diff(tc: TestCase) {
     assert_eq!(names(&m_ab.removed_tracks), names(&m_ba.added_tracks));
     assert_eq!(m_ab.added_playlists, m_ba.removed_playlists);
     assert_eq!(m_ab.changed_playlists, m_ba.changed_playlists);
-    let by_path = |v: &[locallibrary::model::TrackChange]| {
+    let by_path = |v: &[crate::model::TrackChange]| {
         let mut v = v.to_vec();
         v.sort_by(|x, y| x.track.file_path.cmp(&y.track.file_path));
         v
     };
     for (x, y) in by_path(&m_ab.changed_tracks).iter().zip(&by_path(&m_ba.changed_tracks)) {
-        let fields = |c: &locallibrary::model::TrackChange, swap: bool| {
+        let fields = |c: &crate::model::TrackChange, swap: bool| {
             c.fields
                 .iter()
                 .map(|f| {
@@ -188,7 +188,7 @@ fn prop_entry_changes_account_for_every_entry(tc: TestCase) {
     for c in &d.changed_playlists {
         let (left, right) = (entries(&a, &c.path), entries(&b, &c.path));
         assert_ne!(left, right);
-        let key = |e: &locallibrary::model::TrackRef| paths::file_key(&e.file_path);
+        let key = |e: &crate::model::TrackRef| paths::file_key(&e.file_path);
         for e in &c.removed {
             assert_eq!(left[e.position - 1], key(&e.track));
         }

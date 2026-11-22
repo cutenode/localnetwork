@@ -10,6 +10,8 @@ reads and writes these from rekordbox USB exports, so the fields follow what rek
   OneLibrary has for files (`ONELIBRARY_ONLY`), `LibraryDiff` between two exports of one library,
   `untangle` for a playlist tree read from a damaged file, `artist_credits`, the artists a
   credit names, one by one (as a published set lists them), and `isrc`, a tag as an ISRC.
+- `diff`: `PlaylistDiff`, how the playlists of two libraries differ entry by entry (added,
+  removed and moved), for the whole tree or one playlist or folder.
 - `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and
   parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).

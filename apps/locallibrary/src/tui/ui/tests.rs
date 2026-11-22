@@ -923,8 +923,8 @@ fn confirmation_screen(app: &mut App, root: &std::path::Path, plan: Box<dyn loca
 /// off the journal; a plan that deletes something says so.
 #[test]
 fn confirmations_say_what_goes_back_and_what_is_lost() {
-    use locallibrary::diff::{Move, PlaylistChanges};
     use locallibrary::model::TrackRef;
+    use loclib_model::diff::{Move, PlaylistChanges};
 
     let (dir, root) = demo_drive();
     let device = locallibrary::Device::open(&root).unwrap();
@@ -1240,9 +1240,9 @@ fn prop_a_confirmation_lists_all_its_plan_does(tc: hegel::TestCase) {
 /// [`prop_a_confirmation_lists_all_its_plan_does`] for an edit (0), an undo (1) or another plan.
 fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
     use hegel::generators as gs;
-    use locallibrary::diff::{Entry, Move, PlaylistChanges};
     use locallibrary::edit::{EditOptions, PlaylistChange};
     use locallibrary::model::TrackRef;
+    use loclib_model::diff::{Entry, Move, PlaylistChanges};
 
     let (dir, root, path) = edited_drive();
     let names = |tc: &hegel::TestCase| -> Vec<String> {
