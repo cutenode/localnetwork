@@ -168,6 +168,12 @@ Pull requests that change a lockfile, a manifest or a workflow also get a depend
 
 CodeQL (`codeql.yml`, which `ci.yml` calls) scans the workflows, the TypeScript and the Rust on every pull request into `main`, merge queue group and push to `main` (a language whose code didn't change uploads `main`'s analysis of the commit it was diffed against again, in place of a new one), and `main` won't take a pull request that adds a high or critical security alert, or an error. The Rust tests are left out (`.github/codeql/codeql-config.yml`), so a new `#[cfg(test)]` module needs one of the names listed there, which `ast-grep scan` checks.
 
+### Adding a check
+
+A new check, or a stricter setting on one, would turn every open pull request it fails red at once. So it lands report-only: its job (or step) runs on every pull request with `continue-on-error: true`, which shows its result without failing "CI passed". A follow-up pull request makes it required by removing `continue-on-error`, once the check passes on every open pull request (or a sweep has fixed the ones it fails), and says which open pull requests it checked. Checks that are already required stay as they are.
+
+`pnpm policy` fails a job or step that can't fail unless `report_only` in `tools/policy/workflows.rego` names it with the issue that makes it required, so the follow-up isn't forgotten. Artifact downloads are exempt, and so are the coverage reports and `semver`, which `reports` beside it names by workflow and job.
+
 ## Gates
 
 Besides each check passing, a pull request has to stay within these:

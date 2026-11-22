@@ -794,11 +794,14 @@ jobs:
       unchanged: ${{ needs.changes.outputs.codeql_unchanged }}
       base: ${{ needs.changes.outputs.codeql_base }}
 
-  # The check the "Protect Main" ruleset requires. It starts a runner only to fail: when a tool's
-  # workflow failed or was cancelled, or was skipped while its changes output was true (it didn't
-  # run), or on a draft. Otherwise it's skipped, which GitHub counts as passing. A call's result
-  # covers every job in it, so a job skipped because one it needs didn't finish (#88's tests, after
-  # its macOS build was cancelled) fails its tool's.
+  # The check the "Protect Main" ruleset requires. A job in a called workflow that can't fail
+  # (`continue-on-error`) is a coverage report, `semver`, or a new check that reports only until
+  # every open pull request passes it (.github/CONTRIBUTING.md#adding-a-check, report_only in
+  # tools/policy/workflows.rego). It starts a runner only to fail: when a tool's workflow failed or
+  # was cancelled, or was skipped while its changes output was true (it didn't run), or on a draft.
+  # Otherwise it's skipped, which GitHub counts as passing. A call's result covers every job in it,
+  # so a job skipped because one it needs didn't finish (#88's tests, after its macOS build was
+  # cancelled) fails its tool's.
   passed:
     name: CI passed
     if: >-
