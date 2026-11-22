@@ -1,10 +1,11 @@
-// The root's verify scripts: each runs its steps in steps.json one after another from the
-// repository root, going on past a failure, and ends with a line for each step saying whether it
-// passed, how long it took, and the command that reruns it alone. tools/policy/apps.rego holds the
-// steps to CI's (inputs.ts gives conftest the file).
+// The root's verify scripts: each checks what it needs (tools.ts), then runs its steps in steps.json
+// one after another from the repository root, going on past a failure, and ends with a line for each
+// step saying whether it passed, failed or was skipped, how long it took, and the command that reruns
+// it alone, then what the run left unchecked. tools/policy/apps.rego holds the steps to CI's
+// (inputs.ts gives conftest the file).
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { missing } from './tools.ts';
+import { preflight } from './tools.ts';
 
 export interface Verdict {
 	lines: string[];
@@ -13,7 +14,7 @@ export interface Verdict {
 
 interface Outcome {
 	command: string;
-	passed: boolean;
+	status: 'passed' | 'failed' | 'skipped';
 	seconds: number;
 }
 
@@ -30,25 +31,38 @@ const step = (command: string, env: NodeJS.ProcessEnv): Outcome => {
 	const start = performance.now();
 	const { status } = spawnSync(command, { shell: true, stdio: 'inherit', env });
 
-	return { command, passed: status === 0, seconds: (performance.now() - start) / 1000 };
+	return { command, status: status === 0 ? 'passed' : 'failed', seconds: (performance.now() - start) / 1000 };
 };
 
-const line = ({ command, passed, seconds }: Outcome): string =>
-	`  ${passed ? 'passed' : 'failed'} ${seconds.toFixed(1).padStart(7)}s  ${command}`;
+const line = ({ command, status, seconds }: Outcome): string =>
+	`  ${status.padEnd(7)} ${seconds.toFixed(1).padStart(6)}s  ${command}`;
 
-/** Runs `script`'s steps, once every tool it needs is on the PATH. */
+/** Runs `script`'s steps, once every tool it needs is on `env`'s PATH. */
 export const verify = (script: string, from = steps, env = process.env): Verdict => {
 	const commands = from.get(script);
 
 	if (commands === undefined) return { lines: [`tools/verify/steps.json has no ${script}`], ok: false };
 
-	const absent = missing(script, env);
+	const { problems, notes, skipped } = preflight(script, env);
 
-	if (absent.length > 0) return { lines: absent, ok: false };
+	if (problems.length > 0) return { lines: problems, ok: false };
 
-	const outcomes = commands.map((command) => step(command, env));
-	const failed = outcomes.filter(({ passed }) => !passed).length;
-	const verdict = failed === 0 ? 'every step passed' : `${failed} of ${outcomes.length} steps failed`;
+	const outcomes = commands.map((command) =>
+		skipped.includes(command) ? { command, status: 'skipped' as const, seconds: 0 } : step(command, env)
+	);
 
-	return { lines: ['', `${script}: ${verdict}`, ...outcomes.map(line)], ok: failed === 0 };
+	const count = (status: Outcome['status']) => outcomes.filter((outcome) => outcome.status === status).length;
+	const [failed, left] = [count('failed'), count('skipped')];
+
+	const verdict =
+		failed > 0
+			? `${failed} of ${outcomes.length} steps failed`
+			: left > 0
+				? `${outcomes.length - left} passed, ${left} skipped`
+				: 'every step passed';
+
+	return {
+		lines: ['', `${script}: ${verdict}`, ...outcomes.map(line), ...notes.map((note) => `note: ${note}`)],
+		ok: failed === 0
+	};
 };

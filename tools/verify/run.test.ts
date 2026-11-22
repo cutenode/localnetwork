@@ -2,7 +2,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { path } from './fakes.ts';
 import { verify } from './run.ts';
+import { WINDOWS_CLIPPY } from './tools.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'verify-run-'));
 
@@ -34,7 +36,7 @@ describe('verify', () => {
 		const { lines, ok } = verify('verify:repo', new Map([['verify:repo', [`echo > "${marker}"`]]]), { PATH: '' });
 
 		expect(ok).toBe(false);
-		expect(lines).toContain('lychee is missing, which verify:repo needs: brew install lychee');
+		expect(lines).toContain('verify:repo needs lychee: brew install lychee');
 		expect(existsSync(marker)).toBe(false);
 	});
 
@@ -42,6 +44,19 @@ describe('verify', () => {
 		expect(
 			verify('demo', new Map([['demo', ['test "$VERIFY_RUN" = given']]]), { ...process.env, VERIFY_RUN: 'given' }).ok
 		).toBe(true);
+	});
+
+	it('skips a step that would skip anyway, and says what that leaves unchecked', () => {
+		const env = path({ cargo: '', dist: '', rustup: '', sqlcipher: '' });
+		const { lines, ok } = verify('verify:rust', new Map([['verify:rust', [WINDOWS_CLIPPY, 'exit 0']]]), env);
+
+		expect(ok).toBe(true);
+		expect(lines.slice(1, 4)).toEqual([
+			'verify:rust: 1 passed, 1 skipped',
+			`  skipped    0.0s  ${WINDOWS_CLIPPY}`,
+			expect.stringMatching(/^ {2}passed +\d+\.\ds {2}exit 0$/)
+		]);
+		expect(lines.slice(4)).toEqual([expect.stringMatching(/^note: clippy for Windows skipped/)]);
 	});
 
 	it('fails a script steps.json lacks', () => {
