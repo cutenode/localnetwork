@@ -20,7 +20,7 @@ Use the Node version in `.node-version` (24) and the pnpm in `package.json`'s `p
 pnpm install    # every TypeScript app's dependencies, plus the lefthook git hooks
 ```
 
-The git hooks format and lint what you commit. Before a push they type-check and test each TypeScript app whose files the push changes (shared files like the lockfile and `.node-version` count for every app), and run clippy for Windows when Rust or Cargo files changed and the `x86_64-pc-windows-gnu` target and MinGW are installed. atstore's tests run in CI only.
+The git hooks format and lint what you commit. Before a push they type-check and test each TypeScript app whose files the push changes (shared files like the lockfile and `.node-version` count for every app), and run clippy for Windows when Rust or Cargo files changed and the `x86_64-pc-windows-gnu` target and MinGW are installed. atstore's tests run in CI only. After a merge, they regenerate the files a test writes in full (the RPC contract, the player's screenshots, the schemas) where both sides changed them, and stage them for you to commit; a push waits until you have. A merge that stops on a conflict regenerates them when you commit it. A rebase, cherry-pick or `git stash pop` doesn't, and the push waits until you run `node tools/regen/cli.ts post-merge` and commit what it stages.
 
 A push that changes the website or the extension waits minutes for the pre-push hook, and git opens its SSH connection to GitHub before the hook starts, so GitHub can drop the connection as idle. The push then fails with exit 141 or "Connection closed" though every check passed. If you push over SSH, keep the connection alive in `~/.ssh/config`:
 

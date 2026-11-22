@@ -132,6 +132,11 @@ pre-push:
   setup:
     - run: pnpm install --frozen-lockfile
   jobs:
+    # A file a merge kept this branch's copy of has to be regenerated, and what that staged committed in
+    # the commits being pushed (Git gives their refs on stdin), before it goes anywhere.
+    - name: regenerated files are committed
+      run: node tools/regen/cli.ts pre-push
+      use_stdin: true
     # One after the other: `svelte-kit sync` and Vite's SvelteKit plugin both rewrite .svelte-kit/types, and svelte-check
     # reading a half-written copy reports that `./$types` is missing.
     - name: typecheck and unit tests web
@@ -189,3 +194,17 @@ commit-msg:
   jobs:
     - name: commitlint
       run: pnpm exec commitlint --edit {1}
+
+# A merge keeps this branch's copy of a file a test writes in full (merge=regen), and this writes it
+# again with its command and stages it (tools/regen/regen.ts).
+post-merge:
+  jobs:
+    - name: regenerate generated files
+      run: node tools/regen/cli.ts post-merge
+
+# Git skips post-merge when the merge stops on a conflict elsewhere, so the commit that concludes it
+# regenerates instead. It does nothing unless a merge noted a file.
+post-commit:
+  jobs:
+    - name: regenerate generated files
+      run: node tools/regen/cli.ts post-commit

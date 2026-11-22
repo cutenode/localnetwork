@@ -63,6 +63,8 @@ Logging: the website logs with [evlog](https://www.evlog.dev) (`apps/web/src/lib
 
 `LOCALLIBRARY_BLESS=1` regenerates the Rust golden files: locallibrary's RPC schema, loclib-equipment's JSON, and `crates/loclib-model/src/tokens.rs` from `packages/tokens/colors.json`. `TOKENS_BLESS=1` regenerates `packages/tokens/data-colors.css` from the same file.
 
+A file a test writes in full has `<file> merge=regen regen=<name>` in a `.gitattributes` in its own folder, and `tools/regen/<name>.sh` is the command that writes it. When a merge changes one on both sides, Git keeps this branch's copy instead of conflicting, the post-merge hook runs the command and stages what it wrote (or the post-commit hook does, once a merge that stopped on a conflict elsewhere is committed), and the pre-push hook refuses until the commits it pushes have it (`tools/regen/regen.ts`). A rebase, cherry-pick or `git stash pop` keeps the copy without running either hook, so pre-push refuses until `node tools/regen/cli.ts post-merge` has regenerated it. A new generated file gets both: `tools/regen/regen.test.ts` fails when a file with `merge=regen` has no command, or a command no file names. A file that's partly written by hand, like `apps/locallibrary/docs/player.md`, merges as usual.
+
 ### CI
 
 Pull requests, merge queue groups and pushes to `main` run one workflow, `ci.yml`, in three parts:
