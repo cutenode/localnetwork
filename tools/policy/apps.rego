@@ -85,6 +85,17 @@ deny contains msg if {
 	msg := sprintf("lefthook.yml: add a %s job for %s that runs %s", [hook, dir, tool])
 }
 
+# pre-commit's format and lint jobs run in its group, so the whitespace check after it sees what they
+# fixed.
+deny contains msg if {
+	some job in lib.file("lefthook.yml")["pre-commit"].jobs
+	some dir in hooked
+	runs_in(job, dir)
+	some tool in hooks["pre-commit"]
+	contains(job.run, tool)
+	msg := sprintf("lefthook.yml: move pre-commit's %s job for %s into its group, before the whitespace check", [tool, dir])
+}
+
 # The hooks run the committing worktree's lefthook, not the path of the one that installed them last.
 deny contains msg if {
 	lib.file("lefthook.yml").lefthook != "pnpm exec lefthook"
@@ -97,9 +108,16 @@ deny contains msg if {
 }
 
 hook_runs(hook, dir, tool) if {
-	some job in lib.file("lefthook.yml")[hook].jobs
+	some job in hook_jobs(hook)
 	runs_in(job, dir)
 	contains(job.run, tool)
+}
+
+# A hook's jobs, and the jobs of its groups (pre-commit runs its formatters as one, before the check
+# over what they staged).
+hook_jobs(hook) := {job | some job in lib.file("lefthook.yml")[hook].jobs} | {job |
+	some group in lib.file("lefthook.yml")[hook].jobs
+	some job in group.group.jobs
 }
 
 runs_in(job, dir) if job.root == dir

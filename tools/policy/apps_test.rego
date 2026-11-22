@@ -64,6 +64,13 @@ test_missing_hook if {
 	"lefthook.yml: add a pre-push job for apps/site/ that runs pnpm test" in apps.deny with input as fixtures.with_file("lefthook.yml", broken)
 }
 
+test_pre_commit_job_outside_its_group if {
+	hooks := fixtures.file("lefthook.yml")
+	outside := object.union(hooks, {"pre-commit": {"jobs": array.concat(hooks["pre-commit"].jobs, [{"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"}])}})
+	denied := apps.deny with input as fixtures.with_file("lefthook.yml", outside)
+	denied == {"lefthook.yml: move pre-commit's oxlint job for apps/site/ into its group, before the whitespace check"}
+}
+
 test_package_without_hooks if {
 	repo := fixtures.with_file("packages/other/package.json", {"name": "other"})
 	"lefthook.yml: add a pre-commit job for packages/other/ that runs oxfmt" in apps.deny with input as repo
@@ -80,10 +87,10 @@ test_pre_push_job_in_its_folder if {
 
 test_atstore_tests_left_to_ci if {
 	hooks := fixtures.file("lefthook.yml")
-	pre_commit := array.concat(hooks["pre-commit"].jobs, [
+	pre_commit := [{"group": {"jobs": array.concat(hooks["pre-commit"].jobs[0].group.jobs, [
 		{"root": "packages/atstore/", "run": "pnpm exec oxfmt {staged_files}"},
 		{"root": "packages/atstore/", "run": "pnpm exec oxlint {staged_files}"},
-	])
+	])}}]
 	repo := fixtures.with_file("packages/atstore/package.json", {"name": "atstore"})
 	without_tests := object.union(hooks, {
 		"pre-commit": {"jobs": pre_commit},

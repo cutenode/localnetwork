@@ -65,8 +65,11 @@ repo := [
 	{"path": "lefthook.yml", "contents": {
 		"lefthook": "pnpm exec lefthook",
 		"pre-commit": {"jobs": [
-			{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"},
-			{"root": "packages/kit/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "packages/kit/", "run": "pnpm exec oxlint {staged_files}"},
+			{"group": {"parallel": true, "jobs": [
+				{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"},
+				{"root": "packages/kit/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "packages/kit/", "run": "pnpm exec oxlint {staged_files}"},
+			]}},
+			{"run": "git diff HEAD --check -- {staged_files}"},
 		]},
 		"pre-push": {"jobs": [
 			{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"},

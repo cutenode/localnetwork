@@ -12,102 +12,106 @@ lefthook: pnpm exec lefthook
 # Each hook installs once before its jobs. pnpm checks the dependencies before every `pnpm exec` and `pnpm <script>`
 # and installs them when the lockfile has moved on (after a merge), so the parallel jobs would each start an install.
 pre-commit:
-  parallel: true
+  piped: true
   setup:
     - run: pnpm install --frozen-lockfile
   jobs:
-    - name: format web
-      root: apps/web/
-      glob: '*.{ts,js,json,css}'
-      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
-      stage_fixed: true
-    - name: format localtoolbox
-      root: apps/localtoolbox/
-      glob: '*.{ts,mts,js,json,css,md}'
-      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
-      stage_fixed: true
-    - name: format atstore
-      root: packages/atstore/
-      glob: '*.{ts,js,json,css}'
-      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
-      stage_fixed: true
-    - name: format lexicons
-      glob: 'lexicons/computer/**/*.json'
-      run: pnpm exec oxfmt {staged_files}
-      stage_fixed: true
-    # The root's own files that no app's jobs see (the root's format:tools and lint:tools).
-    - name: format tools
-      glob:
-        - 'tools/**.{ts,mts,js,mjs,json,yml}'
-        - '.railway/*.ts'
-        - 'vitest.config.ts'
-        - 'commitlint.config.js'
-        - '{flags,benchmarks,packages/tokens}/**.{json,css}'
-        - 'apps/locallibrary/bombadil/*.{ts,mjs,json}'
-      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
-      stage_fixed: true
-    - name: lint tools
-      glob:
-        - 'tools/**.{ts,mts,js,mjs}'
-        - '.railway/*.ts'
-        - 'vitest.config.ts'
-        - 'commitlint.config.js'
-        - 'apps/locallibrary/bombadil/*.{ts,mjs}'
-      run: pnpm exec oxlint {staged_files}
-    # Skipped without ShellCheck (`brew install shellcheck`); CI runs it on every script (repo-checks.yml).
-    - name: shellcheck
-      glob: '*.sh'
-      skip:
-        - run: '! command -v shellcheck > /dev/null'
-      run: shellcheck {staged_files}
-    # Skipped without typos (`brew install typos-cli`); CI runs it on every file (repo-checks.yml).
-    - name: typos
-      skip:
-        - run: '! command -v typos > /dev/null'
-      run: typos --force-exclude {staged_files}
-    # HappyView's Lua scripts; skipped without StyLua and selene (`brew install stylua selene`).
-    - name: lua
-      root: apps/web/lua/
-      glob: '*.lua'
-      skip:
-        - run: '! (command -v stylua && command -v selene) > /dev/null'
-      run: stylua {staged_files} && selene {staged_files}
-      stage_fixed: true
-    # Skipped without taplo (`brew install taplo`); CI checks every TOML file (repo-checks.yml).
-    - name: taplo
-      glob: '*.toml'
-      skip:
-        - run: '! command -v taplo > /dev/null'
-      run: taplo fmt {staged_files}
-      stage_fixed: true
-    - name: lint web
-      root: apps/web/
-      glob: '*.{ts,js,svelte}'
-      run: pnpm exec oxlint {staged_files}
-    - name: lint localtoolbox
-      root: apps/localtoolbox/
-      glob: '*.{ts,mts,js,svelte}'
-      run: pnpm exec oxlint {staged_files}
-    - name: lint atstore
-      root: packages/atstore/
-      glob: '*.{ts,js}'
-      run: pnpm exec oxlint {staged_files}
-    # rustfmt.toml's settings, on the staged files of both Cargo workspaces (the root's and fuzz/'s).
-    - name: rustfmt
-      glob: '*.rs'
-      run: rustfmt --edition 2024 {staged_files}
-      stage_fixed: true
-    # The languages sgconfig.yml's rules are written for: TypeScript and Rust, and Svelte, whose
-    # scripts the TypeScript rules check.
-    - name: ast-grep
-      glob: '*.{ts,mts,cts,rs,svelte}'
-      run: pnpm exec ast-grep scan {staged_files}
+    - group:
+        parallel: true
+        jobs:
+          - name: format web
+            root: apps/web/
+            glob: '*.{ts,js,json,css}'
+            run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+          - name: format localtoolbox
+            root: apps/localtoolbox/
+            glob: '*.{ts,mts,js,json,css,md}'
+            run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+          - name: format atstore
+            root: packages/atstore/
+            glob: '*.{ts,js,json,css}'
+            run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+          - name: format lexicons
+            glob: 'lexicons/computer/**/*.json'
+            run: pnpm exec oxfmt {staged_files}
+            stage_fixed: true
+          # The root's own files that no app's jobs see (the root's format:tools and lint:tools).
+          - name: format tools
+            glob:
+              - 'tools/**.{ts,mts,js,mjs,json,yml}'
+              - '.railway/*.ts'
+              - 'vitest.config.ts'
+              - 'commitlint.config.js'
+              - '{flags,benchmarks,packages/tokens}/**.{json,css}'
+              - 'apps/locallibrary/bombadil/*.{ts,mjs,json}'
+            run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+          - name: lint tools
+            glob:
+              - 'tools/**.{ts,mts,js,mjs}'
+              - '.railway/*.ts'
+              - 'vitest.config.ts'
+              - 'commitlint.config.js'
+              - 'apps/locallibrary/bombadil/*.{ts,mjs}'
+            run: pnpm exec oxlint {staged_files}
+          # Skipped without ShellCheck (`brew install shellcheck`); CI runs it on every script (repo-checks.yml).
+          - name: shellcheck
+            glob: '*.sh'
+            skip:
+              - run: '! command -v shellcheck > /dev/null'
+            run: shellcheck {staged_files}
+          # Skipped without typos (`brew install typos-cli`); CI runs it on every file (repo-checks.yml).
+          - name: typos
+            skip:
+              - run: '! command -v typos > /dev/null'
+            run: typos --force-exclude {staged_files}
+          # HappyView's Lua scripts; skipped without StyLua and selene (`brew install stylua selene`).
+          - name: lua
+            root: apps/web/lua/
+            glob: '*.lua'
+            skip:
+              - run: '! (command -v stylua && command -v selene) > /dev/null'
+            run: stylua {staged_files} && selene {staged_files}
+            stage_fixed: true
+          # Skipped without taplo (`brew install taplo`); CI checks every TOML file (repo-checks.yml).
+          - name: taplo
+            glob: '*.toml'
+            skip:
+              - run: '! command -v taplo > /dev/null'
+            run: taplo fmt {staged_files}
+            stage_fixed: true
+          - name: lint web
+            root: apps/web/
+            glob: '*.{ts,js,svelte}'
+            run: pnpm exec oxlint {staged_files}
+          - name: lint localtoolbox
+            root: apps/localtoolbox/
+            glob: '*.{ts,mts,js,svelte}'
+            run: pnpm exec oxlint {staged_files}
+          - name: lint atstore
+            root: packages/atstore/
+            glob: '*.{ts,js}'
+            run: pnpm exec oxlint {staged_files}
+          # rustfmt.toml's settings, on the staged files of both Cargo workspaces (the root's and fuzz/'s).
+          - name: rustfmt
+            glob: '*.rs'
+            run: rustfmt --edition 2024 {staged_files}
+            stage_fixed: true
+          # The languages sgconfig.yml's rules are written for: TypeScript and Rust, and Svelte, whose
+          # scripts the TypeScript rules check.
+          - name: ast-grep
+            glob: '*.{ts,mts,cts,rs,svelte}'
+            run: pnpm exec ast-grep scan {staged_files}
     # Every staged file, the ones no formatter parses too (YAML, workflows, Markdown): leftover
-    # conflict markers and whitespace errors, as `file:line: problem`. It runs beside the
-    # formatters, so whitespace one of them fixes still fails the commit; the fix is staged, and
-    # committing again passes.
+    # conflict markers and whitespace errors, as `file:line: problem`. It runs after the formatters,
+    # against HEAD: lefthook stages what they fixed only once the hook ends, so `--cached` would
+    # still see the whitespace they took out. Unstaged hunks are hidden while the hook runs, so the
+    # files hold what gets committed.
     - name: conflict markers and whitespace
-      run: git diff --cached --check
+      run: git diff HEAD --check -- {staged_files}
 
 # Each job runs only when the push changes the files it checks: its app's paths in ci.yml's changes
 # job, the shared ones included (the lockfile, `.node-version`, the lint and format configs), less
