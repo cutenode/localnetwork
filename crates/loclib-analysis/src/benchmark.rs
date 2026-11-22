@@ -42,6 +42,7 @@ pub fn parse_tempo(text: &str) -> Result<Option<f64>> {
 /// A track in the GiantSteps MTG Key dataset.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MtgKey {
+    /// The track's id: its preview is `<id>.LOFI.mp3`.
     pub id: String,
     /// Empty when the annotators heard no key (`-`), more than one when it changes or they
     /// disagreed (`F minor / G# major`).
@@ -91,6 +92,8 @@ pub trait Outcome: Copy + Eq + Hash + Serialize + 'static {
     type Value;
     /// Every outcome, in the order reports list them.
     const ALL: &'static [Self];
+    /// The outcome for a track annotated `reference` that an analyzer answered with `estimate`
+    /// (`None` when it gave no answer).
     fn of(reference: Self::Value, estimate: Option<Self::Value>) -> Self;
     /// What the outcome scores, 0 to 1: a report's [`Report::score`] is the mean.
     fn credit(self) -> f64;
@@ -103,6 +106,7 @@ pub trait Outcome: Copy + Eq + Hash + Serialize + 'static {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum KeyOutcome {
+    /// The annotated key.
     Correct,
     /// A fifth above or below in the same mode: a neighbour on the Camelot wheel.
     Fifth,
@@ -110,6 +114,7 @@ pub enum KeyOutcome {
     Relative,
     /// Major for minor on the same tonic.
     Parallel,
+    /// Any other key.
     Other,
     /// The analyzer gave no key.
     Missing,
@@ -157,6 +162,7 @@ impl Outcome for KeyOutcome {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TempoOutcome {
+    /// The annotated tempo.
     Correct,
     /// The estimate is double the annotated tempo.
     Double,
@@ -166,6 +172,7 @@ pub enum TempoOutcome {
     Triple,
     /// The estimate is a third of the annotated tempo.
     Third,
+    /// Any other tempo.
     Other,
     /// The analyzer gave no tempo.
     Missing,
@@ -216,8 +223,11 @@ impl Outcome for TempoOutcome {
 pub struct Row<T> {
     /// Which analyzer answered: `rekordbox`, `stratum-dsp`.
     pub analyzer: String,
+    /// The track's id in the dataset.
     pub track: String,
+    /// The annotated value.
     pub reference: T,
+    /// The analyzer's answer, `None` when it gave none.
     pub estimate: Option<T>,
 }
 
@@ -225,6 +235,7 @@ pub struct Row<T> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(rename = "{O}Report"))]
 pub struct Report<O: Outcome> {
+    /// How many tracks were scored.
     pub tracks: usize,
     /// Tracks with each outcome, every outcome listed.
     pub counts: IndexMap<O, usize>,
@@ -239,6 +250,12 @@ impl<O: Outcome> Report<O> {
         Report { tracks: 0, counts: O::ALL.iter().map(|o| (*o, 0)).collect(), misses: Vec::new(), score: 0.0 }
     }
 
+    /// How many tracks had `outcome`.
+    ///
+    /// # Panics
+    ///
+    /// When [`Report::counts`] has no entry for `outcome`. A report from [`score`] lists every
+    /// outcome in [`Outcome::ALL`].
     pub fn count(&self, outcome: O) -> usize {
         self.counts[&outcome]
     }

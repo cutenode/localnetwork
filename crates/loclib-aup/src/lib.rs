@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};

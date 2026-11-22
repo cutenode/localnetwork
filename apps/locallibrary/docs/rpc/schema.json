@@ -8670,15 +8670,18 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "wav",
-            "flac"
-          ]
+          "const": "aiff",
+          "description": "rekordbox and every player read its ID3 tags."
         },
         {
           "type": "string",
-          "const": "aiff",
-          "description": "rekordbox and every player read its ID3 tags."
+          "const": "wav",
+          "description": "WAV, with ID3 tags in an `id3 ` chunk."
+        },
+        {
+          "type": "string",
+          "const": "flac",
+          "description": "FLAC, with Vorbis comments and pictures."
         }
       ],
       "description": "A lossless container a copy is written in."
@@ -22581,10 +22584,8 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "agrees",
-            "disagrees"
-          ]
+          "const": "agrees",
+          "description": "The two are within 4% of each other."
         },
         {
           "type": "string",
@@ -22605,15 +22606,27 @@
           "type": "string",
           "const": "three_halves",
           "description": "The stored tempo is three halves of the estimate."
+        },
+        {
+          "type": "string",
+          "const": "disagrees",
+          "description": "None of the other relations holds."
         }
       ],
       "description": "A stored tempo against an estimate of it."
     },
     "Plausible": {
-      "type": "string",
-      "enum": [
-        "stored",
-        "estimate"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "stored",
+          "description": "The stored tempo."
+        },
+        {
+          "type": "string",
+          "const": "estimate",
+          "description": "The estimate."
+        }
       ],
       "description": "Which of two tempos a [`TempoPrior`] finds more likely."
     },
@@ -22657,10 +22670,8 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "correct",
-            "other"
-          ]
+          "const": "correct",
+          "description": "The annotated key."
         },
         {
           "type": "string",
@@ -22676,6 +22687,11 @@
           "type": "string",
           "const": "parallel",
           "description": "Major for minor on the same tonic."
+        },
+        {
+          "type": "string",
+          "const": "other",
+          "description": "Any other key."
         },
         {
           "type": "string",
@@ -23587,7 +23603,8 @@
         "tracks": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many tracks were scored."
         },
         "counts": {
           "type": "object",
@@ -23635,7 +23652,8 @@
         "tracks": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many tracks were scored."
         },
         "counts": {
           "type": "object",
@@ -23681,10 +23699,8 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "correct",
-            "other"
-          ]
+          "const": "correct",
+          "description": "The annotated tempo."
         },
         {
           "type": "string",
@@ -23705,6 +23721,11 @@
           "type": "string",
           "const": "third",
           "description": "The estimate is a third of the annotated tempo."
+        },
+        {
+          "type": "string",
+          "const": "other",
+          "description": "Any other tempo."
         },
         {
           "type": "string",

@@ -26,7 +26,9 @@ pub const BINS: usize = FFT_LEN / 2;
 const MIN_BIN: usize = 3;
 /// Landmark pairs: the target peak lies 2..63 frames after the anchor, within 31 bins of it.
 pub const MIN_DT: u32 = 2;
+/// Landmark targets come fewer than this many frames after their anchor.
 pub const MAX_DT: u32 = 63;
+/// The most bins a landmark's target lies above or below its anchor.
 pub const MAX_DF: i32 = 31;
 /// Threshold spread across frequency (standard deviation in bins).
 const SPREAD_SD: f32 = 30.0;
@@ -39,7 +41,9 @@ pub const FRAMES_PER_SEC: f64 = RATE as f64 / HOP as f64;
 /// A spectral peak: frame index and frequency bin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Peak {
+    /// The frame, counted from the start, [`FRAMES_PER_SEC`] to a second.
     pub t: u32,
+    /// The frequency bin, below [`BINS`]: bin `f` is centred on about `f * 21.5` Hz.
     pub f: u8,
 }
 
@@ -49,10 +53,13 @@ pub struct Peak {
 pub struct Density {
     /// Roughly the peaks per second wanted (audfprint's `density`).
     pub per_sec: f32,
+    /// The most peaks kept from one frame.
     pub max_per_frame: usize,
 }
 
+/// The density library tracks are fingerprinted at ([`crate::fingerprint_file`]).
 pub const LIBRARY: Density = Density { per_sec: 20.0, max_per_frame: 5 };
+/// The density a recording searched for tracks is fingerprinted at ([`crate::listen`]).
 pub const QUERY: Density = Density { per_sec: 40.0, max_per_frame: 8 };
 
 /// Coarse loudness of one frame, for drawing the mix's waveform ([`columns`]).
@@ -67,6 +74,7 @@ pub struct FrameLevels {
 /// Frames' levels as columns to draw, 0-255.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LevelColumns {
+    /// Each column's peak sample level.
     pub peak: Vec<u8>,
     /// Below 200 Hz, 200 Hz-2 kHz, above 2 kHz.
     pub bands: [Vec<u8>; 3],
@@ -106,7 +114,10 @@ pub enum Scale {
     Apart,
     /// Every series against a high percentile of the loudest of them at each column, and never
     /// against less than `floor`: how they compare, with a near-silent recording drawn near 0.
-    Together { floor: f32 },
+    Together {
+        /// The least level the series are scaled against.
+        floor: f32,
+    },
 }
 
 /// `series` (levels a column, all as long) as 0-255 by `scale`, each raised to its `gamma`
@@ -183,6 +194,8 @@ impl Analyzer {
         }
     }
 
+    /// Analyse `samples`, the next stretch of the signal, mono at [`RATE`]. Samples short of a
+    /// whole frame wait for the next push or [`Analyzer::finish`].
     pub fn push(&mut self, samples: &[f32]) {
         self.pending.extend_from_slice(samples);
         let mut start = 0;
@@ -321,9 +334,13 @@ fn backward_prune(found: &[(Peak, f32)], spread: &[f32], decay: f32) -> Vec<Peak
 /// frames later it comes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Landmark {
+    /// The anchor's frame.
     pub t: u32,
+    /// The anchor's frequency bin.
     pub f1: u8,
+    /// The target's frequency bin.
     pub f2: u8,
+    /// Frames from the anchor to the target: at least [`MIN_DT`], under [`MAX_DT`].
     pub dt: u8,
 }
 
@@ -350,6 +367,7 @@ pub fn landmarks(peaks: &[Peak], fanout: usize) -> Vec<Landmark> {
     out
 }
 
+/// Bits in a landmark hash: every [`hash()`] is below `1 << HASH_BITS`.
 pub const HASH_BITS: u32 = 20;
 
 /// 8 bits of anchor frequency, 6 of frequency difference, 6 of time difference.
@@ -358,6 +376,8 @@ pub fn hash(f1: u32, df: i32, dt: u32) -> u32 {
 }
 
 impl Landmark {
+    /// The landmark's [`hash()`], from its anchor frequency, frequency difference and time
+    /// difference.
     pub fn hash(&self) -> u32 {
         hash(self.f1 as u32, self.f2 as i32 - self.f1 as i32, self.dt as u32)
     }
@@ -367,7 +387,9 @@ impl Landmark {
 /// spectrum moved with it (no key lock); without, only time stretched (key lock).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Variant {
+    /// The playback speed over the recording's: 1.04 is 4% faster.
     pub ratio: f64,
+    /// Whether the pitch moved with the speed (key lock off).
     pub pitch: bool,
 }
 

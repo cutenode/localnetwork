@@ -18,7 +18,9 @@ pub(crate) const LIBRARY_FANOUT: usize = 3;
 /// A track's fingerprint.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackPrint {
+    /// Seconds of audio decoded.
     pub duration_secs: f32,
+    /// The track's spectral peaks at [`fingerprint::LIBRARY`] density, in (frame, bin) order.
     pub peaks: Vec<Peak>,
 }
 
@@ -97,6 +99,7 @@ pub fn fingerprint_file(path: &Path, ctx: &Ctx<'_>) -> Result<TrackPrint> {
 pub struct LibraryIndex {
     /// Library track id of each indexed track.
     pub track_ids: Vec<u32>,
+    /// Each indexed track's length in seconds, in the order of `track_ids`.
     pub durations: Vec<f32>,
     offsets: Vec<u32>,
     /// `(slot << 32) | frame`, grouped by hash.
@@ -160,11 +163,19 @@ impl LibraryIndex {
         fits.then_some(LibraryIndex { track_ids, durations, offsets, entries })
     }
 
+    /// Where landmark `hash` occurs, each entry `(slot << 32) | frame`: `slot` indexes
+    /// [`LibraryIndex::track_ids`] and `frame` is the landmark's anchor frame in that track. Empty for
+    /// a hash too common to index.
+    ///
+    /// # Panics
+    ///
+    /// When `hash` isn't below `1 << HASH_BITS` ([`fingerprint::HASH_BITS`]), as [`fingerprint::hash`]'s are.
     pub fn bucket(&self, hash: u32) -> &[u64] {
         let h = hash as usize;
         &self.entries[self.offsets[h] as usize..self.offsets[h + 1] as usize]
     }
 
+    /// How many landmark occurrences the index holds, in every bucket together.
     pub fn hashes(&self) -> usize {
         self.entries.len()
     }

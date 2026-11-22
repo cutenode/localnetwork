@@ -1100,9 +1100,12 @@ export type Transcode = {
 
 /** A lossless container a copy is written in. */
 export type Container =
-  | ("wav" | "flac")
   /** rekordbox and every player read its ID3 tags. */
-  | "aiff";
+  | "aiff"
+  /** WAV, with ID3 tags in an `id3 ` chunk. */
+  | "wav"
+  /** FLAC, with Vorbis comments and pictures. */
+  | "flac";
 
 /** A My Tag edit: `{"drive": "Home", "action": "add", "tag": "Genre/Deep House", "query": "..."}`. */
 export type TagsEdit = {
@@ -5798,7 +5801,8 @@ export type TempoFinding = {
 
 /** A stored tempo against an estimate of it. */
 export type TempoRelation =
-  | ("agrees" | "disagrees")
+  /** The two are within 4% of each other. */
+  | "agrees"
   /** The stored tempo is half the estimate. */
   | "half"
   /** The stored tempo is double the estimate. */
@@ -5806,10 +5810,16 @@ export type TempoRelation =
   /** The stored tempo is two thirds of the estimate. */
   | "two_thirds"
   /** The stored tempo is three halves of the estimate. */
-  | "three_halves";
+  | "three_halves"
+  /** None of the other relations holds. */
+  | "disagrees";
 
 /** Which of two tempos a [`TempoPrior`] finds more likely. */
-export type Plausible = "stored" | "estimate";
+export type Plausible =
+  /** The stored tempo. */
+  | "stored"
+  /** The estimate. */
+  | "estimate";
 
 /** A track whose stored key the estimate doesn't agree with. */
 export type KeyFinding = {
@@ -5830,13 +5840,16 @@ export type KeyFinding = {
  * `allow_descending_fifths`, [key.py](https://github.com/mir-evaluation/mir_eval/blob/main/mir_eval/key.py)).
  */
 export type KeyOutcome =
-  | ("correct" | "other")
+  /** The annotated key. */
+  | "correct"
   /** A fifth above or below in the same mode: a neighbour on the Camelot wheel. */
   | "fifth"
   /** Major for its relative minor or back: same Camelot number. */
   | "relative"
   /** Major for minor on the same tonic. */
   | "parallel"
+  /** Any other key. */
+  | "other"
   /** The analyzer gave no key. */
   | "missing";
 
@@ -6162,6 +6175,7 @@ export type BenchReport = {
 
 /** How one analyzer did. */
 export type KeyOutcomeReport = {
+  /** How many tracks were scored. */
   tracks: number;
   /** Tracks with each outcome, every outcome listed. */
   counts: { [key: string]: number };
@@ -6173,6 +6187,7 @@ export type KeyOutcomeReport = {
 
 /** How one analyzer did. */
 export type TempoOutcomeReport = {
+  /** How many tracks were scored. */
   tracks: number;
   /** Tracks with each outcome, every outcome listed. */
   counts: { [key: string]: number };
@@ -6188,7 +6203,8 @@ export type TempoOutcomeReport = {
  * the double, half, triple and third tempos.
  */
 export type TempoOutcome =
-  | ("correct" | "other")
+  /** The annotated tempo. */
+  | "correct"
   /** The estimate is double the annotated tempo. */
   | "double"
   /** The estimate is half the annotated tempo. */
@@ -6197,6 +6213,8 @@ export type TempoOutcome =
   | "triple"
   /** The estimate is a third of the annotated tempo. */
   | "third"
+  /** Any other tempo. */
+  | "other"
   /** The analyzer gave no tempo. */
   | "missing";
 

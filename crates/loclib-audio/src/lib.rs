@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 use std::f64::consts::PI;
 use std::fs::File;
@@ -36,7 +38,11 @@ pub const MAX_RATE: u32 = 768_000;
 /// Native format of a decoded file.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SourceFormat {
+    /// Samples per second per channel, in Hz: the last decoded packet's, or the header's when
+    /// nothing was decoded (0 when it gives none).
     pub sample_rate: u32,
+    /// The channel count: the last decoded packet's, or the header's when nothing was decoded (0
+    /// when it gives none).
     pub channels: u16,
     /// Seconds of audio decoded.
     pub duration_secs: f64,
@@ -290,6 +296,11 @@ pub struct Resampler {
 }
 
 impl Resampler {
+    /// A resampler from `from` Hz to `to` Hz. Equal rates pass the input through untouched.
+    ///
+    /// # Panics
+    ///
+    /// When either rate is 0.
     pub fn new(from: u32, to: u32) -> Resampler {
         assert!(from > 0 && to > 0, "resampling from {from} Hz to {to} Hz");
         let ratio = from as f64 / to as f64;
@@ -328,6 +339,8 @@ impl Resampler {
         }
     }
 
+    /// Add `input`, the next stretch of the signal, and hand `sink` the outputs it completes. An
+    /// output whose kernel reaches past the input so far waits for the next push or [`finish`](Resampler::finish).
     pub fn push(&mut self, input: &[f32], sink: &mut dyn FnMut(&[f32])) {
         if self.passthrough {
             sink(input);
@@ -337,6 +350,8 @@ impl Resampler {
         self.drain(false, sink);
     }
 
+    /// Hand `sink` the outputs still waiting, the input taken to end here. Call it once, after the
+    /// last [`push`](Resampler::push).
     pub fn finish(&mut self, sink: &mut dyn FnMut(&[f32])) {
         if self.passthrough {
             return;

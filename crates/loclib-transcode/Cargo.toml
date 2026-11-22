@@ -13,6 +13,10 @@ repository.workspace = true
 [package.metadata.localnetwork]
 labels = ["locallibrary: transcode"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 flacenc = { version = "0.5", default-features = false }
 loclib-audio.workspace = true

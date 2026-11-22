@@ -15,9 +15,13 @@ pub const RECIPE_VERSION: u32 = 1;
 /// A rate or depth of 0 means unknown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Source {
+    /// The format.
     pub codec: Codec,
+    /// Samples per second per channel, in Hz.
     pub sample_rate: u32,
+    /// Bits per sample.
     pub bit_depth: u16,
+    /// The channel count.
     pub channels: u16,
 }
 
@@ -29,7 +33,9 @@ pub enum Container {
     /// rekordbox and every player read its ID3 tags.
     #[default]
     Aiff,
+    /// WAV, with ID3 tags in an `id3 ` chunk.
     Wav,
+    /// FLAC, with Vorbis comments and pictures.
     Flac,
 }
 
@@ -37,6 +43,7 @@ impl Container {
     /// In the order tried after the preferred one.
     pub const ALL: [Container; 3] = [Container::Aiff, Container::Wav, Container::Flac];
 
+    /// The [`Codec`] a copy in this container has.
     pub fn codec(self) -> Codec {
         match self {
             Container::Aiff => Codec::Aiff,
@@ -69,10 +76,13 @@ pub enum Dither {
 /// recipe, or whose master changed, needs making again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Recipe {
+    /// The container the copy is written in.
     pub container: Container,
+    /// The copy's sample rate, in Hz.
     pub sample_rate: u32,
-    /// 16 or 24.
+    /// The copy's bits per sample: 16 or 24.
     pub bit_depth: u16,
+    /// How samples are rounded to `bit_depth`.
     pub dither: Dither,
 }
 
@@ -102,7 +112,9 @@ pub struct Options {
 pub enum Decision {
     /// Every target plays the file as it is.
     Copy,
+    /// Some target doesn't play the file, and a copy made with this recipe plays on all of them.
     Transcode(Recipe),
+    /// No copy plays on every target, for this reason.
     Unplayable(Reason),
 }
 

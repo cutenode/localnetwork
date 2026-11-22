@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod fingerprint;
 pub mod index;
@@ -21,9 +23,11 @@ use fingerprint::{Analyzer, FrameLevels, Peak};
 
 /// A recording decoded and fingerprinted, ready for [`matcher::find`].
 pub struct Heard {
+    /// The recording's spectral peaks, in (frame, bin) order.
     pub peaks: Vec<Peak>,
     /// Each frame's loudness, for drawing the recording.
     pub levels: Vec<FrameLevels>,
+    /// How many frames were analysed, [`fingerprint::FRAMES_PER_SEC`] to a second.
     pub frames: u32,
 }
 

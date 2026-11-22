@@ -13,6 +13,10 @@ repository.workspace = true
 [package.metadata.localnetwork]
 labels = ["locallibrary: mixes"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 loclib-audio.workspace = true
 loclib-progress.workspace = true

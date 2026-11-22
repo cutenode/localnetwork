@@ -13,6 +13,7 @@ pub const TOLERANCE: f64 = 0.04;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TempoRelation {
+    /// The two are within 4% of each other.
     Agrees,
     /// The stored tempo is half the estimate.
     Half,
@@ -22,6 +23,7 @@ pub enum TempoRelation {
     TwoThirds,
     /// The stored tempo is three halves of the estimate.
     ThreeHalves,
+    /// None of the other relations holds.
     Disagrees,
 }
 
@@ -66,7 +68,9 @@ pub struct TempoPrior {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Plausible {
+    /// The stored tempo.
     Stored,
+    /// The estimate.
     Estimate,
 }
 
