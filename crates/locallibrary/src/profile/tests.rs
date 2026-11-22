@@ -1045,7 +1045,7 @@ fn prop_recordings_are_told_apart_by_their_tags_or_else_their_file(tc: TestCase)
         let analysed = same.iter().find(|&&j| !added[j].0.analyze_path.is_empty()).map(|&j| added[j].1);
         let origin = r.origin.map(|o| match o {
             Origin::Drive(d) => d,
-            Origin::Snapshot(_) => unreachable!("only drives were added"),
+            Origin::Snapshot(_) | Origin::Collection => unreachable!("only drives were added"),
         });
         assert_eq!(origin, analysed, "{t:?}");
         let by_file = (!t.file_path.is_empty()).then(|| paths::file_key(&t.file_path));

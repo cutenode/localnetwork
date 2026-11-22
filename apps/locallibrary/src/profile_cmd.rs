@@ -55,6 +55,10 @@ pub struct SourceArgs {
     /// Skip analysis files: no phrase mood or cue statistics, but much faster
     #[arg(long)]
     no_analysis: bool,
+    /// Leave out rekordbox's collection on this computer (master.db), read when no drive or
+    /// library is named
+    #[arg(long)]
+    no_collection: bool,
 }
 
 impl SourceArgs {
@@ -68,6 +72,7 @@ impl SourceArgs {
             min_set_tracks: Some(self.min_tracks),
             top: Some(self.top),
             no_analysis: self.no_analysis,
+            no_collection: self.no_collection,
         }
     }
 }

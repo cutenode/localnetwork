@@ -16,9 +16,9 @@ it merges into, so main's own growth never turns it red and it never edits these
 | `tui` | allocations and bytes of a frame of the player, for the Library view, the Deck layout, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
 | `deps` | the names of the packages linked into the default CLI on Linux, whatever their version | `cargo tree`, in `.github/actions/release-budgets` | weekly, by hand, merge queue groups, and pull requests that change a manifest, the lockfile or the Rust that ships |
 | `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | the same |
-| `cli` | instructions of everyday commands on the 3,886-track fixture, less a run of `/bin/true` on the same runner: the loader and libc starting, which counts differently on different runners' CPUs. Each runs with only the environment it needs (`tools/budgets/cachegrind.sh`), since the environment's size moves the count by thousands | the same | the same |
-| `tui-instructions` | instructions of a frame of the player, for the same views | the same, running the `tui` test | the same |
-| `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and merge queue groups |
+| `cli` | instructions of everyday commands on the 3,886-track fixture, less a run of `/bin/true` on the same runner: the loader and libc starting, which counts differently on different runners' CPUs. Each runs with only the environment it needs (`tools/budgets/cachegrind.sh`), since the environment's size moves the count by thousands, and with plugins' checks off, which `check` and `doctor` would otherwise hand the whole library to | the same | the same |
+| `tui-instructions` | instructions of a frame of the player's draw, for the same views, counted inside the frame test's `frame` alone, so not setting the player up or the audio before each frame. The draw still reads the clock for its animations, so these move by up to about 1,600 between runs of the same binary | the same, running the `tui` test | the same |
+| `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Counted as `tui-instructions` is | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and merge queue groups |
 | `web` | the website's JavaScript every page loads, the largest page's own on top of it, and all its CSS, uncompressed | `apps/web/scripts/bundle-sizes.ts`, after `pnpm test:build` in the `verify` job of `web-ci.yml` | pull requests and merge queue groups that change the website, and pushes to main |
 | `size-<other target>` | release binary and archive, recorded in the run's summary with no base to compare with | `locallibrary-scheduled.yml`'s `release-build` | weekly and by hand |
 
@@ -57,7 +57,7 @@ git commit --allow-empty -m 'chore(budgets): make room for the Opus decoder' \
 
 The failure says the exact trailer it needs. Raises add up, on top of the allowance. In a commit,
 review covers a raise, and the merge queue reads the trailers of every pull request in a group. A
-package name counts as 1, so a new crate takes `Budget-Raise: deps/locallibrary-cli +1: <why>`.
+package name counts as 1, so a new crate takes `Budget-Raise: deps/locallibrary +1: <why>`.
 
 Widening an allowance or dropping a metric takes a trailer naming it too (`+0` will do), which the
 `budgets` job checks with `tools/budgets/cli.ts raises`.

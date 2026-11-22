@@ -77,7 +77,7 @@ flowchart LR
   File["In the state file<br/>pref:background, pref:sort, pref:hide-downloaded,<br/>pref:search-sites"]
   Stay["On this install only<br/>pref:format, pref:source, pref:split-title, pref:dedupe,<br/>pref:artists-sort, pref:hide-queued, pref:theme,<br/>pref:title-case, pref:search:id"]
   Gate["For gates, on this install only<br/>pref:email, pref:name, pref:mark"]
-  Notice["Seen once, on this install only<br/>pref:notice-seen"]
+  Notice["Seen once, on this install only<br/>pref:notice-read"]
   Mirror["Mirrors, corrected by the session<br/>view:open, queue:items"]
 
   Popup <--> File

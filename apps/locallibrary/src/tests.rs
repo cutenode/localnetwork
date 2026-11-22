@@ -40,3 +40,21 @@ fn every_filter_flag_has_the_syntax_after_it() {
 fn the_version_is_what_clap_would_say() {
     assert_eq!(super::help::command().render_version(), super::version_line());
 }
+
+/// The commands that can write to a drive are told from those that only read: on macOS, from a
+/// terminal, the first run as a launchd job.
+#[test]
+fn drive_writes_are_told_from_reads() {
+    use clap::Parser;
+    let writes = |args: &[&str]| {
+        let cli = super::Cli::try_parse_from(std::iter::once("locallibrary").chain(args.iter().copied())).unwrap();
+        cli.command.as_ref().is_some_and(super::Command::writes_drives)
+    };
+    for args in [&["sync"][..], &["prep"], &["drive", "tidy", "X"], &["collection", "export", "X"], &["watch"]] {
+        assert!(writes(args), "{args:?} writes drives");
+    }
+    // Bare `locallibrary` is the player, which draws the terminal itself.
+    for args in [&["status"][..], &["check"], &["tracks", "X"], &["players"], &[]] {
+        assert!(!writes(args), "{args:?} only reads");
+    }
+}

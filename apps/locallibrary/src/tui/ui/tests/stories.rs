@@ -5,7 +5,7 @@
 //! what the player draws, or is one no story makes, and when a widget in loclib-waveform has no
 //! story. To update them:
 //!
-//! `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'`
+//! `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::ui::tests::stories::/)'`
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ use super::super::phrase_chip;
 
 const CAPTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/tui/captures");
 const WIDGETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/loclib-waveform/src");
-const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'";
+const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::ui::tests::stories::/)'";
 const MODES: [(Mode, &str); 2] = [(Mode::Dark, "dark"), (Mode::Light, "light")];
 
 /// Draws frame `n` of a story.

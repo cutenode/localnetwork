@@ -138,7 +138,11 @@ fn prop_the_login_agent_runs_watch_as_asked(tc: TestCase) {
             args.push("--uninstall");
         }
         let r = run(&args);
-        let calls = tools.take();
+        // On macOS installing first has launchd make the copy the agent runs (`launchd.rs`); the
+        // tool here makes none, so the agent runs this executable.
+        let (copying, calls): (Vec<String>, Vec<String>) =
+            tools.take().into_iter().partition(|c| c.contains("local.locallibrary.copy"));
+        assert_eq!(!copying.is_empty(), install && cfg!(target_os = "macos"), "{copying:?}");
         let said =
             format!("{args:?} with {refused:?} refused exited {}\n{}\n{}\ncalls: {calls:?}", r.code, r.out, r.err);
         assert!(calls.iter().all(|c| c.starts_with(TOOL)), "{said}");

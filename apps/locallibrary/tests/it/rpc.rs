@@ -384,7 +384,7 @@ fn describe_says_what_each_method_takes_and_returns() {
 }
 
 /// The contract in docs/rpc is what `rpc --emit-schema` writes. When a method or a type changes,
-/// regenerate it: `cargo run -p locallibrary-cli -- rpc --emit-schema apps/locallibrary/docs/rpc`
+/// regenerate it: `cargo run -p locallibrary -- rpc --emit-schema apps/locallibrary/docs/rpc`
 /// (or run this test with `LOCALLIBRARY_BLESS=1`).
 #[test]
 #[cfg_attr(
@@ -419,7 +419,7 @@ fn the_contract_in_docs_is_current() {
     assert!(
         stale.is_empty(),
         "docs/rpc/{stale:?} is out of date: the RPC contract changed. Regenerate it with \
-         `cargo run -p locallibrary-cli -- rpc --emit-schema apps/locallibrary/docs/rpc` \
+         `cargo run -p locallibrary -- rpc --emit-schema apps/locallibrary/docs/rpc` \
          (or LOCALLIBRARY_BLESS=1 cargo test)"
     );
 }

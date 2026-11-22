@@ -838,3 +838,23 @@ fn prop_the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) 
         }
     }
 }
+
+/// Once rekordbox saves its collection (the database or its WAL), coming back to the tab builds
+/// the profile again; a tab reading one drive only doesn't watch it.
+#[test]
+fn a_save_in_rekordbox_makes_the_profile_stale() {
+    let (mut app, dir) = blank(View::Drives);
+    let db = dir.path().join("master.db");
+    std::fs::write(&db, b"collection").unwrap();
+    app.collection_db = Some(db.clone());
+    app.profile = fixture_tab();
+    app.profile.collection_seen = Some(super::super::app::CollectionStamp::of(&db));
+    assert!(!collection_changed(&app));
+    std::fs::write(dir.path().join("master.db-wal"), b"a save").unwrap();
+    assert!(collection_changed(&app));
+    app.profile.only_drive = Some(dir.path().to_path_buf());
+    assert!(!collection_changed(&app), "a tab reading one drive doesn't read the collection");
+    app.profile.only_drive = None;
+    app.profile.loading = true;
+    assert!(!collection_changed(&app), "a build under way reads it already");
+}

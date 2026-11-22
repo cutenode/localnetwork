@@ -559,7 +559,7 @@ fn a_drives_schema_is_not_trusted() {
 
 /// Remakes the fixtures in fixtures/onelibrary/ with the sqlcipher CLI (`brew install sqlcipher`),
 /// an implementation independent of locallibrary's, using SQLCipher 4's defaults as rekordbox does:
-/// `cargo test -p locallibrary --test it remake_sqlcipher_fixtures -- --ignored`.
+/// `cargo test -p locallibrary-core --test it remake_sqlcipher_fixtures -- --ignored`.
 ///
 /// - `empty.db`: src/onelibrary/schema.sql only (what locallibrary creates new databases from).
 /// - `wal.db` and `wal.db-wal`: wal.sql, one track in the database file and a second one only in

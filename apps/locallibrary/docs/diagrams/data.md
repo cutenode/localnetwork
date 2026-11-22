@@ -169,8 +169,11 @@ What the report is built from, and what's allowed out of it. Genres, artists, er
 flowchart TD
     sets["Declared sets"] --> plays["Plays: sets, tempo, keys, mixing,<br/>signature tracks..."]
     sessions["Histories, until sets are declared"] --> plays
-    collection["The collection: drives' libraries and<br/>the store's latest snapshots, each track once"] --> owned["Genres, artists, era, energy"]
-    analysis["Analysis and tags, from mounted drives<br/>and the store's snapshots"] --> plays
+    masterdb[("rekordbox's master.db on this computer,<br/>when no drive or library is named")] -->|"read: it's the collection"| collection
+    copies["Drives' libraries and the store's latest<br/>snapshots: copies from their export"] -->|"only without master.db"| collection
+    copies -->|"find what sets and histories played"| plays
+    collection["The collection, each track once"] --> owned["Genres, artists, era, energy"]
+    analysis["Analysis and tags: rekordbox's share folder,<br/>mounted drives and the store's snapshots"] --> plays
     analysis --> owned
     settings["The drives' My Settings"] --> report["Profile report: stays on this computer"]
     plays --> report
@@ -181,7 +184,7 @@ flowchart TD
     document -->|"profile publish"| account["computer.localnetwork.dj.profile"]
 ```
 
-Source: [`crates/locallibrary/src/profile/mod.rs`](../../../../crates/locallibrary/src/profile/mod.rs), [`crates/locallibrary/src/profile/document.rs`](../../../../crates/locallibrary/src/profile/document.rs), [`src/profile_cmd.rs`](../../src/profile_cmd.rs)
+Source: [`crates/locallibrary/src/profile/mod.rs`](../../../../crates/locallibrary/src/profile/mod.rs), [`crates/locallibrary/src/profile/document.rs`](../../../../crates/locallibrary/src/profile/document.rs), [`crates/locallibrary/src/api/profile.rs`](../../../../crates/locallibrary/src/api/profile.rs), [`src/profile_cmd.rs`](../../src/profile_cmd.rs)
 
 ## Writing a library out
 

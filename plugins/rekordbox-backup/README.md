@@ -4,7 +4,7 @@ A locallibrary plugin that backs up rekordbox's library on this computer the way
 File > Library > Backup Library does. rekordbox's Restore Library takes its backups back.
 
 It's written the way a plugin from outside locallibrary would be. It depends only on the SDK
-crates (loclib-plugin, loclib-progress, loclib-model), never on the `locallibrary` crate, and it
+crates (loclib-plugin, loclib-progress, loclib-model), never on `locallibrary-core`, and it
 reads rekordbox's files through the host with the `collection:files` capability. It ships built
 in, since locallibrary can't install other plugins yet.
 

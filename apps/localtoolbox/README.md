@@ -1,6 +1,6 @@
 # localtoolbox
 
-A multi-purpose Chrome extension for DJs, part of [Local Network](../../README.md). Clicking the toolbar icon opens a small
+A Chrome extension that helps DJs keep track of the music they find on SoundCloud, part of [Local Network](../../README.md). Clicking the toolbar icon opens a small
 menu of tools; picking one opens that tool's own panel, which the arrow in
 its header leads back out of. It looks like the [website](../web): the same
 dark ink surfaces, white type, Instrument Sans and JetBrains Mono, from the
@@ -90,30 +90,111 @@ Current tools:
 
 ## Privacy
 
-localtoolbox has no server, and nothing it does reaches one of Local Network's.
-Everything it keeps stays in the browser: the marks, the Manager's list, the
-artists list, the session queue and the settings, in the extension's own
-storage, and the email address and name in the popup's.
+This section is localtoolbox's privacy policy. localtoolbox has no server,
+nothing it does reaches one of Local Network's, and it has no analytics or
+error reporting.
 
-What leaves the browser, and where to:
+### What it reads
 
-- **The email address and name in Settings go to Hypeddit**, and only to a gate
-  that asks for an address. Hypeddit's privacy policy says it shares that
-  address with the artist, with the service it checks addresses with, and with
-  its marketing providers. The address is also typed into the email field of a
-  Droploud or Laylo page you open from the Downloader; it goes to them only if
-  you send that form.
-- **A Hypeddit gate with a Spotify step follows the artist and saves the track
-  on your own Spotify account**, through Hypeddit's Spotify app, once you have
-  said yes to that app. The row names the artist.
-- **SoundCloud** is asked nothing. The tracks and artists come from what the
-  page you are on has already loaded.
-- **Hypeddit gate pages** are fetched and posted back to when you press
-  **Get** on one. Every other site gets nothing from the extension but the
-  pages you open.
+- **SoundCloud pages**, in every frame of soundcloud.com: the track and user
+  data the page itself loaded, from the `window.__sc_hydration` script
+  SoundCloud serves and from the answers SoundCloud's web app gets from its
+  API while you browse (tracks, playlists, users, likes and profile links). It
+  never asks SoundCloud for any of it. From the page it also reads the titles,
+  artists, cover art, genre and purchase or download links of the tracks, the
+  playlist's title and curator, whether you have liked or reposted each track,
+  and your clicks on SoundCloud's own Download file and purchase buttons, which
+  it keeps as Downloaded marks.
+- **The tab the popup opens over**: its address. On SoundCloud that says which
+  page to list; on a Hypeddit, Droploud, Pump Your Sound, Laylo, ToneDen,
+  FanLink or Feature.fm page, the Downloader adds that address as a row.
+- **Droploud, Pump Your Sound and Laylo pages**: nothing, unless the tab is
+  one localtoolbox opened for a download. On that tab it notices when you send
+  a Laylo form, so the Downloader's row can say you signed up.
+- **Downloads**: while a Droploud, Pump Your Sound or Laylo tab it opened is
+  waiting for you, it checks the address and referrer of each download that
+  starts, in any tab, to find that site's file, and reads the name of that one
+  file to put it in the site's folder. Downloads the extension started itself,
+  and every other download, keep the name the browser gave them, and nothing
+  about them is kept.
 
-The popup says the first two in a short notice the first time it opens, with
-one button to carry on.
+### What it keeps, and for how long
+
+All of it stays in this browser.
+
+| What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Where                                                                                       | How long                                              |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Downloaded marks, with when each was made. The Manager's list: each track's title, artist, cover, where it can be downloaded, genre, the page it was added from, and whether you had liked or reposted it. The artists list: each artist with up to 50 of their tracks and the page they were added from                                                                                                                                                                                                                                                  | the extension's storage                                                                     | until you remove them, or uninstall                   |
+| The two page settings (SoundCloud's download buttons, Likes as a list)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | the extension's storage                                                                     | until changed, or uninstall                           |
+| The session queue, with the same details per track. Which tool is open, with its search, picks, opened rows, scroll position, open drawers and any text pasted into the Downloader. The Downloader's rows: each link, how it went and the name of any file it saved; a row whose address Hypeddit rejected names that address. The Droploud, Pump Your Sound or Laylo pages being worked through. A search site you are halfway through adding. The public profiles of the artists on the list (name, place, followers, track count, bio, links, picture) | the extension's session storage, which its own content scripts can read and web pages can't | until the browser closes, or the extension is updated |
+| A copy of the session queue and of which tool is open, so the popup can draw them at once                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | the popup's local storage                                                                   | until the popup first opens after the browser closed  |
+| The email address and name from Settings, the panels' options, the theme, Title Case, the search sites you added and which badges show, whether a saved file marks its track, and whether you have read the first-run notice                                                                                                                                                                                                                                                                                                                              | the popup's local storage                                                                   | until changed, or uninstall                           |
+| What SoundCloud loaded about tracks and artists not on a list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | the SoundCloud tab's memory                                                                 | until the tab closes or reloads                       |
+
+**export**, under "your data" in Settings, downloads the marks, the Manager's
+list, the artists list, the queue, the search sites you added and three panel
+options as `manager-<date>.json`, only when you press it. The file never holds
+the email address, the name or anyone's profile.
+
+Each list has its own remove and unmark buttons, and the queue can be
+cleared. Uninstalling the extension deletes everything in the table. Files
+you exported or downloaded stay where they were saved, and SoundCloud keeps
+the List view if the extension pressed it. Installing or updating the
+extension deletes details that older versions kept for longer.
+
+### What leaves the browser, and where to
+
+- **Hypeddit.** When you press **Get** on a Hypeddit link in the Downloader,
+  or the Download button localtoolbox puts on a SoundCloud track that links to
+  one, the extension loads that gate page and posts back to it as the page's
+  own buttons would, with your Hypeddit cookies: the visit, then the email
+  address and name from Settings if the gate asks for them, then the download
+  request. Hypeddit's privacy policy says it shares that address with the
+  artist, with the service it checks addresses with, and with its marketing
+  providers. The file is then downloaded from the address Hypeddit gives,
+  which can be on another host. If a walk started from a SoundCloud page ends
+  anywhere but a saved file, the gate, or the file's address, opens in a new
+  tab beside it.
+- **Spotify, through Hypeddit.** For a Hypeddit gate with a Spotify step, the
+  extension opens the Spotify sign-in link from the gate page in a background
+  tab, and closes it once it is back on Hypeddit, or after about 12 seconds.
+  Once you have said yes to Hypeddit's Spotify app, Hypeddit follows the
+  artist and saves the track on your own Spotify account. In the Downloader
+  the row names the artist; from the Download button on a SoundCloud page,
+  nothing says so.
+- **Droploud, Pump Your Sound and Laylo.** **Get**, or the Download button on
+  a SoundCloud track that links to one, opens the gate in a tab, and the next
+  one opens in that tab by itself after a file lands. On Droploud and Laylo
+  the extension types the email address from Settings into an empty email
+  field. The page's own scripts can see it from then on, and the site gets it
+  when you send the form.
+- **SoundCloud.** The lists show cover art and artist pictures from the
+  addresses SoundCloud gave for them, and copying a track's cover art fetches
+  it at full size. The Download button localtoolbox puts on a track presses
+  SoundCloud's own Download file where the track has one, opens its purchase
+  link in a tab where it has that, and hands gate links to the Downloader's
+  walk above; each press also adds the track to the session queue. With the
+  Likes setting on, the extension presses the List button on your Likes page,
+  which SoundCloud remembers.
+- **Links you open** from the panels open in a tab like any link: track and
+  artist pages, download and purchase links, the links on an artist's
+  profile, ToneDen, FanLink and Feature.fm pages and failed gates from the
+  Downloader, and the search sites, whose addresses carry the artist or title.
+- **Report a bug** opens GitHub's issue form with the extension's version and
+  build, the browser, its major version, the operating system and the open
+  tool filled in. Opening it sends those to GitHub in the page's address;
+  nothing is filed unless you submit the form.
+
+Nothing is sold, used for ads, or used for anything but the tools above.
+localtoolbox's use of this data follows the Chrome Web Store User Data
+Policy, including its Limited Use requirements.
+
+The popup says the Hypeddit, Spotify, Droploud and Laylo parts in a short
+notice the first time it opens, with one button to carry on. On a fresh
+install, the Download buttons on SoundCloud pages stay SoundCloud's own until
+that button has been pressed. Questions go to
+[GitHub issues](https://github.com/cutenode/localnetwork/issues), and every
+change to this section is in the repository's history.
 
 ## Install
 
@@ -1309,7 +1390,9 @@ each track's More menu, and the purchase link the uploader set — a pill saying
 on in Settings — it is, by default — each is hidden and this extension's own
 button takes its place, doing on the page what the same track's button does in
 the Manager panel: the track goes into the **session queue**, and then the link
-opens or the file downloads.
+opens or the file downloads. On a fresh install that waits for the popup's
+first-run notice: until its **continue** is pressed, the page keeps
+SoundCloud's own controls (`noticePending`, see `src/lib/notice.ts`).
 
 Why the queue and not a mark: opening a download link says nothing that is
 known yet — the file has not been saved, and often the gate behind the link
@@ -2955,7 +3038,7 @@ stateDiagram-v2
   state "Ghost of the panel" as Ghost
   state "Tool panel" as Panel
   state "Before you start notice, in the menu" as Notice
-  [*] --> Notice: nothing left open, pref:notice-seen unset
+  [*] --> Notice: nothing left open, pref:notice-read unset
   Notice --> Menu: continue
   [*] --> Menu: nothing left open
   [*] --> Ghost: view:open names a tool

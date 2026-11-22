@@ -79,7 +79,7 @@ beforeEach(() => {
 	// Past the first-run notice, which stands in for the tool menu until it has
 	// been read once (FirstRun.svelte): most tests are about what comes after
 	// it. The notice's own tests take this back out.
-	if (inBrowser) localStorage.setItem('pref:notice-seen', '1');
+	if (inBrowser) localStorage.setItem('pref:notice-read', '1');
 });
 
 afterEach(async () => {

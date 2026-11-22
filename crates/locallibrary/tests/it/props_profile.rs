@@ -757,7 +757,7 @@ fn prop_the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
         }
     }
     let read = |store: Option<&Store>| {
-        let req = ProfileRequest { no_analysis: true, ..Default::default() };
+        let req = ProfileRequest { no_analysis: true, no_collection: true, ..Default::default() };
         api::profile(store, &req, &Ctx::silent()).map(|v| {
             let mut names: Vec<String> =
                 v.report.sources.iter().filter(|s| s.kind == "drive").map(|s| s.name.clone()).collect();
@@ -1017,7 +1017,7 @@ fn prop_a_stores_profile_reads_its_snapshots_analysis_once(tc: TestCase) {
             std::fs::create_dir_all(store.root().join("cache")).unwrap();
             std::fs::write(store.root().join("cache/profile"), b"").unwrap();
         }
-        let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+        let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None, collection: None };
         let options = ProfileOptions { min_set_tracks: 2, ..ProfileOptions::default() };
         let build = || {
             let warnings = std::sync::Mutex::new(Vec::new());
@@ -1135,7 +1135,12 @@ fn prop_declared_sets_count_when_played_in_the_range(tc: TestCase) {
     let edge = || gs::optional(gs::integers::<i64>().min_value(-1).max_value(5));
     let (since, until) = (tc.draw(edge()).map(day), tc.draw(edge()).map(day));
     let options = ProfileOptions { since, until, analysis: false, ..ProfileOptions::default() };
-    let sources = profile::Sources { drives: vec![Device::open(&root).unwrap()], store: Some(&store), libraries: None };
+    let sources = profile::Sources {
+        drives: vec![Device::open(&root).unwrap()],
+        store: Some(&store),
+        libraries: None,
+        collection: None,
+    };
     let r = profile::build(&sources, &options, &Ctx::silent()).unwrap();
     let mut want: Vec<NaiveDate> = (0..declared.len() as i64)
         .map(day)
@@ -1157,8 +1162,12 @@ fn prop_a_cancelled_profile_stops_or_says_it_all(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, _) = pulled_store(&tc, dir.path(), 1);
     let drive = common::bigger_drive(dir.path(), "Mounted");
-    let sources =
-        profile::Sources { drives: vec![Device::open(&drive).unwrap()], store: Some(&store), libraries: None };
+    let sources = profile::Sources {
+        drives: vec![Device::open(&drive).unwrap()],
+        store: Some(&store),
+        libraries: None,
+        collection: None,
+    };
     let options = ProfileOptions { min_set_tracks: 2, ..ProfileOptions::default() };
     let build = |cancel_after: Option<usize>| {
         let warnings = std::sync::Mutex::new(Vec::new());
@@ -1194,7 +1203,7 @@ fn prop_a_library_whose_databases_are_gone_is_left_out_saying_so(tc: TestCase) {
     let snap = store.load_snapshot(&gone.head.unwrap()).unwrap();
     let pdb = snap.files.iter().find(|f| f.path == paths::EXPORT_PDB).and_then(|f| f.hash).unwrap();
     std::fs::remove_file(store.object_path(&pdb)).unwrap();
-    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None, collection: None };
     let options = ProfileOptions { analysis: false, ..ProfileOptions::default() };
     let r = profile::build(&sources, &options, &Ctx::silent()).unwrap();
     let left_out = format!("library {}: ", gone.name);
@@ -1217,7 +1226,7 @@ fn prop_a_store_that_cant_be_read_stops_the_profile(tc: TestCase) {
         "snapshot" => std::fs::remove_file(store.root().join(format!("snapshots/{head}.json"))).unwrap(),
         _ => std::fs::write(store.root().join(sets::SETS_FILE), b"[").unwrap(),
     }
-    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None, collection: None };
     let options = ProfileOptions { analysis: false, ..ProfileOptions::default() };
     let err = profile::build(&sources, &options, &Ctx::silent()).expect_err("no profile");
     let missing = matches!(&err, locallibrary::Error::NotFound(m) if m.starts_with("snapshot "));
@@ -1241,7 +1250,7 @@ fn prop_the_style_names_the_known_settings_the_store_sets(tc: TestCase) {
     store
         .save_settings_profile(&locallibrary::settings::SettingsProfile { base: base.clone(), ..Default::default() })
         .unwrap();
-    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None, collection: None };
     let r = profile::build(&sources, &ProfileOptions::default(), &Ctx::silent()).unwrap();
     assert_eq!(r.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["store (1 library)"]);
     let known: Vec<(&str, &str)> = profile::STYLE_SETTINGS

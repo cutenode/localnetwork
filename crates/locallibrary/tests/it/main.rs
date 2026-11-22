@@ -2,7 +2,7 @@
 //! of its own: every one linked the whole library, and they ran one after another. Together the
 //! library is linked once and every test runs at once.
 //!
-//! `cargo test -p locallibrary --test it props_pdb::` runs one module's tests. Tests here that
+//! `cargo test -p locallibrary-core --test it props_pdb::` runs one module's tests. Tests here that
 //! need the mounted volumes, or the store drive lookups consult, name them for their own thread
 //! (`common::isolate`, through `locallibrary::testing::volumes_on_this_thread` and
 //! `store_root_on_this_thread`): `$LOCALLIBRARY_VOLUMES` and `api::set_store_root` would hold for

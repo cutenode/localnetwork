@@ -117,7 +117,7 @@ jobs:
       # benches too: what only the default features use is dead code here.
       # locallibrary-scheduled.yml runs its tests and every other combination.
       - if: inputs.linux || inputs.cache
-        run: cargo clippy -p locallibrary -p locallibrary-cli --no-default-features --all-targets --locked -- -D warnings
+        run: cargo clippy -p locallibrary-core -p locallibrary --no-default-features --all-targets --locked -- -D warnings
       # On its own: built with the crates above, it gets the features they ask for.
       - if: inputs.linux || inputs.cache
         run: cargo clippy -p loclib-interop --no-default-features --all-targets --locked -- -D warnings
@@ -128,7 +128,7 @@ jobs:
         with:
           tool: cargo-nextest@0.9.148
       - if: inputs.commands
-        run: cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
+        run: cargo nextest run -p locallibrary --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
       # The TUI's audio output goes through ALSA on Linux.
       - if: inputs.linux || inputs.docs || inputs.cache
         uses: ./.github/actions/apt-packages
@@ -154,10 +154,10 @@ jobs:
       # dist releases every package with a binary that doesn't opt out, so a new one would
       # otherwise join locallibrary's releases (and its tag namespace) unnoticed.
       - if: inputs.dist
-        name: Check only locallibrary-cli is released
+        name: Check only locallibrary is released
         run: |
-          if ! jq -e '[.releases[]?.app_name] == ["locallibrary-cli"]' "$RUNNER_TEMP/plan-dist-manifest.json" > /dev/null; then
-            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
+          if ! jq -e '[.releases[]?.app_name] == ["locallibrary"]' "$RUNNER_TEMP/plan-dist-manifest.json" > /dev/null; then
+            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
             exit 1
           fi
 

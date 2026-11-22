@@ -90,7 +90,7 @@ try {
 	const args = ['mix', join(dir, 'friday.wav'), '--drive', drive, '--export', `${out}/`];
 	execFileSync(
 		'cargo',
-		['run', '--locked', '-q', '--manifest-path', join(repo, 'Cargo.toml'), '-p', 'locallibrary-cli', '--', ...args],
+		['run', '--locked', '-q', '--manifest-path', join(repo, 'Cargo.toml'), '-p', 'locallibrary', '--', ...args],
 		{
 			// Its own store, and no drives looked for beyond the one named.
 			env: { ...process.env, LOCALLIBRARY_STORE: join(dir, 'store'), LOCALLIBRARY_VOLUMES: '' }
