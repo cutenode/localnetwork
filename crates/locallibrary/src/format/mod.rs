@@ -424,7 +424,7 @@ pub fn plan(
     }
     let filesystem = opts.filesystem.unwrap_or(players::DEFAULT_FILESYSTEM);
     os::supports(filesystem)?;
-    if disk.size >= players::MBR_MAX {
+    if disk.size >= loclib_equipment::MBR_MAX {
         return Err(Error::invalid(format!(
             "{} is larger than the 2 TiB an MBR partition table can address, and players need MBR; use a drive of 2 TB or less",
             disk.describe(),

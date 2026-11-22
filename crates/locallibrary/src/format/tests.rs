@@ -387,7 +387,7 @@ pub(crate) fn any_disk(tc: &TestCase) -> Disk {
         serial: if tc.draw(gs::booleans()) { Some(name(tc)) } else { None },
         size: tc.draw(hegel::one_of!(
             gs::integers::<u64>().max_value(4 << 40),
-            gs::integers::<u64>().min_value(1 << 30).max_value(players::MBR_MAX - 1),
+            gs::integers::<u64>().min_value(1 << 30).max_value(loclib_equipment::MBR_MAX - 1),
         )),
         sector_size: tc.draw(gs::sampled_from(vec![512u32, 1024, 2048, 4096])),
         bus: if tc.draw(gs::booleans()) { Some("USB".into()) } else { None },
@@ -442,7 +442,7 @@ fn prop_cluster_sizes_follow_each_file_systems_rules(tc: TestCase) {
     let valid =
         size.is_power_of_two() && size >= sector && size <= limit && (fs != Filesystem::Hfsplus || size == 4096);
     assert_eq!(fs.check_cluster_size(size, sector).is_ok(), valid, "{fs:?} {size} on {sector}-byte sectors");
-    let volume = tc.draw(gs::integers::<u64>().max_value(players::MBR_MAX));
+    let volume = tc.draw(gs::integers::<u64>().max_value(loclib_equipment::MBR_MAX));
     let default = fs.default_cluster_size(volume);
     assert!(fs.check_cluster_size(default, sector).is_ok(), "{fs:?} default {default} for {volume}");
     assert!(FsKind::from(fs) != FsKind::Other && !fs.name().is_empty());
@@ -738,7 +738,7 @@ fn prop_plans_follow_the_disk_and_the_options(tc: TestCase) {
     let part = disk.partition_size();
     let cluster = opts.cluster_size.unwrap_or_else(|| fs.default_cluster_size(part));
     let fits = disk.problem(&[]).is_none()
-        && disk.size < players::MBR_MAX
+        && disk.size < loclib_equipment::MBR_MAX
         && fs.check_cluster_size(cluster, disk.sector_size).is_ok()
         && (fs != Filesystem::Fat32 || fat32::Layout::new(part, disk.sector_size, cluster, 0).is_ok())
         // Windows itself makes no HFS+ and checks no capacity.
@@ -864,11 +864,11 @@ fn prop_tools_that_cant_start_say_why(tc: TestCase) {
 fn prop_disks_mbr_cant_address_are_refused(tc: TestCase) {
     let excess =
         tc.draw(hegel::one_of!(gs::integers::<u64>().max_value(1 << 20), gs::integers::<u64>().max_value(1 << 44)));
-    let disk = Disk { size: players::MBR_MAX + excess, volumes: Vec::new(), ..sample_disk() };
+    let disk = Disk { size: loclib_equipment::MBR_MAX + excess, volumes: Vec::new(), ..sample_disk() };
     let e = plan(disk.clone(), &FormatOptions::default(), None, &[], &Ctx::silent()).unwrap_err();
     assert_eq!(e.code(), "invalid", "{e}");
     assert!(e.to_string().contains("larger than the 2 TiB an MBR partition table can address"), "{e}");
-    let fits = Disk { size: players::MBR_MAX - 1, ..disk };
+    let fits = Disk { size: loclib_equipment::MBR_MAX - 1, ..disk };
     if let Err(e) = plan(fits, &FormatOptions::default(), None, &[], &Ctx::silent()) {
         assert!(!e.to_string().contains("2 TiB"), "{e}");
     }

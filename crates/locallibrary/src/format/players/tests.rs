@@ -103,7 +103,7 @@ fn prop_every_layout_gets_its_verdict(tc: TestCase) {
     };
     assert_eq!(c.verdict, want, "{scheme:?} {fs:?}");
     assert!(!c.summary.is_empty());
-    let exfat_named = c.unsupported == NO_EXFAT && c.summary.contains(EXFAT[0]);
+    let exfat_named = c.unsupported == no_exfat_list() && c.summary.contains(&exfat_list()[0]);
     assert_eq!(exfat_named, fs == Some(FsKind::Exfat) && scheme.is_none_or(|s| s == Scheme::Mbr));
     if c.verdict != Verdict::SomePlayers {
         assert!(c.unsupported.is_empty() || exfat_named);

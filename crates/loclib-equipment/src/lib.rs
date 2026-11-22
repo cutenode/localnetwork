@@ -589,6 +589,36 @@ pub fn find(name: &str) -> Option<&'static Model> {
     MODELS.iter().find(|m| normalise(m.name) == n)
 }
 
+/// The largest disk an MBR partition table can fully address (2 TiB with 512-byte sectors). No
+/// model supports the GUID partition table, so it's the largest drive players use.
+pub const MBR_MAX: u64 = 1 << 41;
+
+/// The models that read exFAT, in [`MODELS`]' order, each with the firmware it needs:
+/// `CDJ-3000 (firmware 1.20+)`.
+pub fn exfat_list() -> Vec<String> {
+    MODELS
+        .iter()
+        .filter_map(|m| match m.exfat.value {
+            Exfat::No => None,
+            Exfat::Yes => Some(m.name.to_string()),
+            Exfat::Firmware(v) => Some(format!("{} (firmware {v}+)", m.name)),
+        })
+        .collect()
+}
+
+/// The models that don't read exFAT, in [`MODELS`]' order, with the mixers, which use a drive
+/// only for settings and firmware, together at the end: `DJM-V10/DJM-A9 (settings, firmware)`.
+pub fn no_exfat_list() -> Vec<String> {
+    let (mixers, others): (Vec<&Model>, Vec<&Model>) =
+        MODELS.iter().filter(|m| m.exfat.value == Exfat::No).partition(|m| m.is_mixer());
+    let mut out: Vec<String> = others.iter().map(|m| m.name.to_string()).collect();
+    if !mixers.is_empty() {
+        let names: Vec<&str> = mixers.iter().map(|m| m.name).collect();
+        out.push(format!("{} (settings, firmware)", names.join("/")));
+    }
+    out
+}
+
 /// Model names [`canonical`] doesn't know, in the order given.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
