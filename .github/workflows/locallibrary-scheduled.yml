@@ -79,7 +79,9 @@ jobs:
               - '.config/nextest.toml'
               - '.node-version'
               - 'lexicons/**'
+              - 'about.{toml,hbs}'
               - '.github/actions/install-dist/**'
+              - '.github/actions/notices/**'
               - '.github/workflows/locallibrary-scheduled.yml'
               - '!**/*.md'
             readmes:
@@ -465,6 +467,8 @@ jobs:
       # own configuration, with no input from a pull request (this workflow doesn't run on them).
       - if: matrix.packages_install
         run: ${{ matrix.packages_install }} # zizmor: ignore[template-injection]
+      # The archives include the notices, as locallibrary-release.yml's do.
+      - uses: ./.github/actions/notices
       # dist only signs the macOS binaries when the CODESIGN_* variables are set, which they
       # aren't here.
       - id: dist

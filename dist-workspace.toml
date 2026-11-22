@@ -32,7 +32,7 @@ macos-sign = true
 # one.
 allow-dirty = ["ci"]
 # The licences of what the binary is built from (about.toml), next to LICENSE in each archive. The
-# Homebrew formula installs it in share/locallibrary. `cargo notices` writes it: the steps in
+# Homebrew formula installs it in share/locallibrary. `cargo notices` writes it: the step in
 # .github/build-setup.yml run it before dist builds.
 include = ["THIRD-PARTY-NOTICES.md"]
 # Steps dist adds to the release workflow's build jobs, after installing Rust.

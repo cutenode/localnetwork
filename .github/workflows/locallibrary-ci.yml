@@ -778,9 +778,9 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny@0.20.2,cargo-about@0.9.3
+          tool: cargo-deny@0.20.2
       - run: cargo deny --locked check advisories bans licenses sources
-      - run: cargo notices
+      - uses: ./.github/actions/notices
 
   # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
   # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the

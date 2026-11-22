@@ -197,6 +197,7 @@ jobs:
               - 'deny.toml'
               - 'about.{toml,hbs}'
               - '.cargo/config.toml'
+              - '.github/actions/notices/**'
               - '.github/workflows/locallibrary-ci.yml'
             locallibrary_semver:
               - 'crates/loclib-*/**'
