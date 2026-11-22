@@ -10,6 +10,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: mixes"]
+
 [dependencies]
 loclib-audio.workspace = true
 loclib-progress.workspace = true

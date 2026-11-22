@@ -1,0 +1,15 @@
+"web: mixes":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/mixes/**"
+          - "apps/web/src/routes/projects/*/mixes/**"
+          - "apps/web/src/lib/mix/**"
+          - "apps/web/src/lib/components/mix/**"
+          - "apps/web/src/lib/components/MixList.svelte"
+          - "apps/web/src/lib/server/services/tracklists.*"
+          - "apps/web/src/lib/server/services/recordings.*"
+          - "apps/web/src/lib/server/services/mix-recordings.*"
+          - "apps/web/src/lib/server/audio.*"
+          - "apps/web/src/lib/server/plyr.*"
+          - "apps/web/src/lib/server/media/**"
+          - "apps/web/scripts/mix-fixture.ts"

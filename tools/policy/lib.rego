@@ -38,6 +38,13 @@ reads := f.contents.reads if {
 	regex.match(`(^|/)reads\.json$`, f.path)
 }
 
+# The labeler config tools/labeler/labeler.ts builds, which tools/policy/inputs.ts writes to
+# labeler.json.
+labeler := f.contents if {
+	some f in input
+	regex.match(`(^|/)labeler\.json$`, f.path)
+}
+
 # `harden check --json`'s report on each project's package manager, which tools/policy/inputs.ts
 # lists as {"harden": [{"manager": ..., "folder": ..., "report": ...}]} in harden.json.
 harden := f.contents.harden if {

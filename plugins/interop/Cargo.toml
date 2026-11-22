@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: interop"]
+
 [dependencies]
 fs4.workspace = true
 loclib-interop.workspace = true

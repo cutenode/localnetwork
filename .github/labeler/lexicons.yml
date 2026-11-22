@@ -1,0 +1,4 @@
+"lexicons":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "lexicons/**"

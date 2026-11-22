@@ -1,0 +1,6 @@
+"localtoolbox: content script":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/content.ts"
+          - "apps/localtoolbox/content.css"
+          - "apps/localtoolbox/test/content/**"

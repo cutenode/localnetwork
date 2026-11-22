@@ -1,0 +1,4 @@
+"locallibrary: interop":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/locallibrary/docs/other-software.md"

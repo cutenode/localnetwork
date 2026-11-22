@@ -1,0 +1,6 @@
+"web: tools":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/tools/**"
+          - "apps/web/src/lib/tools/**"
+          - "apps/web/src/lib/server/tools/**"

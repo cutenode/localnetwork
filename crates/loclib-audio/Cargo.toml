@@ -10,6 +10,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: core"]
+
 [dependencies]
 loclib-model.workspace = true
 loclib-progress.workspace = true

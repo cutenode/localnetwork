@@ -9,6 +9,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: core"]
+
 [dependencies]
 loclib-audio.workspace = true
 loclib-mixid.workspace = true

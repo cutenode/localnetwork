@@ -6,6 +6,7 @@ import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createRailwayContext, project } from 'railway/iac';
 import railway from '../../.railway/railway.ts';
+import { repoConfig } from '../labeler/labeler.ts';
 import { reads } from '../reads/reads.ts';
 
 // Tracked files and new ones not yet added (but not ignored ones), so a new app is checked too.
@@ -39,7 +40,6 @@ export const configFiles = (): string[] =>
 		':(glob).github/actions/*/action.yml',
 		'.github/dependabot.yml',
 		'.github/labels.yml',
-		'.github/labeler.yml',
 		':(glob).github/ISSUE_TEMPLATE/*.yml',
 		':(glob).github/rulesets/*.json',
 		':(glob)lexicons/**/*.json'
@@ -91,7 +91,9 @@ export const writeInputs = async (scratch: string): Promise<string[]> => {
 		'harden.json': { harden },
 		// The commands CONTRIBUTING gives, for the policy that they cover what CI runs on a pull
 		// request (contributing.rego).
-		'contributing.json': { commands: shellLines(readFileSync('.github/CONTRIBUTING.md', 'utf8')) }
+		'contributing.json': { commands: shellLines(readFileSync('.github/CONTRIBUTING.md', 'utf8')) },
+		// The config pr-labels.yml gives actions/labeler, which the repository doesn't keep.
+		'labeler.json': JSON.parse(repoConfig())
 	};
 
 	for (const [name, value] of Object.entries(inputs)) {

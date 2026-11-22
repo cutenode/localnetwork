@@ -1,0 +1,10 @@
+# The CLI's code but the player's and the sidecar's. A feature's command is part of the cli and its
+# feature's area both, so this lists what it leaves out instead of leaving out every other area's.
+"locallibrary: cli":
+  - changed-files:
+      - all-globs-to-any-file:
+          - "apps/locallibrary/{src,tests}/**"
+          - "!apps/locallibrary/src/{tui,rpc}{.rs,/**}"
+      - any-glob-to-any-file:
+          - "apps/locallibrary/build.rs"
+          - "apps/locallibrary/docs/commands.md"

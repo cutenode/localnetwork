@@ -59,7 +59,7 @@ repo := [
 	{"path": "dist-workspace.toml", "contents": {"dist": {"targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"], "include": ["target/NOTICES.md"]}}},
 	{"path": ".cargo/config.toml", "contents": {"alias": {"notices": ["about", "generate", "--output-file", "target/NOTICES.md", "about.hbs"]}}},
 	{"path": "/scratch/Cargo.lock.toml", "contents": {"package": [{"name": "sha2"}, {"name": "tool"}]}},
-	{"path": "crates/loclib-x/Cargo.toml", "contents": {"package": object.union({"name": "loclib-x", "readme": "README.md"}, package_fields), "lints": {"workspace": true}}},
+	{"path": "crates/loclib-x/Cargo.toml", "contents": {"package": object.union({"name": "loclib-x", "readme": "README.md", "metadata": {"localnetwork": {"labels": ["tool: core"]}}}, package_fields), "lints": {"workspace": true}}},
 	{"path": "plugins/p/Cargo.toml", "contents": {"package": object.union({"name": "locallibrary-plugin-p", "publish": false}, package_fields), "lints": {"workspace": true}}},
 	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}}, "lints": {"workspace": true}}},
 	{"path": "lefthook.yml", "contents": {
@@ -107,7 +107,7 @@ repo := [
 	{"path": ".github/labels.yml", "contents": {"name": "tool"}},
 	{"path": ".github/labels.yml", "contents": {"name": "docs"}},
 	{"path": ".github/labels.yml", "contents": {"name": "tool: core"}},
-	{"path": ".github/labeler.yml", "contents": {
+	{"path": "/scratch/labeler.json", "contents": {
 		"site": [{"changed-files": [{"any-glob-to-any-file": ["apps/site/**"]}]}],
 		"tool": [{"changed-files": [{"any-glob-to-any-file": "apps/tool/**"}]}],
 		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-all-files": "docs/**/*.txt"}]}],

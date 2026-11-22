@@ -1,0 +1,8 @@
+"locallibrary: mixes":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/locallibrary/src/mix/**"
+          - "apps/locallibrary/src/mix_cmd.rs"
+          - "apps/locallibrary/src/mix_cmd/**"
+          - "apps/locallibrary/src/tui/mix.rs"
+          - "apps/locallibrary/src/tui/mix/**"

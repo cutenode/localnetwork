@@ -1,0 +1,5 @@
+"localtoolbox: artists":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/src/tools/artists/**"
+          - "apps/localtoolbox/test/**/artists.*"

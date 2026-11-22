@@ -182,7 +182,7 @@ Besides each check passing, a pull request has to stay within these:
 - Budgets: locallibrary's performance budgets and the website's sizes (the JavaScript every page loads, the largest page's own, and the CSS) are in [benchmarks/README.md](../benchmarks/README.md). Each holds a pull request to how much it grows the number over the commit it merges into, and a merge queue group to how much its pull requests grow it together, so main's growth never turns a pull request red and no pull request edits a committed number. To grow one on purpose, add a commit with a `Budget-Raise: <area>/<metric> +<amount>: <why>` trailer; the failure gives the exact line.
 - Flags: a release flag in `flags/` has a `removeBy` date, and the website's tests fail once it passes ([flags/README.md](../flags/README.md)). Remove the flag, or move the date in a pull request that says why.
 - Changelog: a locallibrary change people will notice adds its changelog line in `apps/locallibrary/changes/`, in a file named after the branch without `bnb/` ([changes/README.md](../apps/locallibrary/changes/README.md)). No check sees it, so the template asks.
-- Labels: `pnpm policy` fails a file that no rule in [labeler.yml](labeler.yml) labels, and a code file with no area label. A new folder needs a rule there.
+- Labels: `pnpm policy` fails a file that no label's rule labels, a code file with no area label, and a crate that names a label `labels.yml` doesn't have. A new crate or plugin names its area in its `Cargo.toml`; any other new folder needs a rule in its label's file in [labeler/](labeler/).
 
 ## Slow suites
 
@@ -240,7 +240,7 @@ The tooling already does some of this: localtoolbox's tests run shuffled and rep
 - A pull request merges once "CI passed" and "PR issue passed" pass and a code owner ([CODEOWNERS](CODEOWNERS)) has approved its last push. Every push dismisses the approvals, so push the fixes from a review together. Pull requests merge with a merge commit; squash and rebase merges are off.
 - Bring changes in by merging, never by rebasing or force-pushing, which throw away the reviews and CI results the pull request has.
 
-Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`, `atstore`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `ci`, `tooling`, `security`, `performance`, `accessibility` and `dependencies`. `tests` and `documentation` go on a pull request that changes only tests or only docs. [CODEOWNERS](CODEOWNERS) names one owner for the whole repository, who reviews every pull request.
+Labels are added automatically from the files a pull request changes (one file per label in [labeler/](labeler/), and the labels each crate and plugin names in its `Cargo.toml`): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`, `atstore`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `ci`, `tooling`, `security`, `performance`, `accessibility` and `dependencies`. `tests` and `documentation` go on a pull request that changes only tests or only docs. `pr-labels.yml` builds that config from the base branch, so a pull request's new label file or crate `labels` take effect after it merges. A stacked pull request's base is the branch below it. [CODEOWNERS](CODEOWNERS) names one owner for the whole repository, who reviews every pull request.
 
 ### Stacked pull requests
 

@@ -10,6 +10,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: player"]
+
 [dependencies]
 loclib-model.workspace = true
 image = { workspace = true, optional = true }

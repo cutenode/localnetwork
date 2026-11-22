@@ -1,0 +1,14 @@
+# The extension's code and tests no tool or the content script claims, and the files below.
+"localtoolbox: core":
+  - changed-files:
+      - unclaimed-files-in:
+          - "apps/localtoolbox/src/**"
+          - "apps/localtoolbox/test/**"
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/state-transfer.ts"
+          - "apps/localtoolbox/gate-page.ts"
+          - "apps/localtoolbox/theme-prepaint.ts"
+          - "apps/localtoolbox/docs/**"
+          - "apps/localtoolbox/scripts/**"
+          - "apps/localtoolbox/icons/**"
+          - "apps/localtoolbox/test/lib/**"

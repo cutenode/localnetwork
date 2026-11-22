@@ -1,10 +1,13 @@
 name: PR labels
 
-# Labels every pull request with the tools, areas and kinds of file it changes
-# (.github/labeler.yml). pull_request_target runs this workflow and the config as they are on main,
-# and never checks out or runs the pull request's code. It also runs when the pull request
-# conflicts with main, where pull_request workflows don't, and gives a fork's pull request a token
-# that can label it. `reopened` labels a pull request that was closed before it got its labels.
+# Labels every pull request with the tools, areas and kinds of file it changes, from a config built
+# out of .github/labeler/ and the crates' manifests (tools/labeler/labeler.ts). pull_request_target
+# runs this workflow, and the checkout below, as they are on the base branch (main, or the branch
+# below a stacked pull request): it never checks out or runs the pull request's code, so the pull
+# request's own label files and crate `labels` count once it merges. It also runs when the pull
+# request conflicts with its base, where pull_request workflows don't, and gives a fork's pull
+# request a token that can label it. `reopened` labels a pull request that was closed before it got
+# its labels.
 on:
   pull_request_target: # zizmor: ignore[dangerous-triggers]
     types: [opened, synchronize, reopened]
@@ -29,4 +32,21 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # The base branch's files: pull_request_target's default ref is its latest commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No cache, which this run could fill for main's, and no install: the build needs only Node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      # `cargo metadata --no-deps` reads the crates' manifests without building or downloading
+      # anything, with the runner's own Rust instead of installing rust-toolchain.toml's.
+      - name: Build the labeler config
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: node tools/labeler/cli.ts "$RUNNER_TEMP/labeler.json"
       - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          configuration-path: ${{ runner.temp }}/labeler.json

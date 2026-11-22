@@ -1,0 +1,8 @@
+"locallibrary: analysis":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/locallibrary/src/sound.rs"
+          - "crates/locallibrary/src/sound/**"
+          - "apps/locallibrary/src/analysis_cmd.rs"
+          - "crates/loclib-waveform/src/analyzer.rs"
+          - "crates/loclib-waveform/src/analyzer/**"

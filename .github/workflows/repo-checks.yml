@@ -52,6 +52,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || inputs.policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The labeler config the policies and tools tests read runs `cargo metadata --no-deps`
+    # (tools/labeler/labeler.ts), which only reads the manifests: the runner's own Rust does that,
+    # instead of installing rust-toolchain.toml's.
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       # With the base the merge commit sits on, for the patch coverage.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

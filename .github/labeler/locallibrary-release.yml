@@ -1,0 +1,11 @@
+"locallibrary: release":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "dist-workspace.toml"
+          - "about.toml"
+          - "about.hbs"
+          - ".github/workflows/locallibrary-release.yml"
+          - "apps/locallibrary/CHANGELOG.md"
+          - "crates/locallibrary/src/upgrade.rs"
+          - "crates/locallibrary/src/upgrade/**"
+          - "apps/locallibrary/src/upgrade_cmd.rs"

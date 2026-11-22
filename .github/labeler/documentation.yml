@@ -1,0 +1,7 @@
+# Only when every file a pull request changes is one.
+"documentation":
+  - changed-files:
+      - any-glob-to-all-files:
+          - "**/*.{md,mdx}"
+          - "apps/*/docs/**"
+          - "LICENSE"

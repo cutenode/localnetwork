@@ -40,6 +40,7 @@ describe('writeInputs', () => {
 			'Cargo.lock.toml',
 			'contributing.json',
 			'harden.json',
+			'labeler.json',
 			'railway-project.json',
 			'reads.json',
 			'tracked-files.json'
@@ -70,6 +71,14 @@ describe('writeInputs', () => {
 
 	it("lists CONTRIBUTING's commands", () => {
 		expect(JSON.parse(read('contributing.json')).commands).toContainEqual(expect.stringMatching(/^pnpm verify:repo /));
+	});
+
+	it('builds the labeler config from .github/labeler/ and the crates', () => {
+		const labeler = JSON.parse(read('labeler.json'));
+		expect(Object.keys(labeler)).toEqual(expect.arrayContaining(['web', 'web: ui', 'locallibrary: transcode']));
+		expect(labeler['locallibrary: transcode']).toEqual([
+			{ 'changed-files': [{ 'any-glob-to-any-file': ['crates/loclib-transcode/**'] }] }
+		]);
 	});
 
 	it("keeps harden's report for each package manager", () => {

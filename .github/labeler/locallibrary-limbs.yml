@@ -1,0 +1,7 @@
+"locallibrary: limbs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/locallibrary/src/peers.rs"
+          - "crates/locallibrary/src/peers/**"
+          - "crates/locallibrary/src/fleet.rs"
+          - "crates/locallibrary/src/fleet/**"

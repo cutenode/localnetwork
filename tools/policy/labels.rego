@@ -6,17 +6,33 @@ import data.lib
 
 label_names contains l.name if some l in lib.items(".github/labels.yml")
 
-labeler := lib.file(".github/labeler.yml")
+labeler := lib.labeler
+
+# The area labels each crate and plugin names in its Cargo.toml, as [path, label].
+manifest_labels contains [path, name] if {
+	some path in lib.manifests
+	some name in lib.file(path).package.metadata.localnetwork.labels
+}
+
+manifest_label_names contains name if some [_, name] in manifest_labels
+
+deny contains msg if {
+	some [path, name] in manifest_labels
+	not name in label_names
+	msg := sprintf("%s: %q isn't in .github/labels.yml", [path, name])
+}
 
 # How the issue forms' "Which tool?" dropdowns name each app.
 display("web") := "Local Network (the website)"
 
 display(app) := app if app != "web"
 
+# A label a manifest names is reported against the manifest, above.
 deny contains msg if {
 	some name, _ in labeler
 	not name in label_names
-	msg := sprintf(".github/labeler.yml: %q isn't in .github/labels.yml", [name])
+	not name in manifest_label_names
+	msg := sprintf(".github/labeler/: %q isn't in .github/labels.yml", [name])
 }
 
 deny contains msg if {
@@ -29,7 +45,7 @@ deny contains msg if {
 	some app in lib.apps
 	some manifest in lib.paths(sprintf("apps/%s/*", [app]))
 	not applies(app, manifest)
-	msg := sprintf(".github/labeler.yml: the %q label should match %s", [app, manifest])
+	msg := sprintf(".github/labeler/: the %q label should match %s", [app, manifest])
 }
 
 deny contains msg if {
@@ -57,7 +73,7 @@ deny contains msg if {
 deny contains msg if {
 	some path in lib.tracked_files
 	not labeled(path)
-	msg := sprintf("%s: no label in .github/labeler.yml matches it", [path])
+	msg := sprintf("%s: no label in .github/labeler/ matches it", [path])
 }
 
 labeled(path) if {
@@ -72,7 +88,7 @@ deny contains msg if {
 	some name in label_names
 	area(name)
 	not labeler[name]
-	msg := sprintf(".github/labeler.yml: add a rule for the %q label", [name])
+	msg := sprintf(".github/labeler/: add a file for the %q label", [name])
 }
 
 # Every code file gets an area, so a pull request says which part of a tool it changes. The
@@ -87,7 +103,7 @@ deny contains msg if {
 	startswith(path, folder)
 	not arealess_file(path)
 	not in_area(path)
-	msg := sprintf("%s: no area label in .github/labeler.yml matches it", [path])
+	msg := sprintf("%s: no area label in .github/labeler/ matches it", [path])
 }
 
 arealess_file(path) if {

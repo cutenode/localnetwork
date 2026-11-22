@@ -10,6 +10,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: plugins"]
+
 [dependencies]
 httpdate = "1.0.3"
 indexmap.workspace = true

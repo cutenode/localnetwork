@@ -8,6 +8,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: publishing"]
+
 [dependencies]
 loclib-model.workspace = true
 loclib-plugin.workspace = true
