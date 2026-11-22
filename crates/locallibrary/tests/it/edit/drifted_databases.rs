@@ -5,7 +5,8 @@ use crate::common;
 
 use std::path::{Path, PathBuf};
 
-use locallibrary::edit::{Edit, TrackFields};
+use locallibrary::edit::Edit;
+use locallibrary::model::TrackFields;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, paths, pdb};
 

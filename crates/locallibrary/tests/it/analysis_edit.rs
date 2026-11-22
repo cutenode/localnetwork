@@ -15,8 +15,9 @@ use locallibrary::anlz::{
     self, Bands, Beat, CueFile, CuePoint, Mood, Phrase, PhraseKind, SongStructure, WaveformStyle,
 };
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, EditPlan, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions, EditPlan};
 use locallibrary::model::Track;
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::sound::{Plausible, TempoFinding, TempoRelation};

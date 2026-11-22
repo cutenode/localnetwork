@@ -519,7 +519,8 @@ fn xml_marks(text: &str) -> Marks {
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
     use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
-    use locallibrary::edit::{Edit, TrackFields};
+    use locallibrary::edit::Edit;
+    use locallibrary::model::TrackFields;
     use locallibrary::query::TrackSelector;
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");

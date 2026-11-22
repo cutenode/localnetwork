@@ -179,7 +179,7 @@ fn prop_tempo_fixes_follow_each_findings_track(tc: TestCase) {
             };
             let bpm = Edit::EditTracks {
                 tracks: locallibrary::query::TrackSelector::paths([off]),
-                fields: locallibrary::edit::TrackFields { bpm: Some(180.0), ..Default::default() },
+                fields: locallibrary::model::TrackFields { bpm: Some(180.0), ..Default::default() },
             };
             let d = Device::open_export(&root).unwrap();
             let p = edit::plan(&d, &[set, grid, bpm], &EditOptions::default(), &Ctx::silent()).unwrap();

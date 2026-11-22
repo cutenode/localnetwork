@@ -8,6 +8,10 @@ use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfkc_quick};
 
 use crate::tokens::{Rgb, track_colors};
 
+mod track_edit;
+
+pub use track_edit::{AudioFile, TrackFields};
+
 /// A rekordbox library as seen on a device export.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -154,6 +158,37 @@ impl TrackColor {
     /// rekordbox's number for it, 1 (pink) to 8 (purple).
     pub fn id(self) -> u8 {
         self as u8 + 1
+    }
+
+    /// A colour by name (`aqua`, `cyan`...), or none (`none`, `no`, `-`); `None` for a word that's
+    /// neither. Letter case doesn't matter.
+    pub fn named(s: &str) -> Option<Option<Self>> {
+        Some(match s.to_ascii_lowercase().as_str() {
+            "none" | "no" | "-" => None,
+            "pink" => Some(Self::Pink),
+            "red" => Some(Self::Red),
+            "orange" => Some(Self::Orange),
+            "yellow" => Some(Self::Yellow),
+            "green" => Some(Self::Green),
+            "aqua" | "cyan" => Some(Self::Aqua),
+            "blue" => Some(Self::Blue),
+            "purple" | "violet" => Some(Self::Purple),
+            _ => return None,
+        })
+    }
+
+    /// A colour by name ([`TrackColor::named`]) or rekordbox's number (1-8, 0 for none), or why `s`
+    /// is neither.
+    pub fn parse(s: &str) -> Result<Option<Self>, String> {
+        if let Ok(n) = s.trim().parse::<u8>() {
+            return match n {
+                0 => Ok(None),
+                n => Self::from_id(n).map(Some).ok_or_else(|| format!("no colour number {n}")),
+            };
+        }
+        Self::named(s).ok_or_else(|| {
+            format!("unknown colour {s:?} (pink, red, orange, yellow, green, aqua, blue, purple or none)")
+        })
     }
 
     /// Roughly how rekordbox's players show it.
@@ -526,6 +561,19 @@ pub fn pick<S: AsRef<str>, T>(items: impl IntoIterator<Item = (S, T)>, query: &s
     }
     let one_path = loose.iter().all(|(p, _)| p.as_ref() == loose[0].0.as_ref());
     if one_path { loose.into_iter().next().map(|(_, x)| x) } else { None }
+}
+
+/// A date (prefix) as a sortable number: `2026-09-30` -> 20260930, `2026-09` -> 20260901 (with
+/// `end`, the last day it can mean: `2026-09` -> 20260931, `2026` -> 20261231). `None` for
+/// anything else.
+pub fn date_value(s: &str, end: bool) -> Option<f64> {
+    let parts: Vec<&str> = s.trim().split(['-', '/']).collect();
+    let y: u32 = parts.first()?.parse().ok()?;
+    let m: u32 = parts.get(1).map_or(Some(if end { 12 } else { 1 }), |m| m.parse().ok())?;
+    let d: u32 = parts.get(2).map_or(Some(if end { 31 } else { 1 }), |d| d.parse().ok())?;
+    (parts.len() <= 3 && (1000..=9999).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d))
+        // Lazily: out-of-range parts (`999999`) would overflow before the checks reject them.
+        .then(|| (y * 10_000 + m * 100 + d) as f64)
 }
 
 /// Lower-case, NFKC, whitespace-collapsed form for fuzzy comparisons.

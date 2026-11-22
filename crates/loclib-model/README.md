@@ -5,19 +5,21 @@ exports, Camelot keys and mix costs, and a track's analysis (beat grid, cues, wa
 phrases). It was split out of [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), which
 reads and writes these from rekordbox USB exports, so the fields follow what rekordbox keeps.
 
-- `model`: `Library`, `Track`, `Playlist` and `TrackColor`, finding playlists by path, searching
-  tracks, the part of a library an export of some playlists writes, numbering tracks only
-  OneLibrary has for files (`ONELIBRARY_ONLY`), `LibraryDiff` between two exports of one library,
-  `untangle` for a playlist tree read from a damaged file, `artist_credits`, the artists a
-  credit names, one by one (as a published set lists them), and `isrc`, a tag as an ISRC.
+- `model`: `Library`, `Track`, `Playlist` and `TrackColor` (by name or rekordbox's number),
+  `TrackFields`, the new details an edit gives tracks, and `AudioFile`, finding playlists by path,
+  searching tracks, dates as sortable numbers (`date_value`), the part of a library an export of
+  some playlists writes, numbering tracks only OneLibrary has for files (`ONELIBRARY_ONLY`),
+  `LibraryDiff` between two exports of one library, `untangle` for a playlist tree read from a
+  damaged file, `artist_credits`, the artists a credit names, one by one (as a published set lists
+  them), and `isrc`, a tag as an ISRC.
 - `diff`: `PlaylistDiff`, how the playlists of two libraries differ entry by entry (added,
   removed and moved), for the whole tree or one playlist or folder.
 - `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and
   parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).
 - `analysis`: `TrackAnalysis` and its parts, and rekordbox's hot cue palette.
-- `audio`: the audio format a file's extension names (`audio::Format`), and which extensions DJ
-  players list.
+- `audio`: the audio format a file's extension names (`audio::Format`), which extensions DJ
+  players list, and the code rekordbox's databases give each (`file_type_code`).
 - `finding`: `Finding`, one thing a check found about a library (its `Level`, the tracks,
   playlist and files it's about), as locallibrary's checks and plugins' report them.
 - `paths`: the normalised path keys tracks are matched by, finding them below a folder, names

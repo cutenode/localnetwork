@@ -3,8 +3,8 @@ use hegel::generators::{self as gs, Generator};
 
 use super::*;
 use crate::Error;
-use crate::edit::TrackFields;
 use crate::harmony::Camelot;
+use crate::model::TrackFields;
 
 /// A cue as a file might have it: a hot cue (`A` to `H`, or a slot that isn't one) or a memory
 /// cue, somewhere in its first ten seconds, so some are near each other.

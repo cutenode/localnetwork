@@ -18,3 +18,6 @@ indexmap.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+loclib-model.workspace = true

@@ -108,3 +108,5 @@ so they can be offered upstream.
     they add, which made adding a library's tracks quadratic. New rows get the same ids as before.
     `PdbEditor::next_artwork_id` says which id `add_artwork` gives next, for naming its image
     without parsing the whole database again.
+27. `file_type_code` (22) moved to loclib-model's `audio`, which keeps rekordbox's one table of
+    format codes for OneLibrary too; the editor takes it from there.

@@ -8,8 +8,8 @@ use indexmap::{IndexMap, IndexSet};
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::edit::TrackFields;
 use locallibrary::model::TrackColor;
+use locallibrary::model::TrackFields;
 use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
 use locallibrary::{Error, Track, paths};
 

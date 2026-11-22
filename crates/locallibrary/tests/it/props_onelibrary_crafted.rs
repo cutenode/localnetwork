@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use locallibrary::edit::{AudioFile, TrackFields};
+use locallibrary::model::{AudioFile, TrackFields};
 use locallibrary::onelibrary::cipher::{self, PAGE_SIZE};
 use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
 use rusqlite::types::Value;

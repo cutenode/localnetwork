@@ -120,7 +120,7 @@ fn prop_a_track_is_pointed_only_at_a_path_its_export_pdb_row_holds(tc: TestCase)
     let t = common::library(&root).tracks[0].clone();
     let titled = |n: usize| Edit::EditTracks {
         tracks: TrackSelector::paths([t.file_path.clone()]),
-        fields: edit::TrackFields { title: Some("x".repeat(n)), ..Default::default() },
+        fields: locallibrary::model::TrackFields { title: Some("x".repeat(n)), ..Default::default() },
     };
     let mut d = Device::open_export(&root).unwrap();
     let planned = |n: usize| edit::plan(&d, &[titled(n)], &EditOptions::default(), &Ctx::silent());

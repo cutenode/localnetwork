@@ -745,26 +745,41 @@ export type TrackSelector = {
  * artist, album, genre, label, key and the like (an empty ISRC or release date clears it too).
  */
 export type TrackFields = {
+  /** The title. */
   title?: string | null;
+  /** The artist, as one credit (`A feat. B`). */
   artist?: string | null;
+  /** The album's title. */
   album?: string | null;
   /** The databases keep it with the album, so a track needs one (given here too, or its own). */
   album_artist?: string | null;
+  /** The genre. */
   genre?: string | null;
+  /** The record label. */
   label?: string | null;
+  /** The key, in any notation rekordbox shows. */
   key?: string | null;
+  /** The remixer. */
   remixer?: string | null;
+  /** The original's artist, for a remix or a cover. */
   original_artist?: string | null;
+  /** The composer. */
   composer?: string | null;
+  /** The comment tag. */
   comment?: string | null;
+  /** The mix's name (`Extended Mix`). */
   mix_name?: string | null;
   /** 0-5 stars. */
   rating?: number | null;
   /** A colour name (`aqua`), rekordbox's number (1-8), or `none`. */
   color?: string | null;
+  /** The release year. */
   year?: number | null;
+  /** How many times it's been played. */
   play_count?: number | null;
+  /** Its number on its album. */
   track_number?: number | null;
+  /** Its album's disc number. */
   disc_number?: number | null;
   /**
    * 1-999.99, kept to hundredths as rekordbox keeps it. The beat grid in the analysis files,
@@ -779,8 +794,11 @@ export type TrackFields = {
 
 /** What a track's rows say about its audio file, for a track pointed at another encoding. */
 export type AudioFile = {
+  /** Size in bytes. */
   size: number;
+  /** Sample rate, in Hz. */
   sample_rate: number;
+  /** Bits per sample. */
   bit_depth: number;
   /** kbps. */
   bitrate: number;

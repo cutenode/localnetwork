@@ -7630,19 +7630,22 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The title."
         },
         "artist": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The artist, as one credit (`A feat. B`)."
         },
         "album": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The album's title."
         },
         "album_artist": {
           "type": [
@@ -7655,49 +7658,57 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The genre."
         },
         "label": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The record label."
         },
         "key": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The key, in any notation rekordbox shows."
         },
         "remixer": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The remixer."
         },
         "original_artist": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The original's artist, for a remix or a cover."
         },
         "composer": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The composer."
         },
         "comment": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The comment tag."
         },
         "mix_name": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The mix's name (`Extended Mix`)."
         },
         "rating": {
           "type": [
@@ -7723,7 +7734,8 @@
           ],
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "The release year."
         },
         "play_count": {
           "type": [
@@ -7732,7 +7744,8 @@
           ],
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "How many times it's been played."
         },
         "track_number": {
           "type": [
@@ -7740,7 +7753,8 @@
             "null"
           ],
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Its number on its album."
         },
         "disc_number": {
           "type": [
@@ -7749,7 +7763,8 @@
           ],
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "Its album's disc number."
         },
         "bpm": {
           "type": [
@@ -7782,18 +7797,21 @@
         "size": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Size in bytes."
         },
         "sample_rate": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Sample rate, in Hz."
         },
         "bit_depth": {
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "Bits per sample."
         },
         "bitrate": {
           "type": "integer",

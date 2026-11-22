@@ -936,7 +936,7 @@ fn prop_built_libraries_read_back(tc: TestCase) {
                 let id = tc.draw(gs::sampled_from(ids));
                 made += 1;
                 let path = format!("/Contents/moved/{made}.{}", tc.draw(gs::sampled_from(vec!["flac", "m4a", "wav"])));
-                let file = tc.draw(gs::booleans()).then(|| locallibrary::edit::AudioFile {
+                let file = tc.draw(gs::booleans()).then(|| locallibrary::model::AudioFile {
                     size: tc.draw(gs::integers::<u64>().max_value(1 << 40)),
                     sample_rate: tc.draw(gs::sampled_from(vec![44_100u32, 96_000])),
                     bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),

@@ -762,7 +762,8 @@ fn prop_a_pick_that_isnt_one_is_refused_or_left_out_case(tc: &TestCase, case: u8
 #[hegel::test(test_cases = 1)]
 fn prop_a_track_with_every_text_tag_lacks_only_a_year(tc: TestCase) {
     use locallibrary::api::{EditRequest, edit_plan};
-    use locallibrary::edit::{Edit, EditOptions, TrackFields};
+    use locallibrary::edit::{Edit, EditOptions};
+    use locallibrary::model::TrackFields;
     let f = Fixture::providers(&["echo"]);
     let year = tc.draw(gs::integers::<u16>().min_value(1950).max_value(2025));
     let tagged = |track: u32, year: u16| Edit::EditTracks {

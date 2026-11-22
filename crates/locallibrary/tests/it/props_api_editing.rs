@@ -17,8 +17,9 @@ use locallibrary::api::{
 };
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::error::Reason;
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter, QueryContext, TrackSelector};
 use locallibrary::{Library, Store, Track, paths};

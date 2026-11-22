@@ -208,7 +208,7 @@ fn empty_database() -> Vec<u8> {
 
 /// rekordbox's file type code (`content.fileType`): export.pdb's table.
 pub(crate) fn file_type(path: &str) -> i64 {
-    rekordbox_pdb::file_type_code(path).into()
+    loclib_model::audio::file_type_code(path).into()
 }
 
 /// An integer as SQLite's `=` matches one: an integer, or a real of that value (text never is).

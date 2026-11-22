@@ -22,8 +22,7 @@
 
 use chrono::{Months, NaiveDate};
 
-use crate::model::{Track, TrackColor, normalize};
-use crate::query::date_value;
+use crate::model::{Track, TrackColor, date_value, normalize};
 
 /// An intelligent playlist's rules.
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +124,7 @@ pub enum DateField {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DateOp {
-    /// Dates as `YYYYMMDD` numbers, as `query::date_value` makes them.
+    /// Dates as `YYYYMMDD` numbers, as `loclib_model::model::date_value` makes them.
     Compare(Compare<f64>),
     /// Within the last `n` days, weeks, months or years (or not).
     InLast { n: u32, unit: Unit, within: bool },

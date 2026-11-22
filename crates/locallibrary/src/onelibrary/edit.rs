@@ -3,7 +3,7 @@
 use rusqlite::{OptionalExtension, params};
 
 use super::{CueRow, Lookup, OneLibrary, id32, int};
-use crate::edit::{AudioFile, TrackFields};
+use crate::model::{AudioFile, TrackFields};
 use crate::{Error, Result};
 
 /// The playlist-shaped trees edits can change.
@@ -128,7 +128,7 @@ impl OneLibrary {
     /// name (an empty name clears the field); rows the tracks used before and nothing uses any
     /// more are removed.
     pub fn set_track_fields(&mut self, ids: &[u32], f: &TrackFields) -> Result<()> {
-        let color = f.color_value()?;
+        let color = f.color_value().map_err(Error::Invalid)?;
         let mut candidates: Vec<(Lookup, i64)> = Vec::new();
         for &id in ids {
             let old: Option<[i64; 9]> = self

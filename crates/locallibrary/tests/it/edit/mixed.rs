@@ -7,7 +7,8 @@ use std::path::Path;
 
 use locallibrary::cue_edit::{self, CueChange, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions};
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::tags::{self, TagChange};

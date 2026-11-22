@@ -39,7 +39,7 @@ fn reads_rows() {
 #[test]
 fn pointing_at_another_file_moves_cues_and_clears_seeks() {
     let (mut one, t) = library_with_cues();
-    let file = crate::edit::AudioFile { size: 9_000_000, sample_rate: 48_000, bit_depth: 24, bitrate: 2304 };
+    let file = crate::model::AudioFile { size: 9_000_000, sample_rate: 48_000, bit_depth: 24, bitrate: 2304 };
     one.set_track_path(t, "/Contents/A/B.aiff", Some(&file), 0).unwrap();
     let row: (String, i64, i64, i64, i64, i64) = one
         .conn

@@ -3,8 +3,9 @@
 
 use locallibrary::api::DriveRef;
 use locallibrary::cue_edit::{self, CueChange, CueRef};
-use locallibrary::edit::{Edit, TrackFields};
+use locallibrary::edit::Edit;
 use locallibrary::harmony::Camelot;
+use locallibrary::model::TrackFields;
 use locallibrary::op::Planned;
 use locallibrary::plugin::PluginImport;
 use locallibrary::query::TrackSelector;

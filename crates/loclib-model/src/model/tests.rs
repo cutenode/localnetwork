@@ -1084,3 +1084,13 @@ fn tags_normalise_to_one_form() {
     assert_eq!(normalize("\u{FB01}ve  Caf\u{E9}"), "five caf\u{E9}");
     assert_eq!(normalize("   "), "");
 }
+
+#[test]
+fn dates_read_as_sortable_numbers() {
+    assert_eq!(date_value(" 2026-09-30 ", false), Some(20_260_930.0));
+    assert_eq!(date_value("2026/09", false), Some(20_260_901.0));
+    assert_eq!((date_value("2026-09", true), date_value("2026", true)), (Some(20_260_931.0), Some(20_261_231.0)));
+    for bad in ["", "999999", "2026-13", "2026-01-32", "2026-01-01-01", "next week"] {
+        assert_eq!(date_value(bad, false), None, "{bad}");
+    }
+}

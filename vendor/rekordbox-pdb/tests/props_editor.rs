@@ -8,7 +8,8 @@ use hegel::generators as gs;
 use hegel::TestCase;
 use indexmap::IndexMap;
 use rekordbox_pdb::pdb::TRACK_STRING_NAMES;
-use rekordbox_pdb::{file_type_code, Database, NewTrack, PdbEditor, PdbError, TableType};
+use loclib_model::audio::file_type_code;
+use rekordbox_pdb::{Database, NewTrack, PdbEditor, PdbError, TableType};
 
 const FIXTURES: [&str; 2] = [
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/one-song-export.pdb"),

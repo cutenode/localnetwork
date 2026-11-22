@@ -122,7 +122,7 @@ fn echos_check_finds_tracks_without_a_title() {
     let first = common::library(&f.drive).tracks[0].id;
     let edits = vec![Edit::EditTracks {
         tracks: locallibrary::query::TrackSelector { ids: vec![first], ..Default::default() },
-        fields: locallibrary::edit::TrackFields { title: Some(String::new()), ..Default::default() },
+        fields: locallibrary::model::TrackFields { title: Some(String::new()), ..Default::default() },
     }];
     let req = EditRequest { drive: "USB".into(), edits, options: EditOptions::default() };
     api::edit_plan(&req, &Ctx::silent()).unwrap().apply(None, &Ctx::silent()).unwrap();

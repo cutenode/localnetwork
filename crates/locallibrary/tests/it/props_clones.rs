@@ -13,7 +13,8 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::compare::Side;
 use locallibrary::device::Device;
-use locallibrary::edit::{Edit, EditOptions, TrackFields};
+use locallibrary::edit::{Edit, EditOptions};
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 

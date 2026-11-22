@@ -2,10 +2,11 @@
 //! analyzer's key and BPM written to the tracks as an edit plan.
 
 use locallibrary::api::DriveRef;
-use locallibrary::edit::{Edit, TrackFields};
+use locallibrary::edit::Edit;
 use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{FieldValue, Role};
 use locallibrary::harmony::Camelot;
+use locallibrary::model::TrackFields;
 use locallibrary::paths;
 use locallibrary::plugin::ApplyFields;
 use locallibrary::query::TrackSelector;

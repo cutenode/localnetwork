@@ -3,25 +3,9 @@
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
 use rekordbox_pdb::pdb::TRACK_STRING_NAMES;
-use rekordbox_pdb::{Database, ExtDatabase, ExtEditor, NewTrack, PdbEditor, PdbError, file_type_code};
+use rekordbox_pdb::{Database, ExtDatabase, ExtEditor, NewTrack, PdbEditor, PdbError};
 
 const ONE_SONG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/one-song-export.pdb");
-
-/// A file's format code comes from its last extension in any case, and is 0 for an extension
-/// rekordbox doesn't list or a name without one.
-#[hegel::test(test_cases = 300)]
-fn prop_file_type_codes_follow_the_last_extension(tc: TestCase) {
-    let codes = [("mp3", 1), ("m4a", 4), ("mp4", 4), ("aac", 4), ("flac", 5), ("wav", 0x0b), ("aiff", 0x0c), ("aif", 0x0c)];
-    let (ext, code) = tc.draw(gs::sampled_from(codes.to_vec()));
-    let upper: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(ext.len()).max_size(ext.len()));
-    let spelled: String =
-        ext.chars().zip(upper).map(|(c, u)| if u { c.to_ascii_uppercase() } else { c }).collect();
-    let stem = tc.draw(gs::text().max_size(12));
-    assert_eq!(file_type_code(&format!("{stem}.{spelled}")), code);
-    assert_eq!(file_type_code(&format!("{stem}.{spelled}.part")), 0);
-    let bare = tc.draw(gs::text().max_size(12).filter(|s: &String| !s.contains('.')));
-    assert_eq!(file_type_code(&bare), 0);
-}
 
 /// A track added with any text in its string fields reads back through the named accessors
 /// (and the same strings by position), and setting one string by name changes only that one.

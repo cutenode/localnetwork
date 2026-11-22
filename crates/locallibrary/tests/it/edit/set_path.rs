@@ -9,7 +9,8 @@ use std::path::Path;
 
 use locallibrary::backup;
 use locallibrary::device::Device;
-use locallibrary::edit::{self, AudioFile, Edit, EditOptions};
+use locallibrary::edit::{self, Edit, EditOptions};
+use locallibrary::model::AudioFile;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{anlz, paths, pdb};

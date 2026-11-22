@@ -7112,6 +7112,7 @@ version = "0.1.0+locallibrary.1"
 dependencies = [
  "hegeltest",
  "indexmap",
+ "loclib-model",
 ]
 
 [[package]]
