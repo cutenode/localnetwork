@@ -3,9 +3,10 @@ name: locallibrary scheduled
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
 # combination, formatting and ejecting disk images, Bombadil, mutation testing, fuzzing, the Hegel
-# property tests on fresh inputs and a release build of every target. A week that changed none of
-# what they test skips them (see the changes job). Also a weekly RustSec check, which catches
-# advisories published against Cargo.lock between pushes, so it runs every week.
+# property tests on fresh inputs, a release build of every target and a publish dry run of the
+# loclib crates. A week that changed none of what they test skips them (see the changes job). Also
+# a weekly RustSec check, which catches advisories published against Cargo.lock between pushes, so
+# it runs every week.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -558,11 +559,28 @@ jobs:
           merge-multiple: true
       - run: dist build --artifacts=global
 
+  # `cargo publish --dry-run` over every crate that isn't `publish = false` (`--workspace` skips
+  # those): each packaged and built from its .crate alone, as crates.io would get it. Pull requests
+  # that change a manifest only package them (`node tools/crates-io/cli.ts package` in
+  # locallibrary-ci.yml's lint job), since this builds them all. A version crates.io already has is a
+  # warning in a dry run, not a failure. None of the crates needs a system package to build.
+  publish-dry-run:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo publish --workspace --dry-run --locked
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
   # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
   report:
     needs:
-      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global]
+      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global, publish-dry-run]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read

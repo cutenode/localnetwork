@@ -117,6 +117,8 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - dist's release build of every target, unsigned and without a tag (see Releasing);
+- `cargo publish --workspace --dry-run`, which builds each loclib crate from its packaged files
+  alone (see Releasing crates);
 - every fuzz target, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
