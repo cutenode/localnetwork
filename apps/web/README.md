@@ -472,6 +472,8 @@ tests/e2e/                      Playwright
 .storybook/                     Storybook config; stories render with src/lib/ui/theme.css, and the homepage's with the layout's CSS
 ```
 
+The small components and modules several pages use go out as one shared file that every page loads (`SHARED` in [`vite.config.ts`](vite.config.ts)). A module in `src/lib` that only some pages load ends in `.page-only` before its extension (`FollowButton.page-only.svelte`, `bookings.page-only.ts`) and stays out of it, as do `src/lib/components/tools/` and `src/lib/components/edit/`.
+
 ## Known limitations
 
 - Oxfmt doesn't format `.svelte` files yet; it formats everything else.

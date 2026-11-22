@@ -90,12 +90,10 @@ const isShared = (id: string, ctx: Rolldown.ChunkingContext) => {
 	);
 };
 
-// Not the Tools pages' own components, the follow button, the mix player, the staff console's table, the booking rules
-// the dashboard's booking pages share, the suggestion lists only the place and handle fields use, or the drafts only
-// long forms keep: only those pages load them, and every page loads the shared file. Nor edit mode, which only people
-// who can edit a page use.
-const SHARED =
-	/[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|edit[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)/;
+// Every page loads the shared file, so it leaves out what only some pages load: a module named `*.page-only.*`
+// (FollowButton.page-only.svelte), the Tools pages' own components, and edit mode, which only people who can edit a
+// page use. A new page-only module needs only its name.
+export const SHARED = /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools|edit)[\\/]|.*\.page-only\.)/;
 
 export default defineConfig({
 	plugins: [
@@ -233,7 +231,7 @@ export default defineConfig({
 				test: {
 					name: 'server',
 					environment: 'node',
-					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts'],
+					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts', 'vite.config.test.ts'],
 					globalSetup: ['./src/lib/server/testing/pglite.setup.ts'],
 					exclude: ['src/**/*.svelte.{test,spec}.ts']
 				}
