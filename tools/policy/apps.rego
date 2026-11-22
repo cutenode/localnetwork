@@ -3,6 +3,7 @@
 package apps
 
 import data.lib
+import data.workflows
 
 # The scripts the root's `pnpm -r` scripts and the CI workflows call.
 scripts := {"dev", "build", "check", "lint", "format", "format:check", "test", "test:coverage", "verify"}
@@ -94,6 +95,39 @@ deny contains msg if {
 	some tool in hooks["pre-commit"]
 	contains(job.run, tool)
 	msg := sprintf("lefthook.yml: move pre-commit's %s job for %s into its group, before the whitespace check", [tool, dir])
+}
+
+# Each pre-push job runs on its app's paths in ci.yml's changes job (the filter named after its
+# folder), as lefthook matches them: its `*` crosses folders, so `tools/*.ts` takes in
+# `tools/**/*.ts`.
+deny contains msg if {
+	some f in workflows.paths_filters
+	f.path == ".github/workflows/ci.yml"
+	some dir in hooked
+	endswith(dir, sprintf("/%s/", [f.name]))
+	some job in hook_jobs("pre-push")
+	runs_in(job, dir)
+	some path in f.globs
+	not ci_only(path)
+	not pushed(job, path)
+	msg := sprintf("lefthook.yml: add %s to pre-push job %q's glob, as ci.yml's %s filter has it", [path, job.name, f.name])
+}
+
+# The paths only CI reads, and the ones a filter leaves out.
+ci_only(path) if startswith(path, "!")
+
+ci_only(path) if startswith(path, ".github/workflows/")
+
+ci_only(path) if startswith(path, ".github/actions/")
+
+ci_only("tools/coverage/patch.json")
+
+# A job with no glob runs on every push.
+pushed(job, _) if not job.glob
+
+pushed(job, path) if {
+	some pattern in lib.string_set(job.glob)
+	glob.match(pattern, ["\u0000"], path)
 }
 
 # The hooks run the committing worktree's lefthook, not the path of the one that installed them last.

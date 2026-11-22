@@ -115,8 +115,9 @@ pre-commit:
 
 # Each job runs only when the push changes the files it checks: its app's paths in ci.yml's changes
 # job, the shared ones included (the lockfile, `.node-version`, the lint and format configs), less
-# the workflows and actions only CI reads (lefthook's `*` matches across folders, where ci.yml's
-# needs `**`). The jobs cd into their folder instead of setting `root`, which would hide those
+# the files only CI reads: the workflows, the actions and tools/coverage/patch.json (lefthook's `*`
+# matches across folders, where ci.yml's needs `**`). tools/policy/apps.rego checks each glob has
+# its filter's paths. The jobs cd into their folder instead of setting `root`, which would hide those
 # shared files from the glob. atstore's tests run in CI only: its disk-image tests failed pushes and
 # hung them for hours.
 #

@@ -103,4 +103,34 @@ test_atstore_tests_left_to_ci if {
 	denied == {"lefthook.yml: add a pre-push job for packages/atstore/ that runs pnpm check"}
 }
 
+# ci.yml with a filter for apps/site/, and its pre-push job.
+site_filter := "site:\n  - 'apps/site/**'\n  - 'tools/**/*.ts'\n  - '.github/workflows/site-ci.yml'\n  - '.github/actions/size/**'\n  - 'tools/coverage/patch.json'\n  - '!**/*.md'\n"
+
+site_push := object.union(fixtures.file("lefthook.yml"), {"pre-push": {"jobs": [
+	{"name": "check site", "glob": ["apps/site/**", "tools/*.ts"], "run": "cd apps/site/ && pnpm check && pnpm test"},
+	{"root": "packages/kit/", "run": "pnpm check"}, {"root": "packages/kit/", "run": "pnpm test"},
+]}})
+
+test_pre_push_glob_has_the_filter if {
+	repo := fixtures.with_file(".github/workflows/ci.yml", fixtures.workflow("pull_request", "CI passed", site_filter))
+	count(apps.deny) == 0 with input as with_hooks(repo, site_push)
+}
+
+test_pre_push_glob_misses_a_path if {
+	filter := concat("", [site_filter, "  - 'docs/new.md'\n"])
+	repo := fixtures.with_file(".github/workflows/ci.yml", fixtures.workflow("pull_request", "CI passed", filter))
+	denied := apps.deny with input as with_hooks(repo, site_push)
+	denied == {"lefthook.yml: add docs/new.md to pre-push job \"check site\"'s glob, as ci.yml's site filter has it"}
+}
+
+test_pre_push_job_without_a_glob if {
+	everything := object.union(fixtures.file("lefthook.yml"), {"pre-push": {"jobs": [
+		{"name": "check site", "run": "cd apps/site/ && pnpm check && pnpm test"},
+		{"root": "packages/kit/", "run": "pnpm check"}, {"root": "packages/kit/", "run": "pnpm test"},
+	]}})
+	filter := concat("", [site_filter, "  - 'docs/new.md'\n"])
+	repo := fixtures.with_file(".github/workflows/ci.yml", fixtures.workflow("pull_request", "CI passed", filter))
+	count(apps.deny) == 0 with input as with_hooks(repo, everything)
+}
+
 with_hooks(repo, hooks) := array.concat([f | some f in repo; f.path != "lefthook.yml"], [{"path": "lefthook.yml", "contents": hooks}])
