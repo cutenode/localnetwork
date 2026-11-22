@@ -182,6 +182,14 @@ Besides each check passing, a pull request has to stay within these:
 
 Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`, `atstore`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `ci`, `tooling`, `security`, `performance`, `accessibility` and `dependencies`. `tests` and `documentation` go on a pull request that changes only tests or only docs. [CODEOWNERS](CODEOWNERS) names one owner for the whole repository, who reviews every pull request.
 
+### Stacked pull requests
+
+A change too big for one review can be a stack: pull requests that each build on the one below. CI runs on each of them, except CodeQL, which waits until one targets `main`.
+
+- Base each pull request on the branch below it.
+- Bring changes up the stack by merging each branch into the one above, not by rebasing or force-pushing.
+- When the bottom pull request merges, let GitHub retarget the next one to `main`, and don't delete the merged branch yourself, which closes the pull requests on top of it.
+
 ## Issues and planning
 
 Open issues here on GitHub, with the issue forms. Each one is synced both ways with the Localnetwork team (`LOC`) in [Linear](https://linear.app/localnetwork/team/LOC), where they're triaged and planned: title, description, status, assignee, labels, priority, sub-issues and comments, so an issue can be worked on from either side. Comments left in Linear outside the synced thread stay in Linear.
