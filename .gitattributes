@@ -12,3 +12,7 @@
 
 # Audio fixtures that can't be made in a test (crates/locallibrary/tests/fixtures/audio/).
 *.m4a binary
+
+# pnpm writes these, and their context lines keep the patched files' own whitespace. `git diff
+# --check` still reports conflict markers in them.
+patches/*.patch -whitespace

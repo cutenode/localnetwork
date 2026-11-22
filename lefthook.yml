@@ -102,6 +102,12 @@ pre-commit:
     - name: ast-grep
       glob: '*.{ts,mts,cts,rs,svelte}'
       run: pnpm exec ast-grep scan {staged_files}
+    # Every staged file, the ones no formatter parses too (YAML, workflows, Markdown): leftover
+    # conflict markers and whitespace errors, as `file:line: problem`. It runs beside the
+    # formatters, so whitespace one of them fixes still fails the commit; the fix is staged, and
+    # committing again passes.
+    - name: conflict markers and whitespace
+      run: git diff --cached --check
 
 # The jobs run one at a time. Side by side, the web and localtoolbox suites starve each other's
 # browser tests of CPU on a busy machine until they time out, and the push fails.
