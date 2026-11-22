@@ -989,8 +989,8 @@ fn prop_the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                         list: || Ok((Vec::new(), None)),
                         open: |_| anyhow::bail!("no outputs"),
                     };
-                    // (At the end of the queue, with nothing to go round to, n just stops.)
-                    let next = app.queue.pos + 1 < app.queue.order.len() || app.repeat != Repeat::Off;
+                    // (With nothing up next, no pick and nothing to go round to, n just stops.)
+                    let next = app.next_up(false).is_some();
                     let before = said(&app, "can't play: no outputs");
                     press(&mut app, "n");
                     output_opened(&mut app);

@@ -1547,6 +1547,38 @@ fn the_first_play_opens_the_output_without_holding_up_the_player() {
     assert_eq!(app.resumable().map(|(t, at)| (t.title.clone(), at)), Some(("Track 1".into(), ms(200))));
 }
 
+/// n at the end of the list, with a match picked to play next, plays the pick: with the output
+/// gone and none to open, it says it can't play, and the pick waits for space. Hegel's
+/// counterexample to the queue property, whose oracle counted only the list's tracks.
+#[test]
+fn n_at_the_lists_end_plays_the_pick() {
+    let (_dir, mut app, _out) = playing_files(&[(8000, 4000); 3]);
+    app.outputs = super::super::audio::tests::OUTPUTS;
+    let (library, root) = (app.queue.library.clone(), app.queue.root.clone());
+    app.play_tracks(library.clone(), vec![0, 1, 2], root.clone(), 2);
+    opened(&mut app);
+    // Full screen, the match (track 1) picked to play next.
+    let mix = Mix { index: 0, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
+    let matches = Matches { library, root, items: vec![mix] };
+    let playing = app.now.as_ref().unwrap().id;
+    app.handle_msg(Msg::TrackInfo(playing, Box::new(TrackInfo { matches: Some(matches), ..Default::default() })));
+    app.deck_layout = true;
+    press(&mut app, "\n");
+    assert_eq!(last_message(&app), "next: DJ - Track 1");
+    assert!(app.next_pos(false).is_none(), "the list has nothing after track 3");
+    assert!(matches!(app.next_up(false), Some(Next::Pick(..))), "the pick does");
+    // The output goes away, and none opens now.
+    app.audio.as_ref().unwrap().stream_failed("the device is gone", true);
+    app.tick();
+    assert!(app.audio.is_none(), "let go of");
+    app.outputs = Outputs::NONE;
+    press(&mut app, "n");
+    output_opened(&mut app);
+    assert_eq!(last_message(&app), "can't play: no audio output device");
+    assert!(app.now.is_none() && app.audio.is_none(), "stopped");
+    assert_eq!(app.resumable().map(|(t, at)| (t.title.clone(), at)), Some(("Track 1".into(), Duration::ZERO)));
+}
+
 /// A key pressed as the player goes on to the next track, before a tick has caught up with
 /// it, acts on the track playing: a seek isn't lost on the one that ended.
 #[test]
