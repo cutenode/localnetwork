@@ -392,7 +392,6 @@ ci:
           - ".github/actions/**"
           - ".github/{actionlint.yaml,zizmor.yml,build-setup.yml}"
           - ".github/{codeql,rulesets}/**"
-          - "tools/ruleset.sh"
 
 security:
   - changed-files:

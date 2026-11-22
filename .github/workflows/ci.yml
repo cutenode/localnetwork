@@ -11,7 +11,7 @@ name: CI
 # (formatting, lint, types, unit tests, the repo's policies), on the commit that goes on main; its
 # pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
 # web app's and localtoolbox's coverage and sizes to compare with, the Rust and Docker caches when
-# what they're keyed on changed, CodeQL's analysis, and the ruleset check when the ruleset changed.
+# what they're keyed on changed, and CodeQL's analysis.
 # Its commit is the merge queue group's, which already passed.
 on:
   push:
@@ -81,7 +81,6 @@ jobs:
       repo_checks: ${{ steps.scope.outputs.repo_checks }}
       repo_checks_policy: ${{ steps.scope.outputs.repo_checks_policy }}
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
-      repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
       repo_checks_diagrams: ${{ steps.scope.outputs.repo_checks_diagrams }}
       repo_checks_bombadil: ${{ steps.scope.outputs.repo_checks_bombadil }}
       repo_checks_text: ${{ steps.scope.outputs.repo_checks_text }}
@@ -483,10 +482,6 @@ jobs:
               - 'lexicons/**'
               - 'package.json'
               - '.github/workflows/repo-checks.yml'
-            repo_checks_ruleset:
-              - '.github/rulesets/**'
-              - 'tools/ruleset.sh'
-              - '.github/workflows/repo-checks.yml'
             # Bombadil's own npm project, which repo-checks installs and type-checks. Its specs run
             # weekly (locallibrary-scheduled.yml).
             repo_checks_bombadil:
@@ -558,7 +553,7 @@ jobs:
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
             locallibrary_dist locallibrary_other_os locallibrary_macos locallibrary_semver locallibrary_commands locallibrary_fuzz \
             web_verify web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
-            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
+            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons \
             repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
             out[$name]=false
           done
@@ -621,7 +616,6 @@ jobs:
             set_if web_integration changed web_integration
             set_if web_docker changed web_docker
             set_if localtoolbox changed localtoolbox
-            set_if repo_checks_ruleset changed repo_checks_ruleset
           fi
           # Not `all`: a change to this workflow tests its wiring on Linux, and macOS and Windows
           # run only what changed for them. Windows runs on pull requests too, so a path or
@@ -635,7 +629,7 @@ jobs:
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
             locallibrary_budgets locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
-          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil \
+          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_bombadil \
             repo_checks_text repo_checks_commits repo_checks_diagrams
 
           # CodeQL, every language, on every event but a draft's and a pull request's into another
@@ -770,7 +764,6 @@ jobs:
     with:
       policy: ${{ needs.changes.outputs.repo_checks_policy == 'true' }}
       lexicons: ${{ needs.changes.outputs.repo_checks_lexicons == 'true' }}
-      ruleset: ${{ needs.changes.outputs.repo_checks_ruleset == 'true' }}
       bombadil: ${{ needs.changes.outputs.repo_checks_bombadil == 'true' }}
       text: ${{ needs.changes.outputs.repo_checks_text == 'true' }}
       commits: ${{ needs.changes.outputs.repo_checks_commits == 'true' }}

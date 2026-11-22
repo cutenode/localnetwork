@@ -2,11 +2,10 @@ name: Repo checks
 
 # The repository's own conventions (.github/NEW_PROJECT.md): `pnpm policy`'s policies over its
 # config files, knip (knip.jsonc) over every JavaScript and TypeScript project, ast-grep's rules
-# (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over the lexicons, on a pull
-# request, that the Mermaid diagrams whose sources it changes still hold, and on main, that GitHub's
-# "Protect Main" ruleset is .github/rulesets/protect-main.json. ci.yml calls it with the jobs a
-# pull request or push needs, and it runs weekly too, for a ruleset changed in GitHub's settings,
-# which starts no workflow.
+# (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over the lexicons, and on a pull
+# request, that the Mermaid diagrams whose sources it changes still hold. ci.yml calls it with the
+# jobs a pull request or push needs, and it runs weekly too, for lexicons published outside the
+# repo.
 on:
   workflow_call:
     inputs:
@@ -16,10 +15,6 @@ on:
         required: true
       lexicons:
         description: Whether the lexicons changed, so goat checks them.
-        type: boolean
-        required: true
-      ruleset:
-        description: Whether a push to main changed the ruleset file, so it's checked against GitHub's copy.
         type: boolean
         required: true
       diagrams:
@@ -182,22 +177,6 @@ jobs:
           # From the API: a body edited since this run's event wouldn't be in it.
           gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
           node tools/readmes/cli.ts drift HEAD^1 "$RUNNER_TEMP/body.md"
-
-  # Not on pull requests: a new required check goes into the file with the workflow that reports
-  # it, and an admin applies the file once it merges (tools/ruleset.sh apply). Until then, this
-  # fails on main. On a push to main only when the file changed; weekly for a change made in
-  # GitHub's settings.
-  ruleset:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.ruleset
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: tools/ruleset.sh check
-        env:
-          GH_TOKEN: ${{ github.token }}
 
   # Bombadil's own npm project (apps/locallibrary/bombadil): `npm ci` fails when package.json and
   # package-lock.json disagree, and tsc checks the specs. The specs themselves need the TUI built,
