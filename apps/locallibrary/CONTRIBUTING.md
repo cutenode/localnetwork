@@ -201,6 +201,13 @@ unit tests in those files, not inline. It needs `cargo-llvm-cov` and `cargo-next
 `llvm-tools` that `rust-toolchain.toml` installs, found through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
 proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
 
+`cargo coverage` builds a second, instrumented copy of the workspace, about 25 GB per checkout, so
+check you have that free; `cargo llvm-cov clean --workspace` gives it back. Don't share one
+`CARGO_TARGET_DIR` between checkouts or worktrees of this repository: cargo tells their packages apart
+by path inside the workspace, which is the same in each, so one checkout can reuse another's builds
+and test stale code. [sccache](https://github.com/mozilla/sccache) is the safe way to share
+compiles.
+
 `cargo hegel-coverage` runs `cargo coverage` over only the `#[hegel::test]` tests, and so fails
 below the same thresholds: the properties alone have to reach what the whole suite does. CI's
 `hegel` job runs it on Linux, from the test archive. Code it reports as missed is code no property
