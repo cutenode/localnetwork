@@ -23,6 +23,8 @@ crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct p
 crates/loclib-drive-speed/  how long a write to a drive will take: a short timed test of its rate and its
                             file and folder costs, kept on the drive, the sum from them, and real writes
                             correcting the rate (core's api/drive_speed.rs reaches drives for it and words it)
+crates/loclib-format/       file systems written directly: FAT32 at any size up to 2 TiB with a chosen cluster
+                            size (Windows' own tools stop at 32 GB), onto anything Write + Seek
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
@@ -177,8 +179,8 @@ crates/locallibrary/src/    the library, built on the crates above
   onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
                cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
-  format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
-               writer, running the fake-capacity probe (loclib-capacity) first
+  format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends,
+               loclib-format's FAT32 writer, running the fake-capacity probe (loclib-capacity) first
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
   fleet.rs     every drive you own: registry views, roles, logbook, recognising and re-identifying drives
   scrub.rs     re-reading a drive against known-good copies, and repairing it

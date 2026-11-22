@@ -1,0 +1,32 @@
+[package]
+name = "loclib-format"
+description = "Write file systems onto disks: a FAT32 formatter for volumes up to 2 TiB, with a chosen cluster size, onto anything that's Write + Seek"
+readme = "README.md"
+keywords = ["fat32", "format", "filesystem", "usb", "disk"]
+categories = ["filesystem", "hardware-support"]
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.localnetwork]
+labels = ["locallibrary: drives"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+chrono.workspace = true
+loclib-progress.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Independent FAT reader used to check the FAT32 formatter.
+fatfs = "0.3"
+hegeltest = { workspace = true, features = ["chrono"] }
+rustc-hash.workspace = true
+
+[lints]
+workspace = true

@@ -1,11 +1,11 @@
-//! Properties of drive path keys, file and volume names (`paths`, `format::fat32::sanitize_label`).
+//! Properties of drive path keys, file and volume names (`paths`, loclib-format's `fat32::sanitize_label`).
 
 use std::path::{Component, Path};
 
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
-use locallibrary::format::fat32::sanitize_label;
 use locallibrary::paths::{self, FileClass};
+use loclib_format::fat32::sanitize_label;
 
 /// Path-ish text: separators of both kinds, dots, drive colons, NUL, combining accents (NFD) and
 /// precomposed letters (NFC), mixed with arbitrary text.

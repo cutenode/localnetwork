@@ -4137,7 +4137,6 @@ dependencies = [
  "chrono",
  "codspeed-criterion-compat",
  "directories",
- "fatfs",
  "filetime",
  "form_urlencoded",
  "fs4",
@@ -4166,6 +4165,7 @@ dependencies = [
  "loclib-capacity",
  "loclib-drive-speed",
  "loclib-equipment",
+ "loclib-format",
  "loclib-interop",
  "loclib-mixid",
  "loclib-model",
@@ -4516,6 +4516,18 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-format"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fatfs",
+ "hegeltest",
+ "loclib-progress",
+ "rustc-hash",
  "thiserror 2.0.21",
 ]
 

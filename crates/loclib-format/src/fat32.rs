@@ -1,8 +1,8 @@
 //! A FAT32 formatter, following Microsoft's FAT specification ("fatgen103").
 //!
 //! Windows' own tools refuse to create FAT32 volumes larger than 32 GB, yet FAT32 is the one
-//! file system every CDJ/XDJ reads, at any size up to 2 TB. Writing the structures directly lets
-//! `drive format` produce it on every OS, with a chosen cluster size.
+//! file system every CDJ/XDJ reads, at any size up to 2 TB. Writing the structures directly makes
+//! it on every OS, with a chosen cluster size.
 //!
 //! Every write is a whole number of sectors at a sector-aligned offset (raw disk handles on
 //! Windows require that), and nothing is written outside `[0, total_sectors * sector_size)`
@@ -12,10 +12,8 @@
 use std::io::{Seek, SeekFrom, Write};
 
 use chrono::{Datelike, Timelike};
-use schemars::JsonSchema;
-use serde::Serialize;
+use loclib_progress::{Ctx, Event, Phase};
 
-use crate::progress::{Ctx, Event, Phase};
 use crate::{Error, Result};
 
 /// Fewer clusters than this and the volume is FAT16 by definition.
@@ -32,16 +30,22 @@ const MEDIA: u8 = 0xF8;
 const CHUNK: usize = 1 << 20;
 
 /// Where everything goes on a FAT32 volume of a given size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
+    /// The device's sector size: 512, 1024, 2048 or 4096.
     pub bytes_per_sector: u32,
+    /// Sectors in a cluster, the unit files are stored in.
     pub sectors_per_cluster: u32,
-    /// Includes padding that aligns the data region to the cluster size.
+    /// Sectors before the first FAT. Includes padding that aligns the data region to the cluster
+    /// size.
     pub reserved_sectors: u32,
+    /// Sectors in each of the two FATs.
     pub fat_sectors: u32,
+    /// Sectors in the volume.
     pub total_sectors: u32,
     /// Sectors before the volume on the disk (its partition's start LBA).
     pub hidden_sectors: u32,
+    /// Clusters in the data region.
     pub clusters: u32,
 }
 
@@ -98,6 +102,7 @@ impl Layout {
         })
     }
 
+    /// Bytes in a cluster.
     pub fn cluster_size(&self) -> u32 {
         self.bytes_per_sector * self.sectors_per_cluster
     }

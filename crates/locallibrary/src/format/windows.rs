@@ -1,13 +1,14 @@
 //! Windows: the Storage cmdlets (PowerShell) partition the disk and create exFAT. FAT32 is
-//! written by [`super::fat32`], because Windows refuses to create FAT32 volumes above 32 GB.
+//! written by [`loclib_format::fat32`], because Windows refuses to create FAT32 volumes above 32 GB.
 //! Needs an elevated (administrator) process.
 
 use std::path::{Path, PathBuf};
 
 use base64::prelude::*;
+use loclib_format::fat32;
 use serde_json::Value;
 
-use super::{Cmd, Disk, Filesystem, FsKind, Scheme, Target, Volume, fat32, json};
+use super::{Cmd, Disk, Filesystem, FsKind, Scheme, Target, Volume, json};
 use crate::progress::{Ctx, Phase};
 use crate::{Error, Result};
 

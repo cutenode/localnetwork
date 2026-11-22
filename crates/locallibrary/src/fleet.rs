@@ -391,7 +391,7 @@ pub fn rename(store: Option<&Store>, device: &mut Device, name: &str, label: boo
 
 /// The volume label a name makes (FAT labels are 11 characters, upper case).
 pub fn volume_label(name: &str) -> String {
-    crate::format::fat32::sanitize_label(name, "REKORDBOX")
+    loclib_format::fat32::sanitize_label(name, "REKORDBOX")
 }
 
 /// Change the volume label of the volume mounted at `root`. Returns the label as written (FAT
@@ -399,7 +399,7 @@ pub fn volume_label(name: &str) -> String {
 /// machine's drives (`device::disks_shown`).
 pub fn set_volume_label(root: &Path, name: &str) -> Result<String> {
     crate::device::disks_shown()?;
-    let label = crate::format::fat32::sanitize_label(name, "REKORDBOX");
+    let label = loclib_format::fat32::sanitize_label(name, "REKORDBOX");
     #[cfg(target_os = "macos")]
     let cmd = crate::format::Cmd::new("diskutil", &["rename", &root.to_string_lossy(), &label]);
     #[cfg(windows)]

@@ -181,6 +181,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   writing and reading back test regions across the whole disk
 - [loclib-drive-speed](../../crates/loclib-drive-speed): how long a write to a USB stick or card will
   take, from its rate and its file and folder costs, measured on it by a short test
+- [loclib-format](../../crates/loclib-format): writing FAT32 at any size up to 2 TiB, with the
+  cluster size you choose, onto a disk, a file or memory
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
 - [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
@@ -302,6 +304,7 @@ flowchart LR
     core --> equip["loclib-equipment<br/>what players read"]
     core --> cap["loclib-capacity<br/>fake-capacity probe"]
     core --> speed["loclib-drive-speed<br/>how long a write takes"]
+    core --> fmt["loclib-format<br/>FAT32 writer"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]

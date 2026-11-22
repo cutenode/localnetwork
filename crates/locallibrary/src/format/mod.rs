@@ -6,7 +6,7 @@
 //!
 //! The work is done by the operating system's own tools (`diskutil` on macOS, `sfdisk` and
 //! `mkfs.*` on Linux, the Storage cmdlets on Windows), except FAT32 on Windows: Windows refuses
-//! to create FAT32 above 32 GB, so [`fat32`] writes it.
+//! to create FAT32 above 32 GB, so loclib-format's [`fat32`] writer makes it.
 //!
 //! Safety:
 //! * Only external or removable, physical, writable disks qualify. Disks holding the running
@@ -18,7 +18,6 @@
 //!   swapped, partitions changed), nothing happens; it looks again just before erasing.
 
 pub use loclib_capacity as capacity;
-pub mod fat32;
 pub mod players;
 
 #[cfg_attr(any(not(unix), target_os = "macos"), allow(dead_code))]
@@ -40,6 +39,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use loclib_format::fat32;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

@@ -106,7 +106,7 @@ fn prop_written_volumes_describe_their_layout(tc: TestCase) {
             reported.fetch_add(*bytes, std::sync::atomic::Ordering::Relaxed);
         }
     };
-    let cancel = crate::progress::CancelToken::new();
+    let cancel = loclib_progress::CancelToken::new();
     if cancelled {
         cancel.cancel();
     }
@@ -216,7 +216,7 @@ fn prop_a_format_stops_at_a_device_error_or_a_cancel_in_the_fats(tc: TestCase) {
     let chunks = (l.fat_sectors as usize * 512 - 512).div_ceil(CHUNK);
     let checked = 1 + 2 * (1 + chunks);
     let cancel_after = tc.draw(gs::integers::<usize>().min_value(1).max_value(checked + 4));
-    let cancel = crate::progress::CancelToken::new();
+    let cancel = loclib_progress::CancelToken::new();
     let writes = std::sync::atomic::AtomicUsize::new(0);
     let stop = |e: &Event| {
         if matches!(e, Event::Bytes { .. })
@@ -227,7 +227,7 @@ fn prop_a_format_stops_at_a_device_error_or_a_cancel_in_the_fats(tc: TestCase) {
     };
     let done = write(&mut Failing { ops: 0, fail_at: None }, 0, &l, "USB", 1, &Ctx::new(&stop, cancel.clone()));
     match cancel_after < checked {
-        true => assert!(matches!(done, Err(Error::Cancelled)), "{done:?}"),
+        true => assert!(matches!(done, Err(Error::Cancelled(_))), "{done:?}"),
         false => done.unwrap(),
     }
 }

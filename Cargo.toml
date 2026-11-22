@@ -28,6 +28,7 @@ loclib-aup = { path = "crates/loclib-aup", version = "0.1.0" }
 loclib-capacity = { path = "crates/loclib-capacity", version = "0.1.0" }
 loclib-drive-speed = { path = "crates/loclib-drive-speed", version = "0.1.0" }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
+loclib-format = { path = "crates/loclib-format", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
 loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
