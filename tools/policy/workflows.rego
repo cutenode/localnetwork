@@ -5,7 +5,7 @@ package workflows
 import data.lib
 
 # Gated workflows that check the pull request itself rather than its files, so they have nothing
-# to filter and no changes job: pr-issue.yml reads the description, branch and labels.
+# to filter and no changes job: pr-issue.yml reads the description and branch.
 unfiltered := {".github/workflows/pr-issue.yml"}
 
 # Jobs that never hold up the passed check: `report` posts coverage on the pull request, so a

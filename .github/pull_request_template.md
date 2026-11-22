@@ -2,7 +2,7 @@
 
 ## What and why
 
-<!-- What this changes and the problem it solves. "Fixes #123" or "Fixes LOC-123" closes the issue when it merges, and "Part of LOC-123" links it. With no issue, add the no-issue label. -->
+<!-- What this changes and the problem it solves. "Fixes #123" or "Fixes LOC-123" closes the issue when it merges, and "Part of LOC-123" links it without closing it. The PR issue check needs one of them. -->
 
 ## How it was tested
 

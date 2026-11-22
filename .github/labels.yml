@@ -180,12 +180,7 @@
   color: "000000"
   description: Pull requests that update GitHub Actions code
 
-# no-issue and all-os are for pull requests only, so Linear doesn't mirror them.
-# Read by .github/workflows/pr-issue.yml: a pull request with it needs no linked issue.
-- name: no-issue
-  color: "cfd3d7"
-  description: No issue to link, so the PR issue check passes
-
+# all-os is for pull requests only, so Linear doesn't mirror it.
 # Read by .github/workflows/ci.yml: a pull request with it runs locallibrary's macOS job too,
 # which otherwise waits for the merge queue. Re-run CI after adding it.
 - name: all-os
