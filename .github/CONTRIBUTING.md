@@ -28,31 +28,22 @@ The git hooks format and lint what you commit. Before a push they type-check and
 
 Run the checks for what you touched before you open a pull request. All of them run from the repository root.
 
-The TypeScript apps and the lexicons:
-
 ```bash
-pnpm verify
+pnpm verify        # the TypeScript apps, the root's own TypeScript (pnpm *:tools) and the lexicons
+pnpm verify:rust   # the Rust workspace, as locallibrary-ci.yml's lint and test jobs check it
+pnpm verify:repo   # the repository's own conventions (see NEW_PROJECT.md); needs Docker running
 ```
 
-The Rust workspace:
+`pnpm verify:rust` runs cargo fmt, [cargo-shear](https://github.com/Boshen/cargo-shear), clippy (with no default features too, and on `fuzz/`), the doctests, `cargo doc-strict` and [cargo-nextest](https://nexte.st) (`cargo binstall cargo-shear cargo-nextest`), and clippy for Windows when the `x86_64-pc-windows-gnu` target and MinGW are installed (`rustup target add x86_64-pc-windows-gnu`, `brew install mingw-w64`). `pnpm verify:repo` runs `tools/policy.sh`, ast-grep's rule tests and scan, `pnpm test:tools`, ShellCheck, typos and taplo (`brew install shellcheck typos-cli taplo`).
 
-```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-```
+`pnpm verify` leaves out these jobs of the website's CI, each run from `apps/web` (`pnpm exec playwright install chromium` first):
 
-The repository's own conventions (see [NEW_PROJECT.md](NEW_PROJECT.md)), with Docker running for the policies:
-
-```bash
-tools/policy.sh
-pnpm exec ast-grep test --skip-snapshot-tests && pnpm exec ast-grep scan
-pnpm test:tools
-pnpm format:tools --check && pnpm lint:tools && pnpm check:tools
-git ls-files -z "*.sh" | xargs -0 shellcheck
-typos
-taplo fmt --check
-```
+- Lua: `stylua --check lua && cd lua && selene .`
+- Storybook build: `pnpm build-storybook`
+- integration tests and the coverage thresholds: `pnpm test:coverage`
+- end-to-end: `pnpm test:e2e --project chromium`
+- Lighthouse: `pnpm test:lighthouse`
+- Docker image: `pnpm test:docker`
 
 The `*:tools` scripts format, lint and type-check what no app's own scripts reach: `tools/`, `.railway/`, Bombadil's specs, the flags, budgets and tokens, and the generated RPC types in `apps/locallibrary/docs/rpc/`. The root's `pnpm format:check`, `pnpm lint` and `pnpm check` run them along with every app's. [typos](https://github.com/crate-ci/typos) checks spelling, with the repository's own words in `_typos.toml`, and CI also checks every link in the Markdown with [lychee](https://lychee.cli.rs): relative ones and their anchors on each pull request, the rest weekly. A link that can't work yet goes in `.lycheeignore` with why.
 
