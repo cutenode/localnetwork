@@ -917,40 +917,64 @@ export type ImageSource =
 /** A BLAKE3 hash, as 64 lowercase hex characters. */
 export type Hash = string;
 
+/** One beat of a track's beat grid. */
 export type Beat = {
   /** Position in the bar, 1-4. */
   beat_number: number;
+  /** The tempo at this beat, in beats per minute. */
   bpm: number;
+  /** When the beat falls, in milliseconds from the start of the track. */
   time_ms: number;
 };
 
 /** rekordbox's phrase analysis (`PSSI`, in `.EXT`). */
 export type SongStructure = {
+  /** The track's mood, which names its phrases. */
   mood: Mood;
+  /** The phrases, in order in rekordbox's files. A plugin's may come in any order. */
   phrases: Phrase[];
 };
 
 /** rekordbox's overall classification of a track, which decides how phrases are named. */
-export type Mood = "high" | "mid" | "low";
+export type Mood =
+  /** Phrases are intro, up, down, chorus and outro. */
+  | "high"
+  /** Phrases are intro, verses 1 to 6, bridge, chorus and outro. */
+  | "mid"
+  /** Phrases are intro, verses 1 and 2, bridge, chorus and outro. */
+  | "low";
 
+/** A stretch of beats of one kind in a track's song structure. */
 export type Phrase = {
+  /** What kind of phrase it is. */
   kind: PhraseKind;
   /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
   start_beat: number;
+  /** The 1-based beat the phrase ends at, which isn't part of it. */
   end_beat: number;
   /** Beat where a fill-in leads into the next phrase. */
   fill_beat?: number | null;
 };
 
+/** What a phrase is, by rekordbox's names for it. The track's [`Mood`] decides which names it uses. */
 export type PhraseKind =
-  | ("intro" | "bridge" | "chorus" | "outro")
+  /** The intro. */
+  | "intro"
   /** Build-ups, in high-mood tracks. */
   | "up"
   /** Breakdowns, in high-mood tracks. */
   | "down"
+  /** A verse, by its number from 1: up to 6 in mid-mood tracks, 2 in low-mood ones. */
   | {
     verse: number;
   }
+  /** A bridge, in mid- and low-mood tracks. */
+  | "bridge"
+  /** A chorus. */
+  | "chorus"
+  /** The outro. */
+  | "outro"
+  /** A kind number rekordbox stored that the track's mood has no name for. */
   | {
     unknown: number;
   };
@@ -2959,13 +2983,24 @@ export type PdbHeader = {
   sequence: number;
 };
 
+/** What a library holds, counted: [`Library::summary`]. */
 export type LibrarySummary = {
+  /** Tracks. */
   tracks: number;
+  /** Playlists, not counting folders. */
   playlists: number;
+  /** Folders. */
   folders: number;
+  /**
+   * Different artist tags, compared exactly: `A feat. B` is one of its own, and a blank one
+   * counts too.
+   */
   artists: number;
+  /** The audio files' sizes added up, in bytes. */
   audio_bytes: number;
+  /** The tracks' lengths added up, in seconds. */
   total_duration_secs: number;
+  /** Tracks without artwork. */
   tracks_without_artwork: number;
 };
 
@@ -3039,20 +3074,34 @@ export type LibraryDrift = {
   error: string | null;
 };
 
+/** A track a diff names. */
 export type TrackRef = {
+  /** Row id inside its export. */
   id: number;
+  /** "Artist - Title", for display. */
   name: string;
+  /** Absolute device path of its audio file. */
   file_path: string;
 };
 
+/** A track whose details differ between two exports. */
 export type TrackChange = {
+  /** The track, as the newer export has it. */
   track: TrackRef;
+  /** The details that differ. */
   fields: FieldChange[];
 };
 
+/** One of a track's details that differs. */
 export type FieldChange = {
+  /**
+   * Which detail: `title`, `artist`, `album`, `genre`, `key`, `label`, `comment`, `bpm`,
+   * `rating`, `color`, `file_size` or `artwork` (whether it has any).
+   */
   field: string;
+  /** Its value before, as text. */
   old: string;
+  /** Its value after, as text. */
   new: string;
 };
 
@@ -3319,7 +3368,12 @@ export type LibraryPage = {
 
 /** A rekordbox library as seen on a device export. */
 export type Library = {
+  /** Every track, in the order the export lists them. */
   tracks: Track[];
+  /**
+   * The playlists and folders, each pointing to its folder by `parent_id`:
+   * [`Library::display_order`] puts them in the order they're shown.
+   */
   playlists: Playlist[];
   /** Number of history playlists (players record what was played). */
   history_playlists: number;
@@ -3330,56 +3384,110 @@ export type Library = {
   history: Playlist[];
 };
 
+/**
+ * A track: its tags as rekordbox keeps them, and where its files are on the drive. A text tag it
+ * doesn't have is empty, a number it doesn't have 0.
+ */
 export type Track = {
   /** Row id inside this export. Only meaningful within one export. */
   id: number;
+  /** The title. */
   title: string;
+  /** The artist, as one credit (`A feat. B`): [`artist_credits`] splits it. */
   artist: string;
+  /** The album's title. */
   album: string;
+  /** The album's artist. */
   album_artist: string;
+  /** The genre. */
   genre: string;
+  /** The record label. */
   label: string;
+  /**
+   * The musical key, in whichever notation rekordbox shows (`8A`, `Am`, `1m`):
+   * [`crate::harmony::Camelot::parse`] reads any of them.
+   */
   key: string;
+  /** The remixer. */
   remixer: string;
+  /** The original's artist, for a remix or a cover. */
   original_artist: string;
+  /** The composer. */
   composer: string;
+  /** The comment tag. */
   comment: string;
+  /** The mix's name (`Extended Mix`). */
   mix_name: string;
+  /** The ISRC as tagged, which may have hyphens: [`isrc()`] tidies it. */
   isrc: string;
   /** Beats per minute (as analysed). */
   bpm: number;
+  /** Length, in whole seconds. */
   duration_secs: number;
+  /** The release year. */
   year: number;
+  /** Its number on its album. */
   track_number: number;
+  /** Its album's disc number. */
   disc_number: number;
   /** 0-5 stars. */
   rating: number;
+  /** Its track colour, `None` when it has none. */
   color: TrackColor | null;
+  /** How many times it's been played, as rekordbox counts them. */
   play_count: number;
+  /** Bitrate, in kbps. */
   bitrate: number;
+  /** Sample rate, in Hz. */
   sample_rate: number;
+  /** Bits per sample (16, 24). */
   sample_depth: number;
+  /** The audio file's size, in bytes. */
   file_size: number;
   /** Absolute device path of the audio file, e.g. `/Contents/Artist/Album/Track.mp3`. */
   file_path: string;
   /** Device path of the primary analysis file (`.DAT`); `.EXT`/`.2EX` sit next to it. */
   analyze_path: string;
+  /** When it was added to the library, `YYYY-MM-DD`. */
   date_added: string;
+  /** When it was released, `YYYY-MM-DD`. */
   release_date: string;
+  /** Row id of its artwork inside this export, `None` when it has none. */
   artwork_id: number | null;
   /** Device path of the artwork thumbnail, if any. */
   artwork_path: string | null;
 };
 
 /** rekordbox's eight track colours. */
-export type TrackColor = "pink" | "red" | "orange" | "yellow" | "green" | "aqua" | "blue" | "purple";
+export type TrackColor =
+  /** Pink, rekordbox's colour 1. */
+  | "pink"
+  /** Red, rekordbox's colour 2. */
+  | "red"
+  /** Orange, rekordbox's colour 3. */
+  | "orange"
+  /** Yellow, rekordbox's colour 4. */
+  | "yellow"
+  /** Green, rekordbox's colour 5. */
+  | "green"
+  /** Aqua, rekordbox's colour 6. */
+  | "aqua"
+  /** Blue, rekordbox's colour 7. */
+  | "blue"
+  /** Purple, rekordbox's colour 8. */
+  | "purple";
 
+/** A playlist, or a folder of them: a node of the playlist tree. */
 export type Playlist = {
+  /** Row id inside this export. Only meaningful within one export. */
   id: number;
   /** `None` for top-level nodes. */
   parent_id: number | null;
+  /** Its name, as the tree shows it. */
   name: string;
+  /** Whether it's a folder, holding other nodes instead of tracks. */
   is_folder: boolean;
+  /** Its place among the nodes in its folder: lowest first, then by id. */
   sort_order: number;
   /** Track ids in playlist order (empty for folders). */
   track_ids: number[];
@@ -3441,13 +3549,20 @@ export type AnalysisView = {
   structure: SongStructure | null;
 };
 
+/** A cue point: a hot cue, a memory cue or a loop. */
 export type Cue = {
   /** `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ... */
   hot_cue: number | null;
+  /** Where it is (where a loop starts), in milliseconds from the start of the track. */
   start_ms: number;
   /** End of the loop, for loops. */
   end_ms: number | null;
+  /** Its comment, empty when it has none. Only the extended list has it. */
   comment: string;
+  /**
+   * Its colour as the file stores it, 8-bit RGB: `None` when the file stores none (or black).
+   * Only the extended list has it.
+   */
   color: number[] | null;
   /**
    * A memory cue's or loop's colour: a row of rekordbox's colour table (1 pink ... 8 purple,
@@ -3471,16 +3586,20 @@ export type LoopBeats = [numerator: number, denominator: number];
 /** A waveform as asked for. */
 export type WaveformData = Waveform | PackedWaveform;
 
+/** A waveform as drawn: columns of two layers each, from the start of the track. */
 export type Waveform = {
+  /** The kind of waveform it was made from. */
   style: WaveformStyle;
   /**
    * Columns per second of audio for scrolling (detail) waveforms; `None` for previews, whose
    * columns span the whole track.
    */
   columns_per_sec: number | null;
+  /** The columns, from the start of the track. */
   columns: WaveColumn[];
 };
 
+/** Which kind of rekordbox waveform a [`Waveform`] was made from, which decides how it's drawn. */
 export type WaveformStyle =
   /** Monochrome blue, older players (`PWAV`, `PWV3`). */
   | "blue"
@@ -3494,7 +3613,12 @@ export type WaveformStyle =
 
 /** One column of a waveform: a back layer and a (shorter, brighter) front layer drawn over it. */
 export type WaveColumn = {
+  /** Drawn first, behind `front`. */
   back: WaveLayer;
+  /**
+   * Drawn over `back`. Of zero height when the column has one layer (blue waveforms, the colour
+   * detail one).
+   */
   front: WaveLayer;
 };
 
@@ -3502,6 +3626,7 @@ export type WaveColumn = {
 export type WaveLayer = {
   /** 0.0-1.0 of the waveform's full height. */
   height: number;
+  /** Its colour, 8-bit RGB. */
   color: number[];
 };
 
@@ -3722,10 +3847,13 @@ export type DiffEntry = {
   position: number;
 };
 
+/** A stretch of beats of one kind in a track's song structure. */
 export type PhraseOutput = {
+  /** What kind of phrase it is. */
   kind: PhraseKind;
   /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
   start_beat: number;
+  /** The 1-based beat the phrase ends at, which isn't part of it. */
   end_beat: number;
   /** Beat where a fill-in leads into the next phrase. */
   fill_beat: number | null;
@@ -3918,10 +4046,15 @@ export type Favors = "left" | "right" | "neither";
  * which rekordbox keeps stable across exports; playlists by their place in the folder tree.
  */
 export type LibraryDiff = {
+  /** Tracks only the newer export has. */
   added_tracks: TrackRef[];
+  /** Tracks only the older export has. */
   removed_tracks: TrackRef[];
+  /** Tracks both have, whose details differ. */
   changed_tracks: TrackChange[];
+  /** Paths of the playlists and folders only the newer export has (folders end in `/`). */
   added_playlists: string[];
+  /** Paths of the playlists and folders only the older export has (folders end in `/`). */
   removed_playlists: string[];
   /** Playlists whose contents or order differ. */
   changed_playlists: string[];
@@ -5105,21 +5238,47 @@ export type MissingEntry = {
   file: string;
 };
 
+/** One known setting: where it's stored and the values it takes. */
 export type SettingDef = {
+  /** The setting's key, such as `auto_cue`. */
   key: string;
+  /** The setting's name as rekordbox shows it. */
   label: string;
+  /** The group it belongs to. */
   category: SettingCategory;
+  /** The file it's in. */
   file: SettingsFile;
+  /** The values it takes. */
   choices: Choice[];
+  /** The id of rekordbox's default choice. */
   default: string;
 };
 
-export type SettingCategory = "player" | "display" | "mixer";
+/** The group a setting belongs to. */
+export type SettingCategory =
+  /** How a player plays and cues tracks. */
+  | "player"
+  /** A player's screens, lights and language, and how waveforms and keys show. */
+  | "display"
+  /** Mixer settings. */
+  | "mixer";
 
-export type SettingsFile = "my_setting" | "my_setting2" | "djm_my_setting" | "dev_setting";
+/** Which of the four settings files. */
+export type SettingsFile =
+  /** `MYSETTING.DAT`: player settings. */
+  | "my_setting"
+  /** `MYSETTING2.DAT`: newer player settings. */
+  | "my_setting2"
+  /** `DJMMYSETTING.DAT`: mixer settings. */
+  | "djm_my_setting"
+  /** `DEVSETTING.DAT`: waveform and key display. */
+  | "dev_setting";
 
+/** One value a setting takes. */
 export type Choice = {
+  /** The value's id, such as `on` or `-36db`. */
   id: string;
+  /** The value as rekordbox shows it. */
   label: string;
 };
 
@@ -5143,9 +5302,16 @@ export type DriveSettingsView = {
   drift: Drift[];
 };
 
+/** The settings read from a set of settings files. */
 export type SettingsSnapshot = {
+  /** Each setting's value by key, for every setting in the files that were read. */
   values: { [key: string]: SettingValue };
+  /** The settings files that aren't there. */
   missing_files: SettingsFile[];
+  /**
+   * What's wrong with files that were there, for a person to read: a checksum that doesn't
+   * match, or a file that couldn't be read.
+   */
   problems: string[];
   /**
    * Bytes outside every known setting that differ from what rekordbox 6 writes: settings newer
@@ -5155,16 +5321,23 @@ export type SettingsSnapshot = {
   undecoded: UndecodedByte[];
 };
 
+/**
+ * A setting's value as read from a file. In JSON, a choice id as a string, or an unknown byte as
+ * a number.
+ */
 export type SettingValue =
+  /** One of the setting's choices, by id. */
   | string
   /** A byte value not in the schema (newer firmware?). Preserved untouched. */
   | number;
 
 /** A data byte of a settings file that no known setting covers. */
 export type UndecodedByte = {
+  /** The file the byte is in. */
   file: SettingsFile;
   /** Offset in the file's data section (after the 104-byte header). */
   offset: number;
+  /** The byte in the file. */
   value: number;
   /** What rekordbox 6 writes there. */
   expected: number;
@@ -5190,18 +5363,33 @@ export type DriveSettingsPlan = {
   changes: ApplyReport;
 };
 
+/** What applying a set of values to a set of settings files changes. */
 export type ApplyReport = {
+  /** The settings that change. A file that's created lists every value given for it. */
   changes: SettingChange[];
+  /**
+   * The files that get new bytes, created ones included. A file can be here with no changes
+   * when only its checksum was repaired.
+   */
   files_written: SettingsFile[];
+  /** The files that didn't exist and are created. */
   files_created: SettingsFile[];
+  /**
+   * Whether nothing was written: the report says what would change. [`changes`] leaves it
+   * `false` for the caller to set.
+   */
   dry_run: boolean;
 };
 
+/** One setting that applying a set of values changes or sets for the first time. */
 export type SettingChange = {
+  /** The setting's key. */
   key: string;
+  /** The file the setting is in. */
   file: SettingsFile;
   /** `None` when the file did not exist yet. */
   from: SettingValue | null;
+  /** The new value's choice id. */
   to: string;
 };
 
@@ -5697,6 +5885,7 @@ export type Verdict =
 export type CheckItem = {
   /** The drive it's about. */
   drive: string;
+  /** How much it matters. */
   level: Level;
   /** The check that found it (`files`, a plugin's `<plugin>.<check>`). */
   check: string;
@@ -5922,9 +6111,14 @@ export type Unloadable = {
 
 /** How a model gets on with a file. */
 export type Unplayable =
-  | ("sample_rate" | "bit_depth" | "sample_rate_and_bit_depth")
   /** It doesn't play the format at all. */
-  | "format";
+  | "format"
+  /** It plays the format, but not at the file's sample rate. */
+  | "sample_rate"
+  /** It plays the format, but not at the file's bit depth. */
+  | "bit_depth"
+  /** It plays the format, but neither at the file's sample rate nor at its bit depth. */
+  | "sample_rate_and_bit_depth";
 
 /** Audio files with one kind of problem. */
 export type AudioIssues = {
@@ -6111,14 +6305,17 @@ export type PlayDelta = {
   history_lists: number;
 };
 
+/** What one player, all-in-one system or mixer reads from a USB drive. */
 export type Model = {
   /** As AlphaTheta writes it: `CDJ-2000NXS2`, `OPUS-QUAD`. */
   name: string;
+  /** What sort of equipment it is. */
   kind: Kind;
   /** Reads Device Library (`export.pdb`). */
   export_pdb: Spec_for_boolean;
   /** Reads OneLibrary (`exportLibrary.db`, called Device Library Plus before October 2025). */
   onelibrary: Spec_for_boolean;
+  /** Whether it reads exFAT drives. */
   exfat: Spec_for_Exfat;
   /** The formats it plays. A format missing from the list doesn't play. */
   audio: Audio[];
@@ -6130,6 +6327,7 @@ export type Model = {
   source: string;
 };
 
+/** What sort of equipment a model is. */
 export type Kind =
   /** A multi player (CDJ, XDJ-1000...). */
   | "player"
@@ -6140,19 +6338,26 @@ export type Kind =
 
 /** A value, and whether it's inferred rather than documented. */
 export type Spec_for_boolean = {
+  /** The value. */
   value: boolean;
+  /** Whether no source confirms the value, so it's inferred (from a related model, say). */
   inferred: boolean;
 };
 
 /** A value, and whether it's inferred rather than documented. */
 export type Spec_for_Exfat = {
+  /** The value. */
   value: Exfat;
+  /** Whether no source confirms the value, so it's inferred (from a related model, say). */
   inferred: boolean;
 };
 
 /** Whether a model reads exFAT. */
 export type Exfat =
-  | ("no" | "yes")
+  /** It doesn't. */
+  | "no"
+  /** It does, with any firmware. */
+  | "yes"
   /** With this firmware version or later. */
   | {
     firmware: string;
@@ -6160,14 +6365,30 @@ export type Exfat =
 
 /** One audio format a model plays, at these sample rates (Hz) and bit depths. */
 export type Audio = {
+  /** The format. */
   codec: Codec;
+  /** The sample rates it plays, in Hz. */
   rates: number[];
+  /** The bit depths it plays. Lossy formats list 16, and their depth isn't checked. */
   depths: number[];
+  /** Whether the rates and depths are inferred rather than documented. */
   inferred: boolean;
 };
 
 /** An audio format players list. */
-export type Codec = "mp3" | "aac" | "wav" | "aiff" | "flac" | "alac";
+export type Codec =
+  /** MP3. */
+  | "mp3"
+  /** AAC. */
+  | "aac"
+  /** WAV. */
+  | "wav"
+  /** AIFF. */
+  | "aiff"
+  /** FLAC. */
+  | "flac"
+  /** Apple Lossless. */
+  | "alac";
 
 /** The player models `check` uses when none are given. */
 export type RememberedPlayers = {
@@ -6254,7 +6475,23 @@ export type Volume = {
 };
 
 /** A file system found on a volume. */
-export type FsKind = "fat12" | "fat16" | "fat32" | "exfat" | "hfsplus" | "apfs" | "ntfs" | "other";
+export type FsKind =
+  /** FAT12. */
+  | "fat12"
+  /** FAT16. */
+  | "fat16"
+  /** FAT32. */
+  | "fat32"
+  /** exFAT. */
+  | "exfat"
+  /** HFS+ (Mac OS Extended). */
+  | "hfsplus"
+  /** APFS. */
+  | "apfs"
+  /** NTFS. */
+  | "ntfs"
+  /** Any other file system. */
+  | "other";
 
 export type FormatPlan = {
   disk: Disk;
@@ -9717,38 +9954,65 @@ export type ProgressEvent = {
   /** A step begins (`step` says which). */
   | StepStarted);
 
+/** A progress event from a long-running operation. In JSON, `event` names the kind. */
 export type Event =
   /** A phase begins. `items`/`bytes` are totals when known up front (0 otherwise). */
   | {
     event: "phase_start";
+    /** The phase that begins. */
     phase: Phase;
+    /** How many items the phase will go through, or 0 when that isn't known. */
     items: number;
+    /** How many bytes the phase will process, or 0 when that isn't known. */
     bytes: number;
   }
   /** Work on one item (usually a file) begins. */
   | {
     event: "item";
+    /** The phase the item belongs to. */
     phase: Phase;
+    /** The item's path, or a name for it when it isn't a file. */
     path: string;
+    /** The item's size in bytes, or 0 when that isn't known or doesn't apply. */
     bytes: number;
   }
   /** `bytes` more bytes were processed in the current phase. */
   | {
     event: "bytes";
+    /** The phase the bytes belong to. */
     phase: Phase;
+    /** How many bytes were processed since the last `bytes` event. */
     bytes: number;
   }
+  /** A phase is done. */
   | {
     event: "phase_end";
+    /** The phase that ended. */
     phase: Phase;
   }
+  /** Something went wrong that the operation carries on past. */
   | {
     event: "warning";
+    /** What went wrong, for a person to read. */
     message: string;
   };
 
+/** The kind of work an [`Event`] belongs to, which a front end names in its progress display. */
 export type Phase =
-  | ("scan" | "hash" | "copy" | "write" | "delete" | "verify" | "format")
+  /** Going through items to see what there is or what needs doing (files, tracks, snapshots). */
+  | "scan"
+  /** Reading files to hash their contents. */
+  | "hash"
+  /** Copying or transcoding files to their destination. */
+  | "copy"
+  /** Writing databases, tags, artwork or other files. */
+  | "write"
+  /** Deleting files. */
+  | "delete"
+  /** Reading files back to check they're intact. */
+  | "verify"
+  /** Formatting a drive. */
+  | "format"
   /** Decoding and fingerprinting library tracks. */
   | "fingerprint"
   /** Building the fingerprint index. */

@@ -4,24 +4,32 @@
 
 use serde::{Deserialize, Serialize};
 
+/// One beat of a track's beat grid.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Beat {
     /// Position in the bar, 1-4.
     pub beat_number: u16,
+    /// The tempo at this beat, in beats per minute.
     pub bpm: f64,
+    /// When the beat falls, in milliseconds from the start of the track.
     pub time_ms: u32,
 }
 
+/// A cue point: a hot cue, a memory cue or a loop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Cue {
     /// `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ...
     pub hot_cue: Option<u8>,
+    /// Where it is (where a loop starts), in milliseconds from the start of the track.
     pub start_ms: u32,
     /// End of the loop, for loops.
     pub end_ms: Option<u32>,
+    /// Its comment, empty when it has none. Only the extended list has it.
     pub comment: String,
+    /// Its colour as the file stores it, 8-bit RGB: `None` when the file stores none (or black).
+    /// Only the extended list has it.
     pub color: Option<[u8; 3]>,
     /// A memory cue's or loop's colour: a row of rekordbox's colour table (1 pink ... 8 purple,
     /// as [`crate::model::TrackColor`]), 0 for none. Only the extended list has it.
@@ -41,7 +49,9 @@ crate::labelled_tuple! {
     /// `[1, 2]` half a beat. Only describes `loop_beats` in the schema; the code uses the pair.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct LoopBeats {
+        /// The top of the fraction: 4 in 4/1.
         pub numerator: u16,
+        /// The bottom of the fraction: 2 in 1/2.
         pub denominator: u16,
     }
 }
@@ -52,6 +62,7 @@ crate::labelled_tuple! {
 pub struct WaveLayer {
     /// 0.0-1.0 of the waveform's full height.
     pub height: f32,
+    /// Its colour, 8-bit RGB.
     pub color: [u8; 3],
 }
 
@@ -59,10 +70,14 @@ pub struct WaveLayer {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct WaveColumn {
+    /// Drawn first, behind `front`.
     pub back: WaveLayer,
+    /// Drawn over `back`. Of zero height when the column has one layer (blue waveforms, the colour
+    /// detail one).
     pub front: WaveLayer,
 }
 
+/// Which kind of rekordbox waveform a [`Waveform`] was made from, which decides how it's drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +99,7 @@ pub enum WaveformStyle {
 pub struct Bands(pub Vec<[u8; 3]>);
 
 impl Bands {
+    /// The columns packed, three bytes each (low, mid, high): what [`Bands::unpack`] reads back.
     pub fn pack(&self) -> Vec<u8> {
         self.0.concat()
     }
@@ -130,13 +146,16 @@ impl Bands {
     }
 }
 
+/// A waveform as drawn: columns of two layers each, from the start of the track.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Waveform {
+    /// The kind of waveform it was made from.
     pub style: WaveformStyle,
     /// Columns per second of audio for scrolling (detail) waveforms; `None` for previews, whose
     /// columns span the whole track.
     pub columns_per_sec: Option<f64>,
+    /// The columns, from the start of the track.
     pub columns: Vec<WaveColumn>,
 }
 
@@ -145,28 +164,39 @@ pub struct Waveform {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Mood {
+    /// Phrases are intro, up, down, chorus and outro.
     High,
+    /// Phrases are intro, verses 1 to 6, bridge, chorus and outro.
     Mid,
+    /// Phrases are intro, verses 1 and 2, bridge, chorus and outro.
     Low,
 }
 
+/// What a phrase is, by rekordbox's names for it. The track's [`Mood`] decides which names it uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PhraseKind {
+    /// The intro.
     Intro,
     /// Build-ups, in high-mood tracks.
     Up,
     /// Breakdowns, in high-mood tracks.
     Down,
+    /// A verse, by its number from 1: up to 6 in mid-mood tracks, 2 in low-mood ones.
     Verse(u8),
+    /// A bridge, in mid- and low-mood tracks.
     Bridge,
+    /// A chorus.
     Chorus,
+    /// The outro.
     Outro,
+    /// A kind number rekordbox stored that the track's mood has no name for.
     Unknown(u16),
 }
 
 impl PhraseKind {
+    /// Its name as rekordbox shows it (`Verse 2`), and `Phrase <n>` for an unknown kind.
     pub fn name(self) -> String {
         match self {
             PhraseKind::Intro => "Intro".into(),
@@ -181,12 +211,15 @@ impl PhraseKind {
     }
 }
 
+/// A stretch of beats of one kind in a track's song structure.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Phrase {
+    /// What kind of phrase it is.
     pub kind: PhraseKind,
     /// 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`.
     pub start_beat: u16,
+    /// The 1-based beat the phrase ends at, which isn't part of it.
     pub end_beat: u16,
     /// Beat where a fill-in leads into the next phrase.
     pub fill_beat: Option<u16>,
@@ -196,7 +229,9 @@ pub struct Phrase {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SongStructure {
+    /// The track's mood, which names its phrases.
     pub mood: Mood,
+    /// The phrases, in order in rekordbox's files. A plugin's may come in any order.
     pub phrases: Vec<Phrase>,
 }
 
@@ -229,10 +264,15 @@ impl SongStructure {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TrackAnalysis {
+    /// The beat grid, empty when there is none.
     pub beats: Vec<Beat>,
+    /// Hot cues, memory cues and loops.
     pub cues: Vec<Cue>,
+    /// The overview waveform, whose columns span the whole track, if there is one.
     pub preview: Option<Waveform>,
+    /// The scrolling waveform, if there is one.
     pub detail: Option<Waveform>,
+    /// rekordbox's phrase analysis, if there is one.
     pub structure: Option<SongStructure>,
 }
 

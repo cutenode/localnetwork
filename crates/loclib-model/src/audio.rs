@@ -5,6 +5,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Format {
+    /// `.mp3`: MPEG audio layer III.
     Mp3,
     /// `.aac`: AAC on its own.
     Aac,
@@ -12,12 +13,17 @@ pub enum Format {
     Mpeg4,
     /// `.alac`: Apple Lossless.
     Alac,
+    /// `.wav` and `.wave`: WAVE, mostly plain PCM.
     Wav,
+    /// `.aif` and `.aiff`: AIFF.
     Aiff,
+    /// `.flac` and `.fla`: FLAC.
     Flac,
     /// Ogg Vorbis.
     Ogg,
+    /// `.opus`: Opus.
     Opus,
+    /// `.wma`: Windows Media Audio.
     Wma,
 }
 

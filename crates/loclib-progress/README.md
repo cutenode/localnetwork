@@ -48,7 +48,7 @@ assert_eq!(copy_all(&["Contents/c.mp3"], &ctx), Err(Cancelled));
 - Run anything. There are no threads of its own (a `Flusher` runs on yours) and no async runtime.
 - Take phases of your own. `Phase` is a fixed list of the phases locallibrary has (`scan`,
   `hash`, `copy`, `write`, `delete`, `verify`, `format`, `fingerprint`, `index`, `listen`,
-  `match`).
+  `match`, `analyze`, `upload`, `measure`).
 
 ## Licence
 

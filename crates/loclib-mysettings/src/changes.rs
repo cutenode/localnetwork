@@ -6,11 +6,16 @@ use serde::Serialize;
 
 use crate::{Choice, Error, SCHEMA, SettingDef, SettingValue, SettingsBlob, SettingsFile, validate};
 
+/// The settings read from a set of settings files.
 #[derive(Debug, Clone, Default, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SettingsSnapshot {
+    /// Each setting's value by key, for every setting in the files that were read.
     pub values: IndexMap<String, SettingValue>,
+    /// The settings files that aren't there.
     pub missing_files: Vec<SettingsFile>,
+    /// What's wrong with files that were there, for a person to read: a checksum that doesn't
+    /// match, or a file that couldn't be read.
     pub problems: Vec<String>,
     /// Bytes outside every known setting that differ from what rekordbox 6 writes: settings newer
     /// rekordbox versions added (rekordbox 7.2 writes six). Preserved by `apply`, but not managed
@@ -43,30 +48,43 @@ impl SettingsSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct UndecodedByte {
+    /// The file the byte is in.
     pub file: SettingsFile,
     /// Offset in the file's data section (after the 104-byte header).
     pub offset: usize,
+    /// The byte in the file.
     pub value: u8,
     /// What rekordbox 6 writes there.
     pub expected: u8,
 }
 
+/// One setting that applying a set of values changes or sets for the first time.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SettingChange {
+    /// The setting's key.
     pub key: String,
+    /// The file the setting is in.
     pub file: SettingsFile,
     /// `None` when the file did not exist yet.
     pub from: Option<SettingValue>,
+    /// The new value's choice id.
     pub to: String,
 }
 
+/// What applying a set of values to a set of settings files changes.
 #[derive(Debug, Clone, Default, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ApplyReport {
+    /// The settings that change. A file that's created lists every value given for it.
     pub changes: Vec<SettingChange>,
+    /// The files that get new bytes, created ones included. A file can be here with no changes
+    /// when only its checksum was repaired.
     pub files_written: Vec<SettingsFile>,
+    /// The files that didn't exist and are created.
     pub files_created: Vec<SettingsFile>,
+    /// Whether nothing was written: the report says what would change. [`changes`] leaves it
+    /// `false` for the caller to set.
     pub dry_run: bool,
 }
 
@@ -78,6 +96,11 @@ pub type NewFiles = Vec<(SettingsFile, Vec<u8>)>;
 /// current value. `existing` reads a file's current contents (`None` when there's no such file);
 /// missing files are created only when `desired` touches them, or when `create_missing` is set.
 /// A stale checksum is repaired even if no value changed.
+///
+/// # Errors
+///
+/// [`Error::UnknownSetting`] or [`Error::InvalidValue`] when a key or value in `desired` isn't
+/// valid, and whatever `existing` fails with.
 pub fn changes<E: From<Error>>(
     mut existing: impl FnMut(SettingsFile) -> Result<Option<SettingsBlob>, E>,
     desired: &IndexMap<String, String>,

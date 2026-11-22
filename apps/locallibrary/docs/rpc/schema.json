@@ -8227,31 +8227,36 @@
         },
         "bpm": {
           "type": "number",
-          "format": "double"
+          "format": "double",
+          "description": "The tempo at this beat, in beats per minute."
         },
         "time_ms": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "When the beat falls, in milliseconds from the start of the track."
         }
       },
       "required": [
         "beat_number",
         "bpm",
         "time_ms"
-      ]
+      ],
+      "description": "One beat of a track's beat grid."
     },
     "SongStructure": {
       "type": "object",
       "properties": {
         "mood": {
-          "$ref": "#/$defs/Mood"
+          "$ref": "#/$defs/Mood",
+          "description": "The track's mood, which names its phrases."
         },
         "phrases": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Phrase"
-          }
+          },
+          "description": "The phrases, in order in rekordbox's files. A plugin's may come in any order."
         }
       },
       "required": [
@@ -8261,11 +8266,22 @@
       "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
     },
     "Mood": {
-      "type": "string",
-      "enum": [
-        "high",
-        "mid",
-        "low"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "high",
+          "description": "Phrases are intro, up, down, chorus and outro."
+        },
+        {
+          "type": "string",
+          "const": "mid",
+          "description": "Phrases are intro, verses 1 to 6, bridge, chorus and outro."
+        },
+        {
+          "type": "string",
+          "const": "low",
+          "description": "Phrases are intro, verses 1 and 2, bridge, chorus and outro."
+        }
       ],
       "description": "rekordbox's overall classification of a track, which decides how phrases are named."
     },
@@ -8273,7 +8289,8 @@
       "type": "object",
       "properties": {
         "kind": {
-          "$ref": "#/$defs/PhraseKind"
+          "$ref": "#/$defs/PhraseKind",
+          "description": "What kind of phrase it is."
         },
         "start_beat": {
           "type": "integer",
@@ -8286,7 +8303,8 @@
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "The 1-based beat the phrase ends at, which isn't part of it."
         },
         "fill_beat": {
           "type": [
@@ -8303,18 +8321,15 @@
         "kind",
         "start_beat",
         "end_beat"
-      ]
+      ],
+      "description": "A stretch of beats of one kind in a track's song structure."
     },
     "PhraseKind": {
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "intro",
-            "bridge",
-            "chorus",
-            "outro"
-          ]
+          "const": "intro",
+          "description": "The intro."
         },
         {
           "type": "string",
@@ -8339,7 +8354,23 @@
           "required": [
             "verse"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "A verse, by its number from 1: up to 6 in mid-mood tracks, 2 in low-mood ones."
+        },
+        {
+          "type": "string",
+          "const": "bridge",
+          "description": "A bridge, in mid- and low-mood tracks."
+        },
+        {
+          "type": "string",
+          "const": "chorus",
+          "description": "A chorus."
+        },
+        {
+          "type": "string",
+          "const": "outro",
+          "description": "The outro."
         },
         {
           "type": "object",
@@ -8354,9 +8385,11 @@
           "required": [
             "unknown"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "A kind number rekordbox stored that the track's mood has no name for."
         }
-      ]
+      ],
+      "description": "What a phrase is, by rekordbox's names for it. The track's [`Mood`] decides which names it uses."
     },
     "WaveSource": {
       "oneOf": [
@@ -13616,37 +13649,44 @@
         "tracks": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Tracks."
         },
         "playlists": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Playlists, not counting folders."
         },
         "folders": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Folders."
         },
         "artists": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Different artist tags, compared exactly: `A feat. B` is one of its own, and a blank one\ncounts too."
         },
         "audio_bytes": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The audio files' sizes added up, in bytes."
         },
         "total_duration_secs": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The tracks' lengths added up, in seconds."
         },
         "tracks_without_artwork": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Tracks without artwork."
         }
       },
       "required": [
@@ -13657,7 +13697,8 @@
         "audio_bytes",
         "total_duration_secs",
         "tracks_without_artwork"
-      ]
+      ],
+      "description": "What a library holds, counted: [`Library::summary`]."
     },
     "PendingOp": {
       "type": "object",
@@ -13876,57 +13917,68 @@
         "id": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Row id inside its export."
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "\"Artist - Title\", for display."
         },
         "file_path": {
-          "type": "string"
+          "type": "string",
+          "description": "Absolute device path of its audio file."
         }
       },
       "required": [
         "id",
         "name",
         "file_path"
-      ]
+      ],
+      "description": "A track a diff names."
     },
     "TrackChange": {
       "type": "object",
       "properties": {
         "track": {
-          "$ref": "#/$defs/TrackRef"
+          "$ref": "#/$defs/TrackRef",
+          "description": "The track, as the newer export has it."
         },
         "fields": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/FieldChange"
-          }
+          },
+          "description": "The details that differ."
         }
       },
       "required": [
         "track",
         "fields"
-      ]
+      ],
+      "description": "A track whose details differ between two exports."
     },
     "FieldChange": {
       "type": "object",
       "properties": {
         "field": {
-          "type": "string"
+          "type": "string",
+          "description": "Which detail: `title`, `artist`, `album`, `genre`, `key`, `label`, `comment`, `bpm`,\n`rating`, `color`, `file_size` or `artwork` (whether it has any)."
         },
         "old": {
-          "type": "string"
+          "type": "string",
+          "description": "Its value before, as text."
         },
         "new": {
-          "type": "string"
+          "type": "string",
+          "description": "Its value after, as text."
         }
       },
       "required": [
         "field",
         "old",
         "new"
-      ]
+      ],
+      "description": "One of a track's details that differs."
     },
     "RekordboxSync": {
       "type": "object",
@@ -14725,13 +14777,15 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/Track"
-          }
+          },
+          "description": "Every track, in the order the export lists them."
         },
         "playlists": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Playlist"
-          }
+          },
+          "description": "The playlists and folders, each pointing to its folder by `parent_id`:\n[`Library::display_order`] puts them in the order they're shown."
         },
         "history_playlists": {
           "type": "integer",
@@ -14766,43 +14820,56 @@
           "description": "Row id inside this export. Only meaningful within one export."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "The title."
         },
         "artist": {
-          "type": "string"
+          "type": "string",
+          "description": "The artist, as one credit (`A feat. B`): [`artist_credits`] splits it."
         },
         "album": {
-          "type": "string"
+          "type": "string",
+          "description": "The album's title."
         },
         "album_artist": {
-          "type": "string"
+          "type": "string",
+          "description": "The album's artist."
         },
         "genre": {
-          "type": "string"
+          "type": "string",
+          "description": "The genre."
         },
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "The record label."
         },
         "key": {
-          "type": "string"
+          "type": "string",
+          "description": "The musical key, in whichever notation rekordbox shows (`8A`, `Am`, `1m`):\n[`crate::harmony::Camelot::parse`] reads any of them."
         },
         "remixer": {
-          "type": "string"
+          "type": "string",
+          "description": "The remixer."
         },
         "original_artist": {
-          "type": "string"
+          "type": "string",
+          "description": "The original's artist, for a remix or a cover."
         },
         "composer": {
-          "type": "string"
+          "type": "string",
+          "description": "The composer."
         },
         "comment": {
-          "type": "string"
+          "type": "string",
+          "description": "The comment tag."
         },
         "mix_name": {
-          "type": "string"
+          "type": "string",
+          "description": "The mix's name (`Extended Mix`)."
         },
         "isrc": {
-          "type": "string"
+          "type": "string",
+          "description": "The ISRC as tagged, which may have hyphens: [`isrc()`] tidies it."
         },
         "bpm": {
           "type": "number",
@@ -14812,24 +14879,28 @@
         "duration_secs": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Length, in whole seconds."
         },
         "year": {
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "The release year."
         },
         "track_number": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Its number on its album."
         },
         "disc_number": {
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "Its album's disc number."
         },
         "rating": {
           "type": "integer",
@@ -14846,34 +14917,40 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Its track colour, `None` when it has none."
         },
         "play_count": {
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "How many times it's been played, as rekordbox counts them."
         },
         "bitrate": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Bitrate, in kbps."
         },
         "sample_rate": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Sample rate, in Hz."
         },
         "sample_depth": {
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "Bits per sample (16, 24)."
         },
         "file_size": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The audio file's size, in bytes."
         },
         "file_path": {
           "type": "string",
@@ -14884,10 +14961,12 @@
           "description": "Device path of the primary analysis file (`.DAT`); `.EXT`/`.2EX` sit next to it."
         },
         "date_added": {
-          "type": "string"
+          "type": "string",
+          "description": "When it was added to the library, `YYYY-MM-DD`."
         },
         "release_date": {
-          "type": "string"
+          "type": "string",
+          "description": "When it was released, `YYYY-MM-DD`."
         },
         "artwork_id": {
           "type": [
@@ -14895,7 +14974,8 @@
             "null"
           ],
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Row id of its artwork inside this export, `None` when it has none."
         },
         "artwork_path": {
           "type": [
@@ -14938,19 +15018,51 @@
         "release_date",
         "artwork_id",
         "artwork_path"
-      ]
+      ],
+      "description": "A track: its tags as rekordbox keeps them, and where its files are on the drive. A text tag it\ndoesn't have is empty, a number it doesn't have 0."
     },
     "TrackColor": {
-      "type": "string",
-      "enum": [
-        "pink",
-        "red",
-        "orange",
-        "yellow",
-        "green",
-        "aqua",
-        "blue",
-        "purple"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "pink",
+          "description": "Pink, rekordbox's colour 1."
+        },
+        {
+          "type": "string",
+          "const": "red",
+          "description": "Red, rekordbox's colour 2."
+        },
+        {
+          "type": "string",
+          "const": "orange",
+          "description": "Orange, rekordbox's colour 3."
+        },
+        {
+          "type": "string",
+          "const": "yellow",
+          "description": "Yellow, rekordbox's colour 4."
+        },
+        {
+          "type": "string",
+          "const": "green",
+          "description": "Green, rekordbox's colour 5."
+        },
+        {
+          "type": "string",
+          "const": "aqua",
+          "description": "Aqua, rekordbox's colour 6."
+        },
+        {
+          "type": "string",
+          "const": "blue",
+          "description": "Blue, rekordbox's colour 7."
+        },
+        {
+          "type": "string",
+          "const": "purple",
+          "description": "Purple, rekordbox's colour 8."
+        }
       ],
       "description": "rekordbox's eight track colours."
     },
@@ -14960,7 +15072,8 @@
         "id": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Row id inside this export. Only meaningful within one export."
         },
         "parent_id": {
           "type": [
@@ -14972,15 +15085,18 @@
           "description": "`None` for top-level nodes."
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "Its name, as the tree shows it."
         },
         "is_folder": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether it's a folder, holding other nodes instead of tracks."
         },
         "sort_order": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Its place among the nodes in its folder: lowest first, then by id."
         },
         "track_ids": {
           "type": "array",
@@ -14999,7 +15115,8 @@
         "is_folder",
         "sort_order",
         "track_ids"
-      ]
+      ],
+      "description": "A playlist, or a folder of them: a node of the playlist tree."
     },
     "Page": {
       "type": "object",
@@ -15222,7 +15339,8 @@
         "start_ms": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Where it is (where a loop starts), in milliseconds from the start of the track."
         },
         "end_ms": {
           "type": [
@@ -15234,7 +15352,8 @@
           "description": "End of the loop, for loops."
         },
         "comment": {
-          "type": "string"
+          "type": "string",
+          "description": "Its comment, empty when it has none. Only the extended list has it."
         },
         "color": {
           "type": [
@@ -15248,7 +15367,8 @@
             "maximum": 255
           },
           "minItems": 3,
-          "maxItems": 3
+          "maxItems": 3,
+          "description": "Its colour as the file stores it, 8-bit RGB: `None` when the file stores none (or black).\nOnly the extended list has it."
         },
         "color_id": {
           "type": "integer",
@@ -15283,13 +15403,15 @@
         "color_id",
         "loop_beats",
         "active_loop"
-      ]
+      ],
+      "description": "A cue point: a hot cue, a memory cue or a loop."
     },
     "LoopBeats": {
       "type": "array",
       "prefixItems": [
         {
           "title": "numerator",
+          "description": "The top of the fraction: 4 in 4/1.",
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
@@ -15297,6 +15419,7 @@
         },
         {
           "title": "denominator",
+          "description": "The bottom of the fraction: 2 in 1/2.",
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
@@ -15321,7 +15444,8 @@
       "type": "object",
       "properties": {
         "style": {
-          "$ref": "#/$defs/WaveformStyle"
+          "$ref": "#/$defs/WaveformStyle",
+          "description": "The kind of waveform it was made from."
         },
         "columns_per_sec": {
           "type": [
@@ -15335,14 +15459,16 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/WaveColumn"
-          }
+          },
+          "description": "The columns, from the start of the track."
         }
       },
       "required": [
         "style",
         "columns_per_sec",
         "columns"
-      ]
+      ],
+      "description": "A waveform as drawn: columns of two layers each, from the start of the track."
     },
     "WaveformStyle": {
       "oneOf": [
@@ -15361,16 +15487,19 @@
           "const": "three_band",
           "description": "Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what\nanalyzer plugins give ([`Bands`])."
         }
-      ]
+      ],
+      "description": "Which kind of rekordbox waveform a [`Waveform`] was made from, which decides how it's drawn."
     },
     "WaveColumn": {
       "type": "object",
       "properties": {
         "back": {
-          "$ref": "#/$defs/WaveLayer"
+          "$ref": "#/$defs/WaveLayer",
+          "description": "Drawn first, behind `front`."
         },
         "front": {
-          "$ref": "#/$defs/WaveLayer"
+          "$ref": "#/$defs/WaveLayer",
+          "description": "Drawn over `back`. Of zero height when the column has one layer (blue waveforms, the colour\ndetail one)."
         }
       },
       "required": [
@@ -15396,7 +15525,8 @@
             "maximum": 255
           },
           "minItems": 3,
-          "maxItems": 3
+          "maxItems": 3,
+          "description": "Its colour, 8-bit RGB."
         }
       },
       "required": [
@@ -15763,11 +15893,13 @@
       "prefixItems": [
         {
           "title": "low",
+          "description": "The slowest tempo, in BPM.",
           "type": "number",
           "format": "double"
         },
         {
           "title": "high",
+          "description": "The fastest tempo, in BPM.",
           "type": "number",
           "format": "double"
         }
@@ -16066,7 +16198,8 @@
       "type": "object",
       "properties": {
         "kind": {
-          "$ref": "#/$defs/PhraseKind"
+          "$ref": "#/$defs/PhraseKind",
+          "description": "What kind of phrase it is."
         },
         "start_beat": {
           "type": "integer",
@@ -16079,7 +16212,8 @@
           "type": "integer",
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "The 1-based beat the phrase ends at, which isn't part of it."
         },
         "fill_beat": {
           "type": [
@@ -16097,7 +16231,8 @@
         "start_beat",
         "end_beat",
         "fill_beat"
-      ]
+      ],
+      "description": "A stretch of beats of one kind in a track's song structure."
     },
     "UndoPlan": {
       "type": "object",
@@ -16657,31 +16792,36 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/TrackRef"
-          }
+          },
+          "description": "Tracks only the newer export has."
         },
         "removed_tracks": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/TrackRef"
-          }
+          },
+          "description": "Tracks only the older export has."
         },
         "changed_tracks": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/TrackChange"
-          }
+          },
+          "description": "Tracks both have, whose details differ."
         },
         "added_playlists": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Paths of the playlists and folders only the newer export has (folders end in `/`)."
         },
         "removed_playlists": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Paths of the playlists and folders only the older export has (folders end in `/`)."
         },
         "changed_playlists": {
           "type": "array",
@@ -20731,25 +20871,31 @@
       "type": "object",
       "properties": {
         "key": {
-          "type": "string"
+          "type": "string",
+          "description": "The setting's key, such as `auto_cue`."
         },
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "The setting's name as rekordbox shows it."
         },
         "category": {
-          "$ref": "#/$defs/SettingCategory"
+          "$ref": "#/$defs/SettingCategory",
+          "description": "The group it belongs to."
         },
         "file": {
-          "$ref": "#/$defs/SettingsFile"
+          "$ref": "#/$defs/SettingsFile",
+          "description": "The file it's in."
         },
         "choices": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Choice"
-          }
+          },
+          "description": "The values it takes."
         },
         "default": {
-          "type": "string"
+          "type": "string",
+          "description": "The id of rekordbox's default choice."
         }
       },
       "required": [
@@ -20759,39 +20905,71 @@
         "file",
         "choices",
         "default"
-      ]
+      ],
+      "description": "One known setting: where it's stored and the values it takes."
     },
     "SettingCategory": {
-      "type": "string",
-      "enum": [
-        "player",
-        "display",
-        "mixer"
-      ]
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "player",
+          "description": "How a player plays and cues tracks."
+        },
+        {
+          "type": "string",
+          "const": "display",
+          "description": "A player's screens, lights and language, and how waveforms and keys show."
+        },
+        {
+          "type": "string",
+          "const": "mixer",
+          "description": "Mixer settings."
+        }
+      ],
+      "description": "The group a setting belongs to."
     },
     "SettingsFile": {
-      "type": "string",
-      "enum": [
-        "my_setting",
-        "my_setting2",
-        "djm_my_setting",
-        "dev_setting"
-      ]
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "my_setting",
+          "description": "`MYSETTING.DAT`: player settings."
+        },
+        {
+          "type": "string",
+          "const": "my_setting2",
+          "description": "`MYSETTING2.DAT`: newer player settings."
+        },
+        {
+          "type": "string",
+          "const": "djm_my_setting",
+          "description": "`DJMMYSETTING.DAT`: mixer settings."
+        },
+        {
+          "type": "string",
+          "const": "dev_setting",
+          "description": "`DEVSETTING.DAT`: waveform and key display."
+        }
+      ],
+      "description": "Which of the four settings files."
     },
     "Choice": {
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "description": "The value's id, such as `on` or `-36db`."
         },
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "The value as rekordbox shows it."
         }
       },
       "required": [
         "id",
         "label"
-      ]
+      ],
+      "description": "One value a setting takes."
     },
     "SettingsProfile": {
       "type": "object",
@@ -20876,19 +21054,22 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/SettingValue"
-          }
+          },
+          "description": "Each setting's value by key, for every setting in the files that were read."
         },
         "missing_files": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/SettingsFile"
-          }
+          },
+          "description": "The settings files that aren't there."
         },
         "problems": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "What's wrong with files that were there, for a person to read: a checksum that doesn't\nmatch, or a file that couldn't be read."
         },
         "undecoded": {
           "type": "array",
@@ -20903,12 +21084,14 @@
         "missing_files",
         "problems",
         "undecoded"
-      ]
+      ],
+      "description": "The settings read from a set of settings files."
     },
     "SettingValue": {
       "anyOf": [
         {
-          "type": "string"
+          "type": "string",
+          "description": "One of the setting's choices, by id."
         },
         {
           "type": "integer",
@@ -20917,13 +21100,15 @@
           "maximum": 255,
           "description": "A byte value not in the schema (newer firmware?). Preserved untouched."
         }
-      ]
+      ],
+      "description": "A setting's value as read from a file. In JSON, a choice id as a string, or an unknown byte as\na number."
     },
     "UndecodedByte": {
       "type": "object",
       "properties": {
         "file": {
-          "$ref": "#/$defs/SettingsFile"
+          "$ref": "#/$defs/SettingsFile",
+          "description": "The file the byte is in."
         },
         "offset": {
           "type": "integer",
@@ -20935,7 +21120,8 @@
           "type": "integer",
           "format": "uint8",
           "minimum": 0,
-          "maximum": 255
+          "maximum": 255,
+          "description": "The byte in the file."
         },
         "expected": {
           "type": "integer",
@@ -21026,22 +21212,26 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/SettingChange"
-          }
+          },
+          "description": "The settings that change. A file that's created lists every value given for it."
         },
         "files_written": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/SettingsFile"
-          }
+          },
+          "description": "The files that get new bytes, created ones included. A file can be here with no changes\nwhen only its checksum was repaired."
         },
         "files_created": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/SettingsFile"
-          }
+          },
+          "description": "The files that didn't exist and are created."
         },
         "dry_run": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether nothing was written: the report says what would change. [`changes`] leaves it\n`false` for the caller to set."
         }
       },
       "required": [
@@ -21049,16 +21239,19 @@
         "files_written",
         "files_created",
         "dry_run"
-      ]
+      ],
+      "description": "What applying a set of values to a set of settings files changes."
     },
     "SettingChange": {
       "type": "object",
       "properties": {
         "key": {
-          "type": "string"
+          "type": "string",
+          "description": "The setting's key."
         },
         "file": {
-          "$ref": "#/$defs/SettingsFile"
+          "$ref": "#/$defs/SettingsFile",
+          "description": "The file the setting is in."
         },
         "from": {
           "anyOf": [
@@ -21072,7 +21265,8 @@
           "description": "`None` when the file did not exist yet."
         },
         "to": {
-          "type": "string"
+          "type": "string",
+          "description": "The new value's choice id."
         }
       },
       "required": [
@@ -21080,7 +21274,8 @@
         "file",
         "from",
         "to"
-      ]
+      ],
+      "description": "One setting that applying a set of values changes or sets for the first time."
     },
     "DriveSettingsResult": {
       "type": "object",
@@ -22613,7 +22808,8 @@
           "description": "The drive it's about."
         },
         "level": {
-          "$ref": "#/$defs/Level"
+          "$ref": "#/$defs/Level",
+          "description": "How much it matters."
         },
         "check": {
           "type": "string",
@@ -23254,16 +23450,23 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "sample_rate",
-            "bit_depth",
-            "sample_rate_and_bit_depth"
-          ]
+          "const": "format",
+          "description": "It doesn't play the format at all."
         },
         {
           "type": "string",
-          "const": "format",
-          "description": "It doesn't play the format at all."
+          "const": "sample_rate",
+          "description": "It plays the format, but not at the file's sample rate."
+        },
+        {
+          "type": "string",
+          "const": "bit_depth",
+          "description": "It plays the format, but not at the file's bit depth."
+        },
+        {
+          "type": "string",
+          "const": "sample_rate_and_bit_depth",
+          "description": "It plays the format, but neither at the file's sample rate nor at its bit depth."
         }
       ],
       "description": "How a model gets on with a file."
@@ -23853,7 +24056,8 @@
           "description": "As AlphaTheta writes it: `CDJ-2000NXS2`, `OPUS-QUAD`."
         },
         "kind": {
-          "$ref": "#/$defs/Kind"
+          "$ref": "#/$defs/Kind",
+          "description": "What sort of equipment it is."
         },
         "export_pdb": {
           "$ref": "#/$defs/Spec_for_boolean",
@@ -23864,7 +24068,8 @@
           "description": "Reads OneLibrary (`exportLibrary.db`, called Device Library Plus before October 2025)."
         },
         "exfat": {
-          "$ref": "#/$defs/Spec_for_Exfat"
+          "$ref": "#/$defs/Spec_for_Exfat",
+          "description": "Whether it reads exFAT drives."
         },
         "audio": {
           "type": "array",
@@ -23899,7 +24104,8 @@
         "audio_inferred",
         "notes",
         "source"
-      ]
+      ],
+      "description": "What one player, all-in-one system or mixer reads from a USB drive."
     },
     "Kind": {
       "oneOf": [
@@ -23918,16 +24124,19 @@
           "const": "mixer",
           "description": "A mixer that reads USB drives for settings and firmware only."
         }
-      ]
+      ],
+      "description": "What sort of equipment a model is."
     },
     "Spec_for_boolean": {
       "type": "object",
       "properties": {
         "value": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "The value."
         },
         "inferred": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether no source confirms the value, so it's inferred (from a related model, say)."
         }
       },
       "required": [
@@ -23940,10 +24149,12 @@
       "type": "object",
       "properties": {
         "value": {
-          "$ref": "#/$defs/Exfat"
+          "$ref": "#/$defs/Exfat",
+          "description": "The value."
         },
         "inferred": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether no source confirms the value, so it's inferred (from a related model, say)."
         }
       },
       "required": [
@@ -23956,10 +24167,13 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "no",
-            "yes"
-          ]
+          "const": "no",
+          "description": "It doesn't."
+        },
+        {
+          "type": "string",
+          "const": "yes",
+          "description": "It does, with any firmware."
         },
         {
           "type": "object",
@@ -23981,7 +24195,8 @@
       "type": "object",
       "properties": {
         "codec": {
-          "$ref": "#/$defs/Codec"
+          "$ref": "#/$defs/Codec",
+          "description": "The format."
         },
         "rates": {
           "type": "array",
@@ -23989,7 +24204,8 @@
             "type": "integer",
             "format": "uint32",
             "minimum": 0
-          }
+          },
+          "description": "The sample rates it plays, in Hz."
         },
         "depths": {
           "type": "array",
@@ -23998,10 +24214,12 @@
             "format": "uint16",
             "minimum": 0,
             "maximum": 65535
-          }
+          },
+          "description": "The bit depths it plays. Lossy formats list 16, and their depth isn't checked."
         },
         "inferred": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether the rates and depths are inferred rather than documented."
         }
       },
       "required": [
@@ -24013,14 +24231,37 @@
       "description": "One audio format a model plays, at these sample rates (Hz) and bit depths."
     },
     "Codec": {
-      "type": "string",
-      "enum": [
-        "mp3",
-        "aac",
-        "wav",
-        "aiff",
-        "flac",
-        "alac"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "mp3",
+          "description": "MP3."
+        },
+        {
+          "type": "string",
+          "const": "aac",
+          "description": "AAC."
+        },
+        {
+          "type": "string",
+          "const": "wav",
+          "description": "WAV."
+        },
+        {
+          "type": "string",
+          "const": "aiff",
+          "description": "AIFF."
+        },
+        {
+          "type": "string",
+          "const": "flac",
+          "description": "FLAC."
+        },
+        {
+          "type": "string",
+          "const": "alac",
+          "description": "Apple Lossless."
+        }
       ],
       "description": "An audio format players list."
     },
@@ -24324,16 +24565,47 @@
       "description": "One partition (or, for disks without a partition table, the disk itself)."
     },
     "FsKind": {
-      "type": "string",
-      "enum": [
-        "fat12",
-        "fat16",
-        "fat32",
-        "exfat",
-        "hfsplus",
-        "apfs",
-        "ntfs",
-        "other"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "fat12",
+          "description": "FAT12."
+        },
+        {
+          "type": "string",
+          "const": "fat16",
+          "description": "FAT16."
+        },
+        {
+          "type": "string",
+          "const": "fat32",
+          "description": "FAT32."
+        },
+        {
+          "type": "string",
+          "const": "exfat",
+          "description": "exFAT."
+        },
+        {
+          "type": "string",
+          "const": "hfsplus",
+          "description": "HFS+ (Mac OS Extended)."
+        },
+        {
+          "type": "string",
+          "const": "apfs",
+          "description": "APFS."
+        },
+        {
+          "type": "string",
+          "const": "ntfs",
+          "description": "NTFS."
+        },
+        {
+          "type": "string",
+          "const": "other",
+          "description": "Any other file system."
+        }
       ],
       "description": "A file system found on a volume."
     },
@@ -34879,17 +35151,20 @@
               "const": "phase_start"
             },
             "phase": {
-              "$ref": "#/$defs/Phase"
+              "$ref": "#/$defs/Phase",
+              "description": "The phase that begins."
             },
             "items": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "How many items the phase will go through, or 0 when that isn't known."
             },
             "bytes": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "How many bytes the phase will process, or 0 when that isn't known."
             }
           },
           "required": [
@@ -34908,15 +35183,18 @@
               "const": "item"
             },
             "phase": {
-              "$ref": "#/$defs/Phase"
+              "$ref": "#/$defs/Phase",
+              "description": "The phase the item belongs to."
             },
             "path": {
-              "type": "string"
+              "type": "string",
+              "description": "The item's path, or a name for it when it isn't a file."
             },
             "bytes": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "The item's size in bytes, or 0 when that isn't known or doesn't apply."
             }
           },
           "required": [
@@ -34935,12 +35213,14 @@
               "const": "bytes"
             },
             "phase": {
-              "$ref": "#/$defs/Phase"
+              "$ref": "#/$defs/Phase",
+              "description": "The phase the bytes belong to."
             },
             "bytes": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "How many bytes were processed since the last `bytes` event."
             }
           },
           "required": [
@@ -34958,13 +35238,15 @@
               "const": "phase_end"
             },
             "phase": {
-              "$ref": "#/$defs/Phase"
+              "$ref": "#/$defs/Phase",
+              "description": "The phase that ended."
             }
           },
           "required": [
             "event",
             "phase"
-          ]
+          ],
+          "description": "A phase is done."
         },
         {
           "type": "object",
@@ -34974,29 +35256,55 @@
               "const": "warning"
             },
             "message": {
-              "type": "string"
+              "type": "string",
+              "description": "What went wrong, for a person to read."
             }
           },
           "required": [
             "event",
             "message"
-          ]
+          ],
+          "description": "Something went wrong that the operation carries on past."
         }
-      ]
+      ],
+      "description": "A progress event from a long-running operation. In JSON, `event` names the kind."
     },
     "Phase": {
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "scan",
-            "hash",
-            "copy",
-            "write",
-            "delete",
-            "verify",
-            "format"
-          ]
+          "const": "scan",
+          "description": "Going through items to see what there is or what needs doing (files, tracks, snapshots)."
+        },
+        {
+          "type": "string",
+          "const": "hash",
+          "description": "Reading files to hash their contents."
+        },
+        {
+          "type": "string",
+          "const": "copy",
+          "description": "Copying or transcoding files to their destination."
+        },
+        {
+          "type": "string",
+          "const": "write",
+          "description": "Writing databases, tags, artwork or other files."
+        },
+        {
+          "type": "string",
+          "const": "delete",
+          "description": "Deleting files."
+        },
+        {
+          "type": "string",
+          "const": "verify",
+          "description": "Reading files back to check they're intact."
+        },
+        {
+          "type": "string",
+          "const": "format",
+          "description": "Formatting a drive."
         },
         {
           "type": "string",
@@ -35033,7 +35341,8 @@
           "const": "measure",
           "description": "Timing writes to a drive, of scratch data that's removed after."
         }
-      ]
+      ],
+      "description": "The kind of work an [`Event`] belongs to, which a front end names in its progress display."
     },
     "StepStarted": {
       "type": "object",

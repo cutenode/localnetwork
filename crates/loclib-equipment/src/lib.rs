@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 use loclib_model::audio::Format;
 use serde::{Deserialize, Serialize};
@@ -8,13 +10,21 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum FsKind {
+    /// FAT12.
     Fat12,
+    /// FAT16.
     Fat16,
+    /// FAT32.
     Fat32,
+    /// exFAT.
     Exfat,
+    /// HFS+ (Mac OS Extended).
     Hfsplus,
+    /// APFS.
     Apfs,
+    /// NTFS.
     Ntfs,
+    /// Any other file system.
     Other,
 }
 
@@ -23,17 +33,25 @@ pub enum FsKind {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Codec {
+    /// MP3.
     Mp3,
+    /// AAC.
     Aac,
+    /// WAV.
     Wav,
+    /// AIFF.
     Aiff,
+    /// FLAC.
     Flac,
+    /// Apple Lossless.
     Alac,
 }
 
 impl Codec {
+    /// Every format.
     pub const ALL: [Codec; 6] = [Codec::Mp3, Codec::Aac, Codec::Wav, Codec::Aiff, Codec::Flac, Codec::Alac];
 
+    /// The format's name for people: `MP3`, `FLAC`.
     pub fn name(self) -> &'static str {
         match self {
             Codec::Mp3 => "MP3",
@@ -68,6 +86,7 @@ impl Codec {
 /// What a file name says about its format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FromPath {
+    /// That format.
     Codec(Codec),
     /// An MPEG-4 file: AAC or Apple Lossless.
     AacOrAlac,
@@ -75,6 +94,7 @@ pub enum FromPath {
     Unknown,
 }
 
+/// What sort of equipment a model is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -91,7 +111,9 @@ pub enum Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(rename = "Spec_for_{T}"))]
 pub struct Spec<T> {
+    /// The value.
     pub value: T,
+    /// Whether no source confirms the value, so it's inferred (from a related model, say).
     pub inferred: bool,
 }
 
@@ -104,7 +126,9 @@ const fn known<T>(value: T) -> Spec<T> {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Exfat {
+    /// It doesn't.
     No,
+    /// It does, with any firmware.
     Yes,
     /// With this firmware version or later.
     Firmware(&'static str),
@@ -114,22 +138,29 @@ pub enum Exfat {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Audio {
+    /// The format.
     pub codec: Codec,
+    /// The sample rates it plays, in Hz.
     pub rates: &'static [u32],
+    /// The bit depths it plays. Lossy formats list 16, and their depth isn't checked.
     pub depths: &'static [u16],
+    /// Whether the rates and depths are inferred rather than documented.
     pub inferred: bool,
 }
 
+/// What one player, all-in-one system or mixer reads from a USB drive.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Model {
     /// As AlphaTheta writes it: `CDJ-2000NXS2`, `OPUS-QUAD`.
     pub name: &'static str,
+    /// What sort of equipment it is.
     pub kind: Kind,
     /// Reads Device Library (`export.pdb`).
     pub export_pdb: Spec<bool>,
     /// Reads OneLibrary (`exportLibrary.db`, called Device Library Plus before October 2025).
     pub onelibrary: Spec<bool>,
+    /// Whether it reads exFAT drives.
     pub exfat: Spec<Exfat>,
     /// The formats it plays. A format missing from the list doesn't play.
     pub audio: &'static [Audio],
@@ -149,19 +180,25 @@ pub struct Model {
 pub enum Unplayable {
     /// It doesn't play the format at all.
     Format,
+    /// It plays the format, but not at the file's sample rate.
     SampleRate,
+    /// It plays the format, but not at the file's bit depth.
     BitDepth,
+    /// It plays the format, but neither at the file's sample rate nor at its bit depth.
     SampleRateAndBitDepth,
 }
 
 /// Whether a model plays a file, and whether that rests on an inferred value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Playback {
+    /// `Ok` when it plays the file, otherwise why not.
     pub result: Result<(), Unplayable>,
+    /// Whether the answer rests on an inferred value.
     pub inferred: bool,
 }
 
 impl Model {
+    /// Whether it's a mixer.
     pub fn is_mixer(&self) -> bool {
         self.kind == Kind::Mixer
     }
@@ -171,6 +208,7 @@ impl Model {
         self.onelibrary.value && !self.export_pdb.value
     }
 
+    /// What it plays of `codec`, or `None` when it doesn't play it.
     pub fn audio(&self, codec: Codec) -> Option<&'static Audio> {
         self.audio.iter().find(|a| a.codec == codec)
     }
@@ -561,6 +599,11 @@ pub fn find(name: &str) -> Option<&'static Model> {
 pub struct UnknownModels(pub Vec<String>);
 
 /// `names` as the table spells them, each once. Names it doesn't know are an error.
+///
+/// # Errors
+///
+/// [`UnknownModels`] with every name [`find`] doesn't know, when there are any. Blank names are
+/// skipped.
 pub fn canonical(names: &[String]) -> Result<Vec<String>, UnknownModels> {
     let mut out: Vec<String> = Vec::new();
     let mut unknown = Vec::new();
