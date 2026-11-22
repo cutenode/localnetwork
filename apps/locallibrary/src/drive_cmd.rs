@@ -10,7 +10,6 @@ use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, DriveRef};
 use locallibrary::compare::Relation;
-use locallibrary::drive_speed::MeasuredBy;
 use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
 use locallibrary::format::{FormatOptions, FormatPlan};
 use locallibrary::local_time;
@@ -19,6 +18,7 @@ use locallibrary::recordings::{CollectOptions, Tracklist};
 use locallibrary::scrub::ScrubReport;
 use locallibrary::space::{SpaceKind, SpaceReport};
 use locallibrary::tidy::TidyOptions;
+use loclib_drive_speed::MeasuredBy;
 
 use crate::completion::DriveOnly;
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};

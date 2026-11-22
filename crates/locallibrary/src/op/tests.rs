@@ -18,7 +18,8 @@ impl Operation for Plan {
 /// A plan's estimate is in what it says, and a write big enough corrects the rate behind it.
 #[test]
 fn an_estimate_is_said_and_a_big_write_learns_from_it() {
-    use crate::drive_speed::{self, DriveSpeed, MeasuredBy, Work};
+    use loclib_drive_speed::test_util::work;
+    use loclib_drive_speed::{self as drive_speed, DriveSpeed, MeasuredBy};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     std::fs::create_dir(root.join(paths::STATE_DIR)).unwrap();
@@ -33,9 +34,8 @@ fn an_estimate_is_said_and_a_big_write_learns_from_it() {
         link_bps: None,
         logged_bytes: None,
     };
-    let work = Work { bytes: 2 << 30, files: 1, folders: 0, ..Work::default() };
-    let estimate = drive_speed::WriteEstimate::new(work, Some(speed), None, None);
-    let said = estimate.lines();
+    let estimate = drive_speed::WriteEstimate::new(work(2 << 30, 1, 0), Some(speed), None, None);
+    let said = crate::api::estimate_lines(&estimate);
     let plan = Plan { tracks: 3, warnings: Vec::new() };
     let planned =
         Planned::new("test", plan, ()).estimated(Some(estimate)).touches(Touched::drive(&d, true, Vec::new()));
@@ -58,12 +58,12 @@ fn a_plan_without_an_estimate_says_none() {
 /// A plan's drive keeps what a test left once the plan is applied, and only then.
 #[test]
 fn applying_keeps_what_a_test_left_and_dropping_doesnt() {
-    use crate::drive_speed::{self, DriveNow, Work};
+    use loclib_drive_speed::test_util::work;
+    use loclib_drive_speed::{self as drive_speed, DriveNow};
     let plan_on = |root: &Path| {
         let d = Device::open(root).unwrap();
         let now = DriveNow { at: Utc::now(), logged_bytes: None, capacity: None, link_bps: None };
-        let work = Work { bytes: 64 << 20, files: 300, folders: 3, ..Work::default() };
-        let estimate = drive_speed::estimate(&d, work, &now, true, &Ctx::silent()).unwrap();
+        let estimate = drive_speed::estimate(&d, work(64 << 20, 300, 3), &now, true, &Ctx::silent()).unwrap();
         let plan = Plan { tracks: 3, warnings: Vec::new() };
         Planned::new("test", plan, ()).estimated(estimate).touches(Touched::drive(&d, true, Vec::new()))
     };

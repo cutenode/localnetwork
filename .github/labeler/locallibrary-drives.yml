@@ -17,8 +17,6 @@
           - "crates/locallibrary/src/format/**"
           - "crates/locallibrary/src/fscheck.rs"
           - "crates/locallibrary/src/fscheck/**"
-          - "crates/locallibrary/src/drive_speed.rs"
-          - "crates/locallibrary/src/drive_speed/**"
           - "crates/locallibrary/src/device.rs"
           - "crates/locallibrary/src/device/**"
           - "crates/locallibrary/src/tidy.rs"

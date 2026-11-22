@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use super::{resolve_drive, write_estimate};
 use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
 use crate::device::Device;
-use crate::drive_speed::Work;
 use crate::masterdb::{self, CloudFolders, Collection, CollectionInfo, DriveDiff, TagCategory};
 use crate::model::Library;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
+use loclib_drive_speed::Work;
 
 /// Which `master.db` to read, and how.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]

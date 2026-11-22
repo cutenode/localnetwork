@@ -2202,6 +2202,7 @@ dependencies = [
  "loclib-audio",
  "loclib-aup",
  "loclib-capacity",
+ "loclib-drive-speed",
  "loclib-equipment",
  "loclib-mixid",
  "loclib-model",
@@ -2342,6 +2343,21 @@ dependencies = [
  "loclib-progress",
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-drive-speed"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fs4",
+ "loclib-capacity",
+ "loclib-progress",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

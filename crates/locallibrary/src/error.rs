@@ -469,6 +469,20 @@ impl From<loclib_model::diff::NoSuchPlaylist> for Error {
     }
 }
 
+impl From<loclib_drive_speed::Error> for Error {
+    fn from(e: loclib_drive_speed::Error) -> Self {
+        use loclib_drive_speed::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            // What the drive's own writes failed with (`impl Drive for Device`), as they gave it.
+            E::Drive(e) => e.downcast::<Error>().unwrap_or_else(|e| Error::invalid(e.to_string())),
+            E::Cancelled(_) => Error::Cancelled,
+            // A variant a newer loclib-drive-speed adds keeps its message.
+            other => Error::invalid(other.to_string()),
+        }
+    }
+}
+
 impl From<loclib_progress::Cancelled> for Error {
     fn from(_: loclib_progress::Cancelled) -> Self {
         Error::Cancelled

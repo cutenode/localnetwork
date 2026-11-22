@@ -11,7 +11,8 @@
 //!   their tracks in a library (the `loclib-tracklist` crate, re-exported).
 //! * [`smart`]: rule-based playlists kept in the store and written to drives as plain playlists.
 //! * [`pack`]: drives for a set, holding only chosen playlists of another drive.
-//! * [`drive_speed`]: how long a write to a drive will take, from what's measured on it.
+//! * how long a write to a drive will take, from what's measured on it: loclib-drive-speed's
+//!   numbers, which [`api`] words for plans.
 //! * [`settings`]: manage the player/mixer "My Settings" on every drive from one profile (the
 //!   files themselves are [`loclib_mysettings`]'s).
 //! * [`artwork`]: set and audit cover art on drives and in audio files.
@@ -73,7 +74,6 @@ pub mod convert;
 pub mod cue_edit;
 pub mod device;
 pub mod doctor;
-pub mod drive_speed;
 pub mod edit;
 pub mod eject;
 pub mod equipment;

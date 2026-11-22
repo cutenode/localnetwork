@@ -151,6 +151,7 @@ directories.workspace = true
 # The player plays the audio an Audacity project was exported to, rather than the project.
 loclib-aup = { workspace = true, optional = true }
 loclib-model.workspace = true
+loclib-drive-speed.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

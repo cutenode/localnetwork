@@ -117,6 +117,7 @@ loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }
 # A handle's `_atproto` TXT record, looked up with the DNS servers the system is set to use.
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
 loclib-aup = { workspace = true, features = ["schemars"] }
+loclib-drive-speed = { workspace = true, features = ["schemars"] }
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }
@@ -138,6 +139,7 @@ criterion.workspace = true
 loclib-testkit.workspace = true
 loclib-sqlcipher = { workspace = true, features = ["test-util"] }
 loclib-aup = { workspace = true, features = ["test-util"] }
+loclib-drive-speed = { workspace = true, features = ["test-util"] }
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

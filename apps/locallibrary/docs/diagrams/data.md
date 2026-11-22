@@ -105,7 +105,7 @@ flowchart TD
     build --> delete["Delete what's no longer used, record the<br/>new state, write collection.json, forget the journal"]
 ```
 
-Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
+Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`crates/loclib-drive-speed/src/lib.rs`](../../../../crates/loclib-drive-speed/src/lib.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
 
 ## Sets from histories and recordings
 

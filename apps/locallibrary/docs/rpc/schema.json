@@ -14486,7 +14486,8 @@
       "type": "object",
       "properties": {
         "work": {
-          "$ref": "#/$defs/Work"
+          "$ref": "#/$defs/Work",
+          "description": "What the write asks of the drive."
         },
         "speed": {
           "anyOf": [
@@ -14562,12 +14563,14 @@
         "bytes": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Bytes to write."
         },
         "files": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Files to make."
         },
         "folders": {
           "type": "integer",
@@ -14622,10 +14625,12 @@
         },
         "measured_at": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "When it was measured."
         },
         "measured_by": {
-          "$ref": "#/$defs/MeasuredBy"
+          "$ref": "#/$defs/MeasuredBy",
+          "description": "What measured it."
         },
         "link_bps": {
           "type": [
@@ -14643,7 +14648,7 @@
           ],
           "format": "uint64",
           "minimum": 0,
-          "description": "The drive's logged `bytes_written` then (see [`crate::fleet::DriveLog`])."
+          "description": "How many bytes the caller had logged written to the drive then, if it keeps count."
         }
       },
       "required": [
@@ -14668,7 +14673,8 @@
           "const": "write",
           "description": "A real write to the drive, whose rate replaced the test's."
         }
-      ]
+      ],
+      "description": "What measured a drive's speed."
     },
     "Limit": {
       "oneOf": [
@@ -14696,7 +14702,8 @@
             },
             "days": {
               "type": "integer",
-              "format": "int64"
+              "format": "int64",
+              "description": "Days since it was measured."
             }
           },
           "required": [
@@ -14715,7 +14722,8 @@
             "bytes": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "Bytes written since it was measured."
             }
           },
           "required": [
@@ -14734,12 +14742,14 @@
             "then": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "The link it was measured on."
             },
             "now": {
               "type": "integer",
               "format": "uint64",
-              "minimum": 0
+              "minimum": 0,
+              "description": "The link it's on now."
             }
           },
           "required": [

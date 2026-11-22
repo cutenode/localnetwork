@@ -25,7 +25,6 @@ use crate::compare::{self, Comparison, Relation, Side};
 use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
 use crate::doctor::Databases;
-use crate::drive_speed::Work;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::error::{Action, Reason};
 use crate::format::{self, DiskView, FormatOptions, FormatPlan, FormatReport};
@@ -40,6 +39,7 @@ use crate::settings::{self, DriveSettings, FlatSettings, SettingsProfile};
 use crate::store::{LibraryRecord, SnapshotInfo, Store, StoreStats};
 use crate::sync::{self, PullOptions, PullReport, PushOptions, SyncOptions, SyncPlan, SyncReport};
 use crate::{Error, Result, fsutil};
+use loclib_drive_speed::Work;
 
 // ---------------------------------------------------------------------------------------------
 // Drives

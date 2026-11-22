@@ -3281,6 +3281,7 @@ export type CloneTarget = {
 
 /** How long a write to a drive will take. */
 export type WriteEstimate = {
+  /** What the write asks of the drive. */
   work: Work;
   /** The result it's worked out from. `None`: the drive hasn't been measured. */
   speed: DriveSpeed | null;
@@ -3303,7 +3304,9 @@ export type WriteEstimate = {
 
 /** What a write asks of a drive. */
 export type Work = {
+  /** Bytes to write. */
   bytes: number;
+  /** Files to make. */
   files: number;
   /** Folders to make: those the files go in that the drive doesn't have. */
   folders: number;
@@ -3327,14 +3330,17 @@ export type DriveSpeed = {
    * is the rate past the drive's cache region, good for any size.
    */
   holds_for: number | null;
+  /** When it was measured. */
   measured_at: string;
+  /** What measured it. */
   measured_by: MeasuredBy;
   /** The USB link the drive was on then, in bits a second. */
   link_bps?: number | null;
-  /** The drive's logged `bytes_written` then (see [`crate::fleet::DriveLog`]). */
+  /** How many bytes the caller had logged written to the drive then, if it keeps count. */
   logged_bytes?: number | null;
 };
 
+/** What measured a drive's speed. */
 export type MeasuredBy =
   /** A timed write of a scratch file. */
   | "test"
@@ -3353,17 +3359,21 @@ export type Stale =
   /** Measured this many days ago. */
   | {
     reason: "old";
+    /** Days since it was measured. */
     days: number;
   }
   /** This many bytes written since, a capacity's worth or more. */
   | {
     reason: "worn";
+    /** Bytes written since it was measured. */
     bytes: number;
   }
   /** Measured on a link of `then` bits a second, and now on `now`. */
   | {
     reason: "moved";
+    /** The link it was measured on. */
     then: number;
+    /** The link it's on now. */
     now: number;
   };
 

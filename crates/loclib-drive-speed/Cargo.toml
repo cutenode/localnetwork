@@ -1,0 +1,44 @@
+[package]
+name = "loclib-drive-speed"
+description = "How long a write to a USB stick or SD card will take, from its rate, file and folder costs measured on it by a short test"
+readme = "README.md"
+keywords = ["usb", "drive", "speed", "estimate", "dj"]
+categories = ["filesystem", "hardware-support"]
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.localnetwork]
+labels = ["locallibrary: drives"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+chrono.workspace = true
+fs4.workspace = true
+hegeltest = { workspace = true, optional = true }
+loclib-capacity.workspace = true
+loclib-progress.workspace = true
+rustc-hash.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "std", "chrono04"], optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[features]
+# `JsonSchema` for the types a plan and a report carry.
+schemars = ["dep:schemars"]
+# `test_util`: ready-made results and work, and Hegel generators of them, for tests in this crate
+# and the ones built on it.
+test-util = ["dep:hegeltest"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true

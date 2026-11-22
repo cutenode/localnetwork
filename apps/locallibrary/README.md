@@ -179,6 +179,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   reads from a USB drive, with sources, also as JSON
 - [loclib-capacity](../../crates/loclib-capacity): catching fake-capacity USB sticks and cards by
   writing and reading back test regions across the whole disk
+- [loclib-drive-speed](../../crates/loclib-drive-speed): how long a write to a USB stick or card will
+  take, from its rate and its file and folder costs, measured on it by a short test
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
 - [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
@@ -299,6 +301,7 @@ flowchart LR
     core --> anlz["loclib-anlz<br/>analysis files"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> cap["loclib-capacity<br/>fake-capacity probe"]
+    core --> speed["loclib-drive-speed<br/>how long a write takes"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]

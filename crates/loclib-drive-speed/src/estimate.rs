@@ -1,13 +1,11 @@
-//! The sum itself: what a write asks of a drive, and what's said about how long it takes.
+//! The sum itself: what a write asks of a drive, and how long it takes.
 
 use std::path::Path;
 
 use rustc_hash::FxHashSet;
-use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::{DriveSpeed, Stale, TestTrace};
-use crate::op::bytes;
 
 /// Below both of these a write takes moments on anything, and nothing is said about it.
 const SMALL_BYTES: u64 = 64 << 20;
@@ -21,9 +19,12 @@ const LINK_BYTES_PER_BIT: f64 = 0.7 / 8.0;
 const NEAR_LINK: f64 = 0.8;
 
 /// What a write asks of a drive.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Work {
+    /// Bytes to write.
     pub bytes: u64,
+    /// Files to make.
     pub files: u64,
     /// Folders to make: those the files go in that the drive doesn't have.
     pub folders: u64,
@@ -39,7 +40,7 @@ pub struct Work {
 
 impl Work {
     /// The work of copying `copies` (paths below `root`, sizes) to the drive at `root`.
-    pub(crate) fn copying<'a>(root: &Path, copies: impl IntoIterator<Item = (&'a str, u64)>) -> Work {
+    pub fn copying<'a>(root: &Path, copies: impl IntoIterator<Item = (&'a str, u64)>) -> Work {
         let mut work = Work::default();
         let mut wanted: FxHashSet<&str> = FxHashSet::default();
         for (path, size) in copies {
@@ -68,16 +69,17 @@ impl Work {
     }
 
     /// What else the time depends on, as a line says it (`downloads`).
-    pub(crate) fn plus(self, what: &str) -> Work {
+    pub fn plus(self, what: &str) -> Work {
         Work { plus: Some(what.into()), slow_source: true, ..self }
     }
 
     /// The source isn't this computer's disk.
-    pub(crate) fn read_elsewhere(self) -> Work {
+    pub fn read_elsewhere(self) -> Work {
         Work { slow_source: true, ..self }
     }
 
-    pub(crate) fn matters(&self) -> bool {
+    /// Whether it's big enough for its time to be worth saying.
+    pub fn matters(&self) -> bool {
         self.bytes >= SMALL_BYTES || self.files >= SMALL_FILES
     }
 
@@ -92,7 +94,8 @@ impl Work {
 }
 
 /// Which of a write's costs is the bigger.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Limit {
     /// The drive's sustained rate: the bytes take longest.
@@ -102,8 +105,10 @@ pub enum Limit {
 }
 
 /// How long a write to a drive will take.
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct WriteEstimate {
+    /// What the write asks of the drive.
     pub work: Work,
     /// The result it's worked out from. `None`: the drive hasn't been measured.
     pub speed: Option<DriveSpeed>,
@@ -124,14 +129,16 @@ pub struct WriteEstimate {
     pub port_limit_bps: Option<u64>,
     /// The drive was timed for this plan, with a short test whose files are gone.
     pub ran_test: bool,
-    /// What the test left on a drive that had no `.locallibrary/`.
+    /// What the test left on a drive that had no state folder.
     #[serde(skip)]
-    #[schemars(skip)]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
     pub(crate) trace: Option<TestTrace>,
 }
 
 impl WriteEstimate {
-    pub(crate) fn new(work: Work, speed: Option<DriveSpeed>, stale: Option<Stale>, link_bps: Option<u64>) -> Self {
+    /// The estimate for `work` from `speed` (`None`: the drive hasn't been measured), which may no
+    /// longer hold for `stale`, on a USB link of `link_bps` bits a second if it's known.
+    pub fn new(work: Work, speed: Option<DriveSpeed>, stale: Option<Stale>, link_bps: Option<u64>) -> Self {
         let port_limit_bps = speed.as_ref().and_then(|s| link_bps.filter(|&link| near_link(s, link)));
         let timing = speed.as_ref().map(|s| {
             let (data, small) = (work.bytes_secs(s), work.small_files_secs(s));
@@ -152,7 +159,7 @@ impl WriteEstimate {
     }
 
     /// A write is going ahead, so what the test left on the drive stays.
-    pub(crate) fn keep(&self) {
+    pub fn keep(&self) {
         if let Some(trace) = &self.trace {
             trace.keep();
         }
@@ -162,78 +169,13 @@ impl WriteEstimate {
     pub(crate) fn drive_alone(&self) -> bool {
         !self.work.slow_source
     }
-
-    /// What a plan says about it: the estimate, then a line about the port if there's one to say.
-    pub fn lines(&self) -> Vec<String> {
-        let (Some(speed), Some(seconds)) = (&self.speed, self.seconds) else {
-            return vec!["time unknown: this drive hasn't been measured".into()];
-        };
-        let mostly = if self.limit == Some(Limit::Files) { ", mostly making files" } else { "" };
-        let plus = self.work.plus.as_deref().map(|p| format!(", plus {p}")).unwrap_or_default();
-        let rate = format!("drive writes ~{:.0} MB/s", speed.bytes_per_sec as f64 / 1e6);
-        let create = format!("{:.0} ms a file", speed.create_us as f64 / 1e3);
-        let stale = self.stale.map(|s| format!(", {}", stale_words(s))).unwrap_or_default();
-        let time = time_words(seconds, self.best_case);
-        let mut lines = vec![format!("{time}{mostly}{plus} ({rate}, {create}{stale})")];
-        if self.ran_test {
-            lines.push("ran a short test on this drive to time it, and removed its files".into());
-        }
-        if let Some(link) = self.port_limit_bps {
-            lines.push(format!(
-                "this port ({}) tops out near {:.0} MB/s, so a faster one may help",
-                link_name(link),
-                link_rate(link) / 1e6
-            ));
-        }
-        lines
-    }
 }
 
 fn near_link(speed: &DriveSpeed, link_bps: u64) -> bool {
     speed.bytes_per_sec as f64 >= NEAR_LINK * link_rate(link_bps)
 }
 
-fn link_rate(link_bps: u64) -> f64 {
+/// What a USB link of `link_bps` bits a second carries of data, in bytes a second.
+pub fn link_rate(link_bps: u64) -> f64 {
     link_bps as f64 * LINK_BYTES_PER_BIT
-}
-
-fn stale_words(stale: Stale) -> String {
-    match stale {
-        Stale::Old { days } => format!("measured {days} days ago"),
-        Stale::Worn { bytes: written } => format!("measured before {} of writes", bytes(written)),
-        Stale::Moved { then, .. } => format!("measured on a {} port", link_name(then)),
-    }
-}
-
-/// A USB link by what people call it.
-pub(crate) fn link_name(bps: u64) -> String {
-    match bps {
-        0..=12_000_000 => "USB 1".into(),
-        480_000_000 => "USB 2.0".into(),
-        bps => format!("USB 3, {} Gb/s", bps / 1_000_000_000),
-    }
-}
-
-/// A time as a plan says it, a best case as the least it could be.
-fn time_words(seconds: u64, best_case: bool) -> String {
-    match (seconds, best_case) {
-        (0..60, false) => "under a minute".into(),
-        (0..60, true) => "a minute or more".into(),
-        (_, false) => format!("about {}", duration(seconds)),
-        (_, true) => format!("at least {}", duration(seconds)),
-    }
-}
-
-/// `7 min`, `1 h 25 min`: as exact as a guess deserves.
-pub(crate) fn duration(seconds: u64) -> String {
-    match seconds {
-        0..3600 => format!("{} min", (seconds + 30) / 60),
-        _ => {
-            let fives = (seconds + 150) / 300;
-            match (fives / 12, fives % 12 * 5) {
-                (hours, 0) => format!("{hours} h"),
-                (hours, minutes) => format!("{hours} h {minutes} min"),
-            }
-        }
-    }
 }

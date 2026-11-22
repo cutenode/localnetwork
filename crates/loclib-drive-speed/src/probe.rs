@@ -1,16 +1,16 @@
 //! The timed test behind a [`super::DriveSpeed`]: a scratch file, then small files and folders, all
-//! in a folder in the drive's `.locallibrary/`, removed afterwards. A test cut off leaves it for the
-//! next one to remove.
+//! in a folder in the drive's [`Drive::state_dir`], removed afterwards. A test cut off leaves it for
+//! the next one to remove.
 
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use loclib_progress::{Ctx, Event, Phase};
+
 use crate::error::IoContext;
-use crate::format::capacity;
-use crate::progress::{Ctx, Event, Phase};
-use crate::{Error, Result, fsutil, library_write};
+use crate::{Drive, Error, Result};
 
 /// The most a test writes, and how long it writes for: a stick at 150 MB/s and a card at 16 both
 /// get several chunks.
@@ -88,7 +88,7 @@ pub(super) fn timed_write(
     for i in 0..count {
         ctx.check()?;
         // Fresh bytes each time: some controllers compress or skip what they've just seen.
-        capacity::pattern(i, nonce, chunk);
+        loclib_capacity::pattern(i, nonce, chunk);
         taken.push(write(chunk).map_err(|e| Error::Io { path: "drive".into(), source: e })?);
         ctx.emit(Event::Bytes { phase: Phase::Measure, bytes: size });
         if taken.iter().sum::<Duration>() >= WRITE_BUDGET {
@@ -121,17 +121,17 @@ fn each_us(start: Instant, items: usize) -> u64 {
     (start.elapsed().as_micros() / items.max(1) as u128) as u64
 }
 
-pub(super) fn scratch_path(root: &Path) -> PathBuf {
-    root.join(crate::paths::STATE_DIR).join("speed-test")
+pub(super) fn scratch_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("speed-test")
 }
 
 /// The scratch folder, removed when it's dropped however the test ends.
 struct Scratch(PathBuf);
 
 impl Scratch {
-    /// A new one on the drive at `root`, after what a test cut off left.
-    fn new(root: &Path) -> Result<Scratch> {
-        let dir = scratch_path(root);
+    /// A new one in the drive's `state_dir`, after what a test cut off left.
+    fn new(state_dir: &Path) -> Result<Scratch> {
+        let dir = scratch_path(state_dir);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir(&dir).at(&dir)?;
         Ok(Scratch(dir))
@@ -151,9 +151,9 @@ fn file_name(i: usize) -> String {
     }
 }
 
-/// Time the test on the drive at `root`, writing `limit` bytes at most.
-pub(super) fn run(root: &Path, limit: u64, ctx: &Ctx<'_>) -> Result<Costs> {
-    let scratch = Scratch::new(root)?;
+/// Time the test on `drive`, writing `limit` bytes at most.
+pub(super) fn run<D: Drive>(drive: &D, limit: u64, ctx: &Ctx<'_>) -> Result<Costs> {
+    let scratch = Scratch::new(&drive.state_dir())?;
     let rate = {
         let path = scratch.0.join("rate");
         let mut file = File::create(&path).at(&path)?;
@@ -176,27 +176,13 @@ pub(super) fn run(root: &Path, limit: u64, ctx: &Ctx<'_>) -> Result<Costs> {
     let files = scratch.0.join("files");
     std::fs::create_dir(&files).at(&files)?;
     let start = Instant::now();
-    let items: Vec<usize> = (0..ITEMS).collect();
-    // As a copy makes them: under their own names, several at a time. Past the budget the rest
-    // are left unmade, as `make_items` leaves them, and the time is shared by those made.
-    let (made, failed) = library_write::copy_each(
-        &items,
-        |_| SMALL_FILE.len() as u64,
-        |&i| {
-            ctx.check()?;
-            if !more(start, i) {
-                return Ok(None);
-            }
-            let path = files.join(file_name(i));
-            fsutil::write_for_drive(&path, &SMALL_FILE)?;
-            Ok(Some(path))
-        },
-    );
-    if let Some(e) = failed {
-        return Err(e);
-    }
-    let written: Vec<PathBuf> = made.into_iter().flatten().collect();
-    fsutil::flush(&written)?;
+    // As a copy makes them: through the caller's own writes, under their own names. Past the
+    // budget, or once cancelled, the rest are left unmade, as `make_items` leaves them, and the
+    // time is shared by those made.
+    let written = drive
+        .small_files(ITEMS, &|i| (ctx.check().is_ok() && more(start, i)).then(|| files.join(file_name(i))), &SMALL_FILE)
+        .map_err(Error::Drive)?;
+    ctx.check()?;
     let create_us = each_us(start, written.len());
     let folders = scratch.0.join("folders");
     std::fs::create_dir(&folders).at(&folders)?;

@@ -57,7 +57,7 @@ sequenceDiagram
     end
 ```
 
-Source: [`crates/locallibrary/src/op.rs`](../../../../crates/locallibrary/src/op.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/plugin/checks.rs`](../../../../crates/locallibrary/src/plugin/checks.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`src/output.rs`](../../src/output.rs)
+Source: [`crates/locallibrary/src/op.rs`](../../../../crates/locallibrary/src/op.rs), [`crates/locallibrary/src/commit.rs`](../../../../crates/locallibrary/src/commit.rs), [`crates/locallibrary/src/plugin/checks.rs`](../../../../crates/locallibrary/src/plugin/checks.rs), [`crates/loclib-drive-speed/src/lib.rs`](../../../../crates/loclib-drive-speed/src/lib.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`src/output.rs`](../../src/output.rs)
 
 ## A plan's life
 

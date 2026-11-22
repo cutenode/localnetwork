@@ -20,6 +20,9 @@ crates/loclib-equipment/    what each player, all-in-one system and mixer reads 
                             equipment.json is the table for other languages
 crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct patterns written across a whole
                             disk, highest first, read back from the device, and how much really keeps data
+crates/loclib-drive-speed/  how long a write to a drive will take: a short timed test of its rate and its
+                            file and folder costs, kept on the drive, the sum from them, and real writes
+                            correcting the rate (core's api/drive_speed.rs reaches drives for it and words it)
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
