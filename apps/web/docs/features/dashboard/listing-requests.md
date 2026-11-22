@@ -1,0 +1,3 @@
+# Asking to be listed
+
+A DJ asks staff to list them in Find DJs from their profile editor, once their profile has the DJ section on: a `list` request in the moderation space that names their profile and the version they asked with. Staff review it at `/admin/requests` like any other, seeing the profile as it is now, with a note when it changed since the request and when the same account manages a solo project, which would put them in Find DJs twice. Approving writes the root's `computer.localnetwork.listing.profile` for them and has HappyView read their profile again; `/admin/listings/<did>` (staff's Manage link on a profile) shows the listing and takes them out again. Both are audited.

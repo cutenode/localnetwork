@@ -1,0 +1,3 @@
+# Tools
+
+`/tools` lists Local Network's other tools, [locallibrary](../../../../locallibrary) and [localtoolbox](../../../../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is, and its `CHANGELOG.md` last when it has one. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](../../../README.md#tools-pages-and-hosts).

@@ -1,0 +1,3 @@
+# Bookings
+
+`/dashboard/bookings` sorts bookings by whose turn it is: Your turn, Waiting on them, Confirmed, and a collapsed Settled. Each row leads with its date, and Settled keeps how a booking ended, which includes a confirmed booking once its date has passed. A live booking whose date went by stays in its turn with a marker. The list comes from the site's own index, so it renders while the directory is slow or down, and the names of acts and listed DJs fill in when they arrive. In a thread, the show's terms and the status moves sit in a rail beside the conversation, or above it on smaller screens.
