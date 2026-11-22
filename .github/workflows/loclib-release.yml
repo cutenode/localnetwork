@@ -6,6 +6,9 @@ name: loclib release
 # that changes a loclib crate's Cargo.toml, `release-plz release` publishes each crate whose
 # version crates.io doesn't have yet, dependencies first, and tags it `<crate>-v<version>`.
 #
+# Until crates.io has a trusted publisher for this repository (set up by tools/crates-io.sh), it
+# turns the exchange down, and the run skips publishing with a notice instead of failing on main.
+#
 # Versions and changelogs change in ordinary pull requests (`release-plz update`, see "Releasing
 # crates" in apps/locallibrary/CONTRIBUTING.md). crates.io can't take a crate's first version
 # this way: tools/crates-io.sh publishes new crates and sets up their trusted publisher.
@@ -44,8 +47,33 @@ jobs:
           # release-plz reads the tags to find each crate's last release.
           fetch-depth: 0
           persist-credentials: false
-      - run: rustup toolchain install
-      - uses: release-plz/action@1fb72a9583c3601c197b3bd6fc6ce50d58e28ef3 # v0.5.148
+      # The exchange release-plz makes, tried first: crates.io answers 400 with "No Trusted
+      # Publishing config found" until the trusted publisher exists. Any other refusal fails the
+      # run. The token a success gets is revoked at once; release-plz gets its own.
+      - id: trusted
+        run: |
+          response="$RUNNER_TEMP/crates-io.json"
+          curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=crates.io" |
+            jq '{jwt: .value}' > "$RUNNER_TEMP/jwt.json"
+          status=$(curl -sS -o "$response" -w '%{http_code}' -H 'Content-Type: application/json' \
+            --data "@$RUNNER_TEMP/jwt.json" https://crates.io/api/v1/trusted_publishing/tokens)
+          rm "$RUNNER_TEMP/jwt.json"
+          if [ "$status" = 200 ]; then
+            token=$(jq -r .token "$response")
+            echo "::add-mask::$token"
+            curl -fsS -X DELETE -H "Authorization: Bearer $token" https://crates.io/api/v1/trusted_publishing/tokens
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          elif [ "$status" = 400 ] && jq -e 'any(.errors[]; .detail | startswith("No Trusted Publishing config found"))' "$response" > /dev/null; then
+            echo "::notice title=Not published::crates.io has no trusted publisher for this repository yet, so no loclib crate was published. tools/crates-io.sh sets one up."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error title=crates.io token exchange::HTTP $status: $(cat "$response")"
+            exit 1
+          fi
+      - if: steps.trusted.outputs.configured == 'true'
+        run: rustup toolchain install
+      - if: steps.trusted.outputs.configured == 'true'
+        uses: release-plz/action@1fb72a9583c3601c197b3bd6fc6ce50d58e28ef3 # v0.5.148
         with:
           command: release
         env:
