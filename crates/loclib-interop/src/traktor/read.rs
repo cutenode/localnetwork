@@ -77,13 +77,21 @@ pub struct Collection {
 /// A track (`COLLECTION`'s `ENTRY`): each field empty when the file doesn't say.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Entry {
+    /// `LOCATION`: where the audio file is.
     pub location: Location,
+    /// `TITLE`.
     pub title: String,
+    /// `ARTIST`.
     pub artist: String,
+    /// `ALBUM TITLE`.
     pub album: String,
+    /// `INFO GENRE`.
     pub genre: String,
+    /// `INFO LABEL`: the record label.
     pub label: String,
+    /// `INFO COMMENT`.
     pub comment: String,
+    /// `INFO REMIXER`.
     pub remixer: String,
     /// `INFO KEY`: the key as Traktor shows it, in the notation it was set to show.
     pub key_text: String,
@@ -104,6 +112,7 @@ pub struct Entry {
 /// A `CUE_V2`: a cue, a loop or another of Traktor's markers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Marker {
+    /// Its `TYPE`.
     pub kind: MarkerKind,
     /// Empty for Traktor's unnamed `n.n.`.
     pub name: String,
@@ -122,12 +131,17 @@ pub struct Marker {
 /// A marker's `TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerKind {
+    /// A cue point.
     Cue,
+    /// A Fade In marker.
     FadeIn,
+    /// A Fade Out marker.
     FadeOut,
+    /// A Load marker: where the track is cued when it's loaded.
     Load,
     /// A grid marker: a downbeat, from which the grid runs at its tempo.
     Grid,
+    /// A loop, `len_ms` long.
     Loop,
 }
 

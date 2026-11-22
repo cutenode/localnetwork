@@ -13,6 +13,10 @@ repository.workspace = true
 [package.metadata.localnetwork]
 labels = ["locallibrary: player"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 loclib-model.workspace = true
 image = { workspace = true, optional = true }

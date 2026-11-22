@@ -9821,10 +9821,15 @@ export type PluginImport = {
   sessions: ImportedSession[];
 };
 
+/** How many of a tracklist's entries were found, need a decision, or are missing. */
 export type ImportSummary = {
+  /** How many entries the list has. */
   entries: number;
+  /** How many matched one track. */
   found: number;
+  /** How many need a decision between candidates. */
   ambiguous: number;
+  /** How many matched nothing. */
   missing: number;
 };
 

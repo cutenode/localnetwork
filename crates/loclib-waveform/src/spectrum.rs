@@ -28,9 +28,11 @@ pub struct Spectrum<'a> {
     /// Each band's peak cap: its height, 0-1, then a value of the caller's own (how long it has
     /// been held, say) that isn't drawn.
     pub peaks: &'a [(f32, f32)],
+    /// Whether the bass goes in the middle with the highs spread out to both sides.
     pub mirror: bool,
     /// A colour washed over the bars (a cue just passed) and how strongly, 0-1.
     pub tint: Option<(Rgb, f32)>,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 
@@ -88,6 +90,7 @@ pub struct Scope<'a> {
     pub samples: &'a [f32],
     /// A colour washed over the trace (a cue just passed) and how strongly, 0-1.
     pub tint: Option<(Rgb, f32)>,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 

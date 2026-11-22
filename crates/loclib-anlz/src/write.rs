@@ -48,12 +48,14 @@ const PCP2_PADDING: usize = 40;
 pub struct CuePoint {
     /// `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ...
     pub hot_cue: Option<u8>,
+    /// Where the cue sits, in milliseconds from the start of the track.
     pub start_ms: u32,
     /// End of the loop, for loops.
     pub end_ms: Option<u32>,
     /// A quantised loop's length in beats, as numerator and denominator (4/1, 1/2...).
     #[cfg_attr(feature = "schemars", schemars(with = "Option<super::LoopBeats>"))]
     pub loop_beats: Option<(u16, u16)>,
+    /// The cue's name, empty for none. Only the `PCP2` lists store it.
     pub comment: String,
     /// Memory cue colour: a row of rekordbox's colour table (1 pink ... 8 purple), 0 for none.
     pub color_id: u8,
@@ -79,6 +81,7 @@ type PcptKey = (Option<u8>, u32, Option<u32>, bool);
 type Pcp2Key<'a> = (Option<u8>, u32, Option<u32>, Option<(u16, u16)>, &'a str, u8, u8, [u8; 3]);
 
 impl CuePoint {
+    /// Whether the cue is a loop: it has an end.
     pub fn is_loop(&self) -> bool {
         self.end_ms.is_some()
     }

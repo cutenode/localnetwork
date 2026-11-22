@@ -34794,22 +34794,26 @@
         "entries": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many entries the list has."
         },
         "found": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many matched one track."
         },
         "ambiguous": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many need a decision between candidates."
         },
         "missing": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many matched nothing."
         }
       },
       "required": [
@@ -34817,7 +34821,8 @@
         "found",
         "ambiguous",
         "missing"
-      ]
+      ],
+      "description": "How many of a tracklist's entries were found, need a decision, or are missing."
     },
     "PluginImported": {
       "type": "object",

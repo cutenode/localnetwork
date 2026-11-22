@@ -11,9 +11,11 @@ use crate::{Palette, Rgb};
 pub struct PhraseStrip<'a> {
     /// (start ms, end ms, name, colour), in order.
     pub phrases: &'a [(f64, f64, String, Rgb)],
+    /// The track's length in milliseconds. At 0 nothing is drawn.
     pub duration_ms: f64,
     /// 0-1.
     pub progress: f32,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 

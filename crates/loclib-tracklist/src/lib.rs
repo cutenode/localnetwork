@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 mod detection;
 mod m3u;
@@ -32,16 +34,30 @@ pub enum Error {
     /// A table names no title or file column in its first few rows. `found` is its first row,
     /// joined with ", ".
     #[error("no title or file column in the table's header (found: {found})")]
-    NoTitleColumn { found: String },
+    NoTitleColumn {
+        /// The table's first row, its fields joined with ", ".
+        found: String,
+    },
     /// An XML tag (or an attribute's value) runs to the end of the file.
     #[error("XML: unterminated tag on line {line}")]
-    UnterminatedTag { line: usize },
+    UnterminatedTag {
+        /// The 1-based line the tag starts on.
+        line: usize,
+    },
+    /// An XML attribute's value isn't in quotes.
     #[error("XML: unquoted attribute {attr} on line {line}")]
-    UnquotedAttribute { attr: String, line: usize },
+    UnquotedAttribute {
+        /// The attribute's name.
+        attr: String,
+        /// The 1-based line its tag starts on.
+        line: usize,
+    },
+    /// The file is XML without the `DJ_PLAYLISTS` element of a rekordbox export.
     #[error("not a rekordbox XML file (no DJ_PLAYLISTS element)")]
     NotRekordboxXml,
 }
 
+/// A `Result` whose error defaults to this crate's [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// What a tracklist file is.
@@ -72,26 +88,42 @@ pub struct Entry {
     pub line: usize,
     /// The text it came from (the line, CSV record or XML tag), for messages.
     pub raw: String,
+    /// The track's title. A list that names only a file gets the title from the file name.
     pub title: String,
     /// Empty when the list names none.
     pub artist: String,
+    /// The album, when the list names one.
     pub album: Option<String>,
     /// Mix / version name, when the list has a column for it ("Original Mix").
     pub mix: Option<String>,
+    /// The track's length in seconds, when the list gives one.
     pub duration_secs: Option<u32>,
     /// The file as the list names it, with `file://` URLs decoded (`/Users/me/Music/x.mp3`,
     /// `C:\Music\x.mp3`, `../x.mp3`).
     pub path: Option<String>,
+    /// The ISRC, when the list has a column for it.
     pub isrc: Option<String>,
 }
 
 /// Read a tracklist, detecting its format from `hint` (a file name or extension) and the content.
+///
+/// # Errors
+///
+/// [`Error::NoTitleColumn`] for a table without a title or file column in its first few rows, and
+/// [`Error::UnterminatedTag`], [`Error::UnquotedAttribute`] or [`Error::NotRekordboxXml`] for rekordbox
+/// XML that can't be read.
 pub fn parse(bytes: &[u8], hint: Option<&str>) -> Result<Vec<Entry>> {
     let text = text_of(bytes);
     parse_text(&text, detect_text(&text, hint))
 }
 
 /// Read a tracklist in a known format.
+///
+/// # Errors
+///
+/// [`Error::NoTitleColumn`] for a table without a title or file column in its first few rows, and
+/// [`Error::UnterminatedTag`], [`Error::UnquotedAttribute`] or [`Error::NotRekordboxXml`] for rekordbox
+/// XML that can't be read.
 pub fn parse_as(bytes: &[u8], format: Format) -> Result<Vec<Entry>> {
     parse_text(&text_of(bytes), format)
 }
@@ -103,17 +135,32 @@ pub fn detect(bytes: &[u8], hint: Option<&str>) -> Format {
 
 /// The entries of the playlist of a rekordbox XML file that `query` names (a folder path like
 /// `Sets/2026/Warmup`, see [`XmlLibrary::playlist`]), or none when no playlist is that.
+///
+/// # Errors
+///
+/// [`Error::UnterminatedTag`], [`Error::UnquotedAttribute`] or [`Error::NotRekordboxXml`] when
+/// `bytes` isn't rekordbox XML that can be read.
 pub fn xml_playlist(bytes: &[u8], query: &str) -> Result<Option<Vec<Entry>>> {
     Ok(parse_xml(&text_of(bytes), true)?.playlist(query))
 }
 
 /// A rekordbox XML file as a library: its collection's tracks with their tags, key, tempo, beat
 /// grid and cues, its playlists (folders aren't listed), and what was left out.
+///
+/// # Errors
+///
+/// [`Error::UnterminatedTag`], [`Error::UnquotedAttribute`] or [`Error::NotRekordboxXml`] when
+/// `bytes` isn't rekordbox XML that can be read.
 pub fn read_xml_library(bytes: &[u8]) -> Result<XmlLibrary> {
     parse_xml(&text_of(bytes), true)
 }
 
 /// [`read_xml_library`] without the playlists, for what only needs the tracks.
+///
+/// # Errors
+///
+/// [`Error::UnterminatedTag`], [`Error::UnquotedAttribute`] or [`Error::NotRekordboxXml`] when
+/// `bytes` isn't rekordbox XML that can be read.
 pub fn read_xml_collection(bytes: &[u8]) -> Result<XmlLibrary> {
     parse_xml(&text_of(bytes), false)
 }

@@ -11,6 +11,7 @@ pub struct Record<'a> {
     pub line: usize,
     /// The record's text, as in the file.
     pub raw: &'a str,
+    /// The record's fields, untrimmed, with CSV quoting removed.
     pub fields: Vec<String>,
 }
 

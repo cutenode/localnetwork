@@ -14,8 +14,11 @@ pub type PixelBuf = Vec<Option<Rgb>>;
 /// An image in half blocks: two pixels per cell, top in the foreground, bottom in the background.
 /// `None` pixels are transparent.
 pub struct Pixels<'a> {
+    /// The image's width in pixels, which is also its width in cells.
     pub width: u16,
+    /// The pixels, row-major, `width` to a row. A cell row takes two pixel rows.
     pub pixels: &'a [Option<Rgb>],
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 
