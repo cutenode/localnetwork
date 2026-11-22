@@ -235,8 +235,6 @@ fn apfs_volumes_come_from_their_container() {
     let apfs = &d.volumes[2];
     assert_eq!((apfs.filesystem, apfs.label.as_deref()), (Some(FsKind::Apfs), Some("Samples")));
     assert_eq!((apfs.size, apfs.mount.as_deref()), (421507072000, Some(Path::new("/Volumes/Samples"))));
-    // Players read the first partition, and don't read GUID partition tables.
-    assert_eq!(crate::format::players::assess_disk(&d).verdict, crate::format::Verdict::NoPlayers);
 }
 
 /// An SD card with its lock switch on, formatted FAT16 without a partition table: the file
@@ -705,7 +703,7 @@ fn prop_partition_schemes_follow_the_disks_content(tc: TestCase) {
 // -----------------------------------------------------------------------------------------
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools::FakeTools;
+use crate::test_util::FakeTools;
 
 #[cfg(unix)]
 const PLUTIL: [&str; 6] = ["-convert", "json", "-o", "-", "--", "-"];
@@ -907,18 +905,6 @@ fn prop_the_disks_listed_are_the_ones_diskutil_describes(tc: TestCase) {
     if let (Some(i), false) = (booted, boot.is_empty()) {
         assert!(listed[i].system && listed[i].problem(&[]).is_some());
     }
-    // On a Mac these are the disks offered for formatting: the external and removable ones.
-    // (Listing again takes as long again, so only for a single disk.)
-    #[cfg(target_os = "macos")]
-    if disks.len() == 1 {
-        let views = crate::format::list(&[]).unwrap();
-        let offered: Vec<&str> = views.iter().map(|v| v.disk.id.as_str()).collect();
-        let external: Vec<&str> = want.iter().filter(|d| d.removable && !d.internal).map(|d| d.id.as_str()).collect();
-        assert_eq!(offered, external);
-        for v in views {
-            assert_eq!((v.identity, v.problem), (v.disk.identity(), v.disk.problem(&[])));
-        }
-    }
 }
 
 /// Every name of a disk finds that disk, as diskutil describes it: its identifier as given, as
@@ -1013,88 +999,6 @@ fn prop_formatting_erases_then_finds_the_new_volume(tc: TestCase) {
     }
     assert_eq!(formatted.unwrap(), mount.map(PathBuf::from));
     assert!(asked[1..].iter().all(|c| ["info", "list"].contains(&c.args[0].as_str())), "{asked:?}");
-}
-
-/// Applying a plan formats the disk it was made for and no other: diskutil is asked about the
-/// disk again just before the erase, and when what is on it changed since the plan (its volume
-/// relabelled or resized, another disk under its identifier) nothing is erased and the plan is
-/// stale. Otherwise the planned erase runs, and the drive that was on the disk keeps its name and
-/// identity on the new volume.
-#[cfg(target_os = "macos")]
-#[hegel::test(test_cases = 15)]
-fn prop_a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
-    use crate::device::Device;
-    use crate::format::{FormatOptions, apply, plan};
-    let mut fake = FakeTools::new();
-    fake.echo("plutil", &PLUTIL);
-    let (old, new) = (fake.dir().join("old"), fake.dir().join("new"));
-    std::fs::create_dir(&old).unwrap();
-    std::fs::create_dir(&new).unwrap();
-    let name = tc.draw(gs::sampled_from(vec!["Main", "Backup", "Club"]));
-    let mut drive = Device::open(&old).unwrap();
-    let identity = drive.adopt(Some(name)).unwrap().id;
-    let (old, new) = (drive.root().to_path_buf(), new.canonicalize().unwrap());
-
-    let id = format!("disk{}", tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
-    let pid = format!("{id}s1");
-    let size = tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 40));
-    let info = |size: u64| {
-        json!({ "DeviceIdentifier": id, "ParentWholeDisk": id, "Content": "FDisk_partition_scheme", "MediaName": "Stick",
-                "Size": size, "DeviceBlockSize": 512, "Internal": false, "RemovableMediaOrExternalDevice": true,
-                "VirtualOrPhysical": "Physical", "BusProtocol": "USB", "WritableMedia": true })
-        .to_string()
-    };
-    let listing = |label: &str, size: u64, mount: &Path| {
-        let part = json!({ "DeviceIdentifier": pid, "Content": "Windows_FAT_32", "Size": size, "VolumeName": label,
-                "MountPoint": mount });
-        json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": id, "Content": "FDisk_partition_scheme",
-                "Partitions": [part] }] })
-    };
-    let pinfo = json!({ "DeviceIdentifier": pid, "ParentWholeDisk": id, "FilesystemType": "msdos",
-            "FilesystemName": "MS-DOS FAT32" });
-    let psize = size - (1 << 20);
-    let parts = FxHashMap::from_iter([(pid.clone(), pinfo.clone())]);
-    let disk = parse_disk(&serde_json::from_str(&info(size)).unwrap(), &listing("DNA", psize, &old), &parts, &[]);
-    let opts = FormatOptions {
-        filesystem: Some(tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]))),
-        ..FormatOptions::default()
-    };
-    let planned = plan(disk.clone(), &opts, None, &[], &Ctx::silent()).unwrap();
-    assert_eq!(planned.keeps_name.as_deref(), Some(name));
-
-    // What diskutil says just before the erase.
-    let change = tc.draw(gs::sampled_from(vec!["nothing", "label", "volume size", "disk"]));
-    let label = if change == "label" { "OTHER" } else { "DNA" };
-    let now_psize = if change == "volume size" { psize - 512 } else { psize };
-    fake.answer("diskutil", &["info", "-plist", &id], &info(if change == "disk" { size + 512 } else { size }));
-    fake.answer("diskutil", &["list", "-plist", &id], &listing(label, now_psize, &old).to_string());
-    fake.answer("diskutil", &["info", "-plist", &pid], &pinfo.to_string());
-    let target = Target {
-        filesystem: planned.filesystem,
-        label: planned.label.clone(),
-        cluster_size: planned.cluster_size,
-        default_cluster: true,
-    };
-    let erase = commands(&disk, &target).remove(0);
-    fake.then_after("diskutil", &erase.args.iter().map(String::as_str).collect::<Vec<_>>());
-    // And after it: the new volume, mounted.
-    fake.answer("diskutil", &["info", "-plist", &id], &info(size));
-    fake.answer("diskutil", &["list", "-plist", &id], &listing(&planned.label, psize, &new).to_string());
-    fake.answer("diskutil", &["info", "-plist", &pid], &pinfo.to_string());
-
-    let applied = apply(disk, &planned.identity, &opts, None, &[], &Ctx::silent());
-    let erased = fake.calls().contains(&erase);
-    if change != "nothing" {
-        assert!(matches!(applied, Err(Error::StalePlan(_))), "{change}: {applied:?}");
-        assert!(!erased, "{change}");
-        return;
-    }
-    let report = applied.unwrap();
-    assert!(erased);
-    assert_eq!((report.disk.as_str(), report.label.as_str()), (id.as_str(), planned.label.as_str()));
-    assert_eq!((report.mount.as_deref(), report.drive_name.as_deref()), (Some(new.as_path()), Some(name)));
-    let kept = Device::open(&new).unwrap();
-    assert_eq!((kept.state().unwrap().id, kept.name()), (identity, name.to_string()));
 }
 
 /// A lookup or a format diskutil can't see through fails, saying what went wrong: a volume whose

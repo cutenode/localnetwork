@@ -9749,11 +9749,22 @@
       ]
     },
     "Filesystem": {
-      "type": "string",
-      "enum": [
-        "fat32",
-        "exfat",
-        "hfsplus"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "fat32",
+          "description": "FAT32, which every player reads, written by [`fat32`] where the system's tools can't."
+        },
+        {
+          "type": "string",
+          "const": "exfat",
+          "description": "exFAT, for files of 4 GB and more."
+        },
+        {
+          "type": "string",
+          "const": "hfsplus",
+          "description": "HFS+ (Mac OS Extended), not journaled."
+        }
       ],
       "description": "File systems a drive can be formatted with."
     },
@@ -24449,23 +24460,27 @@
           "description": "Whole-disk device path."
         },
         "model": {
-          "type": "string"
+          "type": "string",
+          "description": "Vendor and product, as the OS names them."
         },
         "serial": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The serial number, where the OS can tell (on macOS, the USB device's)."
         },
         "size": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Bytes."
         },
         "sector_size": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Bytes per logical sector."
         },
         "bus": {
           "type": [
@@ -24479,7 +24494,8 @@
           "description": "External, removable or hot-pluggable."
         },
         "internal": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Built into the computer."
         },
         "system": {
           "type": "boolean",
@@ -24490,7 +24506,8 @@
           "description": "A disk image, loop device or virtual disk."
         },
         "read_only": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Write-protected (an SD card's lock switch, say)."
         },
         "scheme": {
           "anyOf": [
@@ -24507,7 +24524,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/Volume"
-          }
+          },
+          "description": "Its partitions, and on macOS the APFS volumes in them."
         }
       },
       "required": [
@@ -24524,16 +24542,11 @@
         "read_only",
         "scheme",
         "volumes"
-      ]
+      ],
+      "description": "A whole disk, as the OS's disk tools describe it."
     },
     "Scheme": {
       "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "other"
-          ]
-        },
         {
           "type": "string",
           "const": "mbr",
@@ -24548,8 +24561,14 @@
           "type": "string",
           "const": "apm",
           "description": "Apple partition map."
+        },
+        {
+          "type": "string",
+          "const": "other",
+          "description": "A partition table none of the above."
         }
-      ]
+      ],
+      "description": "A disk's partition table."
     },
     "Volume": {
       "type": "object",
@@ -24561,7 +24580,8 @@
         "size": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Bytes."
         },
         "filesystem": {
           "anyOf": [
@@ -24571,7 +24591,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The file system on it, when there is one the OS recognises."
         },
         "filesystem_name": {
           "type": [
@@ -24584,13 +24605,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The volume label."
         },
         "mount": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Where it's mounted."
         },
         "cluster_size": {
           "type": [
@@ -24598,13 +24621,15 @@
             "null"
           ],
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Bytes per cluster, where the OS says."
         },
         "uuid": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The volume's or partition's UUID (a FAT serial number, a GPT GUID...)."
         }
       },
       "required": [

@@ -1,19 +1,22 @@
 //! Windows: the Storage cmdlets (PowerShell) partition the disk and create exFAT. FAT32 is
-//! written by [`loclib_format::fat32`], because Windows refuses to create FAT32 volumes above 32 GB.
+//! written by [`super::fat32`], because Windows refuses to create FAT32 volumes above 32 GB.
 //! Needs an elevated (administrator) process.
+//!
+//! What's public here is for other code that drives Windows' tools: quoting a string for a
+//! PowerShell script, and a drive root's letter.
 
 use std::path::{Path, PathBuf};
 
 use base64::prelude::*;
-use loclib_format::fat32;
+use loclib_equipment::FsKind;
+use loclib_progress::{Ctx, Phase};
 use serde_json::Value;
 
-use super::{Cmd, Disk, Filesystem, FsKind, Scheme, Target, Volume, json};
-use crate::progress::{Ctx, Phase};
+use super::{Cmd, Disk, Filesystem, Scheme, Target, Volume, fat32, json};
 use crate::{Error, Result};
 
 /// The new volume gets a drive letter.
-pub const MOUNTS_AFTER_FORMAT: bool = true;
+pub(crate) const MOUNTS_AFTER_FORMAT: bool = true;
 
 const LIST_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
@@ -60,11 +63,11 @@ fn parse_disks(text: &str) -> Result<Vec<Disk>> {
     Ok(json::array(Some(&v)).into_iter().map(parse_disk).collect())
 }
 
-pub fn list() -> Result<Vec<Disk>> {
+pub(crate) fn list() -> Result<Vec<Disk>> {
     all_disks()
 }
 
-pub fn by_id(spec: &str) -> Result<Option<Disk>> {
+pub(crate) fn by_id(spec: &str) -> Result<Option<Disk>> {
     let s = spec.trim_start_matches(r"\\.\");
     let Some(n) = s.strip_prefix("PhysicalDrive").or_else(|| s.strip_prefix("PHYSICALDRIVE")) else { return Ok(None) };
     let n: u32 = n.parse().map_err(|_| Error::invalid(format!("not a disk: {spec:?}")))?;
@@ -72,11 +75,11 @@ pub fn by_id(spec: &str) -> Result<Option<Disk>> {
 }
 
 /// Windows doesn't say, so a plan goes by the drive alone.
-pub fn link_speed(_: &Disk) -> Option<u64> {
+pub(crate) fn link_speed(_: &Disk) -> Option<u64> {
     None
 }
 
-pub fn by_mount(path: &Path) -> Result<Disk> {
+pub(crate) fn by_mount(path: &Path) -> Result<Disk> {
     let letter = root_letter(path)?;
     all_disks()?
         .into_iter()
@@ -85,7 +88,7 @@ pub fn by_mount(path: &Path) -> Result<Disk> {
 }
 
 /// The letter of the drive whose root is `root` (`E:\` -> `E`), refusing any other path.
-pub(crate) fn root_letter(root: &Path) -> Result<char> {
+pub fn root_letter(root: &Path) -> Result<char> {
     drive_letter(root)
         .ok_or_else(|| Error::invalid(format!("{} is not the root of a drive (like E:\\)", root.display())))
 }
@@ -150,7 +153,7 @@ pub(super) fn parse_disk(d: &Value) -> Disk {
     }
 }
 
-pub fn supports(fs: Filesystem) -> Result<()> {
+pub(crate) fn supports(fs: Filesystem) -> Result<()> {
     if fs == Filesystem::Hfsplus {
         return Err(Error::invalid("Windows can't create HFS+ volumes; use FAT32 or exFAT, or format on a Mac"));
     }
@@ -158,7 +161,7 @@ pub fn supports(fs: Filesystem) -> Result<()> {
 }
 
 /// `s` as a PowerShell string that takes it as it is.
-pub(crate) fn quote(s: &str) -> String {
+pub fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
@@ -194,7 +197,7 @@ ConvertTo-Json -Compress -InputObject ([pscustomobject]@{{ DriveLetter = [string
     )
 }
 
-pub fn steps(disk: &Disk, t: &Target) -> Result<Vec<String>> {
+pub(crate) fn steps(disk: &Disk, t: &Target) -> Result<Vec<String>> {
     let mut out = vec![format!(
         "PowerShell: Clear-Disk, Initialize-Disk -PartitionStyle MBR, New-Partition -UseMaximumSize, Format-Volume -FileSystem exFAT{} on disk {}",
         if t.filesystem == Filesystem::Exfat {
@@ -210,7 +213,7 @@ pub fn steps(disk: &Disk, t: &Target) -> Result<Vec<String>> {
     Ok(out)
 }
 
-pub fn format(disk: &Disk, t: &Target, ctx: &Ctx<'_>) -> Result<Option<PathBuf>> {
+pub(crate) fn format(disk: &Disk, t: &Target, ctx: &Ctx<'_>) -> Result<Option<PathBuf>> {
     super::require_write_access(&disk.device, "run it as an administrator")?;
     ctx.phase_start(Phase::Format, 0, 0);
     let out = powershell(&partition_script(disk, t)).run()?;

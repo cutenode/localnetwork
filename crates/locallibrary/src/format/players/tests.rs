@@ -14,7 +14,7 @@ fn verdicts() {
 
 #[test]
 fn players_read_the_first_partition() {
-    let mut d = crate::format::tests::sample_disk();
+    let mut d = loclib_format::test_util::sample_disk();
     let mut second = d.volumes[0].clone();
     second.filesystem = Some(FsKind::Ntfs);
     d.volumes.push(second);
@@ -57,7 +57,7 @@ fn partition_tables_and_size_matter_once_the_file_system_is_read() {
 
 #[test]
 fn disks_without_partitions_or_with_case_sensitive_hfs_are_doubted() {
-    let mut d = crate::format::tests::sample_disk();
+    let mut d = loclib_format::test_util::sample_disk();
     d.volumes[0].filesystem = Some(FsKind::Hfsplus);
     d.volumes[0].filesystem_name = Some("Mac OS Extended (Case-sensitive)".into());
     let c = assess_disk(&d);
@@ -87,7 +87,7 @@ const SCHEMES: [Option<Scheme>; 5] =
 #[hegel::test(test_cases = 300)]
 fn prop_every_layout_gets_its_verdict(tc: TestCase) {
     let scheme = tc.draw(gs::sampled_from(SCHEMES.to_vec()));
-    let all = crate::format::tests::FS_KINDS.map(Some);
+    let all = loclib_format::test_util::FS_KINDS.map(Some);
     let fs = tc.draw(gs::sampled_from([&[None][..], &all[..]].concat()));
     let size = tc.draw(hegel::one_of!(
         gs::integers::<u64>(),
@@ -118,7 +118,7 @@ fn prop_every_layout_gets_its_verdict(tc: TestCase) {
 /// partitions works on none.
 #[hegel::test(test_cases = 300)]
 fn prop_disks_are_judged_by_their_first_partition(tc: TestCase) {
-    let disk = crate::format::tests::any_disk(&tc);
+    let disk = loclib_format::test_util::any_disk(&tc);
     let c = assess_disk(&disk);
     let Some(first) = disk.volumes.first() else {
         assert_eq!((c.verdict, c.summary.as_str()), (Verdict::NoPlayers, "no partitions"));
@@ -139,7 +139,7 @@ fn prop_disks_are_judged_by_their_first_partition(tc: TestCase) {
 /// however the system spells that, and the doubt says why; any other one keeps its verdict.
 #[hegel::test(test_cases = 100)]
 fn prop_case_sensitive_hfs_is_doubted_in_any_spelling(tc: TestCase) {
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = loclib_format::test_util::sample_disk();
     let sensitive = tc.draw(gs::booleans());
     let name = if sensitive {
         let word: String = "case-sensitive"

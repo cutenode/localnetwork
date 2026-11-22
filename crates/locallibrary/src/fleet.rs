@@ -401,7 +401,7 @@ pub fn set_volume_label(root: &Path, name: &str) -> Result<String> {
     crate::device::disks_shown()?;
     let label = loclib_format::fat32::sanitize_label(name, "REKORDBOX");
     #[cfg(target_os = "macos")]
-    let cmd = crate::format::Cmd::new("diskutil", &["rename", &root.to_string_lossy(), &label]);
+    let cmd = loclib_format::Cmd::new("diskutil", &["rename", &root.to_string_lossy(), &label]);
     #[cfg(windows)]
     let cmd = windows_label_command(root, &label)?;
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -420,10 +420,10 @@ pub fn set_volume_label(root: &Path, name: &str) -> Result<String> {
 
 /// Windows: `Set-Volume`, for the drive whose root is `root` (`E:\`).
 #[cfg_attr(not(windows), allow(dead_code))]
-fn windows_label_command(root: &Path, label: &str) -> Result<crate::format::Cmd> {
-    use crate::format::windows::{quote, root_letter};
+fn windows_label_command(root: &Path, label: &str) -> Result<loclib_format::Cmd> {
+    use loclib_format::windows::{quote, root_letter};
     let script = format!("Set-Volume -DriveLetter {} -NewFileSystemLabel {}", root_letter(root)?, quote(label));
-    Ok(crate::format::Cmd::new("powershell", &["-NoProfile", "-Command", &script]))
+    Ok(loclib_format::Cmd::new("powershell", &["-NoProfile", "-Command", &script]))
 }
 
 /// Remove a drive from the registry. Its own identity file is untouched: it is registered again

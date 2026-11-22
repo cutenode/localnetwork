@@ -4163,6 +4163,7 @@ dependencies = [
  "loclib-audio",
  "loclib-aup",
  "loclib-capacity",
+ "loclib-disk",
  "loclib-drive-speed",
  "loclib-equipment",
  "loclib-format",
@@ -4491,6 +4492,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-disk"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-format",
+ "tempfile",
+]
+
+[[package]]
 name = "loclib-drive-speed"
 version = "0.1.0"
 dependencies = [
@@ -4523,12 +4533,20 @@ dependencies = [
 name = "loclib-format"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "blake3",
  "chrono",
  "fatfs",
  "hegeltest",
+ "loclib-equipment",
  "loclib-progress",
  "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]

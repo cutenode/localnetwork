@@ -177,7 +177,7 @@ fn prop_under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// A drive's hardware is what the system says of the disk under it: the disk's model, serial
 /// number and size, and the UUID of the volume mounted at the drive's root. A folder the system
@@ -186,7 +186,7 @@ use crate::format::tests::fake_tools;
 #[hegel::test(test_cases = 6)]
 fn prop_a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     for dir in ["USB", "folder"] {
         std::fs::create_dir(fake.dir().join(dir)).unwrap();
     }
@@ -205,7 +205,7 @@ fn prop_a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestC
 #[hegel::test(test_cases = 8)]
 fn prop_a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     std::fs::create_dir(fake.dir().join("USB")).unwrap();
     let mut d = Device::open(fake.dir().join("USB")).unwrap();
     d.adopt(Some("USB")).unwrap();
@@ -238,7 +238,7 @@ fn prop_a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 10)]
 fn prop_relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let root = fake.dir().join("USB");
     let name: String = tc.draw(gs::text().alphabet("ab Zé:*.").max_size(16));
     let label = volume_label(&name);

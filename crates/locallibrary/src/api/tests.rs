@@ -8,7 +8,7 @@ fn a_format_never_erases_the_disk_holding_the_store_it_is_given() {
     let dir = tempfile::tempdir().unwrap();
     // As the OS reports it (`E:\` on Windows, which `canonicalize` would make `\\?\E:\`).
     let mount = device::dunce_canonicalize(dir.path());
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = loclib_format::test_util::sample_disk();
     disk.volumes[0].mount = Some(mount.clone());
     let req = FormatRequest { drive: "disk4".into(), options: FormatOptions::default() };
     let ctx = Ctx::silent();
@@ -38,7 +38,7 @@ fn a_format_keeps_archive_and_retired_drives_unless_allowed() {
     vault.adopt(Some("Vault")).unwrap();
     sync::register_drive(&store, &vault, None).unwrap();
     let id = vault.id().unwrap();
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = loclib_format::test_util::sample_disk();
     disk.volumes[0].mount = Some(mount);
     let req = FormatRequest { drive: "disk4".into(), options: FormatOptions::default() };
     let plan = || plan_format(store.root(), disk.clone(), &req, &Ctx::silent());
@@ -74,7 +74,7 @@ fn prop_a_format_is_refused_for_the_store_s_disk_and_kept_drives(tc: hegel::Test
     let (dir, elsewhere) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     std::fs::create_dir(dir.path().join("Disk")).unwrap();
     let mount = device::dunce_canonicalize(&dir.path().join("Disk"));
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = loclib_format::test_util::sample_disk();
     disk.volumes[0].mount = Some(mount.clone());
     let on_disk = tc.draw(gs::booleans());
     let depth: Vec<&str> =
@@ -220,7 +220,8 @@ fn prop_disks_stay_hidden_while_drives_are(tc: hegel::TestCase) {
     let drive =
         tc.draw(gs::sampled_from(vec!["disk999".to_string(), "Backup".to_string(), dir.path().display().to_string()]));
     let req = FormatRequest { drive: drive.clone(), options: FormatOptions::default() };
-    let planned = plan_format(&dir.path().join("elsewhere"), crate::format::tests::sample_disk(), &req, &Ctx::silent());
+    let planned =
+        plan_format(&dir.path().join("elsewhere"), loclib_format::test_util::sample_disk(), &req, &Ctx::silent());
     crate::testing::volumes_on_this_thread(Some(vec![dir.path().join("volumes")]));
     let hidden = |e: Error| assert!(e.to_string().contains("LOCALLIBRARY_VOLUMES is set"), "{e}");
     hidden(list_disks(store.root()).unwrap_err());
@@ -236,11 +237,11 @@ fn prop_disks_stay_hidden_while_drives_are(tc: hegel::TestCase) {
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// A drive on a disk of its own, adopted and in the store: a store with it, and the drive.
 #[cfg(unix)]
-fn drive_on_a_disk(fake: &mut fake_tools::FakeTools, store_on_it: bool) -> (Store, Device) {
+fn drive_on_a_disk(fake: &mut FakeTools, store_on_it: bool) -> (Store, Device) {
     std::fs::create_dir(fake.dir().join("DNA")).unwrap();
     let mut d = Device::open(fake.dir().join("DNA")).unwrap();
     d.adopt(Some("DNA")).unwrap();
@@ -257,11 +258,11 @@ fn drive_on_a_disk(fake: &mut fake_tools::FakeTools, store_on_it: bool) -> (Stor
 #[hegel::test(test_cases = 10)]
 fn prop_a_drives_file_system_check_goes_in_its_logbook(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, false);
     let (volume, fs) = fake.volume_at(d.root(), "vfat", true);
     let repair = tc.draw(gs::booleans());
-    let steps = crate::fscheck::steps(d.root(), Some(&volume), Some(&fs), repair).unwrap();
+    let steps = loclib_disk::fscheck::steps(d.root(), Some(&volume), Some(&fs), repair).unwrap();
     let consistent = tc.draw(gs::booleans());
     for (i, c) in [steps.unmount.as_ref(), Some(&steps.check), steps.mount.as_ref()].into_iter().flatten().enumerate() {
         let args: Vec<&str> = c.args.iter().map(String::as_str).collect();
@@ -290,7 +291,7 @@ fn prop_a_drives_file_system_check_goes_in_its_logbook(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 10)]
 fn prop_ejecting_a_drive_is_planned_applied_and_counted(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let store_on_it = tc.draw(gs::weighted_booleans(0.3));
     let (store, d) = drive_on_a_disk(&mut fake, store_on_it);
     fake.volume_at(d.root(), "vfat", true);
@@ -331,7 +332,7 @@ fn prop_ejecting_a_drive_is_planned_applied_and_counted(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 10)]
 fn prop_a_drives_disk_is_formatted_as_planned_through_the_api(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, false);
     fake.volume_at(d.root(), "vfat", true);
     let drive = d.root().display().to_string();
@@ -379,7 +380,7 @@ fn prop_a_drives_disk_is_formatted_as_planned_through_the_api(tc: hegel::TestCas
 #[hegel::test(test_cases = 6)]
 fn prop_the_disk_holding_the_store_is_listed_as_not_to_be_formatted(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let store_on_it = tc.draw(gs::booleans());
     let (store, d) = drive_on_a_disk(&mut fake, store_on_it);
     fake.volume_at(d.root(), "vfat", true);
@@ -404,7 +405,7 @@ fn a_provision_plan_keeps_the_formats_warnings_in_the_formats_plan() {
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let req = FormatRequest { drive: "disk4".into(), options: FormatOptions::default() };
     crate::format::THREAD_OS.with(|o| o.set(Some("linux")));
-    let format = plan_format(store.root(), crate::format::tests::sample_disk(), &req, &Ctx::silent());
+    let format = plan_format(store.root(), loclib_format::test_util::sample_disk(), &req, &Ctx::silent());
     crate::format::THREAD_OS.with(|o| o.set(None));
     let untested = "formatting hasn't been tested on Linux yet; check the result";
     // Copied from a drive, as the store has no library to write.
@@ -443,10 +444,10 @@ fn a_provision_plan_keeps_the_formats_warnings_in_the_formats_plan() {
 #[hegel::explicit_test_case(mounted = false, eject = false, ejects = false, confirmed = "the plan's")]
 fn prop_a_provision_formats_only_the_confirmed_disk(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, false);
     fake.volume_at(d.root(), "vfat", true);
-    let source = fake.demo_drive("Source");
+    let source = crate::format::tests::demo_drive(fake.dir(), "Source");
     let mounted = tc.draw(gs::weighted_booleans(0.8));
     let eject = tc.draw(gs::booleans());
     let ejects = tc.draw(gs::booleans());
@@ -540,8 +541,8 @@ fn prop_a_provision_formats_only_the_confirmed_disk(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 4)]
 fn prop_a_set_job_ejects_the_drive_once_it_is_checked(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
-    let root = device::dunce_canonicalize(&fake.demo_drive("DNA"));
+    let mut fake = FakeTools::new();
+    let root = device::dunce_canonicalize(&crate::format::tests::demo_drive(fake.dir(), "DNA"));
     for t in Device::open(&root).unwrap().library().unwrap().tracks {
         let audio = crate::paths::to_fs(&root, &crate::paths::key(&t.file_path));
         std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
@@ -583,7 +584,7 @@ fn prop_a_set_job_ejects_the_drive_once_it_is_checked(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 4)]
 fn prop_a_disk_to_format_is_found_by_its_identifier_too(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, false);
     fake.volume_at(d.root(), "vfat", true);
     let label = tc.draw(gs::optional(gs::sampled_from(vec!["GIG", "DNA 2"])));
@@ -606,7 +607,7 @@ fn prop_a_disk_to_format_is_found_by_its_identifier_too(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 6)]
 fn prop_the_default_store_s_disk_is_kept_too(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, true);
     fake.volume_at(d.root(), "vfat", true);
     let given = fake.dir().join("elsewhere");

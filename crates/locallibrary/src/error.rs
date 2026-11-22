@@ -569,6 +569,10 @@ impl From<loclib_format::Error> for Error {
         match e {
             E::Io { path, source } => Error::Io { path, source },
             E::Invalid(message) => Error::Invalid(message),
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::NotFound(what) => Error::NotFound(what),
+            E::External { command, message } => Error::External { command, message },
+            E::Permission(message) => Error::Permission(message),
             E::Cancelled(_) => Error::Cancelled,
             // A variant a newer loclib-format adds keeps its message.
             other => Error::Invalid(other.to_string()),

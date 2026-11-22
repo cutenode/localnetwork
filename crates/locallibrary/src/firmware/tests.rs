@@ -182,7 +182,7 @@ fn prop_an_update_goes_in_alone_when_its_model_wants_that(tc: hegel::TestCase) {
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// An update's drive is judged by its disk as the system describes it: a partition table other
 /// than MBR is a problem for every model, and so is a file system the model doesn't take updates
@@ -191,7 +191,7 @@ use crate::format::tests::fake_tools;
 #[hegel::test(test_cases = 20)]
 fn prop_an_update_drive_is_judged_by_its_disk(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     std::fs::create_dir(fake.dir().join("USB")).unwrap();
     let d = Device::open(fake.dir().join("USB")).unwrap();
     let name = tc.draw(gs::sampled_from(MODELS.iter().map(|m| format!("{}100.UPD", m.prefix)).collect::<Vec<_>>()));
@@ -227,7 +227,7 @@ fn prop_an_update_drive_is_judged_by_its_disk(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 12)]
 fn prop_an_update_names_what_its_model_takes_and_needs_room(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     std::fs::create_dir(fake.dir().join("USB")).unwrap();
     let mut d = Device::open(fake.dir().join("USB")).unwrap();
     let model = tc.draw(gs::sampled_from(MODELS.to_vec()));

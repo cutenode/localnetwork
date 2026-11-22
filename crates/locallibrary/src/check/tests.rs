@@ -298,7 +298,7 @@ fn prop_a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCa
     ]));
     let name = tc.draw(gs::sampled_from(vec!["MS-DOS FAT32", "Mac OS Extended (Case-sensitive)", "exFAT", "NTFS"]));
     let volumes = tc.draw(gs::integers::<usize>().max_value(2));
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = loclib_format::test_util::sample_disk();
     disk.scheme = scheme;
     let template = disk.volumes[0].clone();
     disk.volumes = (0..volumes)
@@ -722,7 +722,7 @@ fn prop_each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// An export on a drive that is a volume of its own has its file system judged by the disk it is
 /// on, as players get on with it: FAT32 on MBR by every player, exFAT by some, nothing on a GUID
@@ -731,8 +731,8 @@ use crate::format::tests::fake_tools;
 #[hegel::test(test_cases = 8)]
 fn prop_a_drives_file_system_is_judged_by_its_disk(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
-    let d = Device::open(fake.demo_drive("DNA")).unwrap();
+    let mut fake = FakeTools::new();
+    let d = Device::open(crate::format::tests::demo_drive(fake.dir(), "DNA")).unwrap();
     let on_a_disk = tc.draw(gs::weighted_booleans(0.8));
     let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
     if on_a_disk {

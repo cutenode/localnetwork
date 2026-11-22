@@ -99,7 +99,7 @@ fn prop_only_addresses_and_files_that_can_be_opened_are_handed_over(tc: hegel::T
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// The system's opener gets exactly what was asked as its one argument (an address as parsed, a
 /// file by its absolute path, whatever its name), and nothing for a file that isn't there; when
@@ -108,7 +108,7 @@ use crate::format::tests::fake_tools;
 #[hegel::test(test_cases = 20)]
 fn prop_the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let name: String = tc.draw(gs::text().alphabet("ab -'\"$é").min_size(1).max_size(10));
     let kind = tc.draw(gs::sampled_from(vec!["address", "file", "missing file"]));
@@ -137,7 +137,7 @@ fn prop_the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
         assert!(matches!(opened, Err(Error::NotFound(_))) && ran.is_empty(), "{opened:?}");
         return;
     }
-    assert_eq!(ran, [crate::format::Cmd::new(program, &[&arg])]);
+    assert_eq!(ran, [loclib_format::Cmd::new(program, &[&arg])]);
     match opened {
         Ok(()) => assert!(opens),
         Err(Error::External { command, message }) => {
@@ -152,7 +152,7 @@ fn prop_the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
 #[cfg(all(unix, debug_assertions))]
 #[test]
 fn a_test_opens_nothing() {
-    let fake = fake_tools::FakeTools::new();
+    let fake = FakeTools::new();
     let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let file = fake.dir().join("page.html");
     std::fs::write(&file, "").unwrap();
@@ -176,7 +176,7 @@ fn a_test_opens_nothing() {
 #[hegel::test(test_cases = 10)]
 fn prop_a_missing_opener_is_named(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let fake = fake_tools::FakeTools::new();
+    let fake = FakeTools::new();
     let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let name: String = tc.draw(gs::text().alphabet("abc").min_size(1).max_size(8));
     let file = fake.dir().join(&name);

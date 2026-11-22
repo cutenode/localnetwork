@@ -367,14 +367,14 @@ fn prop_paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCas
     let fs = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     assert_eq!(supports(fs).is_err(), fs == Filesystem::Hfsplus);
     if let Err(e) = supports(fs) {
-        assert_eq!(e.code(), "invalid");
+        assert!(matches!(e, Error::Invalid(_)), "{e}");
     }
     #[cfg(not(windows))]
     {
         let layout = fat32::Layout::new(64 << 30, 512, 32 << 10, 2048).unwrap();
         let letter = tc.draw(gs::sampled_from(('A'..='Z').collect::<Vec<char>>()));
         let e = write_fat32(letter, &layout, "REKORDBOX", &Ctx::silent()).unwrap_err();
-        assert_eq!(e.code(), "invalid", "{e}");
+        assert!(matches!(e, Error::Invalid(_)), "{e}");
     }
 }
 
@@ -383,7 +383,7 @@ fn prop_paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCas
 // -----------------------------------------------------------------------------------------
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools::FakeTools;
+use crate::test_util::FakeTools;
 
 /// Tell `fake` how PowerShell answers `script`: with `out`, or failing with `err`.
 #[cfg(unix)]
@@ -499,7 +499,7 @@ fn prop_formatting_partitions_once_and_finds_the_drive_letter(tc: TestCase) {
         }
         // Outside Windows the FAT32 writer refuses.
         ("prints", Err(e)) if drive.is_some() => {
-            assert!(filesystem == Filesystem::Fat32 && e.code() == "invalid", "{e}")
+            assert!(filesystem == Filesystem::Fat32 && matches!(e, Error::Invalid(_)), "{e}")
         }
         ("prints", Err(Error::External { message, .. })) => assert_eq!(message, "no drive letter"),
         ("fails", Err(Error::External { message, .. })) => assert_eq!(message, "this is not the disk that was planned"),

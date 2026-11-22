@@ -4,9 +4,10 @@
 //! file system. [`players`] has what each file system and partition scheme works with, and
 //! why FAT32 on MBR is the default.
 //!
-//! The work is done by the operating system's own tools (`diskutil` on macOS, `sfdisk` and
-//! `mkfs.*` on Linux, the Storage cmdlets on Windows), except FAT32 on Windows: Windows refuses
-//! to create FAT32 above 32 GB, so loclib-format's [`fat32`] writer makes it.
+//! loclib-format finds the disks and does the work, with the operating system's own tools
+//! (`diskutil` on macOS, `sfdisk` and `mkfs.*` on Linux, the Storage cmdlets on Windows), except
+//! FAT32 on Windows: Windows refuses to create FAT32 above 32 GB, so its [`fat32`] writer makes
+//! it. This module decides what may be erased and plans the erase.
 //!
 //! Safety:
 //! * Only external or removable, physical, writable disks qualify. Disks holding the running
@@ -20,26 +21,10 @@
 pub use loclib_capacity as capacity;
 pub mod players;
 
-#[cfg_attr(any(not(unix), target_os = "macos"), allow(dead_code))]
-mod linux;
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-mod macos;
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) mod windows;
-
-#[cfg(all(unix, not(target_os = "macos")))]
-use linux as os;
-#[cfg(target_os = "macos")]
-use macos as os;
-#[cfg(windows)]
-use windows as os;
-
 use std::cell::Cell;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
-use loclib_format::fat32;
+use loclib_format::{Cmd, Target, fat32};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +36,8 @@ use crate::store::Store;
 use crate::{Error, Result};
 
 pub use loclib_equipment::FsKind;
+// What plans, listings and reports hold.
+pub use loclib_format::{Disk, Filesystem, Scheme, Volume};
 pub use players::{Compatibility, Verdict};
 
 thread_local! {
@@ -70,229 +57,13 @@ pub fn untested_here(what: &str) -> Option<String> {
     Some(format!("{what} hasn't been tested on {os} yet; check the result"))
 }
 
-/// Where the partition starts: 1 MiB, the alignment every modern tool uses.
-pub const PARTITION_START: u64 = 1 << 20;
-
 /// FAT32 stores file sizes in 32 bits.
 const FAT32_MAX_FILE: u64 = 1 << 32;
 
-/// File systems a drive can be formatted with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum Filesystem {
-    Fat32,
-    Exfat,
-    Hfsplus,
-}
-
-impl Filesystem {
-    pub fn name(self) -> &'static str {
-        match self {
-            Filesystem::Fat32 => "FAT32",
-            Filesystem::Exfat => "exFAT",
-            Filesystem::Hfsplus => "HFS+",
-        }
-    }
-
-    /// The cluster size used unless one is asked for: what Windows and macOS pick by default
-    /// (see [`players`] for why that is also the right choice for players).
-    pub fn default_cluster_size(self, volume_bytes: u64) -> u32 {
-        const MIB: u64 = 1 << 20;
-        match self {
-            Filesystem::Fat32 => fat32::default_cluster_size(volume_bytes),
-            Filesystem::Exfat if volume_bytes <= 256 * MIB => 4096,
-            Filesystem::Exfat if volume_bytes <= 32 * 1024 * MIB => 32 * 1024,
-            Filesystem::Exfat => 128 * 1024,
-            Filesystem::Hfsplus => 4096,
-        }
-    }
-
-    fn check_cluster_size(self, size: u32, sector: u32) -> Result<()> {
-        let ok = size.is_power_of_two()
-            && size >= sector
-            && match self {
-                Filesystem::Fat32 => size <= fat32::MAX_CLUSTER_SIZE,
-                Filesystem::Exfat => size <= 32 << 20,
-                Filesystem::Hfsplus => size == 4096,
-            };
-        if ok {
-            return Ok(());
-        }
-        Err(Error::invalid(match self {
-            Filesystem::Fat32 => format!("FAT32 clusters must be a power of two from {sector} bytes to 32 KB"),
-            Filesystem::Exfat => format!("exFAT clusters must be a power of two from {sector} bytes to 32 MB"),
-            Filesystem::Hfsplus => "HFS+ is always formatted with 4 KB blocks".into(),
-        }))
-    }
-
-    /// Make `name` a valid volume label for this file system.
-    pub fn label(self, name: &str) -> String {
-        const FALLBACK: &str = "REKORDBOX";
-        match self {
-            Filesystem::Fat32 => fat32::sanitize_label(name, FALLBACK),
-            Filesystem::Exfat => {
-                // The label holds 11 UTF-16 units: a character outside the BMP takes two.
-                let mut units = 0;
-                let s: String = name
-                    .chars()
-                    .map(|c| if c.is_control() || "\"*/:<>?\\|".contains(c) { '_' } else { c })
-                    .take_while(|c| {
-                        units += c.len_utf16();
-                        units <= 11
-                    })
-                    .collect();
-                let s = s.trim();
-                if s.is_empty() { FALLBACK.into() } else { s.into() }
-            }
-            Filesystem::Hfsplus => {
-                let s: String =
-                    name.chars().map(|c| if c == ':' || c.is_control() { '_' } else { c }).take(27).collect();
-                let s = s.trim();
-                if s.is_empty() { FALLBACK.into() } else { s.into() }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum Scheme {
-    /// Master Boot Record ("FDisk", "dos").
-    Mbr,
-    /// GUID partition table.
-    Gpt,
-    /// Apple partition map.
-    Apm,
-    Other,
-}
-
-/// One partition (or, for disks without a partition table, the disk itself).
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct Volume {
-    /// OS identifier: `disk4s1`, `/dev/sdb1`, `2:1` (disk:partition on Windows).
-    pub id: String,
-    pub size: u64,
-    pub filesystem: Option<FsKind>,
-    /// The file system as the OS names it ("MS-DOS FAT32", "vfat", "exFAT"...).
-    pub filesystem_name: Option<String>,
-    pub label: Option<String>,
-    pub mount: Option<PathBuf>,
-    pub cluster_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uuid: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct Disk {
-    /// OS identifier: `disk4` (macOS), `/dev/sdb` (Linux), `PhysicalDrive2` (Windows).
-    pub id: String,
-    /// Whole-disk device path.
-    pub device: String,
-    pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub serial: Option<String>,
-    pub size: u64,
-    pub sector_size: u32,
-    /// "USB", "SD"...
-    pub bus: Option<String>,
-    /// External, removable or hot-pluggable.
-    pub removable: bool,
-    pub internal: bool,
-    /// Holds the running operating system.
-    pub system: bool,
-    /// A disk image, loop device or virtual disk.
-    pub virtual_disk: bool,
-    pub read_only: bool,
-    /// `None` when the disk has no partition table.
-    pub scheme: Option<Scheme>,
-    pub volumes: Vec<Volume>,
-}
-
-impl Disk {
-    /// Fingerprint of what is on the disk, for confirming that the disk being formatted is the
-    /// one whose plan was shown. Mount points aren't included: they come and go.
-    pub fn identity(&self) -> String {
-        self.fingerprint(true)
-    }
-
-    /// [`Self::identity`], or with `volumes` false, of the disk alone (what a capacity test,
-    /// which overwrites the partition table, leaves as it was).
-    fn fingerprint(&self, volumes: bool) -> String {
-        let mut h = blake3::Hasher::new();
-        for s in [&self.id, &self.model, self.serial.as_deref().unwrap_or("")] {
-            h.update(s.as_bytes());
-            h.update(&[0]);
-        }
-        h.update(&self.size.to_le_bytes());
-        for v in self.volumes.iter().filter(|_| volumes) {
-            for s in [&v.id, v.uuid.as_deref().unwrap_or(""), v.label.as_deref().unwrap_or("")] {
-                h.update(s.as_bytes());
-                h.update(&[0]);
-            }
-            h.update(&v.size.to_le_bytes());
-            h.update(format!("{:?}", v.filesystem).as_bytes());
-        }
-        h.finalize().to_hex()[..16].to_string()
-    }
-
-    /// Why this disk must not be formatted, if it mustn't.
-    pub fn problem(&self, protected: &[PathBuf]) -> Option<String> {
-        if self.system {
-            return Some("it holds the running operating system".into());
-        }
-        // The disk image a test attached is let through, and nothing else: it's virtual, and on
-        // Linux (a loop device) not removable either.
-        let test_image = self.virtual_disk && is_test_image(&self.id);
-        if (self.internal || !self.removable) && !test_image {
-            return Some("it's an internal disk (only external and removable drives can be formatted)".into());
-        }
-        if self.virtual_disk && !test_image {
-            return Some("it's a disk image or virtual disk".into());
-        }
-        if self.read_only {
-            return Some("it's write-protected".into());
-        }
-        if self.volumes.iter().any(|v| v.mount.as_deref() == Some(Path::new("/"))) {
-            return Some("it holds the running operating system".into());
-        }
-        self.holding(protected).map(|(_, p)| format!("it holds {}", p.display()))
-    }
-
-    /// The first of `paths` on one of this disk's mounted volumes, and that volume's mount point.
-    pub fn holding<'a>(&'a self, paths: &'a [PathBuf]) -> Option<(&'a Path, &'a PathBuf)> {
-        let mounts = self.volumes.iter().filter_map(|v| v.mount.as_deref());
-        mounts.flat_map(|m| paths.iter().filter(move |p| p.starts_with(m)).map(move |p| (m, p))).next()
-    }
-
-    /// Display name: model and size.
-    pub fn describe(&self) -> String {
-        let model = if self.model.is_empty() { "Disk" } else { &self.model };
-        format!("{model} ({}, {})", self.id, crate::op::bytes(self.size))
-    }
-
-    /// Bytes available for the partition: the disk minus the 1 MiB lead-in.
-    pub fn partition_size(&self) -> u64 {
-        let usable = self.size.saturating_sub(PARTITION_START);
-        usable - usable % u64::from(self.sector_size.max(512))
-    }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// The whole-disk identifier of the disk image this test thread attached ([`disk_image`]),
-    /// the one virtual disk it may format.
-    pub(crate) static TEST_IMAGE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Whether `id` names the disk image this test thread attached. Never, outside tests.
-#[cfg(test)]
-fn is_test_image(id: &str) -> bool {
-    TEST_IMAGE.with_borrow(|t| t.as_deref() == Some(id))
-}
-
-#[cfg(not(test))]
-fn is_test_image(_: &str) -> bool {
-    false
+/// `disk`'s name to show: its model, identifier and size.
+pub fn describe(disk: &Disk) -> String {
+    let model = if disk.model.is_empty() { "Disk" } else { &disk.model };
+    format!("{model} ({}, {})", disk.id, crate::op::bytes(disk.size))
 }
 
 /// A disk, how players would get on with it as it is, and whether it can be formatted.
@@ -307,7 +78,7 @@ pub struct DiskView {
 
 /// External and removable disks.
 pub fn list(protected: &[PathBuf]) -> Result<Vec<DiskView>> {
-    Ok(views(os::list()?, protected))
+    Ok(views(loclib_format::list()?, protected))
 }
 
 /// The external and removable ones of `disks`, as [`list`] shows them.
@@ -327,7 +98,7 @@ fn views(disks: Vec<Disk>, protected: &[PathBuf]) -> Vec<DiskView> {
 /// The disk with this OS identifier (`disk4`, `/dev/sdb`, `PhysicalDrive2`). `None` if `spec`
 /// isn't shaped like one.
 pub fn disk_by_id(spec: &str) -> Result<Option<Disk>> {
-    os::by_id(spec)
+    Ok(loclib_format::by_id(spec)?)
 }
 
 /// The disk holding the volume mounted at `root`. Refused while `$LOCALLIBRARY_VOLUMES` hides
@@ -335,12 +106,12 @@ pub fn disk_by_id(spec: &str) -> Result<Option<Disk>> {
 /// this machine's own, and the system's disk tools don't run then.
 pub fn disk_at(root: &Path) -> Result<Disk> {
     crate::device::disks_shown()?;
-    os::by_mount(&root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))
+    Ok(loclib_format::by_mount(&root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))?)
 }
 
 /// The speed `disk`'s USB link came up at, in bits a second, where the system says (macOS, Linux).
 pub fn link_speed(disk: &Disk) -> Option<u64> {
-    os::link_speed(disk)
+    loclib_format::link_speed(disk)
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -420,14 +191,14 @@ pub fn plan(
     ctx: &Ctx<'_>,
 ) -> Result<FormatPlan> {
     if let Some(p) = disk.problem(protected) {
-        return Err(Error::invalid(format!("refusing to format {}: {p}", disk.describe())));
+        return Err(Error::invalid(format!("refusing to format {}: {p}", describe(&disk))));
     }
     let filesystem = opts.filesystem.unwrap_or(players::DEFAULT_FILESYSTEM);
-    os::supports(filesystem)?;
+    loclib_format::supports(filesystem)?;
     if disk.size >= loclib_equipment::MBR_MAX {
         return Err(Error::invalid(format!(
             "{} is larger than the 2 TiB an MBR partition table can address, and players need MBR; use a drive of 2 TB or less",
-            disk.describe(),
+            describe(&disk),
         )));
     }
     let partition_size = disk.partition_size();
@@ -493,7 +264,7 @@ pub fn plan(
         }
         erases.push(e);
     }
-    if !os::MOUNTS_AFTER_FORMAT {
+    if !loclib_format::MOUNTS_AFTER_FORMAT {
         keeps = None;
     }
     let label = filesystem.label(opts.label.as_deref().or(keeps.as_deref()).unwrap_or_else(|| {
@@ -509,7 +280,7 @@ pub fn plan(
         warnings.push("this drive won't work on every player (see above)".into());
     }
     warnings.extend(untested_here(if opts.check_capacity { "formatting with a capacity check" } else { "formatting" }));
-    let mut steps = os::steps(&disk, &target)?;
+    let mut steps = loclib_format::steps(&disk, &target)?;
     if opts.check_capacity {
         capacity_supported()?;
         steps.insert(
@@ -549,16 +320,6 @@ fn library_in_store(store: &Store, d: &Device, ctx: &Ctx<'_>) -> Result<bool> {
     let right = Side::from_device(d, ctx)?;
     // Identical, or the store is ahead: nothing on the drive is missing from the store.
     Ok(matches!(compare::compare(&left, &right).relation, Relation::Identical | Relation::LeftNewer))
-}
-
-/// What to create (the resolved [`FormatOptions`]).
-#[derive(Debug, Clone)]
-pub(crate) struct Target {
-    pub filesystem: Filesystem,
-    pub label: String,
-    pub cluster_size: u32,
-    /// The OS tools would pick this cluster size anyway.
-    pub default_cluster: bool,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -609,7 +370,7 @@ pub fn apply(
                 format!(
                     "{} is fake: it reports {} but only about the first {} keep their data ({} of {} test regions came back wrong). \
                  It wasn't formatted, and its previous contents are damaged where the test wrote. Return it.",
-                    plan.disk.describe(),
+                    describe(&plan.disk),
                     crate::op::bytes(report.claimed),
                     crate::op::bytes(works),
                     report.failed,
@@ -621,7 +382,7 @@ pub fn apply(
     // Once more, just before erasing: planning again (which reads the libraries on it) and the
     // capacity test take a while. The test overwrote what was on the disk, so after it only the
     // disk itself is compared.
-    let now = os::by_id(&plan.disk.id)?;
+    let now = loclib_format::by_id(&plan.disk.id)?;
     still_the_disk(&plan.disk, now.as_ref(), !opts.check_capacity)?;
     let target = Target {
         filesystem: plan.filesystem,
@@ -629,7 +390,7 @@ pub fn apply(
         cluster_size: plan.cluster_size,
         default_cluster: plan.cluster_size == plan.filesystem.default_cluster_size(plan.partition_size),
     };
-    let mount = os::format(&plan.disk, &target, ctx)?;
+    let mount = loclib_format::format(&plan.disk, &target, ctx)?;
 
     let mut drive_name = None;
     if let (Some(m), Some(old)) = (&mount, keep) {
@@ -665,7 +426,7 @@ fn still_the_disk(planned: &Disk, now: Option<&Disk>, volumes: bool) -> Result<(
 pub(crate) fn not_the_planned_disk(disk: &Disk) -> Error {
     Error::StalePlan(format!(
         "{} isn't the disk that was planned any more (a drive was swapped, or what is on it changed); it wasn't formatted. Plan again",
-        disk.describe()
+        describe(disk)
     ))
 }
 
@@ -697,152 +458,6 @@ fn probe_capacity(disk: &Disk, ctx: &Ctx<'_>) -> Result<capacity::ProbeReport> {
     };
     let mut dev = capacity::DeviceFile::open_to_overwrite(&raw)?;
     Ok(capacity::probe(&mut dev, disk.size, disk.sector_size, ctx)?)
-}
-
-impl From<Filesystem> for FsKind {
-    fn from(f: Filesystem) -> Self {
-        match f {
-            Filesystem::Fat32 => FsKind::Fat32,
-            Filesystem::Exfat => FsKind::Exfat,
-            Filesystem::Hfsplus => FsKind::Hfsplus,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Running system tools
-// ---------------------------------------------------------------------------------------------
-
-/// A command line, run without a shell.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Cmd {
-    pub program: String,
-    pub args: Vec<String>,
-    pub input: Option<String>,
-}
-
-impl Cmd {
-    pub fn new(program: &str, args: &[&str]) -> Cmd {
-        Cmd { program: program.into(), args: args.iter().map(|s| s.to_string()).collect(), input: None }
-    }
-
-    pub fn input(mut self, input: impl Into<String>) -> Cmd {
-        self.input = Some(input.into());
-        self
-    }
-
-    /// Shell-style rendering, for plans and error messages.
-    pub fn display(&self) -> String {
-        let mut s = self.program.clone();
-        for a in &self.args {
-            s.push(' ');
-            if a.is_empty() || a.contains(|c: char| c.is_whitespace() || "\"'$\\".contains(c)) {
-                s.push_str(&format!("{a:?}"));
-            } else {
-                s.push_str(a);
-            }
-        }
-        if self.input.is_some() {
-            s.push_str(" <<< (script)");
-        }
-        s
-    }
-
-    /// Run to completion and return standard output. A non-zero exit becomes
-    /// [`Error::External`] carrying the tool's own message.
-    pub fn run(&self) -> Result<String> {
-        let mut child = Command::new(&self.program)
-            .args(&self.args)
-            .stdin(if self.input.is_some() { Stdio::piped() } else { Stdio::null() })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| Error::External {
-                command: self.program.clone(),
-                message: if e.kind() == std::io::ErrorKind::NotFound {
-                    format!("not found{}", install_hint(&self.program))
-                } else {
-                    e.to_string()
-                },
-            })?;
-        if let (Some(input), Some(mut stdin)) = (&self.input, child.stdin.take()) {
-            let _ = stdin.write_all(input.as_bytes());
-        }
-        let out = child
-            .wait_with_output()
-            .map_err(|e| Error::External { command: self.program.clone(), message: e.to_string() })?;
-        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let message = [stderr.trim(), stdout.trim()].into_iter().find(|s| !s.is_empty()).unwrap_or("no output");
-            return Err(Error::External { command: self.display(), message: message.to_string() });
-        }
-        Ok(stdout)
-    }
-}
-
-fn install_hint(program: &str) -> &'static str {
-    match program {
-        "mkfs.vfat" => " (install dosfstools)",
-        "mkfs.exfat" => " (install exfatprogs)",
-        "mkfs.hfsplus" => " (install hfsprogs)",
-        "sfdisk" | "wipefs" | "lsblk" => " (install util-linux)",
-        _ => "",
-    }
-}
-
-/// Fail with [`Error::Permission`] unless this process may write to the raw device.
-pub(crate) fn require_write_access(device: &str, how: &str) -> Result<()> {
-    match std::fs::OpenOptions::new().write(true).open(device) {
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-            Err(Error::Permission(format!("formatting {device} needs administrator rights: {how}")))
-        }
-        // In use by a mounted volume: allowed, just not right now (the tools unmount first).
-        Err(e) if e.kind() == std::io::ErrorKind::ResourceBusy => Ok(()),
-        Err(e) => Err(Error::Io { path: device.into(), source: e }),
-    }
-}
-
-/// Lenient accessors for the JSON that `lsblk`, `plutil` and PowerShell produce (numbers and
-/// booleans sometimes arrive as strings, single-element arrays as bare objects).
-pub(crate) mod json {
-    use serde_json::Value;
-
-    pub fn str(v: &Value, key: &str) -> Option<String> {
-        match v.get(key)? {
-            Value::String(s) => Some(s.trim().to_string()).filter(|s| !s.is_empty() && s != "\0"),
-            Value::Number(n) => Some(n.to_string()),
-            _ => None,
-        }
-    }
-
-    pub fn u64(v: &Value, key: &str) -> Option<u64> {
-        match v.get(key)? {
-            Value::Number(n) => n.as_u64(),
-            Value::String(s) => s.trim().parse().ok(),
-            _ => None,
-        }
-    }
-
-    pub fn bool(v: &Value, key: &str) -> bool {
-        match v.get(key) {
-            Some(Value::Bool(b)) => *b,
-            Some(Value::String(s)) => matches!(s.trim(), "1" | "true" | "True"),
-            Some(Value::Number(n)) => n.as_u64() == Some(1),
-            _ => false,
-        }
-    }
-
-    pub fn array(v: Option<&Value>) -> Vec<&Value> {
-        match v {
-            Some(Value::Array(a)) => a.iter().collect(),
-            // Windows PowerShell 5.1 sometimes wraps arrays as {"value": [...], "Count": n}.
-            Some(Value::Object(o)) if o.get("value").is_some_and(Value::is_array) => array(o.get("value")),
-            Some(o @ Value::Object(_)) => vec![o],
-            _ => Vec::new(),
-        }
-    }
 }
 
 #[cfg(test)]

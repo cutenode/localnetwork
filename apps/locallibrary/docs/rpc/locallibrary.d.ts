@@ -1528,7 +1528,13 @@ export type FormatRequest = {
 };
 
 /** File systems a drive can be formatted with. */
-export type Filesystem = "fat32" | "exfat" | "hfsplus";
+export type Filesystem =
+  /** FAT32, which every player reads, written by [`fat32`] where the system's tools can't. */
+  | "fat32"
+  /** exFAT, for files of 4 GB and more. */
+  | "exfat"
+  /** HFS+ (Mac OS Extended), not journaled. */
+  | "hfsplus";
 
 export type FormatApply = {
   drive: string;
@@ -6484,50 +6490,66 @@ export type DiskView = {
   problem: string | null;
 };
 
+/** A whole disk, as the OS's disk tools describe it. */
 export type Disk = {
   /** OS identifier: `disk4` (macOS), `/dev/sdb` (Linux), `PhysicalDrive2` (Windows). */
   id: string;
   /** Whole-disk device path. */
   device: string;
+  /** Vendor and product, as the OS names them. */
   model: string;
+  /** The serial number, where the OS can tell (on macOS, the USB device's). */
   serial?: string | null;
+  /** Bytes. */
   size: number;
+  /** Bytes per logical sector. */
   sector_size: number;
   /** "USB", "SD"... */
   bus: string | null;
   /** External, removable or hot-pluggable. */
   removable: boolean;
+  /** Built into the computer. */
   internal: boolean;
   /** Holds the running operating system. */
   system: boolean;
   /** A disk image, loop device or virtual disk. */
   virtual_disk: boolean;
+  /** Write-protected (an SD card's lock switch, say). */
   read_only: boolean;
   /** `None` when the disk has no partition table. */
   scheme: Scheme | null;
+  /** Its partitions, and on macOS the APFS volumes in them. */
   volumes: Volume[];
 };
 
+/** A disk's partition table. */
 export type Scheme =
-  | "other"
   /** Master Boot Record ("FDisk", "dos"). */
   | "mbr"
   /** GUID partition table. */
   | "gpt"
   /** Apple partition map. */
-  | "apm";
+  | "apm"
+  /** A partition table none of the above. */
+  | "other";
 
 /** One partition (or, for disks without a partition table, the disk itself). */
 export type Volume = {
   /** OS identifier: `disk4s1`, `/dev/sdb1`, `2:1` (disk:partition on Windows). */
   id: string;
+  /** Bytes. */
   size: number;
+  /** The file system on it, when there is one the OS recognises. */
   filesystem: FsKind | null;
   /** The file system as the OS names it ("MS-DOS FAT32", "vfat", "exFAT"...). */
   filesystem_name: string | null;
+  /** The volume label. */
   label: string | null;
+  /** Where it's mounted. */
   mount: string | null;
+  /** Bytes per cluster, where the OS says. */
   cluster_size: number | null;
+  /** The volume's or partition's UUID (a FAT serial number, a GPT GUID...). */
   uuid?: string | null;
 };
 

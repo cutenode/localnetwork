@@ -3,10 +3,11 @@
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
+use loclib_equipment::FsKind;
+use loclib_progress::{Ctx, Phase};
 use serde_json::Value;
 
-use super::{Cmd, Disk, Filesystem, FsKind, Scheme, Target, Volume, json};
-use crate::progress::{Ctx, Phase};
+use super::{Cmd, Disk, Filesystem, Scheme, Target, Volume, json};
 use crate::{Error, Result};
 
 /// `diskutil eraseDisk` mounts the new volume.

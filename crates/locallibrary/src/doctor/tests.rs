@@ -193,7 +193,7 @@ fn prop_tracks_are_offset_only_when_they_sound_like_one_recording(tc: hegel::Tes
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// A drive's doctor report names the file system of the volume it is, and how players get on
 /// with the disk it's on, as the system describes them; a drive that is only a folder has
@@ -202,8 +202,8 @@ use crate::format::tests::fake_tools;
 #[hegel::test(test_cases = 6)]
 fn prop_the_doctor_judges_a_drive_by_the_disk_it_is_on(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
-    let root = fake.demo_drive("DNA");
+    let mut fake = FakeTools::new();
+    let root = crate::format::tests::demo_drive(fake.dir(), "DNA");
     let d = Device::open(&root).unwrap();
     let on_a_disk = tc.draw(gs::weighted_booleans(0.8));
     let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));

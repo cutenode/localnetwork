@@ -1997,7 +1997,7 @@ fn plan_format(
 ) -> Result<Planned<FormatPlan, FormatRequest>> {
     let store = Store::open(store_root).ok();
     let plan = format::plan(disk, &req.options, store.as_ref(), &protected_paths(Some(store_root)), ctx)?;
-    let mut summary = vec![format!("erase {} (everything on it)", plan.disk.describe())];
+    let mut summary = vec![format!("erase {} (everything on it)", format::describe(&plan.disk))];
     summary.extend(plan.steps.iter().cloned());
     let warnings = plan.warnings.clone();
     Ok(Planned::new("format", plan, req.clone()).summary(summary).warnings(warnings).destructive(true))

@@ -72,13 +72,13 @@ fn only_the_tests_own_loop_device_is_a_disk() {
         })
     };
     assert!(parse_disk(&lsblk("/dev/loop7")).is_none());
-    super::super::TEST_IMAGE.set(Some("/dev/loop7".into()));
+    crate::test_util::TEST_IMAGE.set(Some("/dev/loop7".into()));
     let d = parse_disk(&lsblk("/dev/loop7")).unwrap();
     assert!(d.virtual_disk && !d.removable && d.internal);
     assert_eq!(d.problem(&[]), None);
     assert_eq!(d.volumes[0].filesystem, Some(FsKind::Fat32));
     assert!(parse_disk(&lsblk("/dev/loop8")).is_none());
-    super::super::TEST_IMAGE.set(None);
+    crate::test_util::TEST_IMAGE.set(None);
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn prop_format_commands_follow_the_target(tc: TestCase) {
 // -----------------------------------------------------------------------------------------
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools::FakeTools;
+use crate::test_util::FakeTools;
 
 /// What lsblk is asked: every column, with FSVER where `fsver` (util-linux 2.35 on), of every
 /// block device or of `device`.
@@ -641,7 +641,7 @@ fn prop_formatting_runs_the_planned_steps_in_order(tc: TestCase) {
 #[hegel::test(test_cases = 6)]
 fn prop_formatting_waits_for_the_partition_lsblk_permitting(tc: TestCase) {
     let mut fake = FakeTools::new();
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = crate::test_util::sample_disk();
     disk.device = fake.dir().join("sdb").display().to_string();
     disk.volumes.clear();
     std::fs::write(&disk.device, "").unwrap();
@@ -684,7 +684,6 @@ fn prop_a_link_speed_is_the_nearest_number_above_the_disk(tc: TestCase) {
     let mbps = recorded.and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(20_000);
     assert_eq!(usb_link_speed(&dir.path().join("block"), "sdb"), Some(mbps * 1_000_000));
     let bus = tc.draw(gs::sampled_from(vec![None, Some("USB"), Some("NVME")]));
-    let disk =
-        Disk { id: "/dev/sdb-not-here".into(), bus: bus.map(String::from), ..crate::format::tests::sample_disk() };
+    let disk = Disk { id: "/dev/sdb-not-here".into(), bus: bus.map(String::from), ..crate::test_util::sample_disk() };
     assert_eq!(link_speed(&disk), None);
 }

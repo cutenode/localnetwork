@@ -23,8 +23,11 @@ crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct p
 crates/loclib-drive-speed/  how long a write to a drive will take: a short timed test of its rate and its
                             file and folder costs, kept on the drive, the sum from them, and real writes
                             correcting the rate (core's api/drive_speed.rs reaches drives for it and words it)
-crates/loclib-format/       file systems written directly: FAT32 at any size up to 2 TiB with a chosen cluster
-                            size (Windows' own tools stop at 32 GB), onto anything Write + Seek
+crates/loclib-format/       finding disks and formatting them: what diskutil, lsblk and PowerShell say about
+                            each disk, their erase and mkfs commands, and FAT32 written directly at any size
+                            up to 2 TiB with a chosen cluster size (Windows' own tools stop at 32 GB)
+crates/loclib-disk/         checking and repairing a drive's file system (diskutil, fsck with udisks, chkdsk)
+                            and ejecting it, with the system's own tools
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
@@ -179,19 +182,20 @@ crates/locallibrary/src/    the library, built on the crates above
   onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
                cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
-  format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends,
-               loclib-format's FAT32 writer, running the fake-capacity probe (loclib-capacity) first
+  format/      drive formatting: which layouts players read, which disks may be erased, the plan, and
+               running the fake-capacity probe (loclib-capacity) first; the disks and the work are
+               loclib-format's
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
   fleet.rs     every drive you own: registry views, roles, logbook, recognising and re-identifying drives
   scrub.rs     re-reading a drive against known-good copies, and repairing it
-  fscheck.rs   the OS's file-system check
+  fscheck.rs   the OS's file-system check of a drive, through loclib-disk
   space.rs     what uses a drive's space, growth forecasts
   tidy.rs      removing OS clutter
   recordings.rs  set recordings made on the player
   firmware.rs  staging firmware updates
   player.rs    the Device Name and colour players show, "if found" contacts
   after_set.rs telling changes players made during a set apart from exports
-  eject.rs     unmounting and powering off drives
+  eject.rs     unmounting and powering off drives, through loclib-disk
   watch/       noticing drives plugged in, unplugged and changed, by polling file metadata
   api.rs       service layer used by the CLI and RPC, with a file per area in api/ (api/drives.rs: drive management, api/undo.rs:
                undo, api/autopull.rs: `watch`, api/cache.rs and api/reads.rs: parsed libraries

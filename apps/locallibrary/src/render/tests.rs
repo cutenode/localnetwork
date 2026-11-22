@@ -148,7 +148,7 @@ fn prop_format_plans_and_reports_show_every_part(tc: TestCase) {
         Err(e) => {
             // Windows itself makes no HFS+.
             let hfs_on_windows = cfg!(windows) && filesystem == Filesystem::Hfsplus;
-            assert!(size >= 1 << 41 || hfs_on_windows, "{} refused: {e}", d.describe());
+            assert!(size >= 1 << 41 || hfs_on_windows, "{} refused: {e}", format::describe(&d));
             return;
         }
     };

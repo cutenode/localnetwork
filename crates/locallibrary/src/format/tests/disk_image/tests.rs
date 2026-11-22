@@ -28,11 +28,11 @@ fn an_image_is_detached_when_its_test_ends() {
     }
     let image = TestImage::attach(8);
     image.admit();
-    assert!(super::super::is_test_image(&image.id));
+    loclib_format::test_util::TEST_IMAGE.with_borrow(|t| assert_eq!(t.as_deref(), Some(image.id.as_str())));
     let file = image.file.clone();
     drop(image);
     assert_eq!(os::attached(&file), None);
-    super::super::TEST_IMAGE.with_borrow(|t| assert_eq!(t, &None));
+    loclib_format::test_util::TEST_IMAGE.with_borrow(|t| assert_eq!(t, &None));
 
     let attached = std::cell::RefCell::new(None);
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

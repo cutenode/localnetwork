@@ -11,7 +11,7 @@ use locallibrary::Store;
 use locallibrary::api::{self, DriveRef};
 use locallibrary::compare::Relation;
 use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
-use locallibrary::format::{FormatOptions, FormatPlan};
+use locallibrary::format::{self, FormatOptions, FormatPlan};
 use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 use locallibrary::recordings::{CollectOptions, Tracklist};
@@ -834,7 +834,7 @@ fn format(a: FormatArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) ->
 /// Ask for the erase to be confirmed by typing [`FormatPlan::confirmation`] (or `--erase`).
 fn confirm_erase(out: &Output, plan: &FormatPlan, erase: Option<&str>) -> Option<Outcome> {
     let name = plan.confirmation();
-    let prompt = format!("This erases everything on {}. Type {name:?} to continue:", plan.disk.describe());
+    let prompt = format!("This erases everything on {}. Type {name:?} to continue:", format::describe(&plan.disk));
     out.confirm_typed(&prompt, name, erase)
 }
 

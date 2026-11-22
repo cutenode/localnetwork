@@ -3,10 +3,11 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use loclib_equipment::FsKind;
+use loclib_progress::{Ctx, Phase};
 use serde_json::Value;
 
-use super::{Cmd, Disk, Filesystem, FsKind, PARTITION_START, Scheme, Target, Volume, json};
-use crate::progress::{Ctx, Phase};
+use super::{Cmd, Disk, Filesystem, PARTITION_START, Scheme, Target, Volume, json};
 use crate::{Error, Result};
 
 /// Running as root, there's no desktop session to mount the new volume for.
@@ -86,7 +87,7 @@ pub(super) fn parse_disk(d: &Value) -> Option<Disk> {
     let name = json::str(d, "name").unwrap_or_default();
     let path = json::str(d, "path").unwrap_or_else(|| format!("/dev/{name}"));
     // A loop device only when it's the disk image a test attached.
-    let test_image = || json::str(d, "type").as_deref() == Some("loop") && super::is_test_image(&path);
+    let test_image = || json::str(d, "type").as_deref() == Some("loop") && crate::disk::is_test_image(&path);
     if json::str(d, "type").as_deref() != Some("disk") && !test_image() {
         return None;
     }
@@ -218,7 +219,7 @@ pub fn format(disk: &Disk, t: &Target, ctx: &Ctx<'_>) -> Result<Option<PathBuf>>
                 std::thread::sleep(Duration::from_millis(100));
             }
         }
-        ctx.emit(crate::progress::Event::Item { phase: Phase::Format, path: c.display(), bytes: 0 });
+        ctx.emit(loclib_progress::Event::Item { phase: Phase::Format, path: c.display(), bytes: 0 });
         c.run()?;
     }
     let _ = Cmd::new("sync", &[]).run();

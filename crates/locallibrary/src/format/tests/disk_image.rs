@@ -6,7 +6,8 @@
 //! device. Linux and Windows need administrator rights (`losetup`, `Mount-DiskImage`).
 //!
 //! The format code refuses every disk image. [`TestImage::admit`] lets through the one a test
-//! attached, by its exact identifier, on that test's thread only ([`super::TEST_IMAGE`]).
+//! attached, by its exact identifier, on that test's thread only
+//! ([`loclib_format::test_util::TEST_IMAGE`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -70,7 +71,7 @@ impl TestImage {
 
     /// Let the format code format this image, on this thread.
     pub fn admit(&self) {
-        super::TEST_IMAGE.set(Some(self.id.clone()));
+        loclib_format::test_util::TEST_IMAGE.set(Some(self.id.clone()));
     }
 
     /// Panic unless `disk` is this image, still attached where attaching it said. Called before
@@ -84,7 +85,7 @@ impl TestImage {
 
 impl Drop for TestImage {
     fn drop(&mut self) {
-        super::TEST_IMAGE.with_borrow_mut(|t| {
+        loclib_format::test_util::TEST_IMAGE.with_borrow_mut(|t| {
             if t.as_deref() == Some(self.id.as_str()) {
                 *t = None;
             }
@@ -115,7 +116,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 #[cfg(target_os = "macos")]
 mod os {
     use super::*;
-    use crate::format::json;
+    use loclib_format::test_util::json;
     use serde_json::Value;
 
     pub const EXTENSION: &str = "dmg";
@@ -173,7 +174,7 @@ mod os {
 #[cfg(all(unix, not(target_os = "macos")))]
 mod os {
     use super::*;
-    use crate::format::json;
+    use loclib_format::test_util::json;
     use serde_json::Value;
 
     pub const EXTENSION: &str = "img";
@@ -214,7 +215,8 @@ mod os {
 #[cfg(windows)]
 mod os {
     use super::*;
-    use crate::format::windows::{powershell, quote};
+    use loclib_format::test_util::powershell;
+    use loclib_format::windows::quote;
 
     pub const EXTENSION: &str = "vhd";
 

@@ -1,22 +1,166 @@
-//! Stand-ins for the operating system's disk tools (diskutil, lsblk, PowerShell...), for tests
-//! that run the code which calls them. While a [`FakeTools`] lives, `PATH` names only its folder,
-//! so no real tool can run, whatever the code under test asks for: a tool the test didn't set up
-//! is missing, and a set-up tool answers only the command lines it was told about.
+//! Helpers for tests of code that finds, formats and checks disks: a sample disk, Hegel
+//! generators of disks and volumes, the disk image a test may format, stand-ins for the
+//! operating system's disk tools ([`FakeTools`], on Unix), and the JSON readers and PowerShell
+//! runner the backends use, for tests that run those tools themselves.
 //!
-//! `PATH` belongs to the whole process: nextest runs each test in a process of its own, and the
-//! tests using this run their tools on the test's own thread.
+//! With this module built (the `test-util` feature), [`Disk::problem`] lets through the virtual
+//! disk [`TEST_IMAGE`] names, and Linux's listing shows that loop device, so a build with the
+//! feature can format a disk image. Turn it on in dev-dependencies only.
+//!
+//! While a [`FakeTools`] lives, `PATH` names only its folder, so no real tool can run, whatever
+//! the code under test asks for: a tool the test didn't set up is missing, and a set-up tool
+//! answers only the command lines it was told about. `PATH` belongs to the whole process: nextest
+//! runs each test in a process of its own, and the tests using this run their tools on the test's
+//! own thread.
 
+use std::cell::RefCell;
+#[cfg(unix)]
 use std::ffi::OsString;
+#[cfg(unix)]
 use std::fmt::Write as _;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::path::Path;
+use std::path::PathBuf;
 
+use hegel::TestCase;
+use hegel::generators as gs;
+use loclib_equipment::{FsKind, MBR_MAX};
+#[cfg(unix)]
 use rustc_hash::FxHashMap;
+#[cfg(unix)]
 use serde_json::json;
 
-use crate::format::Cmd;
+#[cfg(unix)]
+use crate::Cmd;
+use crate::{Disk, Scheme, Volume};
+
+thread_local! {
+    /// The whole-disk identifier of the disk image this test thread attached: the one virtual
+    /// disk [`Disk::problem`] lets through, and the one loop device Linux's listing shows. Any
+    /// code on the thread can set it, so the `test-util` feature is for dev-dependencies alone.
+    pub static TEST_IMAGE: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// The lenient readers of the JSON the system's tools print, as the backends read it.
+pub mod json {
+    pub use crate::json::{array, str};
+}
+
+/// `script` run by Windows PowerShell, as the Windows backend runs its own.
+#[cfg(windows)]
+pub fn powershell(script: &str) -> crate::Cmd {
+    crate::windows::powershell(script)
+}
+
+/// A 128 GB USB stick, `disk4`, with one FAT32 volume named DNA mounted at `/Volumes/DNA`.
+pub fn sample_disk() -> Disk {
+    Disk {
+        id: "disk4".into(),
+        device: "/dev/disk4".into(),
+        model: "DJ TechTools".into(),
+        serial: None,
+        size: 128_000_000_000,
+        sector_size: 512,
+        bus: Some("USB".into()),
+        removable: true,
+        internal: false,
+        system: false,
+        virtual_disk: false,
+        read_only: false,
+        scheme: Some(Scheme::Mbr),
+        volumes: vec![Volume {
+            id: "disk4s1".into(),
+            size: 127_999_000_000,
+            filesystem: Some(FsKind::Fat32),
+            filesystem_name: Some("MS-DOS FAT32".into()),
+            label: Some("DNA".into()),
+            mount: Some("/Volumes/DNA".into()),
+            cluster_size: Some(32768),
+            uuid: Some("12345678".into()),
+        }],
+    }
+}
+
+/// Every [`FsKind`] a volume can have.
+pub const FS_KINDS: [FsKind; 8] = [
+    FsKind::Fat12,
+    FsKind::Fat16,
+    FsKind::Fat32,
+    FsKind::Exfat,
+    FsKind::Hfsplus,
+    FsKind::Apfs,
+    FsKind::Ntfs,
+    FsKind::Other,
+];
+
+/// Names a person might give a drive, with the characters the file systems refuse.
+#[hegel::test_helper]
+pub fn name(tc: &TestCase) -> String {
+    tc.draw(hegel::one_of!(
+        gs::text().max_size(30),
+        gs::text().alphabet("aZ 09._-:/\\\"*?<>|+,;=[]\t\u{0}éß日🎛").max_size(30),
+    ))
+}
+
+/// The `n`th volume of `disk`. Mount points are under a directory that doesn't exist, so nothing
+/// is read there.
+#[hegel::test_helper]
+pub fn volume(tc: &TestCase, disk: &str, n: usize) -> Volume {
+    let opt = |tc: &TestCase| tc.draw(gs::booleans());
+    Volume {
+        id: format!("{disk}s{}", n + 1),
+        size: tc.draw(gs::integers::<u64>().max_value(3 << 40)),
+        filesystem: if opt(tc) { Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()))) } else { None },
+        filesystem_name: match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 => None,
+            1 => Some(name(tc)),
+            _ => Some(tc.draw(gs::sampled_from(vec!["MS-DOS FAT32", "Mac OS Extended (Case-sensitive)"])).into()),
+        },
+        label: if opt(tc) { Some(tc.draw(gs::sampled_from(vec!["EFI", "DNA", "", "  "])).into()) } else { None },
+        mount: if opt(tc) {
+            // Now and then the system's own root, which no plan may erase.
+            let m = tc.draw(gs::sampled_from(vec!["a", "b", "c", "/"]));
+            Some(if m == "/" { PathBuf::from("/") } else { PathBuf::from(format!("/locallibrary-nowhere/{m}")) })
+        } else {
+            None
+        },
+        cluster_size: if opt(tc) { Some(tc.draw(gs::integers::<u64>())) } else { None },
+        uuid: if opt(tc) { Some(name(tc)) } else { None },
+    }
+}
+
+/// A disk, mostly one that may be formatted.
+#[hegel::test_helper]
+pub fn any_disk(tc: &TestCase) -> Disk {
+    let id = format!("disk{}", tc.draw(gs::integers::<u8>().max_value(12)));
+    let rare = |tc: &TestCase| tc.draw(gs::weighted_booleans(0.15));
+    let n = tc.draw(gs::integers::<usize>().max_value(3));
+    let volumes = (0..n).map(|i| volume(tc, &id, i)).collect();
+    Disk {
+        device: format!("/dev/{id}"),
+        model: name(tc),
+        serial: if tc.draw(gs::booleans()) { Some(name(tc)) } else { None },
+        size: tc.draw(hegel::one_of!(
+            gs::integers::<u64>().max_value(4 << 40),
+            gs::integers::<u64>().min_value(1 << 30).max_value(MBR_MAX - 1),
+        )),
+        sector_size: tc.draw(gs::sampled_from(vec![512u32, 1024, 2048, 4096])),
+        bus: if tc.draw(gs::booleans()) { Some("USB".into()) } else { None },
+        removable: !rare(tc),
+        internal: rare(tc),
+        system: rare(tc),
+        virtual_disk: rare(tc),
+        read_only: rare(tc),
+        scheme: tc.draw(gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm)])),
+        volumes,
+        id,
+    }
+}
 
 /// What a fake tool does when called with the arguments of a [`Rule`].
+#[cfg(unix)]
 enum Reply {
     /// Print this and succeed.
     Out(String),
@@ -28,13 +172,16 @@ enum Reply {
     Advance,
 }
 
+#[cfg(unix)]
 struct Rule {
     stage: usize,
     args: Vec<String>,
     reply: Reply,
 }
 
-pub(crate) struct FakeTools {
+/// Stand-ins for the system's disk tools, on `PATH` in place of everything else until dropped.
+#[cfg(unix)]
+pub struct FakeTools {
     dir: tempfile::TempDir,
     path: Option<OsString>,
     rules: FxHashMap<String, Vec<Rule>>,
@@ -42,11 +189,15 @@ pub(crate) struct FakeTools {
 }
 
 /// `s` as one word for `sh`, taken literally (in a `case` pattern too).
+#[cfg(unix)]
 fn quoted(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
+#[cfg(unix)]
+#[allow(clippy::new_without_default, reason = "taking over PATH is never a default")]
 impl FakeTools {
+    /// Take over `PATH`, with no tools on it yet.
     pub fn new() -> FakeTools {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("bin")).unwrap();
@@ -62,21 +213,6 @@ impl FakeTools {
     /// A scratch folder that goes when the tools do.
     pub fn dir(&self) -> &Path {
         self.dir.path()
-    }
-
-    /// A drive folder here named `name`, holding the demo rekordbox export.
-    pub fn demo_drive(&self, name: &str) -> std::path::PathBuf {
-        let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks");
-        let root = self.dir().join(name);
-        for e in walkdir::WalkDir::new(&demo).into_iter().map(Result::unwrap) {
-            let to = root.join(e.path().strip_prefix(&demo).unwrap());
-            if e.file_type().is_dir() {
-                std::fs::create_dir_all(&to).unwrap();
-            } else {
-                std::fs::copy(e.path(), &to).unwrap();
-            }
-        }
-        root
     }
 
     /// `program` runs `body` as a shell script, for a tool that does more than answer (writes the
@@ -211,6 +347,7 @@ impl FakeTools {
     }
 }
 
+#[cfg(unix)]
 impl Drop for FakeTools {
     fn drop(&mut self) {
         // SAFETY: as in `new`.

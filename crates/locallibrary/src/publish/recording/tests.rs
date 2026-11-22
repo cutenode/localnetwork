@@ -221,8 +221,8 @@ mod with_ffmpeg {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::format::tests::fake_tools::FakeTools;
     use crate::progress::Progress;
+    use loclib_format::test_util::FakeTools;
 
     /// The progress events an operation reported.
     #[derive(Default)]
