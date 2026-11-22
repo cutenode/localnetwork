@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { missing } from './tools.ts';
 
-interface Verdict {
+export interface Verdict {
 	lines: string[];
 	ok: boolean;
 }
@@ -17,7 +17,8 @@ interface Outcome {
 	seconds: number;
 }
 
-const steps = new Map(
+/** Each script's steps, from steps.json. */
+export const steps = new Map(
 	// SAFETY: steps.json maps each script to its commands, and tools/policy/apps.rego reads it as that.
 	Object.entries(JSON.parse(readFileSync(new URL('steps.json', import.meta.url), 'utf8')) as Record<string, string[]>)
 );

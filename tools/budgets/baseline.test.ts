@@ -3,17 +3,17 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { filterPaths, run, selects } from './baseline.ts';
+import { filterPaths, run, selected } from './baseline.ts';
 
-describe('selects', () => {
+describe('selected', () => {
 	const paths = ['crates/**', 'Cargo.lock', '!**/*.md', '!**/tests/**'];
 
 	it('takes a file a glob matches and no exclusion does', () => {
-		expect(selects(paths, ['crates/a/src/lib.rs'])).toBe(true);
-		expect(selects(paths, ['README.md', 'Cargo.lock'])).toBe(true);
+		expect(selected(paths, ['crates/a/src/lib.rs'])).toBe('crates/a/src/lib.rs');
+		expect(selected(paths, ['README.md', 'Cargo.lock'])).toBe('Cargo.lock');
 	});
 	it('leaves out excluded and unmatched files', () => {
-		expect(selects(paths, ['crates/a/README.md', 'crates/a/tests/it.rs', 'apps/web/x.ts', ''])).toBe(false);
+		expect(selected(paths, ['crates/a/README.md', 'crates/a/tests/it.rs', 'apps/web/x.ts', ''])).toBeUndefined();
 	});
 });
 

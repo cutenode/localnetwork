@@ -27,13 +27,13 @@ export function filterPaths(filter: string): string[] {
 	return paths;
 }
 
-/** Whether any of `files` is one `paths` select: it matches a glob and none of the `!` ones, as with `some-with-excludes`. */
-export function selects(paths: string[], files: string[]): boolean {
+/** The first of `files` that `paths` select: it matches a glob and none of the `!` ones, as with `some-with-excludes`. */
+export function selected(paths: string[], files: string[]): string | undefined {
 	const glob = (patterns: string[]) => picomatch(patterns, { dot: true });
 	const include = glob(paths.filter((path) => !path.startsWith('!')));
 	const exclude = glob(paths.flatMap((path) => (path.startsWith('!') ? [path.slice(1)] : [])));
 
-	return files.some((file) => include(file) && !exclude(file));
+	return files.find((file) => include(file) && !exclude(file));
 }
 
 const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -95,7 +95,7 @@ function baseline(sha: string, filter: string, artifact: string, dir: string): O
 	for (const [commit = '', ...changed] of commits.map((lines) => lines.trim().split('\n'))) {
 		if (downloaded(runs.get(commit) ?? [], artifact, dir)) return { lines: ['found=true', `from=${commit}`], ok: true };
 
-		if (selects(paths, changed)) break;
+		if (selected(paths, changed) !== undefined) break;
 	}
 
 	return { lines: ['found=false'], ok: true };

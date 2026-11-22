@@ -29,9 +29,10 @@ The git hooks format and lint what you commit. Before a push they type-check and
 Run the checks for what you touched before you open a pull request. All of them run from the repository root.
 
 ```bash
-pnpm verify        # the TypeScript apps, the root's own TypeScript (pnpm *:tools) and the lexicons
-pnpm verify:rust   # the Rust workspace, as locallibrary-ci.yml's lint and test jobs check it
-pnpm verify:repo   # the repository's own conventions (see NEW_PROJECT.md); needs Docker running
+pnpm verify          # the TypeScript apps, the root's own TypeScript (pnpm *:tools) and the lexicons
+pnpm verify:rust     # the Rust workspace, as locallibrary-ci.yml's lint and test jobs check it
+pnpm verify:repo     # the repository's own conventions (see NEW_PROJECT.md); needs Docker running
+pnpm verify:changed  # only the ones the branch's changes call for, committed or not, as ci.yml's filters pick CI's jobs
 ```
 
 Each runs its steps in `tools/verify/steps.json` one after another, goes on past a failure, and ends with a line for each step: passed or failed, how long it took, and the command that reruns it alone.
