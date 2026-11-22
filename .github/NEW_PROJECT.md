@@ -18,7 +18,7 @@ What no check sees: `CODEOWNERS`, the changelog, what the READMEs say, and setti
 
 | What         | Version and where it's set                                                                                                               |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js      | 24, from `.node-version`; [fnm](https://github.com/Schniz/fnm) picks it up. `engines.node` is `>=24.12` and pnpm is engine-strict        |
+| Node.js      | 24, from `.node-version`; [fnm](https://github.com/Schniz/fnm) picks it up. `engines.node` is `^24.12.0` and pnpm is engine-strict       |
 | pnpm         | `packageManager` in the root `package.json` (12.6.0); one lockfile for every TypeScript app                                              |
 | TypeScript   | strict, in each app's `tsconfig.json`                                                                                                    |
 | UI           | Svelte 5 with Vite and Tailwind; SvelteKit with `adapter-node` for the website, a Manifest V3 build for the extension                    |
@@ -36,6 +36,8 @@ pnpm verify     # every app's verify script, plus knip and the lexicons' format
 cargo build
 cargo nextest run --workspace
 ```
+
+With fnm, `eval "$(fnm env --use-on-cd --version-file-strategy=recursive)"` in your shell profile switches to the root's `.node-version` in every folder of the repository. Without `--version-file-strategy=recursive`, fnm reads only the current folder, where an app's `engines.node` stands in.
 
 `pnpm dev` runs the website on a local network: a PLC directory and a PDS from `@atproto/dev-env`, HappyView in Docker (so Docker or OrbStack has to be running), and demo accounts, all from `apps/web/scripts/dev-network.ts`, which writes `apps/web/.env.local`. The extension's `dev` is a watch build into `apps/localtoolbox/dist/`.
 
