@@ -45,6 +45,12 @@ export const configFiles = (): string[] =>
 		':(glob)lexicons/**/*.json'
 	);
 
+/** The lines of a Markdown file's bash and sh code blocks, trimmed, without the empty ones. */
+export const shellLines = (markdown: string): string[] =>
+	[...markdown.matchAll(/^```(?:bash|sh)\n([\s\S]*?)^```/gm)].flatMap(([, block = '']) =>
+		block.split('\n').flatMap((line) => line.trim() || [])
+	);
+
 // The projects whose package manager's supply-chain settings harden checks (pnpm.rego).
 const hardened = [
 	{ manager: 'pnpm', folder: '.' },
@@ -82,7 +88,10 @@ export const writeInputs = async (scratch: string): Promise<string[]> => {
 		// The project as the railway SDK evaluates .railway/railway.ts. `pnpm check:tools` type-checks
 		// the file against the SDK.
 		'railway-project.json': await railway(createRailwayContext(), project),
-		'harden.json': { harden }
+		'harden.json': { harden },
+		// The commands CONTRIBUTING gives, for the policy that they cover what CI runs on a pull
+		// request (contributing.rego).
+		'contributing.json': { commands: shellLines(readFileSync('.github/CONTRIBUTING.md', 'utf8')) }
 	};
 
 	for (const [name, value] of Object.entries(inputs)) {

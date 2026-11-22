@@ -37,7 +37,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 ```bash
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
-pnpm verify                  # each app's format, lint, type check, tests and build, the root's own (pnpm *:tools), knip over the whole repo, and the lexicons' format
+pnpm verify                  # each app's format, lint, type check, unit tests and build, the root's format, lint and type checks (pnpm *:tools, but not test:tools), knip, and the lexicons' format
 pnpm verify:rust             # what Rust CI checks: fmt, cargo-shear, clippy (for Windows too, when set up), the sidecar's commands, the doctests, docs, dist's plan and nextest
 pnpm verify:repo             # the repo's own checks: the policies, ast-grep, the tools' tests, Bombadil's types, ShellCheck, typos, taplo, goat and lychee
 pnpm verify:changed          # only the verify scripts the branch's changes call for, picked by ci.yml's filters
@@ -45,7 +45,7 @@ pnpm atstore                 # each tool's AT Store icon, hero and screenshots, 
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 
 cargo build                  # locallibrary
-cargo test --workspace --locked
+cargo nextest run --workspace --locked
 ```
 
 A `NODE_MODULE_VERSION` error means better-sqlite3 was built for another Node.js: run `fnm use` at the repo root, then `pnpm rebuild better-sqlite3`.

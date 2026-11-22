@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { configFiles, writeInputs } from './inputs.ts';
+import { configFiles, shellLines, writeInputs } from './inputs.ts';
 
 describe('configFiles', () => {
 	it('lists the config files the policies read, and nothing else', () => {
@@ -38,6 +38,7 @@ describe('writeInputs', () => {
 	it('names every input it writes', () => {
 		expect(names.sort()).toEqual([
 			'Cargo.lock.toml',
+			'contributing.json',
 			'harden.json',
 			'railway-project.json',
 			'reads.json',
@@ -67,6 +68,10 @@ describe('writeInputs', () => {
 		);
 	});
 
+	it("lists CONTRIBUTING's commands", () => {
+		expect(JSON.parse(read('contributing.json')).commands).toContainEqual(expect.stringMatching(/^pnpm verify:repo /));
+	});
+
 	it("keeps harden's report for each package manager", () => {
 		const { harden } = JSON.parse(read('harden.json'));
 		expect(harden.map(({ manager, folder }: { manager: string; folder: string }) => [manager, folder])).toEqual([
@@ -75,5 +80,26 @@ describe('writeInputs', () => {
 		]);
 		expect(harden[0].report.checks).toContainEqual(expect.objectContaining({ id: 'p_runner' }));
 		expect(harden[1].report.checks).toContainEqual(expect.objectContaining({ id: 'n_runner' }));
+	});
+});
+
+describe('shellLines', () => {
+	it('takes each line of the bash and sh blocks, and nothing outside them', () => {
+		const markdown = [
+			'Run `pnpm outside`:',
+			'```bash',
+			'  pnpm verify   # a comment',
+			'',
+			'cargo fmt',
+			'```',
+			'```text',
+			'not a command',
+			'```',
+			'```sh',
+			'typos',
+			'```'
+		].join('\n');
+
+		expect(shellLines(markdown)).toEqual(['pnpm verify   # a comment', 'cargo fmt', 'typos']);
 	});
 });

@@ -98,7 +98,9 @@ ci_only_steps := {
 	"./.github/actions/patch-coverage": "it covers the lines a pull request changes, so it runs on pull requests only",
 }
 
-# How the verify scripts spell a step CI spells another way.
+# How a laptop spells a step CI spells another way: the verify scripts, and the commands
+# .github/CONTRIBUTING.md gives (contributing.rego). A key is a step's name, command or action, or
+# "<workflow>#<job>" for a whole job.
 spelling := {
 	"cargo doc --workspace --no-deps --locked": "cargo doc-strict",
 	# Double quotes, which cmd.exe reads too.
@@ -108,6 +110,23 @@ spelling := {
 	"ShellCheck": "git ls-files -z \"*.sh\" | xargs -0 shellcheck",
 	"crate-ci/typos": "typos",
 	"lycheeverse/lychee-action": "git ls-files -z \"*.md\" | xargs -0 lychee --offline --include-fragments --no-progress",
+	# lefthook's pre-push job, which skips without the target and MinGW.
+	"cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings": "pnpm exec lefthook run pre-push --job \"clippy for Windows\" --force",
+	# The test archive's build, shards and merge, in one run.
+	".github/workflows/locallibrary-ci.yml#build": "cargo coverage",
+	".github/workflows/locallibrary-ci.yml#test": "cargo coverage",
+	".github/workflows/locallibrary-ci.yml#coverage": "cargo coverage",
+	".github/workflows/locallibrary-ci.yml#hegel": "cargo hegel-coverage",
+	"./.github/actions/notices": "cargo notices",
+	"Lint the Dockerfile": "docker run --rm -i hadolint/hadolint:v2.15.1 hadolint - < apps/web/Dockerfile",
+	# Regenerates the fixture, which CI then diffs and reads.
+	".github/workflows/mix-report.yml#fixture": "pnpm --filter localnetwork fixtures:mix",
+	# With the pull request's body in body.md.
+	".github/workflows/repo-checks.yml#diagrams": "node tools/readmes/cli.ts drift origin/main body.md",
+	"pnpm exec commitlint --from \"$BASE\" --to \"$HEAD\" --verbose": "pnpm exec commitlint --from origin/main --to HEAD --verbose",
+	"\"$(go env GOPATH)/bin/actionlint\"": "actionlint",
+	# zizmor finds .github/zizmor.yml itself.
+	"zizmor --offline --format github --config .github/zizmor.yml .github": "zizmor --offline .github",
 }
 
 deny contains msg if {

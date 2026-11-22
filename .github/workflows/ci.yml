@@ -2,14 +2,16 @@ name: CI
 
 # Every pull request, merge queue group and push to main runs this one workflow: a changes job works
 # out which tools' files changed, each tool's workflow runs as a call when its did, and "CI passed",
-# the one check the "Protect Main" ruleset requires, fails when one of them did. One changes job per
-# run, where each tool's workflow used to start its own, leaves the runners to the work.
+# one of the two checks the "Protect Main" ruleset requires (with pr-issue.yml's), fails when one of
+# them did. One changes job per run, where each tool's workflow used to start its own, leaves the
+# runners to the work.
 #
 # Pull requests run on Linux, and locallibrary's Windows job when its code changed. Its macOS job,
 # which the plan's 5 macOS runners can't keep up with on every push, runs once for each merge queue
-# group instead, or on a pull request with the `all-os` label. A group also runs CodeQL and the quick static checks
-# (formatting, lint, types, unit tests, the repo's policies), on the commit that goes on main; its
-# pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
+# group instead, or on a pull request with the `all-os` label. A group also runs CodeQL,
+# locallibrary's budgets and release build, the web app's verify and Lighthouse jobs, localtoolbox's
+# and atstore's checks, the workflow lint, Bombadil's install and type check, and the repo's
+# policies, spelling and links, on the commit that goes on main; its pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
 # web app's and localtoolbox's coverage and sizes to compare with, the Rust and Docker caches when
 # what they're keyed on changed, and CodeQL's analysis.
 # Its commit is the merge queue group's, which already passed.
@@ -471,14 +473,15 @@ jobs:
               - '!**/*.md'
             repo_checks_files:
               - added|deleted|renamed: '**'
-            # The Markdown the tools' tests check: the diagrams and Mermaid in the apps' READMEs and
-            # diagram pages, the crate READMEs that are their crates' docs, and the pull request
-            # template the PR issue check has to pass.
+            # The Markdown the tools' tests and policies check: the diagrams and Mermaid in the apps'
+            # READMEs and diagram pages, the crate READMEs that are their crates' docs, the pull
+            # request template the PR issue check has to pass, and CONTRIBUTING's commands.
             repo_checks_md:
               - 'apps/*/README.md'
               - 'apps/*/docs/diagrams/*.md'
               - 'crates/*/README.md'
               - '.github/pull_request_template.md'
+              - '.github/CONTRIBUTING.md'
             repo_checks_lexicons:
               - 'lexicons/**'
               - 'package.json'
