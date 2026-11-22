@@ -282,14 +282,15 @@ jobs:
               - '.github/actions/patch-coverage/**'
               - 'tools/coverage/patch.json'
             # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
-            # of the above but the Markdown and labels that the tool pages and
-            # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs and
+            # of the above but the Markdown and labels that the tool pages, src/lib/tools/docs.test.ts
+            # and features.test.ts read, which verify covers, the lint and format configs and
             # the root's tools, which only verify reads (patch.json stays, for the patch coverage),
             # and what only the e2e tests, Lighthouse and the Docker image use.
             web_integration:
               - *web
               - '!apps/*/README.md'
               - '!apps/*/docs/*.md'
+              - '!apps/web/docs/features/**'
               - '!apps/*/CHANGELOG.md'
               - '!README.md'
               - '!.github/CONTRIBUTING.md'
@@ -309,7 +310,8 @@ jobs:
             # What the e2e tests run: the app as `pnpm dev` serves it, on the dev network and seed
             # data, and the tools' READMEs, which the home page's tool cards are made from. Left out:
             # the unit, integration and build tests, stories and Storybook (locallibrary's terminal
-            # widgets' among them, src/lib/tui), and what only Lighthouse and the Docker image read.
+            # widgets' among them, src/lib/tui), the README's features, and what only Lighthouse and
+            # the Docker image read.
             web_e2e:
               - 'apps/web/**'
               - 'apps/*/README.md'
@@ -323,6 +325,7 @@ jobs:
               - '.node-version'
               - '.github/workflows/web-ci.yml'
               - '!apps/web/README.md'
+              - '!apps/web/docs/features/**'
               - '!apps/web/**/*.test.ts'
               - '!apps/web/**/*.stories.svelte'
               - '!apps/web/**/*.mdx'

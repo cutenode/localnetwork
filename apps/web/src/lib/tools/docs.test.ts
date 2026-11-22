@@ -119,14 +119,14 @@ describe('the registry', () => {
 				.split(/\n(?=## )/)
 				.find((section) => section.startsWith("## What's supported")) ?? '';
 
-		const webTools = read('apps/web/README.md').match(/^- `\/tools` lists .*$/m)?.[0] ?? '';
+		const webTools = read('apps/web/docs/features/tools/tools.md');
 		const toolsLabel = read('.github/labels.yml').match(/name: "web: tools"\n.*\n\s*description: (.*)/)?.[1] ?? '';
 
 		for (const { id } of tools) {
 			expect(readme, `README.md links apps/${id}`).toContain(`](apps/${id})`);
 			expect(contributing, `.github/CONTRIBUTING.md links ../apps/${id}/`).toContain(`](../apps/${id}/`);
 			expect(supported, `.github/SECURITY.md supports ${id}`).toMatch(new RegExp(`^- ${id}:`, 'm'));
-			expect(webTools, `apps/web/README.md's Tools paragraph links ${id}`).toContain(`[${id}](../${id})`);
+			expect(webTools, `apps/web/docs/features/tools/tools.md links ${id}`).toContain(`[${id}](../../../../${id})`);
 			expect(toolsLabel.split(/\W+/), `.github/labels.yml's "web: tools" label names ${id}`).toContain(id);
 		}
 	});

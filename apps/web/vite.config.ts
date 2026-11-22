@@ -231,7 +231,7 @@ export default defineConfig({
 				test: {
 					name: 'server',
 					environment: 'node',
-					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts', 'vite.config.test.ts'],
+					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts', '*.test.ts'],
 					globalSetup: ['./src/lib/server/testing/pglite.setup.ts'],
 					exclude: ['src/**/*.svelte.{test,spec}.ts']
 				}

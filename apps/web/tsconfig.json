@@ -4,5 +4,5 @@
 		"strict": true,
 		"types": ["$app/types", "node"]
 	},
-	"include": ["src", "fuzz/*.ts", "../../tools", "vite.config.ts", "vite.config.test.ts", "playwright.config.ts"]
+	"include": ["src", "fuzz/*.ts", "../../tools", "vite.config.ts", "*.test.ts", "playwright.config.ts"]
 }
