@@ -20,6 +20,7 @@ use crate::{Context, PROTOCOL_VERSION, RpcError, hooks};
 pub struct Manifest {
     /// Lowercase letters, digits, `-` and `_`, starting with a letter.
     pub id: String,
+    /// The plugin's name, as hosts show it to the user. Not empty.
     pub name: String,
     /// The plugin's version (semver).
     pub version: String,
@@ -31,6 +32,7 @@ pub struct Manifest {
     /// The account types it asks for, and the scopes of each it needs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accounts: Vec<hooks::accounts::AccountNeed>,
+    /// What it adds to locallibrary, by kind (see [`Contributions`]).
     #[serde(default)]
     pub contributes: Contributions,
     /// How often the host may send `net/fetch` requests to some of the hosts it talks to.
@@ -48,23 +50,50 @@ pub struct Manifest {
 
 // A field for each family of hooks, in the order `describe` and the sidecar's contract show them
 // (a family's placed as `crate::hooks` says), and the settings.
+/// What a plugin adds to locallibrary (`contributes`): its hooks, by family, and its settings.
+/// Hosts draw each one their own way. Each is empty unless the manifest says.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Contributions {
+    /// The account types it provides: how to sign in to a service, and what each of its scopes
+    /// lets a plugin do there. A plugin that provides one is an account plugin, which adds nothing
+    /// else.
     pub account_types: Vec<hooks::account_types::AccountType>,
+    /// The commands it adds, run with `command/run`: each answers any JSON, or a view to draw.
     pub commands: Vec<hooks::commands::Command>,
+    /// Where it keeps things for the user somewhere else: copies of the store (`store`), or sets
+    /// it publishes (`set`).
     pub destinations: Vec<hooks::destinations::Destination>,
+    /// What it's told of as it happens (`event/notify`).
     pub events: Vec<hooks::events::Listener>,
+    /// The changes it plans as edits (`op/plan`), which the host confirms and applies.
     pub operations: Vec<hooks::operations::Operation>,
+    /// What it shows under a track's details (`panel/render`).
     pub panels: Vec<hooks::panels::Panel>,
+    /// The values it works out for each track from its audio (`track/analyze`), which the host
+    /// keeps as columns.
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
+    /// What it finds on a drive (`check/run`), and says about a plan before it's applied
+    /// (`plan/check`).
     pub checks: Vec<hooks::checks::Check>,
+    /// The formats of other programs it writes a drive's library, a set or a mix in, on this
+    /// computer (`export/write`).
     pub exporters: Vec<hooks::exporters::Exporter>,
+    /// The files of other programs it reads what they kept about tracks, and the plays they
+    /// logged, from (`import/read`).
     pub importers: Vec<hooks::importers::Importer>,
+    /// What it finds for tracks, such as cover art or tags (`provide/candidates`), for the user to
+    /// choose from.
     pub providers: Vec<hooks::providers::Provider>,
+    /// What it keeps running while a host is open (`service/start`), once the user turns it on.
     pub services: Vec<hooks::services::Service>,
+    /// The libraries it reads from somewhere on this computer (`library/read`), which the host
+    /// builds a drive from.
     pub sources: Vec<hooks::sources::LibrarySource>,
+    /// Its themes: colours for hosts to draw in.
     pub themes: Vec<hooks::themes::Theme>,
+    /// Its settings, which the host stores and shows, and gives its hooks in `context.settings`
+    /// (all but secrets).
     pub settings: Vec<Setting>,
 }
 
@@ -74,8 +103,11 @@ pub struct Contributions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Where {
+    /// In the menu of the tracks selected.
     Track,
+    /// In a playlist's menu.
     Playlist,
+    /// In a drive's menu.
     Drive,
     /// About this computer's rekordbox collection, not a track, a playlist or a drive: run without
     /// one (a backup of the collection, say). Commands only: an operation edits a drive.
@@ -178,10 +210,15 @@ impl Selection {
 /// A setting the host stores and shows in its settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Setting {
+    /// Its name, as hooks are given it in `context.settings`: lowercase letters, digits, `-` and
+    /// `_`, starting with a letter, each key once.
     pub key: String,
+    /// What the user sees it called. Not empty.
     pub title: String,
+    /// What kind of value it holds.
     #[serde(rename = "type")]
     pub kind: SettingType,
+    /// Its value until the user sets one, of its type. A secret has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<Value>,
     /// What an `enum` setting can be.
@@ -189,15 +226,21 @@ pub struct Setting {
     pub choices: Vec<String>,
 }
 
+/// What kind of value a setting holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingType {
+    /// Text.
     String,
+    /// A number.
     Number,
+    /// `true` or `false`.
     Boolean,
     /// One of `choices`.
     Enum,
+    /// A file on the computer, by its path.
     File,
+    /// A folder on the computer, by its path.
     Directory,
     /// A password or a key: kept in the system's keychain, never shown, and given to the plugin
     /// only as the host fills it into its `net/fetch` requests. It has no default.
@@ -223,35 +266,57 @@ impl Setting {
 /// are under way: the limit the server asks its clients to keep.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct NetLimit {
+    /// One of the plugin's `net:` capabilities as it's written, without `net:` (`musicbrainz.org`,
+    /// `*.archive.org`). Each host is limited once.
     pub host: String,
+    /// How many `net/fetch` requests a second the host sends there at most: at least 1/3600 (one
+    /// an hour).
     pub per_second: f64,
 }
 
 /// What a plugin may call back for. A closed list: a manifest naming another is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Capability {
+    /// `library:read`: read a drive's tracks and playlists.
     LibraryRead,
+    /// `analysis:read`: read tracks' analysis (beat grids, cues, phrases, waveforms) and what
+    /// analyzers worked out.
     AnalysisRead,
+    /// `artwork:read`: read tracks' cover art.
     ArtworkRead,
+    /// `drive:info`: see the drives and their details.
     DriveInfo,
+    /// `health:read`: check drives' health.
     HealthRead,
+    /// `store:read`: read the store's libraries and snapshots.
     StoreRead,
+    /// `settings:read`: read the drives' My Settings and the player models.
     SettingsRead,
+    /// `plays:read`: read what players recorded.
     PlaysRead,
+    /// `sets:read`: read the user's sets.
     SetsRead,
+    /// `account:status`: see whether the user is signed in to their Atmosphere account.
     AccountStatus,
+    /// `collection:read`: read rekordbox's collection on this computer.
     CollectionRead,
     /// Read rekordbox's own files on this computer, to back them up: where they are, whether
     /// rekordbox is running, a copy of `master.db` and what its tracks' files are.
     CollectionFiles,
+    /// `library:plan`: plan changes to playlists and tracks, which the user confirms.
     LibraryPlan,
+    /// `library:delete`: plan removing tracks, playlists and their entries, which the user
+    /// confirms.
     LibraryDelete,
     /// Delete tracks whose files the backup leaves out (`delete_unbacked`), for tracks rekordbox's
     /// next export puts back: undoing can't bring those files back, so only plugins locallibrary
     /// ships have it.
     LibraryDeleteUnbacked,
+    /// `tags:plan`: plan changes to tracks' My Tags, which the user confirms.
     TagsPlan,
+    /// `cues:plan`: plan changes to tracks' cues, which the user confirms.
     CuesPlan,
+    /// `artwork:plan`: plan changes to tracks' cover art, which the user confirms.
     ArtworkPlan,
     /// Plan writing beat grids, phrases and waveforms into tracks' analysis files.
     AnalysisPlan,
@@ -422,13 +487,21 @@ impl JsonSchema for Capability {
     }
 }
 
+/// Why a manifest couldn't be read, or isn't valid.
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestError {
+    /// It couldn't be read: its syntax, a key it must have and doesn't, or a value of the wrong
+    /// type.
     #[error("{0}")]
     Parse(#[from] toml::de::Error),
     /// `at` says where (`contributes.commands[1].name`).
     #[error("{at}: {message}")]
-    Invalid { at: String, message: String },
+    Invalid {
+        /// The key's place in the manifest (`contributes.commands[1].name`).
+        at: String,
+        /// What's wrong with it.
+        message: String,
+    },
 }
 
 pub(crate) fn invalid(at: impl Into<String>, message: impl Into<String>) -> ManifestError {

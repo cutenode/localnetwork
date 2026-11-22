@@ -10,6 +10,7 @@
       "type": "string"
     },
     "name": {
+      "description": "The plugin's name, as hosts show it to the user. Not empty.",
       "type": "string"
     },
     "version": {
@@ -36,6 +37,7 @@
       }
     },
     "contributes": {
+      "description": "What it adds to locallibrary, by kind (see [`Contributions`]).",
       "$ref": "#/$defs/Contributions",
       "default": {
         "account_types": [],
@@ -151,12 +153,14 @@
       "type": "object",
       "properties": {
         "scopes": {
+          "description": "The type's scopes, by name.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "why": {
+          "description": "What they're for, shown when the user is asked for them.",
           "type": "string"
         }
       },
@@ -166,9 +170,11 @@
       ]
     },
     "Contributions": {
+      "description": "What a plugin adds to locallibrary (`contributes`): its hooks, by family, and its settings.\nHosts draw each one their own way. Each is empty unless the manifest says.",
       "type": "object",
       "properties": {
         "account_types": {
+          "description": "The account types it provides: how to sign in to a service, and what each of its scopes\nlets a plugin do there. A plugin that provides one is an account plugin, which adds nothing\nelse.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/AccountType"
@@ -176,6 +182,7 @@
           "default": []
         },
         "commands": {
+          "description": "The commands it adds, run with `command/run`: each answers any JSON, or a view to draw.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Command"
@@ -183,6 +190,7 @@
           "default": []
         },
         "destinations": {
+          "description": "Where it keeps things for the user somewhere else: copies of the store (`store`), or sets\nit publishes (`set`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Destination"
@@ -190,6 +198,7 @@
           "default": []
         },
         "events": {
+          "description": "What it's told of as it happens (`event/notify`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Listener"
@@ -197,6 +206,7 @@
           "default": []
         },
         "operations": {
+          "description": "The changes it plans as edits (`op/plan`), which the host confirms and applies.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Operation"
@@ -204,6 +214,7 @@
           "default": []
         },
         "panels": {
+          "description": "What it shows under a track's details (`panel/render`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Panel"
@@ -211,6 +222,7 @@
           "default": []
         },
         "analyzers": {
+          "description": "The values it works out for each track from its audio (`track/analyze`), which the host\nkeeps as columns.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Analyzer"
@@ -218,6 +230,7 @@
           "default": []
         },
         "checks": {
+          "description": "What it finds on a drive (`check/run`), and says about a plan before it's applied\n(`plan/check`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Check"
@@ -225,6 +238,7 @@
           "default": []
         },
         "exporters": {
+          "description": "The formats of other programs it writes a drive's library, a set or a mix in, on this\ncomputer (`export/write`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Exporter"
@@ -232,6 +246,7 @@
           "default": []
         },
         "importers": {
+          "description": "The files of other programs it reads what they kept about tracks, and the plays they\nlogged, from (`import/read`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Importer"
@@ -239,6 +254,7 @@
           "default": []
         },
         "providers": {
+          "description": "What it finds for tracks, such as cover art or tags (`provide/candidates`), for the user to\nchoose from.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Provider"
@@ -246,6 +262,7 @@
           "default": []
         },
         "services": {
+          "description": "What it keeps running while a host is open (`service/start`), once the user turns it on.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Service"
@@ -253,6 +270,7 @@
           "default": []
         },
         "sources": {
+          "description": "The libraries it reads from somewhere on this computer (`library/read`), which the host\nbuilds a drive from.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/LibrarySource"
@@ -260,6 +278,7 @@
           "default": []
         },
         "themes": {
+          "description": "Its themes: colours for hosts to draw in.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Theme"
@@ -267,6 +286,7 @@
           "default": []
         },
         "settings": {
+          "description": "Its settings, which the host stores and shows, and gives its hooks in `context.settings`\n(all but secrets).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Setting"
@@ -284,6 +304,7 @@
           "type": "string"
         },
         "title": {
+          "description": "The service as the user sees it named (`Google`), when signing in and in messages about it.",
           "type": "string"
         },
         "kind": {
@@ -499,6 +520,7 @@
       "type": "object",
       "properties": {
         "title": {
+          "description": "What it lets a plugin do, in a few words, as the user is asked to allow it.",
           "type": "string"
         },
         "asks": {
@@ -530,6 +552,7 @@
           "type": "string"
         },
         "url": {
+          "description": "An https:// URL, or the start of one ending in `*`, written as it's read.",
           "type": "string"
         }
       },
@@ -543,12 +566,15 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other command's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "mode": {
+          "description": "What it answers: `headless` for any JSON, `view` for a view to draw.",
           "$ref": "#/$defs/Mode"
         },
         "where": {
@@ -587,6 +613,7 @@
       ]
     },
     "Mode": {
+      "description": "What a command answers.",
       "oneOf": [
         {
           "description": "Answers any JSON, shown as it is (`--json`) or not at all.",
@@ -604,12 +631,19 @@
       "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive; or, for a command alone, with what's about rekordbox's collection on\nthis computer rather than a drive (`collection`). A host's palette has every one.",
       "oneOf": [
         {
+          "description": "In the menu of the tracks selected.",
           "type": "string",
-          "enum": [
-            "track",
-            "playlist",
-            "drive"
-          ]
+          "const": "track"
+        },
+        {
+          "description": "In a playlist's menu.",
+          "type": "string",
+          "const": "playlist"
+        },
+        {
+          "description": "In a drive's menu.",
+          "type": "string",
+          "const": "drive"
         },
         {
           "description": "About this computer's rekordbox collection, not a track, a playlist or a drive: run without\none (a backup of the collection, say). Commands only: an operation edits a drive.",
@@ -623,12 +657,15 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by (`destination`): lowercase letters, digits, `-` and `_`, starting\nwith a letter, 64 characters at most, and no other destination's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "kind": {
+          "description": "What it keeps: `store` or `set`.",
           "$ref": "#/$defs/DestinationKind"
         }
       },
@@ -658,6 +695,7 @@
       "type": "object",
       "properties": {
         "on": {
+          "description": "The events, none listened for twice, each needing its capability.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EventName"
@@ -713,9 +751,11 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other operation's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "where": {
@@ -754,9 +794,11 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other panel's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "where": {
@@ -775,9 +817,11 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What `track/analyze` names it by: lowercase letters, digits, `-` and `_`, starting with a\nletter, 64 characters at most, and no other analyzer's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "version": {
@@ -785,6 +829,7 @@
           "type": "string"
         },
         "fields": {
+          "description": "Its fields by name (named as it is), with the type of each: the columns it fills, a field at\nleast, and none that another analyzer has.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/FieldType"
@@ -813,16 +858,32 @@
       ]
     },
     "FieldType": {
+      "description": "A field's type, as the manifest declares it: what its values are.",
       "oneOf": [
         {
+          "description": "A number, finite; an integer is one too.",
           "type": "string",
-          "enum": [
-            "number",
-            "integer",
-            "string",
-            "boolean",
-            "string[]"
-          ]
+          "const": "number"
+        },
+        {
+          "description": "A whole number.",
+          "type": "string",
+          "const": "integer"
+        },
+        {
+          "description": "A string.",
+          "type": "string",
+          "const": "string"
+        },
+        {
+          "description": "True or false.",
+          "type": "string",
+          "const": "boolean"
+        },
+        {
+          "description": "A list of strings.",
+          "type": "string",
+          "const": "string[]"
         },
         {
           "description": "A beat grid (feature `analysis`, see [`crate::Output`]).",
@@ -863,6 +924,7 @@
           "maximum": 255
         },
         "format": {
+          "description": "What its values are, for hosts to show them as such: `key` for a string field, the others\nfor a number or an integer.",
           "anyOf": [
             {
               "$ref": "#/$defs/FieldFormat"
@@ -919,9 +981,11 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other check's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "default_on": {
@@ -965,9 +1029,11 @@
       "type": "object",
       "properties": {
         "format": {
+          "description": "The format it writes, which requests name it by (`exporter`): lowercase letters, digits,\n`-` and `_`, starting with a letter, 64 characters at most, and no other exporter's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "extension": {
@@ -999,9 +1065,11 @@
       "description": "What an exporter writes out, as its manifest says it: one source, or a list.",
       "anyOf": [
         {
+          "description": "One source (`\"set\"`).",
           "$ref": "#/$defs/ExportFrom"
         },
         {
+          "description": "A list of them, each once (`[\"drive\", \"set\"]`).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/ExportFrom"
@@ -1034,9 +1102,11 @@
       "type": "object",
       "properties": {
         "format": {
+          "description": "The format it reads, which requests name it by (`importer`): lowercase letters, digits,\n`-` and `_`, starting with a letter, 64 characters at most, and no other importer's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "extension": {
@@ -1067,15 +1137,14 @@
       "description": "What an importer reads.",
       "oneOf": [
         {
-          "type": "string",
-          "enum": [
-            "cues"
-          ]
-        },
-        {
           "description": "A track's key and BPM.",
           "type": "string",
           "const": "fields"
+        },
+        {
+          "description": "A track's hot cues, memory cues and loops.",
+          "type": "string",
+          "const": "cues"
         },
         {
           "description": "My Tags.",
@@ -1094,12 +1163,15 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other provider's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "kind": {
+          "description": "What it finds: `artwork` or `metadata`.",
           "$ref": "#/$defs/ProviderKind"
         }
       },
@@ -1129,9 +1201,11 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by, and its setting (`services.<name>`): lowercase letters, digits, `-`\nand `_`, starting with a letter, 64 characters at most, and no other service's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         }
       },
@@ -1145,9 +1219,11 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other source's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "options": {
@@ -1164,12 +1240,15 @@
       "type": "object",
       "properties": {
         "name": {
+          "description": "What hosts name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other theme's.",
           "type": "string"
         },
         "title": {
+          "description": "What hosts show it as.",
           "type": "string"
         },
         "tokens": {
+          "description": "Its colours by token name, nested a level for each dot (`cues.hot`): one at least.",
           "type": "object",
           "additionalProperties": true
         }
@@ -1185,15 +1264,20 @@
       "type": "object",
       "properties": {
         "key": {
+          "description": "Its name, as hooks are given it in `context.settings`: lowercase letters, digits, `-` and\n`_`, starting with a letter, each key once.",
           "type": "string"
         },
         "title": {
+          "description": "What the user sees it called. Not empty.",
           "type": "string"
         },
         "type": {
+          "description": "What kind of value it holds.",
           "$ref": "#/$defs/SettingType"
         },
-        "default": true,
+        "default": {
+          "description": "Its value until the user sets one, of its type. A secret has none."
+        },
         "choices": {
           "description": "What an `enum` setting can be.",
           "type": "array",
@@ -1209,21 +1293,37 @@
       ]
     },
     "SettingType": {
+      "description": "What kind of value a setting holds.",
       "oneOf": [
         {
+          "description": "Text.",
           "type": "string",
-          "enum": [
-            "string",
-            "number",
-            "boolean",
-            "file",
-            "directory"
-          ]
+          "const": "string"
+        },
+        {
+          "description": "A number.",
+          "type": "string",
+          "const": "number"
+        },
+        {
+          "description": "`true` or `false`.",
+          "type": "string",
+          "const": "boolean"
         },
         {
           "description": "One of `choices`.",
           "type": "string",
           "const": "enum"
+        },
+        {
+          "description": "A file on the computer, by its path.",
+          "type": "string",
+          "const": "file"
+        },
+        {
+          "description": "A folder on the computer, by its path.",
+          "type": "string",
+          "const": "directory"
         },
         {
           "description": "A password or a key: kept in the system's keychain, never shown, and given to the plugin\nonly as the host fills it into its `net/fetch` requests. It has no default.",
@@ -1237,9 +1337,11 @@
       "type": "object",
       "properties": {
         "host": {
+          "description": "One of the plugin's `net:` capabilities as it's written, without `net:` (`musicbrainz.org`,\n`*.archive.org`). Each host is limited once.",
           "type": "string"
         },
         "per_second": {
+          "description": "How many `net/fetch` requests a second the host sends there at most: at least 1/3600 (one\nan hour).",
           "type": "number",
           "format": "double"
         }

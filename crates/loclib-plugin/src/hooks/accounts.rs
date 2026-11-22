@@ -61,6 +61,8 @@ pub struct EnsureAccount {
     /// The account type (`google`).
     #[serde(rename = "type")]
     pub kind: String,
+    /// The type's scopes it wants to use, by name (`youtube-upload`), each one its `accounts`
+    /// entry for the type asks for.
     pub scopes: Vec<String>,
     /// The access, by its id (8 lowercase hex digits), when it isn't the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,7 +100,9 @@ pub struct AccountNeed {
 /// they're for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct OptionalScopes {
+    /// The type's scopes, by name.
     pub scopes: Vec<String>,
+    /// What they're for, shown when the user is asked for them.
     pub why: String,
 }
 

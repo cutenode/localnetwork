@@ -36,6 +36,7 @@ pub struct ReadImport {
     /// What the importer's `options` schema describes.
     #[serde(default)]
     pub options: Value,
+    /// The drive the host finds the tracks on, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -45,7 +46,9 @@ pub struct ReadImport {
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ImportAnswer {
+    /// A file in the request's scratch folder holding what it read, as JSON.
     Blob(Blob),
+    /// What it read.
     Read(Imported),
 }
 
@@ -77,8 +80,10 @@ impl<'de> Deserialize<'de> for ImportAnswer {
 /// What an importer read: only what its manifest says it `provides`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Imported {
+    /// The tracks the file has something about.
     #[serde(default)]
     pub tracks: Vec<ImportedTrack>,
+    /// The logs of what played. `sessions`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sessions: Vec<ImportedLog>,
     /// What it couldn't read, in a line each.
@@ -115,10 +120,13 @@ pub struct TrackMatch {
     /// drive's root (`/Contents/...`). Its last parts are what count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Its ISRC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub isrc: Option<String>,
+    /// Its artist.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
+    /// Its title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// In seconds.
@@ -137,6 +145,7 @@ pub struct ImportedCue {
     /// A loop this many beats long (a whole number, or 0.5, 0.25...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_beats: Option<f64>,
+    /// What the cue is called.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// `#rrggbb`, or a colour's name (`red`).
@@ -160,8 +169,10 @@ pub struct ImportedLog {
 /// A track that played, as the log names it: found on the drive as a track is.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ImportedPlay {
+    /// The track's artist, as the log names it.
     #[serde(default)]
     pub artist: String,
+    /// The track's title, as the log names it.
     #[serde(default)]
     pub title: String,
     /// When it started playing (RFC 3339) [default: the session's start].
@@ -185,7 +196,10 @@ impl Hook for ReadImport {
 /// plans the edits itself, so it needs no capability to plan one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Importer {
+    /// The format it reads, which requests name it by (`importer`): lowercase letters, digits,
+    /// `-` and `_`, starting with a letter, 64 characters at most, and no other importer's.
     pub format: String,
+    /// What hosts show it as.
     pub title: String,
     /// The file it reads usually ends in this: lowercase letters and digits, without the dot
     /// (`nml`).
@@ -204,6 +218,7 @@ pub struct Importer {
 pub enum ImportKind {
     /// A track's key and BPM.
     Fields,
+    /// A track's hot cues, memory cues and loops.
     Cues,
     /// My Tags.
     Tags,

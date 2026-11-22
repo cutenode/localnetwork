@@ -25,15 +25,20 @@ pub(crate) const FEATURE: Feature = Feature {
 /// many columns a second of audio it has.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct WaveformBlob {
+    /// The file's name in the request's scratch folder.
     pub blob: String,
+    /// How many columns it has for each second of audio: finite and more than 0.
     pub columns_per_sec: f64,
 }
 
 /// A structured field's value, as its type says.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Output {
+    /// A `beats` field's beat grid.
     Beats(Vec<Beat>),
+    /// A `phrases` field's song structure.
     Phrases(SongStructure),
+    /// A `waveform` field's file and how many columns a second it has.
     Waveform(WaveformBlob),
 }
 

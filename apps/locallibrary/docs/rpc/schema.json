@@ -13055,19 +13055,22 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The track's title."
         },
         "artist": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Its artist."
         },
         "album": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The album it's on."
         },
         "year": {
           "type": [
@@ -13076,13 +13079,15 @@
           ],
           "format": "uint16",
           "minimum": 0,
-          "maximum": 65535
+          "maximum": 65535,
+          "description": "The year it came out."
         },
         "genre": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Its genre."
         },
         "label": {
           "type": [
@@ -13095,7 +13100,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Its ISRC."
         }
       },
       "description": "The tags a metadata provider has for a track: each it doesn't have left out."
@@ -15735,26 +15741,32 @@
       "anyOf": [
         {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "A whole number."
         },
         {
           "type": "number",
-          "format": "double"
+          "format": "double",
+          "description": "A number, finite."
         },
         {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "True or false."
         },
         {
-          "type": "string"
+          "type": "string",
+          "description": "A string."
         },
         {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "A list of strings."
         },
         {
-          "type": "null"
+          "type": "null",
+          "description": "Worked out, with nothing to show."
         }
       ],
       "description": "A field's value, as an analyzer answers it and the host keeps it: of the type the manifest\ndeclares (numbers are finite, as JSON's are), or null for one worked out with nothing to show\n(a track left out of an answer has no value: it wasn't worked out)."
@@ -32693,7 +32705,8 @@
           "description": "Lowercase letters, digits, `-` and `_`, starting with a letter."
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The plugin's name, as hosts show it to the user. Not empty."
         },
         "version": {
           "type": "string",
@@ -32720,6 +32733,7 @@
         },
         "contributes": {
           "$ref": "#/$defs/Contributions",
+          "description": "What it adds to locallibrary, by kind (see [`Contributions`]).",
           "default": {
             "account_types": [],
             "commands": [],
@@ -32801,10 +32815,12 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "The type's scopes, by name."
         },
         "why": {
-          "type": "string"
+          "type": "string",
+          "description": "What they're for, shown when the user is asked for them."
         }
       },
       "required": [
@@ -32821,6 +32837,7 @@
           "items": {
             "$ref": "#/$defs/AccountType"
           },
+          "description": "The account types it provides: how to sign in to a service, and what each of its scopes\nlets a plugin do there. A plugin that provides one is an account plugin, which adds nothing\nelse.",
           "default": []
         },
         "commands": {
@@ -32828,6 +32845,7 @@
           "items": {
             "$ref": "#/$defs/Command"
           },
+          "description": "The commands it adds, run with `command/run`: each answers any JSON, or a view to draw.",
           "default": []
         },
         "destinations": {
@@ -32835,6 +32853,7 @@
           "items": {
             "$ref": "#/$defs/Destination"
           },
+          "description": "Where it keeps things for the user somewhere else: copies of the store (`store`), or sets\nit publishes (`set`).",
           "default": []
         },
         "events": {
@@ -32842,6 +32861,7 @@
           "items": {
             "$ref": "#/$defs/Listener"
           },
+          "description": "What it's told of as it happens (`event/notify`).",
           "default": []
         },
         "operations": {
@@ -32849,6 +32869,7 @@
           "items": {
             "$ref": "#/$defs/Operation"
           },
+          "description": "The changes it plans as edits (`op/plan`), which the host confirms and applies.",
           "default": []
         },
         "panels": {
@@ -32856,6 +32877,7 @@
           "items": {
             "$ref": "#/$defs/Panel"
           },
+          "description": "What it shows under a track's details (`panel/render`).",
           "default": []
         },
         "analyzers": {
@@ -32863,6 +32885,7 @@
           "items": {
             "$ref": "#/$defs/Analyzer"
           },
+          "description": "The values it works out for each track from its audio (`track/analyze`), which the host\nkeeps as columns.",
           "default": []
         },
         "checks": {
@@ -32870,6 +32893,7 @@
           "items": {
             "$ref": "#/$defs/Check"
           },
+          "description": "What it finds on a drive (`check/run`), and says about a plan before it's applied\n(`plan/check`).",
           "default": []
         },
         "exporters": {
@@ -32877,6 +32901,7 @@
           "items": {
             "$ref": "#/$defs/Exporter"
           },
+          "description": "The formats of other programs it writes a drive's library, a set or a mix in, on this\ncomputer (`export/write`).",
           "default": []
         },
         "importers": {
@@ -32884,6 +32909,7 @@
           "items": {
             "$ref": "#/$defs/Importer"
           },
+          "description": "The files of other programs it reads what they kept about tracks, and the plays they\nlogged, from (`import/read`).",
           "default": []
         },
         "providers": {
@@ -32891,6 +32917,7 @@
           "items": {
             "$ref": "#/$defs/Provider"
           },
+          "description": "What it finds for tracks, such as cover art or tags (`provide/candidates`), for the user to\nchoose from.",
           "default": []
         },
         "services": {
@@ -32898,6 +32925,7 @@
           "items": {
             "$ref": "#/$defs/Service"
           },
+          "description": "What it keeps running while a host is open (`service/start`), once the user turns it on.",
           "default": []
         },
         "sources": {
@@ -32905,6 +32933,7 @@
           "items": {
             "$ref": "#/$defs/LibrarySource"
           },
+          "description": "The libraries it reads from somewhere on this computer (`library/read`), which the host\nbuilds a drive from.",
           "default": []
         },
         "themes": {
@@ -32912,6 +32941,7 @@
           "items": {
             "$ref": "#/$defs/Theme"
           },
+          "description": "Its themes: colours for hosts to draw in.",
           "default": []
         },
         "settings": {
@@ -32919,6 +32949,7 @@
           "items": {
             "$ref": "#/$defs/Setting"
           },
+          "description": "Its settings, which the host stores and shows, and gives its hooks in `context.settings`\n(all but secrets).",
           "default": []
         }
       },
@@ -32938,7 +32969,8 @@
         "sources",
         "themes",
         "settings"
-      ]
+      ],
+      "description": "What a plugin adds to locallibrary (`contributes`): its hooks, by family, and its settings.\nHosts draw each one their own way. Each is empty unless the manifest says."
     },
     "AccountType": {
       "type": "object",
@@ -32948,7 +32980,8 @@
           "description": "The account type it provides (`google`), which other account plugins may provide too."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "The service as the user sees it named (`Google`), when signing in and in messages about it."
         },
         "kind": {
           "$ref": "#/$defs/SignIn",
@@ -33163,7 +33196,8 @@
       "type": "object",
       "properties": {
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What it lets a plugin do, in a few words, as the user is asked to allow it."
         },
         "asks": {
           "type": "array",
@@ -33194,7 +33228,8 @@
           "description": "`GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`."
         },
         "url": {
-          "type": "string"
+          "type": "string",
+          "description": "An https:// URL, or the start of one ending in `*`, written as it's read."
         }
       },
       "required": [
@@ -33207,13 +33242,16 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other command's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "mode": {
-          "$ref": "#/$defs/Mode"
+          "$ref": "#/$defs/Mode",
+          "description": "What it answers: `headless` for any JSON, `view` for a view to draw."
         },
         "where": {
           "type": "array",
@@ -33264,17 +33302,25 @@
           "const": "view",
           "description": "Answers a [`crate::View`]."
         }
-      ]
+      ],
+      "description": "What a command answers."
     },
     "Where": {
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "track",
-            "playlist",
-            "drive"
-          ]
+          "const": "track",
+          "description": "In the menu of the tracks selected."
+        },
+        {
+          "type": "string",
+          "const": "playlist",
+          "description": "In a playlist's menu."
+        },
+        {
+          "type": "string",
+          "const": "drive",
+          "description": "In a drive's menu."
         },
         {
           "type": "string",
@@ -33288,13 +33334,16 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by (`destination`): lowercase letters, digits, `-` and `_`, starting\nwith a letter, 64 characters at most, and no other destination's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "kind": {
-          "$ref": "#/$defs/DestinationKind"
+          "$ref": "#/$defs/DestinationKind",
+          "description": "What it keeps: `store` or `set`."
         }
       },
       "required": [
@@ -33326,7 +33375,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/EventName"
-          }
+          },
+          "description": "The events, none listened for twice, each needing its capability."
         }
       },
       "required": [
@@ -33378,10 +33428,12 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other operation's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "where": {
           "type": "array",
@@ -33421,10 +33473,12 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other panel's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "where": {
           "$ref": "#/$defs/Where",
@@ -33443,10 +33497,12 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What `track/analyze` names it by: lowercase letters, digits, `-` and `_`, starting with a\nletter, 64 characters at most, and no other analyzer's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "version": {
           "type": "string",
@@ -33456,7 +33512,8 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/FieldType"
-          }
+          },
+          "description": "Its fields by name (named as it is), with the type of each: the columns it fills, a field at\nleast, and none that another analyzer has."
         },
         "roles": {
           "type": "object",
@@ -33485,13 +33542,28 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "number",
-            "integer",
-            "string",
-            "boolean",
-            "string[]"
-          ]
+          "const": "number",
+          "description": "A number, finite; an integer is one too."
+        },
+        {
+          "type": "string",
+          "const": "integer",
+          "description": "A whole number."
+        },
+        {
+          "type": "string",
+          "const": "string",
+          "description": "A string."
+        },
+        {
+          "type": "string",
+          "const": "boolean",
+          "description": "True or false."
+        },
+        {
+          "type": "string",
+          "const": "string[]",
+          "description": "A list of strings."
         },
         {
           "type": "string",
@@ -33508,7 +33580,8 @@
           "const": "waveform",
           "description": "A waveform in three bands, in a blob (feature `analysis`)."
         }
-      ]
+      ],
+      "description": "A field's type, as the manifest declares it: what its values are."
     },
     "FieldDisplay": {
       "type": "object",
@@ -33538,7 +33611,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "What its values are, for hosts to show them as such: `key` for a string field, the others\nfor a number or an integer."
         },
         "width": {
           "type": [
@@ -33587,10 +33661,12 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other check's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "default_on": {
           "type": "boolean",
@@ -33635,10 +33711,12 @@
       "type": "object",
       "properties": {
         "format": {
-          "type": "string"
+          "type": "string",
+          "description": "The format it writes, which requests name it by (`exporter`): lowercase letters, digits,\n`-` and `_`, starting with a letter, 64 characters at most, and no other exporter's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "extension": {
           "type": [
@@ -33670,13 +33748,15 @@
     "ExportSources": {
       "anyOf": [
         {
-          "$ref": "#/$defs/ExportFrom"
+          "$ref": "#/$defs/ExportFrom",
+          "description": "One source (`\"set\"`)."
         },
         {
           "type": "array",
           "items": {
             "$ref": "#/$defs/ExportFrom"
-          }
+          },
+          "description": "A list of them, each once (`[\"drive\", \"set\"]`)."
         }
       ],
       "description": "What an exporter writes out, as its manifest says it: one source, or a list."
@@ -33705,10 +33785,12 @@
       "type": "object",
       "properties": {
         "format": {
-          "type": "string"
+          "type": "string",
+          "description": "The format it reads, which requests name it by (`importer`): lowercase letters, digits,\n`-` and `_`, starting with a letter, 64 characters at most, and no other importer's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "extension": {
           "type": [
@@ -33739,14 +33821,13 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "cues"
-          ]
+          "const": "fields",
+          "description": "A track's key and BPM."
         },
         {
           "type": "string",
-          "const": "fields",
-          "description": "A track's key and BPM."
+          "const": "cues",
+          "description": "A track's hot cues, memory cues and loops."
         },
         {
           "type": "string",
@@ -33765,13 +33846,16 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other provider's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "kind": {
-          "$ref": "#/$defs/ProviderKind"
+          "$ref": "#/$defs/ProviderKind",
+          "description": "What it finds: `artwork` or `metadata`."
         }
       },
       "required": [
@@ -33785,10 +33869,12 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by, and its setting (`services.<name>`): lowercase letters, digits, `-`\nand `_`, starting with a letter, 64 characters at most, and no other service's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         }
       },
       "required": [
@@ -33801,10 +33887,12 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other source's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "options": {
           "description": "A JSON Schema for its options (an object)."
@@ -33820,14 +33908,17 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64\ncharacters at most, and no other theme's."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What hosts show it as."
         },
         "tokens": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "description": "Its colours by token name, nested a level for each dot (`cues.hot`): one at least."
         }
       },
       "required": [
@@ -33841,15 +33932,20 @@
       "type": "object",
       "properties": {
         "key": {
-          "type": "string"
+          "type": "string",
+          "description": "Its name, as hooks are given it in `context.settings`: lowercase letters, digits, `-` and\n`_`, starting with a letter, each key once."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "What the user sees it called. Not empty."
         },
         "type": {
-          "$ref": "#/$defs/SettingType"
+          "$ref": "#/$defs/SettingType",
+          "description": "What kind of value it holds."
         },
-        "default": true,
+        "default": {
+          "description": "Its value until the user sets one, of its type. A secret has none."
+        },
         "choices": {
           "type": "array",
           "items": {
@@ -33869,13 +33965,18 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "string",
-            "number",
-            "boolean",
-            "file",
-            "directory"
-          ]
+          "const": "string",
+          "description": "Text."
+        },
+        {
+          "type": "string",
+          "const": "number",
+          "description": "A number."
+        },
+        {
+          "type": "string",
+          "const": "boolean",
+          "description": "`true` or `false`."
         },
         {
           "type": "string",
@@ -33884,20 +33985,33 @@
         },
         {
           "type": "string",
+          "const": "file",
+          "description": "A file on the computer, by its path."
+        },
+        {
+          "type": "string",
+          "const": "directory",
+          "description": "A folder on the computer, by its path."
+        },
+        {
+          "type": "string",
           "const": "secret",
           "description": "A password or a key: kept in the system's keychain, never shown, and given to the plugin\nonly as the host fills it into its `net/fetch` requests. It has no default."
         }
-      ]
+      ],
+      "description": "What kind of value a setting holds."
     },
     "NetLimit": {
       "type": "object",
       "properties": {
         "host": {
-          "type": "string"
+          "type": "string",
+          "description": "One of the plugin's `net:` capabilities as it's written, without `net:` (`musicbrainz.org`,\n`*.archive.org`). Each host is limited once."
         },
         "per_second": {
           "type": "number",
-          "format": "double"
+          "format": "double",
+          "description": "How many `net/fetch` requests a second the host sends there at most: at least 1/3600 (one\nan hour)."
         }
       },
       "required": [
@@ -33966,13 +34080,15 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "items": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/ListItem"
-              }
+              },
+              "description": "The lines, in order."
             }
           },
           "required": [
@@ -33992,20 +34108,23 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "columns": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/Column"
-              }
+              },
+              "description": "The columns, in order."
             },
             "rows": {
               "type": "array",
               "items": {
                 "type": "array",
                 "items": true
-              }
+              },
+              "description": "The rows, each a cell a column, in the columns' order."
             }
           },
           "required": [
@@ -34026,13 +34145,15 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "pairs": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/Pair"
-              }
+              },
+              "description": "The labelled values."
             }
           },
           "required": [
@@ -34052,10 +34173,12 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "text": {
-              "type": "string"
+              "type": "string",
+              "description": "The text, shown as it is."
             }
           },
           "required": [
@@ -34089,13 +34212,15 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "items": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/TreeItem"
-              }
+              },
+              "description": "The items at the top, each with the items below it."
             }
           },
           "required": [
@@ -34115,28 +34240,33 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "style": {
-              "$ref": "#/$defs/ChartStyle"
+              "$ref": "#/$defs/ChartStyle",
+              "description": "Whether its series are lines or bars."
             },
             "series": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/Series"
-              }
+              },
+              "description": "Its series, each named."
             },
             "x_label": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "What the x axis measures."
             },
             "y_label": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "What the y axis measures."
             }
           },
           "required": [
@@ -34157,7 +34287,8 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "blob": {
               "type": "string",
@@ -34193,13 +34324,15 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "description": "Its heading, if it has one."
             },
             "items": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/Section"
-              }
+              },
+              "description": "The sections, in order. None of them is a question."
             }
           },
           "required": [
@@ -34208,32 +34341,38 @@
           ],
           "description": "Views one after another, each under a title of its own (feature `views`)."
         }
-      ]
+      ],
+      "description": "What a view command or a panel answers, by `kind`: what to show, or a question for the user\nfirst."
     },
     "ListItem": {
       "type": "object",
       "properties": {
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "The line itself."
         },
         "detail": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "More about it, shown beside it."
         }
       },
       "required": [
         "label"
-      ]
+      ],
+      "description": "A line of a list."
     },
     "Column": {
       "anyOf": [
         {
-          "type": "string"
+          "type": "string",
+          "description": "Its heading alone: its cells are text."
         },
         {
-          "$ref": "#/$defs/TypedColumn"
+          "$ref": "#/$defs/TypedColumn",
+          "description": "Its heading and what its cells are (feature `views`)."
         }
       ],
       "description": "A table's column: its heading alone (text), or (feature `views`) a heading and what its cells\nare."
@@ -34242,17 +34381,20 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "Its heading."
         },
         "kind": {
           "$ref": "#/$defs/ColumnKind",
+          "description": "What its cells are: `text` unless it says.",
           "default": "text"
         },
         "unit": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "What a `number` column's numbers are in (`BPM`), said after each."
         }
       },
       "required": [
@@ -34295,26 +34437,32 @@
       "type": "object",
       "properties": {
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "What the value is."
         },
-        "value": true
+        "value": {
+          "description": "The value, shown beside its label."
+        }
       },
       "required": [
         "label",
         "value"
-      ]
+      ],
+      "description": "A labelled value."
     },
     "ChoiceItem": {
       "type": "object",
       "properties": {
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "What the user sees for it, in a line."
         },
         "detail": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "More about it, shown beside the label."
         },
         "value": {
           "description": "What the param is set to when it's chosen (with `multi`, what its list has)."
@@ -34323,7 +34471,8 @@
       "required": [
         "label",
         "value"
-      ]
+      ],
+      "description": "One of a question's items."
     },
     "PluginChoice": {
       "type": "object",
@@ -34344,7 +34493,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ChoiceItem"
-          }
+          },
+          "description": "What may be chosen, in the order shown."
         },
         "more": {
           "type": "array",
@@ -34358,36 +34508,48 @@
         "title",
         "param",
         "items"
-      ]
+      ],
+      "description": "A question for the user, with the items to choose from."
     },
     "TreeItem": {
       "type": "object",
       "properties": {
         "label": {
-          "type": "string"
+          "type": "string",
+          "description": "The item itself."
         },
         "detail": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "More about it, shown beside it."
         },
         "children": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/TreeItem"
-          }
+          },
+          "description": "The items below it, in order."
         }
       },
       "required": [
         "label"
-      ]
+      ],
+      "description": "An item of a tree, with the items below it."
     },
     "ChartStyle": {
-      "type": "string",
-      "enum": [
-        "line",
-        "bar"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "line",
+          "description": "Each series as a line through its points."
+        },
+        {
+          "type": "string",
+          "const": "bar",
+          "description": "Each series as bars, one for each point."
+        }
       ],
       "description": "How a chart draws its series."
     },
@@ -34395,7 +34557,8 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What it is, as the chart's legend names it."
         },
         "points": {
           "type": "array",
@@ -34413,7 +34576,8 @@
             ],
             "minItems": 2,
             "maxItems": 2
-          }
+          },
+          "description": "Its points, `[x, y]`, in order."
         }
       },
       "required": [
@@ -34426,16 +34590,19 @@
       "type": "object",
       "properties": {
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "Its title, shown above its view."
         },
         "view": {
-          "$ref": "#/$defs/View"
+          "$ref": "#/$defs/View",
+          "description": "What it shows: any view but a question."
         }
       },
       "required": [
         "title",
         "view"
-      ]
+      ],
+      "description": "A part of a `sections` view: a view under a title of its own."
     },
     "CommandPlanned": {
       "anyOf": [
@@ -35131,19 +35298,22 @@
       "type": "object",
       "anyOf": [
         {
-          "$ref": "#/$defs/Event"
+          "$ref": "#/$defs/Event",
+          "description": "An event (`phase_start`, `item`, `bytes`...)."
         },
         {
           "$ref": "#/$defs/StepStarted",
           "description": "A step begins (`step` says which)."
         }
       ],
+      "description": "What happened, which drive and step it's about, and (for a coalesced `item`) how many files\nit stands for.",
       "properties": {
         "target": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "The drive the event is about, when several are written at once. Absent otherwise."
         },
         "step": {
           "anyOf": [
@@ -35153,7 +35323,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The step that's running, in an operation made of steps. Absent otherwise."
         },
         "items": {
           "type": [
@@ -35164,8 +35335,7 @@
           "minimum": 0,
           "description": "How many files an `item` stands for, when more than one (count `items ?? 1`)."
         }
-      },
-      "description": "What happened, which drive and step it's about, and (for a coalesced `item`) how many files\nit stands for."
+      }
     },
     "Event": {
       "oneOf": [
@@ -35374,7 +35544,8 @@
       "type": "object",
       "properties": {
         "event": {
-          "$ref": "#/$defs/StepTag"
+          "$ref": "#/$defs/StepTag",
+          "description": "Always `step`."
         }
       },
       "required": [
@@ -35383,10 +35554,14 @@
       "description": "`{\"event\": \"step\"}`."
     },
     "StepTag": {
-      "type": "string",
-      "enum": [
-        "step"
-      ]
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "step",
+          "description": "`step`."
+        }
+      ],
+      "description": "A step's start's `event`: always `step`."
     },
     "Step": {
       "type": "object",
@@ -35394,15 +35569,18 @@
         "index": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The step's position, from 1."
         },
         "total": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How many steps the operation has."
         },
         "id": {
-          "type": "string"
+          "type": "string",
+          "description": "The step's name."
         }
       },
       "required": [
@@ -35968,9 +36146,11 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The operation's name, or the action's (`art.fetch`)."
         },
         "params": {
+          "description": "Its params, when it takes any: an object, 64 KiB at most as JSON.",
           "default": null
         }
       },

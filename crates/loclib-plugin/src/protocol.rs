@@ -65,6 +65,7 @@ pub fn check_protocol(theirs: &str) -> Result<(), RpcError> {
 pub struct Hello {
     /// The protocol version the host speaks.
     pub protocol: String,
+    /// Which host it is.
     pub host: HostInfo,
     /// The optional features the host has (see [`crate::FEATURES`]). Names a side doesn't know
     /// are ignored.
@@ -72,26 +73,33 @@ pub struct Hello {
     pub features: Vec<String>,
 }
 
+/// The host sending `hello`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HostInfo {
     /// `locallibrary`.
     pub name: String,
+    /// Its version.
     pub version: String,
 }
 
 /// What a plugin answers `hello` with.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HelloReply {
+    /// The protocol version the plugin speaks.
     pub protocol: String,
+    /// Which plugin it is.
     pub plugin: PluginInfo,
     /// The optional features the plugin implements: the host calls only those it has too.
     #[serde(default)]
     pub features: Vec<String>,
 }
 
+/// The plugin answering `hello`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginInfo {
+    /// Its id, as its manifest has it.
     pub id: String,
+    /// Its version, as its manifest has it.
     pub version: String,
 }
 
@@ -132,6 +140,7 @@ pub struct Context {
 /// reads it itself, and refuses one outside the folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Blob {
+    /// The file's name in the scratch folder.
     pub blob: String,
 }
 
@@ -140,6 +149,7 @@ pub struct Blob {
 pub struct ProgressParams {
     /// The host's request it's about.
     pub id: Value,
+    /// What happened.
     pub event: ProgressReport,
 }
 
@@ -147,6 +157,7 @@ pub struct ProgressParams {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ProgressReport {
+    /// An event this side can read.
     Known(ProgressEvent),
     /// From a newer plugin: an event or a phase this side has no name for, which it can skip.
     Unknown(Value),
@@ -158,10 +169,13 @@ pub enum ProgressReport {
 /// it stands for.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ProgressEvent {
+    /// What happened: an event, or a step beginning.
     #[serde(flatten)]
     pub event: Progressed,
+    /// The drive the event is about, when several are written at once. Absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// The step that's running, in an operation made of steps. Absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<StepInfo>,
     /// How many files an `item` stands for, when more than one (count `items ?? 1`).
@@ -199,9 +213,11 @@ impl<'de> Deserialize<'de> for ProgressEvent {
     }
 }
 
+/// What a progress event says happened: an event, or a step beginning.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Progressed {
+    /// An event (`phase_start`, `item`, `bytes`...).
     Event(loclib_progress::Event),
     /// A step begins (`step` says which).
     Step(StepStarted),
@@ -210,11 +226,14 @@ pub enum Progressed {
 /// `{"event": "step"}`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct StepStarted {
+    /// Always `step`.
     pub event: StepTag,
 }
 
+/// A step's start's `event`: always `step`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema)]
 pub enum StepTag {
+    /// `step`.
     #[default]
     #[serde(rename = "step")]
     Step,
@@ -224,8 +243,11 @@ pub enum StepTag {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "Step")]
 pub struct StepInfo {
+    /// The step's position, from 1.
     pub index: u32,
+    /// How many steps the operation has.
     pub total: u32,
+    /// The step's name.
     pub id: String,
 }
 
@@ -237,8 +259,10 @@ pub struct StepInfo {
 pub struct Partial {
     /// The host's request it's about.
     pub id: Value,
+    /// A table's next rows, each a cell a column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rows: Vec<Vec<Value>>,
+    /// A list's next items.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<crate::ListItem>,
 }
@@ -254,10 +278,12 @@ pub struct Partial {
 /// The host says how long the body is (`Content-Length`), and for `multipart`, its type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fetch {
+    /// What to request: an `https` URL, to a host the plugin's `net:` capabilities grant.
     pub url: String,
     /// `GET` unless it says.
     #[serde(default = "get")]
     pub method: String,
+    /// The headers to send, by name.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub headers: IndexMap<String, String>,
     /// Text to send.
@@ -305,8 +331,10 @@ impl Fetch {
 /// range past the file's end is refused.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ByteRange {
+    /// Where it starts, in bytes from the file's start: 0 unless it says.
     #[serde(default)]
     pub offset: u64,
+    /// How many bytes: to the file's end, when it doesn't say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length: Option<u64>,
 }
@@ -315,11 +343,15 @@ pub struct ByteRange {
 /// one, perhaps only its `range`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct FormPart {
+    /// The form field's name.
     pub name: String,
+    /// A text part's text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// A file part's file (absolute), as `body_blob` names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<PathBuf>,
+    /// Only this part of `file`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range: Option<ByteRange>,
     /// The name the server is told the file has.
@@ -334,9 +366,12 @@ pub struct FormPart {
 /// redirects led to, and its body, as text or in the file `into_blob` named.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fetched {
+    /// The HTTP status code (`200`).
     pub status: u16,
+    /// The answer's headers, by name in lowercase.
     #[serde(default)]
     pub headers: IndexMap<String, String>,
+    /// The answer's body, as text: none when it went to `into_blob`'s file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     /// The file it's in, with `into_blob`.
@@ -347,6 +382,7 @@ pub struct Fetched {
 /// `$/cancel`: stop the request `id` at its next safe point. It then fails with kind `cancelled`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Cancel {
+    /// The request to stop, by its id.
     pub id: Value,
 }
 

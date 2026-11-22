@@ -2790,13 +2790,19 @@ export type Found = {
 
 /** The tags a metadata provider has for a track: each it doesn't have left out. */
 export type TrackMetadata = {
+  /** The track's title. */
   title?: string | null;
+  /** Its artist. */
   artist?: string | null;
+  /** The album it's on. */
   album?: string | null;
+  /** The year it came out. */
   year?: number | null;
+  /** Its genre. */
   genre?: string | null;
   /** The record label. */
   label?: string | null;
+  /** Its ISRC. */
   isrc?: string | null;
 };
 
@@ -3707,7 +3713,19 @@ export type TrackPluginFields = {
  * declares (numbers are finite, as JSON's are), or null for one worked out with nothing to show
  * (a track left out of an answer has no value: it wasn't worked out).
  */
-export type FieldValue = number | boolean | string | string[] | null;
+export type FieldValue =
+  /** A whole number. */
+  | number
+  /** A number, finite. */
+  | number
+  /** True or false. */
+  | boolean
+  /** A string. */
+  | string
+  /** A list of strings. */
+  | string[]
+  /** Worked out, with nothing to show. */
+  | null;
 
 /**
  * Everything known about one track on a drive: its details, where it's filed, problems with it
@@ -8985,6 +9003,7 @@ export type Described = {
 export type Manifest = {
   /** Lowercase letters, digits, `-` and `_`, starting with a letter. */
   id: string;
+  /** The plugin's name, as hosts show it to the user. Not empty. */
   name: string;
   /** The plugin's version (semver). */
   version: string;
@@ -8994,6 +9013,7 @@ export type Manifest = {
   capabilities: Capability[];
   /** The account types it asks for, and the scopes of each it needs. */
   accounts?: AccountNeed[];
+  /** What it adds to locallibrary, by kind (see [`Contributions`]). */
   contributes: Contributions;
   /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
   net?: NetLimit[];
@@ -9024,25 +9044,74 @@ export type AccountNeed = {
  * they're for.
  */
 export type OptionalScopes = {
+  /** The type's scopes, by name. */
   scopes: string[];
+  /** What they're for, shown when the user is asked for them. */
   why: string;
 };
 
+/**
+ * What a plugin adds to locallibrary (`contributes`): its hooks, by family, and its settings.
+ * Hosts draw each one their own way. Each is empty unless the manifest says.
+ */
 export type Contributions = {
+  /**
+   * The account types it provides: how to sign in to a service, and what each of its scopes
+   * lets a plugin do there. A plugin that provides one is an account plugin, which adds nothing
+   * else.
+   */
   account_types: AccountType[];
+  /** The commands it adds, run with `command/run`: each answers any JSON, or a view to draw. */
   commands: Command[];
+  /**
+   * Where it keeps things for the user somewhere else: copies of the store (`store`), or sets
+   * it publishes (`set`).
+   */
   destinations: Destination[];
+  /** What it's told of as it happens (`event/notify`). */
   events: Listener[];
+  /** The changes it plans as edits (`op/plan`), which the host confirms and applies. */
   operations: Operation[];
+  /** What it shows under a track's details (`panel/render`). */
   panels: Panel[];
+  /**
+   * The values it works out for each track from its audio (`track/analyze`), which the host
+   * keeps as columns.
+   */
   analyzers: Analyzer[];
+  /**
+   * What it finds on a drive (`check/run`), and says about a plan before it's applied
+   * (`plan/check`).
+   */
   checks: Check[];
+  /**
+   * The formats of other programs it writes a drive's library, a set or a mix in, on this
+   * computer (`export/write`).
+   */
   exporters: Exporter[];
+  /**
+   * The files of other programs it reads what they kept about tracks, and the plays they
+   * logged, from (`import/read`).
+   */
   importers: Importer[];
+  /**
+   * What it finds for tracks, such as cover art or tags (`provide/candidates`), for the user to
+   * choose from.
+   */
   providers: Provider[];
+  /** What it keeps running while a host is open (`service/start`), once the user turns it on. */
   services: Service[];
+  /**
+   * The libraries it reads from somewhere on this computer (`library/read`), which the host
+   * builds a drive from.
+   */
   sources: LibrarySource[];
+  /** Its themes: colours for hosts to draw in. */
   themes: Theme[];
+  /**
+   * Its settings, which the host stores and shows, and gives its hooks in `context.settings`
+   * (all but secrets).
+   */
   settings: Setting[];
 };
 
@@ -9055,6 +9124,7 @@ export type Contributions = {
 export type AccountType = {
   /** The account type it provides (`google`), which other account plugins may provide too. */
   type: string;
+  /** The service as the user sees it named (`Google`), when signing in and in messages about it. */
   title: string;
   /** How it's signed in to: in the browser unless it says. */
   kind?: SignIn;
@@ -9165,6 +9235,7 @@ export type Key = {
 
 /** `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account. */
 export type Scope = {
+  /** What it lets a plugin do, in a few words, as the user is asked to allow it. */
   title: string;
   /**
    * The service's scopes it asks for at signing in, as the service names them. None for a
@@ -9184,13 +9255,20 @@ export type Scope = {
 export type ScopeRequest = {
   /** `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. */
   method: string;
+  /** An https:// URL, or the start of one ending in `*`, written as it's read. */
   url: string;
 };
 
 /** Run with `command/run`. */
 export type Command = {
+  /**
+   * What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other command's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
+  /** What it answers: `headless` for any JSON, `view` for a view to draw. */
   mode: Mode;
   /** Where hosts offer it (see [`Where`]). */
   where: Where[];
@@ -9210,6 +9288,7 @@ export type Command = {
   cli?: string | null;
 };
 
+/** What a command answers. */
 export type Mode =
   /** Answers any JSON, shown as it is (`--json`) or not at all. */
   | "headless"
@@ -9222,7 +9301,12 @@ export type Mode =
  * this computer rather than a drive (`collection`). A host's palette has every one.
  */
 export type Where =
-  | ("track" | "playlist" | "drive")
+  /** In the menu of the tracks selected. */
+  | "track"
+  /** In a playlist's menu. */
+  | "playlist"
+  /** In a drive's menu. */
+  | "drive"
   /**
    * About this computer's rekordbox collection, not a track, a playlist or a drive: run without
    * one (a backup of the collection, say). Commands only: an operation edits a drive.
@@ -9234,8 +9318,14 @@ export type Where =
  * publishes sets at (`set`).
  */
 export type Destination = {
+  /**
+   * What requests name it by (`destination`): lowercase letters, digits, `-` and `_`, starting
+   * with a letter, 64 characters at most, and no other destination's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
+  /** What it keeps: `store` or `set`. */
   kind: DestinationKind;
 };
 
@@ -9248,6 +9338,7 @@ export type DestinationKind =
 
 /** `[[contributes.events]]`: what the plugin is told of (`event/notify`). */
 export type Listener = {
+  /** The events, none listened for twice, each needing its capability. */
   on: EventName[];
 };
 
@@ -9279,7 +9370,12 @@ export type EventName =
  * destructive.
  */
 export type Operation = {
+  /**
+   * What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other operation's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
   /** Where hosts offer it (see [`Where`]). */
   where: Where[];
@@ -9300,7 +9396,12 @@ export type Operation = {
  * the user comes to a track, so it answers quickly, reading only what it needs.
  */
 export type Panel = {
+  /**
+   * What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other panel's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
   /** What it's shown with: a track, unless it says. */
   where: Where;
@@ -9308,13 +9409,22 @@ export type Panel = {
 
 /** Run with `track/analyze`; its fields become columns. */
 export type Analyzer = {
+  /**
+   * What `track/analyze` names it by: lowercase letters, digits, `-` and `_`, starting with a
+   * letter, 64 characters at most, and no other analyzer's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
   /**
    * Its own version: the host keeps its values by it, so a new one works them out again. Bump
    * it whenever the values would change.
    */
   version: string;
+  /**
+   * Its fields by name (named as it is), with the type of each: the columns it fills, a field at
+   * least, and none that another analyzer has.
+   */
   fields: { [key: string]: FieldType };
   /**
    * Which of its fields has each role it answers (`bpm = "bpm"`): what the host reads for
@@ -9328,8 +9438,18 @@ export type Analyzer = {
   display?: { [key: string]: FieldDisplay };
 };
 
+/** A field's type, as the manifest declares it: what its values are. */
 export type FieldType =
-  | ("number" | "integer" | "string" | "boolean" | "string[]")
+  /** A number, finite; an integer is one too. */
+  | "number"
+  /** A whole number. */
+  | "integer"
+  /** A string. */
+  | "string"
+  /** True or false. */
+  | "boolean"
+  /** A list of strings. */
+  | "string[]"
   /** A beat grid (feature `analysis`, see [`crate::Output`]). */
   | "beats"
   /** A song structure: the mood and the phrases (feature `analysis`). */
@@ -9346,6 +9466,10 @@ export type FieldDisplay = {
   unit?: string | null;
   /** A number's decimal places, 0 to 6. */
   precision?: number | null;
+  /**
+   * What its values are, for hosts to show them as such: `key` for a string field, the others
+   * for a number or an integer.
+   */
   format?: FieldFormat | null;
   /** How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is. */
   width?: number | null;
@@ -9369,7 +9493,12 @@ export type FieldFormat =
  * before a plan is applied: as its `when` says.
  */
 export type Check = {
+  /**
+   * What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other check's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
   /** It runs unless the user turns it off; otherwise, once they turn it on. */
   default_on: boolean;
@@ -9389,7 +9518,12 @@ export type When =
 
 /** Run with `export/write`. */
 export type Exporter = {
+  /**
+   * The format it writes, which requests name it by (`exporter`): lowercase letters, digits,
+   * `-` and `_`, starting with a letter, 64 characters at most, and no other exporter's.
+   */
   format: string;
+  /** What hosts show it as. */
   title: string;
   /**
    * The file it writes ends in this: lowercase letters and digits, without the dot (`nml`).
@@ -9408,7 +9542,11 @@ export type Exporter = {
 };
 
 /** What an exporter writes out, as its manifest says it: one source, or a list. */
-export type ExportSources = ExportFrom | ExportFrom[];
+export type ExportSources =
+  /** One source (`"set"`). */
+  | ExportFrom
+  /** A list of them, each once (`["drive", "set"]`). */
+  | ExportFrom[];
 
 /** What an exporter writes out. */
 export type ExportFrom =
@@ -9424,7 +9562,12 @@ export type ExportFrom =
  * plans the edits itself, so it needs no capability to plan one.
  */
 export type Importer = {
+  /**
+   * The format it reads, which requests name it by (`importer`): lowercase letters, digits,
+   * `-` and `_`, starting with a letter, 64 characters at most, and no other importer's.
+   */
   format: string;
+  /** What hosts show it as. */
   title: string;
   /**
    * The file it reads usually ends in this: lowercase letters and digits, without the dot
@@ -9439,9 +9582,10 @@ export type Importer = {
 
 /** What an importer reads. */
 export type ImportKind =
-  | "cues"
   /** A track's key and BPM. */
   | "fields"
+  /** A track's hot cues, memory cues and loops. */
+  | "cues"
   /** My Tags. */
   | "tags"
   /** What played, as sessions. */
@@ -9453,8 +9597,14 @@ export type ImportKind =
  * takes `library:read`, and needs no capability to plan an edit.
  */
 export type Provider = {
+  /**
+   * What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other provider's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
+  /** What it finds: `artwork` or `metadata`. */
   kind: ProviderKind;
 };
 
@@ -9464,7 +9614,12 @@ export type Provider = {
  * command run once.
  */
 export type Service = {
+  /**
+   * What requests name it by, and its setting (`services.<name>`): lowercase letters, digits, `-`
+   * and `_`, starting with a letter, 64 characters at most, and no other service's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
 };
 
@@ -9473,7 +9628,12 @@ export type Service = {
  * folders the user grants it, which takes `fs:read`.
  */
 export type LibrarySource = {
+  /**
+   * What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other source's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
@@ -9485,25 +9645,48 @@ export type LibrarySource = {
  * of two or more). What it leaves out is the default's.
  */
 export type Theme = {
+  /**
+   * What hosts name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+   * characters at most, and no other theme's.
+   */
   name: string;
+  /** What hosts show it as. */
   title: string;
+  /** Its colours by token name, nested a level for each dot (`cues.hot`): one at least. */
   tokens: { [key: string]: unknown };
 };
 
 /** A setting the host stores and shows in its settings. */
 export type Setting = {
+  /**
+   * Its name, as hooks are given it in `context.settings`: lowercase letters, digits, `-` and
+   * `_`, starting with a letter, each key once.
+   */
   key: string;
+  /** What the user sees it called. Not empty. */
   title: string;
+  /** What kind of value it holds. */
   type: SettingType;
+  /** Its value until the user sets one, of its type. A secret has none. */
   default?: unknown;
   /** What an `enum` setting can be. */
   choices?: string[];
 };
 
+/** What kind of value a setting holds. */
 export type SettingType =
-  | ("string" | "number" | "boolean" | "file" | "directory")
+  /** Text. */
+  | "string"
+  /** A number. */
+  | "number"
+  /** `true` or `false`. */
+  | "boolean"
   /** One of `choices`. */
   | "enum"
+  /** A file on the computer, by its path. */
+  | "file"
+  /** A folder on the computer, by its path. */
+  | "directory"
   /**
    * A password or a key: kept in the system's keychain, never shown, and given to the plugin
    * only as the host fills it into its `net/fetch` requests. It has no default.
@@ -9516,7 +9699,15 @@ export type SettingType =
  * are under way: the limit the server asks its clients to keep.
  */
 export type NetLimit = {
+  /**
+   * One of the plugin's `net:` capabilities as it's written, without `net:` (`musicbrainz.org`,
+   * `*.archive.org`). Each host is limited once.
+   */
   host: string;
+  /**
+   * How many `net/fetch` requests a second the host sends there at most: at least 1/3600 (one
+   * an hour).
+   */
   per_second: number;
 };
 
@@ -9540,11 +9731,17 @@ export type CommandOutput =
   | unknown
   | View;
 
+/**
+ * What a view command or a panel answers, by `kind`: what to show, or a question for the user
+ * first.
+ */
 export type View =
   /** Lines, each with an optional second line. */
   | {
     kind: "list";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** The lines, in order. */
     items: ListItem[];
   }
   /**
@@ -9553,20 +9750,27 @@ export type View =
    */
   | {
     kind: "table";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** The columns, in order. */
     columns: Column[];
+    /** The rows, each a cell a column, in the columns' order. */
     rows: unknown[][];
   }
   /** Labelled values, in order. */
   | {
     kind: "kv";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** The labelled values. */
     pairs: Pair[];
   }
   /** Plain text. */
   | {
     kind: "text";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** The text, shown as it is. */
     text: string;
   }
   /**
@@ -9579,16 +9783,23 @@ export type View =
   /** Items with items below them (feature `views`). */
   | {
     kind: "tree";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** The items at the top, each with the items below it. */
     items: TreeItem[];
   }
   /** Points, each series a line or bars (feature `views`). */
   | {
     kind: "chart";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** Whether its series are lines or bars. */
     style: ChartStyle;
+    /** Its series, each named. */
     series: Series[];
+    /** What the x axis measures. */
     x_label?: string | null;
+    /** What the y axis measures. */
     y_label?: string | null;
   }
   /**
@@ -9597,6 +9808,7 @@ export type View =
    */
   | {
     kind: "image";
+    /** Its heading, if it has one. */
     title?: string | null;
     /** Its file's name in the scratch folder. */
     blob: string;
@@ -9612,12 +9824,17 @@ export type View =
   /** Views one after another, each under a title of its own (feature `views`). */
   | {
     kind: "sections";
+    /** Its heading, if it has one. */
     title?: string | null;
+    /** The sections, in order. None of them is a question. */
     items: Section[];
   };
 
+/** A line of a list. */
 export type ListItem = {
+  /** The line itself. */
   label: string;
+  /** More about it, shown beside it. */
   detail?: string | null;
 };
 
@@ -9625,12 +9842,19 @@ export type ListItem = {
  * A table's column: its heading alone (text), or (feature `views`) a heading and what its cells
  * are.
  */
-export type Column = string | TypedColumn;
+export type Column =
+  /** Its heading alone: its cells are text. */
+  | string
+  /** Its heading and what its cells are (feature `views`). */
+  | TypedColumn;
 
 /** A column and what its cells are. */
 export type TypedColumn = {
+  /** Its heading. */
   name: string;
+  /** What its cells are: `text` unless it says. */
   kind: ColumnKind;
+  /** What a `number` column's numbers are in (`BPM`), said after each. */
   unit?: string | null;
 };
 
@@ -9647,18 +9871,25 @@ export type ColumnKind =
   /** Numbers, with the column's unit after each. */
   | "number";
 
+/** A labelled value. */
 export type Pair = {
+  /** What the value is. */
   label: string;
+  /** The value, shown beside its label. */
   value: unknown;
 };
 
+/** One of a question's items. */
 export type ChoiceItem = {
+  /** What the user sees for it, in a line. */
   label: string;
+  /** More about it, shown beside the label. */
   detail?: string | null;
   /** What the param is set to when it's chosen (with `multi`, what its list has). */
   value: unknown;
 };
 
+/** A question for the user, with the items to choose from. */
 export type PluginChoice = {
   /** What's asked, in a line. */
   title: string;
@@ -9666,6 +9897,7 @@ export type PluginChoice = {
   param: string;
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
+  /** What may be chosen, in the order shown. */
   items: ChoiceItem[];
   /**
    * Questions asked after this one before the hook runs again, each about a param of its own
@@ -9675,23 +9907,36 @@ export type PluginChoice = {
   more?: PluginChoice[];
 };
 
+/** An item of a tree, with the items below it. */
 export type TreeItem = {
+  /** The item itself. */
   label: string;
+  /** More about it, shown beside it. */
   detail?: string | null;
+  /** The items below it, in order. */
   children?: TreeItem[];
 };
 
 /** How a chart draws its series. */
-export type ChartStyle = "line" | "bar";
+export type ChartStyle =
+  /** Each series as a line through its points. */
+  | "line"
+  /** Each series as bars, one for each point. */
+  | "bar";
 
 /** A chart's series: its name and its points, `[x, y]`. */
 export type Series = {
+  /** What it is, as the chart's legend names it. */
   name: string;
+  /** Its points, `[x, y]`, in order. */
   points: [number, number][];
 };
 
+/** A part of a `sections` view: a view under a title of its own. */
 export type Section = {
+  /** Its title, shown above its view. */
   title: string;
+  /** What it shows: any view but a question. */
   view: View;
 };
 
@@ -9968,11 +10213,14 @@ export type ProgressParams = {
  * it stands for.
  */
 export type ProgressEvent = {
+  /** The drive the event is about, when several are written at once. Absent otherwise. */
   target?: string | null;
+  /** The step that's running, in an operation made of steps. Absent otherwise. */
   step?: Step | null;
   /** How many files an `item` stands for, when more than one (count `items ?? 1`). */
   items?: number | null;
 } & (
+  /** An event (`phase_start`, `item`, `bytes`...). */
   | Event
   /** A step begins (`step` says which). */
   | StepStarted);
@@ -10053,15 +10301,20 @@ export type Phase =
 
 /** `{"event": "step"}`. */
 export type StepStarted = {
+  /** Always `step`. */
   event: StepTag;
 };
 
+/** A step's start's `event`: always `step`. */
 export type StepTag = "step";
 
 /** Step `index` of `total`, counting from 1. `id` names it (`format`, `library`, `verify`, ...). */
 export type Step = {
+  /** The step's position, from 1. */
   index: number;
+  /** How many steps the operation has. */
   total: number;
+  /** The step's name. */
   id: string;
 };
 
@@ -10233,7 +10486,9 @@ export type PluginEvent = PluginNotice & {
 
 /** What a plugin suggests (`host/notify`): an operation's or an action's name, and its params. */
 export type Suggested = {
+  /** The operation's name, or the action's (`art.fetch`). */
   name: string;
+  /** Its params, when it takes any: an object, 64 KiB at most as JSON. */
   params: unknown;
 };
 

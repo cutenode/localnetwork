@@ -45,6 +45,7 @@ pub struct AccountType {
     /// The account type it provides (`google`), which other account plugins may provide too.
     #[serde(rename = "type")]
     pub name: String,
+    /// The service as the user sees it named (`Google`), when signing in and in messages about it.
     pub title: String,
     /// How it's signed in to: in the browser unless it says.
     #[serde(default, skip_serializing_if = "SignIn::is_browser")]
@@ -157,6 +158,7 @@ pub struct Whoami {
 /// `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Scope {
+    /// What it lets a plugin do, in a few words, as the user is asked to allow it.
     pub title: String,
     /// The service's scopes it asks for at signing in, as the service names them. None for a
     /// scope only locallibrary knows, which the service's own scopes already allow.
@@ -174,6 +176,7 @@ pub struct Scope {
 pub struct ScopeRequest {
     /// `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`.
     pub method: String,
+    /// An https:// URL, or the start of one ending in `*`, written as it's read.
     pub url: String,
 }
 

@@ -20,6 +20,7 @@ pub(crate) const FEATURE: Feature =
 pub struct RenderPanel {
     /// One of the manifest's panels.
     pub panel: String,
+    /// The track shown (in `tracks`, by id) and its drive, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -38,7 +39,10 @@ impl Hook for RenderPanel {
 /// the user comes to a track, so it answers quickly, reading only what it needs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Panel {
+    /// What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other panel's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
     /// What it's shown with: a track, unless it says.
     #[serde(default = "a_track", rename = "where")]

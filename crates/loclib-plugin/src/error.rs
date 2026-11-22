@@ -7,10 +7,16 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// A message that isn't JSON, or a line too long to read.
 pub const PARSE_ERROR: i64 = -32700;
+/// A message that isn't a request JSON-RPC takes: not an object, or with an id that's neither a
+/// string nor a number.
 pub const INVALID_REQUEST: i64 = -32600;
+/// A request for a method the other side doesn't have.
 pub const METHOD_NOT_FOUND: i64 = -32601;
+/// Params that don't fit the method: `data.fields.path` says where, when it can.
 pub const INVALID_PARAMS: i64 = -32602;
+/// The answering side's own failure, which the request didn't cause.
 pub const INTERNAL: i64 = -32603;
 /// Any other failure: `data.kind` says which (`cancelled`, `not_found`, `conflict`...).
 pub const FAILED: i64 = -32000;
@@ -19,7 +25,10 @@ pub const FAILED: i64 = -32000;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, thiserror::Error)]
 #[error("{message}")]
 pub struct RpcError {
+    /// -32700 to -32603 for the protocol's own failures, and -32000 for any other, whose
+    /// `data.kind` says which.
     pub code: i64,
+    /// What went wrong, for a person to read.
     pub message: String,
     /// Always sent; `None` for an error from a peer that sends none.
     // Boxed: it's most of the error's size, which every `Result` carrying one would be.
@@ -44,6 +53,7 @@ pub struct ErrorData {
 }
 
 impl RpcError {
+    /// An error with `code`, of kind `kind`, saying `message`.
     pub fn new(code: i64, kind: &str, message: impl Into<String>) -> RpcError {
         let data = ErrorData { kind: kind.into(), reason: None, fields: Map::new() };
         RpcError { code, message: message.into(), data: Some(Box::new(data)) }
@@ -54,26 +64,32 @@ impl RpcError {
         RpcError::new(FAILED, kind, message)
     }
 
+    /// A message that couldn't be read (`parse_error`, code -32700), `message` saying why.
     pub fn parse_error(message: impl std::fmt::Display) -> RpcError {
         RpcError::new(PARSE_ERROR, "parse_error", format!("parse error: {message}"))
     }
 
+    /// A message that isn't a valid request (`invalid_request`, code -32600), saying `message`.
     pub fn invalid_request(message: impl Into<String>) -> RpcError {
         RpcError::new(INVALID_REQUEST, "invalid_request", message)
     }
 
+    /// A request for `method`, which this side doesn't have (`method_not_found`, code -32601).
     pub fn method_not_found(method: &str) -> RpcError {
         RpcError::new(METHOD_NOT_FOUND, "method_not_found", format!("unknown method {method:?}"))
     }
 
+    /// Params that don't fit (`invalid_params`, code -32602), `message` saying how.
     pub fn invalid_params(message: impl std::fmt::Display) -> RpcError {
         RpcError::new(INVALID_PARAMS, "invalid_params", format!("invalid params: {message}"))
     }
 
+    /// This side's own failure (`internal`, code -32603), saying `message`.
     pub fn internal(message: impl Into<String>) -> RpcError {
         RpcError::new(INTERNAL, "internal", message)
     }
 
+    /// The request was cancelled (`cancelled`, code -32000).
     pub fn cancelled() -> RpcError {
         RpcError::failed("cancelled", "operation cancelled")
     }

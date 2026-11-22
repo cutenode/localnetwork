@@ -26,6 +26,7 @@ use crate::{
 pub trait Hook: DeserializeOwned + 'static {
     /// Its method (`command/run`).
     const METHOD: &'static str;
+    /// What the hook answers.
     type Answer: Serialize;
     /// Whether `contributes` declares the contribution it's for: `invalid_params` if not.
     fn declared(&self, contributes: &Contributions) -> Result<(), RpcError>;
@@ -65,6 +66,7 @@ pub struct Hooks {
 }
 
 impl Hooks {
+    /// No hooks yet: add them with [`Hooks::on`] and [`Hooks::on_event`].
     pub fn new() -> Hooks {
         Hooks::default()
     }
