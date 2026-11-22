@@ -184,6 +184,25 @@ Besides each check passing, a pull request has to stay within these:
 - Changelog: a locallibrary change people will notice adds its changelog line in `apps/locallibrary/changes/`, in a file named after the branch without `bnb/` ([changes/README.md](../apps/locallibrary/changes/README.md)). No check sees it, so the template asks.
 - Labels: `pnpm policy` fails a file that no rule in [labeler.yml](labeler.yml) labels, and a code file with no area label. A new folder needs a rule there.
 
+## Slow suites
+
+These are too slow or too heavy for every pull request, so they run weekly. Run heavy suites one at a time, since two of them side by side starve each other until their timing checks fail. To run one on your branch in CI, start its workflow there, which runs every suite in it:
+
+```bash
+gh workflow run locallibrary-scheduled.yml --ref <branch>
+```
+
+| Suite | Locally | Rough cost (CI's times are on 4-core runners) | On a branch in CI |
+| --- | --- | --- | --- |
+| Rust coverage | `cargo coverage` | about 25 GB of disk per checkout, every core; about 20 minutes in CI across its build, three shards and merge | every pull request that changes the workspace |
+| Hegel properties, run long | see [apps/locallibrary/CONTRIBUTING.md](../apps/locallibrary/CONTRIBUTING.md#property-based-tests) | 40 minutes a shard, four shards | `locallibrary-scheduled.yml` |
+| Fuzzing | `cargo +nightly fuzz-<target> -max_total_time=300` | up to 2 GB of memory a target; 35 minutes for every target in CI | `locallibrary-scheduled.yml` |
+| Rust mutation testing | `cargo mutants -p <crate>` | a copy of the workspace to build in, up to 2 GB of memory; 10 to 80 minutes a shard, eight shards | `locallibrary-scheduled.yml` |
+| localtoolbox mutation testing | `pnpm -C apps/localtoolbox test:mutation` | every core; about an hour on 14 cores. In CI it took 3.5 hours when it last passed, and has hit the job's 4-hour limit since ([#407](https://github.com/cutenode/localnetwork/issues/407)) | `localtoolbox-scheduled.yml` |
+| Lighthouse on every page | `pnpm -C apps/web test:lighthouse:full` | Docker; 25 to 30 minutes a form factor in CI | `web-scheduled.yml` |
+| Disk-image tests | `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary-core --lib --locked -E 'test(/^format::disk_image::/)'`, on Linux with `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo --preserve-env'` to mount them as root | makes and mounts small disk images; about 10 minutes in CI | `locallibrary-scheduled.yml` |
+| e2e in every browser | `pnpm -C apps/web exec playwright install chromium firefox webkit`, then `pnpm -C apps/web test:e2e` | Docker; 15 to 40 minutes in CI | `web-scheduled.yml` |
+
 ## Flaky tests
 
 A test that passes and fails on the same code gets its cause fixed. Don't raise its timeout or add retries.
