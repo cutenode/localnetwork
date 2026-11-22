@@ -63,7 +63,7 @@ fn id_0_is_refused() {
 /// Whatever My Tags and links a database holds, adding or removing id 0 is refused as invalid and
 /// leaves every row and link as it was; any other free id is added under a category.
 #[hegel::test(test_cases = 50)]
-fn id_0_is_refused_whatever_the_tags(tc: hegel::TestCase) {
+fn prop_id_0_is_refused_whatever_the_tags(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut one = OneLibrary::create().unwrap();
     let categories = tc.draw(gs::integers::<i64>().min_value(1).max_value(3));

@@ -36,7 +36,7 @@ fn titles(root: &std::path::Path) -> Vec<Vec<String>> {
 #[hegel::explicit_test_case(layout = 1u8, samples = 2usize, outside = false, fault = 3u8, art = 0u8)]
 #[hegel::explicit_test_case(layout = 0u8, samples = 1usize, outside = false, fault = 2u8, art = 2u8)]
 #[hegel::explicit_test_case(layout = 0u8, samples = 1usize, outside = false, fault = 4u8, art = 0u8)]
-fn a_demos_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
+fn prop_a_demos_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
     // Both databases, export.pdb alone, OneLibrary alone.
     let layout = tc.draw(gs::integers::<u8>().max_value(2));
     let samples = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));

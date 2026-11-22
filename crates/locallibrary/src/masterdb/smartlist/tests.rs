@@ -151,7 +151,7 @@ fn draw_condition(tc: &TestCase, kind: usize, property: Option<&str>) -> Conditi
 /// Where a filter can say an intelligent playlist, it matches exactly the tracks the playlist's
 /// rules do, and it's a rule `smart add` takes.
 #[hegel::test(test_cases = 400)]
-fn a_filter_matches_what_the_rules_match(tc: TestCase) {
+fn prop_a_filter_matches_what_the_rules_match(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
     let tracks: Vec<Track> = (1..=n).map(|i| draw_track(&tc, i)).collect();
     let mut tags = crate::tags::TagsByTrack::default();

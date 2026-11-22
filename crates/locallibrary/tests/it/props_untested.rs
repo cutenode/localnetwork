@@ -9,7 +9,7 @@ use locallibrary::format;
 /// there, naming it and the system; for macOS (or any other), and for this Mac itself once the
 /// thread answers for itself again, nothing does. Only the last answer counts.
 #[hegel::test(test_cases = 100)]
-fn only_linux_and_windows_warn_about_untested_steps(tc: TestCase) {
+fn prop_only_linux_and_windows_warn_about_untested_steps(tc: TestCase) {
     let what = tc.draw(gs::sampled_from(vec!["ejecting", "formatting", "the file-system check", "a b/c"]));
     let systems: Vec<Option<&'static str>> =
         tc.draw(gs::vecs(gs::sampled_from(vec![Some("linux"), Some("windows"), Some("macos"), Some("freebsd"), None])));

@@ -111,7 +111,7 @@ const NAMES: &[&str] = &["", "Home", "My library", "Club"];
         175, 201, 169, 128, 173, 232, 222, 154, 0, 0,
     ]
 )]
-fn setup_does_what_it_was_told(tc: TestCase) {
+fn prop_setup_does_what_it_was_told(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let answers = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(40).max_size(40));
     let fx = build(State::from_flags(&flags));
@@ -275,7 +275,7 @@ fn setup_does_what_it_was_told(tc: TestCase) {
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(yes = true, name = "Fresh".to_string())]
 #[hegel::explicit_test_case(yes = false, name = "A".to_string())]
-fn pull_starts_a_library_only_when_told(tc: TestCase) {
+fn prop_pull_starts_a_library_only_when_told(tc: TestCase) {
     let yes = tc.draw(gs::booleans());
     let name = tc.draw(gs::sampled_from(vec!["Fresh", "A", "Ünïcödé Club"]).map(str::to_string));
     let fx = Env::from_template();
@@ -354,7 +354,7 @@ fn until_ctrl_c(
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(json = false, presses = 1usize)]
 #[hegel::explicit_test_case(json = true, presses = 2usize)]
-fn watch_stops_at_ctrl_c(tc: TestCase) {
+fn prop_watch_stops_at_ctrl_c(tc: TestCase) {
     let json = tc.draw(gs::booleans());
     let presses = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
     let fx = Env::from_template();
@@ -408,7 +408,7 @@ fn watch_stops_at_ctrl_c(tc: TestCase) {
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(json = false, only = false)]
 #[hegel::explicit_test_case(json = true, only = true)]
-fn a_served_store_is_fetched_whole(tc: TestCase) {
+fn prop_a_served_store_is_fetched_whole(tc: TestCase) {
     let json = tc.draw(gs::booleans());
     let only = tc.draw(gs::booleans());
     let laptop = build(State::from_flags(&[false, true]));

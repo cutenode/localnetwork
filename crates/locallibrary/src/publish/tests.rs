@@ -281,7 +281,7 @@ fn tracks_heard_one_after_another_say_how_they_came_in() {
 /// percent from 0 to 100 and a tempo a whole BPM of 0 or more, never out of order; a share
 /// from 0 to 1, or a tempo, is at most half a unit off.
 #[hegel::test(test_cases = 500)]
-fn shares_and_tempos_become_whole_numbers_in_order(tc: hegel::TestCase) {
+fn prop_shares_and_tempos_become_whole_numbers_in_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (x, y) = (tc.draw(gs::floats::<f64>()), tc.draw(gs::floats::<f64>()));
     for v in [x, y] {
@@ -304,7 +304,7 @@ fn shares_and_tempos_become_whole_numbers_in_order(tc: hegel::TestCase) {
 /// `updatedAt`, `generatedAt`, `createdAt`, `trackCount` or `$type` changes nothing, and any
 /// other change does.
 #[hegel::test(test_cases = 300)]
-fn only_times_dont_count_as_changes(tc: hegel::TestCase) {
+fn prop_only_times_dont_count_as_changes(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     let field = || gs::sampled_from(vec!["title", "date", "tracks", "updatedAt", "createdAt", "$type", "trackCount"]);
@@ -371,7 +371,7 @@ fn expected_transition(t: &Transition, unidentified: bool) -> Value {
 /// play dropped, or one the recording heard into another. Unidentified tracks on either side
 /// say only when. The record fits the set Lexicon.
 #[hegel::test(test_cases = 200)]
-fn a_set_says_how_its_tracks_came_in_only_where_the_recording_heard_it(tc: hegel::TestCase) {
+fn prop_a_set_says_how_its_tracks_came_in_only_where_the_recording_heard_it(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));

@@ -15,7 +15,7 @@ use crate::support::Env;
 #[hegel::explicit_test_case(only_a = Vec::<bool>::new())]
 #[hegel::explicit_test_case(only_a = vec![true])]
 #[hegel::explicit_test_case(only_a = vec![false, true])]
-fn smart_apply_writes_the_drives_a_rule_is_for(tc: TestCase) {
+fn prop_smart_apply_writes_the_drives_a_rule_is_for(tc: TestCase) {
     let fx = Env::from_template();
     let only_a: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).max_size(3));
     for (i, &a) in only_a.iter().enumerate() {

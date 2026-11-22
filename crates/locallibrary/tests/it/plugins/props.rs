@@ -36,7 +36,7 @@ enum Life {
 /// crashes or the host shuts down (exiting on its own, within its grace, when it can), and starts
 /// again when used next.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugin_runs_exactly_when_the_model_says(tc: TestCase) {
+fn prop_a_plugin_runs_exactly_when_the_model_says(tc: TestCase) {
     let f = Fixture::echo();
     let all = vec![Life::Use, Life::UseLeavingWord, Life::Crash, Life::Shutdown, Life::Elevated];
     let steps: Vec<Life> = tc.draw(gs::vecs(gs::sampled_from(all)).min_size(1).max_size(7));
@@ -104,7 +104,7 @@ enum Stubborn {
 /// cancelled, a plugin lingering at shutdown), each is killed once its grace is up, saying so for
 /// a stuck hook, never finishing what it lingered for, and starts again when used next.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugin_that_wont_stop_is_killed_after_its_grace(tc: TestCase) {
+fn prop_a_plugin_that_wont_stop_is_killed_after_its_grace(tc: TestCase) {
     let grace = Duration::from_millis(tc.draw(gs::sampled_from(vec![100, 250, 400])));
     let f = Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options { grace, ..Options::default() });
     let killed = format!("killed: it didn't stop within {grace:?} of being asked to");
@@ -186,7 +186,7 @@ fn plugin_error(tc: &TestCase, dir: &Path, kind: &str) -> Value {
 /// cancellation as one; and a connection said to be closed as the plugin having stopped, which
 /// starts again when used next.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugins_error_reaches_the_caller_as_the_kind_it_says(tc: TestCase) {
+fn prop_a_plugins_error_reaches_the_caller_as_the_kind_it_says(tc: TestCase) {
     let f = Fixture::echo();
     // Every kind, in any order.
     for kind in tc.draw(gs::permutations(ERROR_KINDS.to_vec())) {
@@ -257,7 +257,7 @@ fn read_back(f: &Fixture, analyzer: &str) -> Vec<(u32, Vec<(String, Value)>)> {
 /// missing or the plugin wrong about it, without failing the rest; and analysing again leaves
 /// what's kept as it is.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_analyzers_answers_are_kept_only_as_it_declares(tc: TestCase) {
+fn prop_an_analyzers_answers_are_kept_only_as_it_declares(tc: TestCase) {
     let bytes = tc.draw(gs::sampled_from(FIELD_TYPES.to_vec()));
     let tempo = tc.draw(gs::optional(gs::sampled_from(FIELD_TYPES.to_vec())));
     // The `order` analyzer, which the test plugin answers `a` then `b` (integers) for.
@@ -369,7 +369,7 @@ fn an_analyzers_answers_are_kept_only_as_it_declares(tc: TestCase) {
 /// having kept only tracks it had finished; analysing again does the rest, leaving those as
 /// they are.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_analysis_cancelled_part_way_picks_up_where_it_stopped(tc: TestCase) {
+fn prop_an_analysis_cancelled_part_way_picks_up_where_it_stopped(tc: TestCase) {
     let analyses = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let f = Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options { analyses, ..Options::default() });
     let n = common::library(&f.drive).tracks.len();
@@ -414,7 +414,7 @@ enum PluginEdit {
 /// plugin, with its summary and warnings; and refuses a destructive plan without
 /// `library:delete`. A plan let through applies.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
+fn prop_an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
     let grants: Vec<&str> = tc.draw(gs::subsequences(vec!["library:delete", "tags:plan", "cues:plan", "artwork:plan"]));
     let granted = |c: &str| grants.contains(&c);
     let all = vec![
@@ -548,7 +548,7 @@ enum Output {
 /// the store is refused, as is a plugin saying it would write outside the output (beside it,
 /// above it, or by `..`), and one writing more than it said.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_export_overwrites_only_as_planned(tc: TestCase) {
+fn prop_an_export_overwrites_only_as_planned(tc: TestCase) {
     let mine = |i: usize| format!("mine{}", "!".repeat(i));
     let f = Fixture::exporting();
     let here = f.store.root().parent().unwrap().join("exports");
@@ -700,7 +700,7 @@ enum Kept {
 /// fit is refused, saying what the setting takes, and leaves what's kept as it was. A secret is
 /// never among them, nor in their file: it's only said to be set, and a wrong one isn't said back.
 #[hegel::test(test_cases = 60, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugins_settings_are_what_was_set_while_it_fits(tc: TestCase) {
+fn prop_a_plugins_settings_are_what_was_set_while_it_fits(tc: TestCase) {
     let kinds = vec!["string", "number", "boolean", "enum", "file", "directory", "secret"];
     let mut declared = Vec::new();
     for i in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
@@ -832,7 +832,7 @@ struct Offered {
 /// secret setting is no reason to refuse one. Taken, each place finds its plugin's command or
 /// operation, and every analyzer's fields are named by plugin, in order.
 #[hegel::test(test_cases = 100, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
+fn prop_a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut offered = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
@@ -948,7 +948,7 @@ fn maybe_a_view(tc: &TestCase) -> (Value, bool) {
 /// For any answer a view command gives, the caller gets it as a view when it's one, and the
 /// plugin failing, saying so, when it isn't; params that aren't what it takes never reach it.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_view_commands_answer_is_a_view_or_the_plugin_failing(tc: TestCase) {
+fn prop_a_view_commands_answer_is_a_view_or_the_plugin_failing(tc: TestCase) {
     let toml = ECHO.replacen("mode = \"headless\"", "mode = \"view\"", 1);
     let f = Fixture::new(|dir| vec![spec(dir, &toml, &[])], Options::default());
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
@@ -987,7 +987,7 @@ enum Started {
 /// otherwise, speaking another protocol, not there, or never answering), those that are run and
 /// every other fails to start, saying why, and isn't left running.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn only_a_plugin_that_is_what_its_manifest_says_runs(tc: TestCase) {
+fn prop_only_a_plugin_that_is_what_its_manifest_says_runs(tc: TestCase) {
     use Started::*;
     let all = vec![AsItSays, AnotherId, AnotherVersion, DescribedOtherwise, AnotherProtocol, NotThere, Silent];
     let order: Vec<Started> = tc.draw(gs::permutations(all));
@@ -1046,7 +1046,7 @@ fn only_a_plugin_that_is_what_its_manifest_says_runs(tc: TestCase) {
 /// For any idle time, a plugin left with nothing to do is stopped once it has been idle that
 /// long, exiting on its own (finishing what it does as it stops), and starts again when used.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_idle_plugin_stops_on_its_own_and_starts_again(tc: TestCase) {
+fn prop_an_idle_plugin_stops_on_its_own_and_starts_again(tc: TestCase) {
     // Longer than a plugin takes to shake hands: idle is counted from its start.
     let idle = Duration::from_millis(tc.draw(gs::sampled_from(vec![400, 700])));
     let f = Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options { idle, ..Options::default() });

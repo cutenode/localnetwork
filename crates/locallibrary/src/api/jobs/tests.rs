@@ -107,7 +107,7 @@ impl AnyPlanned for Fake {
 /// something first, and named with its error; cancelling stops it at once. The plan sums up the
 /// steps that run (by title when they say nothing more) with every step's warnings.
 #[hegel::test(test_cases = 200)]
-fn a_job_runs_its_steps_until_one_fails(tc: hegel::TestCase) {
+fn prop_a_job_runs_its_steps_until_one_fails(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let goes =
         || gs::sampled_from(vec![Goes::Done, Goes::Stale, Goes::Later, Goes::Fails, Goes::Partly, Goes::Cancelled]);
@@ -348,7 +348,7 @@ fn a_job_plans_again_only_over_its_own_writes() {
 /// Ejecting drives one at a time says, for each ejected before the first that fails, whether it
 /// can be pulled out or only unmounted, with its report; the failure is the result.
 #[hegel::test(test_cases = 100)]
-fn ejected_drives_are_reported_up_to_the_first_failure(tc: hegel::TestCase) {
+fn prop_ejected_drives_are_reported_up_to_the_first_failure(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let outcomes: Vec<Option<bool>> = tc.draw(gs::vecs(gs::optional(gs::booleans())).max_size(4));
     let roots: Vec<PathBuf> = (0..outcomes.len()).map(|i| PathBuf::from(format!("/drives/D{i}"))).collect();

@@ -99,7 +99,7 @@ fn same_disk_needs_a_serial() {
 /// A serial number tells a disk apart unless it's one many controllers report for every unit:
 /// too short, only zeros and Fs, or the counting placeholder; spacing around it doesn't matter.
 #[hegel::test(test_cases = 300)]
-fn placeholder_serials_tell_no_disk_apart(tc: hegel::TestCase) {
+fn prop_placeholder_serials_tell_no_disk_apart(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let placeholder = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => "0".repeat(tc.draw(gs::integers::<usize>().max_value(20))),
@@ -126,7 +126,7 @@ fn placeholder_serials_tell_no_disk_apart(tc: hegel::TestCase) {
 /// written, with the label a name makes (11 characters at most, upper case) quoted for
 /// PowerShell. A path below a drive's root names no volume.
 #[hegel::test(test_cases = 200)]
-fn windows_labels_a_drive_by_its_letter(tc: hegel::TestCase) {
+fn prop_windows_labels_a_drive_by_its_letter(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let letter = tc.draw(gs::sampled_from(('a'..='z').chain('A'..='Z').collect::<Vec<char>>()));
     let sep = tc.draw(gs::sampled_from(vec!["", "\\", "/", "\\\\"]));
@@ -149,7 +149,7 @@ fn windows_labels_a_drive_by_its_letter(tc: hegel::TestCase) {
 /// before anything changes, and so is a rename that would set it. Renamed without its label, the
 /// drive takes the name trimmed; an empty name is refused either way.
 #[hegel::test(test_cases = 30)]
-fn under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
+fn prop_under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open(dir.path()).unwrap();
@@ -184,7 +184,7 @@ use crate::format::tests::fake_tools;
 /// knows no disk for has none.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6)]
-fn a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) {
+fn prop_a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     for dir in ["USB", "folder"] {
@@ -203,7 +203,7 @@ fn a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) 
 /// it noted, or where the system can't tell, it isn't.
 #[cfg(unix)]
 #[hegel::test(test_cases = 8)]
-fn a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
+fn prop_a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     std::fs::create_dir(fake.dir().join("USB")).unwrap();
@@ -236,7 +236,7 @@ fn a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
 /// what the system said when it can't.
 #[cfg(target_os = "macos")]
 #[hegel::test(test_cases = 10)]
-fn relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
+fn prop_relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let root = fake.dir().join("USB");

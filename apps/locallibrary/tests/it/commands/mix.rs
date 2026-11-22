@@ -128,7 +128,7 @@ fn the_report_shows_the_fields_analyzers_say_how_to_show() {
 /// analysed: the report shows the field, in that unit, exactly when they were and it says how to
 /// show it.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_report_shows_a_field_only_as_its_analyzer_says(tc: hegel::TestCase) {
+fn prop_the_report_shows_a_field_only_as_its_analyzer_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut env = Env::ascii();
     let unit = tc.draw(gs::sampled_from(vec![None, Some("B"), Some("bytes"), Some("o")]));

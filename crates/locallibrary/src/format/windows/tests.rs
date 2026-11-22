@@ -251,7 +251,7 @@ fn get_disk(tc: &TestCase) -> (String, Vec<Disk>) {
 /// bus makes a disk removable, a virtual one is a virtual disk, partitions are volumes with a
 /// drive letter as their mount point, and a cluster size of 0 is none.
 #[hegel::test(test_cases = 300)]
-fn get_disk_listings_read_back(tc: TestCase) {
+fn prop_get_disk_listings_read_back(tc: TestCase) {
     let (text, want) = get_disk(&tc);
     let got = parse_disks(&text).unwrap();
     assert_eq!(serde_json::to_value(&got).unwrap(), serde_json::to_value(&want).unwrap());
@@ -264,7 +264,7 @@ fn get_disk_listings_read_back(tc: TestCase) {
 /// Only a drive's root (`E:`, `e:\`, `\\?\E:/`) has a drive letter, upper-cased; nothing
 /// below a root or outside Windows paths does.
 #[hegel::test(test_cases = 300)]
-fn only_drive_roots_have_a_letter(tc: TestCase) {
+fn prop_only_drive_roots_have_a_letter(tc: TestCase) {
     let letter = tc.draw(gs::sampled_from(('a'..='z').chain('A'..='Z').collect::<Vec<char>>()));
     let prefix = tc.draw(gs::sampled_from(vec!["", r"\\?\"]));
     let seps: String = tc.draw(gs::text().alphabet("\\/").max_size(3));
@@ -282,7 +282,7 @@ fn only_drive_roots_have_a_letter(tc: TestCase) {
 
 /// A PowerShell single-quoted string reads back as exactly the text quoted, whatever it holds.
 #[hegel::test(test_cases = 300)]
-fn powershell_quoting_reads_back(tc: TestCase) {
+fn prop_powershell_quoting_reads_back(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(gs::text().max_size(20), gs::text().alphabet("a'’ $`\"").max_size(10)));
     let q = quote(&s);
     let inner = q.strip_prefix('\'').and_then(|q| q.strip_suffix('\'')).unwrap();
@@ -293,7 +293,7 @@ fn powershell_quoting_reads_back(tc: TestCase) {
 
 /// Scripts reach PowerShell as base64 of UTF-16LE, with progress output silenced first.
 #[hegel::test(test_cases = 100)]
-fn scripts_reach_powershell_intact(tc: TestCase) {
+fn prop_scripts_reach_powershell_intact(tc: TestCase) {
     let script = tc.draw(gs::text().max_size(60));
     let c = powershell(&script);
     assert_eq!(c.args[..5], ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand"]);
@@ -307,7 +307,7 @@ fn scripts_reach_powershell_intact(tc: TestCase) {
 /// or serial number before clearing anything, and labels the volume with the quoted label;
 /// the steps say the same, and FAT32 is written over the placeholder exFAT volume.
 #[hegel::test(test_cases = 200)]
-fn partition_scripts_follow_the_plan(tc: TestCase) {
+fn prop_partition_scripts_follow_the_plan(tc: TestCase) {
     let number = tc.draw(gs::integers::<u32>().max_value(30));
     let disk = Disk {
         id: format!("PhysicalDrive{number}"),
@@ -353,7 +353,7 @@ fn partition_scripts_follow_the_plan(tc: TestCase) {
 /// it, before PowerShell is asked anything. Of the file systems, Windows creates all but HFS+,
 /// and outside Windows FAT32 can't be written over a volume at all.
 #[hegel::test(test_cases = 200)]
-fn paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCase) {
+fn prop_paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCase) {
     let path = tc.draw(hegel::one_of!(
         gs::text().max_size(12),
         gs::text().alphabet("E:\\/ab?").max_size(6),
@@ -402,7 +402,7 @@ fn ps_says(fake: &mut FakeTools, script: &str, reply: Result<&str, &str>) {
 /// isn't the listing, or isn't there, every question fails saying so.
 #[cfg(unix)]
 #[hegel::test(test_cases = 40)]
-fn disks_are_what_get_disk_prints(tc: TestCase) {
+fn prop_disks_are_what_get_disk_prints(tc: TestCase) {
     let (text, want) = get_disk(&tc);
     let mut fake = FakeTools::new();
     let how = tc.draw(gs::sampled_from(vec!["prints", "prints", "fails", "garbles", "missing"]));
@@ -455,7 +455,7 @@ fn disks_are_what_get_disk_prints(tc: TestCase) {
 /// script that fails, prints no letter, or prints something else stops there, saying which.
 #[cfg(unix)]
 #[hegel::test(test_cases = 30)]
-fn formatting_partitions_once_and_finds_the_drive_letter(tc: TestCase) {
+fn prop_formatting_partitions_once_and_finds_the_drive_letter(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let mut fake = FakeTools::new();
     let device = fake.dir().join("PhysicalDrive3");

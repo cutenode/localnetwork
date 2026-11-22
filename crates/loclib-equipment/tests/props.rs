@@ -50,7 +50,7 @@ fn respelled(tc: &TestCase, name: &str) -> String {
 
 /// Every model is found by its name however it's spelled.
 #[hegel::test(test_cases = 300)]
-fn every_model_is_found_however_it_is_spelled(tc: TestCase) {
+fn prop_every_model_is_found_however_it_is_spelled(tc: TestCase) {
     let (_, m) = model(&tc);
     let spelled = respelled(&tc, m.name);
     assert_eq!(loclib_equipment::find(&spelled).map(|f| f.name), Some(m.name), "{spelled:?}");
@@ -59,7 +59,7 @@ fn every_model_is_found_however_it_is_spelled(tc: TestCase) {
 /// Any text gets an answer, and the same one in any ASCII case or without what isn't an ASCII
 /// letter or digit; whatever it finds is a model that its own name finds.
 #[hegel::test(test_cases = 500)]
-fn find_ignores_case_and_punctuation(tc: TestCase) {
+fn prop_find_ignores_case_and_punctuation(tc: TestCase) {
     let text = tc.draw(hegel::one_of!(
         gs::text().max_size(16),
         gs::sampled_from(MODELS.iter().map(|m| m.name.to_string()).collect::<Vec<_>>())
@@ -88,7 +88,7 @@ enum Entry {
 /// ones are skipped; any unknown name fails the whole list, naming each unknown one (trimmed)
 /// in order and listing every model.
 #[hegel::test(test_cases = 300)]
-fn canonical_names_each_model_once_or_every_unknown_name(tc: TestCase) {
+fn prop_canonical_names_each_model_once_or_every_unknown_name(tc: TestCase) {
     let mut entries = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t "]));
@@ -142,7 +142,7 @@ fn canonical_names_each_model_once_or_every_unknown_name(tc: TestCase) {
 /// An unknown rate or depth never makes a file unplayable, and a file wrong on both counts is
 /// what the two single checks say.
 #[hegel::test(test_cases = 500)]
-fn plays_follows_the_published_table(tc: TestCase) {
+fn prop_plays_follows_the_published_table(tc: TestCase) {
     let (i, m) = model(&tc);
     let codec = codec(&tc);
     let rate = tc.draw(hegel::one_of!(
@@ -187,7 +187,7 @@ fn plays_follows_the_published_table(tc: TestCase) {
 /// and HFS+ unless it's a mixer, exFAT as listed (unknown when it takes a firmware update),
 /// nothing else. Its kind and databases read the same as the row too.
 #[hegel::test(test_cases = 100)]
-fn reads_follows_the_published_table(tc: TestCase) {
+fn prop_reads_follows_the_published_table(tc: TestCase) {
     let (i, m) = model(&tc);
     let row = &table()[i];
     let mixer = row["kind"] == "mixer";
@@ -220,7 +220,7 @@ fn reads_follows_the_published_table(tc: TestCase) {
 /// without an extension players list says nothing. Each format's own name as an extension
 /// names it, but Apple Lossless, which comes in `.m4a`.
 #[hegel::test(test_cases = 500)]
-fn formats_follow_the_extension_in_any_case(tc: TestCase) {
+fn prop_formats_follow_the_extension_in_any_case(tc: TestCase) {
     let known = [
         ("mp3", FromPath::Codec(Codec::Mp3)),
         ("aac", FromPath::Codec(Codec::Aac)),
@@ -250,7 +250,7 @@ fn formats_follow_the_extension_in_any_case(tc: TestCase) {
 
 /// File systems and formats serialise as their names in lower case, and read back.
 #[hegel::test(test_cases = 50)]
-fn names_serialise_in_lower_case_and_read_back(tc: TestCase) {
+fn prop_names_serialise_in_lower_case_and_read_back(tc: TestCase) {
     let fs = tc.draw(gs::sampled_from(FS_KINDS.to_vec()));
     let json = serde_json::to_value(fs).unwrap();
     assert_eq!(json, format!("{fs:?}").to_lowercase());

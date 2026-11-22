@@ -352,7 +352,7 @@ fn described<P: Serialize + JsonSchema>(planned: &Planned<P>) -> serde_json::Val
 /// object's fields at the top, nothing for one that's `null`, and anything else under `plan`; its
 /// schema describes it either way. Its details read back as they were given, each warning once.
 #[hegel::test(test_cases = 50)]
-fn a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
+fn prop_a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let summary: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(6)).max_size(3));
     let warnings: Vec<String> = tc.draw(gs::vecs(gs::sampled_from(vec!["a".to_string(), "b".into(), "c".into()])));
@@ -403,7 +403,7 @@ fn a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
 /// other bytes, deleted, or a folder (which reads as unreadable) turned into a file. Rewriting it
 /// with the same bytes, or changing a file it doesn't read, isn't a change.
 #[hegel::test(test_cases = 20)]
-fn a_plan_reading_files_by_content_sees_exactly_their_changes(tc: hegel::TestCase) {
+fn prop_a_plan_reading_files_by_content_sees_exactly_their_changes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

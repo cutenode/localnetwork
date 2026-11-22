@@ -22,7 +22,7 @@ fn snapshots(fx: &Env, more: usize) {
 /// kept with every reason its JSON gives and each one removed marked so, or it says there's
 /// nothing to prune. Applied, it removes the snapshots its plan removes.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_prune_says_why_it_keeps_each_snapshot(tc: TestCase) {
+fn prop_a_prune_says_why_it_keeps_each_snapshot(tc: TestCase) {
     let fx = Env::new();
     snapshots(&fx, tc.draw(gs::integers::<usize>().max_value(2)));
     let mut args = vec!["store", "prune"];
@@ -77,7 +77,7 @@ fn a_prune_says_why_it_keeps_each_snapshot(tc: TestCase) {
 /// verified, loses the snapshots pruned only when mirrored, and says so as its JSON counts it.
 /// Mostly verified and printed, the case that says the most.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_copy_of_the_store_says_what_it_repaired_and_removed(tc: TestCase) {
+fn prop_a_copy_of_the_store_says_what_it_repaired_and_removed(tc: TestCase) {
     let fx = Env::new();
     let more = tc.draw(gs::integers::<usize>().max_value(2));
     snapshots(&fx, more);

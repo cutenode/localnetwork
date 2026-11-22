@@ -794,7 +794,7 @@ fn export_cant_go(tc: &TestCase, case: u8) {
 /// what it writes is what loclib-interop builds for the same library, root and analysis, with
 /// its counts and warnings, and one naming the tracks whose audio isn't where the files say.
 #[hegel::test(test_cases = 60)]
-fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
+fn prop_any_export_writes_what_its_dry_run_names(tc: TestCase) {
     let mut drive = drive();
     let format = tc.draw(gs::sampled_from(vec!["traktor", "serato", "engine", "rekordbox"]));
     for t in &drive.library.tracks {

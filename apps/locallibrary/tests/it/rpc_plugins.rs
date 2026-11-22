@@ -192,7 +192,7 @@ fn the_sidecar_sends_an_image_once_however_many_tracks_its_for() {
 /// the plan's id, or in one go), the picks are what the tracks then have (a title over theirs only with `replace`, a year where they
 /// have none).
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn any_candidates_are_offered_and_their_picks_applied(tc: TestCase) {
+fn prop_any_candidates_are_offered_and_their_picks_applied(tc: TestCase) {
     let (_env, mut s, drive) = sidecar();
     let auto_pick = tc.draw(gs::integers::<u8>().max_value(100)) as f64 / 100.0;
     result(s.call(1, "plugins.providers.set", json!({ "auto_pick": auto_pick })));

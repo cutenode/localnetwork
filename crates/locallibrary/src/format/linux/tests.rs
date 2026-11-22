@@ -396,7 +396,7 @@ fn block_device(tc: &TestCase, name: &str) -> (Value, Option<Disk>, Vec<String>)
 /// system anywhere under a disk makes it a system disk, and what isn't a disk is left out.
 /// Every partition and mount point finds its disk.
 #[hegel::test(test_cases = 300)]
-fn lsblk_listings_read_back(tc: TestCase) {
+fn prop_lsblk_listings_read_back(tc: TestCase) {
     let names = gs::sampled_from(vec!["sdb", "sdc", "mmcblk0", "nvme0n1", "loop3", "dm-1", "md0", "zram0", "nbd0"]);
     let names: Vec<&str> = tc.draw(gs::vecs(names).unique(true).max_size(3));
     let devices: Vec<(Value, Option<Disk>, Vec<String>)> = names.iter().map(|n| block_device(&tc, n)).collect();
@@ -423,7 +423,7 @@ fn lsblk_listings_read_back(tc: TestCase) {
 /// sector size with the type code of the file system, and makes the file system on the first
 /// partition with the cluster size asked for.
 #[hegel::test(test_cases = 300)]
-fn format_commands_follow_the_target(tc: TestCase) {
+fn prop_format_commands_follow_the_target(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["sdb", "mmcblk0", "nvme0n1"]));
     let (_, disk, mounted) = block_device(&tc, name);
     let Some(disk) = disk else { return };
@@ -482,7 +482,7 @@ fn strs(words: &[String]) -> Vec<&str> {
 /// saying so, with the package to install.
 #[cfg(unix)]
 #[hegel::test(test_cases = 40)]
-fn disks_are_what_lsblk_lists(tc: TestCase) {
+fn prop_disks_are_what_lsblk_lists(tc: TestCase) {
     let names = gs::sampled_from(vec!["sdb", "sdc", "mmcblk0", "nvme0n1", "loop3", "dm-1"]);
     let names: Vec<&str> = tc.draw(gs::vecs(names).unique(true).max_size(3));
     let devices: Vec<(Value, Option<Disk>, Vec<String>)> = names.iter().map(|n| block_device(&tc, n)).collect();
@@ -555,7 +555,7 @@ fn disks_are_what_lsblk_lists(tc: TestCase) {
 /// and sync failing don't.
 #[cfg(unix)]
 #[hegel::test(test_cases = 40)]
-fn formatting_runs_the_planned_steps_in_order(tc: TestCase) {
+fn prop_formatting_runs_the_planned_steps_in_order(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let mut fake = FakeTools::new();
     let name = tc.draw(gs::sampled_from(vec!["sdb", "mmcblk0", "nvme0n1"]));
@@ -677,7 +677,7 @@ fn prop_formatting_waits_for_the_partition_lsblk_permitting(tc: TestCase) {
 /// reads as a number, in bits a second, and only a USB disk asks sysfs at all.
 #[cfg(unix)]
 #[hegel::test(test_cases = 50)]
-fn a_link_speed_is_the_nearest_number_above_the_disk(tc: TestCase) {
+fn prop_a_link_speed_is_the_nearest_number_above_the_disk(tc: TestCase) {
     let recorded =
         tc.draw(gs::optional(gs::sampled_from(vec!["12\n", "480\n", "5000\n", "10000", " 20000 \n", "", "fast\n"])));
     let dir = sysfs(recorded);

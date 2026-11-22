@@ -1,0 +1,17 @@
+# The Hegel property tests run alone by name: .config/nextest.toml's hegel profile, which
+# `cargo hegel-coverage` and the scheduled hegel job use, picks the tests named prop_*. A
+# `#[hegel::test]` named otherwise would be left out of those runs without a word.
+id: hegel-test-name
+language: rust
+severity: error
+message: The Hegel runs pick property tests by their `prop_` prefix, so they'd leave this one out.
+note: Start its name with prop_.
+rule:
+  kind: function_item
+  all:
+    - has: { field: name, not: { regex: '^prop_' } }
+    # Among the attributes (and doc comments) right before it.
+    - follows:
+        stopBy: { not: { any: [{ kind: attribute_item }, { kind: line_comment }, { kind: block_comment }] } }
+        kind: attribute_item
+        regex: '^#\[hegel::test[(\]]'

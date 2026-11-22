@@ -1,7 +1,7 @@
 //! `PdbEditor`'s edits on the vendored rekordbox-pdb's fixtures: a fuzzed sequence of playlist,
 //! entry, track string and history edits, each read back through `Database` after it's made. An
 //! edit that works changes what a model says it does and nothing else; one that's refused leaves
-//! the file as it was. Either way the file still parses. The Hegel property `edits_match_the_model`
+//! the file as it was. Either way the file still parses. The Hegel property `prop_edits_match_the_model`
 //! covers edits drawn from what's there; this one reaches the pages they leave behind (rows moved,
 //! deleted and grown, pages filled), names of any length and ids that aren't there.
 

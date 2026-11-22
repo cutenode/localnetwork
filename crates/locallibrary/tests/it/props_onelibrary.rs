@@ -57,7 +57,7 @@ fn page_image(tc: &TestCase, size: usize) -> Vec<u8> {
 /// A page encrypts and decrypts back to itself, but for the 80 reserved bytes (IV and HMAC) and,
 /// on page 1, the salt (which comes back as SQLite's magic). Encrypting twice uses fresh IVs.
 #[hegel::test]
-fn pages_decrypt_to_what_was_encrypted(tc: TestCase) {
+fn prop_pages_decrypt_to_what_was_encrypted(tc: TestCase) {
     let pgno = tc.draw(hegel::one_of!(gs::integers::<u32>().min_value(1).max_value(4), gs::integers::<u32>()));
     let plain = page_image(&tc, PAGE_SIZE);
     let enc = codec().encrypt_page(pgno, &plain).unwrap();
@@ -74,7 +74,7 @@ fn pages_decrypt_to_what_was_encrypted(tc: TestCase) {
 /// Changing any authenticated byte of an encrypted page (everything but page 1's salt: data,
 /// IV and HMAC), or decrypting it as another page, is detected.
 #[hegel::test]
-fn tampered_pages_are_refused(tc: TestCase) {
+fn prop_tampered_pages_are_refused(tc: TestCase) {
     let pgno = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
     let plain = page_image(&tc, PAGE_SIZE);
     let mut enc = codec().encrypt_page(pgno, &plain).unwrap();
@@ -92,7 +92,7 @@ fn tampered_pages_are_refused(tc: TestCase) {
 /// A plain database of SQLCipher's layout encrypts and decrypts back (but for the reserved
 /// bytes); one without room for the cipher, or not whole pages, is refused.
 #[hegel::test(test_cases = 50)]
-fn databases_round_trip_through_the_cipher(tc: TestCase) {
+fn prop_databases_round_trip_through_the_cipher(tc: TestCase) {
     let pages = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let mut plain: Vec<u8> = (0..pages).flat_map(|_| page_image(&tc, PAGE_SIZE)).collect();
     plain[..16].copy_from_slice(SQLITE_MAGIC);
@@ -118,7 +118,7 @@ fn databases_round_trip_through_the_cipher(tc: TestCase) {
 /// that isn't a whole number of pages. A file of whole pages decrypts to zeros where SQLite
 /// won't read, whatever they hold.
 #[hegel::test]
-fn only_whole_pages_are_ciphered(tc: TestCase) {
+fn prop_only_whole_pages_are_ciphered(tc: TestCase) {
     let len = tc.draw(gs::integers::<usize>().max_value(3 * PAGE_SIZE));
     let bytes = vec![tc.draw(gs::integers::<u8>()); len];
     let pgno = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
@@ -220,7 +220,7 @@ fn frames(tc: &TestCase, page_size: usize, max_pgno: u32) -> Vec<Frame> {
 /// The committed part of a WAL is the last image of each page up to the last commit, in either
 /// checksum byte order.
 #[hegel::test]
-fn wal_replays_up_to_the_last_commit(tc: TestCase) {
+fn prop_wal_replays_up_to_the_last_commit(tc: TestCase) {
     let page_size = tc.draw(gs::sampled_from(vec![512usize, 1024, 4096]));
     let big_endian = tc.draw(gs::booleans());
     let salts = (tc.draw(gs::integers::<u32>()), tc.draw(gs::integers::<u32>()));
@@ -234,7 +234,7 @@ fn wal_replays_up_to_the_last_commit(tc: TestCase) {
 /// A frame whose checksum, salts or page number is wrong ends the log there, and so does the
 /// end of the file (a torn last frame is ignored).
 #[hegel::test]
-fn a_broken_frame_ends_the_log(tc: TestCase) {
+fn prop_a_broken_frame_ends_the_log(tc: TestCase) {
     let page_size = 512;
     let salts = (tc.draw(gs::integers::<u32>()), tc.draw(gs::integers::<u32>()));
     let frames = frames(&tc, page_size, 6);
@@ -264,7 +264,7 @@ fn a_broken_frame_ends_the_log(tc: TestCase) {
 
 /// Arbitrary bytes, and real or built WALs with damage, never make the reader panic.
 #[hegel::test(test_cases = 300)]
-fn wal_reader_survives_any_bytes(tc: TestCase) {
+fn prop_wal_reader_survives_any_bytes(tc: TestCase) {
     let page_size = tc.draw(gs::sampled_from(vec![512usize, 4096]));
     let source = tc.draw(gs::integers::<u8>().max_value(2));
     let mut wal = match source {
@@ -299,7 +299,7 @@ fn wal_reader_survives_any_bytes(tc: TestCase) {
 /// refused rather than allocated. A committed frame of zeros fails authentication like any other
 /// damaged page.
 #[hegel::test(test_cases = 50)]
-fn wal_frames_are_laid_over_the_database(tc: TestCase) {
+fn prop_wal_frames_are_laid_over_the_database(tc: TestCase) {
     let db = fixture("empty.db");
     let plain = empty_plain();
     let n = (plain.len() / PAGE_SIZE) as u32;
@@ -352,7 +352,7 @@ fn wal_frames_are_laid_over_the_database(tc: TestCase) {
 /// header of another layout, a WAL of another page size, or a WAL whose last commit puts such a
 /// first page in place.
 #[hegel::test(test_cases = 40)]
-fn what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
+fn prop_what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
     let db = fixture("empty.db");
     let mut header = empty_plain()[..PAGE_SIZE].to_vec();
     match tc.draw(gs::booleans()) {
@@ -378,7 +378,7 @@ fn what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
     assert!(OneLibrary::from_encrypted(&bytes, wal).is_err());
 }
 
-/// Shrunk counterexample of `wal_frames_are_laid_over_the_database`: a commit frame claiming
+/// Shrunk counterexample of `prop_wal_frames_are_laid_over_the_database`: a commit frame claiming
 /// 2^32 - 1 pages made `decrypt` try to allocate 16 TiB (an abort, not an error).
 #[test]
 fn a_wal_claiming_a_huge_database_is_refused() {
@@ -405,7 +405,7 @@ fn a_wal_claiming_pages_it_does_not_hold_is_refused() {
 /// The real WAL fixture (four transactions, made by the sqlcipher CLI) cut short anywhere opens
 /// as of its last complete transaction; with a byte changed it opens or fails cleanly.
 #[hegel::test(test_cases = 40)]
-fn real_wal_damage_is_survived(tc: TestCase) {
+fn prop_real_wal_damage_is_survived(tc: TestCase) {
     let (db, full) = (fixture("wal.db"), fixture("wal.db-wal"));
     let mut wal = full.to_vec();
     let cut = tc.draw(gs::booleans());
@@ -673,7 +673,7 @@ impl CueTable {
 }
 
 #[hegel::test(test_cases = 30)]
-fn cue_rows_follow_edits(tc: TestCase) {
+fn prop_cue_rows_follow_edits(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(demo_library(), None).unwrap();
     let ids: Vec<u32> = one
         .connection()
@@ -693,7 +693,7 @@ fn cue_rows_follow_edits(tc: TestCase) {
     hegel::stateful::machine(CueTable { one, track, other, other_rows }).steps(15).run(tc);
 }
 
-/// Shrunk counterexample of `cue_rows_follow_edits`: a cue at a position past about 6e16 µs
+/// Shrunk counterexample of `prop_cue_rows_follow_edits`: a cue at a position past about 6e16 µs
 /// overflowed working out its 1/150 s frame number (a panic in debug builds).
 #[test]
 fn extreme_positions_are_stored() {
@@ -815,7 +815,7 @@ impl Built {
 /// tracks removes them from every list (keeping the rest in order) and takes exactly as many
 /// lookup rows with them as `unused_lookup_rows` said.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn built_libraries_read_back(tc: TestCase) {
+fn prop_built_libraries_read_back(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let defaults = one.content_defaults().unwrap();
     let mut model = Built::default();
@@ -989,7 +989,7 @@ fn tag_names(rows: &TagRows, links: &[(i64, i64)], track: i64) -> Vec<(String, S
 /// can't be made is refused with its reason. A copied track keeps its tags by name, its album
 /// and its cues.
 #[hegel::test(test_cases = 25)]
-fn my_tags_follow_edits(tc: TestCase) {
+fn prop_my_tags_follow_edits(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let defaults = one.content_defaults().unwrap();
     let mut tracks = Vec::new();
@@ -1155,7 +1155,7 @@ fn my_tags_follow_edits(tc: TestCase) {
 /// drive's folder as written, and a database rekordbox wouldn't have written (no `content`
 /// table, a view or a trigger) is refused when opened.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn content_hashes_name_the_library(tc: TestCase) {
+fn prop_content_hashes_name_the_library(tc: TestCase) {
     let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let (a, b) = (one.to_encrypted().unwrap(), one.to_encrypted().unwrap());
     assert_ne!(a, b);

@@ -21,7 +21,7 @@ const NAMES: &[&str] = &["Main", "main", "Club", " Club ", "Ünï", ""];
 const LABELS: &[&str] = &["before NYE", "BEFORE nye", "Tokyo", " ", "keep"];
 
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_stores_records_match_the_model(tc: TestCase) {
+fn prop_the_stores_records_match_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let lib = store.create_library("Main").unwrap();

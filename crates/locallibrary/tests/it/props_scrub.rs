@@ -25,7 +25,7 @@ fn scrub_with(d: &Device, store: Option<&Store>, siblings: &[Device]) -> ScrubRe
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn scrub_finds_exactly_the_damage_and_repair_undoes_it(tc: TestCase) {
+fn prop_scrub_finds_exactly_the_damage_and_repair_undoes_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "Main");
@@ -108,7 +108,7 @@ fn scrub_finds_exactly_the_damage_and_repair_undoes_it(tc: TestCase) {
 /// However many scans run between the damage and the scrub, it's found: a scan records what it
 /// reads, and that never stands in for what the store says the file held.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn damage_is_found_however_many_scans_saw_it(tc: TestCase) {
+fn prop_damage_is_found_however_many_scans_saw_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");

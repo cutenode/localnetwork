@@ -291,7 +291,7 @@ fn a_response_id_is_found_in_a_line_that_isnt_json() {
         (r#"{"id":"#, None),
         (r#"{"x":"never ends"#, None),
         // Cut short on a string's backslash (hegel's example for
-        // `a_response_id_is_found_in_any_line_cut_short`).
+        // `prop_a_response_id_is_found_in_any_line_cut_short`).
         (r#"{"jsonrpc":"2.0","id":0,"result":"\"#, Some(0)),
         ("not json at all", None),
     ] {
@@ -530,7 +530,7 @@ enum Owned {
 /// answered with a parse error or an invalid request, with a null id but for a request whose id
 /// is in use. Nothing else is answered.
 #[hegel::test(test_cases = 80)]
-fn any_lines_get_what_json_rpc_says_they_should(tc: TestCase) {
+fn prop_any_lines_get_what_json_rpc_says_they_should(tc: TestCase) {
     let (peer, incoming, mut raw, logged) = connect_logged(|r| r, MAX_LINE);
     let (mut owned, mut answers, mut logs) = (Vec::new(), Vec::new(), 0);
     let mut running: Vec<Value> = Vec::new();
@@ -733,7 +733,7 @@ impl Answer {
 /// response is there before it's sent, and once one has come, waiting again finds it gone.
 /// Responses to ids never sent are dropped on the way.
 #[hegel::test(test_cases = 40)]
-fn each_request_gets_its_own_response_under_any_interleaving(tc: TestCase) {
+fn prop_each_request_gets_its_own_response_under_any_interleaving(tc: TestCase) {
     let (peer, _incoming, mut raw) = connect();
     let sizes = tc.draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(3)).min_size(1).max_size(4));
     let answers: Vec<Vec<Answer>> = sizes.iter().map(|&k| (0..k).map(|_| answer(&tc)).collect()).collect();
@@ -802,7 +802,7 @@ fn each_request_gets_its_own_response_under_any_interleaving(tc: TestCase) {
 /// anything else (another request, one never sent, or that aren't what the peer can read) go to
 /// the owner, in order.
 #[hegel::test(test_cases = 40)]
-fn progress_reaches_its_request_in_order_before_the_answer(tc: TestCase) {
+fn prop_progress_reaches_its_request_in_order_before_the_answer(tc: TestCase) {
     let (peer, incoming, mut raw) = connect();
     let reporting: Vec<Pending> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
         .map(|_| peer.send_request_reporting("command/run", &json!({})).unwrap())
@@ -900,7 +900,7 @@ impl Read for Broken {
 /// receiver closes and nothing more can be sent; once the output has, nothing more can be sent
 /// either, but responses still come in.
 #[hegel::test(test_cases = 40)]
-fn however_the_connection_ends_what_is_in_flight_ends_with_it(tc: TestCase) {
+fn prop_however_the_connection_ends_what_is_in_flight_ends_with_it(tc: TestCase) {
     let how = tc.draw(gs::sampled_from(vec!["input closes", "input breaks", "output closes"]));
     let (peer, incoming, mut raw, logged) = match how {
         "input breaks" => connect_logged(Broken, MAX_LINE),
@@ -958,7 +958,7 @@ fn however_the_connection_ends_what_is_in_flight_ends_with_it(tc: TestCase) {
 /// (`a_line_too_long_is_skipped` and `a_message_too_long_to_send_isnt_sent` try [`MAX_LINE`]),
 /// but long enough for the peer's own errors.
 #[hegel::test(test_cases = 6)]
-fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(tc: TestCase) {
+fn prop_a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(tc: TestCase) {
     let max = tc.draw(gs::integers::<usize>().min_value(1024).max_value(8192));
     let (peer, incoming, mut raw, logged) = connect_logged(|r| r, max);
     // The first request's id is 1: with it, the line is `{"jsonrpc":"2.0","id":1,"method":"m","params":"..."}`.
@@ -1022,7 +1022,7 @@ fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(t
 /// goes out for it, while those within other requests get their responses. Once a request is
 /// cancelled or answered, nothing more is sent within it.
 #[hegel::test(test_cases = 40)]
-fn requests_sent_within_a_cancelled_one_are_cancelled_with_it(tc: TestCase) {
+fn prop_requests_sent_within_a_cancelled_one_are_cancelled_with_it(tc: TestCase) {
     let (peer, incoming, mut raw) = connect();
     let hooks: Vec<Request> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
         .map(|n| {
@@ -1088,7 +1088,7 @@ fn requests_sent_within_a_cancelled_one_are_cancelled_with_it(tc: TestCase) {
 /// the top-level keys, past strings with quotes and braces in them and ids nested deeper, unless
 /// there's a `method` before the line ends (a request's) or the id isn't a number.
 #[hegel::test(test_cases = 200)]
-fn a_response_id_is_found_in_any_line_cut_short(tc: TestCase) {
+fn prop_a_response_id_is_found_in_any_line_cut_short(tc: TestCase) {
     let id = tc.draw(gs::integers::<u64>());
     let string_id = tc.draw(gs::weighted_booleans(0.1));
     let mut keys = vec!["jsonrpc", "id", "result"];
@@ -1146,7 +1146,7 @@ fn shout(v: &mut Value) {
 /// progress or a partial, what reads it gets it as the intake left it; in a request, as it was
 /// sent.
 #[hegel::test(test_cases = 40)]
-fn what_the_other_end_tells_goes_through_the_intake(tc: TestCase) {
+fn prop_what_the_other_end_tells_goes_through_the_intake(tc: TestCase) {
     let (peer_in, to_peer) = pipe().unwrap();
     let (from_peer, peer_out) = pipe().unwrap();
     let mut raw = Raw { to_peer: Some(to_peer), from_peer: BufReader::new(from_peer) };

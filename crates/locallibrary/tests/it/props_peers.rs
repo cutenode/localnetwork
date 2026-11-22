@@ -106,7 +106,7 @@ fn edit_here(studio: &Store, library: Uuid, parent: Hash) -> Hash {
 /// other computer's latest; one behind it moves there; one as new, or newer, stays; one changed
 /// on both keeps its own latest. Fetching again copies nothing.
 #[hegel::test(test_cases = 3)]
-fn a_fetch_copies_what_the_other_store_has_and_this_one_lacks(tc: TestCase) {
+fn prop_a_fetch_copies_what_the_other_store_has_and_this_one_lacks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let laptop = laptop_in(dir.path());
     let served = serve(&laptop);
@@ -241,7 +241,7 @@ fn serve(store: &Store) -> Served {
 /// stops the fetch. Each leaves this store as it was: no library, no snapshot, not the bad file.
 /// Serving says who it turned away and who connected, and once stopped, reports what it sent.
 #[hegel::test(test_cases = 2)]
-fn what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
+fn prop_what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
     // The laptop's store, copied, with one of its stored files damaged or gone.
     let dir = tempfile::tempdir().unwrap();
     let broken = laptop_in(dir.path());
@@ -306,7 +306,7 @@ fn what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
 /// and the fetch says what it was called there; one whose name is free keeps it and says
 /// nothing more. The store's own libraries stay as they were.
 #[hegel::test(test_cases = 2)]
-fn a_library_fetched_under_a_name_taken_here_gets_a_free_one(tc: TestCase) {
+fn prop_a_library_fetched_under_a_name_taken_here_gets_a_free_one(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let laptop = laptop_in(dir.path());
     let served = serve(&laptop);

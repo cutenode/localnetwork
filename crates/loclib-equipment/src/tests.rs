@@ -94,7 +94,7 @@ fn formats_from_file_names() {
 /// inferred is the format's, and a format it doesn't list doesn't play, as sure as the model's
 /// list is. Its documented values are `known`, never inferred.
 #[hegel::test(test_cases = 200)]
-fn models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
+fn prop_models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
     let rate_lists = [MPEG_1_AND_2, R32_48, R44_48, R44_96];
     let mut audio = Vec::new();
     for codec in Codec::ALL {

@@ -109,7 +109,7 @@ fn a_drive_is_compared_with_the_collection() {
 #[hegel::explicit_test_case(target = 0u8, playlists = vec!["Shows/Friday".to_string()], with_store = true, in_one_go = true)]
 #[hegel::explicit_test_case(target = 1u8, playlists = Vec::<String>::new(), with_store = true, in_one_go = false)]
 #[hegel::explicit_test_case(target = 2u8, playlists = Vec::<String>::new(), with_store = false, in_one_go = false)]
-fn the_collection_exports_to_a_folder_or_says_why_not(tc: hegel::TestCase) {
+fn prop_the_collection_exports_to_a_folder_or_says_why_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // 0: a folder that's there; 1: a new one; 2: one whose parent isn't there.
     let target = tc.draw(gs::integers::<u8>().max_value(2));

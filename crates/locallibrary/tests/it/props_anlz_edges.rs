@@ -83,7 +83,7 @@ fn prop_a_track_without_other_waveforms_shows_its_3_band_ones(tc: TestCase) {
 /// 191: a panic in debug builds, a NUL in release.
 #[hegel::test]
 #[hegel::explicit_test_case(number = 200u32)]
-fn every_hot_cue_read_can_be_listed(tc: TestCase) {
+fn prop_every_hot_cue_read_can_be_listed(tc: TestCase) {
     let number = tc.draw(gs::integers::<u32>().min_value(1).max_value(256));
     let base = common::synthetic_anlz("/Contents/a.mp3");
     let one = [CuePoint { hot_cue: Some(0), start_ms: 500, ..Default::default() }];

@@ -31,7 +31,7 @@ fn refused(env: &Env, args: &[&str]) -> Value {
 /// the list's order (after its entries, appending), or changes nothing when there are none. A
 /// choice for an entry the list doesn't have is refused.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
+fn prop_imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
     let env = Env::new();
     let root = env.club("Club");
     let d = path(&root);
@@ -100,7 +100,7 @@ fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
 /// have changes nothing, saying so.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(onto_itself = true, append = true, choice = None::<usize>)]
-fn an_xml_playlist_imports_as_the_tracks_it_names(tc: TestCase) {
+fn prop_an_xml_playlist_imports_as_the_tracks_it_names(tc: TestCase) {
     let onto_itself = tc.draw(gs::booleans());
     let append = tc.draw(gs::booleans());
     let choice = tc.draw(gs::optional(gs::integers::<usize>().max_value(20)));

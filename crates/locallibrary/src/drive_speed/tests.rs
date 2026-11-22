@@ -567,7 +567,7 @@ fn any_work(tc: &TestCase) -> Work {
 /// The estimate is the sum of its three costs, rounded up, and more of any of them never shortens
 /// it.
 #[hegel::test]
-fn the_estimate_is_the_sum_of_its_costs(tc: TestCase) {
+fn prop_the_estimate_is_the_sum_of_its_costs(tc: TestCase) {
     let (speed, job) = (any_speed(&tc), any_work(&tc));
     let made = estimate_of(job.clone(), speed.clone());
     let sum = job.bytes as f64 / speed.bytes_per_sec as f64
@@ -585,7 +585,7 @@ fn the_estimate_is_the_sum_of_its_costs(tc: TestCase) {
 
 /// The port changes what's said beside the number, never the number.
 #[hegel::test]
-fn the_port_never_changes_the_time(tc: TestCase) {
+fn prop_the_port_never_changes_the_time(tc: TestCase) {
     let (speed, job) = (any_speed(&tc), any_work(&tc));
     let link = tc.draw(gs::sampled_from(vec![12 * MB, USB2, USB3, 10 * GB, 20 * GB]));
     let with_port = WriteEstimate::new(job.clone(), Some(speed.clone()), None, Some(link));
@@ -598,7 +598,7 @@ fn the_port_never_changes_the_time(tc: TestCase) {
 
 /// `best_case` is exactly a rate seen to hold for less than the write.
 #[hegel::test]
-fn a_best_case_is_a_write_past_what_was_seen(tc: TestCase) {
+fn prop_a_best_case_is_a_write_past_what_was_seen(tc: TestCase) {
     let (speed, job) = (any_speed(&tc), any_work(&tc));
     let made = estimate_of(job.clone(), speed.clone());
     assert_eq!(made.best_case, speed.holds_for.is_some_and(|held| held < job.bytes));
@@ -609,7 +609,7 @@ fn a_best_case_is_a_write_past_what_was_seen(tc: TestCase) {
 /// A flat run is its mean, good for what it wrote. A run whose last third is well under its first
 /// is the last third's rate, good for any size. Either way it's within the chunks' rates.
 #[hegel::test(test_cases = 500)]
-fn a_rate_comes_from_its_chunks(tc: TestCase) {
+fn prop_a_rate_comes_from_its_chunks(tc: TestCase) {
     let chunks: Vec<Duration> = tc
         .draw(gs::vecs(gs::integers::<u64>().min_value(1).max_value(10_000_000)).min_size(1).max_size(64))
         .into_iter()
@@ -631,7 +631,7 @@ fn a_rate_comes_from_its_chunks(tc: TestCase) {
 
 /// A real write taking what the estimate said gives back the rate it was worked out from.
 #[hegel::test]
-fn an_estimate_met_changes_no_rate(tc: TestCase) {
+fn prop_an_estimate_met_changes_no_rate(tc: TestCase) {
     let speed = any_speed(&tc);
     let bytes = tc.draw(gs::integers::<u64>().min_value(MIN_LEARNED_BYTES).max_value(1 << 42));
     let job = work(bytes, tc.draw(gs::integers::<u64>().max_value(100_000)), 0);
@@ -648,7 +648,7 @@ fn an_estimate_met_changes_no_rate(tc: TestCase) {
 
 /// However files are laid out, the new folders are the distinct ancestors a naive walk finds.
 #[hegel::test(test_cases = 50)]
-fn work_matches_a_walk_of_the_paths(tc: TestCase) {
+fn prop_work_matches_a_walk_of_the_paths(tc: TestCase) {
     let part = || gs::sampled_from(vec!["a", "b", "c"]);
     let paths: Vec<Vec<&str>> = tc.draw(gs::vecs(gs::vecs(part()).min_size(1).max_size(4)).max_size(24));
     let keys: Vec<String> = paths.iter().map(|p| p.join("/")).collect();
@@ -672,7 +672,7 @@ fn work_matches_a_walk_of_the_paths(tc: TestCase) {
 
 /// Read back, a kept result is the one saved, and damage never panics.
 #[hegel::test(test_cases = 50)]
-fn a_record_reads_back_or_counts_as_none(tc: TestCase) {
+fn prop_a_record_reads_back_or_counts_as_none(tc: TestCase) {
     let (dir, device) = drive();
     let speed = any_speed(&tc);
     keep(dir.path(), &speed);
@@ -696,7 +696,7 @@ enum Before {
 /// it doesn't, says when it did, and a plan that isn't applied leaves a drive that had no
 /// `.locallibrary/` as it found it.
 #[hegel::test(test_cases = 12)]
-fn an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
+fn prop_an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
     let (dir, device) = drive();
     let state = dir.path().join(crate::paths::STATE_DIR);
     let before = tc.draw(gs::sampled_from(vec![Before::Nothing, Before::Fresh, Before::Stale, Before::Damaged]));
@@ -761,7 +761,7 @@ fn an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
 /// A result is stale on another port, after a capacity's worth of writes, or after 90 days, in that
 /// order.
 #[hegel::test]
-fn staleness_is_ports_then_writes_then_age(tc: TestCase) {
+fn prop_staleness_is_ports_then_writes_then_age(tc: TestCase) {
     let links = || gs::optional(gs::sampled_from(vec![USB2, USB3]));
     let days = tc.draw(gs::integers::<i64>().min_value(-30).max_value(400));
     let then_logged = tc.draw(gs::optional(gs::integers::<u64>().max_value(1 << 40)));
@@ -790,7 +790,7 @@ fn staleness_is_ports_then_writes_then_age(tc: TestCase) {
 /// What a plan says carries each thing the estimate knows: the time, what else it waits on, why the
 /// result may be out of date, the test and the port.
 #[hegel::test]
-fn an_estimates_lines_say_what_it_knows(tc: TestCase) {
+fn prop_an_estimates_lines_say_what_it_knows(tc: TestCase) {
     let mut job = any_work(&tc);
     if tc.draw(gs::booleans()) {
         job = job.plus("downloads");
@@ -824,7 +824,7 @@ fn an_estimates_lines_say_what_it_knows(tc: TestCase) {
 /// A real write replaces the stored rate only when it's big, from this computer, measured against a
 /// result, and slower than its files alone; one that can't be kept is said, not an error.
 #[hegel::test(test_cases = 50)]
-fn a_real_write_is_learned_from_only_when_it_tells(tc: TestCase) {
+fn prop_a_real_write_is_learned_from_only_when_it_tells(tc: TestCase) {
     let (dir, device) = drive();
     let unwritable = tc.draw(gs::weighted_booleans(0.2));
     if unwritable {
@@ -866,7 +866,7 @@ fn speed_rounds_to_nothing(bytes: u64, elapsed: Duration, job: &Work, measured: 
 /// A plan that tested a blank drive and wasn't applied takes away what the test left, and only
 /// that: anything else that arrived in the folder meanwhile stays, and so does the folder then.
 #[hegel::test(test_cases = 8)]
-fn a_blank_drive_gets_back_to_blank_unless_something_else_arrived(tc: TestCase) {
+fn prop_a_blank_drive_gets_back_to_blank_unless_something_else_arrived(tc: TestCase) {
     let (dir, device) = drive();
     let state = dir.path().join(crate::paths::STATE_DIR);
     let files = tc.draw(gs::integers::<u64>().min_value(256).max_value(20_000));

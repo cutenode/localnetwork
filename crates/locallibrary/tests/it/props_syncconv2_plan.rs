@@ -222,13 +222,13 @@ fn check(plan: &SyncPlan, want: &Expected, source: &FileTree, opts: &SyncOptions
 /// deleted first, and the plan says so) or none (doesn't fit at all), stale files deleted first,
 /// and copies that leave players too little room.
 #[hegel::test(test_cases = 20)]
-fn a_plan_copies_and_deletes_what_the_rules_say(tc: TestCase) {
+fn prop_a_plan_copies_and_deletes_what_the_rules_say(tc: TestCase) {
     for variant in 0..8 {
         a_plan_copies_and_deletes_what_the_rules_say_with(&tc, variant);
     }
 }
 
-/// One case of [`a_plan_copies_and_deletes_what_the_rules_say`], `variant` forcing what's above.
+/// One case of [`prop_a_plan_copies_and_deletes_what_the_rules_say`], `variant` forcing what's above.
 #[hegel::test_helper]
 fn a_plan_copies_and_deletes_what_the_rules_say_with(tc: &TestCase, variant: u8) {
     let dir = tempfile::tempdir().unwrap();

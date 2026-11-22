@@ -397,7 +397,7 @@ fn write_clip(tc: &TestCase, x: &mut Xml, c: &ClipModel, rate: f64, blocks: &mut
 /// other, every audible track mixed down equally, muted ones (and with a solo, unsoloed ones)
 /// left out. It reads back its tags and labels, and is as long as its last clip.
 #[hegel::test(test_cases = 40)]
-fn projects_render_their_clips_where_they_sit(tc: TestCase) {
+fn prop_projects_render_their_clips_where_they_sit(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![2.0f64, 4.0, 8.0, 16.0]));
     let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
     x.start("project").double("rate", rate);
@@ -510,7 +510,7 @@ fn projects_render_their_clips_where_they_sit(tc: TestCase) {
 /// Bytes from anywhere as the project's dictionary and document never panic the reader:
 /// it opens what it can make sense of, and otherwise says what's wrong with that file.
 #[hegel::test(test_cases = 50)]
-fn damaged_documents_are_errors_not_crashes(tc: TestCase) {
+fn prop_damaged_documents_are_errors_not_crashes(tc: TestCase) {
     let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
     x.start("project").double("rate", 4.0).start("wavetrack").clip(0.0, 4, &[(0, 1)]);
     x.end("waveclip").end("wavetrack").end("project");
@@ -542,7 +542,7 @@ fn damaged_documents_are_errors_not_crashes(tc: TestCase) {
 /// gives none, and anything else (under 1 Hz, which would never render, or past 1 MHz) is
 /// refused.
 #[hegel::test(test_cases = 40)]
-fn only_real_rates_are_taken(tc: TestCase) {
+fn prop_only_real_rates_are_taken(tc: TestCase) {
     let rate = tc.draw(hegel::one_of!(
         gs::floats::<f64>().min_value(-10.0).max_value(10.0),
         gs::floats::<f64>().min_value(1.0).max_value(2e6),
@@ -564,7 +564,7 @@ fn only_real_rates_are_taken(tc: TestCase) {
 /// tags, renders exactly as the whole one does: each track's blocks one after another (more of
 /// them than are kept loaded at once), the tracks mixed down equally.
 #[hegel::test(test_cases = 30)]
-fn projects_missing_their_closing_tags_render_whole(tc: TestCase) {
+fn prop_projects_missing_their_closing_tags_render_whole(tc: TestCase) {
     let level = gs::sampled_from(vec![0.0f32, 0.25, -0.5, 0.125, 0.5]);
     let tracks: Vec<Vec<f32>> = tc.draw(gs::vecs(gs::vecs(level).min_size(1).max_size(16)).min_size(1).max_size(2));
     let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
@@ -599,7 +599,7 @@ fn projects_missing_their_closing_tags_render_whole(tc: TestCase) {
 /// A flag, a whole number or a fraction written as a tag's value with its own token reads back
 /// as the same text as when written as a string.
 #[hegel::test(test_cases = 60)]
-fn tag_values_read_the_same_in_any_token(tc: TestCase) {
+fn prop_tag_values_read_the_same_in_any_token(tc: TestCase) {
     let (op, v, text): (u8, f64, String) = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => {
             let b = tc.draw(gs::booleans());
@@ -636,7 +636,7 @@ fn tag_values_read_the_same_in_any_token(tc: TestCase) {
 /// than [`MAX_DEPTH`], a view standing in for the project's table, a sample block in a format
 /// Audacity has no name for. Nesting within the limit is no reason to refuse.
 #[hegel::test(test_cases = 60)]
-fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
+fn prop_odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut x = Xml::new(1);
     x.start("project").double("rate", 2.0).start("wavetrack").clip(0.0, 2, &[(0, 1)]);
@@ -687,7 +687,7 @@ fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
 /// autosave in them, a document whose dictionary names nothing (so no `<project>` element), or
 /// one whose audio has no sample blocks table.
 #[hegel::test(test_cases = 40)]
-fn files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) {
+fn prop_files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
     x.start("project").double("rate", 2.0).start("wavetrack").clip(0.0, 2, &[(0, 1)]);
@@ -751,7 +751,7 @@ fn files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) 
 /// 1 Hz), is heard as a track stating none: its clips trimmed at that rate, each starting where
 /// it sits plus what was trimmed.
 #[hegel::test(test_cases = 30)]
-fn a_track_at_the_projects_rate_sounds_as_one_without_a_rate(tc: TestCase) {
+fn prop_a_track_at_the_projects_rate_sounds_as_one_without_a_rate(tc: TestCase) {
     let stated = tc.draw(gs::sampled_from(vec![Some(4.0), Some(0.0), Some(-4.0), Some(f64::NEG_INFINITY), None]));
     let samples: Vec<f32> = tc.draw(gs::vecs(gs::sampled_from(vec![0.0f32, 0.25, -0.5])).min_size(1).max_size(8));
     let offset = tc.draw(gs::integers::<usize>().max_value(4));

@@ -184,7 +184,7 @@ fn ids(tracks: &[&Track]) -> Vec<u32> {
 /// Parsing never panics, and a filter that parses can be run on any track.
 #[hegel::test(test_cases = 500)]
 #[hegel::explicit_test_case(s = "added:429497".to_string(), lib = Library::default())]
-fn filters_never_panic(tc: TestCase) {
+fn prop_filters_never_panic(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(gs::text().max_size(30), gs::vecs(token()).max_size(4).map(|v| v.join(" "))));
     let lib = tc.draw(library());
     if let Ok(f) = Filter::parse(&s) {
@@ -195,7 +195,7 @@ fn filters_never_panic(tc: TestCase) {
 
 /// `A B` matches exactly the tracks both `A` and `B` match (and parses when both do).
 #[hegel::test(test_cases = 300)]
-fn terms_are_conjunctions(tc: TestCase) {
+fn prop_terms_are_conjunctions(tc: TestCase) {
     let (a, b) = (tc.draw(token()), tc.draw(token()));
     let lib = tc.draw(library());
     let both = Filter::parse(&format!("{a} {b}"));
@@ -212,7 +212,7 @@ fn terms_are_conjunctions(tc: TestCase) {
 
 /// `-X` matches exactly the tracks `X` doesn't.
 #[hegel::test(test_cases = 300)]
-fn minus_negates(tc: TestCase) {
+fn prop_minus_negates(tc: TestCase) {
     let x = tc.draw(token());
     tc.assume(!x.starts_with('-') && !x.starts_with(|c: char| c.is_ascii_digit()));
     let lib = tc.draw(library());
@@ -227,7 +227,7 @@ fn minus_negates(tc: TestCase) {
 
 /// `field:a|b` matches exactly the tracks `field:a` or `field:b` matches.
 #[hegel::test(test_cases = 300)]
-fn bar_is_a_disjunction(tc: TestCase) {
+fn prop_bar_is_a_disjunction(tc: TestCase) {
     let field = tc.draw(gs::sampled_from(
         TEXT_FIELDS.iter().chain(&["key:", "color:", "playlist:", "tag:", "is:", "has:"]).copied().collect::<Vec<_>>(),
     ));
@@ -262,7 +262,7 @@ fn bar_is_a_disjunction(tc: TestCase) {
 
 /// A range means the same whichever end comes first, written `a-b` or `a..b`.
 #[hegel::test(test_cases = 300)]
-fn ranges_are_unordered(tc: TestCase) {
+fn prop_ranges_are_unordered(tc: TestCase) {
     let field = tc.draw(gs::sampled_from(vec!["bpm", "rating", "plays", "year", "bitrate", "time"]));
     let value = || {
         hegel::one_of!(
@@ -282,7 +282,7 @@ fn ranges_are_unordered(tc: TestCase) {
 #[hegel::test(test_cases = 500)]
 #[hegel::explicit_test_case(v = "NaN".to_string())]
 #[hegel::explicit_test_case(v = "inf".to_string())]
-fn time_takes_only_finite_numbers(tc: TestCase) {
+fn prop_time_takes_only_finite_numbers(tc: TestCase) {
     let v = tc.draw(hegel::one_of!(
         gs::text().alphabet("0123456789.e-+<>=infaNI").min_size(1).max_size(6),
         gs::sampled_from(vec!["nan", "NaN", "inf", "-inf", "+infinity", ">=inf", "<NaN", "1e400"]).map(String::from),
@@ -292,7 +292,7 @@ fn time_takes_only_finite_numbers(tc: TestCase) {
 
 /// `time:m:ss` matches tracks exactly that long.
 #[hegel::test(test_cases = 200)]
-fn time_matches_the_duration(tc: TestCase) {
+fn prop_time_matches_the_duration(tc: TestCase) {
     let (m, s) = (tc.draw(gs::integers::<u32>().max_value(20)), tc.draw(gs::integers::<u32>().max_value(59)));
     let lib = tc.draw(library());
     let f = Filter::parse(&format!("time:{m}:{s:02}")).unwrap();
@@ -302,7 +302,7 @@ fn time_matches_the_duration(tc: TestCase) {
 
 /// `added:2026` and `added:2026-09` match the dates in that year or month.
 #[hegel::test(test_cases = 200)]
-fn added_matches_date_prefixes(tc: TestCase) {
+fn prop_added_matches_date_prefixes(tc: TestCase) {
     let lib = tc.draw(library());
     let (y, m) = (
         tc.draw(gs::integers::<u32>().min_value(2024).max_value(2026)),
@@ -356,7 +356,7 @@ fn sort_keys() -> impl hegel::PrintableGenerator<Vec<SortKey>> {
 
 /// A sort order reads back from its text form, and parsing any text never panics.
 #[hegel::test(test_cases = 300)]
-fn sort_orders_round_trip(tc: TestCase) {
+fn prop_sort_orders_round_trip(tc: TestCase) {
     let keys = tc.draw(sort_keys());
     assert_eq!(query::parse_sort(&sort_spec(&keys)).unwrap(), keys);
     let junk = tc.draw(gs::text().alphabet("-,abkeytl ").max_size(12));
@@ -366,7 +366,7 @@ fn sort_orders_round_trip(tc: TestCase) {
 /// Sorting is a stable permutation, and sorting by `k1,k2` is sorting by `k2` then (stably) by
 /// `k1`.
 #[hegel::test(test_cases = 300)]
-fn sorting_is_stable_and_lexicographic(tc: TestCase) {
+fn prop_sorting_is_stable_and_lexicographic(tc: TestCase) {
     let mut lib = tc.draw(library());
     // Exact copies (but for the id) must keep their relative order.
     let copies: Vec<Track> = lib.tracks.iter().map(|t| Track { id: t.id + 100, ..t.clone() }).collect();
@@ -426,7 +426,7 @@ fn compare(a: &Track, b: &Track, field: SortField) -> std::cmp::Ordering {
 
 /// Sorting orders tracks as a stable sort comparing their values directly ([`compare`]) does.
 #[hegel::test(test_cases = 300)]
-fn sorting_compares_values(tc: TestCase) {
+fn prop_sorting_compares_values(tc: TestCase) {
     let lib = tc.draw(library().print_as_debug());
     let keys = tc.draw(sort_keys().print_as_debug());
     let mut sorted: Vec<&Track> = lib.tracks.iter().collect();
@@ -472,7 +472,7 @@ fn dangling_playlist_entries_select_nothing() {
 /// `select` gives sorted ids without repeats, the same set `select_ordered` gives (which has no
 /// repeats either), and both fail together.
 #[hegel::test(test_cases = 300)]
-fn select_and_select_ordered_agree(tc: TestCase) {
+fn prop_select_and_select_ordered_agree(tc: TestCase) {
     let lib = tc.draw(library());
     let sel = tc.draw(selector(lib.clone()));
     let ctx = QueryContext::new(&lib);
@@ -516,7 +516,7 @@ fn fields_of(sel: &TrackSelector) -> Vec<TrackSelector> {
 /// first of them (ids, paths, playlist, history list, then library order), and fails when any
 /// field does. Without `allow_empty` it also fails when no track fits every field.
 #[hegel::test(test_cases = 500)]
-fn selection_is_the_intersection_of_its_fields(tc: TestCase) {
+fn prop_selection_is_the_intersection_of_its_fields(tc: TestCase) {
     let lib = tc.draw(library());
     let sel = tc.draw(selector(lib.clone()));
     let ctx = QueryContext::new(&lib);
@@ -556,7 +556,7 @@ fn selection_is_the_intersection_of_its_fields(tc: TestCase) {
 /// A blank filter or query never selects anything, whatever else is given: selecting fails
 /// instead of taking every track (`track rm --filter ""` would delete the whole library).
 #[hegel::test(test_cases = 300)]
-fn blank_filters_and_queries_never_select_anything(tc: TestCase) {
+fn prop_blank_filters_and_queries_never_select_anything(tc: TestCase) {
     let lib = tc.draw(library());
     let mut sel = tc.draw(selector(lib.clone()));
     let blank = tc.draw(gs::text().alphabet(" \t\n\"").max_size(4));
@@ -581,7 +581,7 @@ type Holds<'a> = Box<dyn Fn(&Track) -> bool + 'a>;
 /// beat; dates compare by day, a bare prefix standing for its first or last day as the operator
 /// needs.
 #[hegel::test(test_cases = 300)]
-fn numeric_terms_compare_as_written(tc: TestCase) {
+fn prop_numeric_terms_compare_as_written(tc: TestCase) {
     let lib = tc.draw(library());
     let fields: Vec<(&str, NumberOf)> = vec![
         ("rating", |t| f64::from(t.rating)),
@@ -652,7 +652,7 @@ fn numeric_terms_compare_as_written(tc: TestCase) {
 /// `is:` and `has:` match what they name: played or not, in a playlist or not, with artwork, a
 /// comment, a key or analysis files; several values separated by `|` match any of them.
 #[hegel::test(test_cases = 300)]
-fn is_and_has_match_what_they_name(tc: TestCase) {
+fn prop_is_and_has_match_what_they_name(tc: TestCase) {
     let lib = tc.draw(library());
     let filed: BTreeSet<u32> = lib.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
     let all: Vec<(&str, &str, Holds)> = vec![
@@ -679,7 +679,7 @@ fn is_and_has_match_what_they_name(tc: TestCase) {
 /// can't be run without the drive's My Tags; `playlist:` names a playlist, or a folder and every
 /// playlist below it.
 #[hegel::test(test_cases = 300)]
-fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
+fn prop_tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
     let lib = tc.draw(library());
     let paths = ["Genre/Deep", "Genre/Peak Time", "Mood/Deep"];
     let by_id = lib
@@ -716,7 +716,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
 /// drive's lists from both its databases, the tracks of the one it names by file. A list that
 /// isn't there is an error.
 #[hegel::test(test_cases = 200)]
-fn a_history_list_selects_its_tracks(tc: TestCase) {
+fn prop_a_history_list_selects_its_tracks(tc: TestCase) {
     use locallibrary::plays::HistoryList;
     let mut lib = tc.draw(library());
     let n = u32::try_from(lib.tracks.len()).unwrap();
@@ -816,7 +816,7 @@ fn matching_with(f: &Filter, lib: &Library, values: &TrackValues) -> Vec<bool> {
 /// matching the tracks that one matches among those with a value, and no track without one
 /// (every one, negated).
 #[hegel::test(test_cases = 300)]
-fn a_plugins_number_field_filters_as_the_tracks_own_does(tc: TestCase) {
+fn prop_a_plugins_number_field_filters_as_the_tracks_own_does(tc: TestCase) {
     let lib = tc.draw(library());
     let values = plugin_values(&tc, &lib);
     let (own, name) = tc.draw(gs::sampled_from(vec![("plays", "sound.plays"), ("year", "Sound.Year")]));
@@ -862,7 +862,7 @@ const WORDS: &[&str] = &["a", "B", "ab", "1", "true", "false", "yes", "no", "a|b
 /// words says (`true` or `yes`, `false` or `no`, only those); nothing to look for, or other words
 /// for a true-or-false field, is refused.
 #[hegel::test(test_cases = 300)]
-fn a_plugins_text_list_and_switch_fields_match_whole_words(tc: TestCase) {
+fn prop_a_plugins_text_list_and_switch_fields_match_whole_words(tc: TestCase) {
     let lib = tc.draw(library());
     let values = plugin_values(&tc, &lib);
     let name = tc.draw(gs::sampled_from(vec!["sound.mood", "sound.tags", "sound.vocal"]));
@@ -896,7 +896,7 @@ fn a_plugins_text_list_and_switch_fields_match_whole_words(tc: TestCase) {
 /// any other field of a plugin's sorts those with one first too. A sort naming a field no
 /// analyzer declares is refused, as one naming any is where the values can't be at hand.
 #[hegel::test(test_cases = 300)]
-fn sorting_by_a_plugins_field_puts_tracks_without_one_last(tc: TestCase) {
+fn prop_sorting_by_a_plugins_field_puts_tracks_without_one_last(tc: TestCase) {
     let lib = tc.draw(library());
     let values = plugin_values(&tc, &lib);
     let name = tc.draw(gs::sampled_from(vec!["sound.year", "sound.plays", "sound.mood", "sound.tags", "sound.vocal"]));

@@ -70,13 +70,13 @@ enum Way {
 /// drive gets none (the plan says how many are missing), and a rebuilt OneLibrary keeps the images
 /// it had.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn images_come_across_once_each(tc: TestCase) {
+fn prop_images_come_across_once_each(tc: TestCase) {
     for way in [Way::ToOneLibrary, Way::RebuildingOneLibrary, Way::ToExportPdb] {
         images_come_across_once_each_with(&tc, way);
     }
 }
 
-/// One case of [`images_come_across_once_each`].
+/// One case of [`prop_images_come_across_once_each`].
 #[hegel::test_helper]
 fn images_come_across_once_each_with(tc: &TestCase, way: Way) {
     let dir = tempfile::tempdir().unwrap();
@@ -192,7 +192,7 @@ enum Ext {
 /// missing one isn't made (the plan says tags have nowhere to go), and links in one to tracks a
 /// rebuilt `export.pdb` won't list go, as the plan says.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn my_tags_go_where_export_ext_lets_them(tc: TestCase) {
+fn prop_my_tags_go_where_export_ext_lets_them(tc: TestCase) {
     for ext in [Ext::Missing, Ext::Damaged, Ext::Kept] {
         for (to, replace, plus) in [
             (Target::OneLibrary, false, false),
@@ -205,7 +205,7 @@ fn my_tags_go_where_export_ext_lets_them(tc: TestCase) {
     }
 }
 
-/// One case of [`my_tags_go_where_export_ext_lets_them`]: `plus` when export.pdb stays beside
+/// One case of [`prop_my_tags_go_where_export_ext_lets_them`]: `plus` when export.pdb stays beside
 /// OneLibrary.
 #[hegel::test_helper]
 fn my_tags_go_where_export_ext_lets_them_with(tc: &TestCase, ext: Ext, opts: ConvertOptions, plus: bool) {
@@ -305,7 +305,7 @@ fn my_tags_go_where_export_ext_lets_them_with(tc: &TestCase, ext: Ext, opts: Con
 /// read give their tracks no cues, and rebuilding OneLibrary names the playlists, entries and hot
 /// cue bank lists only it had.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn what_a_conversion_cant_do_is_said(tc: TestCase) {
+fn prop_what_a_conversion_cant_do_is_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::silent();
 

@@ -406,7 +406,7 @@ pub(crate) fn any_disk(tc: &TestCase) -> Disk {
 /// within its length (FAT32: 11 bytes of upper case ASCII; exFAT: 11 UTF-16 units; HFS+: 27
 /// characters), and labelling a label changes nothing.
 #[hegel::test(test_cases = 500)]
-fn labels_suit_their_file_system(tc: TestCase) {
+fn prop_labels_suit_their_file_system(tc: TestCase) {
     let name = name(&tc);
     for fs in FILESYSTEMS {
         let l = fs.label(&name);
@@ -430,7 +430,7 @@ fn labels_suit_their_file_system(tc: TestCase) {
 /// A cluster size is taken exactly when it is a power of two, at least a sector, and within
 /// the file system's limit, and the default one is always taken.
 #[hegel::test(test_cases = 500)]
-fn cluster_sizes_follow_each_file_systems_rules(tc: TestCase) {
+fn prop_cluster_sizes_follow_each_file_systems_rules(tc: TestCase) {
     let fs = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
     let sector = tc.draw(gs::sampled_from(vec![512u32, 1024, 2048, 4096]));
     let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(31).map(|s| 1u32 << s), gs::integers::<u32>(),));
@@ -487,7 +487,7 @@ fn split_display(s: &str) -> Vec<String> {
 /// A command's shell-style rendering is unambiguous: it splits back into the program and
 /// exactly its arguments, and says when a script goes to its input.
 #[hegel::test(test_cases = 500)]
-fn commands_display_unambiguously(tc: TestCase) {
+fn prop_commands_display_unambiguously(tc: TestCase) {
     let program = tc.draw(gs::sampled_from(vec!["diskutil", "mkfs.vfat", "sfdisk"]));
     let args: Vec<String> = tc.draw(
         gs::vecs(hegel::one_of!(gs::text().max_size(12), gs::text().alphabet("ab $'\"\\\t\n").max_size(6),))
@@ -511,7 +511,7 @@ fn commands_display_unambiguously(tc: TestCase) {
 /// missing tool says which package has it, for the ones Linux distributions leave out.
 #[cfg(unix)]
 #[hegel::test(test_cases = 20)]
-fn tools_get_their_input_and_report_their_failures(tc: TestCase) {
+fn prop_tools_get_their_input_and_report_their_failures(tc: TestCase) {
     let input = tc.draw(gs::text().max_size(40).exclude_characters("\0"));
     assert_eq!(Cmd::new("cat", &[]).input(input.clone()).run().unwrap(), input);
     let tool = tc.draw(gs::sampled_from(vec![
@@ -542,7 +542,7 @@ fn tools_get_their_input_and_report_their_failures(tc: TestCase) {
 
 /// Lenient JSON reads a value in every form the tools write it in.
 #[hegel::test(test_cases = 300)]
-fn lenient_json_reads_every_spelling(tc: TestCase) {
+fn prop_lenient_json_reads_every_spelling(tc: TestCase) {
     use serde_json::{Value, json};
     let n = tc.draw(gs::integers::<u64>());
     let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t", " \n"]));
@@ -589,7 +589,7 @@ fn lenient_json_reads_every_spelling(tc: TestCase) {
 /// volume's id, uuid, label, size and file system) and not with where volumes are mounted; the
 /// disk-only fingerprint ignores the volumes. The check before erasing agrees with it.
 #[hegel::test(test_cases = 300)]
-fn identity_follows_what_is_on_the_disk(tc: TestCase) {
+fn prop_identity_follows_what_is_on_the_disk(tc: TestCase) {
     let disk = any_disk(&tc);
     let mut other = disk.clone();
     let kind = tc.draw(gs::integers::<u8>().max_value(9));
@@ -659,7 +659,7 @@ fn identity_follows_what_is_on_the_disk(tc: TestCase) {
 /// its mount points. Listing keeps exactly the external and removable physical disks, as they
 /// are.
 #[hegel::test(test_cases = 300)]
-fn disks_are_refused_for_exactly_their_problems(tc: TestCase) {
+fn prop_disks_are_refused_for_exactly_their_problems(tc: TestCase) {
     let disks: Vec<Disk> = (0..tc.draw(gs::integers::<usize>().max_value(3))).map(|_| any_disk(&tc)).collect();
     let protected: Vec<PathBuf> = tc
         .draw(
@@ -709,7 +709,7 @@ fn disks_are_refused_for_exactly_their_problems(tc: TestCase) {
     target_os = "linux",
     ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the generated disk isn't there"
 )]
-fn plans_follow_the_disk_and_the_options(tc: TestCase) {
+fn prop_plans_follow_the_disk_and_the_options(tc: TestCase) {
     let disk = any_disk(&tc);
     let opts = FormatOptions {
         filesystem: tc.draw(gs::sampled_from(vec![
@@ -780,7 +780,7 @@ fn plans_follow_the_disk_and_the_options(tc: TestCase) {
 /// I/O error.
 #[cfg(unix)]
 #[hegel::test(test_cases = 20)]
-fn write_access_is_checked_before_formatting(tc: TestCase) {
+fn prop_write_access_is_checked_before_formatting(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let dev = dir.path().join(format!("rdisk{}", tc.draw(gs::integers::<u8>())));
@@ -813,7 +813,7 @@ fn write_access_is_checked_before_formatting(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 #[hegel::explicit_test_case(spec = "Backup".to_string())]
 #[hegel::explicit_test_case(spec = "Disco 1".to_string())]
-fn drive_names_are_not_disks(tc: TestCase) {
+fn prop_drive_names_are_not_disks(tc: TestCase) {
     let spec =
         tc.draw(hegel::one_of!(gs::text().max_size(30), gs::text().alphabet("rdisk0 /ev\\.PhysicalDrv").max_size(16)));
     let lower = spec.to_ascii_lowercase();
@@ -827,7 +827,7 @@ fn drive_names_are_not_disks(tc: TestCase) {
 /// whatever its arguments, and nothing ran.
 #[cfg(unix)]
 #[hegel::test(test_cases = 20)]
-fn tools_that_cant_start_say_why(tc: TestCase) {
+fn prop_tools_that_cant_start_say_why(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join(tc.draw(gs::sampled_from(vec!["mkfs.vfat", "diskutil", "sfdisk", "a tool"])));
@@ -861,7 +861,7 @@ fn tools_that_cant_start_say_why(tc: TestCase) {
     target_os = "linux",
     ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the generated disk isn't there"
 )]
-fn disks_mbr_cant_address_are_refused(tc: TestCase) {
+fn prop_disks_mbr_cant_address_are_refused(tc: TestCase) {
     let excess =
         tc.draw(hegel::one_of!(gs::integers::<u64>().max_value(1 << 20), gs::integers::<u64>().max_value(1 << 44)));
     let disk = Disk { size: players::MBR_MAX + excess, volumes: Vec::new(), ..sample_disk() };
@@ -877,7 +877,7 @@ fn disks_mbr_cant_address_are_refused(tc: TestCase) {
 /// A device that isn't there any more (unplugged since the plan, or a path that never was one)
 /// is an I/O error naming it, never taken for a permission problem.
 #[hegel::test(test_cases = 20)]
-fn write_access_to_a_device_that_is_gone_is_an_io_error(tc: TestCase) {
+fn prop_write_access_to_a_device_that_is_gone_is_an_io_error(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let depth = tc.draw(gs::integers::<usize>().max_value(2));
     let mut dev = dir.path().to_path_buf();

@@ -19,7 +19,7 @@ fn edited(root: &std::path::Path, name: &str) -> String {
 }
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_backup_that_doesnt_say_what_its_change_left_is_put_back_only_when_forced(tc: TestCase) {
+fn prop_a_backup_that_doesnt_say_what_its_change_left_is_put_back_only_when_forced(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     let name = tc.draw(gs::sampled_from(vec!["Warm Up", "Peak", "Ünï ♪"]));

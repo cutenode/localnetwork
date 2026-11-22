@@ -153,7 +153,7 @@ fn account_plugin(id: &str, kind: &str, scopes: &[(&str, &str)]) -> Manifest {
 /// provides the type, none of those lists a scope it asks for, or one of them that does sends a
 /// request of it to a host the plugin can't reach, saying which.
 #[hegel::test(test_cases = 200)]
-fn only_plugins_whose_accounts_can_be_used_are_kept(tc: hegel::TestCase) {
+fn prop_only_plugins_whose_accounts_can_be_used_are_kept(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let commands = crate::Cli::command().find_subcommand("account").map(|a| a.get_subcommands().count()).unwrap_or(0);
     let hosts = ["a.example", "b.example"];
@@ -467,7 +467,7 @@ fn command_line() -> (Vec<String>, Vec<String>) {
 /// claiming the same id, place or format (both are left out, the later named as clashing with
 /// the earlier). The others are kept.
 #[hegel::test(test_cases = 200)]
-fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
+fn prop_plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (commands, groups) = command_line();
     // Those a plugin's id could be: the sidecar's own names (`version`) are namespaces too.
@@ -634,7 +634,7 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
 /// locallibrary command has clashes, as any plugin's would, and so does one the sidecar names
 /// methods after.
 #[hegel::test(test_cases = 50)]
-fn a_plugin_locallibrary_doesnt_ship_needs_an_id_of_its_own(tc: hegel::TestCase) {
+fn prop_a_plugin_locallibrary_doesnt_ship_needs_an_id_of_its_own(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let shipped: Vec<&str> = BUILT_IN.iter().map(|row| row.0).collect();
     let id = match tc.draw(gs::integers::<u8>().max_value(2)) {

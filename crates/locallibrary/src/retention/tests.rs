@@ -79,7 +79,7 @@ fn last_daily_and_weekly_keep_the_newest_of_each() {
 /// states, the newest N, and the newest of each of the newest N days and weeks that have
 /// snapshots, each kept for each reason that applies.
 #[hegel::test(test_cases = 300)]
-fn the_policy_keeps_exactly_what_it_names(tc: hegel::TestCase) {
+fn prop_the_policy_keeps_exactly_what_it_names(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u8>().max_value(30));
     let start = Local.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap().with_timezone(&Utc);

@@ -291,7 +291,7 @@ fn expected(m: &Drawn, bpm: Option<f64>) -> Option<Result<ImportedCue, &'static 
 /// grid marker off the pads being the grid), and counts the hot cues past H and loops that
 /// aren't a length in beats; a track with nothing to import isn't answered.
 #[hegel::test(test_cases = 60)]
-fn markers_are_imported_as_cues(tc: TestCase) {
+fn prop_markers_are_imported_as_cues(tc: TestCase) {
     let s = start();
     let tracks = tc.draw(gs::integers::<usize>().max_value(3));
     let mut nml = String::from("<NML><COLLECTION>");
@@ -554,7 +554,7 @@ fn library(tc: &TestCase) -> (Library, FxHashMap<u32, TrackAnalysis>) {
 /// the track; the others by their path alone. Playlists come by their folders, listing the
 /// tracks they have by path.
 #[hegel::test(test_cases = 40)]
-fn a_collection_reads_as_its_library(tc: TestCase) {
+fn prop_a_collection_reads_as_its_library(tc: TestCase) {
     let s = start();
     let music = s.granted("music");
     let (library, analysis) = tc.draw(library());
@@ -663,7 +663,7 @@ fn paged(tc: &TestCase) -> Entry {
 /// early only for the budget; every track comes once, in order, each grid laid down to its
 /// track's end, and grids with no length to end at are counted over every page.
 #[hegel::test(test_cases = 200)]
-fn pages_keep_to_their_limits(tc: TestCase) {
+fn prop_pages_keep_to_their_limits(tc: TestCase) {
     let entries = tc.draw(gs::vecs(paged()).max_size(12));
     let limits = Limits {
         tracks: tc.draw(gs::integers::<usize>().min_value(1).max_value(5)),

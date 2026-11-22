@@ -14,7 +14,7 @@ use serde::de::value::{Error, StrDeserializer};
 #[hegel::explicit_test_case(s = "serato".to_string())]
 #[hegel::explicit_test_case(s = "engine".to_string())]
 #[hegel::explicit_test_case(s = "rekordbox".to_string())]
-fn software_reads_only_from_its_names(tc: TestCase) {
+fn prop_software_reads_only_from_its_names(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(
         gs::sampled_from(vec![
             "traktor",

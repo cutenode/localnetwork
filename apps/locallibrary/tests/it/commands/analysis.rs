@@ -420,7 +420,7 @@ fn analyze_writes_a_grid_into_the_analysis_files() {
 /// `heard`), as `plugins.apply_fields` plans it.
 #[cfg(debug_assertions)]
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
+fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::plugin::AnalysisPart;
     let mut env = Env::new();
@@ -628,7 +628,7 @@ fn roles_text(listed: &Value) -> String {
 /// no analyzer works out its roles (tempo, key, level), and the doctor's analysis says no plugin
 /// works them out.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
+fn prop_plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut env = Env::new();
     let without_sound = cfg!(debug_assertions) && tc.draw(gs::booleans());
@@ -724,7 +724,7 @@ fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
 /// the library's tempos favour the stored one, and `--fix-tempo` then sets the tempo heard (a dry
 /// run changing nothing), or else has nothing to change.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn doctor_fixes_a_tempo_only_where_the_library_favours_the_analysis(tc: hegel::TestCase) {
+fn prop_doctor_fixes_a_tempo_only_where_the_library_favours_the_analysis(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();
     let root = env.demo("A");

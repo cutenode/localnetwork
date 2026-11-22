@@ -284,7 +284,7 @@ impl MyTags {
 /// Any sequence of edits, saved at any points, gives files the reader and a fresh editor see as
 /// the model has it. (A name `add_category`, `add_tag` or `rename` accepts must also save.)
 #[hegel::test(test_cases = 300)]
-fn edits_match_the_model(tc: TestCase) {
+fn prop_edits_match_the_model(tc: TestCase) {
     let bytes = std::fs::read(tc.draw(gs::sampled_from(&fixtures()))).unwrap();
     let model = Model::read(&ExtDatabase::from_bytes(bytes.clone()).unwrap());
     let editor = ExtEditor::from_bytes(bytes).unwrap();
@@ -292,7 +292,7 @@ fn edits_match_the_model(tc: TestCase) {
     hegel::stateful::machine(MyTags { editor, model, seen_links }).steps(40).run(tc);
 }
 
-/// Shrunk counterexample of `edits_match_the_model`: a 4000-character category name was
+/// Shrunk counterexample of `prop_edits_match_the_model`: a 4000-character category name was
 /// accepted, then saving failed after the old tag rows had been deleted. It is now refused up
 /// front, and the file still saves.
 #[test]
@@ -313,7 +313,7 @@ fn a_name_too_long_for_a_page_is_refused_up_front() {
 /// name, refused additions and removals, unlinking what isn't linked), gives back the file as it
 /// was, byte for byte.
 #[hegel::test]
-fn edits_that_change_nothing_leave_the_file_as_it_was(tc: TestCase) {
+fn prop_edits_that_change_nothing_leave_the_file_as_it_was(tc: TestCase) {
     let original = std::fs::read(tc.draw(gs::sampled_from(&fixtures()))).unwrap();
     let model = Model::read(&ExtDatabase::from_bytes(original.clone()).unwrap());
     let mut ed = ExtEditor::from_bytes(original.clone()).unwrap();
@@ -418,7 +418,7 @@ fn tag_edit(tc: &TestCase, ids: &[u32]) -> tags::Edit {
 /// After rekordbox exports over `tags` edits (all three databases as they were), replaying the
 /// drive's journal gives back the My Tags the edits made, in both databases.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn replaying_tag_edits_after_a_new_export_redoes_them(tc: TestCase) {
+fn prop_replaying_tag_edits_after_a_new_export_redoes_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = tagged_drive(dir.path());
     let before = exported(&root);

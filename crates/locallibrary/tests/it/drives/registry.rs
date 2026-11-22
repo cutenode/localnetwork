@@ -84,7 +84,7 @@ fn drives_not_linked_to_a_library_have_no_standing() {
 /// once the primary's next export is pulled on top (naming the snapshot when one holds its
 /// state), and holding changes the store lacks once it gets an export of its own.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_drive_stands_as_its_library_went_on_since(tc: TestCase) {
+fn prop_a_drive_stands_as_its_library_went_on_since(tc: TestCase) {
     let saved = tc.draw(gs::booleans());
     let then = tc.draw(gs::sampled_from(vec!["nothing", "primary", "own"]));
     let dir = tempfile::tempdir().unwrap();

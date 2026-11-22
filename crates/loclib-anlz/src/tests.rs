@@ -36,7 +36,7 @@ pub(crate) fn synthetic(path: &str) -> Vec<u8> {
 /// A file's [`PathSlot`] says how long [`rewrite_path`] makes it, whatever the path (or with no
 /// `PPTH` to rewrite, and bytes past the file's declared end), and refuses what it refuses.
 #[hegel::test(test_cases = 100)]
-fn a_path_slot_sizes_the_rewritten_file(tc: hegel::TestCase) {
+fn prop_a_path_slot_sizes_the_rewritten_file(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let old = tc.draw(gs::text().max_size(100).exclude_characters("\0"));
     let new = tc.draw(gs::text().max_size(200).exclude_characters("\0"));
@@ -300,7 +300,7 @@ fn phrases_are_named_by_mood() {
 /// [`kind_number`] undoes what the reader names a phrase's kind number: a kind read in a mood comes
 /// back as a number the reader names the same, and one the mood has no name for as itself.
 #[hegel::test(test_cases = 200)]
-fn kind_numbers_name_the_kind_they_were_read_as(tc: hegel::TestCase) {
+fn prop_kind_numbers_name_the_kind_they_were_read_as(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mood = tc.draw(gs::sampled_from(vec![Mood::High, Mood::Mid, Mood::Low]));
     let read = tc.draw(gs::integers::<u16>().max_value(12));

@@ -4,7 +4,7 @@ use std::path::Path;
 
 /// Unit tests live in a module's own `tests.rs` (`#[cfg(test)] mod tests;`), never inline:
 /// `cargo coverage` leaves test files out by name (.cargo/config.toml), so an inline test module
-/// would count as code that ships, and `tools/hegel-coverage.sh` could never reach it.
+/// would count as code that ships.
 #[test]
 fn unit_tests_live_in_files_of_their_own() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

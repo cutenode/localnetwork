@@ -49,7 +49,7 @@ fn allows(scopes: &[&str]) -> String {
 /// with the server (when it's kept in a file) it says the server answered, or fails as the
 /// server refuses; and signing out says whether the server could be told.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_account_says_what_its_session_allows(tc: TestCase) {
+fn prop_the_account_says_what_its_session_allows(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::from_template();
@@ -179,7 +179,7 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
 /// holds it, and a file that's there is kept unless `--replace` says otherwise; an address that
 /// isn't `https://` is refused.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn client_metadata_is_the_document_written(tc: TestCase) {
+fn prop_client_metadata_is_the_document_written(tc: TestCase) {
     let fx = Env::from_template();
     let client = tc.draw(gs::sampled_from(
         &[None, Some("https://dj.example.com/c.json"), Some("http://insecure.example/c.json")][..],
@@ -320,7 +320,7 @@ fn publish_plan_is_printed(p: &Value, what: &str, out: &str, said: &str) {
 /// `--yes` that succeeds, which writes the record its plan holds; what's published already isn't
 /// written again; and My Settings imported back from the account are the ones published.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
+fn prop_publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
     let session = tc.draw(gs::integers::<u8>().max_value(2));
@@ -539,7 +539,7 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
 /// saying to which account, or to a server that isn't one, it says why it can't, and nothing is
 /// signed in.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
+fn prop_signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
     let json = tc.draw(gs::booleans());
@@ -583,7 +583,7 @@ fn published_sections() -> Vec<(&'static str, &'static str, Value)> {
 /// section published before that it no longer publishes; its JSON plan holds that record as what
 /// it replaces.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
+fn prop_a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
     sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
@@ -644,7 +644,7 @@ const LOCAL_CLIENT: &str = "https://localhost/c.json";
 /// would be looked up on the network, and the handle offered is only tried when there's none.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
+fn prop_login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
     let fx = Env::from_template();
     std::fs::create_dir_all(&fx.store).unwrap();
     let remembered = tc.draw(gs::booleans());
@@ -683,7 +683,7 @@ fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
 /// stays as it was.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
+fn prop_publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
     let handle = tc.draw(gs::booleans());
@@ -775,7 +775,7 @@ fn form_in(out: &str, as_json: bool) -> String {
 /// asks, posting with `--yes` (or, when the space is gone or the server refuses it, giving
 /// GitHub's form instead); anything else gives GitHub's form, filled in with what was typed.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
+fn prop_a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
     let pds = MockPds::start();
     let good = space_on(&pds);
     let gone = format!("at://{DID}/app.userinput.space/3lgone");
@@ -870,7 +870,7 @@ fn a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
 #[cfg(unix)]
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(reports = false, title = "  The map is grey  ", lines = Vec::<&str>::new(), answer = true)]
-fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
+fn prop_asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
     let pds = MockPds::start();
     let space = space_on(&pds);
     let fx = Env::new().with_directory(&pds.url);
@@ -927,7 +927,7 @@ fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
 /// server got, the title as given and the message first, and it says where it is; refused, it
 /// says it couldn't post it and gives GitHub's form instead.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
+fn prop_a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
     let pds = MockPds::start();
     let space = space_on(&pds);
     let fx = Env::new().with_directory(&pds.url);
@@ -974,7 +974,7 @@ fn a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
 /// it; the text says what the JSON does, without asking again; and only a session from before the
 /// scope is told to sign in again.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_flags_shown_are_the_catalogs_as_the_website_answers(tc: TestCase) {
+fn prop_the_flags_shown_are_the_catalogs_as_the_website_answers(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::ascii().with_directory(&pds.url);

@@ -41,7 +41,7 @@ fn track_upgrade_points_an_mp3_at_its_lossless_file() {
 /// it, moving its cues and grid back by at least that delay, and at most 30 ms more.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(delay = 26usize, same = true)]
-fn upgrade_and_doctor_match_tracks_by_their_sound(tc: hegel::TestCase) {
+fn prop_upgrade_and_doctor_match_tracks_by_their_sound(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::ascii();
     let demo = env.demo("Demo");

@@ -56,7 +56,7 @@ fn fleet_drive(tc: &TestCase, dir: &std::path::Path, name: &str) -> FleetDrive {
 /// naming the drive), and a check that failed (never one that passed). The fleet's listing shows
 /// them with every drive, in a library or in none.
 #[hegel::test(test_cases = 100)]
-fn a_drives_notes_say_what_else_to_know(tc: TestCase) {
+fn prop_a_drives_notes_say_what_else_to_know(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let drives: Vec<FleetDrive> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
         .map(|i| fleet_drive(&tc, dir.path(), &format!("D{i}")))
@@ -108,7 +108,7 @@ fn a_drives_notes_say_what_else_to_know(tc: TestCase) {
 /// Every kind of space is named, and no two alike; a space report shows each part of it: the
 /// forecast whichever way the library goes, the drives it fits on and those it doesn't.
 #[hegel::test(test_cases = 100)]
-fn space_reports_name_every_kind(tc: TestCase) {
+fn prop_space_reports_name_every_kind(tc: TestCase) {
     let kinds = [
         SpaceKind::Audio,
         SpaceKind::Analysis,
@@ -172,7 +172,7 @@ fn space_reports_name_every_kind(tc: TestCase) {
 /// up to its cap, says how many more there are, and offers the repair only when there's a good
 /// copy to repair from.
 #[hegel::test(test_cases = 100)]
-fn check_reports_list_each_problem(tc: TestCase) {
+fn prop_check_reports_list_each_problem(tc: TestCase) {
     let problem = |tc: &TestCase, i: usize| -> FileProblem {
         let mut p: FileProblem = serde_json::from_value(json!({
             "path": format!("Contents/{i}.mp3"), "class": "audio", "size": 10,

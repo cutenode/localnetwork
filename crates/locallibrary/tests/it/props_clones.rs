@@ -44,7 +44,7 @@ fn fingerprint(root: &Path) -> String {
 }
 
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn writes_to_a_library_keep_its_clones_identical(tc: TestCase) {
+fn prop_writes_to_a_library_keep_its_clones_identical(tc: TestCase) {
     let h = home();
     let clones = [&h.main, &h.backup, &h.sd];
     let archive = common::drive_files(&h.archive);

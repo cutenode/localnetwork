@@ -78,7 +78,7 @@ fn listed(d: &PlaylistDiff) -> [BTreeSet<String>; 4] {
 /// unchanged only where neither comparison shows it differs, and the order of adding doesn't
 /// change what's listed. Adding a comparison to itself changes nothing.
 #[hegel::test(test_cases = 300)]
-fn adding_the_other_databases_comparison_keeps_every_difference(tc: hegel::TestCase) {
+fn prop_adding_the_other_databases_comparison_keeps_every_difference(tc: hegel::TestCase) {
     use std::collections::BTreeSet as Set;
     let (a, b, c, d) = (drawn_lib(&tc), drawn_lib(&tc), drawn_lib(&tc), drawn_lib(&tc));
     let (first, second) = (between(&a, &b, ("a", "b"), None), between(&c, &d, ("a", "b"), None));

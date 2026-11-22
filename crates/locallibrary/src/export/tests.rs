@@ -61,7 +61,7 @@ fn formats() {
 /// itself (a library built by hand can) still ends. Each format is told by its extension in any
 /// case.
 #[hegel::test(test_cases = 100)]
-fn split_folders_give_each_playlist_a_file_of_its_own(tc: hegel::TestCase) {
+fn prop_split_folders_give_each_playlist_a_file_of_its_own(tc: hegel::TestCase) {
     use hegel::generators as gs;
     for f in [Format::M3u8, Format::Csv, Format::Txt] {
         let ext: String =

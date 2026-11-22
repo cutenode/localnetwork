@@ -61,7 +61,7 @@ fn stderr_line(tc: &TestCase) -> (String, String) {
 /// Whatever a plugin writes to its log, what reaches the host's is its printable text, in order:
 /// nothing that would draw on a terminal UI's screen.
 #[hegel::test(test_cases = 300)]
-fn a_plugins_log_keeps_only_what_prints(tc: TestCase) {
+fn prop_a_plugins_log_keeps_only_what_prints(tc: TestCase) {
     let (line, expected) = stderr_line(&tc);
     assert_eq!(printable(&line), expected, "{line:?}");
 }
@@ -106,7 +106,7 @@ fn answer(tc: &TestCase, depth: u8) -> (Value, Value) {
 /// the host takes in is only what of each prints, in its place. Regression: only check findings,
 /// notices and the plugin's log were made printable, and the rest reached the terminal as sent.
 #[hegel::test(test_cases = 300)]
-fn what_a_plugin_answers_is_taken_in_printable(tc: TestCase) {
+fn prop_what_a_plugin_answers_is_taken_in_printable(tc: TestCase) {
     // In a list: an answer that's only text keeps its lines (see the property below).
     let (said, printed) = answer(&tc, 3);
     let (mut said, printed) = (json!([said]), json!([printed]));
@@ -122,7 +122,7 @@ fn what_a_plugin_answers_is_taken_in_printable(tc: TestCase) {
 /// the rest, as they're drawn as those lines; anywhere else in an answer it's one line, a newline
 /// a space. Regression: a text view's lines were made one.
 #[hegel::test(test_cases = 200)]
-fn text_drawn_as_lines_keeps_them(tc: TestCase) {
+fn prop_text_drawn_as_lines_keeps_them(tc: TestCase) {
     let pieces =
         vec![("\n", "\n", " "), ("\r", "", " "), ("\t", " ", " "), ("\u{1b}[31m", "", ""), ("\u{1b}]0;t\u{7}", "", "")];
     let (mut said, mut lines, mut line) = (String::new(), String::new(), String::new());
@@ -167,7 +167,7 @@ impl Progress for Recorded {
 /// the plugin says, an item standing for several as that many (up to 10,000) and every other
 /// event once; steps (the plugin's own names) and events from a newer plugin are left out.
 #[hegel::test(test_cases = 100)]
-fn a_plugins_progress_reaches_the_caller_as_it_says(tc: TestCase) {
+fn prop_a_plugins_progress_reaches_the_caller_as_it_says(tc: TestCase) {
     let (recorded, mut expected) = (Recorded::default(), Vec::new());
     let ctx = Ctx::new(&recorded, CancelToken::new());
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(5)) {

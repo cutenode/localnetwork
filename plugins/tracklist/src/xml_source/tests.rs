@@ -250,7 +250,7 @@ fn sizes() -> impl hegel::PrintableGenerator<usize> {
 /// with a file once, in order, each grid in order and before the track's end, and the
 /// playlists once; every page holds at most PER_PAGE tracks (and [`pages`] checks the cursors only go up).
 #[hegel::test(test_cases = 50)]
-fn any_collection_pages_through_each_track_once(tc: TestCase) {
+fn prop_any_collection_pages_through_each_track_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut tracks = Vec::new();
     // Each track with a file: its file and its length in ms (0 for none).

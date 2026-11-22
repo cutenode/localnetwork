@@ -33,7 +33,7 @@ fn listed(m: &Mock, key: &str) -> usize {
 }
 
 /// Automatically Restore Access as it's set before signing in again in
-/// [`signing_in_again_restores_as_asked_or_set`].
+/// [`prop_signing_in_again_restores_as_asked_or_set`].
 #[derive(Debug, Clone, Copy)]
 enum Auto {
     Unset,
@@ -57,7 +57,7 @@ enum Auto {
 #[hegel::explicit_test_case(write = true, auto = Auto::OwnOff, flag = None::<&str>, for_echo = false, json = true)]
 #[hegel::explicit_test_case(write = true, auto = Auto::AllOn, flag = Some("--reset"), for_echo = false, json = false)]
 #[hegel::explicit_test_case(write = true, auto = Auto::Unset, flag = Some("--restore"), for_echo = false, json = false)]
-fn signing_in_again_restores_as_asked_or_set(tc: TestCase) {
+fn prop_signing_in_again_restores_as_asked_or_set(tc: TestCase) {
     let write = tc.draw(gs::booleans());
     let auto = tc.draw(gs::sampled_from(vec![Auto::Unset, Auto::AllOn, Auto::OwnOn, Auto::OwnOff]));
     let flag = tc.draw(gs::sampled_from(vec![None, Some("--restore"), Some("--reset")]));
@@ -154,7 +154,7 @@ fn restoring_waits_for_the_account_to_be_signed_in() {
 /// another account staying as it was; signing in again with `--restore` makes it the default
 /// again unless echo was given another default since.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn signing_out_of_the_default_leaves_no_default(tc: TestCase) {
+fn prop_signing_out_of_the_default_leaves_no_default(tc: TestCase) {
     let made_default = tc.draw(gs::booleans());
     let m = Mock::new();
     assert_eq!(m.sign_in("a", &["--for", "echo"]).0, 0);
@@ -179,7 +179,7 @@ fn signing_out_of_the_default_leaves_no_default(tc: TestCase) {
     assert_eq!(out, format!("mock: Tests\n  b@mock.example{b} · read\n  a@mock.example{a} · read\n"));
 }
 
-/// How [`in_a_terminal_signing_in_again_asks_what_to_give_back`] answers "Give it back?".
+/// How [`prop_in_a_terminal_signing_in_again_asks_what_to_give_back`] answers "Give it back?".
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy)]
 enum Answer {
@@ -201,7 +201,7 @@ enum Answer {
 #[hegel::explicit_test_case(answer = Answer::Restore)]
 #[hegel::explicit_test_case(answer = Answer::Choose { echo: true, write: false })]
 #[hegel::explicit_test_case(answer = Answer::Reset)]
-fn in_a_terminal_signing_in_again_asks_what_to_give_back(tc: TestCase) {
+fn prop_in_a_terminal_signing_in_again_asks_what_to_give_back(tc: TestCase) {
     let answer = tc.draw(gs::sampled_from(vec![
         Answer::Restore,
         Answer::Choose { echo: true, write: true },

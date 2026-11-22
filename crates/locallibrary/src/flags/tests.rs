@@ -104,7 +104,7 @@ fn a_build_without_the_account_has_every_flag_off() {
 
 #[hegel::test(test_cases = 200)]
 #[hegel::explicit_test_case(key = "parityCanary".to_string(), did = "did:plc:z72i7hdynmk6r22z27h6tvur".to_string())]
-fn a_bucket_is_under_100(tc: TestCase) {
+fn prop_a_bucket_is_under_100(tc: TestCase) {
     let key = tc.draw(gs::text());
     let did = tc.draw(gs::text());
     assert!(bucket(&key, &did) < 100);
@@ -112,7 +112,7 @@ fn a_bucket_is_under_100(tc: TestCase) {
 
 /// Raising a percentage only adds accounts: 0 is nobody and 100 everybody.
 #[hegel::test(test_cases = 200)]
-fn raising_a_percentage_only_adds_accounts(tc: TestCase) {
+fn prop_raising_a_percentage_only_adds_accounts(tc: TestCase) {
     let key = tc.draw(gs::text());
     let did = tc.draw(gs::text());
     let low = tc.draw(gs::integers::<u32>().max_value(100));
@@ -126,7 +126,7 @@ fn raising_a_percentage_only_adds_accounts(tc: TestCase) {
 /// Signed out there's no DID: a percentage can't apply and nothing cached can target anyone, so
 /// only a flag on for everyone is on, as on the website.
 #[hegel::test(test_cases = 100)]
-fn signed_out_only_flags_on_for_everyone_are_on(tc: TestCase) {
+fn prop_signed_out_only_flags_on_for_everyone_are_on(tc: TestCase) {
     let now = Utc::now();
     let gates = Gates {
         enabled: tc.draw(gs::booleans()),
@@ -143,7 +143,7 @@ fn signed_out_only_flags_on_for_everyone_are_on(tc: TestCase) {
 /// A flag staff turned off is off for everyone, whoever it targets or however far it's rolled out,
 /// and turning it back on brings back exactly what it was.
 #[hegel::test(test_cases = 200)]
-fn a_flag_turned_off_is_off_for_everyone(tc: TestCase) {
+fn prop_a_flag_turned_off_is_off_for_everyone(tc: TestCase) {
     let now = Utc::now();
     let on = Gates {
         enabled: true,
@@ -177,7 +177,7 @@ fn no_word_on_enabled_is_enabled() {
 #[hegel::explicit_test_case(minutes = 60i64, attempted = 15i64)]
 #[hegel::explicit_test_case(minutes = 20160i64, attempted = 0i64)]
 #[hegel::explicit_test_case(minutes = 20161i64, attempted = 0i64)]
-fn an_answer_ages_as_the_design_says(tc: TestCase) {
+fn prop_an_answer_ages_as_the_design_says(tc: TestCase) {
     let now = Utc::now();
     let minutes = tc.draw(gs::integers::<i64>().min_value(0).max_value(40_000));
     let attempted = tc.draw(gs::integers::<i64>().min_value(0).max_value(40));
@@ -196,7 +196,7 @@ fn an_answer_ages_as_the_design_says(tc: TestCase) {
 
 /// `targeted` only counts for the account it was said of; the public gates don't care who asks.
 #[hegel::test(test_cases = 100)]
-fn targeted_only_counts_for_who_it_was_said_of(tc: TestCase) {
+fn prop_targeted_only_counts_for_who_it_was_said_of(tc: TestCase) {
     let now = Utc::now();
     let gates = Gates { targeted: true, ..NOTHING_ON };
     let said_of = tc.draw(gs::optional(gs::sampled_from(vec!["did:plc:abc", "did:plc:other"])));

@@ -48,7 +48,7 @@ fn onelibrary_source(dir: &Path, name: &str, chain: &[String], history: &[String
 /// characters), a history list past 4,040, and a playlist the merge folder would put deeper than
 /// playlists nest.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn names_and_depths_the_target_cant_hold_are_refused_when_planning(tc: TestCase) {
+fn prop_names_and_depths_the_target_cant_hold_are_refused_when_planning(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let main = common::bigger_drive(dir.path(), "Main");
     let before = common::Before::take(&main);
@@ -155,7 +155,7 @@ fn guest(dir: &Path, outside: &str) -> PathBuf {
 /// tags beyond rekordbox's limits (the others carried, and none left on a reused id), the matched
 /// track's playlist entries in OneLibrary. No hot cue bank list comes: none holds a cue that does.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_merge_says_what_it_leaves_behind(tc: TestCase) {
+fn prop_a_merge_says_what_it_leaves_behind(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let outside = tc.draw(gs::sampled_from(vec!["/../escape.mp3", "/PIONEER/rekordbox/export.pdb"]));
     let src_root = guest(dir.path(), outside);
@@ -230,7 +230,7 @@ fn a_merge_says_what_it_leaves_behind(tc: TestCase) {
 /// drive with only OneLibrary takes the tracks with their image and tags. A merge whose files are
 /// bigger than the target holds is refused when applied, the target left alone.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase) {
+fn prop_a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // A guest whose artwork has no larger copy, with a history list, and a OneLibrary without
     // the table of its tracks' My Tags.

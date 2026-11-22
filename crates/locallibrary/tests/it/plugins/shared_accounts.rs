@@ -236,7 +236,7 @@ fn a_token_is_told_from_the_same_letters_in_a_random_word() {
     }
 }
 
-/// Who a step of [`an_account_is_kept_once_whoever_signs_in`] signs in as: by a string subject
+/// Who a step of [`prop_an_account_is_kept_once_whoever_signs_in`] signs in as: by a string subject
 /// and an email, or by an integer subject alone.
 const WHO: [(&str, Option<&str>); 2] = [("a", Some("a@mock.example")), ("42", None)];
 
@@ -247,7 +247,7 @@ fn person(i: usize) -> (String, Value, String) {
     (subject.into(), who(said, email), email.unwrap_or(subject).into())
 }
 
-/// A step of [`an_account_is_kept_once_whoever_signs_in`], naming people by their place in
+/// A step of [`prop_an_account_is_kept_once_whoever_signs_in`], naming people by their place in
 /// [`WHO`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
@@ -269,7 +269,7 @@ enum Step {
 /// any; signing in again as another says so and gives the plugin it was for no access to it; and
 /// no token gets into `accounts.json`, an error, a listing or a log.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
+fn prop_an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
     let m = mock(30);
     let people = 0..WHO.len();
     let each = people.clone().flat_map(|p| [Step::SignIn(p), Step::SignOut(p), Step::SessionEnds(p), Step::Refresh(p)]);
@@ -362,7 +362,7 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
 /// token lasts, or once each, when it expires again within the minute. The service's refresh
 /// tokens refresh once, so a token refreshed twice would sign the account out.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn refreshes_of_an_account_happen_one_at_a_time(tc: TestCase) {
+fn prop_refreshes_of_an_account_happen_one_at_a_time(tc: TestCase) {
     let hosts = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
     let lasting = tc.draw(gs::booleans());
     let m = mock(30);
@@ -522,7 +522,7 @@ fn a_whoami_that_doesnt_say_who_signs_nobody_in() {
     assert!(m.listed().is_empty());
 }
 
-/// Where [`whoever_whoami_says_signed_in_is_kept_or_nobody_is`] asks who signed in.
+/// Where [`prop_whoever_whoami_says_signed_in_is_kept_or_nobody_is`] asks who signed in.
 #[derive(Debug, Clone, Copy)]
 enum Whoami {
     /// The service's `/userinfo`.
@@ -547,7 +547,7 @@ enum Whoami {
 /// or integer subject, or none): the account kept is the one it says, named by its email or
 /// subject, or the sign-in fails saying why and nothing is kept.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
+fn prop_whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
     use Whoami::*;
     let at = tc.draw(gs::sampled_from(vec![Service, Moved, NotJson, Away, Around, Broken, Refusing]));
     let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));

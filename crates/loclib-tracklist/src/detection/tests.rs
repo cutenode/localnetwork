@@ -30,7 +30,7 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 /// or as a classic Mac OS `Disk:Folder:file` path; and every one of those looks like a path.
 /// URLs of other schemes aren't files.
 #[hegel::test(test_cases = 300)]
-fn file_paths_read_back_from_every_spelling(tc: TestCase) {
+fn prop_file_paths_read_back_from_every_spelling(tc: TestCase) {
     let segment = || gs::from_regex("[A-Za-z0-9é &'()_.-]{1,8}").fullmatch(true).filter(|s: &String| s.trim() == s);
     let dirs: Vec<String> = tc.draw(gs::vecs(segment()).max_size(3));
     let ext = tc.draw(gs::sampled_from(

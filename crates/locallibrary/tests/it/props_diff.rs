@@ -98,7 +98,7 @@ fn summary(d: &PlaylistDiff) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<St
 /// A library compared with itself, or with an export of it numbered differently, has no
 /// differences, and every playlist counts as unchanged.
 #[hegel::test(test_cases = 300)]
-fn a_library_equals_itself(tc: TestCase) {
+fn prop_a_library_equals_itself(tc: TestCase) {
     let a = tc.draw(library());
     let mut renumbered = a.clone();
     for t in &mut renumbered.tracks {
@@ -117,7 +117,7 @@ fn a_library_equals_itself(tc: TestCase) {
 
 /// Comparing the other way round swaps what was added and removed and finds the same changes.
 #[hegel::test(test_cases = 300)]
-fn swapping_sides_swaps_the_diff(tc: TestCase) {
+fn prop_swapping_sides_swaps_the_diff(tc: TestCase) {
     let (a, b) = (tc.draw(library()), tc.draw(library()));
     let (ab, ba) = (diff::between(&a, &b, ("a", "b"), None), diff::between(&b, &a, ("b", "a"), None));
     let (ab_added, ab_removed, ab_new, ab_changed, ab_same) = summary(&ab);
@@ -182,7 +182,7 @@ fn lis(v: &[usize]) -> usize {
 /// added, moved or stays, the entries that stay keep their order, and as few entries as possible
 /// count as moved.
 #[hegel::test(test_cases = 300)]
-fn entry_changes_account_for_every_entry(tc: TestCase) {
+fn prop_entry_changes_account_for_every_entry(tc: TestCase) {
     let (a, b) = (tc.draw(library()), tc.draw(library()));
     let d = diff::between(&a, &b, ("a", "b"), None);
     for c in &d.changed_playlists {
@@ -228,7 +228,7 @@ fn entry_changes_account_for_every_entry(tc: TestCase) {
 /// Diffing one playlist (or folder) reports a subset of the full diff, only below that path, and
 /// no collection-level changes.
 #[hegel::test(test_cases = 300)]
-fn playlist_filter_narrows_the_diff(tc: TestCase) {
+fn prop_playlist_filter_narrows_the_diff(tc: TestCase) {
     let (a, b) = (tc.draw(library()), tc.draw(library()));
     let filter = tc.draw(gs::sampled_from(vec!["Shows", "shows/", "Shows/2026", "Set", "nope"]));
     let all = diff::between(&a, &b, ("a", "b"), None);
@@ -253,7 +253,7 @@ fn playlist_filter_narrows_the_diff(tc: TestCase) {
 /// every playlist is still one playlist: comparing a library with itself counts each as
 /// unchanged, and emptying one of them shows as a change.
 #[hegel::test(test_cases = 100)]
-fn every_playlist_is_accounted_for(tc: TestCase) {
+fn prop_every_playlist_is_accounted_for(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let names = tc.draw(gs::vecs(gs::sampled_from(vec!["Set", "Shows", "Shows/Set"])).min_size(n).max_size(n));
     let mut lib = Library { tracks: vec![test_util::track(1, "", "", "/Contents/a.mp3")], ..Default::default() };

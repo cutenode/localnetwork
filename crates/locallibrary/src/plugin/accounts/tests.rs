@@ -7,7 +7,7 @@ use super::*;
 /// A token is refreshed before it's used once it expires within `REFRESH_BEFORE`, or has, and
 /// never when the service didn't say when it expires.
 #[hegel::test(test_cases = 100)]
-fn a_token_is_refreshed_once_it_expires_within_a_minute(tc: TestCase) {
+fn prop_a_token_is_refreshed_once_it_expires_within_a_minute(tc: TestCase) {
     let now = Utc::now();
     let left = tc.draw(gs::optional(gs::integers::<i64>().min_value(-86_400).max_value(86_400)));
     let kept = Tokens {
@@ -23,7 +23,7 @@ fn a_token_is_refreshed_once_it_expires_within_a_minute(tc: TestCase) {
 
 /// An account signing itself out is warned about within `WARN_DAYS` of it, or once it has.
 #[hegel::test(test_cases = 300)]
-fn an_account_is_due_soon_within_warn_days(tc: TestCase) {
+fn prop_an_account_is_due_soon_within_warn_days(tc: TestCase) {
     let day = 86_400;
     let offset = tc.draw(gs::integers::<i64>().min_value(-40 * day).max_value(40 * day));
     // Checked a moment after: far enough from the boundary not to cross it.
@@ -36,7 +36,7 @@ fn an_account_is_due_soon_within_warn_days(tc: TestCase) {
 /// when the answer says; a refresh token it leaves out is the one it had, running out when that
 /// did, and a new one runs out only when the answer says.
 #[hegel::test(test_cases = 200)]
-fn tokens_last_as_the_service_says(tc: TestCase) {
+fn prop_tokens_last_as_the_service_says(tc: TestCase) {
     let lasting = || tc.draw(gs::optional(gs::integers::<u64>().min_value(60).max_value(400 * 86_400)));
     let (expires_in, refresh_lasts) = (lasting(), lasting());
     let refresh = tc.draw(gs::booleans());

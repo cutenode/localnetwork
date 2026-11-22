@@ -37,7 +37,7 @@ const MODELS: &[&str] = &["CDJ-3000X", "cdj-2000nxs2", " XDJ-AZ ", "CDJ-3000", "
 /// it, a plan says when it changes nothing, and naming no model, an unknown one or a library the
 /// store lacks is refused with the models as they were.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn remembered_players_follow_a_model(tc: TestCase) {
+fn prop_remembered_players_follow_a_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let libraries: Vec<(Uuid, String)> =
@@ -177,7 +177,7 @@ fn stats_model(lib: &Library, limit: usize) -> StatsModel {
 /// (by id, or by a date after it) is the history lists recorded since; the history archive is
 /// `plays`' for the library however it's named.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn diffs_and_play_statistics_agree_with_the_libraries(tc: TestCase) {
+fn prop_diffs_and_play_statistics_agree_with_the_libraries(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -353,7 +353,7 @@ fn diffs_and_play_statistics_agree_with_the_libraries(tc: TestCase) {
 /// report is `doctor`'s, and cleaning orphans deletes exactly the files planted where nothing
 /// uses them.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn outputs_write_what_they_say(tc: TestCase) {
+fn prop_outputs_write_what_they_say(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = common::bigger_drive(dir.path(), "Main");
@@ -472,7 +472,7 @@ fn outputs_write_what_they_say(tc: TestCase) {
 /// Checking drives before a set is `check`'s report for the same drives; no drives, or a drive
 /// named twice, is refused.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn checks_agree_with_check(tc: TestCase) {
+fn prop_checks_agree_with_check(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let a = common::demo_drive(dir.path(), "A");
@@ -505,7 +505,7 @@ fn checks_agree_with_check(tc: TestCase) {
 /// a report that isn't kept is refused. One that can't be kept is answered with a warning, and
 /// one not asked to be kept with none.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn mix_reports_are_kept_once_per_save(tc: TestCase) {
+fn prop_mix_reports_are_kept_once_per_save(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     common::isolate(dir.path(), None);
@@ -609,7 +609,7 @@ fn round_trip<T: serde::Serialize + serde::de::DeserializeOwned>(value: &T) -> s
 /// The sidecar's requests and results read back as they were written, ids passed through as
 /// they came, and old names (`sync_set`) and missing fields read as documented.
 #[hegel::test(test_cases = 200)]
-fn sidecar_messages_round_trip(tc: TestCase) {
+fn prop_sidecar_messages_round_trip(tc: TestCase) {
     let id = id_value(&tc);
     let text = || tc.draw(gs::text().max_size(10));
     let flag = || tc.draw(gs::booleans());
@@ -706,7 +706,7 @@ fn credit(truth: &str, stored: &str) -> f64 {
 /// score their mean, over the annotated tracks on the drive; annotations of tracks the drive
 /// lacks are counted unmatched.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn stored_keys_are_scored_as_mirex_scores_them(tc: TestCase) {
+fn prop_stored_keys_are_scored_as_mirex_scores_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = common::blank(dir.path(), "GIANTSTEPS");

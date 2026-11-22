@@ -161,7 +161,7 @@ fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
 /// goes with the album). An edit naming a track that isn't there, or a colour that isn't one,
 /// is refused before anything changes.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn edited_track_details_read_back(tc: TestCase) {
+fn prop_edited_track_details_read_back(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let (mut one, mut model) = with_tracks(&tc, count);
     assert!(orphans(&one).is_empty());
@@ -202,7 +202,7 @@ fn probes(nodes: &Nodes, names: &[&str]) -> IndexSet<(u32, String)> {
 /// it's removed. Moving, renaming or removing a node that isn't there is refused, and a removal
 /// naming one removes none.
 #[hegel::test(test_cases = 60)]
-fn nodes_are_found_by_parent_and_name(tc: TestCase) {
+fn prop_nodes_are_found_by_parent_and_name(tc: TestCase) {
     const NAMES: [&str; 4] = ["Set", "Warm up", "", "Ünï"];
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let tree = tc.draw(gs::sampled_from(&[Tree::Playlist, Tree::History]));
@@ -311,7 +311,7 @@ fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
 /// the target has are reused, the rest made once, so the target ends up with exactly the tag
 /// names of both and no name twice.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn tracks_copied_between_databases_keep_details_cues_and_tags(tc: TestCase) {
+fn prop_tracks_copied_between_databases_keep_details_cues_and_tags(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let (mut src, tracks) = with_tracks(&tc, count);
     let mut next = 0;
@@ -366,7 +366,7 @@ fn quoted(name: &str) -> String {
 /// and nothing changes; a table whose columns name neither doesn't stand in the way. Keeping
 /// every cue removes nothing, so it is never refused.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
+fn prop_removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
     let (mut one, tracks) = with_tracks(&tc, 2);
     let ids: Vec<u32> = tracks.keys().copied().collect();
     let rows = [CueRow { in_usec: 1_000, ..Default::default() }, CueRow { in_usec: 2_000, ..Default::default() }];
@@ -407,7 +407,7 @@ fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
 /// away (here a folder in its place) stops the write before the database is replaced, and
 /// reading the drive reports it.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
+fn prop_written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // As the drive sees itself (temporary folders can sit behind a symlink).
     let root = locallibrary::device::dunce_canonicalize(dir.path()).join("drive");

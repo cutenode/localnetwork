@@ -228,7 +228,7 @@ const NAMED: [(&str, Option<&str>); 13] = [
 #[hegel::explicit_test_case(named = vec![1usize, 2, 6, 11], extra = 0usize)]
 #[hegel::explicit_test_case(named = vec![7usize, 8, 3, 12], extra = 0usize)]
 #[hegel::explicit_test_case(named = vec![9usize], extra = 0usize)]
-fn a_schema_lacking_what_is_needed_is_reported(tc: TestCase) {
+fn prop_a_schema_lacking_what_is_needed_is_reported(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let named: Vec<usize> =
         tc.draw(gs::vecs(gs::integers::<usize>().max_value(NAMED.len() - 1)).unique(true).max_size(4));
@@ -313,7 +313,7 @@ fn tables(one: &OneLibrary) -> Vec<String> {
 /// differs from the intact database's and survives re-encryption, while opening it is refused
 /// as damaged (or malformed, when the damage is in the schema table).
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn damaged_databases_hash_but_never_open(tc: TestCase) {
+fn prop_damaged_databases_hash_but_never_open(tc: TestCase) {
     let intact = rich_library();
     let one = OneLibrary::from_encrypted(intact, None).unwrap();
     let table = tc.draw(gs::sampled_from(tables(&one)));
@@ -331,7 +331,7 @@ fn damaged_databases_hash_but_never_open(tc: TestCase) {
 /// change counter bumped so SQLite rereads the file) is never encrypted: the check before saving
 /// finds it. An undamaged copy saves.
 #[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_damaged_working_copy_is_never_saved(tc: TestCase) {
+fn prop_a_damaged_working_copy_is_never_saved(tc: TestCase) {
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let path = one.connection().path().unwrap().to_string();
     let shown = format!("{one:?}");
@@ -364,7 +364,7 @@ fn a_damaged_working_copy_is_never_saved(tc: TestCase) {
 /// are, so renaming the drive changes the hash. Re-encrypting never does, with the table or
 /// without it.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
+fn prop_a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     // Without the table every page is hashed as it is, and still not its IVs.
     let none = tc.draw(gs::weighted_booleans(0.2));
@@ -405,7 +405,7 @@ fn a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
 /// another row, lies past that (or below 0) is refused with an error naming it, not wrapped
 /// round. A reference that isn't positive (artwork, a parent) means there is none.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn ids_players_cant_number_are_refused(tc: TestCase) {
+fn prop_ids_players_cant_number_are_refused(tc: TestCase) {
     let id = tc.draw(hegel::one_of!(
         gs::integers::<i64>().max_value(-1),
         gs::integers::<i64>().min_value(i64::from(u32::MAX) + 1)
@@ -478,7 +478,7 @@ fn loose_text(tc: &TestCase) -> (Value, String) {
 /// numbers stored as reals, padded text or anything else read as the number they hold (0 for
 /// none), and text stored as numbers reads as their digits.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn loosely_typed_values_read_as_their_columns_type(tc: TestCase) {
+fn prop_loosely_typed_values_read_as_their_columns_type(tc: TestCase) {
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let numbers = [("bpmx100", 30_000), ("length", 4_000), ("trackNo", 99), ("rating", 5), ("djPlayCount", 900)];
     let texts = ["title", "djComment", "isrc"];

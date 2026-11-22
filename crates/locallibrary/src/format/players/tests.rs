@@ -85,7 +85,7 @@ const SCHEMES: [Option<Scheme>; 5] =
 /// the rest are named); without a partition table it's unknown. Only a readable layout
 /// warns about size past 2 TiB.
 #[hegel::test(test_cases = 300)]
-fn every_layout_gets_its_verdict(tc: TestCase) {
+fn prop_every_layout_gets_its_verdict(tc: TestCase) {
     let scheme = tc.draw(gs::sampled_from(SCHEMES.to_vec()));
     let all = crate::format::tests::FS_KINDS.map(Some);
     let fs = tc.draw(gs::sampled_from([&[None][..], &all[..]].concat()));
@@ -117,7 +117,7 @@ fn every_layout_gets_its_verdict(tc: TestCase) {
 /// case-sensitive HFS+, with a note naming it when there are others; a disk without
 /// partitions works on none.
 #[hegel::test(test_cases = 300)]
-fn disks_are_judged_by_their_first_partition(tc: TestCase) {
+fn prop_disks_are_judged_by_their_first_partition(tc: TestCase) {
     let disk = crate::format::tests::any_disk(&tc);
     let c = assess_disk(&disk);
     let Some(first) = disk.volumes.first() else {
@@ -138,7 +138,7 @@ fn disks_are_judged_by_their_first_partition(tc: TestCase) {
 /// An HFS+ first partition is doubted exactly when its file system is the case-sensitive kind,
 /// however the system spells that, and the doubt says why; any other one keeps its verdict.
 #[hegel::test(test_cases = 100)]
-fn case_sensitive_hfs_is_doubted_in_any_spelling(tc: TestCase) {
+fn prop_case_sensitive_hfs_is_doubted_in_any_spelling(tc: TestCase) {
     let mut disk = crate::format::tests::sample_disk();
     let sensitive = tc.draw(gs::booleans());
     let name = if sensitive {

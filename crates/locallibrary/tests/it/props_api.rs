@@ -561,7 +561,7 @@ impl StoreApiMachine {
 }
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_store_s_libraries_snapshots_and_labels_match_the_model(tc: TestCase) {
+fn prop_the_store_s_libraries_snapshots_and_labels_match_the_model(tc: TestCase) {
     hegel::stateful::machine(StoreApiMachine::new(&demo_pdb())).steps(15).run(tc);
 }
 
@@ -746,7 +746,7 @@ impl UndoMachine {
 }
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn undo_steps_back_through_the_changes_made(tc: TestCase) {
+fn prop_undo_steps_back_through_the_changes_made(tc: TestCase) {
     hegel::stateful::machine(UndoMachine::new()).steps(7).run(tc);
 }
 
@@ -755,7 +755,7 @@ fn undo_steps_back_through_the_changes_made(tc: TestCase) {
 /// drive, or a database it has, needs forcing (the second is put back); a backup that isn't
 /// there isn't found.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_undo_naming_no_drive_needs_one_with_backups(tc: TestCase) {
+fn prop_an_undo_naming_no_drive_needs_one_with_backups(tc: TestCase) {
     let m = UndoMachine::new();
     let vols = m.root.parent().unwrap().to_path_buf();
     let none = api::undo_plan(&api::UndoRequest::default()).unwrap_err();
@@ -1229,11 +1229,11 @@ impl SyncMachine {
 }
 
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn syncs_pulls_and_pushes_go_the_way_the_states_say(tc: TestCase) {
+fn prop_syncs_pulls_and_pushes_go_the_way_the_states_say(tc: TestCase) {
     hegel::stateful::machine(SyncMachine::new()).steps(8).run(tc);
 }
 
-/// The examples hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say` make their
+/// The examples hegel found for `prop_syncs_pulls_and_pushes_go_the_way_the_states_say` make their
 /// edits by hand: drive `i` takes `edit`.
 fn edit_drive(m: &SyncMachine, i: usize, edit: Edit) {
     let req = api::EditRequest { drive: path(&m.roots[i]), edits: vec![edit], options: EditOptions::default() };
@@ -1253,7 +1253,7 @@ fn pull_home(m: &SyncMachine, i: usize, new_library: bool) -> locallibrary::Resu
     api::pull(&m.store, &req, &Ctx::silent())
 }
 
-/// The first example hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say`: a track
+/// The first example hegel found for `prop_syncs_pulls_and_pushes_go_the_way_the_states_say`: a track
 /// rated on Main, synced onto Backup, then rated back. Main is back to a state Backup's lineage
 /// holds from before the sync, but only Main moved on since, so it's the newer. Once rekordbox
 /// exports to Backup too, both moved on: they diverged, and Backup isn't pulled on top of Main's.
@@ -1357,7 +1357,7 @@ struct Mounted {
 /// (blank volumes only when asked), described as they are, and adopted under the name asked
 /// for, which then finds them.
 #[hegel::test(test_cases = 10)]
-fn drives_are_found_by_path_name_and_id(tc: TestCase) {
+fn prop_drives_are_found_by_path_name_and_id(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let vols = common::isolate(dir.path(), None);
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -1527,7 +1527,7 @@ fn with_playlists(dir: &Path) -> PathBuf {
 /// Restoring needs a playlist, one source at most, the store for a snapshot, and something
 /// to restore from; what isn't there isn't found.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_playlist_comes_back_with_the_entries_it_had(tc: TestCase) {
+fn prop_a_playlist_comes_back_with_the_entries_it_had(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = with_playlists(dir.path());
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -1655,7 +1655,7 @@ fn a_playlist_comes_back_with_the_entries_it_had(tc: TestCase) {
 /// leaves none (planned first, and a no-op once written), and a dry run writes nothing.
 /// Importing a drive's settings makes them the base. Unknown settings are refused.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
+fn prop_the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let vols = common::isolate(dir.path(), None);
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -1793,7 +1793,7 @@ fn json_of<T: Serialize>(v: &T) -> Value {
 /// convert, merge, missing and automatic artwork and its tracks' art. Applying a merge leaves
 /// nothing more to do; a conversion leaves the drive with the database it was for.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
+fn prop_reads_and_plans_agree_with_the_modules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let vols = common::isolate(dir.path(), None);
     let ctx = Ctx::silent();
@@ -1885,7 +1885,7 @@ fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
 /// this computer goes in only those it can (not missing ones, folders or files on an export),
 /// and taking it back out gives each unchanged file its bytes back.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
+fn prop_art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -2034,7 +2034,7 @@ fn request_agrees<T: serde::de::DeserializeOwned + JsonSchema>(tc: &TestCase) {
 
 /// The service layer's requests, as front ends send them, agree with their schemas.
 #[hegel::test(test_cases = 300)]
-fn requests_are_taken_as_their_schemas_describe(tc: TestCase) {
+fn prop_requests_are_taken_as_their_schemas_describe(tc: TestCase) {
     let checks: &[fn(&TestCase)] = &[
         request_agrees::<api::SyncRequest>,
         request_agrees::<api::SyncManyRequest>,

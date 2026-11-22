@@ -22,7 +22,7 @@ fn folded(keys: impl IntoIterator<Item = String>) -> BTreeSet<String> {
 }
 
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_doctor_finds_exactly_what_was_broken(tc: TestCase) {
+fn prop_the_doctor_finds_exactly_what_was_broken(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
 

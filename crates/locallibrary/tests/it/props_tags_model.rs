@@ -170,7 +170,7 @@ fn draw_edit(tc: &TestCase, m: &Model, tracks: &[u32]) -> Edit {
 }
 
 #[hegel::test(test_cases = 16, suppress_health_check = [HealthCheck::TooSlow])]
-fn tag_edits_on_a_drive_match_the_model(tc: TestCase) {
+fn prop_tag_edits_on_a_drive_match_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     // At times a category already holding as many tags as rekordbox allows.
@@ -277,7 +277,7 @@ fn tag_edits_on_a_drive_match_the_model(tc: TestCase) {
 /// OneLibrary's alone: every read says exportExt.pdb is left alone, edits match the model with
 /// OneLibrary's limits, and exportExt.pdb keeps its bytes whatever is edited.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn exportext_without_export_pdb_is_left_alone_whatever_is_edited(tc: TestCase) {
+fn prop_exportext_without_export_pdb_is_left_alone_whatever_is_edited(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);

@@ -106,7 +106,7 @@ fn the_access_form_says_what_for_and_makes_the_account_chosen_the_default() {
 /// For any accounts the store keeps and any one chosen in echo's access form (from the one it
 /// starts on, echo's default or the first), that one becomes echo's default.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn whichever_account_is_chosen_becomes_echos_default(tc: TestCase) {
+fn prop_whichever_account_is_chosen_becomes_echos_default(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     let all = ["a", "b", "c"];
@@ -133,7 +133,7 @@ fn whichever_account_is_chosen_becomes_echos_default(tc: TestCase) {
 /// keeping what was kept; and the store keeps the account exactly when it was kept since it was
 /// last signed out of.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: TestCase) {
+fn prop_signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     let mut signed_in = false;
@@ -172,7 +172,7 @@ fn signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: 
 /// hours (as its access token expires, or its refresh token runs out) or never: the player warns
 /// of it as it starts exactly when that's within `WARN_DAYS`, saying where to sign in again.
 #[hegel::test(test_cases = 20)]
-fn the_player_warns_of_an_account_signing_itself_out_soon(tc: TestCase) {
+fn prop_the_player_warns_of_an_account_signing_itself_out_soon(tc: TestCase) {
     let (mut app, _store) = blank(Screen::Library);
     plugins_once();
     let refreshes = tc.draw(gs::booleans());
@@ -224,7 +224,7 @@ fn wanting(sign_in: bool) -> AccessQuestion {
 /// again to), "don't allow" doesn't, and esc leaves it unanswered; a sign-in it takes opens the
 /// browser, or says where to go when it can't.
 #[hegel::test(test_cases = 8)]
-fn a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
+fn prop_a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
     let (mut app, _store) = blank(Screen::Library);
     let ask = app.plugin_asker();
     let sign_in = tc.draw(gs::booleans());
@@ -325,7 +325,7 @@ fn a_keys_sign_in_is_typed_unseen_and_kept() {
 /// account's name only when the sign-in asks for it: entered, they go back by key; closed,
 /// nothing does.
 #[hegel::test(test_cases = 6)]
-fn the_player_takes_keys_in_the_form(tc: TestCase) {
+fn prop_the_player_takes_keys_in_the_form(tc: TestCase) {
     keys_accounts();
     let (mut app, _store) = blank(Screen::Library);
     let named = tc.draw(gs::booleans());
@@ -376,7 +376,7 @@ fn still_remembered(app: &App) -> Vec<(String, String)> {
     all.remembered.into_iter().map(|a| (a.plugin, a.account.subject)).collect()
 }
 
-/// What to do in the restore form, in [`the_restore_form_does_what_its_picked_to`].
+/// What to do in the restore form, in [`prop_the_restore_form_does_what_its_picked_to`].
 #[derive(Debug, Clone, Copy)]
 enum Picking {
     Restore,
@@ -394,7 +394,7 @@ enum Picking {
 /// with the scopes typed, or with none typed forgets it; Reset forgets it; closed, it stays
 /// remembered and echo has none.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_restore_form_does_what_its_picked_to(tc: TestCase) {
+fn prop_the_restore_form_does_what_its_picked_to(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     kept(&app, &["a"]);

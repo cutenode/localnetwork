@@ -38,7 +38,7 @@ fn exiting_at_once_waits_for_the_swap_and_holds_off_the_next() {
 /// However many swaps are under way, an exit at once returns only once every one has finished,
 /// and says it's finishing them only when there are some.
 #[hegel::test(test_cases = 20)]
-fn an_exit_at_once_returns_once_every_swap_has_finished(tc: hegel::TestCase) {
+fn prop_an_exit_at_once_returns_once_every_swap_has_finished(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
@@ -84,7 +84,7 @@ fn an_exit_at_once_returns_once_every_swap_has_finished(tc: hegel::TestCase) {
 /// swap under way finishes, and even after an exit before it panicked holding it. A swap asked
 /// for meanwhile starts only once the exit lets go.
 #[hegel::test(test_cases = 10)]
-fn an_exit_at_once_holds_off_the_next_swap(tc: hegel::TestCase) {
+fn prop_an_exit_at_once_holds_off_the_next_swap(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;

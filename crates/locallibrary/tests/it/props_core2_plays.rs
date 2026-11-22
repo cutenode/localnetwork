@@ -15,7 +15,7 @@ use locallibrary::plays;
 use locallibrary::progress::Ctx;
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
+fn prop_history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
     common::onelibrary_only(&root);

@@ -374,7 +374,7 @@ const FILESYSTEMS: [(&str, &str, FsKind); 9] = [
 /// `info` of each partition and APFS container) with the spellings the tools vary between,
 /// reads back as that disk, field for field.
 #[hegel::test(test_cases = 300)]
-fn diskutil_listings_read_back(tc: TestCase) {
+fn prop_diskutil_listings_read_back(tc: TestCase) {
     let n = tc.draw(gs::integers::<u8>().max_value(40));
     let id = format!("disk{n}");
     // Products can be named "... Media" too.
@@ -514,7 +514,7 @@ fn diskutil_listings_read_back(tc: TestCase) {
 
 /// A file system written straight onto a disk without a partition table is its one volume.
 #[hegel::test(test_cases = 100)]
-fn a_disk_without_partitions_is_its_own_volume(tc: TestCase) {
+fn prop_a_disk_without_partitions_is_its_own_volume(tc: TestCase) {
     let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
     let (size, label) = (tc.draw(gs::integers::<u64>()), word(&tc));
     let content = tc.draw(gs::sampled_from(vec!["DOS_FAT_32", "Apple_HFS"]));
@@ -599,7 +599,7 @@ fn all_devices<'a>(d: &'a UsbDevice, out: &mut Vec<&'a UsbDevice>) {
 /// nor of another disk whose number starts the same), for the disk and its partitions; a disk
 /// on no USB device, or on one without a serial number, has none.
 #[hegel::test(test_cases = 300)]
-fn usb_serial_numbers_come_from_the_disks_own_device(tc: TestCase) {
+fn prop_usb_serial_numbers_come_from_the_disks_own_device(tc: TestCase) {
     let mut next = 0u32;
     let roots: Vec<UsbDevice> =
         (0..tc.draw(gs::integers::<usize>().max_value(3))).map(|_| usb_device(&tc, 0, &mut next)).collect();
@@ -627,7 +627,7 @@ fn usb_serial_numbers_come_from_the_disks_own_device(tc: TestCase) {
 /// A partition's whole disk is its name up to the slice, and only names shaped like a disk are
 /// asked of diskutil.
 #[hegel::test(test_cases = 200)]
-fn partitions_name_their_disk(tc: TestCase) {
+fn prop_partitions_name_their_disk(tc: TestCase) {
     let (n, s) = (tc.draw(gs::integers::<u32>()), tc.draw(gs::integers::<u32>()));
     assert_eq!(whole_of(&format!("disk{n}s{s}")), format!("disk{n}"));
     assert_eq!(whole_of(&format!("disk{n}")), format!("disk{n}"));
@@ -638,7 +638,7 @@ fn partitions_name_their_disk(tc: TestCase) {
 /// Erasing is one `eraseDisk` with the file system, label and MBR; a chosen cluster size makes
 /// the file system again in the new partition, unmounted, with that size.
 #[hegel::test(test_cases = 200)]
-fn erase_commands_follow_the_target(tc: TestCase) {
+fn prop_erase_commands_follow_the_target(tc: TestCase) {
     let (info, listing, parts) = usb_drive();
     let disk = parse_disk(&info, &listing, &parts, &[]);
     let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
@@ -668,7 +668,7 @@ fn erase_commands_follow_the_target(tc: TestCase) {
 /// without a `Content`, and for a name diskutil uses for no scheme, another scheme only when it
 /// has a partition table to show for it.
 #[hegel::test(test_cases = 200)]
-fn partition_schemes_follow_the_disks_content(tc: TestCase) {
+fn prop_partition_schemes_follow_the_disks_content(tc: TestCase) {
     let content = tc.draw(gs::sampled_from(vec![
         (None, None),
         (Some("FDisk_partition_scheme"), Some(Scheme::Mbr)),
@@ -849,7 +849,7 @@ fn root_volume(store: &str) -> String {
 /// and `list`. A listed disk diskutil then can't describe fails the listing, in its own words.
 #[cfg(unix)]
 #[hegel::test(test_cases = 15)]
-fn the_disks_listed_are_the_ones_diskutil_describes(tc: TestCase) {
+fn prop_the_disks_listed_are_the_ones_diskutil_describes(tc: TestCase) {
     let numbers: Vec<u32> =
         tc.draw(gs::vecs(gs::integers::<u32>().min_value(2).max_value(40)).max_size(2).unique(true));
     let disks: Vec<Described> = numbers.iter().map(|&n| described(&tc, n)).collect();
@@ -928,7 +928,7 @@ fn the_disks_listed_are_the_ones_diskutil_describes(tc: TestCase) {
 /// mounted volume.
 #[cfg(unix)]
 #[hegel::test(test_cases = 30)]
-fn every_name_of_a_disk_finds_that_disk(tc: TestCase) {
+fn prop_every_name_of_a_disk_finds_that_disk(tc: TestCase) {
     let d = described(&tc, tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
     let mut fake = FakeTools::new();
     fake.echo("plutil", &PLUTIL);
@@ -974,7 +974,7 @@ fn every_name_of_a_disk_finds_that_disk(tc: TestCase) {
 /// come back, and the disk is asked nothing more.
 #[cfg(unix)]
 #[hegel::test(test_cases = 20)]
-fn formatting_erases_then_finds_the_new_volume(tc: TestCase) {
+fn prop_formatting_erases_then_finds_the_new_volume(tc: TestCase) {
     let d = described(&tc, tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
     let disk = d.disk(&[], false);
     let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
@@ -1022,7 +1022,7 @@ fn formatting_erases_then_finds_the_new_volume(tc: TestCase) {
 /// identity on the new volume.
 #[cfg(target_os = "macos")]
 #[hegel::test(test_cases = 15)]
-fn a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
+fn prop_a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
     use crate::device::Device;
     use crate::format::{FormatOptions, apply, plan};
     let mut fake = FakeTools::new();

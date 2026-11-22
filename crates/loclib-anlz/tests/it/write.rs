@@ -139,7 +139,7 @@ fn grid(tc: &TestCase) -> Vec<Beat> {
 /// A grid written reads back as given, as rekordcrate reads it too, and nothing else in the file
 /// changes; written again it stays as it is.
 #[hegel::test(test_cases = 200)]
-fn beat_grids_read_back_as_written(tc: TestCase) {
+fn prop_beat_grids_read_back_as_written(tc: TestCase) {
     let dat = base(&tc, false);
     let beats = grid(&tc);
     let out = anlz::write_beat_grid(&dat, &beats).unwrap();
@@ -174,7 +174,7 @@ fn grids_that_cant_be_stored_are_refused() {
 /// every other beat from the first that's 1 or 3 of its bar, at half the tempo, and each new
 /// downbeat was one. Halving a doubled grid that starts on beat 1 or 2 gives it back.
 #[hegel::test(test_cases = 200)]
-fn grids_double_and_halve(tc: TestCase) {
+fn prop_grids_double_and_halve(tc: TestCase) {
     let shift = tc.draw(gs::integers::<u16>().max_value(3));
     let beats: Vec<Beat> =
         grid(&tc).into_iter().map(|b| Beat { beat_number: (b.beat_number - 1 + shift) % 4 + 1, ..b }).collect();
@@ -255,7 +255,7 @@ fn structure(tc: &TestCase) -> SongStructure {
 /// writes them) unless that would read as unmasked, framed as rekordcrate expects, and nothing
 /// else changes; written again they stay; taken out, the file is as it was without them.
 #[hegel::test(test_cases = 200)]
-fn phrases_read_back_as_written(tc: TestCase) {
+fn prop_phrases_read_back_as_written(tc: TestCase) {
     let ext = base(&tc, true);
     let s = structure(&tc);
     let out = anlz::write_song_structure(&ext, Some(&s)).unwrap();
@@ -346,7 +346,7 @@ fn columns(tc: &TestCase, size: usize) -> Vec<u8> {
 /// Any tag's columns written read back as given, framed as rekordcrate expects (each count is
 /// its length), and nothing else changes; written again they stay as they are.
 #[hegel::test(test_cases = 200)]
-fn waveforms_read_back_as_written(tc: TestCase) {
+fn prop_waveforms_read_back_as_written(tc: TestCase) {
     let tag = *tc.draw(gs::sampled_from(anlz::waveform_tags().collect::<Vec<_>>()));
     let size = column_size(&tag);
     let file = base(&tc, tc.draw(gs::booleans()));
@@ -374,7 +374,7 @@ fn bands(tc: &TestCase) -> Bands {
 /// shares, 3-band heights from each band. Written and read for drawing, the 3-band ones give
 /// the bands back (to their precision).
 #[hegel::test(test_cases = 100)]
-fn waveforms_are_worked_out_from_bands(tc: TestCase) {
+fn prop_waveforms_are_worked_out_from_bands(tc: TestCase) {
     let b = bands(&tc);
     assert_eq!(anlz::waveform_from_bands(b"PWV4", &b).unwrap(), None);
     let loudest = |c: &[u8; 3]| u32::from(c[0].max(c[1]).max(c[2]));
@@ -427,7 +427,7 @@ fn bands_go_to_the_detail_rate() {
 /// Bands at any rate are pooled to 150 columns a second, as long in time, up to a day of audio;
 /// slower ones, which would fill memory, are refused.
 #[hegel::test(test_cases = 200)]
-fn bands_over_a_day_are_refused(tc: TestCase) {
+fn prop_bands_over_a_day_are_refused(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(2_000));
     let rate = tc.draw(gs::floats::<f64>().min_value(f64::MIN_POSITIVE).max_value(1e6));
     let b = Bands(vec![[1, 2, 3]; n]);
@@ -449,7 +449,7 @@ fn bands_over_a_day_are_refused(tc: TestCase) {
 /// never a panic for a writer: each refuses it, or writes a file holding what it was given,
 /// whatever damage the other sections keep; nor for a reader.
 #[hegel::test(test_cases = 300)]
-fn writers_take_damaged_files_without_panicking(tc: TestCase) {
+fn prop_writers_take_damaged_files_without_panicking(tc: TestCase) {
     let ext = tc.draw(gs::booleans());
     let mut file = base(&tc, ext);
     let starts: Vec<usize> = {

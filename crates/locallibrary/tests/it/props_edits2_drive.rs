@@ -24,7 +24,7 @@ fn ids(ids: &[u32]) -> TrackSelector {
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(len = 12usize, album = Some(""), key = Some("8A"))]
 #[hegel::explicit_test_case(len = 5000usize, album = None::<&str>, key = None::<&str>)]
-fn names_export_pdb_can_hold_are_set_and_longer_ones_refused(tc: TestCase) {
+fn prop_names_export_pdb_can_hold_are_set_and_longer_ones_refused(tc: TestCase) {
     let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(6000));
     let album = tc.draw(gs::optional(gs::sampled_from(vec!["", " ", "Album"])));
     let key = tc.draw(gs::optional(gs::sampled_from(vec!["8A", "Am", ""])));
@@ -65,7 +65,7 @@ fn names_export_pdb_can_hold_are_set_and_longer_ones_refused(tc: TestCase) {
 /// An edit a drive's export.pdb has already but its OneLibrary database lacks (rekordbox
 /// exported over that alone) is made in OneLibrary alone, and said so.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_edit_onelibrary_lacks_is_made_there_alone(tc: TestCase) {
+fn prop_an_edit_onelibrary_lacks_is_made_there_alone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
@@ -100,7 +100,7 @@ fn an_edit_onelibrary_lacks_is_made_there_alone(tc: TestCase) {
 /// Deleting tracks removes their audio under `Contents/` and never audio outside it, which is
 /// left on the drive and said so.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn deleted_tracks_audio_outside_contents_is_left_and_said(tc: TestCase) {
+fn prop_deleted_tracks_audio_outside_contents_is_left_and_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     let outside = common::add_track(&root, NewTrack::new("Outside", "/Music/Outside.mp3"), b"ID3 outside");
@@ -125,7 +125,7 @@ fn deleted_tracks_audio_outside_contents_is_left_and_said(tc: TestCase) {
 #[hegel::explicit_test_case(ext = 0u8, replace = true, delete = true)]
 #[hegel::explicit_test_case(ext = 1u8, replace = true, delete = false)]
 #[hegel::explicit_test_case(ext = 2u8, replace = false, delete = true)]
-fn my_tags_follow_replaced_and_deleted_tracks(tc: TestCase) {
+fn prop_my_tags_follow_replaced_and_deleted_tracks(tc: TestCase) {
     let ext = tc.draw(gs::integers::<u8>().max_value(2));
     let replace = tc.draw(gs::booleans());
     let delete = tc.draw(gs::booleans());
@@ -204,7 +204,7 @@ fn mood_file(mood: u16) -> Vec<u8> {
 /// Ordering a playlist for mixing, whatever moods its tracks' analysis gives them (high, mid or
 /// low energy, or none), keeps exactly its entries, in an order of its own or into a new one.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn ordering_for_mixing_keeps_a_playlists_entries_whatever_their_moods(tc: TestCase) {
+fn prop_ordering_for_mixing_keeps_a_playlists_entries_whatever_their_moods(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let lib = common::library(&root);
@@ -231,7 +231,7 @@ fn ordering_for_mixing_keeps_a_playlists_entries_whatever_their_moods(tc: TestCa
 
 /// An edit of any kind is refused on a drive without a rekordbox export, and leaves it as it was.
 #[hegel::test(test_cases = 20)]
-fn edits_need_an_export(tc: TestCase) {
+fn prop_edits_need_an_export(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "Blank");
     let edit = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -249,7 +249,7 @@ fn edits_need_an_export(tc: TestCase) {
 /// Packing playlists of a drive rekordbox exported for OneLibrary players only plans a library
 /// of exactly those playlists' tracks, made from its OneLibrary database alone.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn packing_a_onelibrary_only_drive_takes_the_chosen_playlists_tracks(tc: TestCase) {
+fn prop_packing_a_onelibrary_only_drive_takes_the_chosen_playlists_tracks(tc: TestCase) {
     use locallibrary::pack::{self, PackOptions};
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");

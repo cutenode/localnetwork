@@ -277,7 +277,7 @@ fn an_account_goes_only_where_its_type_says_and_never_to_another_origin() {
     assert!(elsewhere.got().iter().all(|g| !g.headers.contains_key("authorization")), "the other origin got one");
 }
 
-/// A step of [`an_account_is_signed_in_exactly_when_its_last_sign_in_finished`].
+/// A step of [`prop_an_account_is_signed_in_exactly_when_its_last_sign_in_finished`].
 #[derive(Debug, Clone, Copy)]
 enum Signing {
     /// Signed in, the browser coming back to this computer.
@@ -306,7 +306,7 @@ enum Signing {
 /// cancelled once. No token gets into the plugins' logs, the answers or the store
 /// but its secrets.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) {
+fn prop_an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) {
     let (revokes, exchanges) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let manifest = |server: &str| {
         let mut manifest = account_plugin(server, &format!("{server}/userinfo"), "");
@@ -410,7 +410,7 @@ fn an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) 
     assert!(!m.leaked(&answers), "what the service gave is out where it may not be");
 }
 
-/// Where a step of [`a_token_lands_exactly_where_its_account_type_says`] names the account, as
+/// Where a step of [`prop_a_token_lands_exactly_where_its_account_type_says`] names the account, as
 /// the whole value.
 #[derive(Debug, Clone, Copy)]
 enum Named {
@@ -430,7 +430,7 @@ enum Named {
 /// refused, saying where it goes, before anything is sent; and no token gets into the plugins' logs
 /// or the store but its secrets.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_token_lands_exactly_where_its_account_type_says(tc: TestCase) {
+fn prop_a_token_lands_exactly_where_its_account_type_says(tc: TestCase) {
     let token = tc.draw(gs::sampled_from(vec![
         "",
         "token = { scheme = \"Bearer\" }",
@@ -544,7 +544,7 @@ fn a_token_in_the_query_stays_out_of_errors_logs_and_other_origins() {
 /// otherwise among its own, always a `%`, which leaves the secret inside how a URL spells it): it comes back in what the server answers as the placeholder
 /// that named it, as it is and as a URL spells it, which asks for it again. The plugin never has it.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
+fn prop_a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
     let secret = tc.draw(gs::from_regex("[q-z]{3}%[q-z]{0,3}([ &+/=%?#][q-z]{0,3}){0,2}").fullmatch(true));
     let written = tc.draw(gs::sampled_from(vec!["{secret:token}", "a-{secret:token}-b"]));
     let paging = Server::new(|base, got| {

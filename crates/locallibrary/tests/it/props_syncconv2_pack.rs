@@ -29,7 +29,7 @@ fn source(dir: &Path, n: usize) -> PathBuf {
 /// has one, whichever playlists it packs; its plan is never a no-op (the databases are rewritten).
 /// One whose files outgrow the drive says how much it needs and how much is free.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
+fn prop_a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let root = source(dir.path(), n);

@@ -287,7 +287,7 @@ fn adds_lists_to_files_without_them() {
 /// their `PCOB` lists, and the `.EXT`'s `PCO2` lists hold every cue. A list of any other type
 /// holds none, whichever file and tag it's in.
 #[hegel::test]
-fn each_cue_goes_in_one_list_of_its_type(tc: hegel::TestCase) {
+fn prop_each_cue_goes_in_one_list_of_its_type(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>().max_value(12));
     let cues: Vec<CuePoint> = (0..n)
@@ -323,7 +323,7 @@ fn each_cue_goes_in_one_list_of_its_type(tc: hegel::TestCase) {
 /// its own 12-byte header) or runs past the list, or until too little is left for a header:
 /// every entry before that comes back whole, and nothing from there on.
 #[hegel::test(test_cases = 200)]
-fn cue_list_entries_end_at_the_first_that_cant_be_one(tc: hegel::TestCase) {
+fn prop_cue_list_entries_end_at_the_first_that_cant_be_one(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let header_len = tc.draw(gs::sampled_from(vec![16usize, 24]));
     let lens: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().min_value(12).max_value(40)).max_size(4));

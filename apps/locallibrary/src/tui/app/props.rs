@@ -58,7 +58,7 @@ fn names(l: &Loaded) -> Vec<(String, usize, bool)> {
 /// tree; every node shown is remembered as itself, titled as its path or category and value, and
 /// lists its own tracks.
 #[hegel::test(test_cases = 100)]
-fn the_tree_opens_reveals_and_remembers_any_node(tc: TestCase) {
+fn prop_the_tree_opens_reveals_and_remembers_any_node(tc: TestCase) {
     let (mut app, _dir) = browsing(&tc);
     let l = app.loaded.as_mut().unwrap();
     let nodes = every_node(l);
@@ -116,7 +116,7 @@ impl SavedNode {
 /// ctrl-u everything and ctrl-w the last word (with the spaces after it), other keys nothing; a
 /// key says it changed the line just when it did.
 #[hegel::test(test_cases = 300)]
-fn a_line_edits_as_its_keys_say(tc: TestCase) {
+fn prop_a_line_edits_as_its_keys_say(tc: TestCase) {
     let mut text: String =
         tc.draw(gs::vecs(gs::sampled_from(&['a', 'b', ' ', '日', '😹'][..])).max_size(8)).into_iter().collect();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
@@ -154,7 +154,7 @@ fn a_line_edits_as_its_keys_say(tc: TestCase) {
 /// meanwhile when one did, else its own message, with where it was when the player's hook saw it;
 /// work that doesn't panic hands back what it made.
 #[hegel::test(test_cases = 50)]
-fn a_caught_panic_says_what_went_wrong(tc: TestCase) {
+fn prop_a_caught_panic_says_what_went_wrong(tc: TestCase) {
     static HOOK: std::sync::Once = std::sync::Once::new();
     // The player's hook, this the UI's thread: the workers' panics are noted.
     HOOK.call_once(super::super::on_panic);
@@ -192,7 +192,7 @@ fn a_caught_panic_says_what_went_wrong(tc: TestCase) {
 /// opens at its top. The log
 /// keeps the last 200 messages.
 #[hegel::test(test_cases = 50)]
-fn the_help_and_the_log_scroll_and_close(tc: TestCase) {
+fn prop_the_help_and_the_log_scroll_and_close(tc: TestCase) {
     let (mut app, _dir) = blank(View::Library);
     let n = tc.draw(gs::integers::<usize>().max_value(230));
     for i in 0..n {
@@ -270,7 +270,7 @@ fn the_help_and_the_log_scroll_and_close(tc: TestCase) {
 /// stops a plan (which only reads), but waits for a write to finish, saying so once; esc then
 /// stays. Once the write is done, the player quits.
 #[hegel::test(test_cases = 100)]
-fn quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
+fn prop_quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let writing = tc.draw(gs::optional(gs::booleans()));
@@ -361,7 +361,7 @@ fn snapshot(i: usize) -> SnapshotInfo {
 /// the missing files under Problems; My Tags, sets and an offer to replay land on their drive;
 /// the outputs listed land in the list they were listed for, while it's open.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn background_results_land_where_they_belong(tc: TestCase) {
+fn prop_background_results_land_where_they_belong(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     let (root, mut generation, n) = {
         let l = app.loaded.as_ref().unwrap();
@@ -645,7 +645,7 @@ fn background_results_land_where_they_belong(tc: TestCase) {
 /// same drive carries on with the queue where it was: the tracks around the one it was on, in
 /// play order, from that one, at the time it was at (to 15 seconds).
 #[hegel::test(test_cases = 30)]
-fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
+fn prop_the_next_run_carries_on_with_the_queue(tc: TestCase) {
     let mut lib = library();
     lib.tracks = any_tracks(&tc, 6);
     let (mut app, _dir) = app_with(lib);
@@ -771,7 +771,7 @@ const PLAY_KEYS: &[&str] =
 /// go of: the queue stays whole and in play order, what plays is the queue's (or the set), and
 /// each says what it does.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
+fn prop_the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
     let files: Vec<(u32, usize)> = (0..n)
         .map(|_| {
@@ -1213,7 +1213,7 @@ enum Away {
 /// job under way, the errors shown, the offer to replay edits, what's typed in the search; then,
 /// pressed twice, the marks (the first press says what the second does).
 #[hegel::test(test_cases = 200)]
-fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
+fn prop_esc_puts_away_one_thing_at_a_time(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let mut left: Vec<Away> = Vec::new();
@@ -1302,7 +1302,7 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
 /// rests once
 /// nothing is.
 #[hegel::test(test_cases = 100)]
-fn the_screen_moves_only_while_something_does(tc: TestCase) {
+fn prop_the_screen_moves_only_while_something_does(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     wait(&mut app, |a| a.loading.is_none());
     assert!(!app.animating(), "at rest");
@@ -1364,7 +1364,7 @@ const FILTER_WORDS: &[&str] = &[
 /// them; a filter that doesn't read (or names a playlist there isn't) says why, and enter says so
 /// too. The arrows and page keys move through the list as it's typed.
 #[hegel::test(test_cases = 100)]
-fn the_search_box_filters_as_the_library_does(tc: TestCase) {
+fn prop_the_search_box_filters_as_the_library_does(tc: TestCase) {
     let words: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(FILTER_WORDS)).min_size(1).max_size(3));
     let query = words.join(" ");
     // With no drive open there's nothing to search.
@@ -1453,7 +1453,7 @@ fn searched_as_the_library_does(app: &mut App, query: &str, enter: bool) {
 /// On a big library, the search box waits for typing to pause before narrowing the list (enter
 /// doesn't wait), then shows what it would have at once.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_big_library_search_waits_for_a_pause(tc: TestCase) {
+fn prop_a_big_library_search_waits_for_a_pause(tc: TestCase) {
     let n = TYPE_AHEAD as u32 + 1;
     let tracks = (1..=n).map(|id| track(id, &format!("Artist {}", id % 50), &format!("Title {id}"))).collect();
     let (mut app, _dir) = app_with(Library { tracks, ..Default::default() });
@@ -1482,7 +1482,7 @@ fn a_big_library_search_waits_for_a_pause(tc: TestCase) {
 /// mood); what mixes into it, or why nothing is listed; and the playlists it's in, the last line
 /// saying how many more.
 #[hegel::test(test_cases = 100)]
-fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
+fn prop_the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     use locallibrary::anlz::{Mood, Phrase, SongStructure};
     let n = tc.draw(gs::integers::<u32>().max_value(64));
     let mut beats = grid(0, 120.0, n);
@@ -1634,7 +1634,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
 /// click opens the actions menu, whose rows are chosen by a click and which a click outside closes;
 /// the outputs listed close at a click.
 #[hegel::test(test_cases = 40)]
-fn a_click_does_what_it_points_at(tc: TestCase) {
+fn prop_a_click_does_what_it_points_at(tc: TestCase) {
     let (mut app, _dir) = playing(TrackAnalysis::default());
     app.show_crate = true;
     let paths: Vec<String> = app.loaded.as_ref().unwrap().library.tracks.iter().map(|t| t.file_path.clone()).collect();
@@ -1856,7 +1856,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
 /// staying in the crate), or in the tree, plans deleting the playlist; saving the crate asks what
 /// to call it and clearing it asks first, each saying why not when the crate has nothing.
 #[hegel::test(test_cases = 60)]
-fn the_marks_and_the_crate_answer_to_their_keys(tc: TestCase) {
+fn prop_the_marks_and_the_crate_answer_to_their_keys(tc: TestCase) {
     use std::collections::BTreeSet;
     let (mut app, _dir) = app_with(library());
     app.show_crate = true;
@@ -2001,7 +2001,7 @@ fn the_marks_and_the_crate_answer_to_their_keys(tc: TestCase) {
 /// read, with any opened ahead after it (not those before it); one that panics is said as its
 /// failure, with nothing read for it.
 #[hegel::test(test_cases = 60)]
-fn only_the_latest_start_is_opened(tc: TestCase) {
+fn prop_only_the_latest_start_is_opened(tc: TestCase) {
     let (tx, rx) = channel();
     let mut opener = Opener::default();
     let read = Arc::new(Mutex::new(Vec::new()));
@@ -2058,7 +2058,7 @@ fn only_the_latest_start_is_opened(tc: TestCase) {
 /// it (by name), a library row no longer listed isn't selected any more, and a read of the list
 /// asked for meanwhile is made.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
+fn prop_the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
     use super::super::drives::DriveRow;
     use super::super::screens::Fixture;
     let Fixture { _dir, mut app, .. } = super::super::props::walk_fixture();
@@ -2115,7 +2115,7 @@ fn the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
 /// once before the first comes back, and shift-tab goes back the way it came; the Prepare view
 /// has one pane, so tab leaves it as it is.
 #[hegel::test(test_cases = 40)]
-fn tab_goes_round_the_panes_there_are(tc: TestCase) {
+fn prop_tab_goes_round_the_panes_there_are(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     (app.show_details, app.show_crate) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
@@ -2163,7 +2163,7 @@ fn bytes_of(app: &App, i: usize) -> Option<i64> {
 /// column is kept in what's saved for the next run, which shows it again, and once hidden it
 /// isn't.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
+fn prop_an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
     plugins_once();
     let drive = plugged();
     let mut app = app_on(&drive.0);
@@ -2312,7 +2312,7 @@ fn field_text(v: &locallibrary::fields::FieldValue) -> std::string::String {
 /// the tracks go by its values as the library orders them, those without one to show (none, or
 /// null) last.
 #[hegel::test(test_cases = 60)]
-fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
+fn prop_plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
     let mut lib = library();
     lib.tracks = any_tracks(&tc, 8);
     let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
@@ -2425,7 +2425,7 @@ fn prop_the_ways_of_mixing_in_take_turns(tc: TestCase) {
 /// repeat and new lists happen meanwhile. The list's play order stays a permutation of its tracks,
 /// the queue holds each track once, and played picks stay in it.
 #[hegel::test(test_cases = 150)]
-fn picks_play_in_the_order_picked(tc: TestCase) {
+fn prop_picks_play_in_the_order_picked(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     let n = app.visible.len();
     // The picks still to play, by file path, in the order they play.

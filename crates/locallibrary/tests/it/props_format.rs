@@ -28,7 +28,7 @@ fn cluster_size(tc: &TestCase, bps: u32) -> u32 {
 /// everything fits in the volume, the cluster count makes it FAT32, and the boot sector's 16-
 /// and 8-bit fields can hold the values.
 #[hegel::test(test_cases = 1000)]
-fn layouts_are_consistent(tc: TestCase) {
+fn prop_layouts_are_consistent(tc: TestCase) {
     let bps = sector_size(&tc);
     let cluster = cluster_size(&tc, bps);
     let volume = tc.draw(hegel::one_of!(
@@ -59,7 +59,7 @@ fn layouts_are_consistent(tc: TestCase) {
 
 /// The default cluster size works for every drive between 1 GiB and FAT32's 2 TiB limit.
 #[hegel::test(test_cases = 500)]
-fn default_cluster_size_always_fits(tc: TestCase) {
+fn prop_default_cluster_size_always_fits(tc: TestCase) {
     let volume = tc.draw(gs::integers::<u64>().min_value(GIB).max_value((2 << 40) - 512));
     let cluster = fat32::default_cluster_size(volume);
     let l = Layout::new(volume, 512, cluster, 2048).unwrap();
@@ -69,7 +69,7 @@ fn default_cluster_size_always_fits(tc: TestCase) {
 /// Formatted volumes (sparse files) open as FAT32 in `fatfs` with the right label and cluster
 /// size, report every cluster but the root directory's free, and hold a file that reads back.
 #[hegel::test(test_cases = 10)]
-fn fatfs_reads_formatted_volumes(tc: TestCase) {
+fn prop_fatfs_reads_formatted_volumes(tc: TestCase) {
     let cluster = cluster_size(&tc, 512);
     let clusters = tc.draw(gs::integers::<u64>().min_value(MIN_CLUSTERS + 64).max_value(300_000));
     let slack = tc.draw(gs::integers::<u64>().max_value(u64::from(cluster) * 3));
@@ -117,7 +117,7 @@ fn fatfs_reads_formatted_volumes(tc: TestCase) {
     target_os = "linux",
     ignore = "a plan on Linux asks lsblk what's mounted on the disk, and this one isn't there"
 )]
-fn plans_list_the_libraries_they_erase(tc: TestCase) {
+fn prop_plans_list_the_libraries_they_erase(tc: TestCase) {
     use crate::common;
     use locallibrary::api;
     use locallibrary::format::{Disk, FormatOptions, Scheme, Volume};
@@ -211,7 +211,7 @@ fn plans_list_the_libraries_they_erase(tc: TestCase) {
 /// A layout is refused, as invalid, for a sector size other than the four drives use, and for
 /// a cluster size that isn't a power of two from the sector size to 32 KB, whatever the volume.
 #[hegel::test(test_cases = 300)]
-fn layouts_refuse_sectors_and_clusters_fat32_cant_take(tc: TestCase) {
+fn prop_layouts_refuse_sectors_and_clusters_fat32_cant_take(tc: TestCase) {
     let volume = tc.draw(gs::integers::<u64>().min_value(64 << 20).max_value(2 << 40));
     let hidden = tc.draw(gs::integers::<u32>());
     let good_bps = sector_size(&tc);
@@ -274,7 +274,7 @@ fn stick(mount: &std::path::Path) -> locallibrary::format::Disk {
 /// counted in a warning that they won't fit when the plan is FAT32, and only then.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[cfg(any(target_os = "macos", windows))]
-fn plans_count_the_tracks_fat32_cant_hold(tc: TestCase) {
+fn prop_plans_count_the_tracks_fat32_cant_hold(tc: TestCase) {
     use crate::common;
     use locallibrary::format::{self, Filesystem, FormatOptions};
     use locallibrary::paths;
@@ -309,7 +309,7 @@ fn plans_count_the_tracks_fat32_cant_hold(tc: TestCase) {
 /// pull; without one, that nobody knows.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[cfg(any(target_os = "macos", windows))]
-fn applying_refuses_before_the_disk_is_asked_anything(tc: TestCase) {
+fn prop_applying_refuses_before_the_disk_is_asked_anything(tc: TestCase) {
     use crate::common;
     use locallibrary::Error;
     use locallibrary::device::Device;

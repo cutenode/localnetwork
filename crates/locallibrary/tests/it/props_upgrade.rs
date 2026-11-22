@@ -30,7 +30,7 @@ const SEEDS: [u32; 3] = [7919, 3 * 7919, 101];
 const SECS: f64 = 30.0;
 
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn only_the_same_recording_is_found(tc: TestCase) {
+fn prop_only_the_same_recording_is_found(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     testing::store_root_on_this_thread(Some(store.root().to_path_buf()));

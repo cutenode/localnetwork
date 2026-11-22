@@ -153,7 +153,7 @@ fn a_file_cut_short_in_its_header_is_truncated() {
 /// An M4A cut anywhere is truncated, whether it still opens or not. Only one cut too short to say what it is (under 8 bytes), or cut right before its index,
 /// is a file that won't open: nothing in it says it should go on.
 #[hegel::test(test_cases = 100)]
-fn an_m4a_cut_anywhere_is_truncated(tc: hegel::TestCase) {
+fn prop_an_m4a_cut_anywhere_is_truncated(tc: hegel::TestCase) {
     let whole = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence.m4a")).unwrap();
     let keep = tc.draw(hegel::generators::integers::<usize>().max_value(whole.len() - 1));
     let index = whole.windows(4).position(|w| w == b"moov").unwrap() - 4;

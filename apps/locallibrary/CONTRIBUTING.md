@@ -65,7 +65,7 @@ re-run CI):
 | `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
-| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
+| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`cargo hegel-coverage`); its totals sit beside the whole suite's |
 | `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
 | `fuzz` | on pull requests that change what the fuzz targets reach: every target for a minute (see Fuzzing) |
 
@@ -182,7 +182,7 @@ touches the computer's keychain or goes on the network.
 ```bash
 cargo coverage              # the tests under coverage, with a summary per file
 cargo coverage --open       # and an HTML report
-tools/hegel-coverage.sh     # the property tests alone, against the same thresholds (from the repository root)
+cargo hegel-coverage        # the property tests alone, against the same thresholds
 ```
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
@@ -196,15 +196,14 @@ unit tests in those files, not inline. It needs `cargo-llvm-cov` and `cargo-next
 `llvm-tools` that `rust-toolchain.toml` installs, found through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
 proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
 
-`tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
-function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
-the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job
-runs it on Linux, from the test archive. It also needs `rg`. Code it reports as missed is code no
-property reaches: a place where a new or wider generator would test more. It names every test in
-its nextest filter, so it packs them into filtersets of at most 96 KiB, each its own `-E`, under
-Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
-`tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
-same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
+`cargo hegel-coverage` runs `cargo coverage` over only the `#[hegel::test]` tests, and so fails
+below the same thresholds: the properties alone have to reach what the whole suite does. CI's
+`hegel` job runs it on Linux, from the test archive. Code it reports as missed is code no property
+reaches: a place where a new or wider generator would test more. It picks the tests by name, through
+nextest's `hegel` profile (`.config/nextest.toml`), so every `#[hegel::test]` function is named
+`prop_*` (the `hegel-test-name` ast-grep rule checks it), and the fixed examples beside them in the
+`props_*` modules aren't. The scheduled workflow's `hegel` job runs the same tests through that
+profile.
 
 Run one coverage run at a time in a checkout. Both commands build into the same
 `target/llvm-cov-target`, and cargo-llvm-cov deletes the old build output there when it starts, so

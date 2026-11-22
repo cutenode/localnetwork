@@ -37,7 +37,7 @@ fn held(set: &Set) -> Vec<(String, Option<u32>)> {
 /// changes by position come with it, which are refused. An untitled set's playlist is named for
 /// its day. Asking where a track was played needs a track named.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn sets_from_kept_reports_play_in_recording_order(tc: TestCase) {
+fn prop_sets_from_kept_reports_play_in_recording_order(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::silent();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

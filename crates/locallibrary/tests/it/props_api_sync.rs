@@ -92,7 +92,7 @@ fn labels(e: &Error) -> Vec<String> {
 #[hegel::explicit_test_case(linked = false, main_change = Change::None, club_change = Change::Remove, spare = false, allow_low_confidence = true, with_store = false, as_pair = false, pinned = true, direction = Direction::RightToLeft, meddle = 0u8)]
 #[hegel::explicit_test_case(linked = false, main_change = Change::None, club_change = Change::History, spare = true, allow_low_confidence = true, with_store = true, as_pair = false, pinned = false, direction = Direction::LeftToRight, meddle = 1u8)]
 #[hegel::explicit_test_case(linked = true, main_change = Change::Export, club_change = Change::None, spare = true, allow_low_confidence = false, with_store = false, as_pair = false, pinned = false, direction = Direction::LeftToRight, meddle = 2u8)]
-fn syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
+fn prop_syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
     let linked = tc.draw(gs::booleans());
     let main_change = tc.draw(changes());
     let club_change = tc.draw(changes());

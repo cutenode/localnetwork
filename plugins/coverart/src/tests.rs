@@ -396,7 +396,7 @@ fn prop_a_drive_that_cant_be_read_suggests_nothing(tc: TestCase) {
 /// For any library, what it suggests is the tracks without artwork, in the library's order, the
 /// first [`MAX_SUGGESTED_TRACKS`] of them, and nothing when there are none.
 #[hegel::test(test_cases = 20)]
-fn it_suggests_the_first_tracks_without_artwork(tc: TestCase) {
+fn prop_it_suggests_the_first_tracks_without_artwork(tc: TestCase) {
     let n = tc.draw(gs::sampled_from(vec![0, 1, 3, 40, MAX_SUGGESTED_TRACKS * 2]));
     // Every `every`th track has artwork, after the first `offset`.
     let (every, offset) =
@@ -1637,7 +1637,7 @@ fn foresee(answers: &Answers, drawn: &[Drawn], kind: ProviderKind) -> Outcome {
 /// that found it; a track without an album gets only a single's, else a warning. No file is
 /// written.
 #[hegel::test(test_cases = 60)]
-fn any_tracks_get_what_the_services_answer(tc: TestCase) {
+fn prop_any_tracks_get_what_the_services_answer(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(8));
     let drawn: Vec<Drawn> = (1..=n).map(|id| drawn_track(&tc, id)).collect();
     let answers = drawn_answers(&tc);
@@ -1763,7 +1763,7 @@ fn albums_covers(tc: &TestCase, groups: Option<&[usize]>, isrc: bool) {
     }
     let foreseen = foresee(&answers, &drawn, ProviderKind::Artwork);
     // Now and then the host cancels the hook while the first cover downloads: the fetch
-    // `cancelling_while_any_fetch_is_under_way_stops_it` holds only when it happens to draw it.
+    // `prop_cancelling_while_any_fetch_is_under_way_stops_it` holds only when it happens to draw it.
     let first_cover = foreseen.fetches.iter().position(|(path, _)| path.starts_with(COVERS));
     let held = first_cover.filter(|_| tc.draw(gs::weighted_booleans(0.2)));
     let (route, fetched) = (answering(answers), AtomicUsize::new(0));
@@ -1793,7 +1793,7 @@ fn albums_covers(tc: &TestCase, groups: Option<&[usize]>, isrc: bool) {
 /// MusicBrainz answers its lookup, it's looked up once (tried again while MusicBrainz is busy):
 /// each album gets its genre and first year, or a warning.
 #[hegel::test(test_cases = 20)]
-fn albums_of_one_release_group_have_it_looked_up_once(tc: TestCase) {
+fn prop_albums_of_one_release_group_have_it_looked_up_once(tc: TestCase) {
     let artists = ["Bicep", "Young Fathers", "", "Romy"];
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(artists.len()));
     let drawn: Vec<Drawn> = (0..n)
@@ -1823,7 +1823,7 @@ fn albums_of_one_release_group_have_it_looked_up_once(tc: TestCase) {
 /// download) and whatever it was looking up, the hook stops with `cancelled`, asking for nothing
 /// more.
 #[hegel::test(test_cases = 10)]
-fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
+fn prop_cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let drawn: Vec<Drawn> = (1..=n).map(|id| drawn_track(&tc, id)).collect();
     let answers = drawn_answers(&tc);
@@ -1855,7 +1855,7 @@ fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
 /// doesn't read, or asks another provider (or another kind of one), is refused; tracks with
 /// nothing to look up by come back without a candidate, a warning each, whichever provider asks.
 #[hegel::test(test_cases = 15)]
-fn served_for_real_it_looks_up_nothing_it_neednt(tc: TestCase) {
+fn prop_served_for_real_it_looks_up_nothing_it_neednt(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(5));
     let tracks: Vec<TrackTags> =
         (1..=n).map(|id| tags(id, "Bicep", tc.draw(gs::sampled_from(vec!["", " "])), "")).collect();

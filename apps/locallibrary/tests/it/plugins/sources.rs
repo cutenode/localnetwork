@@ -131,7 +131,7 @@ fn titles(env: &Env, root: &std::path::Path) -> Vec<String> {
 /// Otherwise a dry run or a run not confirmed writes nothing (the plan says what the source read),
 /// and `--yes` builds the drive from the audio files granted.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn collection_export_from_a_source_is_checked_then_written(tc: hegel::TestCase) {
+fn prop_collection_export_from_a_source_is_checked_then_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (env, music) = music();
     // At most one thing wrong, so most runs get as far as the plan.
@@ -214,7 +214,7 @@ fn collection_export_from_a_source_is_checked_then_written(tc: hegel::TestCase) 
 /// error and the drive stays as it was. Otherwise the plan says what the source read, and
 /// `plugins.source.apply` (when it's applied) builds the drive from the audio files granted.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_sidecar_plans_and_builds_any_source_drawn(tc: hegel::TestCase) {
+fn prop_the_sidecar_plans_and_builds_any_source_drawn(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (env, music) = music();
     let wrong = tc.draw(gs::sampled_from(vec!["", "", "", "plugin", "source", "no grant", "nowhere"]));

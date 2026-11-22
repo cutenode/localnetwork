@@ -491,7 +491,7 @@ jobs:
           if-no-files-found: ignore
 
   # The Hegel property tests alone, under coverage and held to the same thresholds
-  # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
+  # (`cargo hegel-coverage`): the properties have to reach what the whole suite does. They run
   # from the archive the shards use, beside the shards, and the coverage job puts their totals next
   # to the whole suite's.
   hegel:
@@ -509,10 +509,10 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # As the shards have them, and rg, which the script picks the tests with.
+      # As the shards have them.
       - uses: ./.github/actions/apt-packages
         with:
-          packages: libasound2-dev sqlcipher ripgrep
+          packages: libasound2-dev sqlcipher
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
@@ -521,7 +521,7 @@ jobs:
           name: tests
       - run: |
           mkdir -p target/llvm-cov-target
-          tools/hegel-coverage.sh --archive-file tests.tar.zst --json --summary-only --output-path target/coverage-hegel.json
+          cargo hegel-coverage --archive-file tests.tar.zst --json --summary-only --output-path target/coverage-hegel.json
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -534,7 +534,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-hegel
-          path: target/nextest/ci/junit.xml
+          path: target/nextest/hegel/junit.xml
           if-no-files-found: ignore
           retention-days: 14
 

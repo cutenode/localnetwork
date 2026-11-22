@@ -115,7 +115,7 @@ fn newest_first(book: &SetBook) -> Vec<&Set> {
 /// A track is found at every place it has in the sets, newest set first: by file (in any
 /// case) for a path, else by its name containing the query (ignoring case and spacing).
 #[hegel::test(test_cases = 300)]
-fn a_track_is_found_wherever_it_was_played(tc: TestCase) {
+fn prop_a_track_is_found_wherever_it_was_played(tc: TestCase) {
     let book = some_book(&tc);
     let wanted = tc.draw(gs::integers::<u8>().min_value(1).max_value(5));
     let query = tc.draw(gs::sampled_from(vec![
@@ -146,7 +146,7 @@ fn a_track_is_found_wherever_it_was_played(tc: TestCase) {
 /// (whole, ignoring case), played between the days asked for; the latest of them is the
 /// newest.
 #[hegel::test(test_cases = 300)]
-fn listings_keep_what_the_filter_asks_for(tc: TestCase) {
+fn prop_listings_keep_what_the_filter_asks_for(tc: TestCase) {
     let book = some_book(&tc);
     let day = |d: Option<u8>| d.map(|d| NaiveDate::from_ymd_opt(2026, 10, d.into()).unwrap());
     let filter = SetFilter {

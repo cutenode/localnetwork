@@ -62,7 +62,7 @@ fn encoded(tc: &TestCase, text: &str) -> Vec<u8> {
 /// with its own text, quoted fields spanning lines included; blank records are dropped. Without
 /// quoting (rekordbox's text), quotes are kept as they are.
 #[hegel::test(test_cases = 300)]
-fn tables_read_back_record_for_record(tc: TestCase) {
+fn prop_tables_read_back_record_for_record(tc: TestCase) {
     let delim = tc.draw(gs::sampled_from(vec![',', ';', '\t', '|']));
     let quoting = tc.draw(gs::booleans());
     // Often made of what quoting is about.
@@ -133,7 +133,7 @@ fn header(role: Role) -> Vec<&'static str> {
 /// the file name when there's no title column. Records with neither a title nor a file are
 /// skipped. It's detected as CSV.
 #[hegel::test(test_cases = 300)]
-fn csv_exports_read_back(tc: TestCase) {
+fn prop_csv_exports_read_back(tc: TestCase) {
     let title_column = tc.draw(gs::weighted_booleans(0.85));
     let mut roles = vec![];
     if title_column {
@@ -265,7 +265,7 @@ fn csv_exports_read_back(tc: TestCase) {
 /// A table whose first records name no title or file column is refused, quoting its first
 /// record.
 #[hegel::test(test_cases = 100)]
-fn tables_without_a_title_column_are_refused(tc: TestCase) {
+fn prop_tables_without_a_title_column_are_refused(tc: TestCase) {
     let names: Vec<&str> =
         tc.draw(gs::vecs(gs::sampled_from(header(Role::Other))).min_size(1).max_size(4).unique(true));
     let rows: Vec<Vec<u32>> = tc.draw(gs::vecs(gs::vecs(gs::integers::<u32>()).min_size(1).max_size(4)).max_size(6));
@@ -283,7 +283,7 @@ fn tables_without_a_title_column_are_refused(tc: TestCase) {
 /// rekordbox's "Export a playlist to a file" text (UTF-16, tabs, CRLF, a `#` column) reads
 /// back as its tracks with quotes kept literally, and is recognised whatever the file is called.
 #[hegel::test(test_cases = 200)]
-fn rekordbox_text_exports_read_back(tc: TestCase) {
+fn prop_rekordbox_text_exports_read_back(tc: TestCase) {
     let field = || cell().map(|s| s.replace(['\t', '\n'], " ").trim().to_string());
     let n = tc.draw(gs::integers::<usize>().max_value(6));
     // Its title column is "Track Title", or "Title" in some languages' exports.

@@ -81,7 +81,7 @@ fn a_volume_that_is_gone_is_ejected() {
 /// Whatever partitions a disk has, ejecting one of its mounted volumes unmounts each mounted
 /// one, in order, then powers the disk off; a root none of them is mounted at is refused.
 #[hegel::test(test_cases = 200)]
-fn linux_ejects_every_mounted_partition_of_the_disk(tc: hegel::TestCase) {
+fn prop_linux_ejects_every_mounted_partition_of_the_disk(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut disk = crate::format::tests::sample_disk();
     (disk.id, disk.device) = ("/dev/sdc".into(), "/dev/sdc".into());
@@ -117,7 +117,7 @@ fn linux_ejects_every_mounted_partition_of_the_disk(tc: hegel::TestCase) {
 /// disk powered off (a mount point not on the disk is refused); on Windows Explorer's Eject takes
 /// the drive's letter, and only a drive's root.
 #[hegel::test(test_cases = 100)]
-fn every_platform_ejects_the_whole_drive(tc: hegel::TestCase) {
+fn prop_every_platform_ejects_the_whole_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut disk = crate::format::tests::sample_disk();
     (disk.id, disk.device) = ("/dev/sdb".into(), "/dev/sdb".into());
@@ -159,7 +159,7 @@ fn every_platform_ejects_the_whole_drive(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(word = "in use", external = true)]
 #[hegel::explicit_test_case(word = "In Use", external = true)]
 #[hegel::explicit_test_case(word = "busy", external = false)]
-fn only_a_busy_drive_gets_the_hint(tc: hegel::TestCase) {
+fn prop_only_a_busy_drive_gets_the_hint(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let word = tc.draw(gs::sampled_from(vec!["busy", "Resource BUSY", "in use", "In Use", "unmounted", ""]));
     let external = tc.draw(gs::booleans());
@@ -188,7 +188,7 @@ fn only_a_busy_drive_gets_the_hint(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(there = false, goes = false)]
 #[hegel::explicit_test_case(there = true, goes = true)]
 #[hegel::explicit_test_case(there = true, goes = false)]
-fn a_volume_is_gone_once_it_disappears(tc: hegel::TestCase) {
+fn prop_a_volume_is_gone_once_it_disappears(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let there = tc.draw(gs::booleans());
     let goes = tc.draw(gs::booleans());
@@ -221,7 +221,7 @@ fn a_volume_is_gone_once_it_disappears(tc: hegel::TestCase) {
 /// Ejecting never waits for a running operation, nor asks the system anything meanwhile, whoever
 /// holds the drive's lock.
 #[hegel::test(test_cases = 6)]
-fn a_drive_being_written_is_never_ejected(tc: hegel::TestCase) {
+fn prop_a_drive_being_written_is_never_ejected(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let adopted = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();
@@ -246,7 +246,7 @@ use crate::format::tests::fake_tools;
 /// busy.
 #[cfg(unix)]
 #[hegel::test(test_cases = 20)]
-fn ejecting_runs_its_commands_in_order_until_one_fails(tc: hegel::TestCase) {
+fn prop_ejecting_runs_its_commands_in_order_until_one_fails(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     std::fs::create_dir(fake.dir().join("DNA")).unwrap();

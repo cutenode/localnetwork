@@ -91,7 +91,7 @@ fn verbs(calls: &[String]) -> Vec<String> {
 /// uninstalling stops it and removes the file (only saying there was nothing when none was there),
 /// failing where a step is refused; and what's printed says what the JSON does.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_login_agent_runs_watch_as_asked(tc: TestCase) {
+fn prop_the_login_agent_runs_watch_as_asked(tc: TestCase) {
     let fx = Env::new();
     let tools = Tools::new(&fx);
     let home = fx.outside("home");

@@ -109,7 +109,7 @@ fn an_export_names_what_its_exporter_writes_out() {
 /// refused, saying what's wrong first. A set's and a mix's are written out as the plugin read
 /// them.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
+fn prop_an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &tracklists(), &[])], Options::default());
     let date = chrono::NaiveDate::from_ymd_opt(2026, 10, 3).unwrap();
@@ -195,7 +195,7 @@ fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
 /// and sizes adding up to more than a `u64` holds are the plugin misbehaving, not a panic or a
 /// total that wrapped. Regression: they were summed unchecked.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_exports_sizes_that_overflow_are_refused(tc: hegel::TestCase) {
+fn prop_an_exports_sizes_that_overflow_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::exporting();
     let size = hegel::one_of!(gs::integers::<u64>().min_value(u64::MAX - 1000), gs::integers::<u64>().max_value(1000));

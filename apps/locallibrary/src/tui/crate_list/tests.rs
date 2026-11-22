@@ -41,7 +41,7 @@ fn refresh_takes_new_details_and_drops_missing_tracks() {
 /// Reading a drive again keeps the crate's order, drops its tracks that drive no longer has,
 /// gives the rest their new details, and leaves other drives' tracks alone.
 #[hegel::test(test_cases = 200)]
-fn reading_a_drive_again_keeps_the_crate_in_order(tc: hegel::TestCase) {
+fn prop_reading_a_drive_again_keeps_the_crate_in_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (a, b) = (Path::new("/A"), Path::new("/B"));
     let lib = library();
@@ -70,7 +70,7 @@ fn reading_a_drive_again_keeps_the_crate_in_order(tc: hegel::TestCase) {
 /// Moving a track along the crate moves it so far, never past either end, and keeps the others
 /// in their order; a place past the end moves nothing.
 #[hegel::test(test_cases = 300)]
-fn moving_a_crated_track_keeps_the_rest_in_order(tc: hegel::TestCase) {
+fn prop_moving_a_crated_track_keeps_the_rest_in_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().max_value(6));
     let mut c = Crate::default();

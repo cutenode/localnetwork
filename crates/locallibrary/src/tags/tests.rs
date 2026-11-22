@@ -108,7 +108,7 @@ fn draw_op(tc: &TestCase, trees: [&Tree; 2], keys: &[String]) -> Op {
 /// says names a row that isn't there (or an id taken or too large) is refused, the tree left as
 /// it was. Removing every category then leaves only the rows that belonged nowhere.
 #[hegel::test(test_cases = 30)]
-fn the_tree_model_is_what_both_databases_read_back(tc: TestCase) {
+fn prop_the_tree_model_is_what_both_databases_read_back(tc: TestCase) {
     let library = six_tracks();
     let keys: Vec<String> = library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendor/rekordbox-pdb/tests/data/one-song-exportExt.pdb");
@@ -201,7 +201,7 @@ fn draw_tree(tc: &TestCase, names: &[&str], ids: &dyn Fn(&TestCase) -> i64) -> T
 /// category, and for a tag one from its names (ignoring case) that fits exportExt.pdb, the next
 /// free one when that's taken.
 #[hegel::test(test_cases = 60)]
-fn new_categories_and_tags_get_ids_both_databases_can_share(tc: TestCase) {
+fn prop_new_categories_and_tags_get_ids_both_databases_can_share(tc: TestCase) {
     const NAMES: &[&str] = &["Genre", "Mood", "Situation"];
     let small = |tc: &TestCase| tc.draw(gs::integers::<i64>().min_value(1).max_value(12));
     let any = |tc: &TestCase| match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -285,7 +285,7 @@ fn tree_of(tc: &TestCase, categories: &[&str], first_tags: usize, keys: &[String
 /// warning says. The steps lead to the tree returned, and the tracks counted are those that
 /// gained a tag.
 #[hegel::test(test_cases = 30)]
-fn carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
+fn prop_carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
     let library = six_tracks();
     let keys: Vec<String> = library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let pair = |c: &str, t: &str| (c.to_string(), t.to_string());
@@ -390,7 +390,7 @@ fn carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
 /// or a track that isn't there) are counted as strays and read as nothing else: the tree is the
 /// one without them.
 #[hegel::test(test_cases = 20)]
-fn rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
+fn prop_rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
     let library = six_tracks();
     let mut one = onelibrary_of(&library);
     one.add_my_tag(1, 0, "Genre", true).unwrap();
@@ -435,7 +435,7 @@ fn rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
 /// rekordbox's limits, the rest said as skipped) and links exactly the tracks that carry them,
 /// and nothing of its template.
 #[hegel::test(test_cases = 30)]
-fn a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
+fn prop_a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
     let library = six_tracks();
     let names = || gs::sampled_from(vec!["Genre", "Deep", "Peak Time", "Ünï", "x", "Situation"]);
     let mut categories: Vec<crate::masterdb::TagCategory> = Vec::new();

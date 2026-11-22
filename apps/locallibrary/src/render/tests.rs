@@ -84,7 +84,7 @@ fn compatibility_drawn(tc: &TestCase) -> Compatibility {
 /// known; each partition table has a name of its own; and a verdict's mark says how players get
 /// on with it, before its summary. Disks are listed with every part of them.
 #[hegel::test(test_cases = 100)]
-fn disks_are_listed_with_what_players_make_of_them(tc: TestCase) {
+fn prop_disks_are_listed_with_what_players_make_of_them(tc: TestCase) {
     let views: Vec<DiskView> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|_| {
             let disk = disk(&tc, tc.draw(gs::integers::<u64>().min_value(1 << 26).max_value(1 << 42)));
@@ -134,7 +134,7 @@ fn disks_are_listed_with_what_players_make_of_them(tc: TestCase) {
     target_os = "linux",
     ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the generated disk isn't there"
 )]
-fn format_plans_and_reports_show_every_part(tc: TestCase) {
+fn prop_format_plans_and_reports_show_every_part(tc: TestCase) {
     // From the smallest disk FAT32 takes with the default clusters.
     let size = tc.draw(gs::integers::<u64>().min_value(1 << 29).max_value(1 << 42));
     let d = disk(&tc, size);

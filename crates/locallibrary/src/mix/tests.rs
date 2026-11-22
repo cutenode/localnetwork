@@ -118,7 +118,7 @@ fn found(start: f64, fits: Vec<matcher::Fit>) -> Found {
 /// two as near), as the matcher traced it: across a gap between lines, an overlap, a line inside
 /// another and the fades either side.
 #[hegel::test(test_cases = 300)]
-fn a_play_follows_the_nearest_of_its_lines(tc: TestCase) {
+fn prop_a_play_follows_the_nearest_of_its_lines(tc: TestCase) {
     use loclib_model::test_util::track;
     let secs = || gs::floats::<f64>().min_value(0.0).max_value(600.0);
     let mut fits: Vec<matcher::Fit> = tc
@@ -386,7 +386,7 @@ use loclib_model::test_util::keys;
 /// The mix's waveform has a column every quarter second: loclib-mixid's columns of its levels
 /// at that rate (whose pooling and scaling its tests cover).
 #[hegel::test(test_cases = 50)]
-fn the_mix_waveform_has_a_column_every_quarter_second(tc: TestCase) {
+fn prop_the_mix_waveform_has_a_column_every_quarter_second(tc: TestCase) {
     let level = || gs::floats::<f32>().min_value(0.0).max_value(1.0);
     let frames: Vec<(f32, [f32; 3])> =
         tc.draw(gs::vecs(gs::tuples!(level(), gs::arrays::<_, _, 3>(level()))).max_size(400));
@@ -401,7 +401,7 @@ fn the_mix_waveform_has_a_column_every_quarter_second(tc: TestCase) {
 /// are heard, how the keys heard relate and by how much the tempo moves then (a ridden track's
 /// at the speed it was at, not its average).
 #[hegel::test(test_cases = 200)]
-fn transitions_follow_the_plays(tc: TestCase) {
+fn prop_transitions_follow_the_plays(tc: TestCase) {
     use loclib_model::test_util::track;
     let n = tc.draw(gs::integers::<usize>().max_value(6));
     let plays: Vec<Play> = (0..n)
@@ -473,7 +473,7 @@ fn transitions_follow_the_plays(tc: TestCase) {
 /// index): played at its speed, its key heard a semitone up or down per semitone of speed
 /// without key lock and as it is with it, and only the alternates the index has named.
 #[hegel::test(test_cases = 30)]
-fn plays_carry_the_track_at_its_speed(tc: TestCase) {
+fn prop_plays_carry_the_track_at_its_speed(tc: TestCase) {
     use loclib_model::test_util::track;
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let tracks: Vec<Track> = (0..n)
@@ -558,7 +558,7 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
 /// model) only say what recorded it: the title comes from the folder it was filed in, or
 /// from the file's own name when a title is missing or a recorder's.
 #[hegel::test(test_cases = 300)]
-fn tags_describe_the_mix_unless_a_recorder_wrote_them(tc: TestCase) {
+fn prop_tags_describe_the_mix_unless_a_recorder_wrote_them(tc: TestCase) {
     let recorder = tc.draw(gs::booleans());
     let artist = match recorder {
         true => tc.draw(gs::sampled_from(vec!["PIONEER DJ REC", "Pioneer DJ Rec", "pioneer dj rec"])).to_string(),
@@ -607,7 +607,7 @@ fn tags_describe_the_mix_unless_a_recorder_wrote_them(tc: TestCase) {
 /// Recordings are found by name in every folder but hidden ones, in name order; the files
 /// found are the ones a mix can be read from.
 #[hegel::test(test_cases = 40)]
-fn recordings_are_every_mix_file_outside_hidden_folders(tc: TestCase) {
+fn prop_recordings_are_every_mix_file_outside_hidden_folders(tc: TestCase) {
     let names = vec!["a.wav", "B.MP3", "set.aup3", "notes.txt", ".c.flac", "d.m4a", "e.AUP4", "f.jpg"];
     let dirs = vec!["", "old", ".hidden", "old/2024", "old/.trash"];
     let files: Vec<(&str, &str)> =
@@ -636,7 +636,7 @@ fn recordings_are_every_mix_file_outside_hidden_folders(tc: TestCase) {
 /// one transition between each and the next and nothing left unidentified that long; the
 /// fingerprints are kept, so identifying against the drive again decodes none of them.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
+fn prop_a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
     use crate::probe::tests::wav_of;
     use loclib_model::test_util::track;
     use loclib_testkit::audio::synth;
@@ -712,7 +712,7 @@ fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
 /// An Audacity project is heard as the mix it renders: its tags and labels describe it, and
 /// it's as long as its last clip. One that isn't there isn't found.
 #[hegel::test(test_cases = 3)]
-fn a_project_is_heard_as_the_mix_it_renders(tc: TestCase) {
+fn prop_a_project_is_heard_as_the_mix_it_renders(tc: TestCase) {
     use super::aup::tests::{Xml, floats, project};
     let rate = tc.draw(gs::sampled_from(vec![4_000.0, 8_000.0]));
     let title = tc.draw(gs::optional(gs::text().alphabet("Warehouse ").min_size(1).max_size(10)));
@@ -750,7 +750,7 @@ fn a_project_is_heard_as_the_mix_it_renders(tc: TestCase) {
 /// like it: as the file, as its folder, then cover, folder, front or artwork. That one is a
 /// guess, shown but not shared.
 #[hegel::test(test_cases = 25)]
-fn recordings_are_described_by_their_tags_and_pictures(tc: TestCase) {
+fn prop_recordings_are_described_by_their_tags_and_pictures(tc: TestCase) {
     use lofty::config::WriteOptions;
     use lofty::tag::{Tag, TagType};
     let dir = tempfile::tempdir().unwrap();
@@ -831,7 +831,7 @@ fn recordings_are_described_by_their_tags_and_pictures(tc: TestCase) {
 /// A report is matched against a drive by the drive's identity when it was made with one,
 /// whatever either is called now, and only by name when it wasn't.
 #[hegel::test(test_cases = 50)]
-fn reports_know_their_drive_by_identity_before_name(tc: TestCase) {
+fn prop_reports_know_their_drive_by_identity_before_name(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut device = Device::open(dir.path()).unwrap();
     let names = vec!["DNA".to_string(), "Backup".into(), "USB".into()];
@@ -857,7 +857,7 @@ fn reports_know_their_drive_by_identity_before_name(tc: TestCase) {
 /// they sit) is identified as what it is: no plays, no transitions, nothing covered, and as long
 /// as what was heard of it, nothing.
 #[hegel::test(test_cases = 5)]
-fn a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
+fn prop_a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
     use super::aup::tests::{Xml, project};
     let dir = tempfile::tempdir().unwrap();
     let mut x = Xml::new(1);
@@ -884,7 +884,7 @@ fn a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
 /// image beside it; with that gone, reading it says so (not found in the recording, or the
 /// file named), and only an embedded cover is one to share.
 #[hegel::test(test_cases = 20)]
-fn a_cover_reads_back_while_it_is_there(tc: TestCase) {
+fn prop_a_cover_reads_back_while_it_is_there(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let set = dir.path().join("set.wav");
     recording(&set);
@@ -926,7 +926,7 @@ fn a_cover_reads_back_while_it_is_there(tc: TestCase) {
 /// A mix of only silence, with nothing in the library to hear in it, is unidentified from its
 /// start to its end once that's half a minute or more, and has no gap marked when it's shorter.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
+fn prop_a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
     use super::aup::tests::{Xml, project};
     let secs = tc.draw(gs::sampled_from(vec![5i64, 29, 31, 40]));
     let rate = 8_000i64;

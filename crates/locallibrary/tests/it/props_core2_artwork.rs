@@ -23,7 +23,7 @@ use rekordbox_pdb::NewTrack;
 /// Taking embedded art back puts back exactly the files untouched since, skips the rest (said
 /// as gone or changed), and keeps the backup while any were skipped.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_is_taken_back_only_from_files_untouched_since(tc: TestCase) {
+fn prop_art_is_taken_back_only_from_files_untouched_since(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut files = Vec::new();
@@ -67,7 +67,7 @@ fn art_is_taken_back_only_from_files_untouched_since(tc: TestCase) {
 /// Art set on a drive with only OneLibrary shows on exactly the tracks chosen; a batch naming no
 /// track, or one the drive doesn't have, is refused without writing anything.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_on_a_onelibrary_only_drive_shows_on_exactly_those_tracks(tc: TestCase) {
+fn prop_art_on_a_onelibrary_only_drive_shows_on_exactly_those_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::onelibrary_only(&root);
@@ -98,7 +98,7 @@ fn art_on_a_onelibrary_only_drive_shows_on_exactly_those_tracks(tc: TestCase) {
 /// Art found automatically: a track whose audio path leaves the drive isn't looked for, and art a
 /// file held when planned but not when applied isn't set (nothing is written for it).
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn automatic_art_skips_audio_out_of_reach_or_emptied_since(tc: TestCase) {
+fn prop_automatic_art_skips_audio_out_of_reach_or_emptied_since(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     let escaped = common::add_track(&root, NewTrack::new("Escaped", "/../outside.mp3"), &media::mp3());
@@ -147,7 +147,7 @@ impl Progress for StopAfter {
 /// the rest are as they were, and taking it back puts back exactly the ones it changed. Cancelled
 /// before any, nothing is kept; cancelled during the last, it's done.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_embedded_until_cancelled_is_taken_back_exactly(tc: TestCase) {
+fn prop_art_embedded_until_cancelled_is_taken_back_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));

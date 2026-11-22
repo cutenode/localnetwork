@@ -76,7 +76,7 @@ fn add_copies(tc: &TestCase, root: &Path, lib: &Library, playlist: &str) {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn reordering_a_playlist_keeps_its_tracks_in_the_asked_order(tc: TestCase) {
+fn prop_reordering_a_playlist_keeps_its_tracks_in_the_asked_order(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // The twelve-track export drawn on, or the demo export, whose analysis has phrases (the
     // energy a set is ordered by).

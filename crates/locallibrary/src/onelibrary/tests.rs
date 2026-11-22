@@ -178,7 +178,7 @@ fn committed_pages(one: &OneLibrary) -> Vec<u8> {
 /// A working copy's edits made in one transaction leave the same database, page for page, as a
 /// commit after every statement did.
 #[hegel::test(test_cases = 50)]
-fn edits_in_one_transaction_make_the_database_a_commit_after_each_did(tc: hegel::TestCase) {
+fn prop_edits_in_one_transaction_make_the_database_a_commit_after_each_did(tc: hegel::TestCase) {
     let edits = drawn_edits(&tc);
     let mut one = OneLibrary::create().unwrap();
     // As working copies were: each statement committed on its own.
@@ -261,7 +261,7 @@ fn drawn_reference(tc: &hegel::TestCase, max: i64) -> Value {
 /// Removing tracks deletes each table's rows from one pass over it and leaves the database
 /// exactly as a delete for each track in each table did, whatever the rows hold.
 #[hegel::test(test_cases = 100)]
-fn removing_tracks_leaves_the_database_deletes_track_by_track_did(tc: hegel::TestCase) {
+fn prop_removing_tracks_leaves_the_database_deletes_track_by_track_did(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let one = OneLibrary::create().unwrap();
     let tracks = tc.draw(gs::integers::<i64>().min_value(1).max_value(12));

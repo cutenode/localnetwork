@@ -2039,7 +2039,7 @@ fn drives_plugged_in_while_running() {
 /// What an input box shows of a typed line fits its columns, is the end of the line, and is
 /// as much of it as fits (Bombadil found the cursor pushed out of the box by wide text).
 #[hegel::test(test_cases = 500)]
-fn typed_tail_fits_and_keeps_the_end(tc: hegel::TestCase) {
+fn prop_typed_tail_fits_and_keeps_the_end(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use unicode_width::UnicodeWidthStr;
     let text: String =
@@ -2846,7 +2846,7 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
 /// A state file the player couldn't read as it started (one it can't parse, or one it had no
 /// permission to read then) isn't saved over for the rest of that run, even once it can be read.
 #[hegel::test(test_cases = 10)]
-fn a_state_file_unread_at_startup_is_never_saved_over(tc: hegel::TestCase) {
+fn prop_a_state_file_unread_at_startup_is_never_saved_over(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("store");
     locallibrary::Store::open_or_init(&store).unwrap();
@@ -3142,7 +3142,7 @@ fn the_mixes_view_moves_through_its_recordings() {
 /// playback's modes and volume, the crate, the queue), however it was set, reads back as it
 /// was saved and is what the next run starts with.
 #[hegel::test(test_cases = 50)]
-fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
+fn prop_what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const KEYS: &[&str] =
         &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Z", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
@@ -3177,7 +3177,7 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
 /// where the cue is (a loop's plays it), and the deck draws at any size in every visualiser,
 /// full screen or not, as its keys jump, loop and zoom about.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
+fn prop_the_deck_plays_any_analysis(tc: hegel::TestCase) {
     use super::super::ui::screen;
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().max_value(64));

@@ -14,7 +14,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::upgrade::UpgradeOptions;
 
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn cues_move_by_where_rekordboxs_timeline_starts(tc: TestCase) {
+fn prop_cues_move_by_where_rekordboxs_timeline_starts(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lossless, song) = setup(dir.path());
     let _store = store(dir.path());

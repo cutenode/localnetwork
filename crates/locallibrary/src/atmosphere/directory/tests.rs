@@ -124,7 +124,7 @@ fn a_refusal_to_read_says_its_error_or_status() {
 #[hegel::explicit_test_case(status = 200u16, listed = true, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/other".to_string(), cid = Some("bafy".to_string()), value = json!({ "n": 1 }), error = None::<String>, message = None::<String>)]
 #[hegel::explicit_test_case(status = 200u16, listed = true, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/self".to_string(), cid = None::<String>, value = json!({ "n": 1 }), error = None::<String>, message = None::<String>)]
 #[hegel::explicit_test_case(status = 500u16, listed = false, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/self".to_string(), cid = None::<String>, value = Value::Null, error = Some("InternalServerError".to_string()), message = Some("down".to_string()))]
-fn a_read_gives_what_the_directory_answered(tc: hegel::TestCase) {
+fn prop_a_read_gives_what_the_directory_answered(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (directory, next, _) = shared(&SERVER);
     at(directory);
@@ -177,7 +177,7 @@ fn a_read_gives_what_the_directory_answered(tc: hegel::TestCase) {
 /// A read from a directory nobody answers at fails saying so on one line, whatever was asked for
 /// and however its address ends.
 #[hegel::test(test_cases = 20)]
-fn a_read_from_a_directory_nobody_answers_at_says_so(tc: hegel::TestCase) {
+fn prop_a_read_from_a_directory_nobody_answers_at_says_so(tc: hegel::TestCase) {
     // A port that was just free: nothing listens there now.
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let slashes = "/".repeat(tc.draw(gs::integers::<usize>().max_value(2)));
@@ -233,7 +233,7 @@ type Answer = (u16, String, Value);
 /// read it, otherwise a note saying why, on one line: the account's server refused a token, the
 /// website's error or status, or the directory is still reading.
 #[hegel::test(test_cases = 30)]
-fn asking_the_directory_ends_as_the_servers_said(tc: hegel::TestCase) {
+fn prop_asking_the_directory_ends_as_the_servers_said(tc: hegel::TestCase) {
     static SERVER: OnceLock<(String, Answers)> = OnceLock::new();
     let (url, answers) = SERVER.get_or_init(|| {
         let answers: Answers = Arc::new(std::sync::Mutex::new(Default::default()));
@@ -319,7 +319,7 @@ fn prop_a_website_that_cant_be_asked_leaves_a_note(tc: hegel::TestCase) {
 /// the account's server can't be reached for a token, or the website's answer stops before the
 /// length it said, cut anywhere in its body; nothing is remembered as read.
 #[hegel::test(test_cases = 8)]
-fn a_server_that_answers_nothing_or_too_little_leaves_a_note(tc: hegel::TestCase) {
+fn prop_a_server_that_answers_nothing_or_too_little_leaves_a_note(tc: hegel::TestCase) {
     static PDS: OnceLock<String> = OnceLock::new();
     let pds =
         PDS.get_or_init(|| crate::atmosphere::tests::serving(|_, _| (200, String::new(), json!({ "token": "a.b.c" }))));

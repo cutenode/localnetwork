@@ -100,7 +100,7 @@ so they can be offered upstream.
     (`decode_string`, `decode_isrc`), a row whose fields or strings do, a table linking to a page
     past the end, or a page whose row directory doesn't fit below its header. A string of an
     unknown kind is refused as `UnknownString` before its length is read. Properties
-    (`long_string_lengths_are_checked`, `damaged_files_never_panic_the_readers`) feed the readers
+    (`prop_long_string_lengths_are_checked`, `prop_damaged_files_never_panic_the_readers`) feed the readers
     arbitrary, truncated and overwritten files.
 26. New ids without scanning: the editor's index keeps the largest track, album, artist, genre,
     label, key and artwork id at hand (worked out again only after the row holding it is

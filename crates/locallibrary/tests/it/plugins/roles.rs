@@ -204,7 +204,7 @@ fn kept(tc: &hegel::TestCase, t: &locallibrary::Track) -> Option<Kept> {
 /// hundredths, between 1 and 999.99, likewise; a value the analyzer is less sure of than asked
 /// (or doesn't say) is left out and counted; a track not analysed is counted.
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_analyzers_values_are_planned_onto_the_tracks_as_the_rules_say(tc: hegel::TestCase) {
+fn prop_an_analyzers_values_are_planned_onto_the_tracks_as_the_rules_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::fields::{Analyzer, FieldStore};
     let f = Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[])], Options::default());

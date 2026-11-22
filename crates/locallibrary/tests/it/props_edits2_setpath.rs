@@ -34,7 +34,7 @@ fn no_path() -> Vec<u8> {
 #[hegel::explicit_test_case(dat = 2u8, ext = 0u8, ex2 = 3u8, shift = true)]
 #[hegel::explicit_test_case(dat = 0u8, ext = 3u8, ex2 = 1u8, shift = true)]
 #[hegel::explicit_test_case(dat = 5u8, ext = 0u8, ex2 = 5u8, shift = false)]
-fn pointing_a_track_rewrites_the_analysis_files_that_name_its_old_file(tc: TestCase) {
+fn prop_pointing_a_track_rewrites_the_analysis_files_that_name_its_old_file(tc: TestCase) {
     let dat = tc.draw(gs::integers::<u8>().max_value(5));
     let ext = tc.draw(gs::integers::<u8>().max_value(5));
     let ex2 = tc.draw(gs::integers::<u8>().max_value(5));

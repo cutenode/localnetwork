@@ -41,7 +41,7 @@ fn each_track_missing_a_shared_file_is_reported_once() {
 /// The name Sync Manager's second copy of a file has (`Name-1`, `Name (1)`) gives back the
 /// first's, any number of digits on; a name without such an ending is its own.
 #[hegel::test(test_cases = 300)]
-fn a_sync_manager_copy_name_gives_back_the_first(tc: hegel::TestCase) {
+fn prop_a_sync_manager_copy_name_gives_back_the_first(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let stem: String = tc.draw(gs::text().alphabet("ab -()1é").min_size(1).max_size(8));
     let n = tc.draw(gs::integers::<u32>().max_value(1000));
@@ -57,7 +57,7 @@ fn a_sync_manager_copy_name_gives_back_the_first(tc: hegel::TestCase) {
 /// they differ in (lossless audio, a lossy file's bitrate, sample rate, bit depth, cues,
 /// playlists, history lists).
 #[hegel::test(test_cases = 300)]
-fn the_keeper_is_kept_for_the_first_thing_it_has_more_of(tc: hegel::TestCase) {
+fn prop_the_keeper_is_kept_for_the_first_thing_it_has_more_of(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let draw = |tc: &hegel::TestCase| DuplicateTrack {
         track: TrackRef { id: 1, name: "A - T".into(), file_path: "/Contents/t.mp3".into() },
@@ -100,7 +100,7 @@ fn the_keeper_is_kept_for_the_first_thing_it_has_more_of(tc: hegel::TestCase) {
 /// apart to well under a millisecond; a different recording, a file that isn't there and a
 /// cancelled run each come back as why not (the last as a cancel), never as an offset.
 #[hegel::test(test_cases = 4)]
-fn measured_offsets_are_the_delay_or_say_why_not(tc: hegel::TestCase) {
+fn prop_measured_offsets_are_the_delay_or_say_why_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_testkit::audio::{resample, synth, wav_of};
     let dir = tempfile::tempdir().unwrap();
@@ -135,7 +135,7 @@ fn measured_offsets_are_the_delay_or_say_why_not(tc: hegel::TestCase) {
 /// A track's audio is lossless by its extension, or for an MPEG-4 file, only when its header
 /// says Apple Lossless: one that can't be read (missing, or not MPEG-4) isn't.
 #[hegel::test(test_cases = 30)]
-fn lossless_audio_is_told_by_its_extension_or_its_header(tc: hegel::TestCase) {
+fn prop_lossless_audio_is_told_by_its_extension_or_its_header(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let d = Device::open(dir.path()).unwrap();
@@ -156,7 +156,7 @@ fn lossless_audio_is_told_by_its_extension_or_its_header(tc: hegel::TestCase) {
 /// different recordings, or one whose audio doesn't decode, have no offset, and say why.
 #[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(secs = 8.0, seed = 1u32, delay_ms = 2u32)]
-fn tracks_are_offset_only_when_they_sound_like_one_recording(tc: hegel::TestCase) {
+fn prop_tracks_are_offset_only_when_they_sound_like_one_recording(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_mixid::fingerprint::RATE;
     use loclib_testkit::audio::{resample, synth, wav_of};
@@ -200,7 +200,7 @@ use crate::format::tests::fake_tools;
 /// neither.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6)]
-fn the_doctor_judges_a_drive_by_the_disk_it_is_on(tc: hegel::TestCase) {
+fn prop_the_doctor_judges_a_drive_by_the_disk_it_is_on(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let root = fake.demo_drive("DNA");

@@ -45,7 +45,7 @@ fn only_https_addresses_and_files_that_exist_are_opened() {
 /// it that could end it early (spaces, control characters, quotes), is handed to the browser, as
 /// the URL parser writes it out.
 #[hegel::test(test_cases = 300)]
-fn only_plain_https_addresses_go_to_the_browser(tc: hegel::TestCase) {
+fn prop_only_plain_https_addresses_go_to_the_browser(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let scheme = tc.draw(gs::sampled_from(vec!["https://", "HTTPS://", "http://", "file://", "javascript:", ""]));
     let user = tc.draw(gs::sampled_from(vec!["", "@", "me@", "me:pw@", ":pw@"]));
@@ -70,7 +70,7 @@ fn only_plain_https_addresses_go_to_the_browser(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(scheme = "https://", rest = "a.example/ x".to_string(), kind = 0u8)]
 #[hegel::explicit_test_case(scheme = "file://", rest = "etc/passwd".to_string(), kind = 1u8)]
 #[hegel::explicit_test_case(scheme = "", rest = "".to_string(), kind = 2u8)]
-fn only_addresses_and_files_that_can_be_opened_are_handed_over(tc: hegel::TestCase) {
+fn prop_only_addresses_and_files_that_can_be_opened_are_handed_over(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let scheme = tc.draw(gs::sampled_from(vec!["https://", "http://", "file://", "javascript:", "-a ", ""]));
     let rest = tc.draw(gs::text().max_size(10));
@@ -106,7 +106,7 @@ use crate::format::tests::fake_tools;
 /// the opener fails, the error names it and how it ended.
 #[cfg(unix)]
 #[hegel::test(test_cases = 20)]
-fn the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
+fn prop_the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };

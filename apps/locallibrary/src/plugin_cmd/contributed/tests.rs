@@ -395,7 +395,7 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
 /// absolute, over what `--params` gives. A required one
 /// left out, or a value its type can't hold, is refused naming its flag.
 #[hegel::test(test_cases = 200)]
-fn flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {
+fn prop_flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut positional = false;
     let count = tc.draw(gs::integers::<usize>().max_value(6));
@@ -473,7 +473,7 @@ fn flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {
 /// given again adds to a list, or the last wins), and a key the format has no option for, or a
 /// pair without `=`, is refused saying what it takes.
 #[hegel::test(test_cases = 200)]
-fn options_drawn_from_a_schema_are_typed_or_refused(tc: hegel::TestCase) {
+fn prop_options_drawn_from_a_schema_are_typed_or_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const KINDS: [&str; 6] = ["integer", "number", "boolean", "string", "list", "json"];
     let keys: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,4}")).max_size(4).unique(true));

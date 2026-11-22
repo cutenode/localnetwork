@@ -95,7 +95,7 @@ fn invalid(d: &Device, edit: &Edit) -> String {
 /// database can't hold (a fifth category, a name too long for exportExt.pdb, a name taken, a
 /// category deleted) is refused, the drive left alone.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
+fn prop_tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
@@ -243,7 +243,7 @@ fn tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
 /// edits went) is refused as stale, the drive left as the other edit made it; one cancelled is
 /// refused before anything is written.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_plan_the_drive_has_moved_on_from_is_refused(tc: TestCase) {
+fn prop_a_plan_the_drive_has_moved_on_from_is_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
@@ -281,7 +281,7 @@ fn a_plan_the_drive_has_moved_on_from_is_refused(tc: TestCase) {
 /// gone, skips an edit that no longer applies to anything, and leaves one the export made
 /// already.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_replay_after_tracks_went_skips_what_no_longer_applies(tc: TestCase) {
+fn prop_a_replay_after_tracks_went_skips_what_no_longer_applies(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     let before = fs::read(root.join(paths::EXPORT_PDB)).unwrap();
@@ -335,7 +335,7 @@ fn a_replay_after_tracks_went_skips_what_no_longer_applies(tc: TestCase) {
 /// OneLibrary, whose tags are read and edited alone, as on a drive with OneLibrary only. A folder
 /// with no export has no My Tags to read.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_exportext_pdb_that_cant_be_used_is_read_around(tc: TestCase) {
+fn prop_an_exportext_pdb_that_cant_be_used_is_read_around(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let blank = common::blank(dir.path(), "Blank");
     assert!(matches!(tags::read(&Device::open(&blank).unwrap()), Err(Error::NotAnExport(_))));
@@ -389,7 +389,7 @@ fn an_exportext_pdb_that_cant_be_used_is_read_around(tc: TestCase) {
 /// drops the ones it can't place: to a track export.pdb didn't list, or one OneLibrary doesn't. A
 /// tag only one database gives a track both list is said to differ.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn links_that_cant_follow_their_tracks_are_dropped(tc: TestCase) {
+fn prop_links_that_cant_follow_their_tracks_are_dropped(tc: TestCase) {
     use locallibrary::convert::{self, ConvertOptions, Target};
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -439,7 +439,7 @@ fn links_that_cant_follow_their_tracks_are_dropped(tc: TestCase) {
 /// the file header as its next free page): an edit linking tracks is planned, then refused when
 /// applied, as exportExt.pdb's, with no backup made and the drive as it was.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_edit_exportext_pdb_cant_take_leaves_the_drive_alone(tc: TestCase) {
+fn prop_an_edit_exportext_pdb_cant_take_leaves_the_drive_alone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     let path = root.join(paths::EXPORT_EXT_PDB);

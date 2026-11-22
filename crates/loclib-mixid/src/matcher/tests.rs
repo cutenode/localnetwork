@@ -219,7 +219,7 @@ fn a_fraction_of_a_frame_is_measured() {
 /// frame or not on its own, so counting pairs called 20 s copies unmeasured.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(seed = 1u32, delay = 99usize)]
-fn a_short_copy_late_by_part_of_a_frame_is_measured(tc: TestCase) {
+fn prop_a_short_copy_late_by_part_of_a_frame_is_measured(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>().min_value(1).max_value(10_000));
     // Up to a frame: 256 samples.
     let delay = tc.draw(gs::integers::<usize>().max_value(256));
@@ -341,7 +341,7 @@ fn plays_within(tc: &TestCase, duration: f64) -> Vec<Found> {
 /// up the whole mix, the coverage is what they leave, and a minimum length only drops the
 /// shorter ones.
 #[hegel::test(test_cases = 300)]
-fn gaps_and_plays_make_up_the_mix(tc: TestCase) {
+fn prop_gaps_and_plays_make_up_the_mix(tc: TestCase) {
     let duration = tc.draw(gs::floats::<f64>().min_value(1.0).max_value(7200.0));
     let found = plays_within(&tc, duration);
     let all = gaps(&found, duration, 0.0);
@@ -370,7 +370,7 @@ fn gaps_and_plays_make_up_the_mix(tc: TestCase) {
 /// Resolving keeps the strongest play and every play nothing else overlaps, in mix order;
 /// what it names alongside a play are other tracks, each once.
 #[hegel::test(test_cases = 300)]
-fn resolving_keeps_the_strongest_and_the_unopposed(tc: TestCase) {
+fn prop_resolving_keeps_the_strongest_and_the_unopposed(tc: TestCase) {
     let found = plays_within(&tc, 600.0);
     let resolved = resolve(found.clone());
     assert!(resolved.windows(2).all(|w| w[0].start <= w[1].start));
@@ -395,7 +395,7 @@ fn resolving_keeps_the_strongest_and_the_unopposed(tc: TestCase) {
 /// any speed searched) is one play along that line: its times, speed and key lock are where
 /// its anchors put them, and its confidence and pitch follow from them.
 #[hegel::test(test_cases = 150)]
-fn a_chain_along_any_line_is_one_play(tc: TestCase) {
+fn prop_a_chain_along_any_line_is_one_play(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0));
     let to = from + tc.draw(gs::floats::<f64>().min_value(24.0).max_value(240.0));
@@ -449,7 +449,7 @@ fn a_chain_along_any_line_is_one_play(tc: TestCase) {
 // error (4.18 ms against 1.43 ms), which chance does now and then, and still within what
 // `is_precise` accepts.
 #[hegel::explicit_test_case(seed = 265281222u32, delay = 87usize, gain = 1.0f32, other = 1u32)]
-fn copies_line_up_at_any_delay(tc: TestCase) {
+fn prop_copies_line_up_at_any_delay(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>().min_value(1));
     let x = synth(30.0, seed);
     let delay = tc.draw(gs::integers::<usize>().max_value(2 * RATE as usize));
@@ -517,7 +517,7 @@ fn carries_on(index: &LibraryIndex, peaks: &[Peak], heard: &[(u32, f64, f64, f64
 /// after any silence and with any gap before the next, is heard as those tracks in that
 /// order, each where it was put in the set and from where it was taken in the track.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
+fn prop_a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
     let (tracks, index) = library();
     let secs = |s: f64| (s * RATE as f64) as usize;
     let order =
@@ -551,7 +551,7 @@ fn a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
 /// the pieces that carry on where the last left off, another after each jump, and the jumps
 /// counted.
 #[hegel::test(test_cases = 150)]
-fn a_track_heard_in_pieces_is_a_play_for_each_stretch(tc: TestCase) {
+fn prop_a_track_heard_in_pieces_is_a_play_for_each_stretch(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let speed = tc.draw(gs::floats::<f64>().min_value(0.95).max_value(1.05));
     let (mut from, mut at) = (tc.draw(gs::floats::<f64>().min_value(0.0).max_value(100.0)), 30.0);
@@ -599,7 +599,7 @@ fn a_track_heard_in_pieces_is_a_play_for_each_stretch(tc: TestCase) {
 /// A track played at one speed for any length of time is one line however its anchors are
 /// rounded, a frame early here and there as onsets land: whole frames never tip it into a ride.
 #[hegel::test(test_cases = 150)]
-fn a_play_at_one_speed_is_never_split(tc: TestCase) {
+fn prop_a_play_at_one_speed_is_never_split(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0));
     let to = from + tc.draw(gs::floats::<f64>().min_value(24.0).max_value(300.0));
@@ -624,7 +624,7 @@ fn a_play_at_one_speed_is_never_split(tc: TestCase) {
 /// meeting where it changed give or take what whole frames move that by, and the play's speeds
 /// run between them.
 #[hegel::test(test_cases = 150)]
-fn a_change_of_speed_is_found_where_it_happened(tc: TestCase) {
+fn prop_a_change_of_speed_is_found_where_it_happened(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0));
     let knot = from + tc.draw(gs::floats::<f64>().min_value(30.0).max_value(120.0));
@@ -669,7 +669,7 @@ fn key(d: &Detection) -> (u32, u32, u16, u32, Vec<(u32, u32)>) {
 /// the order `detect` gives them), chaining puts each in exactly one chain of its own track, and
 /// a chain moves on through the mix: one detection a slice, never more than a few slices apart.
 #[hegel::test(test_cases = 300)]
-fn chaining_puts_every_detection_in_one_chain(tc: TestCase) {
+fn prop_chaining_puts_every_detection_in_one_chain(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let mut detections: Vec<Detection> = (0..tc.draw(gs::integers::<usize>().max_value(30)))
         .map(|_| {
@@ -719,7 +719,7 @@ fn nearest(variants: &[Variant], speed: f64) -> usize {
 /// when its anchors span under 8 s, too short for a slope, and when they lie along a line over
 /// 2% off it (the fit locked onto noise); otherwise it's the slope they measure.
 #[hegel::test(test_cases = 300)]
-fn a_stretch_is_a_play_with_votes_enough(tc: TestCase) {
+fn prop_a_stretch_is_a_play_with_votes_enough(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(300.0));
     let len = tc.draw(gs::floats::<f64>().min_value(4.0).max_value(60.0));
@@ -768,7 +768,7 @@ fn a_stretch_is_a_play_with_votes_enough(tc: TestCase) {
 /// some slices), is one play along that line: its votes counted once a slice (the stronger
 /// of the two there), its slices each heard once.
 #[hegel::test(test_cases = 200)]
-fn a_stretch_found_twice_is_one_play(tc: TestCase) {
+fn prop_a_stretch_found_twice_is_one_play(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(100.0));
     let len = tc.draw(gs::floats::<f64>().min_value(30.0).max_value(80.0));
@@ -817,7 +817,7 @@ fn a_stretch_found_twice_is_one_play(tc: TestCase) {
 // 24 s from the last 3 frames of a slice: `chain_at` gives that slice no anchors and leaves out
 // the one it ends partway through, so the stretch after it is heard in 5 slices, 25 votes.
 #[hegel::explicit_test_case(len = 24.0f64, kind = 2u8, on = 7.84375f64)]
-fn a_track_isnt_heard_in_two_places_at_once(tc: TestCase) {
+fn prop_a_track_isnt_heard_in_two_places_at_once(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     // 15 slices of 20 votes.
     let strong = chain_at(&variants, 0.0, 60.0, 10.0, 1.0);
@@ -858,7 +858,7 @@ fn a_track_isnt_heard_in_two_places_at_once(tc: TestCase) {
 /// back further on. That's so whatever the key lock reading, and however its line is split
 /// up: a line cut into pieces traces as the whole of it.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn tracing_follows_a_play_along_its_line(tc: TestCase) {
+fn prop_tracing_follows_a_play_along_its_line(tc: TestCase) {
     let (tracks, index) = library();
     let variants = fingerprint::variants(0.02);
     let secs = |s: f64| (s * RATE as f64) as usize;
@@ -913,7 +913,7 @@ fn tracing_follows_a_play_along_its_line(tc: TestCase) {
 
 /// A cancelled search stops as cancelled, whatever it searches for and in.
 #[hegel::test(test_cases = 20)]
-fn a_cancelled_search_is_cancelled(tc: TestCase) {
+fn prop_a_cancelled_search_is_cancelled(tc: TestCase) {
     let prints = (0..tc.draw(gs::integers::<u32>().max_value(3)))
         .map(|i| (i, TrackPrint { duration_secs: 30.0, peaks: crate::index::tests::sorted_peaks(&tc, 6, 300) }))
         .collect();
@@ -929,7 +929,7 @@ fn a_cancelled_search_is_cancelled(tc: TestCase) {
 
 /// A mix of no length has nothing to cover, whatever was found in it.
 #[hegel::test(test_cases = 50)]
-fn a_mix_of_no_length_is_not_covered(tc: TestCase) {
+fn prop_a_mix_of_no_length_is_not_covered(tc: TestCase) {
     let found = plays_within(&tc, 600.0);
     let duration = tc.draw(gs::floats::<f64>().min_value(-600.0).max_value(0.0));
     assert_eq!(coverage(&found, duration), 0.0);
@@ -939,7 +939,7 @@ fn a_mix_of_no_length_is_not_covered(tc: TestCase) {
 /// matches it as strongly at every recurrence: a slice keeps three of them at most, each
 /// with votes enough, at its own place in the track, the strongest first.
 #[hegel::test(test_cases = 25)]
-fn a_recurring_stretch_is_heard_three_ways_at_most(tc: TestCase) {
+fn prop_a_recurring_stretch_is_heard_three_ways_at_most(tc: TestCase) {
     let period = tc.draw(gs::integers::<u32>().min_value(70).max_value(120));
     let mut pattern: Vec<Peak> = tc
         .draw(
@@ -977,7 +977,7 @@ fn a_recurring_stretch_is_heard_three_ways_at_most(tc: TestCase) {
 /// A print lines up with itself within a frame of no offset, with enough of it in common, and
 /// with an empty print not at all, either way round.
 #[hegel::test(test_cases = 200)]
-fn a_print_lines_up_with_itself_and_not_with_nothing(tc: TestCase) {
+fn prop_a_print_lines_up_with_itself_and_not_with_nothing(tc: TestCase) {
     let mut peaks = crate::index::tests::sorted_peaks(&tc, 6, 200);
     // Peaks in pairs a frame apart, as a sustained note gives: then no peak has one match
     // alone, and the offset comes from the landmarks.
@@ -999,7 +999,7 @@ fn a_print_lines_up_with_itself_and_not_with_nothing(tc: TestCase) {
 /// Pairs all at one mix time have no slope of their own: the line through them takes the one
 /// it's given, through their middle.
 #[hegel::test(test_cases = 100)]
-fn all_at_one_mix_time_a_line_takes_the_slope_it_is_given(tc: TestCase) {
+fn prop_all_at_one_mix_time_a_line_takes_the_slope_it_is_given(tc: TestCase) {
     let t = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1e6));
     let taus: Vec<f64> = tc.draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(1e6)).min_size(1).max_size(8));
     let fallback = tc.draw(gs::floats::<f64>().min_value(0.9).max_value(1.1));
@@ -1027,7 +1027,7 @@ fn a_mean_that_rounds_doesnt_make_a_slope_of_nothing() {
 #[hegel::explicit_test_case(count = 16usize, width = 0u32)]
 #[hegel::explicit_test_case(count = 17usize, width = 0u32)]
 #[hegel::explicit_test_case(count = 16usize, width = 1u32)]
-fn a_line_left_too_short_to_measure_isnt_measured(tc: TestCase) {
+fn prop_a_line_left_too_short_to_measure_isnt_measured(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let (mix, track) = (1000, 500);
     let away = 9 * FRAMES_PER_SEC as u32;
@@ -1048,7 +1048,7 @@ fn a_line_left_too_short_to_measure_isnt_measured(tc: TestCase) {
 /// track is heard, isn't where the track came in or went out: along a track every anchor has
 /// another within a second.
 #[hegel::test(test_cases = 100)]
-fn a_stray_vote_on_a_chains_line_isnt_where_it_ends(tc: TestCase) {
+fn prop_a_stray_vote_on_a_chains_line_isnt_where_it_ends(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     let from = tc.draw(gs::floats::<f64>().min_value(10.0).max_value(600.0));
     let to = from + tc.draw(gs::floats::<f64>().min_value(24.0).max_value(240.0));
@@ -1076,7 +1076,7 @@ fn a_stray_vote_on_a_chains_line_isnt_where_it_ends(tc: TestCase) {
 /// peaks, which a motif two tracks share gives too: counted apiece, they carried a play seconds on
 /// into the next track.
 #[hegel::test(test_cases = 100)]
-fn tracing_hears_a_bin_from_matches_that_share_no_peak(tc: TestCase) {
+fn prop_tracing_hears_a_bin_from_matches_that_share_no_peak(tc: TestCase) {
     // A track with a peak every 10 frames, each paired in the index with the next.
     let (base, turn) = (
         tc.draw(gs::integers::<u8>().min_value(20).max_value(200)),

@@ -338,7 +338,7 @@ fn drawn_candidate(tc: &TestCase) -> Value {
 /// picked exactly when one alone scores the setting or more;
 /// planned, the picks write each tag a track lacks (or, with `replace`, any it doesn't have).
 #[hegel::test(test_cases = 20)]
-fn any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
+fn prop_any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
     let f = Fixture::providers(&["echo", "second"]);
     let threshold = tc.draw(gs::integers::<u8>().max_value(100)) as f64 / 100.0;
     set_auto_pick(&f.store, Some(threshold)).unwrap();
@@ -413,7 +413,7 @@ fn any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
 /// the tracks, a provider whose file isn't an image a warning, and the covers picked (by answering
 /// each track's question) are set on exactly those tracks, given their images.
 #[hegel::test(test_cases = 15)]
-fn any_covers_found_are_offered_once_and_set_as_picked(tc: TestCase) {
+fn prop_any_covers_found_are_offered_once_and_set_as_picked(tc: TestCase) {
     let f = Fixture::providers(&["echo"]);
     let files = [jpeg(32), jpeg(48), vec![0u8; 4]];
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
@@ -512,7 +512,7 @@ fn a_provider_past_what_a_call_holds_is_cut_off() {
 /// of them as many as it keeps, or an image would take their images in base64 past what they may
 /// come to; each image held once, only the candidates', and each limit passed said once.
 #[hegel::test(test_cases = 15)]
-fn any_answer_is_held_within_what_a_call_holds(tc: TestCase) {
+fn prop_any_answer_is_held_within_what_a_call_holds(tc: TestCase) {
     let files = [jpeg(32), jpeg(48)];
     let raw = (files[0].len() + files[1].len()) as u64;
     let options = Options {

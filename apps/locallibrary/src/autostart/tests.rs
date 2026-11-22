@@ -43,7 +43,7 @@ fn unescape_xml(s: &str) -> String {
 /// launchd agent's `ProgramArguments` as they went in, one `<string>` each, and nothing of them
 /// is left unescaped to be read as markup.
 #[hegel::test(test_cases = 200)]
-fn plist_arguments_read_back(tc: TestCase) {
+fn prop_plist_arguments_read_back(tc: TestCase) {
     let exe = tc.draw(gs::text().min_size(1).max_size(20));
     let args = tc.draw(gs::vecs(gs::text().max_size(20)).max_size(6));
     let log = tc.draw(gs::text().min_size(1).max_size(20));
@@ -103,7 +103,7 @@ fn exec_words(line: &str) -> Vec<String> {
 /// Any executable and arguments come back out of the systemd unit's `ExecStart` as they went in:
 /// each quoted, with no `%` specifier or `$` variable left for systemd to expand.
 #[hegel::test(test_cases = 200)]
-fn unit_arguments_read_back(tc: TestCase) {
+fn prop_unit_arguments_read_back(tc: TestCase) {
     let exe = tc.draw(gs::text().min_size(1).max_size(20));
     let args = tc.draw(gs::vecs(gs::text().max_size(20)).max_size(6));
     let want: Vec<String> = std::iter::once(Path::new(&exe).display().to_string()).chain(args.clone()).collect();

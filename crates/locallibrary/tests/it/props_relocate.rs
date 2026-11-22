@@ -25,7 +25,7 @@ fn survivors(files: &[(u64, u16)], size: u64, secs: u16) -> Vec<usize> {
 }
 
 #[hegel::test(test_cases = 40)]
-fn a_track_gets_a_file_only_when_one_fits(tc: TestCase) {
+fn prop_a_track_gets_a_file_only_when_one_fits(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     // Silent WAVs: 8 kHz for 2 s is the size of 16 kHz for 1 s.

@@ -85,7 +85,7 @@ fn panics_say_what_they_said() {
 /// wins, fields given win over what the kind says (last given first), actions keep their
 /// order, and a permission error always offers to run elevated.
 #[hegel::test(test_cases = 300)]
-fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
+fn prop_detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let kinds: Vec<fn() -> Error> = vec![
         || Error::Io { path: "/a".into(), source: io::Error::other("gone") },
@@ -182,7 +182,7 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
 /// A track id the library doesn't have is `not_found` naming it, and says it's one only
 /// OneLibrary has exactly when the id carries OneLibrary's own-track flag.
 #[hegel::test(test_cases = 200)]
-fn a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
+fn prop_a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let id = tc.draw(gs::integers::<u32>());
     let e = Error::no_track(id);
@@ -194,7 +194,7 @@ fn a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
 
 /// An I/O error given a path says which, and keeps its cause.
 #[hegel::test(test_cases = 50)]
-fn io_errors_name_their_path(tc: hegel::TestCase) {
+fn prop_io_errors_name_their_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "Ünï/ANLZ0000.DAT", "a b"]));
     let r: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "no such file"));
@@ -210,7 +210,7 @@ fn io_errors_name_their_path(tc: hegel::TestCase) {
 /// `io` with its path, one that isn't what it should be `parse`, a stop `cancelled`, a bad
 /// argument `invalid`) and their message, detail added on top or not.
 #[hegel::test(test_cases = 400)]
-fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase) {
+fn prop_errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/Volumes/A/x.mp3", "/tmp/é.flac"])));
     let message = tc.draw(gs::text().alphabet("abc é:").min_size(1).max_size(8));
@@ -289,7 +289,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
 
 /// What a panic said, whether it panicked with a literal or a formatted message.
 #[hegel::test(test_cases = 100)]
-fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
+fn prop_a_panics_text_is_what_it_said(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let said = tc.draw(gs::text().max_size(12));
     let literal = std::panic::catch_unwind(|| std::panic::panic_any("fixed")).unwrap_err();
@@ -303,7 +303,7 @@ fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
 /// What a capacity probe's errors become: an I/O error keeps its path, a device that needs rights
 /// is a `permission` error that says so and asks to run as an administrator, a stop `cancelled`.
 #[hegel::test(test_cases = 50)]
-fn capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+fn prop_capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_capacity::Error as C;
     let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/dev/rdisk4", "/dev/sdb"])));

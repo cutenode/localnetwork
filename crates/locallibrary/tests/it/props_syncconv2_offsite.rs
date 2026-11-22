@@ -40,13 +40,13 @@ fn stopped(store: &Store, dest: &std::path::Path, at: usize) -> Error {
 /// the copy may have been pulled into since (with `--store`): copying over the snapshots only it
 /// has is refused unless forced. Labels come along.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_stopped_copy_carries_on_from_where_it_stopped(tc: TestCase) {
+fn prop_a_stopped_copy_carries_on_from_where_it_stopped(tc: TestCase) {
     for later in [false, true] {
         a_stopped_copy_carries_on_from_where_it_stopped_with(&tc, later);
     }
 }
 
-/// One case of [`a_stopped_copy_carries_on_from_where_it_stopped`]: `later` when the copy is
+/// One case of [`prop_a_stopped_copy_carries_on_from_where_it_stopped`]: `later` when the copy is
 /// stopped catching up rather than the first time.
 #[hegel::test_helper]
 fn a_stopped_copy_carries_on_from_where_it_stopped_with(tc: &TestCase, later: bool) {
@@ -118,7 +118,7 @@ fn a_stopped_copy_carries_on_from_where_it_stopped_with(tc: &TestCase, later: bo
 /// marker, can go there), or with a record of the store's that can't be read (it says which, and
 /// once it can be, the copy carries on). A snapshot one of whose files the store lost is left out.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_copy_that_cant_be_made_says_why(tc: TestCase) {
+fn prop_a_copy_that_cant_be_made_says_why(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let a = common::demo_drive(dir.path(), "A");

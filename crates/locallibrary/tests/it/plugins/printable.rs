@@ -86,7 +86,7 @@ enum Answer {
 /// the text around them does. Regression: only check findings, notices and the plugin's log were
 /// made printable.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn no_control_character_a_plugin_sends_reaches_the_output(tc: TestCase) {
+fn prop_no_control_character_a_plugin_sends_reaches_the_output(tc: TestCase) {
     let (said, prints) = noisy(&tc);
     let kinds = vec![
         Answer::Headless,

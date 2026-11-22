@@ -19,7 +19,7 @@ fn without_a_waveform() {
 /// whatever case its extension is written in: an MP3 at its first frame, lossless audio at its
 /// first sample, AAC (an MPEG-4 file that isn't Apple Lossless, or can't be read) not at all.
 #[hegel::test(test_cases = 30)]
-fn without_a_waveform_the_lead_is_told_by_the_kind_of_audio(tc: hegel::TestCase) {
+fn prop_without_a_waveform_the_lead_is_told_by_the_kind_of_audio(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let device = Device::open(dir.path()).unwrap();

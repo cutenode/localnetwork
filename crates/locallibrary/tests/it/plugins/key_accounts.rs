@@ -108,7 +108,7 @@ impl Keyed {
     }
 }
 
-/// Where a step of [`keys_land_only_in_the_authorization_header`] names the account, as the whole
+/// Where a step of [`prop_keys_land_only_in_the_authorization_header`] names the account, as the whole
 /// value.
 #[derive(Debug, Clone, Copy)]
 enum Named {
@@ -127,7 +127,7 @@ enum Named {
 /// key gets into the plugins' logs or the store but its secrets.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(steps = vec![Named::Query("accesskey"), Named::Authorization, Named::Query("other")])]
-fn keys_land_only_in_the_authorization_header(tc: TestCase) {
+fn prop_keys_land_only_in_the_authorization_header(tc: TestCase) {
     let k = keyed(false);
     let keys = ("ak-0123456789".to_string(), "sk-9876543210".to_string());
     k.sign_in(&entered(&keys.0, &keys.1), Some("me")).unwrap();
@@ -162,7 +162,7 @@ fn keys_land_only_in_the_authorization_header(tc: TestCase) {
     assert!(!k.leaked(&answers.iter().collect::<Vec<_>>(), &[&keys.0, &keys.1]), "a key is out where it may not be");
 }
 
-/// Who a step of [`a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered`] signs in
+/// Who a step of [`prop_a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered`] signs in
 /// as, and the keys each has: two pairs.
 const PEOPLE: [&str; 2] = ["alice", "bob"];
 
@@ -171,7 +171,7 @@ fn keys_of(person: &str, n: usize) -> (String, String) {
     (format!("ak-{person}-{n}-0000"), format!("sk-{person}-{n}-0000"))
 }
 
-/// A step of [`a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered`], naming people
+/// A step of [`prop_a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered`], naming people
 /// by their place in [`PEOPLE`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
@@ -192,7 +192,7 @@ enum Step {
 /// each account kept and no others; and no key gets into `accounts.json`, an error, a listing or a
 /// log.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCase) {
+fn prop_a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCase) {
     let whoami = tc.draw(gs::booleans());
     let k = keyed(whoami);
     for person in PEOPLE {

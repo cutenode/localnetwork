@@ -68,7 +68,7 @@ fn palette(tc: &TestCase) -> Palette<'static> {
 /// Any widget, with anything to draw, draws only inside the area it's given: the cells around
 /// it are left as they were.
 #[hegel::test(test_cases = 400)]
-fn widgets_draw_only_inside_their_area(tc: TestCase) {
+fn prop_widgets_draw_only_inside_their_area(tc: TestCase) {
     let (width, height) = (tc.draw(gs::integers::<u16>().max_value(90)), tc.draw(gs::integers::<u16>().max_value(14)));
     let area = Rect::new(
         tc.draw(gs::integers::<u16>().max_value(3)),
@@ -157,7 +157,7 @@ fn widgets_draw_only_inside_their_area(tc: TestCase) {
 /// colour (or its line where the waveform is empty), and with no waveform a rail ends in a dot
 /// there.
 #[hegel::test(test_cases = 300)]
-fn the_overview_marks_the_playhead(tc: TestCase) {
+fn prop_the_overview_marks_the_playhead(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -190,7 +190,7 @@ fn the_overview_marks_the_playhead(tc: TestCase) {
 /// A cue is marked in the overview's top row where it falls in the track: a hot cue by its
 /// letter, a memory cue by a triangle.
 #[hegel::test(test_cases = 300)]
-fn the_overview_marks_a_cue_where_it_falls(tc: TestCase) {
+fn prop_the_overview_marks_a_cue_where_it_falls(tc: TestCase) {
     let area = Rect::new(0, 0, tc.draw(gs::integers::<u16>().min_value(4).max_value(120)), 3);
     let duration_ms = tc.draw(gs::floats::<f64>().min_value(1000.0).max_value(600_000.0));
     let c = Cue { end_ms: None, ..cue(&tc, duration_ms as u32 - 1) };
@@ -206,7 +206,7 @@ fn the_overview_marks_a_cue_where_it_falls(tc: TestCase) {
 
 /// The detail view keeps the playhead in its middle, whatever is around it.
 #[hegel::test(test_cases = 200)]
-fn the_detail_view_centres_the_playhead(tc: TestCase) {
+fn prop_the_detail_view_centres_the_playhead(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -226,7 +226,7 @@ fn the_detail_view_centres_the_playhead(tc: TestCase) {
 /// Bars rise with their level, from the bottom: none for silence, the full height at full scale,
 /// and a louder band never lower than a quieter one.
 #[hegel::test(test_cases = 300)]
-fn spectrum_bars_rise_with_their_level(tc: TestCase) {
+fn prop_spectrum_bars_rise_with_their_level(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -261,7 +261,7 @@ fn spectrum_bars_rise_with_their_level(tc: TestCase) {
 /// As many bars fit as the width takes, and one more wouldn't. A mirrored pair and its gap take
 /// three columns.
 #[hegel::test(test_cases = 300)]
-fn bars_fill_the_width(tc: TestCase) {
+fn prop_bars_fill_the_width(tc: TestCase) {
     let width = tc.draw(gs::integers::<u16>().min_value(3).max_value(400));
     let mirror = tc.draw(gs::booleans());
     let (n, bar, gap) = bar_layout(width, mirror);
@@ -275,7 +275,7 @@ fn bars_fill_the_width(tc: TestCase) {
 /// Mixing stays between the two colours and reaches each at its end; scaling darkens below 1
 /// and brightens above; a gradient passes through each of its stops.
 #[hegel::test(test_cases = 500)]
-fn colours_mix_between_their_ends(tc: TestCase) {
+fn prop_colours_mix_between_their_ends(tc: TestCase) {
     let (a, b) = (rgb(&tc), rgb(&tc));
     let t = tc.draw(gs::floats::<f32>().min_value(-1.0).max_value(2.0));
     let m = mix(a, b, t);
@@ -294,7 +294,7 @@ fn colours_mix_between_their_ends(tc: TestCase) {
 /// A cue is called by its comment, and a loop by its length too: as rekordbox stored it, or in
 /// beats at the tempo.
 #[hegel::test(test_cases = 500)]
-fn cue_labels_name_loops_by_their_length(tc: TestCase) {
+fn prop_cue_labels_name_loops_by_their_length(tc: TestCase) {
     let c = cue(&tc, 600_000);
     let bpm = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(200.0));
     let label = cue_label(&c, bpm);
@@ -320,7 +320,7 @@ fn cue_labels_name_loops_by_their_length(tc: TestCase) {
 /// The record is round: the spindle hole and the corners are clear, every other pixel is
 /// drawn, and it looks the same turned half way round, but for the light on it.
 #[hegel::test(test_cases = 200)]
-fn the_record_is_round(tc: TestCase) {
+fn prop_the_record_is_round(tc: TestCase) {
     let (cols, rows) = (tc.draw(gs::integers::<u16>().max_value(60)), tc.draw(gs::integers::<u16>().max_value(30)));
     let px = vinyl(cols, rows, tc.draw(gs::floats::<f32>().min_value(0.0).max_value(7.0)), rgb(&tc), rgb(&tc));
     let (w, h) = (cols as usize, rows as usize * 2);
@@ -359,7 +359,7 @@ fn the_record_is_round(tc: TestCase) {
 /// aren't a picture are none.
 #[cfg(feature = "image")]
 #[hegel::test(test_cases = 60)]
-fn art_is_resampled_to_any_size(tc: TestCase) {
+fn prop_art_is_resampled_to_any_size(tc: TestCase) {
     use loclib_waveform::Art;
     let colour = rgb(&tc);
     let (w, h) = (
@@ -393,7 +393,7 @@ fn art_is_resampled_to_any_size(tc: TestCase) {
 /// cue lane every cue in view is marked where it falls, a hot cue by its letter and a memory
 /// cue by a diamond, and a lane under 8 columns wide draws nothing.
 #[hegel::test(test_cases = 300)]
-fn cues_are_marked_along_their_length(tc: TestCase) {
+fn prop_cues_are_marked_along_their_length(tc: TestCase) {
     let width = tc.draw(gs::integers::<u16>().min_value(8).max_value(120));
     let duration_ms = tc.draw(gs::floats::<f64>().min_value(1000.0).max_value(600_000.0));
     let c = cue(&tc, duration_ms as u32 - 1);
@@ -430,7 +430,7 @@ fn cues_are_marked_along_their_length(tc: TestCase) {
 /// a widget draws what fits and nothing more: the columns there are as it draws them where the
 /// whole area fits.
 #[hegel::test(test_cases = 300)]
-fn widgets_draw_what_fits_in_a_narrower_buffer(tc: TestCase) {
+fn prop_widgets_draw_what_fits_in_a_narrower_buffer(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -470,7 +470,7 @@ fn widgets_draw_what_fits_in_a_narrower_buffer(tc: TestCase) {
 
 /// In the detail view the playhead crosses silence as a line through the middle.
 #[hegel::test(test_cases = 100)]
-fn the_playhead_crosses_silence_as_a_line(tc: TestCase) {
+fn prop_the_playhead_crosses_silence_as_a_line(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -496,7 +496,7 @@ fn the_playhead_crosses_silence_as_a_line(tc: TestCase) {
 /// The phrase strip shows each phrase in its colour, dimmed where it's been played, and the
 /// playhead over it.
 #[hegel::test(test_cases = 200)]
-fn phrases_dim_once_played(tc: TestCase) {
+fn prop_phrases_dim_once_played(tc: TestCase) {
     let width = tc.draw(gs::integers::<u16>().min_value(8).max_value(120));
     let area = Rect::new(0, 0, width, 1);
     let duration_ms = 60_000.0;
@@ -552,7 +552,7 @@ fn prop_phrases_show_whole_names_or_none(tc: TestCase) {
 /// leaves the rest out: at full level each bar that fits is filled top to bottom, and the gaps
 /// between them stay empty.
 #[hegel::test(test_cases = 200)]
-fn spectra_draw_the_bars_that_fit(tc: TestCase) {
+fn prop_spectra_draw_the_bars_that_fit(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -577,7 +577,7 @@ fn spectra_draw_the_bars_that_fit(tc: TestCase) {
 
 /// Silence on the scope is a flat line across the middle: one row, the whole width.
 #[hegel::test(test_cases = 100)]
-fn the_scope_draws_silence_flat(tc: TestCase) {
+fn prop_the_scope_draws_silence_flat(tc: TestCase) {
     let area = Rect::new(
         0,
         0,
@@ -597,7 +597,7 @@ fn the_scope_draws_silence_flat(tc: TestCase) {
 /// hands back the same pixels, without resampling them again.
 #[cfg(feature = "image")]
 #[hegel::test(test_cases = 30)]
-fn art_is_resampled_once_per_size(tc: TestCase) {
+fn prop_art_is_resampled_once_per_size(tc: TestCase) {
     use loclib_waveform::Art;
     let side = tc.draw(gs::integers::<u32>().min_value(1).max_value(24));
     let mut bytes = std::io::Cursor::new(Vec::new());
@@ -628,7 +628,7 @@ fn contrast_is_wcags() {
 /// Any two colours: contrast doesn't care which is which, reaches from 1 to 21, and the ink picked
 /// reads at least as well as the one left.
 #[hegel::test(test_cases = 300)]
-fn the_better_ink_reads_at_least_as_well(tc: TestCase) {
+fn prop_the_better_ink_reads_at_least_as_well(tc: TestCase) {
     let (a, b, paper) = (rgb(&tc), rgb(&tc), rgb(&tc));
     assert_eq!(contrast(a, b), contrast(b, a));
     assert!((1.0..=21.01).contains(&contrast(a, b)), "{a:?} {b:?}");
@@ -643,7 +643,7 @@ fn the_better_ink_reads_at_least_as_well(tc: TestCase) {
 /// A colour fades towards the background: all of it at 1, none at 0, whichever background it is;
 /// on black it's what scaling it would be.
 #[hegel::test(test_cases = 300)]
-fn colours_fade_towards_the_background(tc: TestCase) {
+fn prop_colours_fade_towards_the_background(tc: TestCase) {
     let (c, background) = (rgb(&tc), rgb(&tc));
     let p = Palette { background, ..Palette::default() };
     assert_eq!(p.fade(c, 1.0), c);

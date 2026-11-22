@@ -227,7 +227,7 @@ impl RawDisk for Simulated {
 /// overlap (a region written over by the next would read back wrong on a real disk), and
 /// number one per MiB up to 256.
 #[hegel::test(test_cases = 500)]
-fn regions_are_aligned_and_apart(tc: TestCase) {
+fn prop_regions_are_aligned_and_apart(tc: TestCase) {
     let align = tc.draw(gs::sampled_from(vec![512u64, 4096]));
     let sectors = tc.draw(hegel::one_of!(
         gs::integers::<u64>().max_value(80 * MIB / 512),
@@ -252,7 +252,7 @@ fn regions_are_aligned_and_apart(tc: TestCase) {
 /// past that. Data read back from the wrong place came from the place it wraps onto, and is
 /// reported as its schema says. Progress counts every region written and verified.
 #[hegel::test(test_cases = 25)]
-fn probes_find_the_real_capacity(tc: TestCase) {
+fn prop_probes_find_the_real_capacity(tc: TestCase) {
     let align = tc.draw(gs::sampled_from(vec![512u64, 4096]));
     let claimed = tc.draw(gs::integers::<u64>().min_value(1).max_value(12 * MIB / align)) * align;
     let fake = tc.draw(gs::booleans());
@@ -319,7 +319,7 @@ fn probes_find_the_real_capacity(tc: TestCase) {
 /// A cancelled probe stops before writing a single pattern, with the boot region already
 /// wiped, and reports the cancellation.
 #[hegel::test(test_cases = 20)]
-fn a_cancelled_probe_stops_after_the_wipe(tc: TestCase) {
+fn prop_a_cancelled_probe_stops_after_the_wipe(tc: TestCase) {
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(4)) * MIB;
     let mut disk = Simulated { data: vec![0xFF; size as usize], past: Past::Wrap };
     let cancel = loclib_progress::CancelToken::new();
@@ -334,7 +334,7 @@ fn a_cancelled_probe_stops_after_the_wipe(tc: TestCase) {
 /// caches, which only root may.
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 #[hegel::test(test_cases = 10)]
-fn device_files_probe_as_real(tc: TestCase) {
+fn prop_device_files_probe_as_real(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rdisk4");
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(6 * MIB / 512)) * 512;
@@ -352,7 +352,7 @@ fn device_files_probe_as_real(tc: TestCase) {
 /// one a whole number of real sizes below it, listed in order (at most 8), and all below it
 /// read back.
 #[hegel::test(test_cases = 25)]
-fn wrapping_disks_show_where_each_region_landed(tc: TestCase) {
+fn prop_wrapping_disks_show_where_each_region_landed(tc: TestCase) {
     let claimed_mib = tc.draw(gs::integers::<u64>().min_value(2).max_value(12));
     let real_mib = tc.draw(gs::integers::<u64>().min_value(1).max_value(claimed_mib - 1));
     let align = tc.draw(gs::sampled_from(vec![512u32, 4096]));
@@ -369,9 +369,9 @@ fn wrapping_disks_show_where_each_region_landed(tc: TestCase) {
 }
 
 /// A file standing in for a disk reads back, from where it was written, what was written there;
-/// a missing one can't be opened. (Probing one is `device_files_probe_as_real`, which Linux skips.)
+/// a missing one can't be opened. (Probing one is `prop_device_files_probe_as_real`, which Linux skips.)
 #[hegel::test(test_cases = 10)]
-fn device_files_read_back_what_was_written_where(tc: TestCase) {
+fn prop_device_files_read_back_what_was_written_where(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rdisk4");
     std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
@@ -409,7 +409,7 @@ fn a_linux_probe_drops_the_caches_or_stops() {
 /// it; one it may is opened.
 #[cfg(unix)]
 #[hegel::test(test_cases = 10)]
-fn devices_that_cant_be_written_ask_for_rights(tc: TestCase) {
+fn prop_devices_that_cant_be_written_ask_for_rights(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(format!("rdisk{}", tc.draw(gs::integers::<u8>())));
@@ -436,7 +436,7 @@ fn is_root(path: &std::path::Path) -> bool {
 /// A region the real size cuts through (its start kept, the rest dropped) holds its own header
 /// where it was written: it fails, but it is no alias. Only the regions that don't fit fail.
 #[hegel::test(test_cases = 25)]
-fn a_region_cut_short_by_the_real_size_is_no_alias(tc: TestCase) {
+fn prop_a_region_cut_short_by_the_real_size_is_no_alias(tc: TestCase) {
     let claimed_mib = tc.draw(gs::integers::<u64>().min_value(2).max_value(10));
     let whole = tc.draw(gs::integers::<u64>().max_value(claimed_mib - 1));
     // Some sectors past a whole number of MiB: enough for the region's header, not the region.
@@ -508,7 +508,7 @@ fn prop_a_probe_stops_at_a_disk_error_or_a_cancel_before_reading(tc: TestCase) {
 /// the same ones, fills the whole buffer (a last word cut short included) and differs from the
 /// next offset's.
 #[hegel::test(test_cases = 100)]
-fn patterns_are_headed_and_repeatable(tc: TestCase) {
+fn prop_patterns_are_headed_and_repeatable(tc: TestCase) {
     let offset = tc.draw(gs::integers::<u64>());
     let nonce = tc.draw(gs::integers::<u64>());
     let len = tc.draw(gs::integers::<usize>().min_value(24).max_value(4096));

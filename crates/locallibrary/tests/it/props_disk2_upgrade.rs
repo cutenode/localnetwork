@@ -19,7 +19,7 @@ const SECS: f64 = 15.0;
 
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(hi_res = true, broken = true, odd_m4a = true)]
-fn only_good_lossless_files_a_player_takes_are_used(tc: TestCase) {
+fn prop_only_good_lossless_files_a_player_takes_are_used(tc: TestCase) {
     let hi_res = tc.draw(gs::booleans());
     let broken = tc.draw(gs::booleans());
     let odd_m4a = tc.draw(gs::booleans());

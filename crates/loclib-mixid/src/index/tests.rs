@@ -59,7 +59,7 @@ pub(crate) fn sorted_peaks(tc: &TestCase, max_gap: u32, max_len: usize) -> Vec<P
 /// Any print reads back as it was, and a print cut short or with a byte to spare doesn't
 /// read at all.
 #[hegel::test(test_cases = 300)]
-fn any_print_round_trips(tc: TestCase) {
+fn prop_any_print_round_trips(tc: TestCase) {
     let peaks = sorted_peaks(&tc, 1 << 20, 40);
     let duration_secs = tc.draw(gs::floats::<f32>().allow_nan(false));
     let p = TrackPrint { duration_secs, peaks };
@@ -74,7 +74,7 @@ fn any_print_round_trips(tc: TestCase) {
 /// Bytes from anywhere (a damaged cache file) never panic the decoder, and whatever it reads
 /// from them is a print in frame order that writes and reads back the same.
 #[hegel::test(test_cases = 300)]
-fn any_bytes_decode_safely(tc: TestCase) {
+fn prop_any_bytes_decode_safely(tc: TestCase) {
     let header = tc.draw(gs::booleans());
     let body = tc.draw(gs::binary().max_size(64));
     let n = tc.draw(gs::integers::<u32>().max_value(40));
@@ -93,7 +93,7 @@ fn any_bytes_decode_safely(tc: TestCase) {
 /// index holds nothing else: a small library has no hash common enough to drop. Its size kept is
 /// known before it's written.
 #[hegel::test(test_cases = 25)]
-fn the_index_holds_every_landmark(tc: TestCase) {
+fn prop_the_index_holds_every_landmark(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(4));
     let prints: Vec<(u32, TrackPrint)> = (0..n)
         .map(|i| (i as u32 * 10 + 1, TrackPrint { duration_secs: 30.0, peaks: sorted_peaks(&tc, 6, 60) }))
@@ -133,7 +133,7 @@ fn spelled(deltas: &[u32]) -> Vec<u8> {
 /// Frames are counted in 32 bits: a print whose deltas add up past that doesn't read, and one
 /// that reaches the last frame does.
 #[hegel::test(test_cases = 200)]
-fn frames_past_32_bits_dont_read(tc: TestCase) {
+fn prop_frames_past_32_bits_dont_read(tc: TestCase) {
     let first = tc.draw(gs::integers::<u32>());
     let room = u32::MAX - first;
     let over = tc.draw(gs::integers::<u32>().min_value(room.saturating_add(1)));
@@ -147,7 +147,7 @@ fn frames_past_32_bits_dont_read(tc: TestCase) {
 /// A hash so common it says nothing (a bare pattern repeated over and over, more than 512
 /// times in a small library) is left out of the index; every other landmark is in it.
 #[hegel::test(test_cases = 30)]
-fn hashes_too_common_to_tell_tracks_apart_are_left_out(tc: TestCase) {
+fn prop_hashes_too_common_to_tell_tracks_apart_are_left_out(tc: TestCase) {
     let step = tc.draw(gs::integers::<u32>().min_value(2).max_value(20));
     let f = tc.draw(gs::integers::<u8>().min_value(10).max_value(200));
     // The same bin every `step` frames: each landmark is one of a few hashes, over and over.

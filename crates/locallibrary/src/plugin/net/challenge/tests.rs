@@ -12,7 +12,7 @@ fn token() -> impl hegel::PrintableGenerator<String> {
 /// or quoted, its quotes and backslashes escaped, with any spaces around `=` and between them),
 /// what a `WWW-Authenticate` header says is read back as they were, names in lowercase.
 #[hegel::test(test_cases = 200)]
-fn a_challenge_reads_back_as_it_was_written(tc: TestCase) {
+fn prop_a_challenge_reads_back_as_it_was_written(tc: TestCase) {
     let made: Vec<(String, Vec<(String, String)>)> = tc.draw(
         gs::vecs(gs::tuples!(
             token(),

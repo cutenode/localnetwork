@@ -145,7 +145,7 @@ fn canonical_settings(tc: &TestCase, min: usize, max: usize) -> IndexMap<String,
 /// records carry it; groups with nothing in them stay out. Breaking a value's type, adding a
 /// field the Lexicon doesn't have or dropping the time is refused.
 #[hegel::test(test_cases = 300)]
-fn my_settings_fit_their_lexicon_and_read_back(tc: TestCase) {
+fn prop_my_settings_fit_their_lexicon_and_read_back(tc: TestCase) {
     let (base, meaning) = loose_base(&tc);
     let now = time(&tc);
     let record = publish::settings_record(&base, now);
@@ -197,7 +197,7 @@ fn my_settings_fit_their_lexicon_and_read_back(tc: TestCase) {
 /// group, values or settings this version doesn't know, values that aren't text. Fields beside
 /// the groups are passed over; a record of another type is refused.
 #[hegel::test(test_cases = 300)]
-fn reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
+fn prop_reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
     let mut record = Map::new();
     // For each group and field, whether it's a known setting (its key and value) or skipped.
     let mut known: IndexMap<(String, String), Option<(String, String)>> = IndexMap::new();
@@ -259,7 +259,7 @@ fn reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
 /// lowercase snake-case key, `snake` then `camel` any camel-case field made from one, and every
 /// setting's field is in its group of the settings Lexicon.
 #[hegel::test(test_cases = 300)]
-fn setting_keys_and_fields_convert_both_ways(tc: TestCase) {
+fn prop_setting_keys_and_fields_convert_both_ways(tc: TestCase) {
     let key: String = tc.draw(hegel::one_of!(
         gs::sampled_from(SCHEMA.iter().map(|d| d.key.to_string()).collect::<Vec<_>>()),
         gs::from_regex("[a-z][a-z0-9]{0,6}(_[a-z][a-z0-9]{0,6}){0,3}").fullmatch(true),
@@ -388,7 +388,7 @@ fn assert_count(v: &Value, c: Count) {
 /// document leaves out stays out. A share over 100, a missing basis or more than 20 tags is
 /// refused.
 #[hegel::test(test_cases = 200)]
-fn a_profile_record_fits_its_lexicon_whatever_the_document_holds(tc: TestCase) {
+fn prop_a_profile_record_fits_its_lexicon_whatever_the_document_holds(tc: TestCase) {
     let doc = document(&tc);
     let r = publish::profile_record(&doc);
     lexicon::validate(PROFILE, &r).unwrap();
@@ -759,7 +759,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
 /// survives JSON, and fits the set Lexicon exactly when the set holds nothing the Lexicon can't
 /// (a title over 100 graphemes, a partner's DID that isn't one, more than 20 partners...).
 #[hegel::test(test_cases = 300)]
-fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestCase) {
+fn prop_a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestCase) {
     let (s, names, mut broken) = set(&tc, true);
     let hidden: BTreeSet<usize> = tc
         .draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(s.tracks.len() + 2)).max_size(3))
@@ -783,7 +783,7 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
 /// each change the Lexicon allows: a kind or source it doesn't know, a link's name, a location of
 /// another type, a track's MusicBrainz ID, an optional field left out.
 #[hegel::test(test_cases = 300)]
-fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCase) {
+fn prop_the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCase) {
     let (s, _, _) = set(&tc, false);
     let mut r = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let n = s.tracks.len();
@@ -952,7 +952,7 @@ fn account_with(scopes: Vec<String>) -> AccountInfo {
 /// which scope the session lacks. Applying a plan that changes nothing writes nothing and says
 /// what's there; one the session can't write, or with nobody signed in, stops with nothing sent.
 #[hegel::test(test_cases = 100)]
-fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: TestCase) {
+fn prop_a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: TestCase) {
     let (s, _, _) = set(&tc, false);
     let record = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let (scopes, may_write) = tc.draw(gs::sampled_from(scope_sets()));
@@ -1016,7 +1016,7 @@ fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: Tes
 /// remembered for, and for nothing else; with nothing remembered there are none, and a damaged
 /// file is an error rather than nothing.
 #[hegel::test(test_cases = 30)]
-fn the_keys_plays_publish_gave_read_back(tc: TestCase) {
+fn prop_the_keys_plays_publish_gave_read_back(tc: TestCase) {
     let dids = vec!["did:plc:a", "did:plc:b", "did:plc:c"];
     let lists = vec!["0123", "4567", "89ab"];
     let keys: Vec<(&str, &str, String)> = tc.draw(
@@ -1175,7 +1175,7 @@ impl Model {
 /// signed in again, if the session ended) publishing again goes through. Applying a plan and
 /// `settings_publish_apply` agree.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn publishing_my_settings_converges_on_the_model(tc: TestCase) {
+fn prop_publishing_my_settings_converges_on_the_model(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -1260,7 +1260,7 @@ fn publishing_my_settings_converges_on_the_model(tc: TestCase) {
 /// not), and applying it (or importing in one go) leaves the base as the model says. Nobody to
 /// import from, or nothing published, and there's nothing to import.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
+fn prop_importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -1355,7 +1355,7 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// its key, and deleting the set takes the record off the account. Signed out, it can only be
 /// looked at, and nothing is listed.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
+fn prop_a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -1469,7 +1469,7 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
 /// them, fits its Lexicon, goes out as the account's profile, and publishing it again unchanged
 /// writes nothing.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_published_profile_is_the_documents_record(tc: TestCase) {
+fn prop_the_published_profile_is_the_documents_record(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -1513,7 +1513,7 @@ enum Heard {
 /// or on the whole drive (a warning), counts it as failed. A set publishing refuses, or the
 /// `recording` role turned off, looks up nothing.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
+fn prop_a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let store = Store::open_or_init(&root).unwrap();
@@ -1679,7 +1679,7 @@ fn a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
     locallibrary::testing::roles_on_this_thread(None);
 }
 
-/// Where a drive track's file is, for [`a_track_is_read_back_from_the_drive_it_was_analysed_on`]:
+/// Where a drive track's file is, for [`prop_a_track_is_read_back_from_the_drive_it_was_analysed_on`]:
 /// on both drives, only on the one whose library reads, only on the one whose library doesn't,
 /// or on neither.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1696,7 +1696,7 @@ enum Held {
 /// unreadable drive holds isn't missing, and only a file on neither drive is. Cancelled while the
 /// analyzer runs, a lookup keeps nothing.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
+fn prop_a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let store = Store::open_or_init(&root).unwrap();
@@ -1789,7 +1789,7 @@ fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
 /// one within that whose record is over what a data server not updated since May 2026 takes (its
 /// tracks' names long) is planned with a note saying how big it is, and a smaller one without.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_set_too_big_for_a_record_says_so(tc: TestCase) {
+fn prop_a_set_too_big_for_a_record_says_so(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let store = Store::open_or_init(&root).unwrap();

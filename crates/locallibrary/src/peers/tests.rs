@@ -15,7 +15,7 @@ fn code(tc: &TestCase, token: String) -> ShareCode {
 /// A share code reads back from what it prints, around any whitespace, and names the same
 /// computer; a fresh one's token is 32 hex digits.
 #[hegel::test(test_cases = 200)]
-fn share_codes_read_back(tc: TestCase) {
+fn prop_share_codes_read_back(tc: TestCase) {
     let token: String = tc.draw(gs::from_regex("[0-9a-fA-F]{32}").fullmatch(true));
     let c = code(&tc, token);
     let printed = c.to_string();
@@ -30,7 +30,7 @@ fn share_codes_read_back(tc: TestCase) {
 /// its ticket mangled, isn't read as one; whatever text does read as a code prints back as
 /// a code with the same token.
 #[hegel::test(test_cases = 300)]
-fn mangled_share_codes_are_refused(tc: TestCase) {
+fn prop_mangled_share_codes_are_refused(tc: TestCase) {
     let c = code(&tc, Uuid::new_v4().simple().to_string());
     let printed = c.to_string();
     let (ticket, token) = printed.rsplit_once('-').unwrap();

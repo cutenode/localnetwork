@@ -89,7 +89,7 @@ impl Model {
     }
 }
 
-/// How the front end answers in [`ensure_answers_granted_or_declined_never_a_token`].
+/// How the front end answers in [`prop_ensure_answers_granted_or_declined_never_a_token`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Answer {
     /// There's no front end to ask.
@@ -118,7 +118,7 @@ fn sorted(scopes: &[&str]) -> Vec<String> {
 /// `no_access`, and nobody is asked. One its manifest doesn't ask for is refused. No token gets
 /// out.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
+fn prop_ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
     let mut needs = some(&tc);
     if needs.is_empty() {
         needs.push(tc.draw(gs::sampled_from(SCOPES.to_vec())));

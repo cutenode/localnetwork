@@ -22,7 +22,7 @@ fn drive(dir: &Path) -> Device {
 #[hegel::test(test_cases = 12)]
 #[hegel::explicit_test_case(files = vec![0usize, 2, 3, 5, 7], holds_drive = true)]
 #[hegel::explicit_test_case(files = vec![1usize, 4, 6], holds_drive = false)]
-fn a_folder_offers_its_audio_but_not_the_drives_library(tc: hegel::TestCase) {
+fn prop_a_folder_offers_its_audio_but_not_the_drives_library(tc: hegel::TestCase) {
     // (path below the folder, offered)
     const FILES: [(&str, bool); 8] = [
         ("Album/Song.flac", true),
@@ -81,7 +81,7 @@ fn a_folder_offers_its_audio_but_not_the_drives_library(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(sizes = vec![1u64, 4096, 4097], extra = 0u64)]
 #[hegel::explicit_test_case(sizes = vec![0u64], extra = u64::MAX / 4)]
-fn copies_fit_or_are_refused_before_anything_is_written(tc: hegel::TestCase) {
+fn prop_copies_fit_or_are_refused_before_anything_is_written(tc: hegel::TestCase) {
     let sizes: Vec<u64> = tc.draw(gs::vecs(gs::integers::<u64>().max_value(1 << 20)).max_size(4));
     let extra = tc.draw(gs::sampled_from(vec![0u64, 1, 1 << 30, u64::MAX / 4]));
     let dir = tempfile::tempdir().unwrap();

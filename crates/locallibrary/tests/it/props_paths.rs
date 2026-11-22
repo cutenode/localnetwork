@@ -46,7 +46,7 @@ const RESERVED: &[&str] = &[
 
 /// Normalising a key twice changes nothing, and a key never starts with `/` or holds a `\`.
 #[hegel::test(test_cases = 500)]
-fn key_is_idempotent(tc: TestCase) {
+fn prop_key_is_idempotent(tc: TestCase) {
     let s = tc.draw(keyish());
     let k = paths::key(&s);
     assert_eq!(paths::key(&k), k);
@@ -57,7 +57,7 @@ fn key_is_idempotent(tc: TestCase) {
 /// Whatever a key says, it resolves to a path lexically inside the root, and a key
 /// [`paths::is_safe_key`] accepts resolves exactly to `root/key`.
 #[hegel::test(test_cases = 500)]
-fn to_fs_stays_below_the_root(tc: TestCase) {
+fn prop_to_fs_stays_below_the_root(tc: TestCase) {
     let root = Path::new("/drives/USB");
     let k = tc.draw(keyish());
     let p = paths::to_fs(root, &k);
@@ -72,7 +72,7 @@ fn to_fs_stays_below_the_root(tc: TestCase) {
 /// Only keys under `Contents/` or `PIONEER/` are managed, never OS clutter or locallibrary's
 /// own folder, and everything under `Contents/` is audio.
 #[hegel::test(test_cases = 500)]
-fn classify_only_manages_contents_and_pioneer(tc: TestCase) {
+fn prop_classify_only_manages_contents_and_pioneer(tc: TestCase) {
     let k = tc.draw(keyish());
     let top = k.split('/').next().unwrap_or("");
     match paths::classify(&k) {
@@ -93,7 +93,7 @@ fn classify_only_manages_contents_and_pioneer(tc: TestCase) {
 /// Nothing from a database ever reaches locallibrary's own folder, whatever its letter case:
 /// FAT32 and exFAT drives ignore case, so `.LOCALLIBRARY/state.json` is `.locallibrary/state.json`.
 #[hegel::test(test_cases = 500)]
-fn the_state_folder_is_off_limits_in_any_case(tc: TestCase) {
+fn prop_the_state_folder_is_off_limits_in_any_case(tc: TestCase) {
     let k = tc.draw(keyish());
     if k.split('/').next().is_some_and(|top| top.eq_ignore_ascii_case(paths::STATE_DIR)) {
         assert!(!paths::is_safe_key(&k), "{k:?}");
@@ -107,7 +107,7 @@ fn the_state_folder_is_off_limits_in_any_case(tc: TestCase) {
 #[hegel::test(test_cases = 1000)]
 #[hegel::explicit_test_case(s = "x .".to_string())]
 #[hegel::explicit_test_case(s = "nul.m3u8".to_string())]
-fn sanitize_component_is_fat_legal_and_idempotent(tc: TestCase) {
+fn prop_sanitize_component_is_fat_legal_and_idempotent(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(
         gs::text().max_size(30),
         gs::text().alphabet(". aCoNuLx1/:*\t").max_size(12),
@@ -125,7 +125,7 @@ fn sanitize_component_is_fat_legal_and_idempotent(tc: TestCase) {
 
 /// Names already legal are kept as they are.
 #[hegel::test]
-fn sanitize_component_keeps_plain_names(tc: TestCase) {
+fn prop_sanitize_component_keeps_plain_names(tc: TestCase) {
     let s = tc.draw(gs::from_regex("[A-Za-z0-9][A-Za-z0-9 _()-]{0,20}[A-Za-z0-9]").fullmatch(true));
     tc.assume(!RESERVED.iter().any(|r| r.eq_ignore_ascii_case(&s)));
     assert_eq!(paths::sanitize_component(&s), s);
@@ -135,7 +135,7 @@ fn sanitize_component_keeps_plain_names(tc: TestCase) {
 /// forbids, never empty, never padded with spaces at either end, and sanitising it again
 /// changes nothing.
 #[hegel::test(test_cases = 1000)]
-fn sanitize_label_is_a_fat_label(tc: TestCase) {
+fn prop_sanitize_label_is_a_fat_label(tc: TestCase) {
     let name = tc.draw(hegel::one_of!(gs::text().max_size(30), gs::text().alphabet("aZ .:_/é ").max_size(16)));
     let fallback = tc.draw(gs::sampled_from(vec!["REKORDBOX", "NO NAME", "X"]));
     let label = sanitize_label(&name, fallback);

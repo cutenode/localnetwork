@@ -58,7 +58,7 @@ fn export_again(root: &Path, export: &Template, onelibrary: bool) {
 #[hegel::explicit_test_case(edit = false, name = None::<&str>, settings = 0u8, smart = true, onelibrary = true, exported = false, unreadable = true, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = true)]
 #[hegel::explicit_test_case(edit = true, name = None::<&str>, settings = 0u8, smart = true, onelibrary = true, exported = true, unreadable = true, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = false)]
 #[hegel::explicit_test_case(edit = true, name = Some("Booth"), settings = 1u8, smart = true, onelibrary = true, exported = true, unreadable = false, sync = true, skip = vec![StepKind::Replay, StepKind::Smart, StepKind::Player, StepKind::Settings], applied_by_plan = true)]
-fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
+fn prop_a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
     let edit = tc.draw(gs::booleans());
     let name = tc.draw(gs::optional(gs::sampled_from(vec!["MAIN A", "Booth"])));
     // My Settings: none, written to the drive before it was saved, or set after (not written).

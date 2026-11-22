@@ -270,7 +270,7 @@ fn library_xml(tc: &TestCase) -> (String, Vec<Track>, Playlists) {
 /// paths and tracks in order, by TrackID or by location, each with its key as its text, and
 /// the keys the collection lacks are kept as entries to report missing. It's detected as rekordbox XML whatever it's called.
 #[hegel::test(test_cases = 200)]
-fn rekordbox_xml_reads_back(tc: TestCase) {
+fn prop_rekordbox_xml_reads_back(tc: TestCase) {
     let (xml, tracks, lists) = library_xml(&tc);
     tc.note(&xml);
     let bytes = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -376,7 +376,7 @@ fn prop_a_grid_is_cut_at_the_most_beats(tc: TestCase) {
 /// naming the line of the tag it cuts through, or (cut before the root element) isn't
 /// rekordbox XML at all.
 #[hegel::test(test_cases = 100)]
-fn truncated_xml_reads_a_prefix_or_fails_cleanly(tc: TestCase) {
+fn prop_truncated_xml_reads_a_prefix_or_fails_cleanly(tc: TestCase) {
     let (xml, tracks, _) = library_xml(&tc);
     let ends: Vec<usize> = xml.char_indices().map(|(i, _)| i).chain([xml.len()]).collect();
     let cut = tc.draw(gs::sampled_from(&ends));
@@ -403,7 +403,7 @@ fn truncated_xml_reads_a_prefix_or_fails_cleanly(tc: TestCase) {
 /// A tag with an attribute whose value isn't quoted is refused, naming the attribute and the
 /// tag's line, whatever quoted attributes come before it.
 #[hegel::test(test_cases = 100)]
-fn unquoted_attribute_values_are_refused(tc: TestCase) {
+fn prop_unquoted_attribute_values_are_refused(tc: TestCase) {
     let (xml, _, _) = library_xml(&tc);
     let at = xml.find("</COLLECTION>\n").unwrap() + "</COLLECTION>\n".len();
     let quoted: Vec<String> = tc.draw(gs::vecs(text()).max_size(3));
@@ -426,7 +426,7 @@ fn unquoted_attribute_values_are_refused(tc: TestCase) {
 /// A stray `/` or a valueless attribute (neither of them XML) in a track's tag doesn't stop it
 /// reading: it reads as it did without, its raw text aside.
 #[hegel::test(test_cases = 100)]
-fn stray_markup_in_a_tag_is_skipped(tc: TestCase) {
+fn prop_stray_markup_in_a_tag_is_skipped(tc: TestCase) {
     let (xml, tracks, _) = library_xml(&tc);
     tc.assume(!tracks.is_empty());
     let i = tc.draw(gs::integers::<usize>().max_value(tracks.len() - 1));
@@ -523,7 +523,7 @@ fn library_track(tc: &TestCase, doc: &mut Doc) -> XmlTrack {
 /// rating, key and tempo, its grid's tempos and its cues as written, whatever the attribute
 /// quoting, escaping and layout.
 #[hegel::test(test_cases = 200)]
-fn a_library_track_reads_back(tc: TestCase) {
+fn prop_a_library_track_reads_back(tc: TestCase) {
     let mut doc = Doc("<DJ_PLAYLISTS Version=\"1.0.0\">\n  <COLLECTION Entries=\"1\">\n".into());
     let want = library_track(&tc, &mut doc);
     doc.push("  </COLLECTION>\n</DJ_PLAYLISTS>\n");
@@ -593,7 +593,7 @@ fn counted(warnings: &[String], what: &str) -> usize {
 /// MAX_BEATS beats, in order, at or after 0 and before the track's end, each 1-4 in its bar.
 /// Playlists nested too deep are left out, counted.
 #[hegel::test(test_cases = 200)]
-fn any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
+fn prop_any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
     let mut doc = Doc("<DJ_PLAYLISTS>\n<COLLECTION>\n".into());
     let (mut tempos, mut marks) = (0, 0);
     for id in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
@@ -657,7 +657,7 @@ fn any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 // Folder paths past the most: 40 of a MiB each.
 #[hegel::explicit_test_case(folder_len = 1usize << 20, comment_len = 0usize, lists = 40usize, refs = 1usize)]
-fn long_names_and_many_entries_stay_bounded(tc: TestCase) {
+fn prop_long_names_and_many_entries_stay_bounded(tc: TestCase) {
     let folder_len = tc.draw(gs::sampled_from(vec![0, 1_000, 300_000, 1 << 20]));
     let comment_len = tc.draw(gs::sampled_from(vec![0, 1 << 20]));
     let (folder, comment) = ("f".repeat(folder_len), "c".repeat(comment_len));

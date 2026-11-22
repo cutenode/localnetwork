@@ -71,7 +71,7 @@ fn syncing_shows_the_plan_then_what_it_copied() {
 /// into another library plans My Tags for the tracks that have one and creating each tag in
 /// exportExt.pdb, and nothing about My Tags when none is set.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_merge_plans_the_my_tags_its_source_has(tc: hegel::TestCase) {
+fn prop_a_merge_plans_the_my_tags_its_source_has(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();
     env.demo("A");

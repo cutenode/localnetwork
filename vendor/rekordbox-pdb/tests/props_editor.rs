@@ -873,7 +873,7 @@ impl Editing {
 
 /// Any sequence of edits, refused or not, gives a file the reader sees as the model has it.
 #[hegel::test(test_cases = 150)]
-fn edits_match_the_model(tc: TestCase) {
+fn prop_edits_match_the_model(tc: TestCase) {
     let mut bytes = std::fs::read(tc.draw(gs::sampled_from(FIXTURES.to_vec()))).unwrap();
     let start = tc.draw(gs::integers::<u8>().max_value(2));
     if start == 1 {
@@ -908,7 +908,7 @@ fn edits_match_the_model(tc: TestCase) {
 /// own framing, 6 bytes on top of the code), and otherwise, being far bigger than a page, as too
 /// large; the reader's check of the same edit says the same, and the track is left as it was.
 #[hegel::test(test_cases = 100)]
-fn strings_too_long_to_encode_are_refused(tc: TestCase) {
+fn prop_strings_too_long_to_encode_are_refused(tc: TestCase) {
     let bytes = std::fs::read(FIXTURES[0]).unwrap();
     let mut ed = PdbEditor::from_bytes(bytes.clone());
     let field =

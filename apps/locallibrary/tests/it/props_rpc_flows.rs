@@ -149,7 +149,7 @@ fn events_are_wanted(s: &mut Sidecar, m: &Model) {
 /// Requests in any order (and a drive plugged in or pulled out), checked against the model after
 /// each.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
+fn prop_the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
     let mut m = Model::default();
@@ -349,7 +349,7 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
 /// A pack copied from drive A onto the blank drive over the sidecar: its progress is the request's
 /// own, comes before its response, and counts no more bytes copied than the plan copies.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn progress_counts_what_the_request_copies(tc: TestCase) {
+fn prop_progress_counts_what_the_request_copies(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
     let (a, blank) = (path(&fx.volumes.join("A")).to_string(), path(&fx.volumes.join("Blank")).to_string());
@@ -395,7 +395,7 @@ fn progress_counts_what_the_request_copies(tc: TestCase) {
 /// order: each is answered with an id and its operation, applied by that id once (or refused as
 /// stale when the drive changed since), and never again.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn plans_of_any_kind_apply_once(tc: TestCase) {
+fn prop_plans_of_any_kind_apply_once(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
     let a = path(&fx.volumes.join("A")).to_string();
@@ -479,7 +479,7 @@ fn plans_of_any_kind_apply_once(tc: TestCase) {
 /// number.
 #[cfg(unix)]
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_signal_cancels_what_is_running_then_exits(tc: TestCase) {
+fn prop_a_signal_cancels_what_is_running_then_exits(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
     let running: Vec<Value> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
@@ -515,7 +515,7 @@ fn a_signal_cancels_what_is_running_then_exits(tc: TestCase) {
 /// at once (and its `job.finished` says so), while the one running carries on until it too is
 /// cancelled.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
+fn prop_a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Sidecar::start_with(&fx, &["--workers", "1"]);
     s.call("events.subscribe", json!({ "kinds": ["job"] }));
@@ -563,7 +563,7 @@ fn a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
 /// shape its contract gives or an error the contract describes (never a panic), and parameters
 /// it doesn't take are refused.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn every_method_answers_as_its_contract_says(tc: TestCase) {
+fn prop_every_method_answers_as_its_contract_says(tc: TestCase) {
     use crate::props_rpc::{at, contract, excluded, params_for, violation};
     let fx = Env::from_template();
     let mut s = Sidecar::start(&fx);
@@ -616,7 +616,7 @@ fn every_method_answers_as_its_contract_says(tc: TestCase) {
 /// nothing to finish or cancel; signed out, it's gone.
 #[cfg(feature = "account")]
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
+fn prop_the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     use crate::mock_pds::MockPds;
     use crate::props_rpc::{at, contract, violation};
     use crate::support::account::{DID, PUBLISHING, sign_in};
@@ -728,7 +728,7 @@ fn served(s: &mut Sidecar, id: &Value) -> Vec<Value> {
 /// had connected.
 #[cfg(feature = "peers")]
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_store_served_over_the_sidecar_is_fetched_as_asked(tc: TestCase) {
+fn prop_a_store_served_over_the_sidecar_is_fetched_as_asked(tc: TestCase) {
     let (laptop_fx, studio_fx) = (Env::from_template(), Env::new());
     let (mut laptop, mut studio) = (Sidecar::start(&laptop_fx), Sidecar::start(&studio_fx));
     let serving = json!(0);

@@ -52,7 +52,7 @@ fn a_failure_to_keep_keys_is_not_an_error() {
 
 /// Whatever damage a file takes, it reads as none rather than as other keys.
 #[hegel::test(test_cases = 100)]
-fn a_damaged_file_reads_as_none(tc: hegel::TestCase) {
+fn prop_a_damaged_file_reads_as_none(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     save(dir.path(), &[7; SALT_LEN], &KEYS);
     let path = file(dir.path(), &[7; SALT_LEN]);

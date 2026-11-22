@@ -108,7 +108,7 @@ fn drifted_drive(tc: &TestCase, dir: &Path) -> std::path::PathBuf {
 }
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
+fn prop_converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drifted_drive(&tc, dir.path());
     let (pdb_before, plus_before) = libraries(&root);
@@ -264,7 +264,7 @@ fn unpercent(s: &str) -> String {
 /// and the file where rekordbox will find it, and every playlist with its entries in order;
 /// with `only`, exactly the chosen playlists and the tracks they hold.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn xml_holds_the_drives_library(tc: TestCase) {
+fn prop_xml_holds_the_drives_library(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // rekordbox's demo export has beat grids and cues for the XML to carry.
     let root = match tc.draw(gs::weighted_booleans(0.3)) {
@@ -352,18 +352,18 @@ fn tagged(d: &Device, source: locallibrary::tags::Source) -> BTreeSet<(String, S
         .collect()
 }
 
-/// Conversions [`converting_keeps_both_sides_and_undoes_exactly`] doesn't draw: rekordbox's demo
+/// Conversions [`prop_converting_keeps_both_sides_and_undoes_exactly`] doesn't draw: rekordbox's demo
 /// export (real analysis files, its My Tags carried across), a track or playlist only one side
 /// has, hot cue bank lists a rebuild drops, artwork missing on the drive, and a target that can't
 /// be read (added to, it's refused with a way on; rebuilt, it's made from scratch).
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn converting_carries_my_tags_and_says_what_it_leaves(tc: TestCase) {
+fn prop_converting_carries_my_tags_and_says_what_it_leaves(tc: TestCase) {
     for variant in 0..4 {
         converting_carries_my_tags_and_says_what_it_leaves_with(&tc, variant);
     }
 }
 
-/// One case of [`converting_carries_my_tags_and_says_what_it_leaves`], `variant` choosing what's drawn.
+/// One case of [`prop_converting_carries_my_tags_and_says_what_it_leaves`], `variant` choosing what's drawn.
 #[hegel::test_helper]
 fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, variant: u8) {
     use locallibrary::onelibrary::ContentRecord;
@@ -517,7 +517,7 @@ fn xml_marks(text: &str) -> Marks {
 /// own), and its cues as the drive lists them: where each starts and a loop ends, which hot cue
 /// (-1 for a memory cue), and a hot cue's colour.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
+fn prop_xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
     use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
     use locallibrary::edit::{Edit, TrackFields};
     use locallibrary::query::TrackSelector;
@@ -611,7 +611,7 @@ fn xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
 /// a player added to OneLibrary alone (a track, a playlist in a folder, a history list) is there
 /// beside what export.pdb has.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_whole_library_is_both_databases_put_together(tc: TestCase) {
+fn prop_the_whole_library_is_both_databases_put_together(tc: TestCase) {
     use locallibrary::onelibrary::ContentRecord;
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "A");

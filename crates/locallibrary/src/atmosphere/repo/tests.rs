@@ -128,7 +128,7 @@ pub(crate) fn word(words: Vec<&'static str>) -> impl hegel::PrintableGenerator<S
 /// An at:// URI built from a DID, a record type and a record key parses back into those
 /// three, and fits the Lexicons' `at-uri` format.
 #[hegel::test(test_cases = 300)]
-fn at_uris_parse_back_into_their_parts(tc: hegel::TestCase) {
+fn prop_at_uris_parse_back_into_their_parts(tc: hegel::TestCase) {
     let did: String = tc.draw(hegel::one_of!(
         gs::from_regex("did:plc:[a-z2-7]{24}").fullmatch(true),
         gs::from_regex("did:web:[a-z][a-z0-9]{0,9}(\\.[a-z][a-z0-9]{0,9}){1,2}").fullmatch(true),
@@ -153,7 +153,7 @@ fn at_uris_parse_back_into_their_parts(tc: hegel::TestCase) {
 
 /// A server is named by its URL without the scheme or trailing slashes.
 #[hegel::test(test_cases = 200)]
-fn a_server_is_named_by_its_url_without_scheme_or_slashes(tc: hegel::TestCase) {
+fn prop_a_server_is_named_by_its_url_without_scheme_or_slashes(tc: hegel::TestCase) {
     let name: String =
         tc.draw(gs::from_regex("[a-z0-9][a-z0-9.-]{0,11}(:[0-9]{1,5})?(/[a-z]{1,5}){0,2}").fullmatch(true));
     let scheme = tc.draw(gs::sampled_from(vec!["http", "https", "at"]));
@@ -166,7 +166,7 @@ fn a_server_is_named_by_its_url_without_scheme_or_slashes(tc: hegel::TestCase) {
 /// scopes means signing in again allowing publishing, a refused session means signing in
 /// again, and anything else says on one line what the server said and what wasn't published.
 #[hegel::test(test_cases = 400)]
-fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
+fn prop_an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
     let mut info = crate::atmosphere::tests::signed_in_with(&["atproto"]);
     info.pds = tc.draw(gs::sampled_from(vec!["https://pds.example", "http://127.0.0.1:2583/"])).into();
     let collection =
@@ -216,7 +216,7 @@ fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "self")]
 #[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "a b")]
 #[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" "), signed_in = Some("did:plc:abc"), unreachable = false, rkey = "self")]
-fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
+fn prop_a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (pds, next, got) = shared(&SERVER);
     *next.lock().unwrap() = (500, String::new(), json!({ "error": "InternalServerError" }));
@@ -309,7 +309,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(status = 401u16, error = String::new(), message = String::new(), challenge = 1usize)]
 #[hegel::explicit_test_case(status = 401u16, error = String::new(), message = String::new(), challenge = 2usize)]
 #[hegel::explicit_test_case(status = 401u16, error = "Unauthorized".to_string(), message = String::new(), challenge = 0usize)]
-fn a_refused_write_says_how_to_go_on_whatever_the_server_says(tc: hegel::TestCase) {
+fn prop_a_refused_write_says_how_to_go_on_whatever_the_server_says(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (pds, next, _) = shared(&SERVER);
     let status = tc.draw(gs::sampled_from(vec![200u16, 400, 401, 403, 409, 413, 500, 502]));
@@ -385,7 +385,7 @@ fn a_refused_write_says_how_to_go_on_whatever_the_server_says(tc: hegel::TestCas
 /// What isn't a handle or a DID is never looked up: it isn't found, and the error names what
 /// was asked for (without its `@` and blanks) on one line.
 #[hegel::test(test_cases = 3)]
-fn what_isnt_a_handle_or_did_isnt_looked_up(tc: hegel::TestCase) {
+fn prop_what_isnt_a_handle_or_did_isnt_looked_up(tc: hegel::TestCase) {
     let asked: String = if tc.draw(gs::booleans()) {
         let name: String = tc.draw(gs::from_regex("[a-z]{2,8}(\\.[a-z]{2,8}){1,2}").fullmatch(true));
         let odd = tc.draw(gs::sampled_from(vec![' ', '!', '/', '?', '#', '_', '*', '\u{1b}']));

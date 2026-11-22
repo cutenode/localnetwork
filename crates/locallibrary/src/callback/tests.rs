@@ -132,7 +132,7 @@ fn answer_to(mut s: TcpStream) -> String {
 /// the state a 400. The page the browser is shown says how it went, with the message
 /// escaped, and is as long as it says. With nobody else coming, the wait ends on time.
 #[hegel::test(test_cases = 25)]
-fn only_the_sign_ins_own_redirect_ends_the_wait(tc: TestCase) {
+fn prop_only_the_sign_ins_own_redirect_ends_the_wait(tc: TestCase) {
     let alnum = || gs::text().alphabet("abcdefghijklmnopqrstuvwxyz0123456789").min_size(1).max_size(12);
     let state = tc.draw(alnum());
     let strangers = tc.draw(
@@ -207,7 +207,7 @@ fn queued(listener: &TcpListener) {
 /// after it (a busy machine, a laptop asleep): the deadline turns nobody away who's already
 /// waiting. With nobody waiting, or only someone without the sign-in's state, it ends as usual.
 #[hegel::test(test_cases = 25)]
-fn a_browser_back_in_time_is_answered_after_the_deadline(tc: TestCase) {
+fn prop_a_browser_back_in_time_is_answered_after_the_deadline(tc: TestCase) {
     let state = tc.draw(gs::text().alphabet("abcdefghijklmnopqrstuvwxyz0123456789").min_size(1).max_size(12));
     let waiting = tc.draw(gs::booleans());
     let matches = tc.draw(gs::booleans());

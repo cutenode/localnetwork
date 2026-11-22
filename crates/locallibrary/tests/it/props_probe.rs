@@ -15,7 +15,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::{Library, paths};
 
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn wav_files_are_read_and_checked_as_they_are(tc: TestCase) {
+fn prop_wav_files_are_read_and_checked_as_they_are(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![22_050u32, 44_100, 48_000]));
     let bits = tc.draw(gs::sampled_from(vec![16u16, 24]));
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
@@ -82,7 +82,7 @@ fn wav_files_are_read_and_checked_as_they_are(tc: TestCase) {
 
 /// `m:ss`, rounding to the second, never negative.
 #[hegel::test(test_cases = 200)]
-fn minutes_read_as_a_clock(tc: TestCase) {
+fn prop_minutes_read_as_a_clock(tc: TestCase) {
     let secs = tc.draw(gs::floats::<f64>().min_value(-10.0).max_value(10_000.0));
     let shown = probe::minutes(secs);
     let (m, s) = shown.split_once(':').unwrap();
@@ -94,7 +94,7 @@ fn minutes_read_as_a_clock(tc: TestCase) {
 /// A drive's tracks are checked once per file: those cut short, or not audio, are found, the rest
 /// pass, and files that aren't there are left to the other checks. A cancelled check stops.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_drives_files_are_each_checked_once(tc: TestCase) {
+fn prop_a_drives_files_are_each_checked_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = crate::common::blank(dir.path(), "USB");
     fs::create_dir_all(root.join("PIONEER/rekordbox")).unwrap();

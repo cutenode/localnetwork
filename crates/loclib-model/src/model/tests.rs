@@ -336,7 +336,7 @@ fn ancestors(rows: &[Playlist], p: &Playlist) -> (usize, bool) {
 
 /// Libraries, playlist trees, diffs and tempo ranges read back from JSON as they were.
 #[hegel::test(test_cases = 100)]
-fn libraries_round_trip_through_json(tc: TestCase) {
+fn prop_libraries_round_trip_through_json(tc: TestCase) {
     let count = tc.draw(gs::integers::<u32>().max_value(3));
     let tracks: Vec<Track> = (0..count).map(|id| tc.draw(any_track(id))).collect();
     let lib = Library {
@@ -368,7 +368,7 @@ fn libraries_round_trip_through_json(tc: TestCase) {
 /// Track colours are ids 1 to 8 and back, drawn in their tokens' colours in that order, and
 /// named in lower case in JSON.
 #[hegel::test(test_cases = 100)]
-fn track_colours_round_trip_through_their_ids(tc: TestCase) {
+fn prop_track_colours_round_trip_through_their_ids(tc: TestCase) {
     let id = tc.draw(hegel::one_of!(gs::integers::<u8>().max_value(9), gs::integers::<u8>()));
     let tokens = [
         track_colors::PINK,
@@ -423,7 +423,7 @@ fn change(t: &mut Track, field: &str) {
 /// refilled. Diffing the other way round swaps what's added and removed, and an export
 /// against itself differs in nothing.
 #[hegel::test(test_cases = 200)]
-fn diffs_list_exactly_what_changed(tc: TestCase) {
+fn prop_diffs_list_exactly_what_changed(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(6));
     let old_tracks: Vec<Track> =
         (1..=n).map(|i| track(i, "A", &format!("T{i}"), &format!("/Contents/{i}.mp3"))).collect();
@@ -525,7 +525,7 @@ fn diffs_list_exactly_what_changed(tc: TestCase) {
 /// from the top meets each row once at most, and a tree that was already sound (or already
 /// untangled) is left alone.
 #[hegel::test(test_cases = 300)]
-fn untangled_trees_are_walkable(tc: TestCase) {
+fn prop_untangled_trees_are_walkable(tc: TestCase) {
     let rows = rows(&tc, 12);
     let mut first: Vec<Playlist> = Vec::new();
     for r in &rows {
@@ -570,7 +570,7 @@ fn untangled_trees_are_walkable(tc: TestCase) {
 /// are left out of it, so a path with one finds what the path without it does. Whatever any
 /// query finds matches it by path or name, at most ignoring ASCII case.
 #[hegel::test(test_cases = 300)]
-fn playlists_are_found_by_the_paths_they_are_shown_with(tc: TestCase) {
+fn prop_playlists_are_found_by_the_paths_they_are_shown_with(tc: TestCase) {
     let lib = Library { playlists: untangle(rows(&tc, 10)), ..Default::default() };
     let shown = lib.display_order();
     assert_eq!(shown.len(), lib.playlists.len());
@@ -639,7 +639,7 @@ fn playlists_are_found_by_the_paths_they_are_shown_with(tc: TestCase) {
 /// `pick` takes the first item whose path is the query exactly; failing that, the first that
 /// matches ignoring ASCII case, but only when every such match has the same path.
 #[hegel::test(test_cases = 300)]
-fn pick_prefers_exact_paths_then_one_case_insensitive_path(tc: TestCase) {
+fn prop_pick_prefers_exact_paths_then_one_case_insensitive_path(tc: TestCase) {
     let paths = tc.draw(gs::vecs(gs::text().alphabet("aAb/").max_size(3)).max_size(6));
     let query = tc.draw(gs::text().alphabet("aAb/").max_size(3));
     let pick_in = |paths: &[String], query: &str| pick(paths.iter().enumerate().map(|(i, p)| (p.as_str(), i)), query);
@@ -657,7 +657,7 @@ fn pick_prefers_exact_paths_then_one_case_insensitive_path(tc: TestCase) {
 /// has the query (normalised) in its "artist - title" or path, and any piece of a track's
 /// normalised name finds it.
 #[hegel::test(test_cases = 300)]
-fn search_finds_by_id_or_by_any_piece_of_the_name(tc: TestCase) {
+fn prop_search_finds_by_id_or_by_any_piece_of_the_name(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().max_value(5));
     let tracks: Vec<Track> = (0..count)
         .map(|i| {
@@ -697,7 +697,7 @@ fn search_finds_by_id_or_by_any_piece_of_the_name(tc: TestCase) {
 /// blanks at the ends or doubled; so tracks whose artist and title differ only so are taken
 /// for one recording, while a different length tells them apart.
 #[hegel::test(test_cases = 300)]
-fn normalised_names_ignore_case_and_spacing(tc: TestCase) {
+fn prop_normalised_names_ignore_case_and_spacing(tc: TestCase) {
     let s = tc
         .draw(hegel::one_of!(gs::text().max_size(10), gs::text().alphabet("aBc \t\u{a0}\u{3000}\u{1c4}").max_size(10)));
     let n = normalize(&s);
@@ -718,7 +718,7 @@ fn normalised_names_ignore_case_and_spacing(tc: TestCase) {
 /// out; the summary counts the tracks, playlists, folders, artists, bytes, seconds and missing
 /// artwork the library holds; names read "artist - title".
 #[hegel::test(test_cases = 200)]
-fn lookups_and_summaries_agree_with_the_library(tc: TestCase) {
+fn prop_lookups_and_summaries_agree_with_the_library(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().max_value(6));
     let tracks: Vec<Track> = (0..count)
         .map(|_| {
@@ -769,7 +769,7 @@ crate::labelled_tuple! {
 /// by its field and described by the field's doc comment, its lines trimmed and joined, if it
 /// has one.
 #[hegel::test(test_cases = 100)]
-fn labelled_tuples_are_arrays_named_in_their_schema(tc: TestCase) {
+fn prop_labelled_tuples_are_arrays_named_in_their_schema(tc: TestCase) {
     let value = Described { first: tc.draw(gs::integers()), second: tc.draw(gs::text()) };
     let json = serde_json::to_value(&value).unwrap();
     assert_eq!(json, serde_json::json!([value.first, value.second]));
@@ -814,7 +814,7 @@ fn made_up_libraries_hang_together() {
 /// Text that's NFKC already skips normalising and lands where normalising would: every kind of
 /// whitespace (vertical tab too) collapses, and nothing else changes but case.
 #[hegel::test(test_cases = 200)]
-fn normalised_text_skips_normalising(tc: hegel::TestCase) {
+fn prop_normalised_text_skips_normalising(tc: hegel::TestCase) {
     let alphabet = "aZ9 \t\n\u{b}\u{c}\r.&'\u{e9}\u{301}\u{3a3}\u{fb01}\u{3000}";
     let s = tc.draw(hegel::generators::text().alphabet(alphabet).max_size(12));
     let unicode = s.nfkc().collect::<String>().to_lowercase();
@@ -864,7 +864,7 @@ fn a_subset_keeps_its_folders_and_tracks() {
 /// playlist in it, one asked for twice), keep what each of them keeps on its own, together.
 #[hegel::test(test_cases = 200)]
 #[hegel::explicit_test_case(only = vec!["Sets/Shows", "Sets"])]
-fn a_subset_is_what_each_of_its_playlists_keeps(tc: TestCase) {
+fn prop_a_subset_is_what_each_of_its_playlists_keeps(tc: TestCase) {
     let library = folders_of_lists();
     let kept = |only: &[&str]| {
         let s = library.clone().subset(&only.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
@@ -911,7 +911,7 @@ fn onelibrary_only_tracks_are_numbered_on_for_files() {
 /// (lowercase, hyphens, spaces around), as the capitals alone; anything else (another length,
 /// letters where the digits go, other characters inside) isn't one, nor is it plain.
 #[hegel::test(test_cases = 200)]
-fn isrcs_are_one_however_tagged(tc: TestCase) {
+fn prop_isrcs_are_one_however_tagged(tc: TestCase) {
     let part = |alphabet: &'static str, n: usize| tc.draw(gs::text().alphabet(alphabet).min_size(n).max_size(n));
     let code = [part("ABXZabxz", 2), part("ABXZabxz0189", 3), part("0189", 7)].concat();
     let hyphens: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(12)).max_size(4));

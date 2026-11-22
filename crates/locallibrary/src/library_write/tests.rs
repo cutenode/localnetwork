@@ -50,7 +50,7 @@ fn put(root: &Path, key: &str, bytes: &[u8], mtime: i64) {
 /// drive's settings). A doomed file something else removed first isn't counted; one turned into
 /// a folder stops the delete with an error.
 #[hegel::test(test_cases = 30)]
-fn a_write_leaves_the_drive_holding_the_library_it_wants(tc: hegel::TestCase) {
+fn prop_a_write_leaves_the_drive_holding_the_library_it_wants(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let (root, src) = (dir.path().join("drive"), dir.path().join("src"));
@@ -142,7 +142,7 @@ fn a_write_leaves_the_drive_holding_the_library_it_wants(tc: hegel::TestCase) {
 /// once, and an error stops the run: nothing starts after it among the large files, and the first
 /// error is the one given back.
 #[hegel::test(test_cases = 50)]
-fn every_copy_runs_once_until_one_fails(tc: hegel::TestCase) {
+fn prop_every_copy_runs_once_until_one_fails(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let sizes: Vec<u64> =
         tc.draw(gs::vecs(gs::sampled_from(vec![0, 1, SMALL_FILE, SMALL_FILE + 1, 1 << 30])).max_size(40));
@@ -186,7 +186,7 @@ fn every_copy_runs_once_until_one_fails(tc: hegel::TestCase) {
 /// Downloading ahead reads what it's given and changes nothing, stops once the copy has finished,
 /// and passes over a file that's gone.
 #[hegel::test(test_cases = 10)]
-fn downloading_ahead_leaves_every_file_as_it_was(tc: hegel::TestCase) {
+fn prop_downloading_ahead_leaves_every_file_as_it_was(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let count = tc.draw(gs::integers::<usize>().max_value(6));
     let finished = AtomicBool::new(tc.draw(gs::booleans()));
@@ -303,7 +303,7 @@ fn downloads_overlap_instead_of_waiting_their_turn() {
 #[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(cancelled = false)]
 #[hegel::explicit_test_case(cancelled = true)]
-fn a_stopped_copy_settles_without_waiting_for_a_blocked_download(tc: hegel::TestCase) {
+fn prop_a_stopped_copy_settles_without_waiting_for_a_blocked_download(tc: hegel::TestCase) {
     use std::fs::File;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::OpenOptionsExt;
@@ -400,7 +400,7 @@ fn a_stopped_copy_settles_without_waiting_for_a_blocked_download(tc: hegel::Test
 #[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(blocked_note = false)]
 #[hegel::explicit_test_case(blocked_note = true)]
-fn a_rejected_note_does_not_start_downloads(tc: hegel::TestCase) {
+fn prop_a_rejected_note_does_not_start_downloads(tc: hegel::TestCase) {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::OpenOptionsExt;
     use std::time::{Duration, Instant};
@@ -457,7 +457,7 @@ fn a_rejected_note_does_not_start_downloads(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(at = 1usize, failure = 4u8, analysis = false)]
 #[hegel::explicit_test_case(at = 2usize, failure = 5u8, analysis = false)]
 #[hegel::explicit_test_case(at = 0usize, failure = 6u8, analysis = false)]
-fn a_copy_cut_short_keeps_what_it_copied(tc: hegel::TestCase) {
+fn prop_a_copy_cut_short_keeps_what_it_copied(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let at = tc.draw(gs::integers::<usize>().max_value(2));
     let failure = tc.draw(gs::integers::<u8>().max_value(6));
@@ -553,7 +553,7 @@ fn a_copy_cut_short_keeps_what_it_copied(tc: hegel::TestCase) {
 /// missing `export.pdb` or OneLibrary database is removed (and OneLibrary's WAL and SHM always
 /// are), and a missing `exportExt.pdb` is left as it was.
 #[hegel::test(test_cases = 40)]
-fn the_databases_swapped_in_are_the_ones_given(tc: hegel::TestCase) {
+fn prop_the_databases_swapped_in_are_the_ones_given(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let keys = [

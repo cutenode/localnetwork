@@ -87,7 +87,7 @@ fn le32(b: &[u8], at: usize) -> u32 {
 /// the volume is touched, and progress adds up to what was written. Cancelled, it leaves no
 /// boot sector.
 #[hegel::test(test_cases = 30)]
-fn written_volumes_describe_their_layout(tc: TestCase) {
+fn prop_written_volumes_describe_their_layout(tc: TestCase) {
     let bps = tc.draw(gs::sampled_from(vec![512u32, 1024, 2048, 4096]));
     let shift = tc.draw(gs::integers::<u32>().min_value(bps.trailing_zeros()).max_value(15));
     let cluster = 1u32 << shift;
@@ -150,7 +150,7 @@ fn written_volumes_describe_their_layout(tc: TestCase) {
 /// Timestamps keep the date and the time to two seconds, years clamped to what FAT holds
 /// (1980 to 2107).
 #[hegel::test(test_cases = 300)]
-fn timestamps_keep_the_date_and_time(tc: TestCase) {
+fn prop_timestamps_keep_the_date_and_time(tc: TestCase) {
     let at = |secs| chrono::DateTime::from_timestamp(secs, 0).unwrap().naive_utc();
     let t = tc.draw(gs::default::<chrono::NaiveDateTime>().min_value(at(-2_000_000_000)).max_value(at(8_000_000_000)));
     let (date, time) = fat_timestamp(t);

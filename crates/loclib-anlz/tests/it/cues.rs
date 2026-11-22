@@ -163,7 +163,7 @@ fn write(bytes: &[u8], file: CueFile, cues: &[CuePoint]) -> Vec<u8> {
 /// Cues written into a `.DAT` and `.EXT` pair read back as the same cues, and the files'
 /// lengths and other content are as they were.
 #[hegel::test(test_cases = 300)]
-fn cues_written_to_dat_and_ext_read_back(tc: TestCase) {
+fn prop_cues_written_to_dat_and_ext_read_back(tc: TestCase) {
     let (dat, ext) = base_pair(&tc);
     let cues = cue_list(&tc, false);
     let dat2 = write(&dat, CueFile::Dat, &cues);
@@ -179,7 +179,7 @@ fn cues_written_to_dat_and_ext_read_back(tc: TestCase) {
 /// The cues the player reads from a written `.DAT` and `.EXT` (or a `.DAT` alone) have the
 /// loops written as active marked active, and nothing else.
 #[hegel::test(test_cases = 300)]
-fn the_player_reads_which_loops_are_active(tc: TestCase) {
+fn prop_the_player_reads_which_loops_are_active(tc: TestCase) {
     let (dat, ext) = base_pair(&tc);
     let cues = cue_list(&tc, false);
     let active = |cues: &mut dyn Iterator<Item = (Option<u8>, u32, Option<u32>)>| {
@@ -200,7 +200,7 @@ fn the_player_reads_which_loops_are_active(tc: TestCase) {
 /// A `.DAT` without an `.EXT` keeps every cue's position, loop and active flag (it has nowhere
 /// to put names or colours).
 #[hegel::test]
-fn cues_written_to_a_lone_dat_keep_their_positions(tc: TestCase) {
+fn prop_cues_written_to_a_lone_dat_keep_their_positions(tc: TestCase) {
     let (dat, _) = base_pair(&tc);
     let cues = cue_list(&tc, false);
     let dat2 = write(&dat, CueFile::DatAlone, &cues);
@@ -213,7 +213,7 @@ fn cues_written_to_a_lone_dat_keep_their_positions(tc: TestCase) {
 /// Writing back what was read changes nothing: every list holding the wanted cues is kept byte
 /// for byte, so `write(read(write(cues))) == write(cues)`.
 #[hegel::test(test_cases = 300)]
-fn writing_what_was_read_is_a_fixpoint(tc: TestCase) {
+fn prop_writing_what_was_read_is_a_fixpoint(tc: TestCase) {
     let (dat, ext) = base_pair(&tc);
     let cues = cue_list(&tc, false);
     let dat2 = write(&dat, CueFile::Dat, &cues);
@@ -227,7 +227,7 @@ fn writing_what_was_read_is_a_fixpoint(tc: TestCase) {
     assert_eq!(write(&alone, CueFile::DatAlone, &back), alone);
 }
 
-/// Shrunk counterexample of `writing_what_was_read_is_a_fixpoint`: two memory cues at the same
+/// Shrunk counterexample of `prop_writing_what_was_read_is_a_fixpoint`: two memory cues at the same
 /// position in a `.DAT` with no `.EXT` were read as one, so rewriting them dropped the other.
 #[test]
 fn twin_memory_cues_in_a_lone_dat_survive_a_rewrite() {
@@ -244,7 +244,7 @@ fn twin_memory_cues_in_a_lone_dat_survive_a_rewrite() {
 /// the `.DAT`'s `PCPT` entries and the `.EXT`'s `PCP2` entries can end up in different orders;
 /// the reader must still pair each entry with its own cue.
 #[hegel::test(test_cases = 1000)]
-fn edited_cues_read_back_after_rewriting(tc: TestCase) {
+fn prop_edited_cues_read_back_after_rewriting(tc: TestCase) {
     let (dat, ext) = base_pair(&tc);
     let first = cue_list(&tc, false);
     let (dat1, ext1) = (write(&dat, CueFile::Dat, &first), write(&ext, CueFile::Ext, &first));
@@ -281,7 +281,7 @@ fn edited_cues_read_back_after_rewriting(tc: TestCase) {
     assert!(same_cues(&back, &edited), "wrote {}\nread {}", show(&edited), show(&back));
 }
 
-/// Shrunk counterexample of `edited_cues_read_back_after_rewriting`: a memory cue and an active
+/// Shrunk counterexample of `prop_edited_cues_read_back_after_rewriting`: a memory cue and an active
 /// loop at the same position, renamed and listed in the other order. The `.DAT`'s list is kept
 /// (the positions didn't change) while the `.EXT`'s is rewritten in the new order, and the
 /// loop's active flag went to the point cue.
@@ -301,7 +301,7 @@ fn active_loop_stays_with_its_loop_when_lists_disagree_on_order() {
     assert!(same_cues(&back, &read), "wrote {}\nread {}", show(&read), show(&back));
 }
 
-/// Shrunk counterexample of `edited_cues_read_back_after_rewriting` once the one above was fixed:
+/// Shrunk counterexample of `prop_edited_cues_read_back_after_rewriting` once the one above was fixed:
 /// two memory loops over the same span, one active, renamed and listed in the other order. Only
 /// their order pairs a `PCPT` entry with its `PCP2` entry, and the `.DAT`'s list was kept in the
 /// old order while the `.EXT`'s was rewritten in the new one.
@@ -320,7 +320,7 @@ fn active_flag_of_twin_loops_survives_a_reordering_rename() {
     assert!(same_cues(&back, &read), "wrote {}\nread {}", show(&read), show(&back));
 }
 
-/// The mirror image, also shrunk from `edited_cues_read_back_after_rewriting`: the active flag
+/// The mirror image, also shrunk from `prop_edited_cues_read_back_after_rewriting`: the active flag
 /// moved from one twin loop to the other as they swap places. `PCP2` entries don't record it, so
 /// the `.EXT`'s list was kept in the old order while the `.DAT`'s was rewritten in the new one.
 #[test]
@@ -434,7 +434,7 @@ fn rekordcrate_lists(bytes: &[u8]) -> Lists {
 /// cues D onwards in `PCOB` and every cue in `PCO2`. (Comments are non-empty: rekordcrate
 /// expects a NUL even in an empty comment, where rekordbox 7 writes nothing.)
 #[hegel::test]
-fn rekordcrate_reads_what_is_written(tc: TestCase) {
+fn prop_rekordcrate_reads_what_is_written(tc: TestCase) {
     let (dat, ext) = base_pair(&tc);
     let cues = cue_list(&tc, true);
     let hot = |f: &dyn Fn(u8) -> bool| -> Vec<PcptView> {
@@ -459,7 +459,7 @@ fn rekordcrate_reads_what_is_written(tc: TestCase) {
 /// The older reader (`anlz::cues`, used for display and XML export) sees what
 /// `read_cue_points` sees: from the `.EXT`'s extended lists when it has cues, else the `.DAT`.
 #[hegel::test]
-fn legacy_reader_agrees_with_read_cue_points(tc: TestCase) {
+fn prop_legacy_reader_agrees_with_read_cue_points(tc: TestCase) {
     let (dat, ext) = base_pair(&tc);
     let cues = cue_list(&tc, false);
     let view = |c: &anlz::Cue| (c.hot_cue, c.start_ms, c.end_ms, c.comment.clone(), c.color);
@@ -489,7 +489,7 @@ fn legacy_reader_agrees_with_read_cue_points(tc: TestCase) {
 /// meaning, whatever number a file holds. (257 used to read as hot cue A in `anlz::cues`.)
 #[hegel::test]
 #[hegel::explicit_test_case(number = 257u32)]
-fn readers_agree_on_any_hot_cue_number(tc: TestCase) {
+fn prop_readers_agree_on_any_hot_cue_number(tc: TestCase) {
     let number = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(300), gs::integers::<u32>()));
     let base = common::synthetic_anlz("/Contents/a.mp3");
     let mut f = write(&base, CueFile::DatAlone, &[CuePoint { hot_cue: Some(0), start_ms: 500, ..Default::default() }]);
@@ -502,7 +502,7 @@ fn readers_agree_on_any_hot_cue_number(tc: TestCase) {
 
 /// The `PPTH` path reads back as written, and nothing else in the file changes.
 #[hegel::test]
-fn rewritten_path_reads_back(tc: TestCase) {
+fn prop_rewritten_path_reads_back(tc: TestCase) {
     let which = tc.draw(gs::integers::<usize>().max_value(3 * ANALYSED.len()));
     let base = match real_files().get(which / 3) {
         Some((dat, ext, ex2)) => [dat, ext, ex2][which % 3].clone(),
@@ -558,7 +558,7 @@ fn structure_offsets(bytes: &[u8]) -> Vec<usize> {
 /// section and entry headers) and tails cut off. The writer never reports that it disturbed
 /// the sections it doesn't own.
 #[hegel::test(test_cases = 300)]
-fn readers_survive_damaged_files(tc: TestCase) {
+fn prop_readers_survive_damaged_files(tc: TestCase) {
     let which = tc.draw(gs::integers::<usize>().max_value(3 * ANALYSED.len()));
     let (mut f, cues_written) = match real_files().get(which / 3) {
         Some((dat, ext, ex2)) => ([dat, ext, ex2][which % 3].clone(), false),
@@ -651,7 +651,7 @@ fn shift(t: u32, ms: i32) -> u32 {
 /// with silence where it moved away from. Nothing else changes, nor does the file's size, and
 /// moving by 0 changes no byte.
 #[hegel::test(test_cases = 60)]
-fn shifted_times_move_by_the_shift(tc: TestCase) {
+fn prop_shifted_times_move_by_the_shift(tc: TestCase) {
     let f = any_analysis_file(&tc);
     let ms = tc.draw(hegel::one_of!(
         gs::integers::<i32>().min_value(-20_000).max_value(20_000),
@@ -712,7 +712,7 @@ fn shifted_times_move_by_the_shift(tc: TestCase) {
 /// (Moving back needn't give the file again: times stop at 0 and waveform columns moved past
 /// either end are gone.)
 #[hegel::test(test_cases = 200)]
-fn shifting_survives_damaged_files(tc: TestCase) {
+fn prop_shifting_survives_damaged_files(tc: TestCase) {
     let mut f = any_analysis_file(&tc);
     let targets = structure_offsets(&f);
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
@@ -739,7 +739,7 @@ fn shifting_survives_damaged_files(tc: TestCase) {
 /// More cues than a list can count, or a name longer than an entry can hold, are refused with
 /// an error, whichever file they go to.
 #[hegel::test(test_cases = 10)]
-fn cue_lists_too_big_for_the_file_are_refused(tc: TestCase) {
+fn prop_cue_lists_too_big_for_the_file_are_refused(tc: TestCase) {
     let base = common::synthetic_anlz("/Contents/a.mp3");
     let file = tc.draw(gs::sampled_from(&[CueFile::Dat, CueFile::DatAlone, CueFile::Ext]));
     let over = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
@@ -807,7 +807,7 @@ fn assemble(file: &[u8], sections: &[Vec<u8>]) -> Vec<u8> {
 /// by the reader, left as it is when times move (the cues around it move), and gone once the
 /// list is written again, the cues reading back as before.
 #[hegel::test(test_cases = 60)]
-fn foreign_entries_in_cue_lists_are_skipped(tc: TestCase) {
+fn prop_foreign_entries_in_cue_lists_are_skipped(tc: TestCase) {
     let file = tc.draw(gs::sampled_from(&[CueFile::DatAlone, CueFile::Ext]));
     let written = write(&common::synthetic_anlz("/Contents/a.mp3"), file, &cue_list(&tc, false));
     let tag = tc.draw(gs::arrays::<_, u8, 4>(gs::integers::<u8>()).filter(|t| t != b"PCPT" && t != b"PCP2"));
@@ -854,7 +854,7 @@ fn foreign_entries_in_cue_lists_are_skipped(tc: TestCase) {
 /// another cue keeps the entry byte for byte, and only giving it a colour makes it longer: by
 /// the four colour bytes, its comment kept as stored.
 #[hegel::test(test_cases = 60)]
-fn old_short_cue_entries_grow_only_for_a_colour(tc: TestCase) {
+fn prop_old_short_cue_entries_grow_only_for_a_colour(tc: TestCase) {
     let hot = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let time = tc.draw(gs::integers::<u32>().max_value(600_000));
     let name = tc.draw(gs::text().max_size(8).exclude_characters("\0"));

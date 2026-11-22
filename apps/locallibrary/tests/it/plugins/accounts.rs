@@ -38,7 +38,7 @@ fn signing_in_sends_the_browser_to_the_service_and_waits_for_it() {
     assert!(code == 1 && err.contains("not found: plugin \"nope\""), "{err}");
 }
 
-/// How a step of [`a_sign_in_the_browser_doesnt_approve_says_why_and_is_over`] ends a sign-in.
+/// How a step of [`prop_a_sign_in_the_browser_doesnt_approve_says_why_and_is_over`] ends a sign-in.
 #[derive(Debug, Clone, Copy)]
 enum Ending {
     /// In the sidecar, the address of another sign-in pasted.
@@ -63,7 +63,7 @@ enum Ending {
 /// over (a cancelled one can't be finished); none keeps an account, and nothing printed or answered
 /// holds a token.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_sign_in_the_browser_doesnt_approve_says_why_and_is_over(tc: TestCase) {
+fn prop_a_sign_in_the_browser_doesnt_approve_says_why_and_is_over(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());
     let endings = tc.draw(

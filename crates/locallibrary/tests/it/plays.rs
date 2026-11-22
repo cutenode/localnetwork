@@ -213,7 +213,7 @@ fn archived_lists_were_recorded_after_their_drives_previous_pull() {
 /// cache, finds exactly what the first read did (where entries gone from the library were
 /// included) and parses no database; a kept file that can't be read is parsed again.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_archive_read_again_from_the_cache_is_the_archive(tc: hegel::TestCase) {
+fn prop_the_archive_read_again_from_the_cache_is_the_archive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

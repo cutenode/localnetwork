@@ -273,7 +273,7 @@ fn the_list_shown_is_the_one_acted_on() {
 /// items problems first and each group of tracks it won't load (five named, the rest
 /// counted).
 #[hegel::test(test_cases = 200)]
-fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
+fn prop_a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let names = ["DNA", "SD", "USB"];
     let drives: Vec<String> = names[..tc.draw(gs::integers::<usize>().min_value(1).max_value(names.len()))]
@@ -344,7 +344,7 @@ fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
 /// drives of no library asks for one of them; enter on a library shows it, on a drive with an
 /// export reads it, on one without says so.
 #[hegel::test(test_cases = 200)]
-fn the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
+fn prop_the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (main, backup) = (Uuid::from_u128(1), Uuid::from_u128(2));
     let (mut app, dir) = blank(View::Drives);
@@ -393,7 +393,7 @@ fn the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
     assert_eq!((app.view, app.loading.as_deref(), last_message(&app)), (View::Drives, None, ""));
 }
 
-/// [`the_drives_views_actions_act_on_what_is_selected`] for one row and action (`Act::Activate`
+/// [`prop_the_drives_views_actions_act_on_what_is_selected`] for one row and action (`Act::Activate`
 /// is enter).
 fn acts_on_what_is_selected(app: &mut App, row: DriveRow, act: Act, known: bool, (main, n): (Uuid, usize)) {
     let name_of = |id: Option<Uuid>| match id {
@@ -479,7 +479,7 @@ fn acts_on_what_is_selected(app: &mut App, row: DriveRow, act: Act, known: bool,
 /// shows. A list of lists (Browse) isn't
 /// exported.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_export_writes_the_list_shown_where_asked(tc: hegel::TestCase) {
+fn prop_an_export_writes_the_list_shown_where_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::sets::{EntryOrigin, SetEntry};
 
@@ -536,7 +536,7 @@ fn an_export_writes_the_list_shown_where_asked(tc: hegel::TestCase) {
     }
 }
 
-/// [`an_export_writes_the_list_shown_where_asked`] for one list (the `k`th).
+/// [`prop_an_export_writes_the_list_shown_where_asked`] for one list (the `k`th).
 fn exports_the_list_shown(
     tc: &hegel::TestCase,
     app: &mut App,
@@ -615,7 +615,7 @@ fn exports_the_list_shown(
 /// is guessed from the one shown, rekordbox XML (the interop plugin's) takes the marked
 /// playlists, and a session is exported by its name.
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
+fn prop_packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     use super::super::app::testing::{key, press};
     use hegel::generators as gs;
     let (mut app, _dir, root) = demo_app();
@@ -732,7 +732,7 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
 /// say which. Checked for real, the demo drive's report is titled for it and starts by saying how
 /// it went.
 #[hegel::test(test_cases = 30)]
-fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
+fn prop_a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const FROM: [PlayersFrom; 4] = [PlayersFrom::Given, PlayersFrom::Library, PlayersFrom::Default, PlayersFrom::None];
     let mut r = report(0, 0);
@@ -785,7 +785,7 @@ fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
 /// plugged in here), and onto another it plans packing there, saying why it can't when that
 /// drive isn't one.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
+fn prop_packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
     use super::super::app::testing::key;
     use hegel::generators as gs;
     let (mut app, dir) = app_with(library());

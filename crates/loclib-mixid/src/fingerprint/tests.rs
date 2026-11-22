@@ -49,7 +49,7 @@ use hegel::generators as gs;
 /// Each peak is paired with the first `fanout` later peaks in its target zone, and nothing
 /// else: every landmark joins two peaks 2 to 62 frames and at most 31 bins apart.
 #[hegel::test(test_cases = 300)]
-fn landmarks_pair_peaks_in_their_target_zone(tc: TestCase) {
+fn prop_landmarks_pair_peaks_in_their_target_zone(tc: TestCase) {
     let peaks = sorted_peaks(&tc, 8, 80);
     let fanout = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
     let expected: Vec<Landmark> = peaks
@@ -72,7 +72,7 @@ fn landmarks_pair_peaks_in_their_target_zone(tc: TestCase) {
 /// The speeds searched start at the original, come in reciprocal pairs, cover the range and
 /// stay within a step of it, for key-locked and pitched playback alike.
 #[hegel::test(test_cases = 200)]
-fn variants_cover_the_range(tc: TestCase) {
+fn prop_variants_cover_the_range(tc: TestCase) {
     let range = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(0.25));
     let vs = variants(range);
     assert_eq!(vs[0], Variant { ratio: 1.0, pitch: false });
@@ -92,7 +92,7 @@ fn variants_cover_the_range(tc: TestCase) {
 /// a frame) maps back to the original's hash through one of the key-locked speeds searched;
 /// at the original speed, any landmark is its own hash.
 #[hegel::test(test_cases = 500)]
-fn key_locked_speeds_undo_a_stretch(tc: TestCase) {
+fn prop_key_locked_speeds_undo_a_stretch(tc: TestCase) {
     let f1 = tc.draw(gs::integers::<u8>().min_value(MIN_BIN as u8));
     let df = tc.draw(gs::integers::<i32>().min_value(-MAX_DF).max_value(MAX_DF));
     let f2 = (f1 as i32 + df).clamp(0, 255) as u8;
@@ -108,7 +108,7 @@ fn key_locked_speeds_undo_a_stretch(tc: TestCase) {
 /// Peaks don't depend on how the samples arrive: pushed all at once or in any chunks, the
 /// same peaks (in frame and bin order, in the bins searched) and one level per frame.
 #[hegel::test(test_cases = 40)]
-fn peaks_dont_depend_on_how_samples_arrive(tc: TestCase) {
+fn prop_peaks_dont_depend_on_how_samples_arrive(tc: TestCase) {
     let secs = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(2.5));
     let x = loclib_testkit::audio::synth(secs, tc.draw(gs::integers::<u32>()));
     let whole = {
@@ -158,7 +158,7 @@ fn columns_pool_frames_and_scale_each_series() {
 /// full height (or none, for silence), louder never drawn lower, and the same frames at another
 /// level drawn the same, give or take rounding.
 #[hegel::test(test_cases = 200)]
-fn columns_scale_each_series_to_its_loudest(tc: TestCase) {
+fn prop_columns_scale_each_series_to_its_loudest(tc: TestCase) {
     let level = || hegel::one_of!(gs::just(0.0f32), gs::floats::<f32>().min_value(1e-3).max_value(1.0));
     let frames: Vec<(f32, [f32; 3])> =
         tc.draw(gs::vecs(gs::tuples!(level(), gs::arrays::<_, _, 3>(level()))).max_size(400));
@@ -196,7 +196,7 @@ fn columns_scale_each_series_to_its_loudest(tc: TestCase) {
 /// A rate of no columns, a negative or not-a-number one, or one above two frames a column
 /// (which would leave columns no frame falls in) is refused.
 #[hegel::test(test_cases = 50)]
-fn columns_refuse_rates_that_leave_columns_empty(tc: TestCase) {
+fn prop_columns_refuse_rates_that_leave_columns_empty(tc: TestCase) {
     let per_sec = tc.draw(hegel::one_of!(
         gs::just(0.0f64),
         gs::just(f64::NAN),
@@ -236,7 +236,7 @@ fn prop_series_scaled_apart_are_each_against_their_own_loudest(tc: TestCase) {
 /// Any levels scaled together: louder is never drawn lower, whichever series it's in; the
 /// loudest is full height when it's over the floor, and under it as high as it is against it.
 #[hegel::test(test_cases = 200)]
-fn levels_scaled_together_are_drawn_against_one_another(tc: TestCase) {
+fn prop_levels_scaled_together_are_drawn_against_one_another(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(200));
     let level = || gs::vecs(gs::floats::<f32>().min_value(0.0).max_value(1.0)).min_size(n).max_size(n);
     let series: [Vec<f32>; 3] = [tc.draw(level()), tc.draw(level()), tc.draw(level())];

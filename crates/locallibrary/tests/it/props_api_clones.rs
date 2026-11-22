@@ -31,7 +31,7 @@ fn clone_of(store: &locallibrary::store::Store, main: &Path, root: &Path) -> Pat
 /// onto hold Main's library and the others are as they were.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(club = true, copy = true, backup = true, spare = true)]
-fn a_write_reaches_the_clones_that_are_no_newer(tc: TestCase) {
+fn prop_a_write_reaches_the_clones_that_are_no_newer(tc: TestCase) {
     let club = tc.draw(gs::booleans());
     let copy = tc.draw(gs::booleans());
     let backup = tc.draw(gs::booleans());
@@ -112,7 +112,7 @@ fn a_write_reaches_the_clones_that_are_no_newer(tc: TestCase) {
 /// left out (neither is an archive or retired drive).
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(specs = vec![0usize, 2, 1])]
-fn a_library_and_its_drives_named_together_mean_each_drive_once(tc: TestCase) {
+fn prop_a_library_and_its_drives_named_together_mean_each_drive_once(tc: TestCase) {
     let specs: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(2)).min_size(1).max_size(5));
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());

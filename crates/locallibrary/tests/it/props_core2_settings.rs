@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use locallibrary::settings::{self, DriveSettings, FlatSettings, SCHEMA, SettingsFile, SettingsLocation};
 
 #[hegel::test(test_cases = 10)]
-fn settings_in_a_plain_folder_are_a_drives(tc: TestCase) {
+fn prop_settings_in_a_plain_folder_are_a_drives(tc: TestCase) {
     let mut desired = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
         let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));

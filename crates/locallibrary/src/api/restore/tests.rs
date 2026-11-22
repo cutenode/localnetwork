@@ -267,7 +267,7 @@ fn subtree<'l>(lib: &'l Library, top: &'l Playlist) -> Vec<&'l Playlist> {
 /// (first when none is), so the source's siblings keep their order; what the drive has of its
 /// own is left where it was. With nothing left to put back, it's refused.
 #[hegel::test(test_cases = 300)]
-fn restoring_a_node_brings_back_the_source_s_entries_in_place(tc: hegel::TestCase) {
+fn prop_restoring_a_node_brings_back_the_source_s_entries_in_place(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let source = draw_source(&tc);
     let current = draw_current(&tc, &source);
@@ -365,7 +365,7 @@ fn restoring_a_node_brings_back_the_source_s_entries_in_place(tc: hegel::TestCas
 /// A name with a `/` in it (rekordbox allows one) can't be given as a path, so restoring it
 /// is refused, whatever it holds.
 #[hegel::test(test_cases = 50)]
-fn a_name_with_a_slash_is_refused(tc: hegel::TestCase) {
+fn prop_a_name_with_a_slash_is_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut source = draw_source(&tc);
     let i = tc.draw(gs::integers::<usize>().max_value(source.playlists.len() - 1));

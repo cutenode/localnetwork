@@ -69,7 +69,7 @@ fn a_format_keeps_archive_and_retired_drives_unless_allowed() {
 /// the store is and whether or not it's there yet, and for an archive or retired drive the
 /// store knows; a store elsewhere doesn't stop it.
 #[hegel::test(test_cases = 20)]
-fn a_format_is_refused_for_the_store_s_disk_and_kept_drives(tc: hegel::TestCase) {
+fn prop_a_format_is_refused_for_the_store_s_disk_and_kept_drives(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (dir, elsewhere) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     std::fs::create_dir(dir.path().join("Disk")).unwrap();
@@ -162,7 +162,7 @@ fn a_disk_to_erase_is_never_a_folder_here_named_like_a_label() {
 /// to it are refused as ambiguous, and no drive at all isn't found. Other commands take a
 /// volume's label as well as an adopted name.
 #[hegel::test(test_cases = 40)]
-fn a_disk_to_erase_is_named_by_adopted_name_alone(tc: hegel::TestCase) {
+fn prop_a_disk_to_erase_is_named_by_adopted_name_alone(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     crate::testing::volumes_on_this_thread(Some(vec![dir.path().to_path_buf()]));
@@ -213,7 +213,7 @@ fn a_disk_to_erase_is_named_by_adopted_name_alone(tc: hegel::TestCase) {
 /// them, planning a format by any name, applying a plan made before the folders were named and
 /// applying a format confirmed by its identity are all refused, before any disk is looked at.
 #[hegel::test(test_cases = 10)]
-fn disks_stay_hidden_while_drives_are(tc: hegel::TestCase) {
+fn prop_disks_stay_hidden_while_drives_are(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -255,7 +255,7 @@ fn drive_on_a_disk(fake: &mut fake_tools::FakeTools, store_on_it: bool) -> (Stor
 /// errors found as a problem too.
 #[cfg(unix)]
 #[hegel::test(test_cases = 10)]
-fn a_drives_file_system_check_goes_in_its_logbook(tc: hegel::TestCase) {
+fn prop_a_drives_file_system_check_goes_in_its_logbook(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, false);
@@ -288,7 +288,7 @@ fn a_drives_file_system_check_goes_in_its_logbook(tc: hegel::TestCase) {
 /// refused before anything runs, as unmounting it would take the store away.
 #[cfg(unix)]
 #[hegel::test(test_cases = 10)]
-fn ejecting_a_drive_is_planned_applied_and_counted(tc: hegel::TestCase) {
+fn prop_ejecting_a_drive_is_planned_applied_and_counted(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let store_on_it = tc.draw(gs::weighted_booleans(0.3));
@@ -329,7 +329,7 @@ fn ejecting_a_drive_is_planned_applied_and_counted(tc: hegel::TestCase) {
 /// Confirmed with another identity, nothing is erased.
 #[cfg(target_os = "macos")]
 #[hegel::test(test_cases = 10)]
-fn a_drives_disk_is_formatted_as_planned_through_the_api(tc: hegel::TestCase) {
+fn prop_a_drives_disk_is_formatted_as_planned_through_the_api(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let (store, d) = drive_on_a_disk(&mut fake, false);
@@ -377,7 +377,7 @@ fn a_drives_disk_is_formatted_as_planned_through_the_api(tc: hegel::TestCase) {
 /// formatted: the one holding the store can't, saying so.
 #[cfg(target_os = "macos")]
 #[hegel::test(test_cases = 6)]
-fn the_disk_holding_the_store_is_listed_as_not_to_be_formatted(tc: hegel::TestCase) {
+fn prop_the_disk_holding_the_store_is_listed_as_not_to_be_formatted(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     let store_on_it = tc.draw(gs::booleans());

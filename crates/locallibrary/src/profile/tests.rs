@@ -376,7 +376,7 @@ fn check_ranked(what: &str, sec: &RankedSection, counts: &FxHashMap<String, usiz
 /// repeat), ranked genres, labels and artists, release years, signature tracks, cues and the
 /// collection; every share is in [0, 1] and the headline counts what the basis counts.
 #[hegel::test(test_cases = 200)]
-fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
+fn prop_the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
     let s = tc.draw(scenario());
     let now = Utc::now();
     let (r, played) = report_of(&s, now);
@@ -673,7 +673,7 @@ fn rounded_to(x: f64, units: f64) -> bool {
 /// counts at most what they count. It names no hidden track or artist, pinned tracks first,
 /// and its headline and traits say nothing a left-out section would.
 #[hegel::test(test_cases = 200)]
-fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
+fn prop_the_document_publishes_what_the_preferences_allow(tc: TestCase) {
     let s = tc.draw(scenario());
     let (r, _) = report_of(&s, Utc::now());
     let prefs = prefs_for(&tc, &r);
@@ -865,7 +865,7 @@ fn genres_artists_era_and_energy_count_each_collection_track_once() {
 /// A document says when it was made to the millisecond, whatever the clock's resolution: the
 /// same report written twice is the same length (chrono's own format drops trailing zeros).
 #[hegel::test(test_cases = 100)]
-fn a_document_is_dated_to_the_millisecond(tc: TestCase) {
+fn prop_a_document_is_dated_to_the_millisecond(tc: TestCase) {
     let o = ProfileOptions {
         since: None,
         until: None,

@@ -159,7 +159,7 @@ fn markers() -> impl PrintableGenerator<Markers> {
 /// their NULs, which would end them early), in order, base64 in lines of 72 and the frame padded
 /// to 470 bytes.
 #[hegel::test(test_cases = 300)]
-fn markers_decode_to_what_was_encoded(tc: TestCase) {
+fn prop_markers_decode_to_what_was_encoded(tc: TestCase) {
     let m = tc.draw(markers());
     let back = markers_of(&decode_markers(&m.encode()));
     let unnul = |s: &String| s.replace('\0', "");
@@ -177,7 +177,7 @@ fn markers_decode_to_what_was_encoded(tc: TestCase) {
 /// memory loops in the lowest slots left; everything else is counted as left out, so nothing goes
 /// missing silently.
 #[hegel::test(test_cases = 400)]
-fn rekordbox_cues_go_to_pads_and_slots(tc: TestCase) {
+fn prop_rekordbox_cues_go_to_pads_and_slots(tc: TestCase) {
     let colour = tc.draw(gs::optional(gs::sampled_from(common::COLOURS.to_vec())));
     let cues: Vec<Cue> = tc.draw(gs::vecs(common::cue()).max_size(20));
     let m = Markers::from_rekordbox(colour, &cues);
@@ -315,7 +315,7 @@ fn crates(export: &Export) -> FxHashMap<String, Vec<String>> {
 /// below it, each listing its playlist's tracks in order (repeats kept, missing ones left out) by
 /// their path on their volume; the notes say which volume's `_Serato_` they go in.
 #[hegel::test(test_cases = 200)]
-fn crates_list_every_playlist(tc: TestCase) {
+fn prop_crates_list_every_playlist(tc: TestCase) {
     let lib = common::library(&tc, 4);
     let (root, volume) = root(&tc);
     let src = Source { library: &lib, root, analysis: None };
@@ -399,7 +399,7 @@ fn kind_of(path: &str) -> Option<Kind> {
 /// copies carry their cues' `Serato Markers2`; other formats and cues left out are counted. An
 /// error finding a track's audio comes back as it is, and a cancelled export stops.
 #[hegel::test(test_cases = 60)]
-fn copies_hold_each_file_once(tc: TestCase) {
+fn prop_copies_hold_each_file_once(tc: TestCase) {
     let lib = common::library(&tc, 5);
     let with_analysis = tc.draw(gs::booleans());
     let analysis = common::analysis(&tc, &lib);
@@ -450,7 +450,7 @@ fn copies_hold_each_file_once(tc: TestCase) {
         let key = paths::key(&t.file_path);
         assert_eq!(from, &paths::to_fs(music.path(), &key));
         assert_eq!(f.path, paths::to_fs(Path::new("/Volumes/USB/out"), &key));
-        // A tagged copy is planned at its size and the tag's (see `copies_are_planned_as_written`).
+        // A tagged copy is planned at its size and the tag's (see `prop_copies_are_planned_as_written`).
         match markers {
             Some(_) => assert!(f.bytes > sizes[&file_key(t)], "{}", f.path.display()),
             None => assert_eq!(f.bytes, sizes[&file_key(t)]),
@@ -506,7 +506,7 @@ fn copies_hold_each_file_once(tc: TestCase) {
 /// the points Serato can't hold: memory cues and hot cues past the eighth pad. Copies of other
 /// formats get no cues, and a warning counting them.
 #[hegel::test(test_cases = 60)]
-fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
+fn prop_copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
     let mut lib = common::library(&tc, 4);
     let music = tempfile::tempdir().unwrap();
     let mut analysis = FxHashMap::default();
@@ -578,7 +578,7 @@ fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
 /// without cues, warning why), and the same file with a 0 pad byte is tagged within its planned
 /// size.
 #[hegel::test(test_cases = 40)]
-fn an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
+fn prop_an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
     let kind = tc.draw(gs::sampled_from(vec![Kind::Wav, Kind::Aiff]));
     let named = Path::new(if kind == Kind::Wav { "x.wav" } else { "x.aiff" });
     let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(600));
@@ -728,7 +728,7 @@ fn geob(descriptor: &str, data: &[u8]) -> lofty::id3::v2::Frame<'static> {
 /// `Serato Markers_` is gone, the other frames stay, the tag keeps its version and the audio is
 /// untouched.
 #[hegel::test(test_cases = 40)]
-fn markers_written_into_copies_read_back(tc: TestCase) {
+fn prop_markers_written_into_copies_read_back(tc: TestCase) {
     use lofty::config::WriteOptions;
     use lofty::id3::v2::{Id3v2Tag, Id3v2Version};
     use lofty::tag::{Accessor, TagExt};
@@ -792,7 +792,7 @@ fn markers_written_into_copies_read_back(tc: TestCase) {
 /// typed error and the file is left as it was. A file cut off after its header is either refused
 /// the same way or tagged so that it reads back.
 #[hegel::test(test_cases = 60)]
-fn markers_refuse_files_they_cant_tag(tc: TestCase) {
+fn prop_markers_refuse_files_they_cant_tag(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("copy");
     let named = tc.draw(gs::sampled_from(vec!["x.mp3", "x.wav", "x.aiff", "x.flac", "x.m4a", "x"]));
@@ -852,7 +852,7 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
 #[hegel::explicit_test_case(wav = false, audio = vec![1u8; 2], size = 56u32, trailing = vec![0u8; 8])]
 // A size past the file's end: cut off.
 #[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 108u32, trailing = Vec::<u8>::new())]
-fn header_sizes_are_tagged_or_refused(tc: TestCase) {
+fn prop_header_sizes_are_tagged_or_refused(tc: TestCase) {
     use lofty::config::ParseOptions;
     use lofty::file::AudioFile;
 
@@ -902,7 +902,7 @@ fn header_sizes_are_tagged_or_refused(tc: TestCase) {
 /// not), the note counts the copies whose tag carries a cue or loop, and a file that can't be
 /// tagged is copied as it is, with a warning naming it.
 #[hegel::test(test_cases = 60)]
-fn copies_are_planned_as_written(tc: TestCase) {
+fn prop_copies_are_planned_as_written(tc: TestCase) {
     use lofty::config::WriteOptions;
     use lofty::id3::v2::Id3v2Tag;
     use lofty::tag::{Accessor, TagExt};

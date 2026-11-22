@@ -118,7 +118,7 @@ fn txt() -> impl hegel::PrintableGenerator<(String, Option<String>)> {
 /// Whatever TXT records a handle has, it's found as the DID in the first valid `did=` string,
 /// across records in the order DNS gives them, and not found without one.
 #[hegel::test(test_cases = 100)]
-fn the_first_valid_did_in_dns_names_the_account(tc: TestCase) {
+fn prop_the_first_valid_did_in_dns_names_the_account(tc: TestCase) {
     let drawn: Vec<Vec<(String, Option<String>)>> =
         tc.draw(gs::vecs(gs::vecs(txt()).min_size(1).max_size(3)).max_size(3));
     let expected = drawn.iter().flatten().find_map(|(_, did)| did.clone());

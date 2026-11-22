@@ -16,7 +16,7 @@ use locallibrary::player::{self, DbIdentity};
 use locallibrary::progress::Ctx;
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_players_name_and_colour_read_back_as_set(tc: TestCase) {
+fn prop_a_players_name_and_colour_read_back_as_set(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&root);
@@ -61,7 +61,7 @@ fn a_players_name_and_colour_read_back_as_set(tc: TestCase) {
 /// files that aren't records, or are empty, are passed over. A drive without OneLibrary can't be
 /// given a name or colour.
 #[hegel::test(test_cases = 20)]
-fn rekordboxs_record_is_the_first_file_that_holds_one(tc: TestCase) {
+fn prop_rekordboxs_record_is_the_first_file_that_holds_one(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
     let backup = root.join("PIONEER/DeviceLibBackup");
@@ -89,7 +89,7 @@ fn rekordboxs_record_is_the_first_file_that_holds_one(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 20)]
-fn a_contact_with_nothing_to_contact_is_refused(tc: TestCase) {
+fn prop_a_contact_with_nothing_to_contact_is_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
     let mut d = Device::open(&root).unwrap();

@@ -123,7 +123,7 @@ fn any_source() -> impl hegel::PrintableGenerator<Source> {
 /// file only when asked, keeping the source's rate when the players take it in that
 /// container, and rounded without dither only when nothing is lost.
 #[hegel::test(test_cases = 1000)]
-fn decisions_hold_for_any_file_and_players(tc: hegel::TestCase) {
+fn prop_decisions_hold_for_any_file_and_players(tc: hegel::TestCase) {
     let source = tc.draw(any_source());
     let picks = tc.draw(gs::vecs(gs::integers::<usize>().max_value(MODELS.len() - 1)).max_size(5));
     let targets: Vec<&Model> = picks.iter().map(|&i| &MODELS[i]).collect();
@@ -162,7 +162,7 @@ fn decisions_hold_for_any_file_and_players(tc: hegel::TestCase) {
 /// no smaller; and a WAV or AIFF copy of a WAV or AIFF that changes nothing but the container
 /// is the size of the source.
 #[hegel::test(test_cases = 300)]
-fn size_estimates_grow_with_length(tc: hegel::TestCase) {
+fn prop_size_estimates_grow_with_length(tc: hegel::TestCase) {
     let source = tc.draw(any_source());
     let recipe = Recipe {
         container: tc.draw(gs::sampled_from(Container::ALL.to_vec())),
@@ -197,7 +197,7 @@ fn size_estimates_grow_with_length(tc: hegel::TestCase) {
 /// every player lists with a rate and a depth they all share, the one asked for when it's such
 /// a container; when there's none, there's no lossless format to copy to.
 #[hegel::test(test_cases = 500)]
-fn made_up_players_share_a_format_or_have_none(tc: hegel::TestCase) {
+fn prop_made_up_players_share_a_format_or_have_none(tc: hegel::TestCase) {
     let codecs = vec![Codec::Aiff, Codec::Wav, Codec::Flac, Codec::Mp3];
     let players: Vec<&'static Model> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
         .map(|_| {

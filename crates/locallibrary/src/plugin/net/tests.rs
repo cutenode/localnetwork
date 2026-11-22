@@ -34,7 +34,7 @@ fn only_granted_hosts_at_public_https_addresses_are_reached() {
 /// when it names either, with what an account's endpoint is refused with. Regression: neither
 /// was looked at, so the plugin's request went with them.
 #[hegel::test(test_cases = 100)]
-fn an_address_naming_a_user_is_refused(tc: TestCase) {
+fn prop_an_address_naming_a_user_is_refused(tc: TestCase) {
     let user: String = tc.draw(gs::from_regex("[a-z0-9]{0,4}").fullmatch(true));
     let password: Option<String> = tc.draw(gs::optional(gs::from_regex("[a-z0-9]{0,4}").fullmatch(true)));
     let loopback = tc.draw(gs::booleans());
@@ -51,7 +51,7 @@ fn an_address_naming_a_user_is_refused(tc: TestCase) {
 /// For any secrets filled into a plugin's requests and any text, what's scrubbed holds none of
 /// them as they're written or as a URL's query spells them, and text without any is as it was.
 #[hegel::test(test_cases = 200)]
-fn scrubbed_text_never_holds_a_secret(tc: TestCase) {
+fn prop_scrubbed_text_never_holds_a_secret(tc: TestCase) {
     let state = State::default();
     // Of other letters than the text and `<secret>`: what's said in its place.
     let secrets: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[A-Z0-9 &=+/%]{4,8}").fullmatch(true)).max_size(3));

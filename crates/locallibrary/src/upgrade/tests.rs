@@ -28,7 +28,7 @@ fn precise(offset: f64) -> Alignment {
 #[hegel::explicit_test_case(taken = vec![true, false, false, false], there = vec![2u8, 0, 0, 0])]
 #[hegel::explicit_test_case(taken = vec![false, true, false, false], there = vec![1u8, 0, 3, 2])]
 #[hegel::explicit_test_case(taken = vec![false, false, false, false], there = vec![3u8, 0, 0, 0])]
-fn the_copy_takes_the_first_free_name(tc: hegel::TestCase) {
+fn prop_the_copy_takes_the_first_free_name(tc: hegel::TestCase) {
     // Per candidate name: whether a track uses it, and what the drive has there (nothing, the
     // same audio, other audio of the same size, other audio of another size).
     let taken: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(4).max_size(4));
@@ -88,7 +88,7 @@ fn the_copy_takes_the_first_free_name(tc: hegel::TestCase) {
 /// player and the file's format, rate and depth; one whose format can't be told, never.
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(given = vec![0usize], codec = Some(Codec::Wav), rate = 96_000u32, depth = 24u16)]
-fn a_lossless_file_a_player_cant_play_is_refused(tc: hegel::TestCase) {
+fn prop_a_lossless_file_a_player_cant_play_is_refused(tc: hegel::TestCase) {
     let given: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(MODELS.len() - 1)).max_size(3));
     let codec = tc.draw(gs::optional(gs::sampled_from(vec![Codec::Wav, Codec::Aiff, Codec::Flac, Codec::Alac])));
     let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000, 96_000, 192_000]));
@@ -114,7 +114,7 @@ fn a_lossless_file_a_player_cant_play_is_refused(tc: hegel::TestCase) {
 /// be rewritten. Every reason is tried on every run.
 #[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(rate = 48_000u32, delay_ms = 26u32)]
-fn an_upgrade_or_the_first_reason_it_isnt_one(tc: hegel::TestCase) {
+fn prop_an_upgrade_or_the_first_reason_it_isnt_one(tc: hegel::TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000]));
     let delay_ms = tc.draw(gs::sampled_from(vec![0u32, 26, 50]));
     let dir = tempfile::tempdir().unwrap();

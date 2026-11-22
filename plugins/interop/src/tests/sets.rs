@@ -182,7 +182,7 @@ fn a_set_needs_its_tracks_on_a_drive() {
 /// they're what loclib-interop builds of the drive's library narrowed to one playlist of the
 /// tracks found, in play order, each play left out named in a warning of its own.
 #[hegel::test(test_cases = 60)]
-fn any_set_or_mix_exports_the_tracks_played_on_the_drive(tc: TestCase) {
+fn prop_any_set_or_mix_exports_the_tracks_played_on_the_drive(tc: TestCase) {
     let mix_of = tc.draw(gs::booleans());
     let software = tc.draw(gs::sampled_from(vec![Software::Traktor, Software::Serato, Software::Engine]));
     let what = if mix_of { "mix" } else { "set" };

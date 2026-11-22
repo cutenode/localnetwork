@@ -274,7 +274,7 @@ const READS: &[&[&str]] = &[
 /// every file on the drives as it was.
 // One case runs every command in the list: each run tries other arguments, flags and order.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn reads_keep_the_contract_and_change_no_drive(tc: TestCase) {
+fn prop_reads_keep_the_contract_and_change_no_drive(tc: TestCase) {
     let fx = Env::from_template();
     let before = Env::files_in(&fx.volumes);
     for words in tc.draw(gs::permutations(READS)) {
@@ -323,7 +323,7 @@ const WRITES: &[&[&str]] = &[
 /// drives and the store are as they were.
 // One case runs every command in the list: each run tries other arguments, flags and order.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn writes_wait_for_yes(tc: TestCase) {
+fn prop_writes_wait_for_yes(tc: TestCase) {
     let fx = Env::from_template();
     let before = fx.files();
     for words in tc.draw(gs::permutations(WRITES)) {
@@ -409,7 +409,7 @@ const CHANGES: &[&[&str]] = &[
 /// reads, and `doctor` still runs on it.
 // One case runs every command in the list: each run tries other arguments, flags and order.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn changes_keep_the_contract_and_the_library_readable(tc: TestCase) {
+fn prop_changes_keep_the_contract_and_the_library_readable(tc: TestCase) {
     let fx = Env::from_template();
     let all: Vec<&[&str]> = WRITES.iter().chain(CHANGES).copied().collect();
     for words in tc.draw(gs::permutations(all)) {
@@ -455,7 +455,7 @@ fn playlists(fx: &Env) -> BTreeSet<String> {
 /// changes undone, agree with a model: a dry run changes nothing, and undo puts back the
 /// playlists as they were before the last change it hasn't undone.
 #[hegel::test(test_cases = 5)]
-fn playlist_edits_and_undo_agree_with_a_model(tc: TestCase) {
+fn prop_playlist_edits_and_undo_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     let mut model = playlists(&fx);
     // What each change replaced, newest last: what undo puts back.
@@ -529,7 +529,7 @@ struct Records {
 /// Rule-based playlists, My Settings, the players, the library's name and drive A's role and
 /// name, changed through the command line in any order, agree with a model after every step.
 #[hegel::test(test_cases = 4)]
-fn store_and_drive_records_agree_with_a_model(tc: TestCase) {
+fn prop_store_and_drive_records_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     let mut m =
         Records { smart: BTreeSet::new(), quantize: None, players: Vec::new(), library: "A", role: None, name: "A" };
@@ -626,7 +626,7 @@ fn completions(fx: &Env, words: &[&str]) -> Vec<String> {
 /// an option it doesn't have is a usage error (status 2, on stderr, or as JSON with kind
 /// `usage`), and a mistyped command is one too, whose "did you mean" names only real commands.
 #[hegel::test(test_cases = 8)]
-fn every_command_has_help_and_usage_errors(tc: TestCase) {
+fn prop_every_command_has_help_and_usage_errors(tc: TestCase) {
     let fx = Env::from_template();
     let top = fx.run(&["--help"]);
     assert_eq!(top.code, 0, "{}", top.err);
@@ -732,7 +732,7 @@ fn every_command_has_help_and_usage_errors(tc: TestCase) {
 /// `--version` or `-V`, alone (answered before the command line is built) or after any global
 /// flags (read by clap), prints the same line: the name and this version.
 #[hegel::test(test_cases = 6)]
-fn the_version_is_the_same_however_its_asked(tc: TestCase) {
+fn prop_the_version_is_the_same_however_its_asked(tc: TestCase) {
     let fx = Env::new();
     let mut args: Vec<&str> = tc.draw(gs::subsequences(vec!["--ascii", "--quiet", "--no-pager"]));
     args.push(tc.draw(gs::sampled_from(vec!["--version", "-V"])));
@@ -752,7 +752,7 @@ const EXPORTS: &[&[&str]] = &[
 
 /// Any of them, with any flags, does as said above.
 #[hegel::test(test_cases = 6)]
-fn exports_write_where_they_are_told(tc: TestCase) {
+fn prop_exports_write_where_they_are_told(tc: TestCase) {
     let fx = Env::from_template();
     let words = tc.draw(gs::sampled_from(EXPORTS));
     let flags = flags(&tc);
@@ -787,7 +787,7 @@ fn exports_write_where_they_are_told(tc: TestCase) {
 /// published already writes nothing. The My Settings published are the ones set when they were.
 #[cfg(feature = "account")]
 #[hegel::test(test_cases = 4)]
-fn published_records_are_what_was_planned(tc: TestCase) {
+fn prop_published_records_are_what_was_planned(tc: TestCase) {
     use crate::mock_pds::MockPds;
     use crate::support::account::{DID, PUBLISHING, sign_in};
     let pds = MockPds::start();
@@ -886,7 +886,7 @@ fn published_records_are_what_was_planned(tc: TestCase) {
 /// through `collection`: the tracks that aren't deleted, each once, filtered, sorted and
 /// searched as asked, the playlist's in its order, and the counts that sum them up.
 #[hegel::test(test_cases = 4)]
-fn the_collection_reads_back_as_written(tc: TestCase) {
+fn prop_the_collection_reads_back_as_written(tc: TestCase) {
     let fx = Env::from_template();
     let db = fx.home("master.db");
     let titles = ["Demo Track 1", "Never Grow Old", "Sanctified", "Bootleg", "Ünïcödé"];

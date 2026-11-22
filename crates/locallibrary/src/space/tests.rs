@@ -88,7 +88,7 @@ fn warns_when_little_room_is_left() {
 /// Snapshots on a line of growth: the fit finds its slope, says when the room left runs out
 /// at that rate, and says nothing from fewer than two snapshots or less than a week.
 #[hegel::test(test_cases = 300)]
-fn a_line_of_growth_is_found_again(tc: hegel::TestCase) {
+fn prop_a_line_of_growth_is_found_again(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let base = tc.draw(gs::integers::<u64>().max_value(1 << 40));
     let per_day = tc.draw(gs::integers::<i64>().min_value(-1_000_000).max_value(50_000_000));
@@ -124,7 +124,7 @@ fn a_line_of_growth_is_found_again(tc: hegel::TestCase) {
 
 /// The warning comes exactly when what's left after the plan is under the players' headroom.
 #[hegel::test(test_cases = 300)]
-fn headroom_is_warned_about_exactly_when_short(tc: hegel::TestCase) {
+fn prop_headroom_is_warned_about_exactly_when_short(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let free = tc.draw(gs::optional(gs::integers::<u64>().max_value(1 << 34)));
     let needed = tc.draw(gs::integers::<u64>().max_value(1 << 34));

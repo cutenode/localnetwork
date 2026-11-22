@@ -111,7 +111,7 @@ const VALUES: &[&str] = &[
 /// one that adds to the request names a flag for each parameter it adds, and leaves out a switch
 /// that's off. One missing a value it needs (a drive's role without the drive) says where it goes.
 #[hegel::test(test_cases = 200)]
-fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
+fn prop_hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let methods = [
         "pull.apply",
@@ -256,7 +256,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
 /// with no flag); nothing to add is no command at all. One that needs administrator rights says
 /// to run it again so, whatever else it carries.
 #[hegel::test(test_cases = 200)]
-fn retries_add_a_flag_for_each_parameter(tc: hegel::TestCase) {
+fn prop_retries_add_a_flag_for_each_parameter(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let keys = ["force", "library", "folder_name", "allow_low_confidence", "limit", "drive", "dry_run"];
     let mut params = Map::new();

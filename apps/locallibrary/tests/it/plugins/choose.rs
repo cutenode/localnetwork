@@ -92,7 +92,7 @@ fn an_operation_asks_and_is_planned_answered() {
 /// label; given every answer with `--choose`, as JSON or as text, the command runs once with them
 /// all.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn any_questions_a_command_asks_are_answered_with_choose(tc: TestCase) {
+fn prop_any_questions_a_command_asks_are_answered_with_choose(tc: TestCase) {
     let env = env();
     let mut questions = Vec::new();
     let mut choose = Vec::new();

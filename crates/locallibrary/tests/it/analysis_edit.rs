@@ -345,7 +345,7 @@ fn analysis_that_cant_be_written_is_refused() {
 /// most beats have in the databases, and so does any waveform on a track without rekordbox's
 /// colour one, staged on the drive; undo puts every file back.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn any_grid_phrases_and_waveform_read_back_and_undo(tc: TestCase) {
+fn prop_any_grid_phrases_and_waveform_read_back_and_undo(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let with_wave = tc.draw(gs::booleans());
     let (root, t) = match with_wave {
@@ -435,7 +435,7 @@ fn a_grids_tempo_is_most_of_its_beats() {
 /// ones outside rekordbox's folder, a waveform over rekordbox's colour overview, one that isn't
 /// bands, given as a plugin's blob or staged and gone, and a track that isn't on the drive.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
+fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let case = tc.draw(gs::integers::<u8>().max_value(14));
     let root = match case {
@@ -546,7 +546,7 @@ fn analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
 /// (the waveform from its staged copy), skipped with a warning once the track's `.DAT` is gone;
 /// and a grid set over a moved one has no extended grid left to lose.
 #[hegel::test(test_cases = 24, suppress_health_check = [HealthCheck::TooSlow])]
-fn any_analysis_edit_warns_of_what_it_leaves_and_replays_as_made(tc: TestCase) {
+fn prop_any_analysis_edit_warns_of_what_it_leaves_and_replays_as_made(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");
     let t = track(&root, "Demo Track 1");

@@ -201,7 +201,7 @@ fn analysis(tc: &TestCase) -> TrackAnalysis {
 /// tracks the profile hides are "ID - ID", and from the drive each track has its overview (at most
 /// 200 columns), its hot cues and its phrases on the grid, as the HTML report has them.
 #[hegel::test(test_cases = 60)]
-fn exports_count_what_the_report_found(tc: TestCase) {
+fn prop_exports_count_what_the_report_found(tc: TestCase) {
     let mut r = report();
     let base = r.plays[0].clone();
     r.plays = (0..tc.draw(gs::integers::<u32>().max_value(4)))
@@ -359,7 +359,7 @@ fn play_elsewhere() -> Play {
 /// Downsampling keeps the loudest value, leaves a short series as it is, and makes as many
 /// columns as asked of a long one, each the loudest of its stretch, stretches in order.
 #[hegel::test(test_cases = 300)]
-fn downsampling_keeps_the_loudest(tc: TestCase) {
+fn prop_downsampling_keeps_the_loudest(tc: TestCase) {
     let values = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(500));
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
     let out = downsample(&values, n);
@@ -389,7 +389,7 @@ fn image_bytes(dir: &std::path::Path, side: u32) -> Vec<u8> {
 /// artwork of each track the profile lets it name. What isn't artwork (not an image, or under
 /// 16 pixels) is left out.
 #[hegel::test(test_cases = 12)]
-fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
+fn prop_exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut r = report();
     let set = dir.path().join("set.wav");
@@ -455,7 +455,7 @@ fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
 /// An export names the mix and each track it may name by their text without the space around
 /// it, and what is only space as untitled; a track the profile hides is "ID" whatever it's called.
 #[hegel::test(test_cases = 100)]
-fn exports_name_what_has_a_name_and_call_the_rest_untitled(tc: TestCase) {
+fn prop_exports_name_what_has_a_name_and_call_the_rest_untitled(tc: TestCase) {
     let text = || gs::sampled_from(vec!["", " ", "\t\n", "Friday", "  Demo Track 1 ", "日本"]);
     let mut r = report();
     r.mix.title = tc.draw(text()).to_string();

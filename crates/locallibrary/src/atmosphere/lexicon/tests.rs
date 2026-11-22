@@ -328,7 +328,7 @@ fn bound(tc: &hegel::TestCase, max: i64) -> Option<i64> {
 /// `maxLength`, its length in graphemes within `maxGraphemes` and it's one of `enum` (when
 /// there is one), and the first of those it breaks is the one the error names.
 #[hegel::test(test_cases = 400)]
-fn text_fits_when_its_bytes_graphemes_and_value_do(tc: hegel::TestCase) {
+fn prop_text_fits_when_its_bytes_graphemes_and_value_do(tc: hegel::TestCase) {
     let words = vec!["dark", "light", "dämmerung", "夜"];
     // Accents, ZWJ and regional indicators, so graphemes of several code points come up often.
     let clusters = gs::text().alphabet("e\u{301}\u{200d}👩🇬🇧").max_size(12);
@@ -372,7 +372,7 @@ fn max_graphemes_counts_clusters_not_code_points() {
 /// A number fits an integer schema exactly when it's a whole number (the AT Protocol has no
 /// fractions, so `3.0` isn't one) that fits in 64 bits and is within the bounds.
 #[hegel::test(test_cases = 400)]
-fn integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
+fn prop_integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
     let v: Value = tc.draw(hegel::one_of!(
         gs::integers::<i64>().min_value(-60).max_value(60).map(Value::from),
         gs::integers::<i64>().map(Value::from),
@@ -403,7 +403,7 @@ fn integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
 /// A list fits when its length is within the schema's bounds and every entry fits; when the
 /// length is fine, the first entry that doesn't fit is the one named.
 #[hegel::test(test_cases = 300)]
-fn lists_check_their_length_then_each_entry(tc: hegel::TestCase) {
+fn prop_lists_check_their_length_then_each_entry(tc: hegel::TestCase) {
     let items: Vec<i64> = tc.draw(gs::vecs(gs::integers::<i64>().min_value(-2).max_value(9)).max_size(8));
     let (min, max) = (bound(&tc, 8), bound(&tc, 8));
     let mut schema = json!({ "type": "array", "items": { "type": "integer", "minimum": 0 } });
@@ -430,7 +430,7 @@ fn lists_check_their_length_then_each_entry(tc: hegel::TestCase) {
 /// An object fits when it has every required field, holds only fields the schema defines,
 /// each fitting, and is null only where the schema allows; the first problem is the one named.
 #[hegel::test(test_cases = 400)]
-fn objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
+fn prop_objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
     let names = vec!["a", "b", "c", "d"];
     let subset = |of: Vec<&'static str>| -> BTreeSet<&'static str> {
         if of.is_empty() {
@@ -469,7 +469,7 @@ fn objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
 /// A union's value names its type in `$type`: a type the union lists is checked as that type,
 /// and one it doesn't list passes when the union is open and is refused when it's closed.
 #[hegel::test(test_cases = 200)]
-fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) {
+fn prop_unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) {
     let link = format!("{SET}#link");
     let closed = tc.draw(gs::booleans());
     let schema = json!({ "type": "union", "refs": ["#link", ADDRESS], "closed": closed });
@@ -511,7 +511,7 @@ fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) 
 /// or another document's main definition (`nsid`); a value checked against a ref to a
 /// definition its document doesn't have is refused, naming the ref.
 #[hegel::test(test_cases = 200)]
-fn refs_name_their_document_and_definition(tc: hegel::TestCase) {
+fn prop_refs_name_their_document_and_definition(tc: hegel::TestCase) {
     let nsid = || gs::from_regex("[a-z]{1,6}\\.[a-z]{1,6}\\.[a-z][a-zA-Z]{0,6}").fullmatch(true);
     let (here, there) = (tc.draw(nsid()), tc.draw(nsid()));
     let name: String = tc.draw(gs::from_regex("[a-z][a-zA-Z]{0,8}").fullmatch(true));
@@ -532,7 +532,7 @@ fn refs_name_their_document_and_definition(tc: hegel::TestCase) {
 /// spaces that doesn't start with `/`: any whitespace in it, a scheme with other characters or
 /// no scheme at all, and it isn't one.
 #[hegel::test(test_cases = 400)]
-fn uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
+fn prop_uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
     let scheme: String = tc.draw(gs::from_regex("[A-Za-z0-9_]{1,8}").fullmatch(true));
     let text: String = tc.draw(gs::text().max_size(16));
     let rest: String = text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -557,7 +557,7 @@ fn uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
 /// A boolean schema takes exactly `true` and `false`, an `unknown` one exactly objects, and a
 /// type or string format the check doesn't know is an error, whatever the value.
 #[hegel::test(test_cases = 200)]
-fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
+fn prop_booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
     let v: Value = tc.draw(gs::sampled_from(vec![
         json!(true),
         json!(false),

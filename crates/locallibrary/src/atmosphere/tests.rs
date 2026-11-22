@@ -698,7 +698,7 @@ fn alnum() -> impl hegel::PrintableGenerator<String> {
 /// client_id that isn't its address, an app that isn't native, no loopback redirect, or a
 /// scope asked for that it doesn't allow.
 #[hegel::test(test_cases = 300)]
-fn documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
+fn prop_documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
     let extra: Vec<String> = tc
         .draw(gs::vecs(gs::sampled_from(vec!["transition:generic", "repo:app.example.thing"])).max_size(2))
         .into_iter()
@@ -747,7 +747,7 @@ fn documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
 /// Scopes to ask for are read when every one can be and `atproto` is among them (none at all
 /// means `atproto`), and come back as asked, each once.
 #[hegel::test(test_cases = 300)]
-fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
+fn prop_scopes_are_read_when_they_include_atproto(tc: TestCase) {
     let atoms = vec![
         ("atproto", true),
         ("transition:generic", true),
@@ -779,7 +779,7 @@ fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
 /// A loopback client's ID carries its redirect, whatever the port, and the scopes it asks
 /// for; a hosted client's is its document's https address, and nothing else will do.
 #[hegel::test(test_cases = 200)]
-fn clients_are_introduced_as_they_should_be(tc: TestCase) {
+fn prop_clients_are_introduced_as_they_should_be(tc: TestCase) {
     let port = tc.draw(gs::integers::<u16>().min_value(1));
     let redirect = format!("http://127.0.0.1:{port}{CALLBACK_PATH}");
     let include: &str = format!("include:{PUBLISH_SET}").leak();
@@ -810,7 +810,7 @@ fn clients_are_introduced_as_they_should_be(tc: TestCase) {
 /// development client stands in, saying why; a document that's online but doesn't fit
 /// stops the sign-in, saying why and offering the development client.
 #[hegel::test(test_cases = 100)]
-fn the_own_client_falls_back_only_while_offline(tc: TestCase) {
+fn prop_the_own_client_falls_back_only_while_offline(tc: TestCase) {
     let why = tc.draw(gs::text().max_size(20));
     match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => assert_eq!(own_client(Ok(())).unwrap(), (Client::published(), None)),
@@ -830,7 +830,7 @@ fn the_own_client_falls_back_only_while_offline(tc: TestCase) {
 /// What went wrong signing in is said on one line, with its cause once, whatever the cause
 /// says.
 #[hegel::test(test_cases = 200)]
-fn sign_in_errors_are_said_on_one_line(tc: TestCase) {
+fn prop_sign_in_errors_are_said_on_one_line(tc: TestCase) {
     use jacquard_oauth::request::{RequestError, RequestErrorKind};
     let cause = tc.draw(hegel::one_of!(
         gs::text().max_size(20),
@@ -912,7 +912,7 @@ impl Redirect {
 /// server that isn't public, refused). Each but the first ends the sign-in, and nobody is
 /// signed in.
 #[hegel::test(test_cases = 4)]
-fn finishing_with_a_pasted_address_agrees_with_a_model(tc: TestCase) {
+fn prop_finishing_with_a_pasted_address_agrees_with_a_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let state = tc.draw(alnum());
     let r = redirect(&tc);
@@ -936,7 +936,7 @@ fn finishing_with_a_pasted_address_agrees_with_a_model(tc: TestCase) {
 /// Finishing in the browser goes the same way (and without a code, says so), and the browser
 /// is shown what went wrong, escaped.
 #[hegel::test(test_cases = 3)]
-fn finishing_in_the_browser_shows_how_it_went(tc: TestCase) {
+fn prop_finishing_in_the_browser_shows_how_it_went(tc: TestCase) {
     use std::io::{Read, Write};
     let dir = tempfile::tempdir().unwrap();
     let state = tc.draw(alnum());
@@ -988,7 +988,7 @@ enum Says {
 /// the handle known, which the next sign-in offers. Signed out, signing out again has nobody to
 /// sign out, and signing in needs an account named.
 #[hegel::test(test_cases = 40)]
-fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
+fn prop_checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let says = tc.draw(gs::sampled_from(vec![
         Says::Handle,
@@ -1089,7 +1089,7 @@ fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
 /// issuer is a mix-up, refused; otherwise it goes on to the token exchange, which this server
 /// refuses.
 #[hegel::test(test_cases = 60)]
-fn only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
+fn prop_only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let state = tc.draw(gs::optional(gs::sampled_from(vec!["st4te", "guess"])));
     let answer = tc.draw(gs::sampled_from(vec![
@@ -1125,7 +1125,7 @@ fn only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
 /// damaged) can't be used, whatever it says instead: checking it says which is no good (the
 /// address first), before anything is sent; signing out still removes it, revoking nothing.
 #[hegel::test(test_cases = 30)]
-fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
+fn prop_a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
     // Anything not starting `did:` isn't a DID, nor is `did:` with no method or identifier.
     let did: Option<String> = tc.draw(gs::optional(hegel::one_of!(
         gs::sampled_from(vec!["", "did:", "did:plc:", "did:plc", "plc:abc", " did:plc:abc"]).map(String::from),

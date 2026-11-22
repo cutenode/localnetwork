@@ -312,7 +312,7 @@ fn clock_of(secs: u32) -> String {
 /// tracks that don't start after the one before. The formats for publishing name no track the set
 /// marks unnamed or the profile hides. An M3U8 needs a drive.
 #[hegel::test(test_cases = 300)]
-fn every_format_lists_every_track_in_order(tc: TestCase) {
+fn prop_every_format_lists_every_track_in_order(tc: TestCase) {
     let s = some_set(&tc, tc.draw(gs::booleans()));
     let prefs = some_prefs(&tc);
     let published = |e: &SetEntry| published(e, &prefs);
@@ -443,7 +443,7 @@ fn sent(s: &Set, named: impl Fn(&SetEntry) -> bool) -> Vec<TracklistEntry> {
 /// names no track the set marks unnamed or the profile hides, and holds no album or length of one.
 /// Mixcloud's tracklist is warned about as the mixcloud plugin warns, counting every track.
 #[hegel::test(test_cases = 300)]
-fn pasted_is_what_the_plugins_publish(tc: TestCase) {
+fn prop_pasted_is_what_the_plugins_publish(tc: TestCase) {
     let s = some_set(&tc, tc.draw(gs::booleans()));
     let prefs = some_prefs(&tc);
     let length = tc.draw(gs::integers::<u32>().max_value(25_000));
@@ -462,7 +462,7 @@ fn pasted_is_what_the_plugins_publish(tc: TestCase) {
 /// An M3U8 lists the set's tracks found on the drive by file (in any case), in set order, and
 /// warns about each of the others by its place in the set.
 #[hegel::test(test_cases = 300)]
-fn m3u8_lists_the_tracks_found_on_the_drive(tc: TestCase) {
+fn prop_m3u8_lists_the_tracks_found_on_the_drive(tc: TestCase) {
     let lib = Library {
         tracks: (1..=4).map(|n| track(n, "Artist", &format!("Track {n}"), &format!("/Contents/{n}.mp3"))).collect(),
         ..Default::default()

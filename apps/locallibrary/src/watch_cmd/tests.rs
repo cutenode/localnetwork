@@ -15,7 +15,7 @@ use hegel::generators as gs;
 /// reads back (as `locallibrary` parses it) as a pulling watch with those: the store made
 /// absolute, the group synced unless told not to, and the settle time.
 #[hegel::test(test_cases = 100)]
-fn the_installed_watch_reads_back_as_given(tc: TestCase) {
+fn prop_the_installed_watch_reads_back_as_given(tc: TestCase) {
     let store = tc.draw(gs::optional(gs::sampled_from(vec!["store", "/Volumes/NAS/my store", "rel/dir with space"])));
     let no_sync_group = tc.draw(gs::booleans());
     let settle = tc.draw(gs::integers::<u64>().max_value(600));
@@ -34,7 +34,7 @@ fn the_installed_watch_reads_back_as_given(tc: TestCase) {
 /// to (with why one failed), why it's waiting or left alone. A change to a drive's files says
 /// nothing.
 #[hegel::test(test_cases = 100)]
-fn what_watch_says_names_the_drive_and_what_happened(tc: TestCase) {
+fn prop_what_watch_says_names_the_drive_and_what_happened(tc: TestCase) {
     use locallibrary::api::{TargetError, TargetResult};
     use locallibrary::watch::MountedDrive;
     let name = tc.draw(gs::sampled_from(vec!["DJ", "Ünïcödé 日本", "USB DRIVE"])).to_string();

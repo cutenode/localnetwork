@@ -18,7 +18,7 @@ fn slugs_and_urls() {
 /// and before the page's folder exists. (Bombadil found the link climbing to `/` when only
 /// the audio's side had macOS's /var resolved to /private/var.)
 #[hegel::test(test_cases = 200)]
-fn audio_links_lead_to_the_audio(tc: hegel::TestCase) {
+fn prop_audio_links_lead_to_the_audio(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let folder = || gs::vecs(gs::sampled_from(vec!["a", "b", ".", "tachy cardia", "Set #1", "日本"])).max_size(4);
     let page_dirs: Vec<&str> = tc.draw(folder());
@@ -376,7 +376,7 @@ fn percent_decoded(url: &str) -> Vec<u8> {
 /// words joined by single dashes, none at either end, within 60 bytes, never empty; and a
 /// slug is its own.
 #[hegel::test(test_cases = 500)]
-fn any_title_slugs_to_a_file_name(tc: TestCase) {
+fn prop_any_title_slugs_to_a_file_name(tc: TestCase) {
     let title = tc.draw(gs::text().max_size(80));
     let s = slug(&title);
     assert!(!s.is_empty() && s.len() <= SLUG_BYTES, "{s:?}");
@@ -391,7 +391,7 @@ fn any_title_slugs_to_a_file_name(tc: TestCase) {
 /// Any URL path piece holds only what URLs take as it is, and reads back as what it stood
 /// for; a `file:` URL leads to its path.
 #[hegel::test(test_cases = 300)]
-fn urls_read_back_as_their_paths(tc: TestCase) {
+fn prop_urls_read_back_as_their_paths(tc: TestCase) {
     // One piece each: on Windows a backslash separates too, and a colon makes a drive.
     let separators = if cfg!(windows) { "/\\:\0" } else { "/\0" };
     let parts: Vec<String> =
@@ -410,7 +410,7 @@ fn urls_read_back_as_their_paths(tc: TestCase) {
 /// A project's audio is the browser-playable file next to it sharing the most of its name
 /// (four characters at least), the most compact of those; a recording stands for no other.
 #[hegel::test(test_cases = 25)]
-fn a_project_plays_the_export_sharing_most_of_its_name(tc: TestCase) {
+fn prop_a_project_plays_the_export_sharing_most_of_its_name(tc: TestCase) {
     let stems = vec!["set one", "set one export", "set", "set two", "other", "SET ONE final"];
     let exts = vec!["mp3", "m4a", "wav", "flac", "ogg", "aiff", "txt", "aup3"];
     let files: Vec<(&str, &str)> =
@@ -450,7 +450,7 @@ fn a_project_plays_the_export_sharing_most_of_its_name(tc: TestCase) {
 /// by an id made only of what ids are made of; nothing else is an id. Without a readable
 /// reports folder, listing fails.
 #[hegel::test(test_cases = 20)]
-fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
+fn prop_kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
     use loclib_model::test_util::track;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path()).unwrap();
@@ -492,7 +492,7 @@ fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
 /// it adds to each), names the tracks the profile hides as "ID", and puts in its title
 /// element only what HTML takes as text.
 #[hegel::test(test_cases = 100)]
-fn the_page_holds_the_report_whatever_it_says(tc: TestCase) {
+fn prop_the_page_holds_the_report_whatever_it_says(tc: TestCase) {
     use loclib_model::test_util::track;
     let title = tc.draw(gs::text().alphabet("ab <!-/script>&\"'é").max_size(30));
     let mut r = report(&title);
@@ -545,7 +545,7 @@ fn the_page_holds_the_report_whatever_it_says(tc: TestCase) {
 /// with its name after it except on the page or when it has none, in its colour; and on the page
 /// only, the cover from the drive, as a JPEG `data:` URL of the file's own bytes.
 #[hegel::test(test_cases = 100)]
-fn extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
+fn prop_extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
     use crate::anlz::Cue;
     use loclib_model::test_util::track;
     let dir = tempfile::tempdir().unwrap();
@@ -611,7 +611,7 @@ fn extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
 /// A file URL leads to its path, the root included: it ends in a slash exactly when the path is
 /// the root, which `file://` alone wouldn't name.
 #[hegel::test(test_cases = 200)]
-fn file_urls_end_in_a_slash_only_at_the_root(tc: TestCase) {
+fn prop_file_urls_end_in_a_slash_only_at_the_root(tc: TestCase) {
     let parts: Vec<String> =
         tc.draw(gs::vecs(gs::sampled_from(vec![".", "Mixes", "set #1.wav", "日本"]).map(String::from)).max_size(4));
     let path: PathBuf = std::iter::once("/".to_string()).chain(parts).collect();
@@ -627,7 +627,7 @@ fn file_urls_end_in_a_slash_only_at_the_root(tc: TestCase) {
 /// one without takes it from its id. No folder is no reports; a folder that can't be read is an
 /// error, not an empty list.
 #[hegel::test(test_cases = 40)]
-fn the_reports_folder_lists_each_report_once(tc: TestCase) {
+fn prop_the_reports_folder_lists_each_report_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let folder = reports_dir(dir.path());
     match tc.draw(gs::integers::<u8>().max_value(4)) {
@@ -682,7 +682,7 @@ fn the_reports_folder_lists_each_report_once(tc: TestCase) {
 /// A page shows the cover embedded in the recording as a JPEG at most 640 pixels across, and
 /// none for an image beside the recording (a guess) or a recording without one.
 #[hegel::test(test_cases = 12)]
-fn a_page_shows_only_the_cover_the_recording_embeds(tc: TestCase) {
+fn prop_a_page_shows_only_the_cover_the_recording_embeds(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let set = dir.path().join("set.wav");
     std::fs::write(&set, crate::probe::tests::wav(8_000, 16, 0.2)).unwrap();

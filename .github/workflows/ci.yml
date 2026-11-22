@@ -145,7 +145,6 @@ jobs:
               - 'clippy.toml'
               - '.cargo/**'
               - '.config/nextest.toml'
-              - 'tools/hegel-coverage.sh'
               - 'tools/budgets/**'
               - 'tools/coverage/**'
               - 'benchmarks/**'

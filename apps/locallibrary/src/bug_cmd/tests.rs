@@ -97,7 +97,7 @@ fn a_long_report_is_cut_short_to_fit_an_address() {
 /// out.
 #[hegel::test(test_cases = 200)]
 #[hegel::explicit_test_case(title_len = 9000usize, message_len = 1usize, piece = "a")]
-fn the_address_never_runs_past_its_limit(tc: hegel::TestCase) {
+fn prop_the_address_never_runs_past_its_limit(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let title_len = tc.draw(gs::integers::<usize>().max_value(9000));
     let message_len = tc.draw(gs::integers::<usize>().max_value(9000));
@@ -208,7 +208,7 @@ fn typed(tc: &TestCase) -> Option<String> {
 /// typed (decoded back) or, once there's no room left, its beginning, cut between characters.
 /// Only the last field is cut: titles are a line long.
 #[hegel::test(test_cases = 100)]
-fn any_report_fills_in_the_form_within_an_address(tc: TestCase) {
+fn prop_any_report_fills_in_the_form_within_an_address(tc: TestCase) {
     let install = tc.draw(gs::sampled_from(vec![None, Some(HOMEBREW), Some(CARGO_INSTALL), Some(INSTALLER)]));
     let title = tc.draw(gs::optional(gs::text().max_size(60)));
     let message = typed(&tc);
@@ -237,7 +237,7 @@ fn any_report_fills_in_the_form_within_an_address(tc: TestCase) {
 /// nothing but space was typed.
 #[cfg(feature = "account")]
 #[hegel::test(test_cases = 100)]
-fn any_post_says_what_happened_then_the_details(tc: TestCase) {
+fn prop_any_post_says_what_happened_then_the_details(tc: TestCase) {
     let install = tc.draw(gs::sampled_from(vec![None, Some(HOMEBREW), Some(INSTALLER)]));
     let message = tc.draw(gs::optional(gs::text().max_size(30)));
     let pad = tc.draw(gs::sampled_from(vec!["", " ", "\n", " \t\n"]));
@@ -257,7 +257,7 @@ fn any_post_says_what_happened_then_the_details(tc: TestCase) {
 /// Every system is named as the form asks: macOS by that name, others by os_info's, then its
 /// version when it's known, then its processor, which on a Mac is Apple silicon or Intel.
 #[hegel::test(test_cases = 50)]
-fn any_system_is_named_with_its_version_and_processor(tc: TestCase) {
+fn prop_any_system_is_named_with_its_version_and_processor(tc: TestCase) {
     use os_info::{Type, Version};
     let kind = tc.draw(gs::sampled_from(vec![Type::Macos, Type::Windows, Type::Ubuntu, Type::Linux, Type::FreeBSD]));
     let version = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -287,7 +287,7 @@ fn any_system_is_named_with_its_version_and_processor(tc: TestCase) {
 /// otherwise the installer script's; anywhere else, or beside a listing that isn't one, it can't
 /// tell.
 #[hegel::test(test_cases = 60)]
-fn where_the_binary_is_tells_how_it_was_installed(tc: TestCase) {
+fn prop_where_the_binary_is_tells_how_it_was_installed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let cellar = tc.draw(gs::weighted_booleans(0.2));
     let root_name = tc.draw(gs::sampled_from(vec![".cargo", "cargo", "opt"]));
@@ -326,7 +326,7 @@ fn where_the_binary_is_tells_how_it_was_installed(tc: TestCase) {
 /// the lines up to the first empty one (none when that's the first), as typed.
 #[cfg(feature = "account")]
 #[hegel::test(test_cases = 100)]
-fn typed_answers_run_to_the_first_empty_line(tc: TestCase) {
+fn prop_typed_answers_run_to_the_first_empty_line(tc: TestCase) {
     let line = gs::sampled_from(vec!["", "  ", "Sync stops", "  at 99% ", "日本 🇬🇧"]);
     let lines: Vec<&str> = tc.draw(gs::vecs(line).max_size(5));
     let typed = lines.iter().map(|l| format!("{l}\n")).collect::<String>();

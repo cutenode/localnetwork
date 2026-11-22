@@ -68,7 +68,7 @@ fn choose_takes_json_or_text() {
 /// reads as JSON and else as the text it is, the params in the order first given; one without
 /// `=` is refused, naming it.
 #[hegel::test(test_cases = 100)]
-fn any_choose_given_is_its_last_value_as_json_or_text(tc: TestCase) {
+fn prop_any_choose_given_is_its_last_value_as_json_or_text(tc: TestCase) {
     let raws = vec!["42", "-1.5", "null", "true", "[1, \"a\"]", "{\"x\": 2}", "Peak Time", "two", "", "a=b"];
     let pairs: Vec<(&str, Option<&str>)> = (0..tc.draw(gs::integers::<usize>().max_value(5)))
         .map(|_| {
@@ -109,7 +109,7 @@ fn an_unanswered_question_says_how_to_answer_it() {
 /// Whatever is typed, an answer is only ever the values of items it names, in its order: one,
 /// unless the question takes any.
 #[hegel::test(test_cases = 100)]
-fn any_answer_typed_is_items_named(tc: TestCase) {
+fn prop_any_answer_typed_is_items_named(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(6));
     let c = choice(tc.draw(gs::booleans()), n);
     let parts: Vec<String> = tc
@@ -136,7 +136,7 @@ fn any_answer_typed_is_items_named(tc: TestCase) {
 /// questions' order. Input that ends before the last is answered fails, naming the question it
 /// was on.
 #[hegel::test(test_cases = 50)]
-fn any_questions_together_are_answered_each_in_turn(tc: TestCase) {
+fn prop_any_questions_together_are_answered_each_in_turn(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let questions: Vec<Choice> = (0..n)
         .map(|i| Choice {
@@ -177,7 +177,7 @@ fn any_questions_together_are_answered_each_in_turn(tc: TestCase) {
 /// Any questions left unanswered say how to answer each: its param, whether it takes one value or
 /// a JSON list, and each value with its label (and detail), in order.
 #[hegel::test(test_cases = 50)]
-fn any_unanswered_questions_say_how_to_answer_each(tc: TestCase) {
+fn prop_any_unanswered_questions_say_how_to_answer_each(tc: TestCase) {
     let questions: Vec<Choice> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
         .map(|i| Choice {
             param: format!("p{i}"),

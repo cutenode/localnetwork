@@ -232,7 +232,7 @@ fn holds(before: &Value, after: &Value, at: &str) {
 }
 
 #[hegel::test(test_cases = 60)]
-fn an_export_fits_its_schema(tc: TestCase) {
+fn prop_an_export_fits_its_schema(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path(), "store");
     let c = contents(&tc);
@@ -252,7 +252,7 @@ fn an_export_fits_its_schema(tc: TestCase) {
 
 /// Exported, imported into an empty store and exported from there: the same file.
 #[hegel::test(test_cases = 60)]
-fn an_export_comes_back_from_an_empty_store(tc: TestCase) {
+fn prop_an_export_comes_back_from_an_empty_store(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (here, there) = (store_in(dir.path(), "here"), store_in(dir.path(), "there"));
     contents(&tc).write(&here);
@@ -267,7 +267,7 @@ fn an_export_comes_back_from_an_empty_store(tc: TestCase) {
 /// file's values the file's, and still keeps what the file doesn't have. A plan applied without
 /// the store is refused, importing nothing.
 #[hegel::test(test_cases = 100)]
-fn importing_adds_and_replacing_overwrites(tc: TestCase) {
+fn prop_importing_adds_and_replacing_overwrites(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (from, into) = (store_in(dir.path(), "from"), store_in(dir.path(), "into"));
     contents(&tc).write(&from);
@@ -389,7 +389,7 @@ fn a_plan_is_stale_once_the_store_changes() {
 /// it was: read as empty, importing would write just the file's values over it.
 #[cfg(unix)]
 #[hegel::test(test_cases = 5)]
-fn importing_over_a_file_that_cant_be_read_leaves_it_alone(tc: TestCase) {
+fn prop_importing_over_a_file_that_cant_be_read_leaves_it_alone(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path(), "store");
@@ -421,7 +421,7 @@ fn importing_over_a_file_that_cant_be_read_leaves_it_alone(tc: TestCase) {
 /// as none, importing would write just the file's values over a plugin's.
 #[cfg(unix)]
 #[hegel::test(test_cases = 5)]
-fn importing_when_the_plugins_cant_be_listed_leaves_theirs_alone(tc: TestCase) {
+fn prop_importing_when_the_plugins_cant_be_listed_leaves_theirs_alone(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path(), "store");

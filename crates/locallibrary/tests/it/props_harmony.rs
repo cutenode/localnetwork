@@ -18,7 +18,7 @@ fn track(id: u32, key: &str, bpm: f64) -> Track {
 
 /// Every key reads back from its Camelot code, its Open Key-free note name, and in lower case.
 #[hegel::test(test_cases = 200)]
-fn keys_round_trip_through_every_notation(tc: TestCase) {
+fn prop_keys_round_trip_through_every_notation(tc: TestCase) {
     let c = tc.draw(keys());
     assert_eq!(Camelot::parse(&c.code()), Some(c));
     assert_eq!(Camelot::parse(&c.note()), Some(c), "{}", c.note());
@@ -28,7 +28,7 @@ fn keys_round_trip_through_every_notation(tc: TestCase) {
 
 /// Parsing any text never panics, and whatever it accepts is a real key.
 #[hegel::test(test_cases = 1000)]
-fn parse_accepts_only_real_keys(tc: TestCase) {
+fn prop_parse_accepts_only_real_keys(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(
         gs::text().max_size(12),
         gs::text().alphabet("0123456789ABCDEFGabdmj#♯♭ inor").max_size(8),
@@ -50,7 +50,7 @@ fn order_is_a_bijection() {
 /// Mixing compatibility is symmetric, every key is the same as itself, and counting energy
 /// boosts only ever adds relations.
 #[hegel::test(test_cases = 500)]
-fn relation_is_symmetric(tc: TestCase) {
+fn prop_relation_is_symmetric(tc: TestCase) {
     let (a, b) = (tc.draw(keys()), tc.draw(keys()));
     assert_eq!(a.relation(b), b.relation(a));
     assert_eq!(a.relation(a), Some(Relation::Same));
@@ -65,7 +65,7 @@ fn relation_is_symmetric(tc: TestCase) {
 
 /// A tempo is no distance from itself, half or double itself, and never negative.
 #[hegel::test(test_cases = 500)]
-fn tempo_gap_allows_half_and_double_time(tc: TestCase) {
+fn prop_tempo_gap_allows_half_and_double_time(tc: TestCase) {
     let a = tc.draw(gs::floats::<f64>().min_value(20.0).max_value(300.0));
     let b = tc.draw(gs::floats::<f64>().allow_nan(true));
     assert_eq!(harmony::tempo_gap(a, a), 0.0);
@@ -99,7 +99,7 @@ fn tempo_gap_allows_half_and_double_time(tc: TestCase) {
     energies = vec![None::<f64>; 2],
     start = Some(1usize)
 )]
-fn order_set_is_a_permutation_starting_where_asked(tc: TestCase) {
+fn prop_order_set_is_a_permutation_starting_where_asked(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(9));
     let keys = tc.draw(
         gs::vecs(hegel::one_of!(

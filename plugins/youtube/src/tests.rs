@@ -87,7 +87,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
 /// saying so when it's cut, and its description, chapters and the rest of its notes are YouTube's
 /// description of the tracklist (see `loclib_plugin::youtube`), which `sets export` writes too.
 #[hegel::test(test_cases = 300)]
-fn the_title_and_description_are_what_youtube_takes(tc: TestCase) {
+fn prop_the_title_and_description_are_what_youtube_takes(tc: TestCase) {
     let words = gs::optional(gs::sampled_from(vec!["Closing set".to_string(), "<>".into(), "\u{3a9}".repeat(150)]));
     let set = PublishedSet { title: tc.draw(words), ..set() };
     let length = tc.draw(gs::integers::<u32>().max_value(6 * 3600));

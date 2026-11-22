@@ -662,7 +662,7 @@ struct Row {
 /// `TrackNo` order, and cues and tags with the tracks they belong to. A drive holding exactly
 /// the collection then differs from it in nothing.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
+fn prop_a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new();
     let numeric = tc.draw(gs::booleans());
@@ -862,7 +862,7 @@ fn a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
 /// SQLite without rekordbox's tables or that SQLite can't read, or encrypted with another key or
 /// to something that isn't rekordbox's layout (then with the way on: give the right key).
 #[hegel::test(test_cases = 15)]
-fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
+fn prop_files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let kind = tc.draw(gs::integers::<u8>().max_value(5));
@@ -971,7 +971,7 @@ fn cloud_collection(service: &'static str) -> Collection {
 /// are left alone), and a track Cloud Library Sync keeps in a storage service is found in the
 /// first folder that has it, the sync service's own first.
 #[hegel::test(test_cases = 12)]
-fn cloud_folders_and_the_audio_they_hold(tc: hegel::TestCase) {
+fn prop_cloud_folders_and_the_audio_they_hold(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let (dropbox, drive) = (dir.path().join("Dropbox & Co"), dir.path().join("Google Drive"));
@@ -1023,7 +1023,7 @@ fn cloud_folders_and_the_audio_they_hold(tc: hegel::TestCase) {
 /// database plain (SQLite's own WAL) or encrypted (its pages' frames encrypted too), and the copy
 /// is left as it was.
 #[hegel::test(test_cases = 8)]
-fn a_collection_reads_with_the_changes_its_wal_holds(tc: hegel::TestCase) {
+fn prop_a_collection_reads_with_the_changes_its_wal_holds(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let f = sample();
@@ -1090,7 +1090,7 @@ fn a_collection_reads_with_the_changes_its_wal_holds(tc: hegel::TestCase) {
 /// are text, bytes, a whole number or a fraction still names the track, written as the value
 /// reads; numbers stored as fractions (or as text with spaces) are cut to whole ones.
 #[hegel::test(test_cases = 20)]
-fn values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
+fn prop_values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new();
     // A lookup table with no column types, so SQLite keeps each value as given.
@@ -1149,7 +1149,7 @@ fn values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
 /// or any view, which has no row order) is refused as a parse error naming the file, never read
 /// as far as it goes.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
+fn prop_a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), tc.draw(gs::arrays::<_, _, SALT_LEN>(gs::integers::<u8>())));
@@ -1204,7 +1204,7 @@ fn a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
 /// restarts, and after three the read gives up saying so. A WAL that's there but can't be read
 /// is an error, an empty one none at all.
 #[hegel::test(test_cases = 20)]
-fn a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
+fn prop_a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let (path, to) = (dir.path().join("master.db"), dir.path().join("copy"));
@@ -1262,7 +1262,7 @@ fn a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
 /// another name, is passed over, and a file that isn't well-formed XML (or isn't there) is
 /// refused naming it.
 #[hegel::test(test_cases = 20)]
-fn settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
+fn prop_settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let folder = tc.draw(gs::text().alphabet("ab /é").min_size(1).max_size(10));
@@ -1292,7 +1292,7 @@ fn settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
 /// listed as uncertain and counted, with the ones the drive lacks, as missing from it. A playlist
 /// neither has is refused.
 #[hegel::test(test_cases = 15)]
-fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
+fn prop_a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     #[derive(Debug, Clone, Copy, PartialEq)]
     enum On {
@@ -1368,7 +1368,7 @@ fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
 /// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders or
 /// where rekordbox's settings moved it.
 #[hegel::test(test_cases = 20)]
-fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
+fn prop_keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let key = tc.draw(gs::text().max_size(70));
     let fallback = std::env::var(KEY_ENV).ok().filter(|k| !k.is_empty()).unwrap_or_else(|| DEFAULT_KEY.to_string());

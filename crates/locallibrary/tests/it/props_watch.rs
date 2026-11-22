@@ -209,7 +209,7 @@ impl Desk {
 /// by the file written; nothing when nothing changed. What it says is mounted is what is, as a
 /// new watcher and `mounted_drives` (looking in the same folder) see it.
 #[hegel::test(test_cases = 20)]
-fn polls_report_what_changed_since_the_last(tc: TestCase) {
+fn prop_polls_report_what_changed_since_the_last(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let volumes = dir.path().join("volumes");
     let store = dir.path().join("store");

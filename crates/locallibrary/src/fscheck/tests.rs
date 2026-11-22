@@ -144,7 +144,7 @@ fn a_busy_drive_stops_the_check() {
 /// without one, the exit status does. Run as a real tool, the output reads the same.
 #[cfg(unix)]
 #[hegel::test(test_cases = 40)]
-fn the_verdict_follows_the_reported_exit_code(tc: hegel::TestCase) {
+fn prop_the_verdict_follows_the_reported_exit_code(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let noise = || gs::sampled_from(vec!["** Phase 1", "Checking volume.", "12 files, 3/1953 clusters", ""]);
     let before: Vec<&str> = tc.draw(gs::vecs(noise()).max_size(3));
@@ -170,7 +170,7 @@ fn the_verdict_follows_the_reported_exit_code(tc: hegel::TestCase) {
 /// Linux checks the partition it unmounted, with the tool for its file system, mounts that
 /// same partition again (for the user who ran sudo), and repairs only when asked.
 #[hegel::test(test_cases = 60)]
-fn linux_steps_unmount_check_and_mount_one_partition(tc: hegel::TestCase) {
+fn prop_linux_steps_unmount_check_and_mount_one_partition(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let volume = tc.draw(gs::sampled_from(vec!["/dev/sdb1", "/dev/sdc2", "/dev/mmcblk0p1"]));
     let fs = tc.draw(gs::optional(gs::sampled_from(vec!["vfat", "exfat", "ExFAT", "msdos", ""])));
@@ -193,7 +193,7 @@ fn linux_steps_unmount_check_and_mount_one_partition(tc: hegel::TestCase) {
 
 /// chkdsk runs on the drive letter of a drive's root, and only there; `/f /x` only to repair.
 #[hegel::test(test_cases = 60)]
-fn windows_checks_only_a_drive_root(tc: hegel::TestCase) {
+fn prop_windows_checks_only_a_drive_root(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let letter = tc.draw(gs::sampled_from(vec!['e', 'E', 'z', '1']));
     let tail = tc.draw(gs::sampled_from(vec!["", "\\", "/", "\\\\", "\\Music", "x"]));
@@ -229,7 +229,7 @@ fn a_failed_unmount_stops_the_check() {
 /// mounted again (for the user who ran sudo, when that's someone); on Windows chkdsk takes the
 /// drive's letter, and `/f /x` to repair.
 #[hegel::test(test_cases = 100)]
-fn every_platform_checks_the_volume_with_its_own_tool(tc: hegel::TestCase) {
+fn prop_every_platform_checks_the_volume_with_its_own_tool(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let repair = tc.draw(gs::booleans());
     #[cfg(target_os = "macos")]
@@ -263,7 +263,7 @@ fn every_platform_checks_the_volume_with_its_own_tool(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(ok = true, repaired = false)]
 #[hegel::explicit_test_case(ok = false, repaired = true)]
 #[hegel::explicit_test_case(ok = false, repaired = false)]
-fn the_logbook_line_follows_the_verdict_and_the_repair(tc: hegel::TestCase) {
+fn prop_the_logbook_line_follows_the_verdict_and_the_repair(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let ok = tc.draw(gs::booleans());
     let repaired = tc.draw(gs::booleans());
@@ -293,7 +293,7 @@ fn the_logbook_line_follows_the_verdict_and_the_repair(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(phrase = "Permission denied", status = 6, missing = false, to_stderr = true)]
 #[hegel::explicit_test_case(phrase = "MUST BE ROOT", status = 0, missing = false, to_stderr = false)]
 #[hegel::explicit_test_case(phrase = "", status = 0, missing = true, to_stderr = false)]
-fn a_tool_refused_the_partition_needs_an_administrator(tc: hegel::TestCase) {
+fn prop_a_tool_refused_the_partition_needs_an_administrator(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let phrase = tc.draw(gs::sampled_from(vec![
         "Permission denied",
@@ -341,7 +341,7 @@ fn a_tool_refused_the_partition_needs_an_administrator(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(partition = 0u8, unmount_fails = true, missing = false, message = "target is busy")]
 #[hegel::explicit_test_case(partition = 1u8, unmount_fails = true, missing = true, message = "no such volume")]
 #[hegel::explicit_test_case(partition = 3u8, unmount_fails = false, missing = false, message = "no such volume")]
-fn the_check_runs_only_on_a_partition_unmounted_for_it(tc: hegel::TestCase) {
+fn prop_the_check_runs_only_on_a_partition_unmounted_for_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::os::unix::fs::PermissionsExt;
     // None, missing, unreadable, readable.
@@ -411,7 +411,7 @@ fn the_check_runs_only_on_a_partition_unmounted_for_it(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(switch = true, repair = false)]
 #[hegel::explicit_test_case(switch = false, repair = true)]
-fn a_check_that_cant_run_asks_nothing_of_the_system(tc: hegel::TestCase) {
+fn prop_a_check_that_cant_run_asks_nothing_of_the_system(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let switch = tc.draw(gs::booleans());
     let repair = tc.draw(gs::booleans());
@@ -446,7 +446,7 @@ use crate::format::tests::fake_tools;
     consistent = false,
     mounts_again = false
 )]
-fn a_check_runs_its_steps_and_reports_what_the_tool_found(tc: hegel::TestCase) {
+fn prop_a_check_runs_its_steps_and_reports_what_the_tool_found(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut fake = fake_tools::FakeTools::new();
     std::fs::create_dir(fake.dir().join("DNA")).unwrap();

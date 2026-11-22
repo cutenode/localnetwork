@@ -31,7 +31,7 @@ use hegel::generators as gs;
 /// three or more full-scale samples are counted once each with all their samples, shorter
 /// ones not at all, and the peak is the loudest sample.
 #[hegel::test(test_cases = 200)]
-fn clipping_is_counted_run_by_run(tc: TestCase) {
+fn prop_clipping_is_counted_run_by_run(tc: TestCase) {
     let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let levels = gs::sampled_from(vec![0.0f32, 0.5, -0.25, 1.0, -1.0, FULL_SCALE, 0.999]);
     let frames = tc.draw(gs::vecs(gs::vecs(levels).min_size(channels).max_size(channels)).max_size(200));
@@ -78,7 +78,7 @@ fn prop_rates_the_meter_cant_measure_at_are_refused(tc: TestCase) {
 
 /// A packet that isn't whole frames is refused, and leaves what's measured as it was.
 #[hegel::test(test_cases = 100)]
-fn packets_of_part_frames_are_refused(tc: TestCase) {
+fn prop_packets_of_part_frames_are_refused(tc: TestCase) {
     let channels = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
     let level = gs::floats::<f32>().min_value(-1.0).max_value(1.0);
     let whole = tc.draw(gs::vecs(level).min_size(channels).max_size(400)).len() / channels * channels;

@@ -34,7 +34,7 @@ fn shown(d: &Device, lib: &Library, id: u32) -> Option<Vec<u8>> {
 /// what it showed before. A batch that is exactly the tracks of one picture replaces its files
 /// in place; any other adds a row, so tracks that shared the old picture keep it.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
+fn prop_art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     let plus = tc.draw(gs::booleans());
@@ -130,7 +130,7 @@ fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
 /// its folder; tracks whose source is the same picture share one row. With a OneLibrary that
 /// can't be read, the art goes into export.pdb only, and that's said.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
+fn prop_art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     let mut d = Device::open_export(&root).unwrap();
@@ -204,7 +204,7 @@ fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
 /// Art embedded in the computer's audio files comes back out as it went in, and taking it back
 /// puts back every file not changed since, byte for byte; only the latest embeds are kept.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn embedded_art_is_taken_back_exactly(tc: TestCase) {
+fn prop_embedded_art_is_taken_back_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let image = dir.path().join("cover.png");
@@ -259,7 +259,7 @@ fn embedded_art_is_taken_back_exactly(tc: TestCase) {
 /// Image keys follow rekordbox's layout of 20 per folder, the medium copy sits beside each,
 /// and a free key is never one already taken.
 #[hegel::test(test_cases = 100)]
-fn image_keys_follow_rekordboxs_layout(tc: TestCase) {
+fn prop_image_keys_follow_rekordboxs_layout(tc: TestCase) {
     let id = tc.draw(gs::integers::<u32>().min_value(1).max_value(5000));
     let prefix = tc.draw(gs::sampled_from(vec!['a', 'b']));
     let ext = tc.draw(gs::sampled_from(vec!["jpg", "png"]));

@@ -4,7 +4,7 @@ use hegel::generators as gs;
 
 /// Tokens compare equal exactly when they are, whatever their lengths and contents.
 #[hegel::test(test_cases = 500)]
-fn tokens_compare_as_strings(tc: TestCase) {
+fn prop_tokens_compare_as_strings(tc: TestCase) {
     let a: String = tc.draw(gs::from_regex("[0-9a-f]{0,34}").fullmatch(true));
     let b: String = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => a.clone(),

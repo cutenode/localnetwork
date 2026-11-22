@@ -167,7 +167,7 @@ fn signing_in_again_to_report_keeps_publishing() {
 /// another collection, no record key or an authority that isn't a DID is refused, saying how a
 /// space is named. The environment's (when it says anything) is the one used.
 #[hegel::test(test_cases = 100)]
-fn a_space_is_any_at_uri_of_a_space_record(tc: TestCase) {
+fn prop_a_space_is_any_at_uri_of_a_space_record(tc: TestCase) {
     let did = tc.draw(gs::sampled_from(vec!["did:plc:owner", "did:web:example.com", "owner.example.com"]));
     let collection = tc.draw(gs::sampled_from(vec![SPACE_COLLECTION, SPACE_COLLECTION, "app.userinput.discussion"]));
     let rkey = tc.draw(gs::sampled_from(vec![Some("3lspace"), Some("self"), None]));
@@ -197,7 +197,7 @@ fn a_space_is_any_at_uri_of_a_space_record(tc: TestCase) {
 /// Lexicon's characters (as readers count them) and bytes; otherwise it says which is too long,
 /// and by what. What fits is a record the Lexicon takes, with a body only when there's one.
 #[hegel::test(test_cases = 100)]
-fn reports_fit_a_discussion_or_say_what_is_too_long(tc: TestCase) {
+fn prop_reports_fit_a_discussion_or_say_what_is_too_long(tc: TestCase) {
     // One character as readers see it: of one byte, three, or two code points.
     let piece = tc.draw(gs::sampled_from(vec!["a", "日", "e\u{301}", " "]));
     let title = piece.repeat(tc.draw(gs::sampled_from(vec![0usize, 1, 150, 200, 300, 301])));
@@ -232,7 +232,7 @@ fn reports_fit_a_discussion_or_say_what_is_too_long(tc: TestCase) {
 /// server refusing it says so; otherwise it's a discussion in the account's repository, pointing
 /// at the space's version, shown at its userinput.app link.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_report_is_posted_to_the_space_or_says_why_not(tc: TestCase) {
+fn prop_a_report_is_posted_to_the_space_or_says_why_not(tc: TestCase) {
     let pds = MockPds::start();
     crate::testing::directory_on_this_thread(Some(pds.url.clone()));
     let dir = tempfile::tempdir().unwrap();

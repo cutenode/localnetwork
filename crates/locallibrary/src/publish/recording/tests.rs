@@ -18,7 +18,7 @@ fn mp3(frames: usize) -> Vec<u8> {
 /// 128 kbit/s, or the most that fits, never under 64, and about no bigger than the limit; and a
 /// recording too long for 64 to fit is refused.
 #[hegel::test(test_cases = 500)]
-fn a_recording_goes_up_as_it_is_only_when_browsers_play_it_and_it_fits(tc: TestCase) {
+fn prop_a_recording_goes_up_as_it_is_only_when_browsers_play_it_and_it_fits(tc: TestCase) {
     let limit = tc.draw(gs::integers::<u64>().min_value(1).max_value(MAX_BYTES));
     let bytes = tc.draw(gs::integers::<u64>().max_value(2 * MAX_BYTES));
     let duration = tc.draw(gs::integers::<u64>().max_value(24 * 3600));
@@ -100,7 +100,7 @@ fn ffmetadata_holds_the_chapters_escaped() {
 /// Escaping over drawn titles: unescaped, it's the title again, and nothing ffmpeg reads as
 /// special is left bare.
 #[hegel::test(test_cases = 300)]
-fn ffmetadata_escaping_round_trips(tc: TestCase) {
+fn prop_ffmetadata_escaping_round_trips(tc: TestCase) {
     let title = tc.draw(gs::text().alphabet("ab=;#\\\n é").max_size(20));
     let escaped = escape(&title);
     let (mut back, mut chars) = (String::new(), escaped.chars());
@@ -117,7 +117,7 @@ fn ffmetadata_escaping_round_trips(tc: TestCase) {
 /// Whether chapters can go into what goes up, over drawn recordings and encodings: anything ffmpeg
 /// encodes, and an MP3 as it is; not AAC or M4A as it is.
 #[hegel::test(test_cases = 100)]
-fn chapters_go_into_encodings_and_mp3s(tc: TestCase) {
+fn prop_chapters_go_into_encodings_and_mp3s(tc: TestCase) {
     let playable = tc.draw(gs::optional(gs::sampled_from(vec!["audio/mpeg", "audio/mp4", "audio/aac"])));
     let encoded = tc.draw(gs::booleans());
     let audio = Audio {
@@ -283,7 +283,7 @@ mod with_ffmpeg {
     /// type: an MP3 with chapters as a copy with them in its ID3v2 tag and the same audio, unless they
     /// tip it over the limit, when it goes as it is with a warning.
     #[hegel::test(test_cases = 40)]
-    fn ffmpeg_encodes_only_what_cant_go_up_as_it_is(tc: TestCase) {
+    fn prop_ffmpeg_encodes_only_what_cant_go_up_as_it_is(tc: TestCase) {
         let fake = FakeTools::new();
         fake_ffmpeg(&fake, "encoded", 0, "");
         let is_mp3 = tc.draw(gs::booleans());

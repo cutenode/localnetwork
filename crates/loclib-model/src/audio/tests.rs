@@ -27,7 +27,7 @@ fn players_list_only_the_extensions_their_manuals_give() {
 /// Every extension is in one table, lower case, and names its format in any letter case, on
 /// its own or ending a path; players list a file by it exactly when it's in their table.
 #[hegel::test(test_cases = 200)]
-fn every_extension_names_its_format_in_any_case(tc: TestCase) {
+fn prop_every_extension_names_its_format_in_any_case(tc: TestCase) {
     let all: Vec<(&str, Format)> = PLAYER_EXTENSIONS.into_iter().chain(OTHER_EXTENSIONS).collect();
     let (ext, format) = tc.draw(gs::sampled_from(all.clone()));
     assert_eq!(ext, ext.to_ascii_lowercase());

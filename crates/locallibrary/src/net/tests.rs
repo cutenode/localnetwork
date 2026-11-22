@@ -104,7 +104,7 @@ fn port_and_path(tc: &TestCase) -> String {
 /// is one of those; it names this computer
 /// only when it's a loopback address; and any other scheme is refused.
 #[hegel::test(test_cases = 400)]
-fn ipv4_addresses_are_public_unless_they_are_local(tc: TestCase) {
+fn prop_ipv4_addresses_are_public_unless_they_are_local(tc: TestCase) {
     let v4 = ipv4(&tc);
     let url = format!("https://{}{}", spelled_v4(&tc, v4), port_and_path(&tc));
     let parsed = reqwest::Url::parse(&url).unwrap();
@@ -122,7 +122,7 @@ fn ipv4_addresses_are_public_unless_they_are_local(tc: TestCase) {
 /// link-local (fe80::/10) ones, and IPv4 ones carried in IPv6 (mapped, NAT64's 64:ff9b::/96 or
 /// 6to4's 2002::/16) that are local as IPv4.
 #[hegel::test(test_cases = 400)]
-fn ipv6_addresses_are_public_unless_they_are_local(tc: TestCase) {
+fn prop_ipv6_addresses_are_public_unless_they_are_local(tc: TestCase) {
     let low = tc.draw(gs::integers::<u128>().max_value(u128::from(u32::MAX)));
     let v6: u128 = match tc.draw(gs::integers::<u8>().max_value(8)) {
         0 => tc.draw(gs::sampled_from(vec![0u128, 1])),
@@ -150,7 +150,7 @@ fn ipv6_addresses_are_public_unless_they_are_local(tc: TestCase) {
 /// A name is public unless it's `localhost` or below it (in any case, with or without the
 /// final dot), and then it names this computer. Whatever's refused is said on one line.
 #[hegel::test(test_cases = 300)]
-fn names_are_public_unless_they_are_localhost(tc: TestCase) {
+fn prop_names_are_public_unless_they_are_localhost(tc: TestCase) {
     let label = || gs::from_regex("[a-zA-Z0-9]([a-zA-Z0-9-]{0,8}[a-zA-Z0-9])?").fullmatch(true);
     let labels: Vec<String> = tc.draw(gs::vecs(label()).max_size(3));
     let last = tc.draw(hegel::one_of!(
@@ -191,7 +191,7 @@ impl std::error::Error for Caused {
 /// An error is said with each of its causes after it, in order, leaving out any already
 /// said.
 #[hegel::test(test_cases = 300)]
-fn errors_say_each_cause_once(tc: TestCase) {
+fn prop_errors_say_each_cause_once(tc: TestCase) {
     let words = gs::sampled_from(vec!["storage error", "disk full", "storage error: disk full", "timed out", "x"]);
     let said: Vec<String> =
         tc.draw(gs::vecs(hegel::one_of!(words.map(String::from), gs::text().max_size(6))).min_size(1).max_size(5));
