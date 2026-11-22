@@ -14,10 +14,8 @@
 			// valgrind is the system's, which tools/budgets/cachegrind.test.ts looks for. typos and taplo aren't npm
 			// packages: `verify:repo` runs them from the PATH, as CI installs them.
 			"ignoreBinaries": ["fuzz", "playwright", "tsx", "valgrind", "typos", "taplo"],
-			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
+			// tools/policy/inputs.ts runs it from node_modules/.bin, which knip doesn't follow.
 			"ignoreDependencies": ["@lavamoat/harden"],
-			// tools/policy.sh runs it, and the workflows that run the other tools/*/cli.ts don't.
-			"entry": ["tools/reads/cli.ts"],
 			// The repo's own tooling: nothing here ships.
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},

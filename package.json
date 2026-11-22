@@ -20,8 +20,9 @@
 		"atstore": "pnpm --filter atstore assets",
 		"test:tools": "vitest run --coverage",
 		"verify:rust": "cargo fmt --all --check && cargo fmt --manifest-path fuzz/Cargo.toml --check && cargo shear && cargo clippy -p locallibrary -p locallibrary-cli --no-default-features --all-targets --locked -- -D warnings && cargo clippy -p loclib-interop --no-default-features --all-targets --locked -- -D warnings && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings && lefthook run pre-push --job \"clippy for Windows\" --force && cargo test --doc --workspace --locked && cargo doc-strict && cargo nextest run --workspace --locked",
-		"verify:repo": "tools/policy.sh && ast-grep test --skip-snapshot-tests && ast-grep scan && pnpm test:tools && git ls-files -z \"*.sh\" | xargs -0 shellcheck && typos && taplo fmt --check",
-		"lexicons:goat": "find lexicons/computer -name '*.json' ! -path '*/space/*' ! -name permissions.json -print0 | xargs -0 go run github.com/bluesky-social/goat@v0.2.6 lex"
+		"verify:repo": "pnpm policy && ast-grep test --skip-snapshot-tests && ast-grep scan && pnpm test:tools && git ls-files -z \"*.sh\" | xargs -0 shellcheck && typos && taplo fmt --check",
+		"lexicons:goat": "find lexicons/computer -name '*.json' ! -path '*/space/*' ! -name permissions.json -print0 | xargs -0 go run github.com/bluesky-social/goat@v0.2.6 lex",
+		"policy": "node tools/policy/cli.ts"
 	},
 	"devDependencies": {
 		"@ast-grep/cli": "^0.51.0",

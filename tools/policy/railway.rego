@@ -1,5 +1,5 @@
 # An app that runs as a service has a service in .railway/railway.ts that builds its Dockerfile
-# (.github/NEW_PROJECT.md, "A new TypeScript app"). tools/policy.sh evaluates that file into
+# (.github/NEW_PROJECT.md, "A new TypeScript app"). tools/policy/inputs.ts evaluates that file into
 # railway-project.json, the project as Railway's SDK describes it.
 package railway
 

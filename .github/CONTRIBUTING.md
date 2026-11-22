@@ -34,7 +34,7 @@ pnpm verify:rust   # the Rust workspace, as locallibrary-ci.yml's lint and test 
 pnpm verify:repo   # the repository's own conventions (see NEW_PROJECT.md); needs Docker running
 ```
 
-`pnpm verify:rust` runs cargo fmt, [cargo-shear](https://github.com/Boshen/cargo-shear), clippy (with no default features too, and on `fuzz/`), the doctests, `cargo doc-strict` and [cargo-nextest](https://nexte.st) (`cargo binstall cargo-shear cargo-nextest`), and clippy for Windows when the `x86_64-pc-windows-gnu` target and MinGW are installed (`rustup target add x86_64-pc-windows-gnu`, `brew install mingw-w64`). `pnpm verify:repo` runs `tools/policy.sh`, ast-grep's rule tests and scan, `pnpm test:tools`, ShellCheck, typos and taplo (`brew install shellcheck typos-cli taplo`).
+`pnpm verify:rust` runs cargo fmt, [cargo-shear](https://github.com/Boshen/cargo-shear), clippy (with no default features too, and on `fuzz/`), the doctests, `cargo doc-strict` and [cargo-nextest](https://nexte.st) (`cargo binstall cargo-shear cargo-nextest`), and clippy for Windows when the `x86_64-pc-windows-gnu` target and MinGW are installed (`rustup target add x86_64-pc-windows-gnu`, `brew install mingw-w64`). `pnpm verify:repo` runs `pnpm policy` (with Docker running), ast-grep's rule tests and scan, `pnpm test:tools`, ShellCheck, typos and taplo (`brew install shellcheck typos-cli taplo`).
 
 `pnpm verify` leaves out these jobs of the website's CI, each run from `apps/web` (`pnpm exec playwright install chromium` first):
 
@@ -61,7 +61,7 @@ A line covers only the diagram it names, or the diagrams under that heading when
 node tools/readmes/cli.ts drift origin/main body.md
 ```
 
-`cargo remove` also deletes the root `Cargo.toml`'s `[profile.dev.package.*]` entries, with their comments, for every crate no member depends on directly: its clean-up after a removal ([rust-lang/cargo#11194](https://github.com/rust-lang/cargo/pull/11194), since Cargo 1.67) only keeps the entries for direct dependencies. `tools/policy.sh` fails while one is missing and its crate is still in `Cargo.lock`, so put it back with `git checkout -p Cargo.toml`. A new entry goes in `dev_optimised` in `tools/policy/cargo.rego` too.
+`cargo remove` also deletes the root `Cargo.toml`'s `[profile.dev.package.*]` entries, with their comments, for every crate no member depends on directly: its clean-up after a removal ([rust-lang/cargo#11194](https://github.com/rust-lang/cargo/pull/11194), since Cargo 1.67) only keeps the entries for direct dependencies. `pnpm policy` fails while one is missing and its crate is still in `Cargo.lock`, so put it back with `git checkout -p Cargo.toml`. A new entry goes in `dev_optimised` in `tools/policy/cargo.rego` too.
 
 CI (`ci.yml`) runs a tool's checks only when its files (or the shared ones) change, and ends with a "CI passed" check, the one `main` requires before a merge. It's skipped, which counts as passing, unless a check failed. On a draft pull request, nothing runs until you mark it ready for review, so open a pull request as a draft while it isn't next to merge (a stacked one, say). "CI passed" fails on a draft, since none of its checks ran. Marking it ready starts a new run, and if one doesn't show up, use "Re-run all jobs" (re-running only the failed jobs keeps the draft's result). To re-run CI after `main` moves, merge `main` into the branch rather than closing and reopening the pull request.
 

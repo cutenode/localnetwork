@@ -404,7 +404,7 @@ is built from, among them the vendored rekordbox-pdb's, which `template.pdb` is 
 build jobs write it with `cargo notices` ([cargo-about](https://github.com/EmbarkStudios/cargo-about),
 set up in the root's `about.toml` and `about.hbs`) before dist builds, and the Homebrew formula
 installs it in `share/locallibrary`. `about.toml` accepts the licences `deny.toml` allows, which
-`tools/policy.sh` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
+`pnpm policy` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
 that change the lockfile or their configuration. To see what it writes, run `cargo install
 --locked cargo-about` and then `cargo notices`, which writes `THIRD-PARTY-NOTICES.md` at the root.
 

@@ -8,6 +8,6 @@ railway config plan           # what applying the file would change
 railway config apply          # apply it, after confirming
 ```
 
-Secrets stay on Railway: variables written as `preserve()` keep whatever value Railway has. `tools/policy.sh` checks that every app with a Dockerfile has a service here that builds it.
+Secrets stay on Railway: variables written as `preserve()` keep whatever value Railway has. `pnpm policy` checks that every app with a Dockerfile has a service here that builds it.
 
 Run `railway` itself, not through `fnm exec`: the SDK finds the CLI through `$_`, which `fnm exec` sets to fnm.

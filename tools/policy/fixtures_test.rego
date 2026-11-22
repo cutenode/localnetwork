@@ -137,6 +137,10 @@ repo := [
 		{"from": "apps/locallibrary/src/plugins.rs", "path": "plugins/p/locallibrary-plugin.toml"},
 		{"from": "crates/x/tests/lexicons.rs", "path": "lexicons/"},
 	]}},
+	{"path": "/scratch/harden.json", "contents": {"harden": [
+		{"manager": "pnpm", "folder": ".", "report": {"checks": [{"id": "p_age", "satisfied": 1}, {"id": "p_runner", "satisfied": 0}]}},
+		{"manager": "npm", "folder": "apps/b", "report": {"checks": [{"id": "n_age", "satisfied": 1}, {"id": "n_runner", "satisfied": 0}]}},
+	]}},
 	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "apps/site/package-lock.json", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]
 

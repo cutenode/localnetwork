@@ -53,7 +53,7 @@ deny contains msg if {
 	msg := sprintf("%s: add %q to the \"Which tool?\" options", [form, display(app)])
 }
 
-# Every file the repository tracks gets at least one label (tools/policy.sh lists them).
+# Every file the repository tracks gets at least one label (tools/policy/inputs.ts lists them).
 deny contains msg if {
 	some path in lib.tracked_files
 	not labeled(path)

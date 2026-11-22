@@ -68,7 +68,7 @@ deny contains msg if {
 # Cargo.lock has to keep its entry, so one that really goes away doesn't trip this.
 dev_optimised := {"aes", "blake3", "clap_builder", "hmac", "hybrid-array", "inout", "jsonschema", "referencing", "ring", "sha2", "symphonia-codec-pcm", "symphonia-core"}
 
-# tools/policy.sh gives conftest Cargo.lock as /scratch/Cargo.lock.toml, so it parses it as TOML.
+# tools/policy/inputs.ts gives conftest Cargo.lock as /scratch/Cargo.lock.toml, so it parses it as TOML.
 locked contains p.name if some p in lib.file("/scratch/Cargo.lock.toml")["package"]
 
 dev_packages := object.get(lib.file("Cargo.toml"), ["profile", "dev", "package"], {})
