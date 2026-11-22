@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { configFiles, shellLines, writeInputs } from './inputs.ts';
+import { type CargoMetadata, configFiles, crateRoots, shellLines, writeInputs } from './inputs.ts';
 
 describe('configFiles', () => {
 	it('lists the config files the policies read, and nothing else', () => {
@@ -39,6 +39,7 @@ describe('writeInputs', () => {
 		expect(names.sort()).toEqual([
 			'Cargo.lock.toml',
 			'contributing.json',
+			'crate-roots.json',
 			'harden.json',
 			'labeler.json',
 			'railway-project.json',
@@ -57,6 +58,16 @@ describe('writeInputs', () => {
 		expect(JSON.parse(read('reads.json')).reads).toContainEqual(
 			expect.objectContaining({ from: expect.any(String), path: expect.any(String) })
 		);
+	});
+
+	it("lists each library's root and its crate attributes, by manifest", () => {
+		const { roots } = JSON.parse(read('crate-roots.json'));
+		expect(roots['crates/loclib-progress/Cargo.toml']).toEqual({
+			root: 'crates/loclib-progress/src/lib.rs',
+			attributes: expect.arrayContaining(['#![doc = include_str!("../README.md")]', '#![warn(missing_docs)]'])
+		});
+		// The CLI's package builds only a binary.
+		expect(Object.keys(roots)).not.toContain('apps/locallibrary/Cargo.toml');
 	});
 
 	it('copies Cargo.lock as it is', () => {
@@ -89,6 +100,56 @@ describe('writeInputs', () => {
 		]);
 		expect(harden[0].report.checks).toContainEqual(expect.objectContaining({ id: 'p_runner' }));
 		expect(harden[1].report.checks).toContainEqual(expect.objectContaining({ id: 'n_runner' }));
+	});
+});
+
+describe('crateRoots', () => {
+	const workspace = mkdtempSync(join(tmpdir(), 'crate-roots-'));
+	afterAll(() => rmSync(workspace, { recursive: true, force: true }));
+
+	const library = (path: string, source: string): string => {
+		const file = join(workspace, path);
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, source);
+
+		return file;
+	};
+
+	it('reads the root where [lib] says, and only the attributes before its first item', () => {
+		const own = library(
+			'crates/own/lib/root.rs',
+			[
+				'//! A crate whose [lib] names its root.',
+				'#![warn(missing_docs)]',
+				'#![cfg_attr(docsrs, feature(doc_cfg))]',
+				'',
+				'mod inner {',
+				'    #![allow(missing_docs)]',
+				'}'
+			].join('\n')
+		);
+
+		const macros = library('crates/macros/src/lib.rs', '#![allow(missing_docs)]\n');
+
+		const metadata: CargoMetadata = {
+			workspace_root: workspace,
+			packages: [
+				{ manifest_path: join(workspace, 'crates/own/Cargo.toml'), targets: [{ kind: ['lib'], src_path: own }] },
+				{ manifest_path: join(workspace, 'apps/tool/Cargo.toml'), targets: [{ kind: ['bin'], src_path: own }] },
+				{
+					manifest_path: join(workspace, 'crates/macros/Cargo.toml'),
+					targets: [{ kind: ['proc-macro'], src_path: macros }]
+				}
+			]
+		};
+
+		expect(crateRoots(metadata)).toEqual({
+			'crates/own/Cargo.toml': {
+				root: 'crates/own/lib/root.rs',
+				attributes: ['#![warn(missing_docs)]', '#![cfg_attr(docsrs, feature(doc_cfg))]']
+			},
+			'crates/macros/Cargo.toml': { root: 'crates/macros/src/lib.rs', attributes: ['#![allow(missing_docs)]'] }
+		});
 	});
 });
 
