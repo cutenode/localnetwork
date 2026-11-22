@@ -180,6 +180,7 @@ Besides each check passing, a pull request has to stay within these:
 
 ## Pull requests
 
+- For anything beyond a typo or a small fix, open an issue or comment on one before you start, so nobody spends time on a change that's unwanted or already being made. A small fix links an issue too.
 - Link the issue it's for, as in [Issues and planning](#issues-and-planning). The PR issue check fails otherwise; pull requests from bots skip it.
 - Keep each pull request to one concern, and fill in the template.
 - For UI changes, add before and after screenshots at 390 and 1280 px wide, in light and dark.
