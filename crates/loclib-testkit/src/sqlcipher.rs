@@ -1,10 +1,8 @@
 //! The `sqlcipher` CLI, to check with SQLCipher's own implementation (the one rekordbox's files
-//! follow) that it reads the databases locallibrary encrypts.
+//! follow) that it reads the databases the loclib crates and locallibrary encrypt.
 //!
 //! Without the CLI the checks are skipped, unless `LOCALLIBRARY_REQUIRE_SQLCIPHER` is set (CI sets
 //! it where it installs the CLI): then they fail, so CI can't pass without running them.
-//!
-//! Shared by the library's unit tests and its integration tests (`#[path]`).
 
 use std::path::Path;
 use std::process::Command;

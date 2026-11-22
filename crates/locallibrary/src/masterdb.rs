@@ -982,8 +982,7 @@ pub mod files;
 pub mod smartlist;
 
 #[cfg(test)]
-#[path = "../tests/support/sqlcipher.rs"]
-mod sqlcipher;
+use loclib_testkit::sqlcipher;
 
 #[cfg(test)]
 pub(crate) mod tests;

@@ -452,7 +452,7 @@ fn a_drive_is_compared_with_the_collection() {
 
 /// SQLCipher itself, given rekordbox's key as `PRAGMA key` (as pyrekordbox opens master.db):
 /// a database it writes reads here, and it reads the fixtures. Skipped without the sqlcipher
-/// CLI (see tests/support/sqlcipher.rs).
+/// CLI (see loclib-testkit's `sqlcipher`).
 #[test]
 fn sqlcipher_and_this_reader_agree_on_the_key() {
     let dir = tempfile::tempdir().unwrap();

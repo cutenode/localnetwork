@@ -171,7 +171,7 @@ OneLibrary fixtures (`onelibrary/`, rekordbox's schema with synthetic tracks) ar
 `sqlcipher` CLI, so reading is checked against an independent SQLCipher. An ignored test remakes
 them: `cargo test -p locallibrary-core --test it remake_sqlcipher_fixtures -- --ignored`. With
 `sqlcipher` installed, the tests that merge, clean, convert or edit a OneLibrary database also
-have it check the result (`tests/support/sqlcipher.rs`); without it they skip that check, unless
+have it check the result (loclib-testkit's `sqlcipher`); without it they skip that check, unless
 `LOCALLIBRARY_REQUIRE_SQLCIPHER=1` is set, as in CI, which makes them fail.
 
 Publishing is tested against a pretend data server on 127.0.0.1
