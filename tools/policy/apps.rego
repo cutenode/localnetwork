@@ -102,9 +102,9 @@ ci_only_steps := {
 spelling := {
 	"cargo doc --workspace --no-deps --locked": "cargo doc-strict",
 	# Double quotes, which cmd.exe reads too.
-	"cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'": "cargo nextest run -p locallibrary-cli --no-default-features --locked -E \"test(commands_come_with_the_features_built_in)\"",
+	"cargo nextest run -p locallibrary --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'": "cargo nextest run -p locallibrary --no-default-features --locked -E \"test(commands_come_with_the_features_built_in)\"",
 	"dist plan --output-format=json > \"$RUNNER_TEMP/plan-dist-manifest.json\"": "node tools/verify/release-cli.ts",
-	"Check only locallibrary-cli is released": "node tools/verify/release-cli.ts",
+	"Check only locallibrary is released": "node tools/verify/release-cli.ts",
 	"ShellCheck": "git ls-files -z \"*.sh\" | xargs -0 shellcheck",
 	"crate-ci/typos": "typos",
 	"lycheeverse/lychee-action": "git ls-files -z \"*.md\" | xargs -0 lychee --offline --include-fragments --no-progress",

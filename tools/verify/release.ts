@@ -7,15 +7,15 @@ interface Plan {
 	releases?: { app_name: string }[];
 }
 
-/** A line when dist's plan (`dist plan --output-format=json`) releases anything but locallibrary-cli. */
+/** A line when dist's plan (`dist plan --output-format=json`) releases anything but locallibrary. */
 export const releaseProblems = (plan: string): string[] => {
 	// SAFETY: dist's JSON plan lists what it releases under `releases`, each with its `app_name`.
 	const apps = ((JSON.parse(plan) as Plan).releases ?? []).map(({ app_name }) => app_name);
-	const onlyTheCli = apps.length === 1 && apps[0] === 'locallibrary-cli';
+	const onlyTheCli = apps.length === 1 && apps[0] === 'locallibrary';
 
 	return onlyTheCli
 		? []
 		: [
-				`dist would release ${apps.join(', ') || 'nothing'}, not only locallibrary-cli: set dist = false under [package.metadata.dist] in the new package's Cargo.toml`
+				`dist would release ${apps.join(', ') || 'nothing'}, not only locallibrary: set dist = false under [package.metadata.dist] in the new package's Cargo.toml`
 			];
 };
