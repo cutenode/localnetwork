@@ -61,10 +61,39 @@ test_lefthook_other_command if {
 test_missing_hook if {
 	hooks := fixtures.file("lefthook.yml")
 	broken := object.union(hooks, {"pre-push": {"jobs": [{"root": "apps/site/", "run": "pnpm check"}]}})
-	"lefthook.yml: add a pre-push job with root apps/site/ that runs pnpm test" in apps.deny with input as fixtures.with_file("lefthook.yml", broken)
+	"lefthook.yml: add a pre-push job for apps/site/ that runs pnpm test" in apps.deny with input as fixtures.with_file("lefthook.yml", broken)
 }
 
 test_package_without_hooks if {
 	repo := fixtures.with_file("packages/other/package.json", {"name": "other"})
-	"lefthook.yml: add a pre-commit job with root packages/other/ that runs oxfmt" in apps.deny with input as repo
+	"lefthook.yml: add a pre-commit job for packages/other/ that runs oxfmt" in apps.deny with input as repo
 }
+
+test_pre_push_job_in_its_folder if {
+	hooks := fixtures.file("lefthook.yml")
+	cd := object.union(hooks, {"pre-push": {"jobs": [
+		{"run": "cd apps/site/ && pnpm check && pnpm test"},
+		{"run": "cd packages/kit/ && pnpm check && pnpm test"},
+	]}})
+	count(apps.deny) == 0 with input as fixtures.with_file("lefthook.yml", cd)
+}
+
+test_atstore_tests_left_to_ci if {
+	hooks := fixtures.file("lefthook.yml")
+	pre_commit := array.concat(hooks["pre-commit"].jobs, [
+		{"root": "packages/atstore/", "run": "pnpm exec oxfmt {staged_files}"},
+		{"root": "packages/atstore/", "run": "pnpm exec oxlint {staged_files}"},
+	])
+	repo := fixtures.with_file("packages/atstore/package.json", {"name": "atstore"})
+	without_tests := object.union(hooks, {
+		"pre-commit": {"jobs": pre_commit},
+		"pre-push": {"jobs": array.concat(hooks["pre-push"].jobs, [{"run": "cd packages/atstore/ && pnpm check"}])},
+	})
+	count(apps.deny) == 0 with input as with_hooks(repo, without_tests)
+
+	without_check := object.union(hooks, {"pre-commit": {"jobs": pre_commit}})
+	denied := apps.deny with input as with_hooks(repo, without_check)
+	denied == {"lefthook.yml: add a pre-push job for packages/atstore/ that runs pnpm check"}
+}
+
+with_hooks(repo, hooks) := array.concat([f | some f in repo; f.path != "lefthook.yml"], [{"path": "lefthook.yml", "contents": hooks}])

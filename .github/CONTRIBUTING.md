@@ -20,6 +20,8 @@ Use the Node version in `.node-version` (24). From the repository root:
 pnpm install    # every TypeScript app's dependencies, plus the lefthook git hooks
 ```
 
+The git hooks format and lint what you commit. Before a push they type-check and test each TypeScript app whose files the push changes (shared files like the lockfile and `.node-version` count for every app), and run clippy for Windows when Rust or Cargo files changed and the `x86_64-pc-windows-gnu` target and MinGW are installed. atstore's tests run in CI only.
+
 `rust-toolchain.toml` pins the Rust toolchain. rustup installs it the first time you run cargo in the checkout.
 
 ## Checks

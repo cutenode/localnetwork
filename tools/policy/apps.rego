@@ -69,12 +69,20 @@ hooks := {
 
 hooked := {sprintf("apps/%s/", [app]) | some app in lib.ts_apps} | {trim_suffix(p, "package.json") | some p in lib.paths("packages/*/package.json")}
 
+# The hook jobs a folder goes without, and why.
+hook_exceptions := {
+	# Its disk-image tests failed pushes and hung them for hours; CI's atstore job runs them on
+	# every pull request that touches it.
+	"packages/atstore/": {"pre-push": {"pnpm test"}},
+}
+
 deny contains msg if {
 	some dir in hooked
 	some hook, tools in hooks
 	some tool in tools
+	not tool in object.get(hook_exceptions, [dir, hook], set())
 	not hook_runs(hook, dir, tool)
-	msg := sprintf("lefthook.yml: add a %s job with root %s that runs %s", [hook, dir, tool])
+	msg := sprintf("lefthook.yml: add a %s job for %s that runs %s", [hook, dir, tool])
 }
 
 # The hooks run the committing worktree's lefthook, not the path of the one that installed them last.
@@ -88,8 +96,14 @@ deny contains msg if {
 	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
 }
 
-hook_runs(hook, root_dir, tool) if {
+hook_runs(hook, dir, tool) if {
 	some job in lib.file("lefthook.yml")[hook].jobs
-	job.root == root_dir
+	runs_in(job, dir)
 	contains(job.run, tool)
 }
+
+runs_in(job, dir) if job.root == dir
+
+# The pre-push jobs cd into their folder: a `root` would hide the shared files outside it, which
+# their globs list, from them.
+runs_in(job, dir) if startswith(job.run, sprintf("cd %s && ", [dir]))
