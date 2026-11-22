@@ -1,5 +1,5 @@
 //! rekordbox's files on this computer, as a backup of them needs them (a plugin's
-//! `collection:files` reads, see [`crate::plugin`]): where they are, whether rekordbox is running
+//! `collection:files` reads, in loclib-plugin's types): where they are, whether rekordbox is running
 //! and which version it is, a copy of `master.db` made as rekordbox's own backup makes one, and
 //! what its tracks' files are. As everywhere in [`super`], `master.db` and its WAL are copied
 //! before anything reads them, and nothing is written to rekordbox's folders.
@@ -17,8 +17,8 @@ use super::{
     Db, agent_option, agent_options_path, default_path, in_cloud, int, open_copy, settings_path, share_dir, text,
 };
 use crate::error::IoContext;
+use crate::onelibrary::cipher::{self, Codec};
 use crate::{Error, Result};
-use loclib_rekordbox_db::onelibrary::cipher::{self, Codec};
 use loclib_sqlcipher::untrusted::distrust;
 
 /// Where rekordbox's files are: `master.db` where [`default_path`] finds it ([`super::PATH_ENV`]
@@ -112,7 +112,7 @@ pub fn export(path: &Path, key: &str, with_credentials: bool, into: &Path) -> Re
     let credentials_removed = if with_credentials { 0 } else { db.remove_credentials()? };
     let (db_id, db_version) = (db.property("DBID")?, db.property("DBVersion")?);
     let rebuilt = dir.path().join("export.db");
-    let to = rebuilt.to_str().ok_or_else(|| Error::invalid("the temporary folder's path isn't UTF-8"))?;
+    let to = rebuilt.to_str().ok_or_else(|| Error::Invalid("the temporary folder's path isn't UTF-8".into()))?;
     db.conn.execute("VACUUM INTO ?1", [to]).map_err(|e| db.sql(e))?;
     drop(db);
     let mut out = File::create_new(into).at(into)?;

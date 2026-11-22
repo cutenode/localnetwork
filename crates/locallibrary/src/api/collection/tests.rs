@@ -1,11 +1,13 @@
 use super::*;
-use crate::masterdb::DEFAULT_KEY;
+use loclib_rekordbox_db::masterdb::{DEFAULT_KEY, KEY_ENV};
+use loclib_rekordbox_db::test_util::{Fixture, sample};
+use rusqlite::params;
 
 /// rekordbox's collection (the sample: three tracks, a folder with a playlist, an intelligent
 /// playlist, a history list), encrypted as rekordbox keeps it.
 fn collection(dir: &std::path::Path) -> CollectionRef {
     let db = dir.join("master.db");
-    std::fs::write(&db, crate::masterdb::tests::sample().encrypted(DEFAULT_KEY)).unwrap();
+    std::fs::write(&db, sample().encrypted(DEFAULT_KEY)).unwrap();
     CollectionRef { db: Some(db), key: Some(DEFAULT_KEY.into()) }
 }
 
@@ -121,7 +123,7 @@ fn prop_the_collection_exports_to_a_folder_or_says_why_not(tc: hegel::TestCase) 
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("Music");
     std::fs::create_dir_all(&music).unwrap();
-    let f = crate::masterdb::tests::sample();
+    let f = sample();
     f.exec(&format!(
         "UPDATE djmdContent SET FolderPath = '{m}/omt.mp3' WHERE ID = '84935471';
          UPDATE djmdContent SET FolderPath = '{m}/ngo.mp3' WHERE ID = '205356547';
@@ -216,7 +218,7 @@ fn prop_an_exports_smart_rules_are_kept_unless_another_rule_has_the_path(tc: heg
     let music = dir.path().join("Music");
     std::fs::create_dir_all(&music).unwrap();
     let recent = r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="genre" Operator="8" ValueUnit="" ValueLeft="house" ValueRight=""/></NODE>"#;
-    let f = crate::masterdb::tests::sample();
+    let f = sample();
     f.exec(&format!(
         "UPDATE djmdContent SET FolderPath = '{m}/omt.mp3' WHERE ID = '84935471';
          UPDATE djmdContent SET FolderPath = '{m}/ngo.mp3' WHERE ID = '205356547';
@@ -274,4 +276,155 @@ fn prop_an_exports_smart_rules_are_kept_unless_another_rule_has_the_path(tc: heg
         assert_eq!((rule.filter.as_str(), rule.drives.as_slice()), (r#"genre:"house""#, &[id][..]));
         assert!(!warned, "{said:?}");
     }
+}
+
+/// `bytes` as `master.db` in `dir`.
+fn write(dir: &Path, bytes: &[u8]) -> PathBuf {
+    let path = dir.join("master.db");
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn the_api_reads_the_collection_it_is_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &sample().encrypted(DEFAULT_KEY));
+    let req = CollectionRef { db: Some(path), key: None };
+    if std::env::var_os(KEY_ENV).is_none() {
+        assert_eq!(collection_info(&req).unwrap().summary.tracks, 3);
+    }
+    let missing = CollectionRef { db: Some(dir.path().join("nope.db")), key: None };
+    assert_eq!(collection_info(&missing).unwrap_err().code(), "not_found");
+}
+
+#[test]
+fn the_collections_tracks_are_found_on_a_drive_by_file_or_details() {
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let c =
+        loclib_rekordbox_db::masterdb::open(&write(dir.path(), &sample().encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+    // Exported earlier: the same file under /Contents, Floorplan's track under another file
+    // name (found by artist, title and length), plus a track the collection no longer has.
+    let mut one_more_time =
+        track(1, "Daft Punk", "One More Time", "/Contents/Daft Punk/Discovery/01 One More Time.mp3");
+    one_more_time.duration_secs = 320;
+    let mut never = track(2, "Floorplan", "Never Grow Old", "/Contents/Floorplan/UnknownAlbum/Never Grow Old.mp3");
+    never.duration_secs = 412;
+    let drive = Library {
+        tracks: vec![one_more_time, never, track(3, "Old", "Gone", "/Contents/Old/Gone.mp3")],
+        playlists: vec![crate::model::Playlist {
+            id: 1,
+            parent_id: None,
+            name: "Friday".into(),
+            is_folder: false,
+            sort_order: 0,
+            track_ids: vec![1, 2],
+        }],
+        ..Default::default()
+    };
+    let d = diff_drive(&c, &drive, "Main", None).unwrap();
+    assert_eq!((d.matched_by_file, d.matched_by_details), (1, 1));
+    assert!(d.uncertain.is_empty());
+    let names = |v: &[TrackRef]| v.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&d.diff.added_tracks), ["Somebody - Only Here"]);
+    assert_eq!(names(&d.diff.removed_tracks), ["Old - Gone"]);
+    let changed: Vec<(&str, &str)> = d
+        .diff
+        .changed_tracks
+        .iter()
+        .flat_map(|c| c.fields.iter().map(move |f| (c.track.name.as_str(), f.field.as_str())))
+        .filter(|(_, f)| *f == "rating")
+        .collect();
+    assert_eq!(changed, [("Daft Punk - One More Time", "rating")]);
+    assert_eq!(d.diff.added_playlists, ["Recent", "Shows/", "Shows/Friday"]);
+    assert_eq!(d.diff.removed_playlists, ["Friday"]);
+    // One playlist only.
+    let only = diff_drive(&c, &drive, "Main", Some("Shows")).unwrap();
+    assert!(only.diff.added_tracks.is_empty());
+    assert_eq!(only.diff.added_playlists, ["Shows/", "Shows/Friday"]);
+    // One neither has would show as no differences.
+    let err = diff_drive(&c, &drive, "Main", Some("nope/none")).unwrap_err();
+    assert!(matches!(err, Error::NotFound(_)), "{err}");
+}
+
+/// A drive compared with the collection: tracks at the same file count as found by it, ones moved
+/// on the drive are found by ISRC or artist, title and length, and ones only a title finds are
+/// listed as uncertain and counted, with the ones the drive lacks, as missing from it. A playlist
+/// neither has is refused.
+#[hegel::test(test_cases = 15)]
+fn prop_a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum On {
+        Same,
+        Moved,
+        Gone,
+    }
+    const TITLES: &[&str] = &["Aerodynamic", "Nightcall", "Voyager", "Harder", "Veridis"];
+    const ARTISTS: &[&str] = &["Daft Punk", "Kavinsky", "Justice", "Moby", "Air"];
+    let f = Fixture::new();
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(TITLES.len()));
+    let mut drawn = Vec::new();
+    for i in 0..n {
+        // The first track has every detail, the second none, the rest drawn.
+        let (artist, isrc, extras) = match i {
+            0 => (true, true, true),
+            1 => (false, false, false),
+            _ => (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans())),
+        };
+        let on = match i {
+            0 | 1 => On::Moved,
+            _ => tc.draw(gs::sampled_from(vec![On::Same, On::Moved, On::Gone])),
+        };
+        let id = (i + 1).to_string();
+        f.track(&id, &format!("/Users/dj/Music/{}/{}.mp3", ARTISTS[i], TITLES[i]), ARTISTS[i], TITLES[i]);
+        if !artist {
+            f.conn.execute("UPDATE djmdContent SET ArtistID = NULL WHERE ID = ?1", [&id]).unwrap();
+        }
+        if isrc {
+            f.conn
+                .execute("UPDATE djmdContent SET ISRC = ?2 WHERE ID = ?1", params![id, format!("GBDUW00000{i:02}")])
+                .unwrap();
+        }
+        if extras {
+            f.exec(&format!("INSERT INTO djmdAlbum (ID, Name) VALUES ('{id}', 'Album {id}')"));
+            f.conn
+                .execute("UPDATE djmdContent SET AlbumID = ?1, Subtitle = 'Extended Mix' WHERE ID = ?1", [&id])
+                .unwrap();
+        }
+        drawn.push((i as u32 + 1, on, artist || isrc));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let c = loclib_rekordbox_db::masterdb::open(&write(dir.path(), &f.plain()), DEFAULT_KEY).unwrap();
+    let mut drive = c.library.clone();
+    drive.tracks.retain(|t| drawn.iter().any(|(id, on, _)| *id == t.id && *on != On::Gone));
+    for t in &mut drive.tracks {
+        if drawn.iter().any(|(id, on, _)| *id == t.id && *on == On::Moved) {
+            t.file_path = format!("/Contents/Moved/{}.mp3", t.id);
+        }
+    }
+    let d = diff_drive(&c, &drive, "Main", None).unwrap();
+    let count = |want: &dyn Fn(On, bool) -> bool| drawn.iter().filter(|(_, on, known)| want(*on, *known)).count();
+    assert_eq!(d.matched_by_file, count(&|on, _| on == On::Same));
+    assert_eq!(d.matched_by_details, count(&|on, known| on == On::Moved && known));
+    let uncertain: Vec<u32> = d.uncertain.iter().map(|t| t.id).collect();
+    let loose: Vec<u32> =
+        drawn.iter().filter(|(_, on, known)| *on == On::Moved && !known).map(|(id, ..)| *id).collect();
+    assert_eq!(uncertain, loose);
+    let mut missing: Vec<u32> = d.diff.added_tracks.iter().map(|t| t.id).collect();
+    missing.sort_unstable();
+    let mut lacking: Vec<u32> = drawn
+        .iter()
+        .filter(|(_, on, known)| *on == On::Gone || (*on == On::Moved && !known))
+        .map(|(id, ..)| *id)
+        .collect();
+    lacking.sort_unstable();
+    assert_eq!(missing, lacking);
+    assert!(diff_drive(&c, &drive, "Main", Some("Nowhere")).is_err());
+    // A drive with exactly the collection's tracks and playlists differs in nothing.
+    let same = diff_drive(&c, &c.library, "Main", None).unwrap();
+    assert_eq!(same.matched_by_file, c.library.tracks.len());
+    let diff = &same.diff;
+    assert!(diff.added_tracks.is_empty() && diff.removed_tracks.is_empty() && diff.changed_tracks.is_empty());
+    assert!(diff.added_playlists.is_empty() && diff.removed_playlists.is_empty(), "{diff:?}");
 }

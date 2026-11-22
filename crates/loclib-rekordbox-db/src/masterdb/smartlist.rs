@@ -12,7 +12,7 @@
 //! number when it's above 2^31). A `bpm` value of 1000 or more is taken to be in hundredths, as
 //! `djmdContent.BPM` is (inferred: pyrekordbox compares it with that column as it is).
 //!
-//! [`SmartList::matches`] says which tracks a list holds, text compared as [`crate::query`]'s
+//! [`SmartList::matches`] says which tracks a list holds, text compared as locallibrary's track
 //! filters compare it (ignoring case and runs of spaces). [`SmartList::filter`] writes the lists
 //! a filter can say as one, matching the same tracks: text that contains (or doesn't) a value for
 //! the fields a filter has on their own, numbers, the date added, colours and My Tags, and match
@@ -22,13 +22,14 @@
 
 use chrono::{Months, NaiveDate};
 
-use crate::model::{Track, TrackColor, date_value, normalize};
+use loclib_model::model::{Track, TrackColor, date_value, normalize};
 
 /// An intelligent playlist's rules.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SmartList {
     /// A track matches any one condition, rather than all of them.
     pub any: bool,
+    /// Its rules, in rekordbox's order.
     pub conditions: Vec<Condition>,
 }
 
@@ -45,96 +46,158 @@ pub struct Condition {
 /// A condition as it's evaluated.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Rule {
+    /// A text field compared with `value`, ignoring case and runs of spaces.
     Text {
+        /// The field.
         field: TextField,
+        /// How it's compared.
         op: TextOp,
+        /// What it's compared with.
         value: String,
     },
+    /// A number compared.
     Number {
+        /// The field.
         field: NumberField,
+        /// How it's compared, and with what.
         op: Compare<f64>,
     },
+    /// A date compared.
     Date {
+        /// The field.
         field: DateField,
+        /// How it's compared, and with what.
         op: DateOp,
     },
+    /// The track's colour is (or isn't) `color`.
     Color {
+        /// Is, rather than isn't.
         equal: bool,
+        /// The colour; `None` for no colour.
         color: Option<TrackColor>,
     },
     /// Has (or hasn't) the My Tag at this `Category/Tag` path; empty for a tag that's gone.
     Tag {
+        /// Has, rather than hasn't.
         has: bool,
+        /// The tag's `Category/Tag` path.
         path: String,
     },
 }
 
+/// A track's text field, as rekordbox's rules name it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextField {
+    /// `artist`.
     Artist,
+    /// `album`.
     Album,
+    /// `albumArtist`.
     AlbumArtist,
+    /// `originalArtist`.
     OriginalArtist,
+    /// `producer`: the composer.
     Producer,
+    /// `genre`.
     Genre,
+    /// `key`.
     Key,
+    /// `label`.
     Label,
+    /// `mixName`.
     MixName,
+    /// `remixedBy`.
     Remixer,
+    /// `name`: the title.
     Title,
+    /// `comments`.
     Comment,
+    /// `fileName`: the audio file's name.
     FileName,
 }
 
+/// How a text field is compared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextOp {
+    /// Is the value, whole.
     Is,
+    /// Isn't the value.
     IsNot,
+    /// Holds the value.
     Contains,
+    /// Doesn't hold the value.
     NotContains,
+    /// Starts with the value.
     StartsWith,
+    /// Ends with the value.
     EndsWith,
 }
 
+/// A track's number field: BPM, stars, plays, the release year, the length in seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumberField {
+    /// `bpm`.
     Bpm,
+    /// `rating`, in stars.
     Rating,
+    /// `counter`: how often it was played.
     Plays,
+    /// `year` it was released.
     Year,
+    /// `duration`, in seconds.
     Duration,
 }
 
+/// A comparison with a value of `T`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Compare<T> {
+    /// Equal to it.
     Is(T),
+    /// Not equal to it.
     IsNot(T),
+    /// Greater than it.
     Greater(T),
+    /// Less than it.
     Less(T),
     /// Both ends included, in either order.
     Range(T, T),
 }
 
+/// A track's date field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateField {
     /// `stockDate`: when it was added to the collection.
     Added,
+    /// `dateReleased`.
     Released,
 }
 
+/// How a date is compared.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DateOp {
     /// Dates as `YYYYMMDD` numbers, as `loclib_model::model::date_value` makes them.
     Compare(Compare<f64>),
     /// Within the last `n` days, weeks, months or years (or not).
-    InLast { n: u32, unit: Unit, within: bool },
+    InLast {
+        /// How many.
+        n: u32,
+        /// Of what.
+        unit: Unit,
+        /// Within them, rather than before.
+        within: bool,
+    },
 }
 
+/// A unit of time `in the last` counts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
+    /// Days.
     Day,
+    /// Weeks.
     Week,
+    /// Calendar months.
     Month,
+    /// Calendar years.
     Year,
 }
 
@@ -201,7 +264,7 @@ impl SmartList {
         if self.any { each.any(|m| m) } else { each.all(|m| m) }
     }
 
-    /// The list as a filter (see [`crate::query`]) that matches the same tracks, or the first
+    /// The list as a locallibrary track filter that matches the same tracks, or the first
     /// condition a filter can't say.
     pub fn filter(&self) -> Result<String, String> {
         if let Some(why) = self.unevaluable() {
@@ -245,6 +308,8 @@ impl std::fmt::Display for Term {
 }
 
 impl Condition {
+    /// A condition from a `CONDITION` element's attributes: `PropertyName`, `Operator`,
+    /// `ValueUnit`, `ValueLeft` and `ValueRight`.
     pub fn new(property: &str, operator: u8, unit: &str, left: &str, right: &str) -> Condition {
         let op = match operator {
             1 => "is",

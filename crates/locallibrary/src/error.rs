@@ -440,17 +440,17 @@ impl From<rusqlite::Error> for Error {
     }
 }
 
-impl From<loclib_sqlcipher::Error> for Error {
-    fn from(e: loclib_sqlcipher::Error) -> Self {
-        loclib_rekordbox_db::Error::from(e).into()
-    }
-}
-
 impl From<loclib_rekordbox_db::Error> for Error {
     fn from(e: loclib_rekordbox_db::Error) -> Self {
         use loclib_rekordbox_db::Error as E;
         match e {
             E::Io { path, source } => Error::Io { path, source },
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::WrongKey(_) => Error::invalid(e.to_string())
+                .because(Reason::WrongKey)
+                .with("env", loclib_rekordbox_db::masterdb::KEY_ENV)
+                .action(Action::retry(serde_json::json!({ "key": null }), "Give the key")),
+            E::Changing(_) => Error::Conflict(e.to_string()),
             E::OneLibrary(message) => Error::OneLibrary(message),
             E::NotFound(message) => Error::NotFound(message),
             E::Invalid(message) => Error::Invalid(message),

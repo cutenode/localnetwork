@@ -32,8 +32,6 @@
 //! * [`mix`]: find which library tracks a recorded DJ mix plays, when, and how (the fingerprints
 //!   and the matcher are loclib-mixid's).
 //! * [`query`]: the track filter and sort language, and track selectors.
-//! * [`masterdb`]: read rekordbox's own collection (`master.db`) on this computer, and compare a
-//!   drive with it.
 //! * [`op`]: planned operations: what a change will do, confirmed and then applied exactly as
 //!   planned.
 //! * [`opener`]: hand an https address to the browser, or a file to the app that opens it.
@@ -92,7 +90,6 @@ mod incoming;
 pub mod keychain;
 pub mod library_write;
 mod local_time;
-pub mod masterdb;
 pub mod merge;
 pub mod mix;
 mod net;

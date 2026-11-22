@@ -152,6 +152,7 @@ directories.workspace = true
 loclib-aup = { workspace = true, optional = true }
 loclib-model.workspace = true
 loclib-drive-speed.workspace = true
+loclib-rekordbox-db.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

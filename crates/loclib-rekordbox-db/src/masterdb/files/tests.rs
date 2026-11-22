@@ -4,61 +4,15 @@ use rusqlite::params;
 use serde_json::json;
 
 use super::*;
-use crate::masterdb::tests::{Fixture, sample};
 use crate::masterdb::{DEFAULT_KEY, PATH_ENV, sqlcipher};
-use loclib_rekordbox_db::onelibrary::cipher::{SALT_LEN, SQLITE_MAGIC};
-
-/// The cloud agent's secret in [`library`], which a copy without credentials has nowhere.
-pub(crate) const SECRET: &str = "SECRET-TOKEN-0123456789";
-
-/// The sample collection with what a backup reads besides: `UUID`s, `OrgFolderPath` (for a track
-/// Cloud Library Sync keeps, and one it doesn't), and `agentRegistry` with the cloud agent's
-/// sign-in among its rows.
-pub(crate) fn library() -> Fixture {
-    let f = sample();
-    f.exec(&format!(
-        "ALTER TABLE djmdContent ADD COLUMN OrgFolderPath VARCHAR(255);
-         UPDATE djmdContent SET UUID = 'uuid-' || ID;
-         UPDATE djmdContent SET FolderPath = '/contents_1234567890/floorplan/ngo.mp3',
-             OrgFolderPath = '/Users/dj/Music/Downloads/ngo.mp3' WHERE ID = '205356547';
-         UPDATE djmdContent SET OrgFolderPath = '/Users/dj/Music/Elsewhere.mp3' WHERE ID = '4';
-         CREATE TABLE agentRegistry (registry_id VARCHAR(255) PRIMARY KEY, id_1 VARCHAR(255), str_1 VARCHAR(255),
-             text_1 TEXT, created_at TEXT, updated_at TEXT);
-         INSERT INTO agentRegistry (registry_id, id_1, str_1, text_1) VALUES
-             ('agentCredentials', 'abcdefabcdefabcdefabcdefabcdef12', '{SECRET}', 'another secret'),
-             ('localUpdateCount', NULL, '74383', NULL),
-             ('SyncAnalysisDataRootPath', NULL, '/Users/dj/Library/Pioneer/rekordbox/share', NULL);"
-    ));
-    f
-}
+use crate::onelibrary::cipher::{SALT_LEN, SQLITE_MAGIC};
+use crate::test_util::{Fixture, SECRET, has, library, plain, registry, sample};
 
 /// `bytes` written to `name` in `dir`.
 fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     let path = dir.join(name);
     std::fs::write(&path, bytes).unwrap();
     path
-}
-
-/// The database at `path`, decrypted (a plain one as it is): every byte of every page.
-pub(crate) fn plain(path: &Path) -> Vec<u8> {
-    let bytes = std::fs::read(path).unwrap();
-    if bytes.starts_with(SQLITE_MAGIC) {
-        return bytes;
-    }
-    let salt: [u8; SALT_LEN] = bytes[..SALT_LEN].try_into().unwrap();
-    Codec::with_key(DEFAULT_KEY.as_bytes(), salt).decrypt(&bytes, |_| true).unwrap()
-}
-
-/// The `registry_id`s of the database at `path`'s `agentRegistry`, in order.
-pub(crate) fn registry(path: &Path) -> Vec<String> {
-    let dir = tempfile::tempdir().unwrap();
-    let (db, _) = open_copy(path, DEFAULT_KEY, dir.path(), false).unwrap();
-    let mut stmt = db.conn.prepare("SELECT registry_id FROM agentRegistry ORDER BY rowid").unwrap();
-    stmt.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
-}
-
-pub(crate) fn has(haystack: &[u8], needle: &str) -> bool {
-    haystack.windows(needle.len()).any(|w| w == needle.as_bytes())
 }
 
 #[test]
@@ -289,7 +243,7 @@ fn a_copy_writes_only_a_new_file() {
     assert!(matches!(&e, Error::Io { source, .. } if source.kind() == std::io::ErrorKind::AlreadyExists), "{e}");
     assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
     let into = dir.path().join("copy.db");
-    assert_eq!(export(&source, "another key", false, &into).unwrap_err().code(), "invalid");
+    assert!(matches!(export(&source, "another key", false, &into), Err(Error::WrongKey(_))));
     // A registry whose sign-in rows can't be told apart is refused, not copied with them.
     let f = Fixture::new();
     f.exec("CREATE TABLE agentRegistry (name TEXT); INSERT INTO agentRegistry VALUES ('agentCredentials');");
@@ -385,7 +339,7 @@ fn a_collection_that_cant_be_read_is_neither_listed_nor_copied() {
         }
     }
     let path = write(dir.path(), "master.db", &library().encrypted(DEFAULT_KEY));
-    assert_eq!(tracks(&path, "another key", 0, 1).unwrap_err().code(), "invalid");
+    assert!(matches!(tracks(&path, "another key", 0, 1), Err(Error::WrongKey(_))));
 }
 
 /// A collection with a trigger is refused a copy without the sign-in: taking the rows out would
@@ -402,7 +356,7 @@ fn a_trigger_cant_keep_the_sign_in_in_a_copy() {
     let source = write(dir.path(), "master.db", &f.encrypted(DEFAULT_KEY));
     let into = dir.path().join("copy.db");
     let e = export(&source, DEFAULT_KEY, false, &into).unwrap_err();
-    assert_eq!(e.code(), "parse", "{e}");
+    assert!(matches!(e, Error::Parse { .. }), "{e}");
     let why = "it has a trigger keep, which rekordbox never makes";
     let instead = "copy it with the credentials kept (with_credentials)";
     assert!(e.to_string().ends_with(&format!("{why}; {instead}")), "{e}");
@@ -424,7 +378,7 @@ fn a_registry_whose_sign_in_cant_be_left_out_isnt_copied() {
     let source = write(dir.path(), "master.db", &f.encrypted(DEFAULT_KEY));
     let into = dir.path().join("copy.db");
     let e = export(&source, DEFAULT_KEY, false, &into).unwrap_err();
-    assert_eq!(e.code(), "parse", "{e}");
+    assert!(matches!(e, Error::Parse { .. }), "{e}");
     assert!(e.to_string().contains("cannot modify agentRegistry because it is a view"), "{e}");
     assert!(!into.exists());
 }

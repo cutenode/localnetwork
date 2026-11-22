@@ -68,7 +68,7 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     let mut app = App::new(store_root, drive);
     // rekordbox's collection on this computer, as a source beside the drives. Looked for here,
     // not in `App::new`: tests mustn't find the collection of the computer they run on.
-    app.collection_db = locallibrary::masterdb::default_path().filter(|p| p.is_file());
+    app.collection_db = loclib_rekordbox_db::masterdb::default_path().filter(|p| p.is_file());
     // Plugins' logs would draw over the screen: they go to the messages (`!`) while it runs.
     crate::plugins::log_to(Some(app.plugin_log()));
     crate::plugins::events::notices_to(Some(app.plugin_notices()));

@@ -37,9 +37,9 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
 fn the_collection_on_this_computer_is_the_one_counted() {
     let dir = tempfile::tempdir().unwrap();
     let rb = dir.path().join("rekordbox");
-    let f = crate::masterdb::tests::sample();
+    let f = loclib_rekordbox_db::test_util::sample();
     std::fs::create_dir_all(&rb).unwrap();
-    std::fs::write(rb.join("master.db"), f.encrypted(crate::masterdb::DEFAULT_KEY)).unwrap();
+    std::fs::write(rb.join("master.db"), f.encrypted(loclib_rekordbox_db::masterdb::DEFAULT_KEY)).unwrap();
     // One More Time's analysis, where rekordbox keeps it.
     let anlz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ/P016/0000875E");
@@ -48,7 +48,7 @@ fn the_collection_on_this_computer_is_the_one_counted() {
     std::fs::create_dir_all(&volumes).unwrap();
     crate::testing::volumes_on_this_thread(Some(vec![volumes.clone()]));
     // SAFETY: nextest runs each test in a process of its own.
-    unsafe { std::env::set_var(crate::masterdb::PATH_ENV, rb.join("master.db")) };
+    unsafe { std::env::set_var(loclib_rekordbox_db::masterdb::PATH_ENV, rb.join("master.db")) };
 
     let read = |req: &ProfileRequest| profile(None, req, &Ctx::silent());
     let kinds = |v: &ProfileView| v.report.sources.iter().map(|s| s.kind).collect::<Vec<_>>();
@@ -75,7 +75,7 @@ fn the_collection_on_this_computer_is_the_one_counted() {
     std::fs::remove_dir_all(&drive).unwrap();
     let err = read(&ProfileRequest { no_collection: true, ..Default::default() }).unwrap_err();
     assert_eq!(err.reason(), Some(Reason::NoStore), "{err}");
-    unsafe { std::env::remove_var(crate::masterdb::PATH_ENV) };
+    unsafe { std::env::remove_var(loclib_rekordbox_db::masterdb::PATH_ENV) };
 }
 
 /// A `master.db` that won't open (rekordbox mid-write, or another key) leaves the collection to the
@@ -89,7 +89,7 @@ fn a_collection_that_wont_open_leaves_the_drives_to_count() {
     copy_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks"), &drive);
     crate::testing::volumes_on_this_thread(Some(vec![dir.path().join("volumes")]));
     // SAFETY: nextest runs each test in a process of its own.
-    unsafe { std::env::set_var(crate::masterdb::PATH_ENV, &db) };
+    unsafe { std::env::set_var(loclib_rekordbox_db::masterdb::PATH_ENV, &db) };
 
     let v = profile(None, &ProfileRequest { no_analysis: true, ..Default::default() }, &Ctx::silent()).unwrap();
     assert_eq!(v.report.sources.iter().map(|s| s.kind).collect::<Vec<_>>(), ["drive"]);
@@ -97,5 +97,5 @@ fn a_collection_that_wont_open_leaves_the_drives_to_count() {
     assert_eq!(v.report.collection.tracks, on_drive);
     let named = format!("rekordbox's collection ({}): ", db.display());
     assert!(v.report.warnings.iter().any(|w| w.starts_with(&named)), "{:?}", v.report.warnings);
-    unsafe { std::env::remove_var(crate::masterdb::PATH_ENV) };
+    unsafe { std::env::remove_var(loclib_rekordbox_db::masterdb::PATH_ENV) };
 }

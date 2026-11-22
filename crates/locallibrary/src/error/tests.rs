@@ -326,3 +326,25 @@ fn prop_capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
         _ => {}
     }
 }
+
+/// loclib-rekordbox-db's errors keep their messages and gain what a front end acts on: a
+/// `master.db` under another key asks for the key, and a My Tag id that's taken, or a collection
+/// that kept changing, is a conflict.
+#[test]
+fn rekordbox_database_errors_say_what_would_resolve_them() {
+    use loclib_rekordbox_db::Error as E;
+    let wrong = Error::from(E::WrongKey(PathBuf::from("/x/master.db")));
+    assert_eq!((wrong.code(), wrong.reason()), ("invalid", Some(Reason::WrongKey)));
+    assert_eq!(wrong.detail().fields["env"], loclib_rekordbox_db::masterdb::KEY_ENV);
+    assert!(wrong.to_string().starts_with("/x/master.db can't be decrypted with this key"), "{wrong}");
+    assert!(wrong.detail().actions.iter().any(|a| a.method.is_none() && a.params.contains_key("key")));
+    let taken = Error::from(E::Exists("My Tag id 5 is already used in exportLibrary.db".into()));
+    assert_eq!((taken.code(), taken.reason()), ("conflict", Some(Reason::Exists)));
+    assert_eq!(Error::from(E::Changing(PathBuf::from("master.db"))).code(), "conflict");
+    assert_eq!(Error::from(E::Parse { path: "master.db".into(), message: "bad".into() }).code(), "parse");
+    assert_eq!(Error::from(E::OneLibrary("damaged".into())).to_string(), "exportLibrary.db: damaged");
+    assert_eq!(Error::from(E::NotFound("track #9".into())).code(), "not_found");
+    assert_eq!(Error::from(E::Invalid("no".into())).code(), "invalid");
+    let io = Error::from(E::Io { path: "a".into(), source: std::io::ErrorKind::NotFound.into() });
+    assert!(matches!(io, Error::Io { .. }));
+}

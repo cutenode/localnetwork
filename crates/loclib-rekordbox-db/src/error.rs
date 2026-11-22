@@ -16,6 +16,30 @@ pub enum Error {
         source: io::Error,
     },
 
+    /// A file isn't what it should be: a `master.db` that can't be read, or rekordbox's settings
+    /// that aren't well-formed XML.
+    #[error("could not parse {}: {message}", path.display())]
+    Parse {
+        /// The file.
+        path: PathBuf,
+        /// What's wrong with it.
+        message: String,
+    },
+
+    /// A `master.db` doesn't decrypt with the key given: it isn't a rekordbox 6 or 7 collection,
+    /// or rekordbox changed its key ([`crate::masterdb::KEY_ENV`] gives another).
+    #[error(
+        "{} can't be decrypted with this key: it isn't a rekordbox 6/7 collection, or rekordbox changed its \
+         key (give the right one, or set {})",
+        .0.display(),
+        crate::masterdb::KEY_ENV
+    )]
+    WrongKey(PathBuf),
+
+    /// A `master.db` and its WAL kept changing while they were copied: rekordbox was saving.
+    #[error("{} kept changing while it was read (is rekordbox saving?)", .0.display())]
+    Changing(PathBuf),
+
     /// The OneLibrary database (`exportLibrary.db`) can't be read, edited or written.
     #[error("exportLibrary.db: {0}")]
     OneLibrary(String),
@@ -31,6 +55,12 @@ pub enum Error {
     /// An id an edit gives a new row is taken already.
     #[error("{0}")]
     Exists(String),
+}
+
+impl Error {
+    pub(crate) fn parse(path: impl Into<PathBuf>, message: impl ToString) -> Self {
+        Error::Parse { path: path.into(), message: message.to_string() }
+    }
 }
 
 /// A result whose error is this crate's [`Error`].

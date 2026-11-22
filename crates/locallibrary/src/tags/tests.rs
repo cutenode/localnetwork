@@ -438,13 +438,13 @@ fn prop_rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
 fn prop_a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
     let library = six_tracks();
     let names = || gs::sampled_from(vec!["Genre", "Deep", "Peak Time", "Ünï", "x", "Situation"]);
-    let mut categories: Vec<crate::masterdb::TagCategory> = Vec::new();
+    let mut categories: Vec<loclib_rekordbox_db::masterdb::TagCategory> = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(MAX_CATEGORIES + 1)) {
         let name = tc.draw(names()).to_string();
         if categories.iter().any(|c| c.name == name) {
             continue;
         }
-        let mut tags: Vec<crate::masterdb::TagEntry> = Vec::new();
+        let mut tags: Vec<loclib_rekordbox_db::masterdb::TagEntry> = Vec::new();
         for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
             let name = tc.draw(names()).to_string();
             if tags.iter().any(|t| t.name == name) {
@@ -452,9 +452,9 @@ fn prop_a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
             }
             let ids: BTreeSet<u32> =
                 tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6))).into_iter().collect();
-            tags.push(crate::masterdb::TagEntry { name, track_ids: ids.into_iter().collect() });
+            tags.push(loclib_rekordbox_db::masterdb::TagEntry { name, track_ids: ids.into_iter().collect() });
         }
-        categories.push(crate::masterdb::TagCategory { name, tags });
+        categories.push(loclib_rekordbox_db::masterdb::TagCategory { name, tags });
     }
     let given = DbTags::collection(&categories, &library);
     let (bytes, carried) = new_ext(&given, &library).unwrap();
@@ -484,13 +484,14 @@ fn patch_u32(bytes: &mut [u8], at: usize, value: u32) {
 fn prop_ext_rows_that_point_nowhere_are_strays_and_dropped_on_remap(tc: TestCase) {
     let library = six_tracks();
     let linked: Vec<u32> = tc.draw(gs::subsequences(&[1, 2, 3, 4, 5, 6]));
-    let tag = |name: &str, track_ids: Vec<u32>| crate::masterdb::TagEntry { name: name.into(), track_ids };
+    let tag =
+        |name: &str, track_ids: Vec<u32>| loclib_rekordbox_db::masterdb::TagEntry { name: name.into(), track_ids };
     let categories = [
-        crate::masterdb::TagCategory {
+        loclib_rekordbox_db::masterdb::TagCategory {
             name: "Genre".into(),
             tags: vec![tag("Deep", linked.clone()), tag("House", vec![])],
         },
-        crate::masterdb::TagCategory { name: "Venue".into(), tags: vec![tag("Club", vec![])] },
+        loclib_rekordbox_db::masterdb::TagCategory { name: "Venue".into(), tags: vec![tag("Club", vec![])] },
     ];
     let (mut bytes, _) = new_ext(&DbTags::collection(&categories, &library), &library).unwrap();
     let clean = ext_tree(&parse_ext(bytes.clone(), Path::new("x")).unwrap(), &library);
@@ -560,4 +561,46 @@ fn prop_a_damaged_export_ext_is_read_or_refused(tc: TestCase) {
         Ok(_) => assert!(!unnamed, "a name of no kind was read"),
         Err(e) => assert!(e.to_string().contains("exportExt.pdb"), "{e}"),
     }
+}
+
+/// My Tags by track name each track's tags as `Category/Tag`, in the categories' and tags' order,
+/// whichever tracks share its file; a tag's tracks the library doesn't hold are left out.
+#[hegel::test(test_cases = 50)]
+fn prop_tags_by_track_name_each_tracks_tags(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().max_value(4));
+    let library = Library {
+        tracks: (1..=n)
+            .map(|id| Track {
+                id,
+                file_path: format!("/Music/{}.mp3", tc.draw(gs::sampled_from(vec!["a", "A", "Ü"]))),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let categories: Vec<loclib_rekordbox_db::masterdb::TagCategory> = (0..tc
+        .draw(gs::integers::<usize>().max_value(3)))
+        .map(|c| loclib_rekordbox_db::masterdb::TagCategory {
+            name: format!("C{c}"),
+            tags: (0..tc.draw(gs::integers::<usize>().max_value(3)))
+                .map(|t| loclib_rekordbox_db::masterdb::TagEntry {
+                    name: format!("T{t}"),
+                    track_ids: tc
+                        .draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).unique(true).max_size(4)),
+                })
+                .collect(),
+        })
+        .collect();
+    let by_track = TagsByTrack::from_collection(&categories, &library);
+    for t in &library.tracks {
+        let want: Vec<String> = categories
+            .iter()
+            .flat_map(|c| {
+                c.tags.iter().filter(|g| g.track_ids.contains(&t.id)).map(move |g| format!("{}/{}", c.name, g.name))
+            })
+            .collect();
+        assert_eq!(by_track.of(t), want, "{t:?}");
+    }
+    assert!(by_track.by_id.len() <= library.tracks.len(), "only the library's tracks: {by_track:?}");
 }

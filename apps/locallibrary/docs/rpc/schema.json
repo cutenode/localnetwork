@@ -31650,7 +31650,8 @@
       "type": "object",
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "The `master.db`."
         },
         "bytes": {
           "type": "integer",
@@ -31664,21 +31665,25 @@
             "null"
           ],
           "format": "uint64",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Size of its WAL, when there is one."
         },
         "db_version": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "`djmdProperty.DBVersion`, when there is one."
         },
         "summary": {
-          "$ref": "#/$defs/LibrarySummary"
+          "$ref": "#/$defs/LibrarySummary",
+          "description": "Tracks, playlists and the rest, counted."
         },
         "history_lists": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "History lists."
         },
         "smart_playlists": {
           "type": "array",
@@ -31690,32 +31695,38 @@
         "hot_cues": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Hot cues."
         },
         "memory_cues": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Memory cues that aren't loops."
         },
         "loops": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Loops, hot or memory."
         },
         "tag_categories": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "My Tag categories."
         },
         "tags": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "My Tags."
         },
         "tagged_tracks": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Tracks with at least one My Tag."
         }
       },
       "required": [
@@ -31775,25 +31786,29 @@
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What it's called."
         },
         "tags": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/TagEntry"
-          }
+          },
+          "description": "Its tags, in rekordbox's order."
         }
       },
       "required": [
         "name",
         "tags"
-      ]
+      ],
+      "description": "A My Tag category (`Genre`, `Situation`) and its tags."
     },
     "TagEntry": {
       "type": "object",
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "What it's called."
         },
         "track_ids": {
           "type": "array",
@@ -31801,13 +31816,15 @@
             "type": "integer",
             "format": "uint32",
             "minimum": 0
-          }
+          },
+          "description": "Its tracks' ids, in rekordbox's order."
         }
       },
       "required": [
         "name",
         "track_ids"
-      ]
+      ],
+      "description": "A My Tag and the tracks that have it."
     },
     "DriveDiff": {
       "type": "object",
@@ -31841,7 +31858,7 @@
         "uncertain",
         "diff"
       ],
-      "description": "[`Collection::diff_drive`]: `diff.added_*` is what the drive lacks, `diff.removed_*` what only\nthe drive has, and changed tracks are details the collection has since changed (or the drive\nwas edited)."
+      "description": "[`collection_diff`]: `diff.added_*` is what the drive lacks, `diff.removed_*` what only the\ndrive has, and changed tracks are details the collection has since changed (or the drive was\nedited)."
     },
     "CollectionExportPlan": {
       "type": "object",

@@ -1,9 +1,9 @@
 use rusqlite::params;
 
 use super::*;
-use crate::model::Playlist;
-use loclib_rekordbox_db::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
-use loclib_rekordbox_db::onelibrary::kind_for_hot_cue;
+use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
+use crate::onelibrary::kind_for_hot_cue;
+use crate::test_util::{Fixture, STATS, TABLES, codec, sample, scratch_db, with_broken_table};
 
 /// With no temporary folder to unpack a copy into (`TMPDIR` on a drive that's gone), reading,
 /// copying and listing a `master.db` each fail naming that folder, not the database.
@@ -14,212 +14,16 @@ fn without_a_temporary_folder_a_master_db_cant_be_read() {
     // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
     unsafe { std::env::set_var("TMPDIR", &gone) };
     let db = Path::new("/Users/dj/Library/Pioneer/rekordbox/master.db");
-    let failed = [
-        open(db, DEFAULT_KEY).map(drop),
+    #[cfg(feature = "files")]
+    let copied = [
         files::export(db, DEFAULT_KEY, false, &gone.join("copy.db")).map(drop),
         files::tracks(db, DEFAULT_KEY, 0, 10).map(drop),
     ];
-    for e in failed.map(|r| r.unwrap_err()) {
+    #[cfg(not(feature = "files"))]
+    let copied: [Result<()>; 0] = [];
+    for e in [open(db, DEFAULT_KEY).map(drop)].into_iter().chain(copied).map(|r| r.unwrap_err()) {
         assert!(matches!(&e, Error::Io { path, .. } if *path == gone), "{e:?}");
     }
-}
-
-/// Columns every table but `djmdProperty` ends with.
-const STATS: &str = "UUID VARCHAR(255), rb_data_status INTEGER DEFAULT 0, rb_local_data_status INTEGER DEFAULT 0, \
-        rb_local_deleted TINYINT(1) DEFAULT 0, rb_local_synced TINYINT(1) DEFAULT 0, usn BIGINT, rb_local_usn BIGINT, \
-        created_at TEXT NOT NULL DEFAULT '2024-01-01 10:00:00.000 +00:00', \
-        updated_at TEXT NOT NULL DEFAULT '2024-01-01 10:00:00.000 +00:00'";
-
-/// The tables read here, with the columns pyrekordbox lists for rekordbox 6/7 (less the ones
-/// nothing reads at the end of `djmdContent`).
-const TABLES: &[(&str, &str)] = &[
-    ("djmdArtist", "ID VARCHAR(255) PRIMARY KEY, Name VARCHAR(255), SearchStr VARCHAR(255)"),
-    (
-        "djmdAlbum",
-        "ID VARCHAR(255) PRIMARY KEY, Name VARCHAR(255), AlbumArtistID VARCHAR(255), ImagePath VARCHAR(255), \
-             Compilation INTEGER, SearchStr VARCHAR(255)",
-    ),
-    ("djmdGenre", "ID VARCHAR(255) PRIMARY KEY, Name VARCHAR(255)"),
-    ("djmdLabel", "ID VARCHAR(255) PRIMARY KEY, Name VARCHAR(255)"),
-    ("djmdKey", "ID VARCHAR(255) PRIMARY KEY, ScaleName VARCHAR(255), Seq INTEGER"),
-    ("djmdColor", "ID VARCHAR(255) PRIMARY KEY, ColorCode INTEGER, SortKey INTEGER, Commnt VARCHAR(255)"),
-    (
-        "djmdContent",
-        "ID VARCHAR(255) PRIMARY KEY, FolderPath VARCHAR(255), FileNameL VARCHAR(255), FileNameS VARCHAR(255), \
-             Title VARCHAR(255), ArtistID VARCHAR(255), AlbumID VARCHAR(255), GenreID VARCHAR(255), BPM INTEGER, \
-             Length INTEGER, TrackNo INTEGER, BitRate INTEGER, BitDepth INTEGER, Commnt TEXT, FileType INTEGER, \
-             Rating INTEGER, ReleaseYear INTEGER, RemixerID VARCHAR(255), LabelID VARCHAR(255), \
-             OrgArtistID VARCHAR(255), KeyID VARCHAR(255), StockDate VARCHAR(255), ColorID VARCHAR(255), \
-             DJPlayCount VARCHAR(255), ImagePath VARCHAR(255), MasterDBID VARCHAR(255), MasterSongID VARCHAR(255), \
-             AnalysisDataPath VARCHAR(255), SearchStr VARCHAR(255), FileSize INTEGER, DiscNo INTEGER, \
-             ComposerID VARCHAR(255), Subtitle VARCHAR(255), SampleRate INTEGER, DisableQuantize INTEGER, \
-             Analysed INTEGER, ReleaseDate VARCHAR(255), DateCreated VARCHAR(255), ContentLink INTEGER, \
-             Tag VARCHAR(255), ISRC VARCHAR(255)",
-    ),
-    (
-        "djmdCue",
-        "ID VARCHAR(255) PRIMARY KEY, ContentID VARCHAR(255), InMsec INTEGER, InFrame INTEGER, \
-             InMpegFrame INTEGER, InMpegAbs INTEGER, OutMsec INTEGER, OutFrame INTEGER, OutMpegFrame INTEGER, \
-             OutMpegAbs INTEGER, Kind INTEGER, Color INTEGER, ColorTableIndex INTEGER, ActiveLoop INTEGER, \
-             Comment VARCHAR(255), BeatLoopSize INTEGER, CueMicrosec INTEGER, InPointSeekInfo VARCHAR(255), \
-             OutPointSeekInfo VARCHAR(255), ContentUUID VARCHAR(255)",
-    ),
-    (
-        "djmdPlaylist",
-        "ID VARCHAR(255) PRIMARY KEY, Seq INTEGER, Name VARCHAR(255), ImagePath VARCHAR(255), Attribute INTEGER, \
-             ParentID VARCHAR(255), SmartList TEXT",
-    ),
-    (
-        "djmdSongPlaylist",
-        "ID VARCHAR(255) PRIMARY KEY, PlaylistID VARCHAR(255), ContentID VARCHAR(255), TrackNo INTEGER",
-    ),
-    (
-        "djmdHistory",
-        "ID VARCHAR(255) PRIMARY KEY, Seq INTEGER, Name VARCHAR(255), Attribute INTEGER, ParentID VARCHAR(255), \
-             DateCreated VARCHAR(255)",
-    ),
-    ("djmdSongHistory", "ID VARCHAR(255) PRIMARY KEY, HistoryID VARCHAR(255), ContentID VARCHAR(255), TrackNo INTEGER"),
-    (
-        "djmdMyTag",
-        "ID VARCHAR(255) PRIMARY KEY, Seq INTEGER, Name VARCHAR(255), Attribute INTEGER, ParentID VARCHAR(255)",
-    ),
-    ("djmdSongMyTag", "ID VARCHAR(255) PRIMARY KEY, MyTagID VARCHAR(255), ContentID VARCHAR(255), TrackNo INTEGER"),
-];
-
-/// An empty SQLite database laid out for SQLCipher (4096-byte pages, 80 reserved bytes each),
-/// as rekordbox's are.
-fn empty() -> Vec<u8> {
-    let mut page = vec![0u8; PAGE_SIZE];
-    page[..16].copy_from_slice(SQLITE_MAGIC);
-    page[16..18].copy_from_slice(&(PAGE_SIZE as u16).to_be_bytes());
-    page[18] = 1;
-    page[19] = 1;
-    page[20] = RESERVE as u8;
-    page[21] = 64;
-    page[22] = 32;
-    page[23] = 32;
-    page[24..28].copy_from_slice(&1u32.to_be_bytes());
-    page[28..32].copy_from_slice(&1u32.to_be_bytes());
-    page[44..48].copy_from_slice(&4u32.to_be_bytes());
-    page[56..60].copy_from_slice(&1u32.to_be_bytes());
-    page[92..96].copy_from_slice(&1u32.to_be_bytes());
-    page[96..100].copy_from_slice(&3_046_000u32.to_be_bytes());
-    page[100] = 0x0d;
-    page[105..107].copy_from_slice(&((PAGE_SIZE - RESERVE) as u16).to_be_bytes());
-    page
-}
-
-/// A connection for building a test's database. Each statement commits on its own, and on Windows
-/// a commit's journal file and flushes take milliseconds, which hundreds of property test cases turn
-/// into minutes. A temporary file doesn't need either.
-pub(crate) fn scratch_db(path: &Path) -> Connection {
-    let conn = Connection::open(path).unwrap();
-    conn.execute_batch("PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF;").unwrap();
-    conn
-}
-
-/// A small rekordbox-shaped `master.db`, built in plain SQLite and encrypted on request.
-pub(crate) struct Fixture {
-    _dir: tempfile::TempDir,
-    plain: PathBuf,
-    pub(crate) conn: Connection,
-}
-
-impl Fixture {
-    pub(crate) fn new() -> Fixture {
-        let dir = tempfile::tempdir().unwrap();
-        let plain = dir.path().join("plain.db");
-        std::fs::write(&plain, empty()).unwrap();
-        let conn = scratch_db(&plain);
-        for (name, columns) in TABLES {
-            conn.execute_batch(&format!("CREATE TABLE {name} ({columns}, {STATS});")).unwrap();
-        }
-        conn.execute_batch(
-            "CREATE TABLE djmdProperty (DBID VARCHAR(255) PRIMARY KEY, DBVersion VARCHAR(255), \
-                 BaseDBDrive VARCHAR(255), CurrentDBDrive VARCHAR(255), DeviceID VARCHAR(255), Reserved1 TEXT, \
-                 created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');
-                 INSERT INTO djmdProperty (DBID, DBVersion) VALUES ('1234567890', '7000');",
-        )
-        .unwrap();
-        Fixture { _dir: dir, plain, conn }
-    }
-
-    pub(crate) fn exec(&self, sql: &str) {
-        self.conn.execute_batch(sql).unwrap();
-    }
-
-    /// A track row: `ID`, `FolderPath`, `Title` and the artist's name (an artist row is made).
-    pub(crate) fn track(&self, id: &str, path: &str, artist: &str, title: &str) {
-        self.conn.execute("INSERT OR IGNORE INTO djmdArtist (ID, Name) VALUES (?1, ?1)", [artist]).unwrap();
-        self.conn
-            .execute(
-                "INSERT INTO djmdContent (ID, FolderPath, FileNameL, Title, ArtistID, BPM, Length, BitRate, \
-                     SampleRate, BitDepth, FileSize, FileType, StockDate) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, 12800, 300, 320, 44100, 16, 1000, 1, '2024-03-01')",
-                params![id, path, path.rsplit('/').next().unwrap(), title, artist],
-            )
-            .unwrap();
-    }
-
-    /// The database as plain SQLite.
-    pub(crate) fn plain(&self) -> Vec<u8> {
-        std::fs::read(&self.plain).unwrap()
-    }
-
-    /// The database encrypted as rekordbox does, under `key`.
-    pub(crate) fn encrypted(&self, key: &str) -> Vec<u8> {
-        codec(key).encrypt(&self.plain()).unwrap()
-    }
-}
-
-/// A codec under `key` with a fresh salt, as a new file gets one: a file's salt is read back from
-/// it, so no test depends on which.
-fn codec(key: &str) -> Codec {
-    let mut salt = [0; SALT_LEN];
-    getrandom::fill(&mut salt).unwrap();
-    Codec::with_key(key.as_bytes(), salt)
-}
-
-/// Three tracks (and a deleted one), a folder with a playlist, an intelligent playlist, a
-/// history list, cues and My Tags.
-pub(crate) fn sample() -> Fixture {
-    let f = Fixture::new();
-    f.track("84935471", "/Users/dj/Music/Daft Punk/Discovery/01 One More Time.mp3", "Daft Punk", "One More Time");
-    f.track("205356547", "/Users/dj/Music/Downloads/ngo.mp3", "Floorplan", "Never Grow Old");
-    f.track("3", "/Users/dj/Music/gone.mp3", "Nobody", "Deleted");
-    f.track("4", "/Users/dj/Music/Only Here.mp3", "Somebody", "Only Here");
-    f.exec(
-            "INSERT INTO djmdAlbum (ID, Name, AlbumArtistID) VALUES ('1', 'Discovery', 'Daft Punk');
-             INSERT INTO djmdGenre (ID, Name) VALUES ('1', 'House');
-             INSERT INTO djmdLabel (ID, Name) VALUES ('1', 'Virgin');
-             INSERT INTO djmdKey (ID, ScaleName, Seq) VALUES ('1', 'Am', 1);
-             UPDATE djmdContent SET AlbumID = '1', GenreID = '1', LabelID = '1', KeyID = '1', BPM = 12280, Length = 320,
-                 Rating = 5, ColorID = '2', DJPlayCount = '7', ISRC = 'GBDUW0000059', ReleaseYear = 2000,
-                 ImagePath = '/PIONEER/Artwork/00001/a1.jpg', Subtitle = 'Radio Edit', Commnt = 'classic',
-                 AnalysisDataPath = '/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT'
-                 WHERE ID = '84935471';
-             UPDATE djmdContent SET Length = 412, StockDate = NULL, DateCreated = '2023-12-24' WHERE ID = '205356547';
-             UPDATE djmdContent SET rb_local_deleted = 1 WHERE ID = '3';
-             INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID) VALUES
-                 ('10', 1, 'Shows', 1, 'root'), ('11', 1, 'Friday', 0, '10'), ('12', 2, 'Recent', 4, 'root');
-             INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, rb_local_deleted) VALUES
-                 ('13', 3, 'Binned', 0, 'root', 1);
-             INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo) VALUES
-                 ('a', '11', '84935471', 2), ('b', '11', '205356547', 1), ('c', '11', '3', 3), ('d', '13', '4', 1);
-             INSERT INTO djmdHistory (ID, Seq, Name, Attribute, ParentID) VALUES ('20', 1, 'HISTORY 2024-03-01', 0, 'root');
-             INSERT INTO djmdSongHistory (ID, HistoryID, ContentID, TrackNo) VALUES ('h', '20', '84935471', 1);
-             INSERT INTO djmdCue (ID, ContentID, InMsec, OutMsec, Kind, ColorTableIndex, Comment) VALUES
-                 ('c1', '84935471', 1000, -1, 1, 1, 'Drop'),
-                 ('c2', '84935471', 500, -1, 0, 0, ''),
-                 ('c3', '84935471', 2000, 4000, 2, 0, 'Loop'),
-                 ('c4', '3', 100, -1, 1, 0, 'deleted track');
-             INSERT INTO djmdMyTag (ID, Seq, Name, Attribute, ParentID) VALUES
-                 ('100', 0, 'Genre', 1, 'root'), ('101', 0, 'Deep', 0, '100'),
-                 ('200', 1, 'Situation', 1, 'root'), ('201', 0, 'Peak', 0, '200');
-             INSERT INTO djmdSongMyTag (ID, MyTagID, ContentID, TrackNo) VALUES
-                 ('t1', '101', '84935471', 1), ('t2', '201', '205356547', 1), ('t3', '201', '84935471', 2);",
-        );
-    f
 }
 
 fn write(dir: &Path, bytes: &[u8]) -> PathBuf {
@@ -267,15 +71,23 @@ fn reads_tracks_playlists_cues_tags_and_history() {
     assert_eq!(cues.len(), 3);
     assert_eq!((cues[0].hot_cue, cues[0].start_ms, cues[0].end_ms), (None, 500, None));
     assert_eq!((cues[1].hot_cue, cues[1].comment.as_str()), (Some(0), "Drop"));
-    assert_eq!(cues[1].color, Some(anlz::HOT_CUE_PALETTE[0]));
+    assert_eq!(cues[1].color, Some(loclib_model::analysis::HOT_CUE_PALETTE[0]));
     assert_eq!((cues[2].hot_cue, cues[2].end_ms), (Some(1), Some(4000)));
     assert!(!c.cues.contains_key(&3));
 
     assert_eq!(c.tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Genre", "Situation"]);
     assert_eq!(c.tags[1].tags[0].track_ids, [205356547, 84935471]);
-    let by_track = c.tags_by_track();
     let one_more_time = c.library.tracks.iter().find(|t| t.title == "One More Time").unwrap();
-    assert_eq!(by_track.of(one_more_time), ["Genre/Deep".to_string(), "Situation/Peak".to_string()]);
+    let tags_of = |id: u32| {
+        let mut out = Vec::new();
+        for cat in &c.tags {
+            for tag in cat.tags.iter().filter(|t| t.track_ids.contains(&id)) {
+                out.push(format!("{}/{}", cat.name, tag.name));
+            }
+        }
+        out
+    };
+    assert_eq!(tags_of(one_more_time.id), ["Genre/Deep", "Situation/Peak"]);
 
     let info = c.info();
     assert_eq!((info.summary.tracks, info.summary.playlists, info.summary.folders), (3, 2, 1));
@@ -303,7 +115,7 @@ fn a_wrong_key_is_refused_and_the_right_one_given_works() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), &sample().encrypted("another key"));
     let err = open(&path, DEFAULT_KEY).unwrap_err();
-    assert_eq!(err.code(), "invalid", "{err}");
+    assert!(matches!(&err, Error::WrongKey(p) if *p == path), "{err}");
     assert!(err.to_string().contains(KEY_ENV), "{err}");
     assert_eq!(open(&path, "another key").unwrap().library.tracks.len(), 3);
     // Not a database at all.
@@ -326,7 +138,7 @@ fn a_damaged_b_tree_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let f = sample();
     let codec = codec(DEFAULT_KEY);
-    let bytes = loclib_rekordbox_db::test_util::with_broken_table(&f.conn, &codec, f.plain(), "djmdCue");
+    let bytes = with_broken_table(&f.conn, &codec, f.plain(), "djmdCue");
     let path = write(dir.path(), &bytes);
     let err = open(&path, DEFAULT_KEY).unwrap_err().to_string();
     assert!(err.contains("SQLite finds it damaged"), "{err}");
@@ -402,55 +214,6 @@ fn master_db_is_copied_again_when_its_wal_restarts_meanwhile() {
     assert_eq!(wal, Some(generation((3, 4))));
 }
 
-#[test]
-fn a_drive_is_compared_with_the_collection() {
-    use loclib_model::test_util::track;
-    let dir = tempfile::tempdir().unwrap();
-    let c = open(&write(dir.path(), &sample().encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
-    // Exported earlier: the same file under /Contents, Floorplan's track under another file
-    // name (found by artist, title and length), plus a track the collection no longer has.
-    let mut one_more_time =
-        track(1, "Daft Punk", "One More Time", "/Contents/Daft Punk/Discovery/01 One More Time.mp3");
-    one_more_time.duration_secs = 320;
-    let mut never = track(2, "Floorplan", "Never Grow Old", "/Contents/Floorplan/UnknownAlbum/Never Grow Old.mp3");
-    never.duration_secs = 412;
-    let drive = Library {
-        tracks: vec![one_more_time, never, track(3, "Old", "Gone", "/Contents/Old/Gone.mp3")],
-        playlists: vec![Playlist {
-            id: 1,
-            parent_id: None,
-            name: "Friday".into(),
-            is_folder: false,
-            sort_order: 0,
-            track_ids: vec![1, 2],
-        }],
-        ..Default::default()
-    };
-    let d = c.diff_drive(&drive, "Main", None).unwrap();
-    assert_eq!((d.matched_by_file, d.matched_by_details), (1, 1));
-    assert!(d.uncertain.is_empty());
-    let names = |v: &[TrackRef]| v.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
-    assert_eq!(names(&d.diff.added_tracks), ["Somebody - Only Here"]);
-    assert_eq!(names(&d.diff.removed_tracks), ["Old - Gone"]);
-    let changed: Vec<(&str, &str)> = d
-        .diff
-        .changed_tracks
-        .iter()
-        .flat_map(|c| c.fields.iter().map(move |f| (c.track.name.as_str(), f.field.as_str())))
-        .filter(|(_, f)| *f == "rating")
-        .collect();
-    assert_eq!(changed, [("Daft Punk - One More Time", "rating")]);
-    assert_eq!(d.diff.added_playlists, ["Recent", "Shows/", "Shows/Friday"]);
-    assert_eq!(d.diff.removed_playlists, ["Friday"]);
-    // One playlist only.
-    let only = c.diff_drive(&drive, "Main", Some("Shows")).unwrap();
-    assert!(only.diff.added_tracks.is_empty());
-    assert_eq!(only.diff.added_playlists, ["Shows/", "Shows/Friday"]);
-    // One neither has would show as no differences.
-    let err = c.diff_drive(&drive, "Main", Some("nope/none")).unwrap_err();
-    assert!(matches!(err, Error::NotFound(_)), "{err}");
-}
-
 /// SQLCipher itself, given rekordbox's key as `PRAGMA key` (as pyrekordbox opens master.db):
 /// a database it writes reads here, and it reads the fixtures. Skipped without the sqlcipher
 /// CLI (see loclib-testkit's `sqlcipher`).
@@ -471,18 +234,6 @@ fn sqlcipher_and_this_reader_agree_on_the_key() {
     let ours = write(dir.path(), &sample().encrypted(DEFAULT_KEY));
     let checks = ["PRAGMA cipher_integrity_check;", "SELECT count(*) FROM djmdContent WHERE rb_local_deleted = 0;"];
     assert_eq!(super::sqlcipher::run(&ours, DEFAULT_KEY, &checks).unwrap(), ["ok", "3"]);
-}
-
-#[test]
-fn the_api_reads_the_collection_it_is_given() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write(dir.path(), &sample().encrypted(DEFAULT_KEY));
-    let req = crate::api::CollectionRef { db: Some(path), key: None };
-    if std::env::var_os(KEY_ENV).is_none() {
-        assert_eq!(crate::api::collection_info(&req).unwrap().summary.tracks, 3);
-    }
-    let missing = crate::api::CollectionRef { db: Some(dir.path().join("nope.db")), key: None };
-    assert_eq!(crate::api::collection_info(&missing).unwrap_err().code(), "not_found");
 }
 
 #[test]
@@ -838,25 +589,7 @@ fn prop_a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
     assert_eq!(c.tags.len(), 1);
     assert_eq!(c.tags[0].tags[0].track_ids, tag_want);
     assert_eq!(info.tagged_tracks, tag_want.len());
-    assert_eq!(c.tags_by_track().by_id.len(), tag_want.len());
-
-    // A drive with exactly the collection's tracks and playlists differs in nothing.
-    let d = c.diff_drive(&c.library, "Main", None).unwrap();
-    assert_eq!(d.matched_by_file, c.library.tracks.len());
-    let diff = &d.diff;
-    assert!(diff.added_tracks.is_empty() && diff.removed_tracks.is_empty() && diff.changed_tracks.is_empty());
-    assert!(diff.added_playlists.is_empty() && diff.removed_playlists.is_empty(), "{diff:?}");
-    // ...and a drive without one of them lacks exactly that one.
-    let mut fewer = c.library.clone();
-    if fewer.tracks.is_empty() {
-        return;
-    }
-    let gone = fewer.tracks.remove(0);
-    for p in &mut fewer.playlists {
-        p.track_ids.retain(|t| *t != gone.id);
-    }
-    let d = c.diff_drive(&fewer, "Main", None).unwrap();
-    assert_eq!(d.diff.added_tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [gone.id]);
+    assert!(tag_want.iter().all(|id| c.library.track(*id).is_some()), "only the library's tracks");
 }
 
 /// A file that isn't a rekordbox collection is refused saying why: too short, not whole pages,
@@ -904,11 +637,8 @@ fn prop_files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
     let err = open(&path, DEFAULT_KEY).unwrap_err();
     assert!(err.to_string().contains(why), "{err}");
     match kind {
-        3 | 5 => {
-            assert_eq!((err.code(), err.reason()), ("invalid", Some(Reason::WrongKey)));
-            assert_eq!(err.detail().fields["env"], KEY_ENV);
-        }
-        _ => assert_eq!(err.code(), "parse", "{err}"),
+        3 | 5 => assert!(matches!(err, Error::WrongKey(_)), "{err}"),
+        _ => assert!(matches!(err, Error::Parse { .. }), "{err}"),
     }
 }
 
@@ -1193,7 +923,7 @@ fn prop_a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
         };
         let path = write(dir.path(), &bytes);
         let err = open(&path, DEFAULT_KEY).unwrap_err();
-        assert_eq!(err.code(), "parse", "{err}");
+        assert!(matches!(err, Error::Parse { .. }), "{err}");
         let message = err.to_string();
         assert!(message.starts_with(&format!("could not parse {}: ", path.display())), "{message}");
         assert!(message.contains(&why), "{message}");
@@ -1244,7 +974,7 @@ fn prop_a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
         }
         _ => {
             let err = got.unwrap_err();
-            assert!(matches!(err, Error::Conflict(_)) && err.to_string().contains("kept changing"), "{err}");
+            assert!(matches!(err, Error::Changing(_)) && err.to_string().contains("kept changing"), "{err}");
             assert_eq!(copies.get(), 3);
         }
     }
@@ -1282,86 +1012,10 @@ fn prop_settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
     };
     std::fs::write(&settings, &broken).unwrap();
     let err = CloudFolders::from_settings(&settings).unwrap_err();
-    assert_eq!(err.code(), "parse", "{broken}: {err}");
+    assert!(matches!(err, Error::Parse { .. }), "{broken}: {err}");
     assert!(err.to_string().contains(&settings.display().to_string()), "{err}");
     let missing = dir.path().join("rekordbox6/rekordbox3.settings");
     assert!(matches!(CloudFolders::from_settings(&missing), Err(Error::Io { path, .. }) if path == missing));
-}
-
-/// A drive compared with the collection: tracks at the same file count as found by it, ones moved
-/// on the drive are found by ISRC or artist, title and length, and ones only a title finds are
-/// listed as uncertain and counted, with the ones the drive lacks, as missing from it. A playlist
-/// neither has is refused.
-#[hegel::test(test_cases = 15)]
-fn prop_a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
-    use hegel::generators as gs;
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum On {
-        Same,
-        Moved,
-        Gone,
-    }
-    const TITLES: &[&str] = &["Aerodynamic", "Nightcall", "Voyager", "Harder", "Veridis"];
-    const ARTISTS: &[&str] = &["Daft Punk", "Kavinsky", "Justice", "Moby", "Air"];
-    let f = Fixture::new();
-    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(TITLES.len()));
-    let mut drawn = Vec::new();
-    for i in 0..n {
-        // The first track has every detail, the second none, the rest drawn.
-        let (artist, isrc, extras) = match i {
-            0 => (true, true, true),
-            1 => (false, false, false),
-            _ => (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans())),
-        };
-        let on = match i {
-            0 | 1 => On::Moved,
-            _ => tc.draw(gs::sampled_from(vec![On::Same, On::Moved, On::Gone])),
-        };
-        let id = (i + 1).to_string();
-        f.track(&id, &format!("/Users/dj/Music/{}/{}.mp3", ARTISTS[i], TITLES[i]), ARTISTS[i], TITLES[i]);
-        if !artist {
-            f.conn.execute("UPDATE djmdContent SET ArtistID = NULL WHERE ID = ?1", [&id]).unwrap();
-        }
-        if isrc {
-            f.conn
-                .execute("UPDATE djmdContent SET ISRC = ?2 WHERE ID = ?1", params![id, format!("GBDUW00000{i:02}")])
-                .unwrap();
-        }
-        if extras {
-            f.exec(&format!("INSERT INTO djmdAlbum (ID, Name) VALUES ('{id}', 'Album {id}')"));
-            f.conn
-                .execute("UPDATE djmdContent SET AlbumID = ?1, Subtitle = 'Extended Mix' WHERE ID = ?1", [&id])
-                .unwrap();
-        }
-        drawn.push((i as u32 + 1, on, artist || isrc));
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let c = open(&write(dir.path(), &f.plain()), DEFAULT_KEY).unwrap();
-    let mut drive = c.library.clone();
-    drive.tracks.retain(|t| drawn.iter().any(|(id, on, _)| *id == t.id && *on != On::Gone));
-    for t in &mut drive.tracks {
-        if drawn.iter().any(|(id, on, _)| *id == t.id && *on == On::Moved) {
-            t.file_path = format!("/Contents/Moved/{}.mp3", t.id);
-        }
-    }
-    let d = c.diff_drive(&drive, "Main", None).unwrap();
-    let count = |want: &dyn Fn(On, bool) -> bool| drawn.iter().filter(|(_, on, known)| want(*on, *known)).count();
-    assert_eq!(d.matched_by_file, count(&|on, _| on == On::Same));
-    assert_eq!(d.matched_by_details, count(&|on, known| on == On::Moved && known));
-    let uncertain: Vec<u32> = d.uncertain.iter().map(|t| t.id).collect();
-    let loose: Vec<u32> =
-        drawn.iter().filter(|(_, on, known)| *on == On::Moved && !known).map(|(id, ..)| *id).collect();
-    assert_eq!(uncertain, loose);
-    let mut missing: Vec<u32> = d.diff.added_tracks.iter().map(|t| t.id).collect();
-    missing.sort_unstable();
-    let mut lacking: Vec<u32> = drawn
-        .iter()
-        .filter(|(_, on, known)| *on == On::Gone || (*on == On::Moved && !known))
-        .map(|(id, ..)| *id)
-        .collect();
-    lacking.sort_unstable();
-    assert_eq!(missing, lacking);
-    assert!(c.diff_drive(&drive, "Main", Some("Nowhere")).is_err());
 }
 
 /// A key given is the one used, whatever it says; none (or an empty one) falls back to
@@ -1381,47 +1035,6 @@ fn prop_keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
         let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer/rekordbox/master.db"));
         assert_eq!(default_path(), moved(settings_path().as_deref(), agent_options_path().as_deref()).or(home));
     }
-}
-
-/// My Tags by track name each track's tags as `Category/Tag`, in the categories' and tags' order,
-/// whichever tracks share its file; a tag's tracks the library doesn't hold are left out.
-#[hegel::test(test_cases = 50)]
-fn prop_tags_by_track_name_each_tracks_tags(tc: hegel::TestCase) {
-    use hegel::generators as gs;
-    let n = tc.draw(gs::integers::<u32>().max_value(4));
-    let library = Library {
-        tracks: (1..=n)
-            .map(|id| Track {
-                id,
-                file_path: format!("/Music/{}.mp3", tc.draw(gs::sampled_from(vec!["a", "A", "Ü"]))),
-                ..Default::default()
-            })
-            .collect(),
-        ..Default::default()
-    };
-    let categories: Vec<TagCategory> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
-        .map(|c| TagCategory {
-            name: format!("C{c}"),
-            tags: (0..tc.draw(gs::integers::<usize>().max_value(3)))
-                .map(|t| TagEntry {
-                    name: format!("T{t}"),
-                    track_ids: tc
-                        .draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).unique(true).max_size(4)),
-                })
-                .collect(),
-        })
-        .collect();
-    let by_track = tags_by_track(&categories, &library);
-    for t in &library.tracks {
-        let want: Vec<String> = categories
-            .iter()
-            .flat_map(|c| {
-                c.tags.iter().filter(|g| g.track_ids.contains(&t.id)).map(move |g| format!("{}/{}", c.name, g.name))
-            })
-            .collect();
-        assert_eq!(by_track.of(t), want, "{t:?}");
-    }
-    assert!(by_track.by_id.len() <= library.tracks.len(), "only the library's tracks: {by_track:?}");
 }
 
 /// Every table the collection is read from has to read: one that can't (a view of a table that's

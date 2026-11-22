@@ -3,7 +3,7 @@
 //! rekordbox 6 and 7 keep the collection (tracks, playlists, cues, My Tags, history) in
 //! `master.db` in rekordbox's settings folder: `~/Library/Pioneer/rekordbox/` on macOS,
 //! `%APPDATA%\Pioneer\rekordbox\` on Windows. Like OneLibrary's `exportLibrary.db` it's SQLite
-//! encrypted with SQLCipher 4's defaults (see [`loclib_rekordbox_db::onelibrary::cipher`]), under a passphrase
+//! encrypted with SQLCipher 4's defaults (see [`crate::onelibrary::cipher`]), under a passphrase
 //! every installation shares. The pyrekordbox project documents the format
 //! (`docs/source/formats/db6.md`) and the passphrase (`pyrekordbox/masterdb/database.py` carries
 //! it obfuscated, and checks a key given instead starts `402fd`). Should a rekordbox release
@@ -49,22 +49,17 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use loclib_model::analysis::{Cue, hot_cue_palette};
+use loclib_model::model::{Library, LibrarySummary, Playlist, Track, TrackColor, untangle};
+use loclib_model::paths;
+use loclib_sqlcipher::untrusted::distrust;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
-use schemars::JsonSchema;
 use serde::Serialize;
 
-use crate::anlz::{self, Cue};
 use crate::error::IoContext;
-use crate::error::{Action, Reason};
-use crate::import::{self, MatchKind, Matcher, Status};
-use crate::model::{Library, LibrarySummary, Playlist, Track, TrackColor, TrackRef, untangle};
-use crate::paths;
-use crate::tags::TagsByTrack;
+use crate::onelibrary::{cipher, hot_cue_from_kind, wal};
 use crate::{Error, Result};
-use loclib_model::diff::{self, PlaylistDiff};
-use loclib_rekordbox_db::onelibrary::{cipher, hot_cue_from_kind, wal};
-use loclib_sqlcipher::untrusted::distrust;
 pub use smartlist::SmartList;
 
 /// The SQLCipher passphrase every rekordbox 6 and 7 installation uses for `master.db`, as
@@ -128,8 +123,10 @@ pub fn resolve_key(key: Option<&str>) -> String {
 }
 
 /// rekordbox's collection, read from `master.db`.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Collection {
+    /// The `master.db` it was read from.
     pub path: PathBuf,
     /// `djmdProperty.DBVersion`, when there is one.
     pub db_version: Option<String>,
@@ -144,14 +141,14 @@ pub struct Collection {
     pub smart_playlists: Vec<u32>,
     /// Their rules, by id: those whose `SmartList` could be read.
     #[serde(skip)]
-    #[schemars(skip)]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
     pub smart_lists: FxHashMap<u32, SmartList>,
     /// The storage service Cloud Library Sync keeps audio in (`Dropbox`), if it's on.
     pub sync_service: Option<String>,
     /// Sizes of the files Cloud Library Sync syncs (`contentFile`), by lower-cased path in the
     /// `share` folder (`/pioneer/usbanlz/...`).
     #[serde(skip)]
-    #[schemars(skip)]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
     pub synced_sizes: FxHashMap<String, u64>,
 }
 
@@ -161,7 +158,9 @@ pub struct Collection {
 /// holds the services' sign-in tokens).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CloudFolders {
+    /// Dropbox's (`DropboxSharingPath`).
     pub dropbox: Option<PathBuf>,
+    /// Google Drive's (`GoogleDriveSharingPath`).
     pub google_drive: Option<PathBuf>,
 }
 
@@ -251,35 +250,55 @@ fn agent_options_path() -> Option<PathBuf> {
     Some(pioneer_dir()?.join("rekordboxAgent").join("storage").join("options.json"))
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// A My Tag category (`Genre`, `Situation`) and its tags.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TagCategory {
+    /// What it's called.
     pub name: String,
+    /// Its tags, in rekordbox's order.
     pub tags: Vec<TagEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+/// A My Tag and the tracks that have it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TagEntry {
+    /// What it's called.
     pub name: String,
+    /// Its tracks' ids, in rekordbox's order.
     pub track_ids: Vec<u32>,
 }
 
 /// What `master.db` holds, in numbers.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CollectionInfo {
+    /// The `master.db`.
     pub path: PathBuf,
     /// Size of `master.db`, and of its WAL when there is one.
     pub bytes: u64,
+    /// Size of its WAL, when there is one.
     pub wal_bytes: Option<u64>,
+    /// `djmdProperty.DBVersion`, when there is one.
     pub db_version: Option<String>,
+    /// Tracks, playlists and the rest, counted.
     pub summary: LibrarySummary,
+    /// History lists.
     pub history_lists: usize,
     /// Paths of intelligent playlists (not evaluated, so listed empty).
     pub smart_playlists: Vec<String>,
+    /// Hot cues.
     pub hot_cues: usize,
+    /// Memory cues that aren't loops.
     pub memory_cues: usize,
+    /// Loops, hot or memory.
     pub loops: usize,
+    /// My Tag categories.
     pub tag_categories: usize,
+    /// My Tags.
     pub tags: usize,
+    /// Tracks with at least one My Tag.
     pub tagged_tracks: usize,
 }
 
@@ -296,7 +315,7 @@ type Salt = [u8; cipher::SALT_LEN];
 /// [`decrypt_copy`] of `path` into `dir`, opened: read only unless `write` (or a plain copy's WAL
 /// is to be replayed, which SQLite does itself), and only once SQLite finds nothing amiss and it
 /// has a `djmdContent` table. With the salt it was encrypted with, unless it was plain.
-fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(Db<'a>, Option<Salt>)> {
+pub(crate) fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(Db<'a>, Option<Salt>)> {
     let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
     let (copy, salt, flags) = match decrypt_copy(path, key, dir)? {
         Copy::Decrypted(p, salt) => (p, Some(salt), writes),
@@ -361,16 +380,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     }
     let salt: Salt = first[..cipher::SALT_LEN].try_into().expect("16 bytes");
     let codec = cipher::Codec::with_key(key.as_bytes(), salt);
-    let wrong_key = || {
-        Error::invalid(format!(
-            "{} can't be decrypted with this key: it isn't a rekordbox 6/7 collection, or rekordbox changed its \
-             key (give the right one, or set {KEY_ENV})",
-            path.display()
-        ))
-        .because(Reason::WrongKey)
-        .with("env", KEY_ENV)
-        .action(Action::retry(serde_json::json!({ "key": null }), "Give the key"))
-    };
+    let wrong_key = || Error::WrongKey(path.to_path_buf());
     let damaged = |e: loclib_sqlcipher::Error| Error::parse(path, e);
     let page1 = codec.decrypt_page(1, &first).map_err(|_| wrong_key())?;
     cipher::check_plain_header(&page1).map_err(|_| wrong_key())?;
@@ -430,12 +440,12 @@ fn snapshot(path: &Path, to: &Path, copy: impl Fn(&Path, &Path) -> std::io::Resu
             return Ok(wal);
         }
     }
-    Err(Error::Conflict(format!("{} kept changing while it was read (is rekordbox saving?)", path.display())))
+    Err(Error::Changing(path.to_path_buf()))
 }
 
 /// The decrypted copy, opened read only.
-struct Db<'a> {
-    conn: Connection,
+pub(crate) struct Db<'a> {
+    pub(crate) conn: Connection,
     path: &'a Path,
 }
 
@@ -615,7 +625,7 @@ impl Db<'_> {
                 start_ms: clamp(start),
                 end_ms: (end > start).then(|| clamp(end)),
                 comment: text(&r[5]),
-                color: hot_cue.and_then(|_| u8::try_from(color_code).ok()).and_then(anlz::hot_cue_palette),
+                color: hot_cue.and_then(|_| u8::try_from(color_code).ok()).and_then(hot_cue_palette),
                 // Memory cue colours, stored loop lengths and active loops aren't read from
                 // master.db yet.
                 color_id: 0,
@@ -740,21 +750,6 @@ impl Db<'_> {
             })
             .collect())
     }
-}
-
-/// `categories`' My Tags as `Category/Tag` for `library`'s tracks (whose ids they name), the shape
-/// track filters (`tag:`) take.
-pub(crate) fn tags_by_track(categories: &[TagCategory], library: &Library) -> TagsByTrack {
-    let ids: FxHashSet<u32> = library.tracks.iter().map(|t| t.id).collect();
-    let mut out = TagsByTrack::default();
-    for c in categories {
-        for tag in &c.tags {
-            for id in tag.track_ids.iter().filter(|id| ids.contains(id)) {
-                out.by_id.entry(*id).or_default().push(format!("{}/{}", c.name, tag.name));
-            }
-        }
-    }
-    out
 }
 
 /// Intelligent playlists by id, each with its `SmartList` column.
@@ -894,76 +889,10 @@ impl Collection {
         }
         lib
     }
-
-    /// [`Collection::tags_by_track`] for `library`, the collection's own tracks with their files
-    /// somewhere else (as [`Collection::library_from_root`] names them).
-    pub fn tags_by_track_in(&self, library: &Library) -> TagsByTrack {
-        tags_by_track(&self.tags, library)
-    }
-
-    /// My Tags as `Category/Tag` for the collection's tracks, the shape track filters (`tag:`) take.
-    pub fn tags_by_track(&self) -> TagsByTrack {
-        tags_by_track(&self.tags, &self.library)
-    }
-
-    /// What `drive` (a drive's library) lacks against the collection, and what it has that the
-    /// collection doesn't: tracks, playlists and their entries, through [`diff::between`] with
-    /// the drive on the left. Collection tracks are found on the drive by file name and the
-    /// folders above it, then ISRC, then artist, title and length ([`import::Matcher`]); a track
-    /// only a looser match finds counts as missing, and is listed in `uncertain`. A `playlist`
-    /// neither has is refused.
-    pub fn diff_drive(&self, drive: &Library, drive_label: &str, playlist: Option<&str>) -> Result<DriveDiff> {
-        diff::check_playlist(drive, &self.library, playlist)?;
-        let matcher = Matcher::new(drive);
-        let drive_track = drive.track_lookup();
-        let mut translated = self.library.clone();
-        let (mut by_file, mut by_details, mut uncertain) = (0, 0, Vec::new());
-        for t in &mut translated.tracks {
-            let entry = import::Entry {
-                title: t.title.clone(),
-                artist: t.artist.clone(),
-                album: (!t.album.is_empty()).then(|| t.album.clone()),
-                mix: (!t.mix_name.is_empty()).then(|| t.mix_name.clone()),
-                duration_secs: (t.duration_secs > 0).then_some(t.duration_secs),
-                path: (!t.file_path.is_empty()).then(|| t.file_path.clone()),
-                isrc: (!t.isrc.is_empty()).then(|| t.isrc.clone()),
-                ..Default::default()
-            };
-            match matcher.find(&entry) {
-                Status::Found { track_id, how } if how != MatchKind::Title && how != MatchKind::Fuzzy => {
-                    if let Some(d) = drive_track(track_id) {
-                        t.file_path = d.file_path.clone();
-                        if how == MatchKind::Path { by_file += 1 } else { by_details += 1 }
-                    }
-                }
-                Status::Missing => {}
-                _ => uncertain.push(TrackRef::from(&*t)),
-            }
-        }
-        Ok(DriveDiff {
-            matched_by_file: by_file,
-            matched_by_details: by_details,
-            uncertain,
-            diff: diff::between(drive, &translated, (drive_label, "rekordbox collection"), playlist),
-        })
-    }
 }
 
-/// [`Collection::diff_drive`]: `diff.added_*` is what the drive lacks, `diff.removed_*` what only
-/// the drive has, and changed tracks are details the collection has since changed (or the drive
-/// was edited).
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct DriveDiff {
-    /// Collection tracks found on the drive by their file.
-    pub matched_by_file: usize,
-    /// Found by ISRC, or artist, title and length.
-    pub matched_by_details: usize,
-    /// Collection tracks only a loose match (title alone, or similar words) finds on the drive;
-    /// counted as missing from it.
-    pub uncertain: Vec<TrackRef>,
-    pub diff: PlaylistDiff,
-}
-
+#[cfg(feature = "files")]
+#[cfg_attr(docsrs, doc(cfg(feature = "files")))]
 pub mod files;
 pub mod smartlist;
 
@@ -971,4 +900,4 @@ pub mod smartlist;
 use loclib_testkit::sqlcipher;
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

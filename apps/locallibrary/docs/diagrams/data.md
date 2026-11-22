@@ -89,7 +89,7 @@ flowchart TD
     store -->|"library push"| drive["Any drive"]
 ```
 
-Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
+Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
 
 ## Exporting a collection
 

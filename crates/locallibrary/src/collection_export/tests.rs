@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::*;
-use crate::masterdb::{self, DEFAULT_KEY};
 use crate::{anlz, pdb};
+use loclib_rekordbox_db::masterdb::{self, DEFAULT_KEY};
 
 /// A rekordbox folder with the collection `masterdb`'s tests use: One More Time with
 /// rekordbox's analysis files (the demo export's) and artwork, Never Grow Old in Dropbox
@@ -21,7 +21,7 @@ impl Computer {
         let dir = tempfile::tempdir().unwrap();
         let rb = dir.path().join("rekordbox");
         let music = dir.path().join("Music");
-        let f = masterdb::tests::sample();
+        let f = loclib_rekordbox_db::test_util::sample();
         f.exec(sql);
         f.exec(&format!(
             "UPDATE djmdContent SET FolderPath = '{}/One More Time.mp3' WHERE ID = '84935471';
@@ -472,7 +472,7 @@ fn prop_a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
         std::fs::copy(e.path(), share.join(e.file_name())).unwrap();
     }
 
-    let f = masterdb::tests::Fixture::new();
+    let f = loclib_rekordbox_db::test_util::Fixture::new();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let mut here = Vec::new();
     for i in 0..n {
@@ -1197,7 +1197,7 @@ fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase)
     }
     let recent = planned.library.find_playlist("Recent");
     assert_eq!(recent.is_some(), kept && evaluable, "{xml}");
-    let tags = collection.tags_by_track();
+    let tags = TagsByTrack::from_collection(&collection.tags, &collection.library);
     let today = chrono::Local::now().date_naive();
     if let (Some(recent), Some(list)) = (recent, &list) {
         let held: Vec<&str> =

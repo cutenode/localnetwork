@@ -8661,20 +8661,31 @@ export type StepReport = {
 
 /** What `master.db` holds, in numbers. */
 export type CollectionInfo = {
+  /** The `master.db`. */
   path: string;
   /** Size of `master.db`, and of its WAL when there is one. */
   bytes: number;
+  /** Size of its WAL, when there is one. */
   wal_bytes: number | null;
+  /** `djmdProperty.DBVersion`, when there is one. */
   db_version: string | null;
+  /** Tracks, playlists and the rest, counted. */
   summary: LibrarySummary;
+  /** History lists. */
   history_lists: number;
   /** Paths of intelligent playlists (not evaluated, so listed empty). */
   smart_playlists: string[];
+  /** Hot cues. */
   hot_cues: number;
+  /** Memory cues that aren't loops. */
   memory_cues: number;
+  /** Loops, hot or memory. */
   loops: number;
+  /** My Tag categories. */
   tag_categories: number;
+  /** My Tags. */
   tags: number;
+  /** Tracks with at least one My Tag. */
   tagged_tracks: number;
 };
 
@@ -8689,20 +8700,26 @@ export type CollectionView = {
   tags: TagCategory[];
 };
 
+/** A My Tag category (`Genre`, `Situation`) and its tags. */
 export type TagCategory = {
+  /** What it's called. */
   name: string;
+  /** Its tags, in rekordbox's order. */
   tags: TagEntry[];
 };
 
+/** A My Tag and the tracks that have it. */
 export type TagEntry = {
+  /** What it's called. */
   name: string;
+  /** Its tracks' ids, in rekordbox's order. */
   track_ids: number[];
 };
 
 /**
- * [`Collection::diff_drive`]: `diff.added_*` is what the drive lacks, `diff.removed_*` what only
- * the drive has, and changed tracks are details the collection has since changed (or the drive
- * was edited).
+ * [`collection_diff`]: `diff.added_*` is what the drive lacks, `diff.removed_*` what only the
+ * drive has, and changed tracks are details the collection has since changed (or the drive was
+ * edited).
  */
 export type DriveDiff = {
   /** Collection tracks found on the drive by their file. */
