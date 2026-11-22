@@ -123,6 +123,11 @@ pre-commit:
 #
 # The jobs run one at a time. Side by side, the web and localtoolbox suites starve each other's
 # browser tests of CPU on a busy machine until they time out, and the push fails.
+#
+# The web and localtoolbox jobs take minutes, and git opens the SSH connection to GitHub before the
+# hook starts, so GitHub can drop it as idle: the push then fails with exit 141 or "Connection
+# closed" after every job passed. Push again (with an SSH keepalive, .github/CONTRIBUTING.md#setup)
+# rather than skipping the hook.
 pre-push:
   setup:
     - run: pnpm install --frozen-lockfile

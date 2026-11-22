@@ -22,6 +22,16 @@ pnpm install    # every TypeScript app's dependencies, plus the lefthook git hoo
 
 The git hooks format and lint what you commit. Before a push they type-check and test each TypeScript app whose files the push changes (shared files like the lockfile and `.node-version` count for every app), and run clippy for Windows when Rust or Cargo files changed and the `x86_64-pc-windows-gnu` target and MinGW are installed. atstore's tests run in CI only.
 
+A push that changes the website or the extension waits minutes for the pre-push hook, and git opens its SSH connection to GitHub before the hook starts, so GitHub can drop the connection as idle. The push then fails with exit 141 or "Connection closed" though every check passed. If you push over SSH, keep the connection alive in `~/.ssh/config`:
+
+```text
+Host github.com
+  ServerAliveInterval 30
+  ServerAliveCountMax 10
+```
+
+A push that fails after the hook passed lost its connection: push again, and don't skip the hook.
+
 `rust-toolchain.toml` pins the Rust toolchain (1.96.1). rustup installs it the first time you run cargo in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the file, and its clippy may disagree with CI's.
 
 The rest depends on what you touch. CI pins each version below, and an older one may report different findings. The cargo tools install quickest with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) (`brew install cargo-binstall`); `cargo install --locked` builds them instead.
