@@ -37,7 +37,7 @@ cargo build
 cargo nextest run --workspace
 ```
 
-`pnpm verify:rust` and `pnpm verify:repo` need tools `pnpm install` doesn't bring (dist, Go and lychee among them, in [CONTRIBUTING.md](CONTRIBUTING.md#checks)), and stop before their first step when one is missing. A step added to `locallibrary-ci.yml`'s lint job or to `repo-checks.yml` goes in a verify script too, or on the list of CI-only steps in `tools/policy/apps.rego` with why, which `pnpm policy` checks.
+`pnpm verify:rust` and `pnpm verify:repo` need tools `pnpm install` doesn't bring (dist, Go and lychee among them, in [CONTRIBUTING.md](CONTRIBUTING.md#checks)), and stop before their first step when one is missing. A step added to `locallibrary-ci.yml`'s lint job or to `repo-checks.yml` goes in a verify script's steps in `tools/verify/steps.json` too, or on the list of CI-only steps in `tools/policy/apps.rego` with why, which `pnpm policy` checks.
 
 With fnm, `eval "$(fnm env --use-on-cd --version-file-strategy=recursive)"` in your shell profile switches to the root's `.node-version` in every folder of the repository. Without `--version-file-strategy=recursive`, fnm reads only the current folder, where an app's `engines.node` stands in.
 

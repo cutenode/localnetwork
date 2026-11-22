@@ -1,9 +1,8 @@
-// The command line of tools.ts: `node tools/verify/cli.ts <script>` fails, with a line for each tool
-// the script needs that's missing.
-import { missing } from './tools.ts';
+// `node tools/verify/cli.ts <script>`, which the root's verify scripts are: run.ts says what it does.
+import { verify } from './run.ts';
 
-const lines = missing(process.argv[2] ?? '');
+const { lines, ok } = verify(process.argv[2] ?? '');
 
-for (const line of lines) console.error(line);
+for (const line of lines) console.log(line);
 
-process.exitCode = lines.length > 0 ? 1 : 0;
+process.exitCode = ok ? 0 : 1;

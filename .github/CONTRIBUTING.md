@@ -34,6 +34,8 @@ pnpm verify:rust   # the Rust workspace, as locallibrary-ci.yml's lint and test 
 pnpm verify:repo   # the repository's own conventions (see NEW_PROJECT.md); needs Docker running
 ```
 
+Each runs its steps in `tools/verify/steps.json` one after another, goes on past a failure, and ends with a line for each step: passed or failed, how long it took, and the command that reruns it alone.
+
 `pnpm verify:rust` runs cargo fmt, [cargo-shear](https://github.com/Boshen/cargo-shear), clippy (with no default features too, and on `fuzz/`), the headless sidecar's commands test, the doctests, `cargo doc-strict`, [dist](https://axodotdev.github.io/cargo-dist/)'s plan with the check that only locallibrary-cli is released, and [cargo-nextest](https://nexte.st) (`cargo binstall cargo-shear@1.14.0 cargo-nextest@0.9.148 cargo-dist@0.33.0`, the versions CI runs), and clippy for Windows when the `x86_64-pc-windows-gnu` target and MinGW are installed (`rustup target add x86_64-pc-windows-gnu`, `brew install mingw-w64`). `pnpm verify:repo` runs `pnpm policy` (with Docker running), ast-grep's rule tests and scan, `pnpm test:tools`, Bombadil's install and type check, ShellCheck, typos, taplo, goat's lint and breaking checks of the lexicons, and lychee's offline link check (`brew install shellcheck typos-cli taplo go lychee`). Both stop before their first step when dist, Go or lychee is missing, and say how to install it. `pnpm policy` fails when a step of `locallibrary-ci.yml`'s lint job or `repo-checks.yml` is in no verify script and not on the list of CI-only steps in `tools/policy/apps.rego`.
 
 `pnpm verify` leaves out these jobs of the website's CI, each run from `apps/web` (`pnpm exec playwright install chromium` first):

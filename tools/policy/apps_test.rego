@@ -135,12 +135,12 @@ test_pre_push_job_without_a_glob if {
 
 # CI's checks with a step of each kind the verify scripts are held to, and the scripts that run them.
 ci_checks := array.concat(
-	[f | some f in fixtures.repo; not f.path in {"package.json", "apps/site/package.json"}],
+	[f | some f in fixtures.repo; f.path != "apps/site/package.json"],
 	[
-		{"path": "package.json", "contents": object.union(fixtures.file("package.json"), {"scripts": {
-			"verify:rust": "cargo fmt --all --check && cargo doc-strict",
-			"verify:repo": "ast-grep scan && git ls-files -z \"*.sh\" | xargs -0 shellcheck && npm ci --prefix apps/b && npm run check --prefix apps/c",
-		}})},
+		{"path": "tools/verify/steps.json", "contents": {
+			"verify:rust": ["cargo fmt --all --check", "cargo doc-strict"],
+			"verify:repo": ["pnpm exec ast-grep scan", "git ls-files -z \"*.sh\" | xargs -0 shellcheck", "npm ci --prefix apps/b", "npm run check --prefix apps/c"],
+		}},
 		{"path": "apps/site/package.json", "contents": json.patch(site, [{"op": "replace", "path": "/scripts/verify", "value": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test"}])},
 		{"path": ".github/workflows/locallibrary-ci.yml", "contents": {"jobs": {
 			"lint": {"steps": [
@@ -168,30 +168,35 @@ test_ci_steps_in_verify if {
 }
 
 test_ci_step_missing_from_verify if {
-	scripts := {"verify:rust": "cargo fmt --all --check", "verify:repo": "ast-grep scan"}
-	repo := array.concat([f | some f in ci_checks; f.path != "package.json"], [{"path": "package.json", "contents": object.union(fixtures.file("package.json"), {"scripts": scripts})}])
+	steps := {"verify:rust": ["cargo fmt --all --check"], "verify:repo": ["pnpm exec ast-grep scan"]}
+	repo := array.concat([f | some f in ci_checks; f.path != "tools/verify/steps.json"], [{"path": "tools/verify/steps.json", "contents": steps}])
 	denied := apps.deny with input as repo
 	denied == {
-		".github/workflows/locallibrary-ci.yml: add [\"cargo doc --workspace --no-deps --locked\"] (job lint) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why",
-		".github/workflows/repo-checks.yml: add [\"ShellCheck\", \"docker run shellcheck\"] (job policy) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why",
-		".github/workflows/repo-checks.yml: add [\"npm ci\"] (job bombadil) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why",
-		".github/workflows/repo-checks.yml: add [\"npm run check\"] (job bombadil) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why",
+		".github/workflows/locallibrary-ci.yml: add [\"cargo doc --workspace --no-deps --locked\"] (job lint) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why",
+		".github/workflows/repo-checks.yml: add [\"ShellCheck\", \"docker run shellcheck\"] (job policy) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why",
+		".github/workflows/repo-checks.yml: add [\"npm ci\"] (job bombadil) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why",
+		".github/workflows/repo-checks.yml: add [\"npm run check\"] (job bombadil) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why",
 	}
 }
 
 test_narrower_verify_step if {
-	scripts := {"verify:rust": "cargo fmt --all --check -- src/lib.rs && cargo doc-strict", "verify:repo": "ast-grep scan && git ls-files -z \"*.sh\" | xargs -0 shellcheck && npm ci --prefix apps/b && npm run check --prefix apps/c"}
-	repo := array.concat([f | some f in ci_checks; f.path != "package.json"], [{"path": "package.json", "contents": object.union(fixtures.file("package.json"), {"scripts": scripts})}])
+	steps := object.union(file_in(ci_checks, "tools/verify/steps.json"), {"verify:rust": ["cargo fmt --all --check -- src/lib.rs", "cargo doc-strict"]})
+	repo := array.concat([f | some f in ci_checks; f.path != "tools/verify/steps.json"], [{"path": "tools/verify/steps.json", "contents": steps}])
 	denied := apps.deny with input as repo
-	denied == {".github/workflows/locallibrary-ci.yml: add [\"cargo fmt --all --check\"] (job lint) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why"}
+	denied == {".github/workflows/locallibrary-ci.yml: add [\"cargo fmt --all --check\"] (job lint) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why"}
 }
 
 test_ci_only_steps if {
 	denied := apps.deny with input as ci_checks with apps.ci_only_steps as {}
 	denied == {
-		".github/workflows/repo-checks.yml: add [\"./.github/actions/patch-coverage\"] (job policy) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why",
-		".github/workflows/repo-checks.yml: add [\"node tools/readmes/cli.ts drift\"] (job diagrams) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why",
+		".github/workflows/repo-checks.yml: add [\"./.github/actions/patch-coverage\"] (job policy) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why",
+		".github/workflows/repo-checks.yml: add [\"node tools/readmes/cli.ts drift\"] (job diagrams) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why",
 	}
+}
+
+file_in(repo, path) := f.contents if {
+	some f in repo
+	f.path == path
 }
 
 with_hooks(repo, hooks) := array.concat([f | some f in repo; f.path != "lefthook.yml"], [{"path": "lefthook.yml", "contents": hooks}])

@@ -23,6 +23,7 @@ export const configFiles = (): string[] =>
 		'pnpm-workspace.yaml',
 		'Cargo.toml',
 		'lefthook.yml',
+		'tools/verify/steps.json',
 		'deny.toml',
 		'about.toml',
 		'dist-workspace.toml',

@@ -1,6 +1,6 @@
 // The tools the root's verify scripts run that `pnpm install` doesn't bring, and how to install
 // each, as .github/CONTRIBUTING.md's Checks has them. Each script checks for its own before its
-// first step (cli.ts), so a missing one fails the run up front instead of after the long builds.
+// first step (run.ts), so a missing one fails the run up front instead of after the long builds.
 import { spawnSync } from 'node:child_process';
 
 const installs = {

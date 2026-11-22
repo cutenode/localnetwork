@@ -14,6 +14,7 @@ describe('configFiles', () => {
 				'apps/web/Dockerfile',
 				'crates/locallibrary/Cargo.toml',
 				'.github/workflows/ci.yml',
+				'tools/verify/steps.json',
 				'.github/rulesets/protect-main.json',
 				'lexicons/computer/localnetwork/dj/set.json'
 			])

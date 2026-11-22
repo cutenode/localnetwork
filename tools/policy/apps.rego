@@ -70,11 +70,11 @@ checked_jobs contains [path, name] if {
 	some name, _ in lib.file(path).jobs
 }
 
-# The commands of the root's verify scripts and the apps' `verify`, which the root's runs. An app's
-# `pnpm -w` runs the root's script.
-verify_commands contains regex.replace(trim_space(c), `^pnpm -w `, "pnpm ") if {
-	some script in {"verify", "verify:rust", "verify:repo"}
-	some c in split(root.scripts[script], "&&")
+# The steps of the root's verify scripts (tools/verify/steps.json), and the commands of the apps'
+# `verify`, which the root's runs. An app's `pnpm -w` runs the root's script.
+verify_commands contains c if {
+	some commands in lib.file("tools/verify/steps.json")
+	some c in commands
 }
 
 verify_commands contains regex.replace(trim_space(c), `^pnpm -w `, "pnpm ") if {
@@ -125,7 +125,7 @@ deny contains msg if {
 	keys := step_keys(step)
 	count(keys & (setup | object.keys(ci_only_steps))) == 0
 	not verified(keys, object.get(step, "working-directory", object.get(job, ["defaults", "run", "working-directory"], "")))
-	msg := sprintf("%s: add %v (job %s) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why", [path, sort(keys), name])
+	msg := sprintf("%s: add %v (job %s) to tools/verify/steps.json, or to ci_only_steps in tools/policy/apps.rego with why", [path, sort(keys), name])
 }
 
 # A step's name, command and action, any of which can match.
@@ -139,8 +139,7 @@ verified(keys, dir) if {
 	spelled(k, dir) in verify_commands
 }
 
-# `pnpm exec` is how CI runs a dependency's binary, which a package script has on its PATH.
-spelled(k, "") := object.get(spelling, k, trim_prefix(k, "pnpm exec "))
+spelled(k, "") := object.get(spelling, k, k)
 
 # A step's working directory, or its job's, as npm's --prefix.
 spelled(k, dir) := sprintf("%s --prefix %s", [k, dir]) if dir != ""
