@@ -203,6 +203,20 @@ gh workflow run locallibrary-scheduled.yml --ref <branch>
 | Disk-image tests | `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary-core --lib --locked -E 'test(/^format::disk_image::/)'`, on Linux with `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo --preserve-env'` to mount them as root | makes and mounts small disk images; about 10 minutes in CI | `locallibrary-scheduled.yml` |
 | e2e in every browser | `pnpm -C apps/web exec playwright install chromium firefox webkit`, then `pnpm -C apps/web test:e2e` | Docker; 15 to 40 minutes in CI | `web-scheduled.yml` |
 
+### Long runs on macOS
+
+Some locallibrary tests have wall-clock budgets (`.config/nextest.toml`), and the Hegel properties run for minutes. A Mac sleeps with the lid closed even on power, so run coverage, Hegel, fuzzing and the full e2e suite with it awake and the lid open:
+
+```bash
+caffeinate -ims cargo coverage
+```
+
+If a timing test or a timeout fails, check whether the Mac slept during the run before treating it as a regression:
+
+```bash
+pmset -g log | grep -E 'Entering Sleep|Wake from'
+```
+
 ## Flaky tests
 
 A test that passes and fails on the same code gets its cause fixed. Don't raise its timeout or add retries.

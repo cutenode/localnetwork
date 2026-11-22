@@ -206,7 +206,7 @@ check you have that free; `cargo llvm-cov clean --workspace` gives it back. Don'
 `CARGO_TARGET_DIR` between checkouts or worktrees of this repository: cargo tells their packages apart
 by path inside the workspace, which is the same in each, so one checkout can reuse another's builds
 and test stale code. [sccache](https://github.com/mozilla/sccache) is the safe way to share
-compiles.
+compiles. On a Mac, run it awake ([Long runs on macOS](../../.github/CONTRIBUTING.md#long-runs-on-macos)).
 
 `cargo hegel-coverage` runs `cargo coverage` over only the `#[hegel::test]` tests, and so fails
 below the same thresholds: the properties alone have to reach what the whole suite does. CI's
