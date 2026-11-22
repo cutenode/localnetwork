@@ -466,10 +466,19 @@ publishing, so no crates.io token is stored anywhere.
    dependencies first, and tags it `<crate>-v<version>`.
 
 crates.io takes a crate's first version only from a token, and only then lets it trust a
-workflow. So for a new crate, or for all of them the first time, run `tools/crates-io.sh` to see
-what's missing and `tools/crates-io.sh setup` to fix it. It sets up the `crates-io` environment
-(deploys from `main` only), publishes the crates crates.io doesn't have, has every crate trust
-the workflow, and turns on "require trusted publishing" so a token can't publish them again.
-Make the token it asks for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`,
-with the scopes `publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. The
-environment needs `gh` signed in as a repository admin.
+workflow. So for a new crate, or for all of them the first time, run
+`node tools/crates-io/cli.ts status` to see what's missing and `node tools/crates-io/cli.ts setup`
+to fix it. Until then the workflow publishes nothing, and its notice names the crates crates.io
+doesn't have. Setup checks the names and runs `cargo publish --dry-run` over the new crates first,
+and changes nothing if either fails. Then it sets up the `crates-io` environment (deploys from
+`main` only), publishes the crates crates.io doesn't have, has every crate trust the workflow, and
+turns on "require trusted publishing" so a token can't publish them again. Make the token it asks
+for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`, with the scopes
+`publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. Setup stops before
+changing anything unless the token is from an account in `OWNERS` and has `trusted-publishing`.
+The environment needs `gh` signed in as a repository admin.
+
+`node tools/crates-io/cli.ts check` is the name check on its own. It fails when any spelling of a
+crate's name is on crates.io and the crate isn't ours there, under its exact name with an owner in
+`OWNERS` (`tools/crates-io/names.ts`): crates.io counts `loclib-aup` and `loclib_aup` as the same
+name. A crate crates.io doesn't have yet gets a warning to run setup.
