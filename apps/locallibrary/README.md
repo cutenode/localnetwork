@@ -191,6 +191,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   headers, and resampling them as they stream
 - [loclib-mixid](../../crates/loclib-mixid): which known tracks a recorded mix plays, when and at what
   speed
+- [loclib-aup](../../crates/loclib-aup): reading Audacity projects (`.aup3`, `.aup4`): tags, labels,
+  and the audible tracks mixed to mono
 - [loclib-transcode](../../crates/loclib-transcode): which copy of a file a set of players needs,
   and lossless copies (AIFF, WAV, FLAC) that keep cue points in time
 - [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo and key, loudness and
@@ -300,6 +302,7 @@ flowchart LR
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
+    core --> aup["loclib-aup<br/>Audacity projects"]
     core -->|scoring only| sound["loclib-analysis<br/>tempo, key, loudness"]
     core --> trans["loclib-transcode<br/>copies for players"]
     core --> model["loclib-model<br/>loclib-progress"]

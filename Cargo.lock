@@ -4093,6 +4093,7 @@ dependencies = [
  "locallibrary-plugin-soundcloud",
  "locallibrary-plugin-tracklist",
  "locallibrary-plugin-youtube",
+ "loclib-aup",
  "loclib-interop",
  "loclib-model",
  "loclib-plugin",
@@ -4160,6 +4161,7 @@ dependencies = [
  "loclib-analysis",
  "loclib-anlz",
  "loclib-audio",
+ "loclib-aup",
  "loclib-capacity",
  "loclib-equipment",
  "loclib-interop",
@@ -4452,6 +4454,22 @@ dependencies = [
  "loclib-progress",
  "loclib-testkit",
  "symphonia",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-aup"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-audio",
+ "loclib-progress",
+ "loclib-sqlcipher",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
  "tempfile",
  "thiserror 2.0.21",
 ]

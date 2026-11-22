@@ -2200,6 +2200,7 @@ dependencies = [
  "loclib-analysis",
  "loclib-anlz",
  "loclib-audio",
+ "loclib-aup",
  "loclib-capacity",
  "loclib-equipment",
  "loclib-mixid",
@@ -2265,8 +2266,11 @@ dependencies = [
  "locallibrary-plugin-interop",
  "loclib-anlz",
  "loclib-audio",
+ "loclib-aup",
  "loclib-interop",
+ "loclib-mixid",
  "loclib-mysettings",
+ "loclib-progress",
  "loclib-tracklist",
  "rekordbox-pdb",
  "rusqlite",
@@ -2313,6 +2317,20 @@ dependencies = [
  "loclib-model",
  "loclib-progress",
  "symphonia",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-aup"
+version = "0.1.0"
+dependencies = [
+ "loclib-audio",
+ "loclib-progress",
+ "loclib-sqlcipher",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
  "thiserror 2.0.21",
 ]
 

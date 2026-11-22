@@ -112,8 +112,11 @@ locallibrary-core = { version = "0.1.0", path = "../crates/locallibrary", defaul
 locallibrary-plugin-interop = { version = "0.1.0", path = "../plugins/interop" }
 loclib-anlz = { version = "0.1.0", path = "../crates/loclib-anlz" }
 loclib-audio = { version = "0.1.0", path = "../crates/loclib-audio" }
+loclib-aup = { version = "0.1.0", path = "../crates/loclib-aup" }
 loclib-interop = { version = "0.1.0", path = "../crates/loclib-interop", default-features = false, features = ["serato", "traktor"] }
+loclib-mixid = { version = "0.1.0", path = "../crates/loclib-mixid" }
 loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
+loclib-progress = { version = "0.1.0", path = "../crates/loclib-progress" }
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }
 rusqlite = "0.41"

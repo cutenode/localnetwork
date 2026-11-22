@@ -512,7 +512,7 @@ fn identify(
     let analyses = report.plays.iter().map(|p| api::analysis_of(&device, &p.track)).collect();
     let cover = report.mix.cover.as_ref().and_then(|c| c.read().ok()).and_then(|b| Art::decode(&b));
     // The player plays the recording itself; for a project, the audio exported from it.
-    let audio = match mix::aup::is_project(&report.mix.path) {
+    let audio = match loclib_aup::is_project(&report.mix.path) {
         true => report::project_audio(&report.mix.path),
         false => Some(report.mix.path.clone()),
     };

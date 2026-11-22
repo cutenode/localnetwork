@@ -7308,8 +7308,11 @@ export type MixInfo = {
 
 /** A label from a label track (DJs sometimes mark where tracks change). */
 export type Label = {
+  /** Where the label starts, in seconds from the start of the timeline. */
   start: number;
+  /** Where it ends, in seconds. The same as `start` for a point label. */
   end: number;
+  /** Its text, which may be empty. */
   title: string;
 };
 

@@ -37,6 +37,8 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
+crates/loclib-aup/          Audacity projects (.aup3, .aup4) read from their SQLite tables and binary XML: tags,
+                            labels, and the audible clips mixed to mono (trims, clip speed, gain, mute/solo)
 crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
                             FLAC, resampled with the timing kept to the sample, dithered, with tags
 crates/loclib-analysis/     a second opinion on a track's tempo and key (stratum-dsp), its loudness, peaks and
@@ -150,10 +152,10 @@ crates/locallibrary/src/    the library, built on the crates above
   sound/       tempo, key and loudness from the analyzers chosen for those roles: doctor's analysis
                section, how sure each key is for the set planner, the check's loudness item, and
                `analysis bench` (bench.rs, scored with loclib-analysis's benchmark, without its DSP)
-  mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
-               store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
-               interactive page, the mix's playable audio, the reports kept in the store: report.rs and
-               report.html) and the export for Local Network (export.rs)
+  mix/         which library tracks a recorded set plays, through loclib-mixid and loclib-aup: the
+               drive's tracks, the store's fingerprints (index.rs), the report (the interactive page,
+               the mix's playable audio, the reports kept in the store: report.rs and report.html) and
+               the export for Local Network (export.rs)
   atmosphere/  Atmosphere account sign-in around jacquard-oauth: browser callback, keychain storage, lock,
                the network's limits (with publish.rs and api/account.rs, api/publish.rs: only with the
                `account` feature)

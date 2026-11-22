@@ -494,6 +494,18 @@ impl From<loclib_audio::Error> for Error {
     }
 }
 
+impl From<loclib_aup::Error> for Error {
+    fn from(e: loclib_aup::Error) -> Self {
+        use loclib_aup::Error as E;
+        match e {
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::Cancelled(_) => Error::Cancelled,
+            // A variant a newer loclib-aup adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 impl From<loclib_analysis::Error> for Error {
     fn from(e: loclib_analysis::Error) -> Self {
         use loclib_analysis::Error as E;

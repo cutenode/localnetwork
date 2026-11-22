@@ -224,7 +224,7 @@ fn prop_errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::Test
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));
     // (the error, its code, whether its message (or path) comes through)
-    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(8)) {
+    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(9)) {
         0 => (mixid(kind).into(), mixid_code(kind), kind < 3),
         1 => {
             let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -271,6 +271,10 @@ fn prop_errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::Test
         7 => match tc.draw(gs::booleans()) {
             true => (loclib_anlz::Error::Malformed(message.clone()).into(), "parse", true),
             false => (loclib_anlz::Error::Invalid(message.clone()).into(), "invalid", true),
+        },
+        8 => match tc.draw(gs::booleans()) {
+            true => (loclib_aup::Error::Parse { path: path.clone(), message: message.clone() }.into(), "parse", true),
+            false => (loclib_aup::Error::Cancelled(loclib_progress::Cancelled).into(), "cancelled", false),
         },
         _ => (Error::Io { path: path.clone(), source: io() }, "io", true),
     };

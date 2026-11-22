@@ -1,0 +1,37 @@
+[package]
+name = "loclib-aup"
+description = "Read Audacity 3 and 4 projects (.aup3, .aup4) without Audacity: their tags, labels, and audible tracks mixed down to mono"
+readme = "README.md"
+keywords = ["audacity", "aup3", "audio", "project", "dj"]
+categories = ["multimedia::audio", "parser-implementations"]
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.localnetwork]
+labels = ["locallibrary: mixes"]
+
+[dependencies]
+loclib-audio.workspace = true
+loclib-progress.workspace = true
+loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }
+rusqlite.workspace = true
+rustc-hash.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
+serde.workspace = true
+thiserror.workspace = true
+
+[features]
+# JSON Schema (`schemars::JsonSchema`) for `Label`.
+schemars = ["dep:schemars"]
+# `test_util`: projects written for tests, in this crate and the ones built on it.
+test-util = []
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

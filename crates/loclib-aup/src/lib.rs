@@ -1,38 +1,42 @@
-//! Audacity projects: `.aup3`, and Audacity 4's `.aup4` (the same container).
-//!
-//! A project is a SQLite database. Table `project` holds the document as Audacity's binary XML
-//! (a `dict` of element and attribute names, and a `doc` of tokens referring to them), and
-//! `sampleblocks` holds the audio, up to a few hundred thousand samples per row. Each wave track
-//! is one channel, made of clips placed on the timeline; a clip plays a trimmed window of its
-//! sequence of blocks.
-//!
-//! [`Project::render`] mixes every audible channel to mono, which is all fingerprinting needs.
-//! Gain and mute/solo are honoured; pan, envelopes, effects and pitch shifts are not.
+#![doc = include_str!("../README.md")]
 
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
+use loclib_audio::{Resampler, SourceFormat};
+use loclib_progress::Ctx;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
-use super::audio::{Resampler, SourceFormat};
-use crate::progress::Ctx;
-use crate::{Error, Result};
+mod error;
+/// Audacity projects written for tests, in this crate and the ones built on it (the `test-util`
+/// feature). Not part of the stable API: it changes with the tests that use it.
+#[cfg(any(test, feature = "test-util"))]
+pub mod test_util;
+
+pub use error::{Error, Result};
 
 /// A label from a label track (DJs sometimes mark where tracks change).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Label {
+    /// Where the label starts, in seconds from the start of the timeline.
     pub start: f64,
+    /// Where it ends, in seconds. The same as `start` for a point label.
     pub end: f64,
+    /// Its text, which may be empty.
     pub title: String,
 }
 
+/// An Audacity project, read: its tags and labels, and where its audible clips sit on the
+/// timeline. The audio stays in the file until [`render`](Project::render) reads it.
 #[derive(Debug)]
 pub struct Project {
     path: PathBuf,
-    pub rate: f64,
-    /// Metadata tags (TITLE, ARTIST, GENRE...), in project order.
-    pub tags: Vec<(String, String)>,
-    pub labels: Vec<Label>,
+    /// Within `RATES`, as reading the project checks. Private, like the tags and labels, so
+    /// nothing can write a rate that rounds to 0, which [`render`](Project::render) would panic on.
+    rate: f64,
+    tags: Vec<(String, String)>,
+    labels: Vec<Label>,
     channels: Vec<Channel>,
 }
 
@@ -299,19 +303,29 @@ fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Error::parse(path, e))?;
     // A project is whatever file was named.
-    match crate::onelibrary::distrust(&conn, &["view"], "Audacity").map_err(|e| Error::parse(path, e))? {
+    match loclib_sqlcipher::untrusted::distrust(&conn, &["view"], "Audacity").map_err(|e| Error::parse(path, e))? {
         Some(why) => Err(Error::parse(path, why)),
         None => Ok(conn),
     }
 }
 
-/// Whether `path` looks like an Audacity project.
+/// Whether `path` looks like an Audacity project: its extension is `.aup3` or `.aup4`, in any
+/// case. The file isn't opened.
 pub fn is_project(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     matches!(ext.as_str(), "aup3" | "aup4")
 }
 
 impl Project {
+    /// Read the project at `path`: its saved document, or its autosave when it was never saved.
+    /// A document cut short (Audacity stopped mid-write) opens with what's there.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Parse`] when the file can't be opened read-only, isn't SQLite, has a view
+    /// (which Audacity never makes), has neither a saved document nor an autosave, or holds a
+    /// document that's damaged, names no `<project>`, has a sample rate outside 1 Hz to 1 MHz,
+    /// or has no audible clip.
     pub fn open(path: &Path) -> Result<Project> {
         let db = open(path)?;
         let row = |table: &str| {
@@ -333,6 +347,12 @@ impl Project {
     /// The project at `path` from its document: the `dict` and `doc` of Audacity's binary XML,
     /// as its `project` (or `autosave`) table holds them. Its audio stays in the file, for
     /// [`render`](Self::render).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Parse`], naming `path`, for a damaged document (an unknown token, one cut off,
+    /// elements nested more than 64 deep), one with no `<project>`, a sample rate outside 1 Hz
+    /// to 1 MHz, or no audible clip.
     pub fn from_document(path: &Path, dict: &[u8], doc: &[u8]) -> Result<Project> {
         let mut reader = Reader { names: FxHashMap::default(), char_size: 1 };
         let mut stack = vec![Element::default()];
@@ -392,6 +412,23 @@ impl Project {
         Ok(Project { path: path.to_path_buf(), rate, tags, labels, channels })
     }
 
+    /// The project's sample rate, in Hz, from 1 Hz to 1 MHz: what its clips are measured in, and
+    /// what [`render`](Self::render) resamples from.
+    pub fn rate(&self) -> f64 {
+        self.rate
+    }
+
+    /// Metadata tags (TITLE, ARTIST, GENRE...) as name and value, in project order.
+    pub fn tags(&self) -> &[(String, String)] {
+        &self.tags
+    }
+
+    /// The labels of every label track, in project order.
+    pub fn labels(&self) -> &[Label] {
+        &self.labels
+    }
+
+    /// The first tag called `name`, in any case.
     pub fn tag(&self, name: &str) -> Option<&str> {
         self.tags.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
     }
@@ -405,7 +442,21 @@ impl Project {
             .fold(0.0, f64::max)
     }
 
-    /// Mix the audible channels to mono at `rate` and hand the result to `sink` in chunks.
+    /// Mix the audible channels to mono, resampled to `rate` (Hz), and hand the result to
+    /// `sink` in chunks. Gain and mute/solo are honoured; pan, envelopes and effects are not.
+    /// The [`SourceFormat`] says the project's own rate, how many wave tracks mute and solo leave
+    /// in (each counts as one channel, even one without clips), and how many seconds were
+    /// rendered.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Parse`] when the file can't be opened again, or a sample block is missing or in
+    /// a format Audacity doesn't write. [`Error::Cancelled`] when `ctx` is cancelled; `sink` may
+    /// have had part of the mix by then.
+    ///
+    /// # Panics
+    ///
+    /// When `rate` is 0.
     pub fn render(&self, rate: u32, ctx: &Ctx<'_>, sink: &mut dyn FnMut(&[f32])) -> Result<SourceFormat> {
         let db = open(&self.path)?;
         let mut stmt = db
@@ -507,4 +558,4 @@ impl Clip {
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

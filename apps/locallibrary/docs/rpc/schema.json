@@ -27733,14 +27733,17 @@
       "properties": {
         "start": {
           "type": "number",
-          "format": "double"
+          "format": "double",
+          "description": "Where the label starts, in seconds from the start of the timeline."
         },
         "end": {
           "type": "number",
-          "format": "double"
+          "format": "double",
+          "description": "Where it ends, in seconds. The same as `start` for a point label."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "Its text, which may be empty."
         }
       },
       "required": [

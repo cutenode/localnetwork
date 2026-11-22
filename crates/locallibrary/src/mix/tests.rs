@@ -247,7 +247,7 @@ fn a_cover_next_to_the_mix_is_found_by_its_name() {
 /// An Audacity project is listened to as the mix it renders, with its labels and tags.
 #[test]
 fn a_project_is_listened_to_as_its_mix() {
-    use super::aup::tests::{Xml, floats, project};
+    use loclib_aup::test_util::{Xml, floats, project};
     let dir = tempfile::tempdir().unwrap();
     let mut x = Xml::new(4);
     x.start("project").double("rate", 8_000.0);
@@ -713,7 +713,7 @@ fn prop_a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
 /// it's as long as its last clip. One that isn't there isn't found.
 #[hegel::test(test_cases = 3)]
 fn prop_a_project_is_heard_as_the_mix_it_renders(tc: TestCase) {
-    use super::aup::tests::{Xml, floats, project};
+    use loclib_aup::test_util::{Xml, floats, project};
     let rate = tc.draw(gs::sampled_from(vec![4_000.0, 8_000.0]));
     let title = tc.draw(gs::optional(gs::text().alphabet("Warehouse ").min_size(1).max_size(10)));
     let labels: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(9)).max_size(3));
@@ -858,7 +858,7 @@ fn prop_reports_know_their_drive_by_identity_before_name(tc: TestCase) {
 /// as what was heard of it, nothing.
 #[hegel::test(test_cases = 5)]
 fn prop_a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
-    use super::aup::tests::{Xml, project};
+    use loclib_aup::test_util::{Xml, project};
     let dir = tempfile::tempdir().unwrap();
     let mut x = Xml::new(1);
     x.start("project").double("rate", tc.draw(gs::sampled_from(vec![8_000.0, 44_100.0])));
@@ -927,7 +927,7 @@ fn prop_a_cover_reads_back_while_it_is_there(tc: TestCase) {
 /// start to its end once that's half a minute or more, and has no gap marked when it's shorter.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
-    use super::aup::tests::{Xml, project};
+    use loclib_aup::test_util::{Xml, project};
     let secs = tc.draw(gs::sampled_from(vec![5i64, 29, 31, 40]));
     let rate = 8_000i64;
     let dir = tempfile::tempdir().unwrap();
