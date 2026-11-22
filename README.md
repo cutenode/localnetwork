@@ -38,8 +38,8 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, the root's own (pnpm *:tools), knip over the whole repo, and the lexicons' format
-pnpm verify:rust             # what Rust CI checks: fmt, cargo-shear, clippy (for Windows too, when set up), the doctests, docs and nextest
-pnpm verify:repo             # the repo's own checks: the policies, ast-grep, the tools' tests, ShellCheck, typos and taplo
+pnpm verify:rust             # what Rust CI checks: fmt, cargo-shear, clippy (for Windows too, when set up), the sidecar's commands, the doctests, docs, dist's plan and nextest
+pnpm verify:repo             # the repo's own checks: the policies, ast-grep, the tools' tests, Bombadil's types, ShellCheck, typos, taplo, goat and lychee
 pnpm atstore                 # each tool's AT Store icon, hero and screenshots, and the website's tool captures (packages/atstore)
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 

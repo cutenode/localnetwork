@@ -61,6 +61,90 @@ deny contains msg if {
 	msg := sprintf("apps/%s/package.json: pin oxlint to %q, as the root does", [app, root.devDependencies.oxlint])
 }
 
+# Every step of CI's checks that a laptop can run is in a verify script: locallibrary-ci.yml's lint
+# job, and repo-checks.yml.
+checked_jobs contains [".github/workflows/locallibrary-ci.yml", "lint"]
+
+checked_jobs contains [path, name] if {
+	path := ".github/workflows/repo-checks.yml"
+	some name, _ in lib.file(path).jobs
+}
+
+# The commands of the root's verify scripts and the apps' `verify`, which the root's runs. An app's
+# `pnpm -w` runs the root's script.
+verify_commands contains regex.replace(trim_space(c), `^pnpm -w `, "pnpm ") if {
+	some script in {"verify", "verify:rust", "verify:repo"}
+	some c in split(root.scripts[script], "&&")
+}
+
+verify_commands contains regex.replace(trim_space(c), `^pnpm -w `, "pnpm ") if {
+	some path in lib.paths("{apps,packages}/*/package.json")
+	some c in split(lib.file(path).scripts.verify, "&&")
+}
+
+# Steps that set up the runner (the checkout, toolchains, caches, installs), which a laptop has done.
+setup := {
+	"actions/checkout",
+	"pnpm/action-setup",
+	"actions/setup-node",
+	"actions/setup-go",
+	"Swatinem/rust-cache",
+	"taiki-e/install-action",
+	"./.github/actions/apt-packages",
+	"./.github/actions/install-dist",
+	"rustup toolchain install",
+	"pnpm install --frozen-lockfile",
+	"pnpm install --frozen-lockfile --filter localnetwork-monorepo",
+}
+
+# The jobs and steps only CI runs, and why.
+ci_only_steps := {
+	"diagrams": "the drift check reads the pull request's body",
+	"commits": "lefthook's commit-msg hook runs commitlint on each commit",
+	"./.github/actions/patch-coverage": "it covers the lines a pull request changes, so it runs on pull requests only",
+}
+
+# How the verify scripts spell a step CI spells another way.
+spelling := {
+	"cargo doc --workspace --no-deps --locked": "cargo doc-strict",
+	# Double quotes, which cmd.exe reads too.
+	"cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'": "cargo nextest run -p locallibrary-cli --no-default-features --locked -E \"test(commands_come_with_the_features_built_in)\"",
+	"dist plan --output-format=json > \"$RUNNER_TEMP/plan-dist-manifest.json\"": "node tools/verify/release-cli.ts",
+	"Check only locallibrary-cli is released": "node tools/verify/release-cli.ts",
+	"ShellCheck": "git ls-files -z \"*.sh\" | xargs -0 shellcheck",
+	"crate-ci/typos": "typos",
+	"lycheeverse/lychee-action": "git ls-files -z \"*.md\" | xargs -0 lychee --offline --include-fragments --no-progress",
+}
+
+deny contains msg if {
+	some job_path in checked_jobs
+	[path, name] := job_path
+	not ci_only_steps[name]
+	job := lib.file(path).jobs[name]
+	some step in job.steps
+	keys := step_keys(step)
+	count(keys & (setup | object.keys(ci_only_steps))) == 0
+	not verified(keys, object.get(step, "working-directory", object.get(job, ["defaults", "run", "working-directory"], "")))
+	msg := sprintf("%s: add %v (job %s) to a verify script in package.json, or to ci_only_steps in tools/policy/apps.rego with why", [path, sort(keys), name])
+}
+
+# A step's name, command and action, any of which can match.
+step_keys(step) := {k |
+	some k in [object.get(step, "name", ""), trim_space(object.get(step, "run", "")), split(object.get(step, "uses", ""), "@")[0]]
+	k != ""
+}
+
+verified(keys, dir) if {
+	some k in keys
+	spelled(k, dir) in verify_commands
+}
+
+# `pnpm exec` is how CI runs a dependency's binary, which a package script has on its PATH.
+spelled(k, "") := object.get(spelling, k, trim_prefix(k, "pnpm exec "))
+
+# A step's working directory, or its job's, as npm's --prefix.
+spelled(k, dir) := sprintf("%s --prefix %s", [k, dir]) if dir != ""
+
 # lefthook.yml formats and lints staged files and checks and tests before a push, per app and per
 # package.
 hooks := {
