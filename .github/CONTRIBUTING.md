@@ -33,6 +33,7 @@ pnpm verify          # the TypeScript apps, the root's own TypeScript (pnpm *:to
 pnpm verify:rust     # the Rust workspace, as locallibrary-ci.yml's lint and test jobs check it
 pnpm verify:repo     # the repository's own conventions (see NEW_PROJECT.md); needs Docker running
 pnpm verify:changed  # only the ones the branch's changes call for, committed or not, as ci.yml's filters pick CI's jobs
+pnpm verify:rust --package <crate>  # one crate's fmt, clippy and tests, with cargo shear and pnpm policy
 ```
 
 Each runs its steps in `tools/verify/steps.json` one after another, goes on past a failure, and ends with a line for each step: passed, failed or skipped, how long it took, and the command that reruns it alone.

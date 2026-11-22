@@ -44,22 +44,35 @@ const binstall = (crate: string) => (version: string) => `cargo binstall ${crate
 
 const brew = (formula: string) => () => `brew install ${formula}`;
 
+const nextest: Tool = {
+	name: 'cargo-nextest',
+	probe: ['cargo', 'nextest', '--version'],
+	install: binstall('cargo-nextest'),
+	pin: [LOCALLIBRARY_CI, /tool: cargo-nextest@([\d.]+)/]
+};
+
+const shear: Tool = {
+	name: 'cargo-shear',
+	probe: ['cargo', 'shear', '--version'],
+	install: binstall('cargo-shear'),
+	pin: [LOCALLIBRARY_CI, /tool: cargo-shear@([\d.]+)/]
+};
+
+const docker: Tool = {
+	name: 'Docker',
+	probe: ['docker', 'info'],
+	install: () => 'start Docker or OrbStack, which `pnpm policy` runs in'
+};
+
+/** The name `verify:rust --package` runs under, which crate.ts gives its steps. */
+export const CRATE = 'verify:rust --package';
+
 const tools = new Map<string, Tool[]>([
 	[
 		'verify:rust',
 		[
-			{
-				name: 'cargo-nextest',
-				probe: ['cargo', 'nextest', '--version'],
-				install: binstall('cargo-nextest'),
-				pin: [LOCALLIBRARY_CI, /tool: cargo-nextest@([\d.]+)/]
-			},
-			{
-				name: 'cargo-shear',
-				probe: ['cargo', 'shear', '--version'],
-				install: binstall('cargo-shear'),
-				pin: [LOCALLIBRARY_CI, /tool: cargo-shear@([\d.]+)/]
-			},
+			nextest,
+			shear,
 			{
 				name: 'dist',
 				probe: ['dist', '--version'],
@@ -68,14 +81,11 @@ const tools = new Map<string, Tool[]>([
 			}
 		]
 	],
+	[CRATE, [nextest, shear, docker]],
 	[
 		'verify:repo',
 		[
-			{
-				name: 'Docker',
-				probe: ['docker', 'info'],
-				install: () => 'start Docker or OrbStack, which `pnpm policy` runs in'
-			},
+			docker,
 			{
 				name: 'ShellCheck',
 				probe: ['shellcheck', '--version'],

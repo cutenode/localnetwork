@@ -1,11 +1,35 @@
-// `node tools/verify/cli.ts <script>`, which the root's verify scripts are: run.ts and changed.ts say
-// what they do.
+// `node tools/verify/cli.ts <script> [--package <crate>]`, which the root's verify scripts are:
+// run.ts, changed.ts and crate.ts say what they do.
+import { parseArgs } from 'node:util';
 import { changedFiles, verifyChanged } from './changed.ts';
-import { verify } from './run.ts';
+import { verifyCrate } from './crate.ts';
+import { type Verdict, verify } from './run.ts';
 
-const script = process.argv[2] ?? '';
+const result = (): Verdict => {
+	let parsed;
 
-const { lines, ok } = script === 'verify:changed' ? verifyChanged(changedFiles(process.cwd())) : verify(script);
+	try {
+		parsed = parseArgs({ options: { package: { type: 'string', short: 'p' } }, allowPositionals: true });
+	} catch (error) {
+		return { lines: [error instanceof Error ? error.message : String(error)], ok: false };
+	}
+
+	const {
+		positionals: [script = ''],
+		values
+	} = parsed;
+
+	if (values.package !== undefined)
+		return script === 'verify:rust'
+			? verifyCrate(values.package)
+			: { lines: [`--package goes with verify:rust, not ${script}`], ok: false };
+
+	if (script === 'verify:changed') return verifyChanged(changedFiles(process.cwd()));
+
+	return verify(script);
+};
+
+const { lines, ok } = result();
 
 for (const line of lines) console.log(line);
 
