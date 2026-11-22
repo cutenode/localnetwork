@@ -55,8 +55,9 @@ the msrv job in `locallibrary-ci.yml`.
 
 CI (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
 pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
-Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
-merge, or on a pull request with the `all-os` label (add it, then re-run CI):
+Linux, and pull requests on Windows too (`other-os`). macOS runs in the merge queue, once for each
+group of pull requests about to merge, or on a pull request with the `all-os` label (add it, then
+re-run CI):
 
 | Job | What it runs |
 | --- | --- |

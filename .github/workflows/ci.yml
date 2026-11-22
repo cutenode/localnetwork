@@ -5,9 +5,9 @@ name: CI
 # the one check the "Protect Main" ruleset requires, fails when one of them did. One changes job per
 # run, where each tool's workflow used to start its own, leaves the runners to the work.
 #
-# Pull requests run on Linux. locallibrary's macOS and Windows jobs, which the plan's 5 macOS
-# runners can't keep up with on every push, run once for each merge queue group instead, or on a
-# pull request with the `all-os` label. A group also runs CodeQL and the quick static checks
+# Pull requests run on Linux, and locallibrary's Windows job when its code changed. Its macOS job,
+# which the plan's 5 macOS runners can't keep up with on every push, runs once for each merge queue
+# group instead, or on a pull request with the `all-os` label. A group also runs CodeQL and the quick static checks
 # (formatting, lint, types, unit tests, the repo's policies), on the commit that goes on main; its
 # pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
 # web app's and localtoolbox's coverage and sizes to compare with, the Rust and Docker caches when
@@ -63,6 +63,7 @@ jobs:
       locallibrary_budgets: ${{ steps.scope.outputs.locallibrary_budgets }}
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
       locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
+      locallibrary_macos: ${{ steps.scope.outputs.locallibrary_macos }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
       locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
       locallibrary_fuzz: ${{ steps.scope.outputs.locallibrary_fuzz }}
@@ -549,15 +550,15 @@ jobs:
           if [ "$CHANGED_FILES" -ge 3000 ] || matched ci; then all=true; fi
           changed() { [ "$all" = true ] || matched "$1"; }
           linux=true
-          other_os=${ALL_OS:-false}
-          if [ "$EVENT" = merge_group ]; then linux=false; other_os=true; fi
-          if [ "$DRAFT" = true ]; then linux=false; other_os=false; fi
+          macos=${ALL_OS:-false}
+          if [ "$EVENT" = merge_group ]; then linux=false; macos=true; fi
+          if [ "$DRAFT" = true ]; then linux=false; macos=false; fi
 
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands locallibrary_fuzz web_verify \
-            web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
+            locallibrary_dist locallibrary_other_os locallibrary_macos locallibrary_semver locallibrary_commands locallibrary_fuzz \
+            web_verify web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
             repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
             out[$name]=false
@@ -623,8 +624,12 @@ jobs:
             set_if repo_checks_ruleset changed repo_checks_ruleset
           fi
           # Not `all`: a change to this workflow tests its wiring on Linux, and macOS and Windows
-          # run only what changed for them.
-          if [ "$other_os" = true ] && { matched locallibrary || matched locallibrary_md; }; then out[locallibrary_other_os]=true; fi
+          # run only what changed for them. Windows runs on pull requests too, so a path or
+          # separator bug fails there rather than in the merge queue; macOS waits for the queue.
+          if matched locallibrary || matched locallibrary_md; then
+            if [ "$macos" = true ] || { [ "$linux" = true ] && [ "$EVENT" = pull_request ]; }; then out[locallibrary_other_os]=true; fi
+            out[locallibrary_macos]=$macos
+          fi
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
@@ -703,6 +708,7 @@ jobs:
       budgets: ${{ needs.changes.outputs.locallibrary_budgets == 'true' }}
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
       other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
+      macos: ${{ needs.changes.outputs.locallibrary_macos == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
       commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
       fuzz: ${{ needs.changes.outputs.locallibrary_fuzz == 'true' }}

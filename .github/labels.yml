@@ -186,11 +186,11 @@
   color: "cfd3d7"
   description: No issue to link, so the PR issue check passes
 
-# Read by .github/workflows/ci.yml: a pull request with it runs locallibrary's macOS and Windows
-# jobs too, which otherwise wait for the merge queue. Re-run CI after adding it.
+# Read by .github/workflows/ci.yml: a pull request with it runs locallibrary's macOS job too,
+# which otherwise waits for the merge queue. Re-run CI after adding it.
 - name: all-os
   color: "5319e7"
-  description: Run the macOS and Windows checks on this pull request
+  description: Run the macOS checks on this pull request
 
 # Opened and closed by .github/workflows/scheduled-issue.yml, which finds its open issue by it.
 - name: scheduled-failure

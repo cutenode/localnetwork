@@ -2,10 +2,11 @@ name: locallibrary CI
 
 # The quick checks of the Rust workspace, which ci.yml calls when a pull request, merge queue group
 # or push touches it: on Linux, everything below but other-os, and on macOS and Windows, other-os,
-# which ci.yml runs for each merge queue group (and on pull requests with the `all-os` label). The
-# slow suites (Bombadil, every feature combination, mutation testing, fuzzing, a release build)
-# and a weekly advisory check are in locallibrary-scheduled.yml, and locallibrary-cache.yml keeps
-# other-os's caches on main.
+# which ci.yml runs for each merge queue group. Pull requests run its Windows leg too, where path
+# and separator bugs show up, and its macOS one only with the `all-os` label, since the plan's 5
+# macOS runners can't keep up with every push. The slow suites (Bombadil, every feature
+# combination, mutation testing, fuzzing, a release build) and a weekly advisory check are in
+# locallibrary-scheduled.yml, and locallibrary-cache.yml keeps other-os's caches on main.
 on:
   workflow_call:
     inputs:
@@ -38,7 +39,11 @@ on:
         type: boolean
         required: true
       other-os:
-        description: Whether to run other-os, on macOS and Windows.
+        description: Whether to run other-os, on Windows.
+        type: boolean
+        required: true
+      macos:
+        description: Whether other-os runs on macOS too.
         type: boolean
         required: true
       semver:
@@ -156,8 +161,8 @@ jobs:
             exit 1
           fi
 
-  # What's behind cfg(windows), on a pull request rather than first in the merge queue's Windows
-  # job: clippy for the GNU target, cross-compiled on Linux with MinGW for the crates that build C.
+  # What's behind cfg(windows), well before other-os's Windows leg gets that far: clippy for the
+  # GNU target, cross-compiled on Linux with MinGW for the crates that build C.
   # The pre-push hook runs the same command (lefthook.yml). macOS has no such cross check, so it
   # waits for other-os.
   clippy-windows:
@@ -646,7 +651,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: ${{ fromJSON(inputs.macos && '["macos-latest", "windows-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     # Windows took 15 minutes to build and 7 to 13 for each of its three shards in run 41157262485, with
     # a warm cache and coverage on; one job without coverage still needs room for a cold cache.
