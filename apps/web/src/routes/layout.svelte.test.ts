@@ -2,7 +2,7 @@ import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
-import { draftKey } from '#lib/form-draft.svelte.ts';
+import { draftKey } from '#lib/form-draft.page-only.svelte.ts';
 import { SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
 import type { Viewer } from '#lib/types.ts';
 import Layout from './+layout.svelte';

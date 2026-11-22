@@ -2,7 +2,7 @@ import { page } from 'vitest/browser';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { draftKey, FormDraft, hasDraft } from '#lib/form-draft.svelte.ts';
+import { draftKey, FormDraft, hasDraft } from '#lib/form-draft.page-only.svelte.ts';
 import { clearSignedOutDrafts, SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
 import DraftNotice from './DraftNotice.svelte';
 import ProjectForm from './ProjectForm.svelte';

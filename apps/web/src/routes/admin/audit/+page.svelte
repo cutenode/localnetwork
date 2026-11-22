@@ -9,7 +9,7 @@
 	import { formatDateTime } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 

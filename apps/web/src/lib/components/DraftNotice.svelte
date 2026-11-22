@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { History } from '@lucide/svelte';
-	import type { FormDraft } from '#lib/form-draft.svelte.ts';
+	import type { FormDraft } from '#lib/form-draft.page-only.svelte.ts';
 	import { timeAgo } from '#lib/format.ts';
 
 	/** Says a form came back with its unsent changes, and offers to drop them. `files` adds that file inputs come back empty. */

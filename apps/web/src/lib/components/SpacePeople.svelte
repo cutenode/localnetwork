@@ -4,7 +4,7 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import type { JoinRequestView, PendingInvite, SpacePerson } from '#lib/types.ts';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 
 	type Pending = { invites: PendingInvite[]; requests: JoinRequestView[]; links: number };

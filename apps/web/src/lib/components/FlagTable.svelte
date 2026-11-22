@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatDate } from '#lib/format.ts';
 	import type { FlagView } from '#lib/types.ts';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 
 	/** Every flag in the catalog. Each opens on its own page, where it's changed. */
 	let { flags }: { flags: FlagView[] } = $props();

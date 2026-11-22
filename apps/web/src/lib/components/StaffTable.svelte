@@ -4,7 +4,7 @@
 	import StaffGrants from '#lib/components/StaffGrants.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import type { StaffMember } from '#lib/types.ts';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 
 	/** Everyone with a staff role. `viewer` can't remove their own, and nobody can remove one from `ADMIN_DIDS`. */
 	let { staff, viewer }: { staff: StaffMember[]; viewer: string | undefined } = $props();

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import GuideList from '../GuideList.svelte';
+	import GuideList from '../GuideList.page-only.svelte';
 
 	/**
 	 * A tool page or guide with the tool's guides on its left, folded into the page below `lg`. The

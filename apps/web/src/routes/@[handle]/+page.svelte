@@ -3,7 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
-	import FollowButton from '#lib/components/FollowButton.svelte';
+	import FollowButton from '#lib/components/FollowButton.page-only.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import PerformerFacts, { performerFacts } from '#lib/components/PerformerFacts.svelte';

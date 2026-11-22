@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { bookingGroup, bookingMark, bookingsByTurn, datePassed } from './bookings';
+import { bookingGroup, bookingMark, bookingsByTurn, datePassed } from './bookings.page-only';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 

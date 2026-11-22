@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import { enhance as enhanceForm, type SubmitFunction } from '$app/forms';
 	import { beforeNavigate } from '$app/navigation';
-	import { FormDraft } from '#lib/form-draft.svelte.ts';
+	import { FormDraft } from '#lib/form-draft.page-only.svelte.ts';
 	import LeaveDialog from './LeaveDialog.svelte';
 	import { type FieldEntries, fieldValues, mergeConflict, readFields, writeFields } from './fields.ts';
 	import type { ConflictField, EditActivity, EditRefusal, Navigate, PageStatus } from './types.ts';

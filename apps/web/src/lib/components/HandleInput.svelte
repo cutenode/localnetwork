@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type ActorSuggestion, searchActors } from '#lib/actors.ts';
-	import { Combobox } from '#lib/combobox.svelte.ts';
+	import { Combobox } from '#lib/combobox.page-only.svelte.ts';
 	import Avatar from './Avatar.svelte';
 
 	/**

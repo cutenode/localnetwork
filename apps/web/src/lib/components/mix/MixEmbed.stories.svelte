@@ -4,7 +4,7 @@
 	import { embedUrl } from '#lib/mix/links.ts';
 	import { light } from '#lib/testing/light.ts';
 	import { phone } from '#lib/testing/viewports.ts';
-	import MixEmbed from './MixEmbed.svelte';
+	import MixEmbed from './MixEmbed.page-only.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Platform player', component: MixEmbed, tags: ['autodocs'] });
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { LocateFixed, MapPin } from '@lucide/svelte';
-	import { Combobox } from '#lib/combobox.svelte.ts';
+	import { Combobox } from '#lib/combobox.page-only.svelte.ts';
 	import { placeKey, placeText, searchPlaces, type Place } from '#lib/places.ts';
 	import ComboboxOptions from './ComboboxOptions.svelte';
 

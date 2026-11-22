@@ -4,7 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import { stubFormAction } from '#lib/testing/form-action.ts';
 import type { IssuedVerification, SpacePerson, StaffMember } from '#lib/types.ts';
 import ChannelTopics from './ChannelTopics.svelte';
-import FollowButton from './FollowButton.svelte';
+import FollowButton from './FollowButton.page-only.svelte';
 import ProfileSetupForm from './ProfileSetupForm.svelte';
 import SpacePeople from './SpacePeople.svelte';
 import StaffTable from './StaffTable.svelte';

@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, userEvent, within } from 'storybook/test';
-	import { FormDraft } from '#lib/form-draft.svelte.ts';
+	import { FormDraft } from '#lib/form-draft.page-only.svelte.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import DraftNotice from './DraftNotice.svelte';
 

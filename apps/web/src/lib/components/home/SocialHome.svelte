@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Avatar from '#lib/components/Avatar.svelte';
-	import FollowButton from '#lib/components/FollowButton.svelte';
+	import FollowButton from '#lib/components/FollowButton.page-only.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import { pluralize } from '#lib/format.ts';
 	import { eventsOf, type HomeArea } from '#lib/home-events.ts';

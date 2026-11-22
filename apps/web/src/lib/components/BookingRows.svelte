@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type BookingGroup, bookingMark, isBookedSide } from '#lib/bookings.ts';
+	import { type BookingGroup, bookingMark, isBookedSide } from '#lib/bookings.page-only.ts';
 	import { accountLabel, timeAgo } from '#lib/format.ts';
 	import type { BookingListThread } from '#lib/types.ts';
 	import DateBlock from '#lib/ui/DateBlock.svelte';

@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { phone, tablet } from '#lib/testing/viewports.ts';
-	import ResponsiveTable from './ResponsiveTable.svelte';
+	import ResponsiveTable from './ResponsiveTable.page-only.svelte';
 
 	const { Story } = defineMeta({ title: 'Primitives/Responsive table', component: ResponsiveTable, tags: ['autodocs'] });
 

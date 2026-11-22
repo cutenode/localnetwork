@@ -2,7 +2,7 @@ import type { FlagKey } from '#lib/flags/keys.generated.ts';
 /** View models shared between server and browser code. */
 
 import type { BlobRef } from '@atproto/lex-data';
-import type { BookingRole } from './bookings.ts';
+import type { BookingRole } from './bookings.page-only.ts';
 import type { Capability, SpaceKind } from './capabilities.ts';
 import type { localnetwork } from './lexicons/computer.ts';
 

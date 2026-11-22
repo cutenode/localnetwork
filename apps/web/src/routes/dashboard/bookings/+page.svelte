@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import BookingRows from '#lib/components/BookingRows.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
-	import { bookingsByTurn } from '#lib/bookings.ts';
+	import { bookingsByTurn } from '#lib/bookings.page-only.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import type { PageProps } from './$types';

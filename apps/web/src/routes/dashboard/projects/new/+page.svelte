@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
-	import { draftKey } from '#lib/form-draft.svelte.ts';
+	import { draftKey } from '#lib/form-draft.page-only.svelte.ts';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 

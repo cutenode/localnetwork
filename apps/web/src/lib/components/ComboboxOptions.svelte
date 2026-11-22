@@ -1,5 +1,5 @@
 <script lang="ts" generics="T">
-	import type { Combobox } from '#lib/combobox.svelte.ts';
+	import type { Combobox } from '#lib/combobox.page-only.svelte.ts';
 	import { pluralize } from '#lib/format.ts';
 
 	/**
