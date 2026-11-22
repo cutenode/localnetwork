@@ -2,7 +2,7 @@
 
 Which public pages each kind of public page links to, whenever the data for the link exists. [ADR 0012](adr/0012-pages-follow-what-people-look-at-and-link-to-each-other.md) explains why, and the [glossary](../GLOSSARY.md) defines the page types. Each page type gets a test that fails when a page leaves out a link its table asks for and the data is there.
 
-The tests check every row marked `on main`. Each page type's checks are a module in [apps/web/src/lib/testing/link-matrix/](../apps/web/src/lib/testing/link-matrix/), and [link-matrix.svelte.test.ts](../apps/web/src/routes/link-matrix.svelte.test.ts) fails when a row marked `on main` has no check, or a check names a row that isn't. So a change that adds a missing link marks its row `on main` and adds its check, and a new page type adds a module.
+Each page type's table is a file in [link-matrix/](link-matrix/), named like its checks' module in [apps/web/src/lib/testing/link-matrix/](../apps/web/src/lib/testing/link-matrix/) (`profile.md` beside `profile.ts`). The tests check every row marked `on main`: [link-matrix.svelte.test.ts](../apps/web/src/routes/link-matrix.svelte.test.ts) fails when a row marked `on main` has no check, or a check names a row that isn't, and [link-matrix.test.ts](../apps/web/src/lib/testing/link-matrix.test.ts) fails when a module has no file, a file with a row marked `on main` has no module, or a table's cells are padded. So a change that adds a missing link marks its row `on main` and adds its check, and a new page type adds a file and a module. Tables keep one space each side of a cell, so changing a row changes that line only.
 
 The status column says where main stands, read at [`fe5cadef`](https://github.com/cutenode/localnetwork/tree/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598), and the source links are pinned there. A row a later change put on main links its file as it is now:
 
@@ -12,227 +12,29 @@ The status column says where main stands, read at [`fe5cadef`](https://github.co
 
 On main an act's page is still `/projects/<slug>`, from before acts, so its links are listed under Act. It moves to `/act/<key>/<name>` ([ADR 0016](adr/0016-names-repeat-keys-and-handles-identify.md)).
 
-- [Page types](#page-types)
-- [Profile](#profile)
-- [Act](#act)
-- [Party](#party)
-- [Venue](#venue)
-- [Event](#event)
-- [Set and mix](#set-and-mix)
-- [Press kit](#press-kit)
-- [Artist](#artist)
-- [Track](#track)
-- [Area](#area)
-- [Search](#search)
-- [Followers and Following](#followers-and-following)
-- [For](#for)
-- [For promoters](#for-promoters)
-- [Home](#home)
-- [Diagrams](#diagrams)
-
 ## Page types
 
-| Page type               | Path                                                                       | On main                                                                                                                                                                                                    |
-| ----------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Profile                 | `/@<handle>`, tabs as `?tab=`                                              | yes, without tabs                                                                                                                                                                                          |
-| Act                     | `/act/<key>/<name>`                                                        | as `/projects/<slug>`                                                                                                                                                                                      |
-| Party                   | `/party/<key>/<name>`                                                      | yes, behind `spacePages` ([routes/party/[key]/[...rest]](../apps/web/src/routes/party/%5Bkey%5D/%5B...rest%5D/%2Bpage.svelte))                                                                             |
-| Venue                   | `/venue/<key>/<name>`                                                      | yes, behind `spacePages` ([routes/venue/[key]/[[name]]](../apps/web/src/routes/venue/%5Bkey%5D/%5B%5Bname%5D%5D/%2Bpage.svelte))                                                                           |
-| Event                   | `/party/<key>/<event>/<name>`, or `/@<handle>/events/<rkey>` with no party | under a party, behind `spacePages` ([routes/party/[key]/[...rest]](../apps/web/src/routes/party/%5Bkey%5D/%5B...rest%5D/%2Bpage.svelte)); events with no party have no page                                |
-| Set (and mix)           | `/@<handle>/sets/<rkey>`; `/mixes` lists                                   | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>`                                                                                                                    |
-| Press kit               | under its performer                                                        | `/projects/<slug>/press-kits/<rkey>`                                                                                                                                                                       |
-| Artist                  | `/artists/<id>`                                                            | yes                                                                                                                                                                                                        |
-| Track                   | not set yet, behind a flag                                                 | no                                                                                                                                                                                                         |
-| Area                    | `/events/<country>/<city>`                                                 | no: `/shows` lists shows and parties' events near a city                                                                                                                                                   |
-| Search                  | `/search?q=&type=`                                                         | no: Find DJs (`/djs`) searches acts and listed DJs                                                                                                                                                         |
-| Followers and Following | on every profile, act, party and venue                                     | no ([routes/shows/+page.svelte:16-17](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/shows/%2Bpage.svelte#L16-L17) is the only use of follows) |
-| Home                    | `/`                                                                        | yes                                                                                                                                                                                                        |
-| For                     | `/for`                                                                     | yes                                                                                                                                                                                                        |
-| For promoters           | `/for/promoters`                                                           | yes                                                                                                                                                                                                        |
+| Page type | Path | On main |
+| --- | --- | --- |
+| [Profile](link-matrix/profile.md) | `/@<handle>`, tabs as `?tab=` | yes, without tabs |
+| [Act](link-matrix/act.md) | `/act/<key>/<name>` | as `/projects/<slug>` |
+| [Party](link-matrix/party.md) | `/party/<key>/<name>` | yes, behind `spacePages` ([routes/party/[key]/[...rest]](../apps/web/src/routes/party/%5Bkey%5D/%5B...rest%5D/%2Bpage.svelte)) |
+| [Venue](link-matrix/venue.md) | `/venue/<key>/<name>` | yes, behind `spacePages` ([routes/venue/[key]/[[name]]](../apps/web/src/routes/venue/%5Bkey%5D/%5B%5Bname%5D%5D/%2Bpage.svelte)) |
+| [Event](link-matrix/event.md) | `/party/<key>/<event>/<name>`, or `/@<handle>/events/<rkey>` with no party | under a party, behind `spacePages` ([routes/party/[key]/[...rest]](../apps/web/src/routes/party/%5Bkey%5D/%5B...rest%5D/%2Bpage.svelte)); events with no party have no page |
+| [Set (and mix)](link-matrix/set-and-mix.md) | `/@<handle>/sets/<rkey>`; `/mixes` lists | no: sets are rows inside other pages; a mix's tracklist is `/projects/<slug>/mixes/<n>` |
+| [Press kit](link-matrix/press-kit.md) | under its performer | `/projects/<slug>/press-kits/<rkey>` |
+| [Artist](link-matrix/artist.md) | `/artists/<id>` | yes |
+| [Track](link-matrix/track.md) | not set yet, behind a flag | no |
+| [Area](link-matrix/area.md) | `/events/<country>/<city>` | no: `/shows` lists shows and parties' events near a city |
+| [Search](link-matrix/search.md) | `/search?q=&type=` | no: Find DJs (`/djs`) searches acts and listed DJs |
+| [Followers and Following](link-matrix/followers-and-following.md) | on every profile, act, party and venue | no ([routes/shows/+page.svelte:16-17](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/shows/%2Bpage.svelte#L16-L17) is the only use of follows) |
+| [Home](link-matrix/home.md) | `/` | yes |
+| [For](link-matrix/for.md) | `/for` | yes |
+| [For promoters](link-matrix/for-promoters.md) | `/for/promoters` | yes |
 
-Wherever a handle shows, it links to that profile. That's on main through `profileHref` ([lib/format.ts:37-39](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/format.ts#L37-L39), [lib/components/Handle.svelte:14](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/Handle.svelte#L14)), so the tables below leave it out.
+Wherever a handle shows, it links to that profile. That's on main through `profileHref` ([lib/format.ts:37-39](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/format.ts#L37-L39), [lib/components/Handle.svelte:14](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/Handle.svelte#L14)), so the page types' tables leave it out.
 
-## Profile
-
-| Links to                                    | When                          | On main  | Source                                                                                                                                                                                                                  |
-| ------------------------------------------- | ----------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Acts they play in or manage                 | they're in one and not hidden | on main  | "Plays in" [routes/@\[handle\]/+page.svelte:134-137](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%40%5Bhandle%5D/%2Bpage.svelte#L134-L137)               |
-| Parties they host and venues they work with | they have one                 | new page |                                                                                                                                                                                                                         |
-| Their sets                                  | they published sets           | on main  | each set's name [lib/components/DjSets.svelte](../apps/web/src/lib/components/DjSets.svelte)                                                                                                                            |
-| Their mixes                                 | they have mixes               | missing  | no `tracklistHref` on profile mixes [routes/@\[handle\]/+page.svelte:70](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%40%5Bhandle%5D/%2Bpage.svelte#L70) |
-| Events they're on the lineup for            | they have credits             | new page | no shows section on profiles                                                                                                                                                                                            |
-| Events they went to ("Went to")             | they didn't turn it off       | new page |                                                                                                                                                                                                                         |
-| Their press kits                            | they're a DJ with press kits  | missing  | a listed DJ has no press kits                                                                                                                                                                                           |
-| Artists in their sets                       | they published sets           | on main  | [lib/components/DjSets.svelte:125](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/DjSets.svelte#L125)                                               |
-| Tracks in their sets                        | the tracks flag is on         | new page |                                                                                                                                                                                                                         |
-| Followers and Following                     | always                        | new page |                                                                                                                                                                                                                         |
-| Send an inquiry                             | they're a listed DJ           | on main  | signed in only, not on their own page [routes/@\[handle\]/+page.svelte](../apps/web/src/routes/%40%5Bhandle%5D/%2Bpage.svelte)                                                                                          |
-| locallibrary                                | they're a DJ                  | missing  | only once they've published stats, under How they play [lib/components/DjStats.svelte](../apps/web/src/lib/components/DjStats.svelte)                                                                                   |
-
-## Act
-
-| Links to                      | When                      | On main  | Source                                                                                                                                                                                                                                                       |
-| ----------------------------- | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Members' profiles             | members who aren't hidden | on main  | the handle beside "How they play" [routes/projects/\[slug\]/+page.svelte](../apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte)                                                                                                                         |
-| Managers' profiles            | it has managers           | on main  | "Managed by" [routes/projects/\[slug\]/+page.svelte:186](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte#L186)                                                 |
-| Its press kits                | it has press kits         | on main  | [routes/projects/\[slug\]/+page.svelte:80](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte#L80)                                                                |
-| Its mixes                     | it has mixes              | on main  | only those with a tracklist, to `/projects/<slug>/mixes/<n>` [routes/projects/\[slug\]/+page.svelte:124](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte#L124) |
-| Its sets                      | members published sets    | on main  | each set's name [lib/components/DjSets.svelte](../apps/web/src/lib/components/DjSets.svelte)                                                                                                                                                                 |
-| Events it's on the lineup for | it has credits            | new page | shows render inline [routes/projects/\[slug\]/+page.svelte:113-119](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte#L113-L119)                                 |
-| Parties and venues it played  | its events name them      | new page |                                                                                                                                                                                                                                                              |
-| Artists in its sets           | members published sets    | on main  | [lib/components/DjSets.svelte:125](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/DjSets.svelte#L125)                                                                                    |
-| Tracks in its sets            | the tracks flag is on     | new page |                                                                                                                                                                                                                                                              |
-| Followers and Following       | always                    | new page |                                                                                                                                                                                                                                                              |
-| Send an inquiry               | always                    | on main  | signed in only [routes/projects/\[slug\]/+page.svelte:70](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte#L70)                                                 |
-| locallibrary                  | members published stats   | on main  | "From locallibrary" under How they play [lib/components/DjStats.svelte](../apps/web/src/lib/components/DjStats.svelte)                                                                                                                                       |
-
-## Party
-
-| Links to                               | When                    | On main  |
-| -------------------------------------- | ----------------------- | -------- |
-| Its upcoming events                    | it has events           | on main  |
-| Its past events                        | it has past events      | missing  |
-| Hosts' and cohosts' profiles           | they aren't hidden      | on main  |
-| Venues it runs nights at               | its events name them    | missing  |
-| Performers who played it               | its events have lineups | new page |
-| Community photos' submitters' profiles | a photo was approved    | new page |
-| Its area                               | its events have a venue | new page |
-| Followers and Following                | always                  | new page |
-
-## Venue
-
-| Links to                               | When                    | On main  |
-| -------------------------------------- | ----------------------- | -------- |
-| Its upcoming events                    | it has events           | on main  |
-| Its past events                        | it has past events      | missing  |
-| Parties that run nights there          | its events name a party | on main  |
-| Performers who played there            | its events have lineups | new page |
-| Community photos' submitters' profiles | a photo was approved    | new page |
-| Its area                               | always                  | new page |
-| Followers and Following                | always                  | new page |
-
-## Event
-
-In the event page's order ([lib/components/EventPage.svelte](../apps/web/src/lib/components/EventPage.svelte)). A DJ on the lineup links to their profile; an act links to its page once acts have one.
-
-| Links to                                     | When                                      | On main  | Source                                                                                                     |
-| -------------------------------------------- | ----------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
-| Venue                                        | always                                    | on main  | the line under its date [lib/components/EventPage.svelte](../apps/web/src/lib/components/EventPage.svelte) |
-| Party                                        | it belongs to one                         | on main  | the line above its name [lib/components/EventPage.svelte](../apps/web/src/lib/components/EventPage.svelte) |
-| Profiles of your network going or interested | signed in, and they didn't hide it        | new page |                                                                                                            |
-| Each performer on the lineup                 | always                                    | on main  | "Lineup" [lib/components/EventPage.svelte](../apps/web/src/lib/components/EventPage.svelte)                |
-| A mix by each performer                      | the performer has one                     | new page |                                                                                                            |
-| The venue's other events                     | it has others                             | new page |                                                                                                            |
-| Community photos' submitters' profiles       | a photo was approved                      | new page |                                                                                                            |
-| Sets played there                            | after the night, when sets were published | new page |                                                                                                            |
-| Ticket sites                                 | it has a ticket link                      | on main  | Tickets [lib/components/EventPage.svelte](../apps/web/src/lib/components/EventPage.svelte)                 |
-| Its area                                     | always                                    | new page |                                                                                                            |
-
-## Set and mix
-
-A mix is a set's page with the player. On main the closest page is a mix's tracklist report, `/projects/<slug>/mixes/<n>`.
-
-| Links to                            | When                         | On main  | Source                                                                                                                                                                                                                                                                |
-| ----------------------------------- | ---------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Credited performers                 | always                       | on main  | back to the act [routes/projects/\[slug\]/mixes/\[n\]/+page.svelte:18](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/mixes/%5Bn%5D/%2Bpage.svelte#L18); missing to members' profiles |
-| The set itself, from a mix          | the mix links a set          | on main  | "Set:" [lib/components/LinkedSet.svelte](../apps/web/src/lib/components/LinkedSet.svelte)                                                                                                                                                                             |
-| The show and event it was played at | it was played at an event    | new page |                                                                                                                                                                                                                                                                       |
-| Each tracklist row's artist         | the row names one            | on main  | on the tracklist page [lib/components/mix/MixTracklist.svelte](../apps/web/src/lib/components/mix/MixTracklist.svelte)                                                                                                                                                |
-| Each tracklist row's track          | the tracks flag is on        | new page |                                                                                                                                                                                                                                                                       |
-| Press kits                          | the performer has press kits | missing  |                                                                                                                                                                                                                                                                       |
-
-## Press kit
-
-| Links to                         | When                   | On main  | Source                                                                                                                                                                                                                                                                                                       |
-| -------------------------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Its performer                    | always                 | missing  | the back link goes to the act's press kits, not the act [routes/projects/\[slug\]/press-kits/\[rkey\]/+page.svelte:56](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/press-kits/%5Brkey%5D/%2Bpage.svelte#L56)              |
-| Its mixes                        | it has mixes           | on main  | [lib/components/epk/EpkMixes.svelte:27](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/epk/EpkMixes.svelte#L27)                                                                                                                          |
-| Sets                             | the performer has sets | on main  | each set's name [lib/components/DjSets.svelte](../apps/web/src/lib/components/DjSets.svelte)                                                                                                                                                                                                                 |
-| Events on the performer's lineup | it has credits         | new page |                                                                                                                                                                                                                                                                                                              |
-| Artists in its sets              | it shows sets          | on main  | [lib/components/supports/ArtistLinks.svelte:9](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/supports/ArtistLinks.svelte#L9)                                                                                                            |
-| Send an inquiry                  | its act has managers   | missing  | only when the press kit has no contact details, to visitors let in [routes/projects/\[slug\]/press-kits/\[rkey\]/+page.svelte:156](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/press-kits/%5Brkey%5D/%2Bpage.svelte#L156) |
-
-## Artist
-
-| Links to                           | When                  | On main  | Source                                                                                                                                                                                                  |
-| ---------------------------------- | --------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Acts who played their tracks       | always                | on main  | [lib/components/supports/ArtistSupport.svelte:30](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/supports/ArtistSupport.svelte#L30) |
-| Listed DJs who played their tracks | always                | on main  | each play's handle [lib/components/supports/ArtistSupport.svelte](../apps/web/src/lib/components/supports/ArtistSupport.svelte)                                                                         |
-| The sets each play is in           | always                | on main  | each play's place [lib/components/supports/ArtistSupport.svelte](../apps/web/src/lib/components/supports/ArtistSupport.svelte)                                                                          |
-| Their tracks                       | the tracks flag is on | new page |                                                                                                                                                                                                         |
-
-## Track
-
-Behind a flag until the dataset is public.
-
-| Links to                   | When   | On main  |
-| -------------------------- | ------ | -------- |
-| Its artists                | always | new page |
-| Sets that played it        | always | new page |
-| DJs and acts who played it | always | new page |
-
-## Area
-
-| Links to                 | When             | On main  | Source                                                                                                                                                                                                         |
-| ------------------------ | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Its events               | always           | new page | `/shows` rows link the act instead [lib/components/ShowList.svelte:79](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/ShowList.svelte#L79) |
-| Its venues and parties   | they have events | new page |                                                                                                                                                                                                                |
-| DJs and mixes from there | always           | new page |                                                                                                                                                                                                                |
-
-## Search
-
-One tab per kind. Each result links its page.
-
-| Links to                             | On main  | Source                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Acts and listed DJs                  | on main  | Find DJs cards [lib/performers.ts:24](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/performers.ts#L24), [lib/performers.ts:42](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/performers.ts#L42) |
-| Profiles that aren't listed DJs      | missing  |                                                                                                                                                                                                                                                                                                                     |
-| Parties, venues, events, sets, mixes | new page |                                                                                                                                                                                                                                                                                                                     |
-| Artists                              | missing  | artist search is its own page, `/artists`, reached from one button on Charts [routes/charts/+page.svelte:16](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/charts/%2Bpage.svelte#L16)                                                                  |
-| Tracks                               | new page |                                                                                                                                                                                                                                                                                                                     |
-| locallibrary                         | on main  | "Get locallibrary" under the Find DJs header [routes/djs/+page.svelte](../apps/web/src/routes/djs/+page.svelte)                                                                                                                                                                                                     |
-
-## Followers and Following
-
-Each row links the profile, act, party or venue it names, with a filter by kind. Neither list exists on main.
-
-## For
-
-The page that sends each visitor to the landing page for their side: one door for promoters, one for DJs, and a way out for people who only want the music.
-
-| Links to      | When   | On main | Source                                                                                 |
-| ------------- | ------ | ------- | -------------------------------------------------------------------------------------- |
-| For promoters | always | on main | the promoters' door [routes/for/+page.svelte](../apps/web/src/routes/for/+page.svelte) |
-| For DJs       | always | on main | the DJs' door                                                                          |
-| Find DJs      | always | on main | under "Just here for the music?"                                                       |
-
-## For promoters
-
-The landing page for people who book DJs. It links what a promoter uses, with real listings from the directory.
-
-| Links to             | When                        | On main | Source                                                                                                                |
-| -------------------- | --------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| Find DJs             | always                      | on main | the search and "Open Find DJs" [routes/for/promoters/+page.svelte](../apps/web/src/routes/for/promoters/+page.svelte) |
-| Acts and listed DJs  | the directory has a listing | on main | the example listing and the shortlist                                                                                 |
-| Match a show         | always                      | on main | the shortlist's search on `/match`                                                                                    |
-| Press kits           | the directory has a listing | on main | the example listing's press kits                                                                                      |
-| For DJs              | always                      | on main | under the search                                                                                                      |
-| Turning on promoting | not promoting yet           | on main | Sign in, or the promoter section of the profile editor                                                                |
-| Planner              | promoting                   | on main | the closing call                                                                                                      |
-
-## Home
-
-| Links to                               | When                               | On main  | Source                                                                                                                                                                                       |
-| -------------------------------------- | ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Upcoming events in your area           | signed out                         | new page | upcoming shows, each linking its act [routes/+page.svelte:53](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/%2Bpage.svelte#L53) |
-| DJs and mixes from your area           | signed out, the socialHome flag on | on main  | "Who's playing near" and "Mixes from around" [lib/components/home/SocialHome.svelte](../apps/web/src/lib/components/home/SocialHome.svelte)                                                  |
-| For promoters                          | signed out, the socialHome flag on | on main  | "Local Network for promoters" under the search [lib/components/home/SocialHome.svelte](../apps/web/src/lib/components/home/SocialHome.svelte)                                                |
-| What your network did, under Following | signed in                          | new page |                                                                                                                                                                                              |
-| Suggestions, under For you             | signed in                          | new page |                                                                                                                                                                                              |
-
-## Diagrams
-
-### Links every page type needs
+## Links every page type needs
 
 Each arrow is a link the tables ask for, in the direction it points. Followers and Following, search and the handle links are left out, since every page has them.
 
@@ -261,75 +63,4 @@ flowchart LR
     area --> event & venue & party & profile & act & set
 ```
 
-Source: the tables above, [ADR 0012](adr/0012-pages-follow-what-people-look-at-and-link-to-each-other.md)
-
-### Links on main
-
-Solid arrows exist on main: at `fe5cadef`, and the rows marked `on main` since. Dotted arrows are missing between pages that both exist. Page types with no page yet are left out.
-
-```mermaid
-flowchart LR
-    profile["Profile /@handle"]
-    act["Act /projects/slug"]
-    kit["Press kit"]
-    set["Set /@handle/sets/rkey"]
-    mix["Mix tracklist /projects/slug/mixes/n"]
-    shows["Shows /shows"]
-    artist["Artist /artists/id"]
-    find["Find DJs /djs"]
-    forpage["For /for"]
-    djs["For DJs /for/djs"]
-    promoters["For promoters /for/promoters"]
-    party["Party /party/key/name"]
-    event["Event /party/key/event/name"]
-    venue["Venue /venue/key/name"]
-
-    profile -->|"Plays in"| act
-    profile --> set
-    profile --> artist
-    act -->|"Managed by, members"| profile
-    act --> kit
-    act --> set
-    act --> mix
-    act --> artist
-    kit --> set
-    kit --> mix
-    kit --> artist
-    set -->|"back link"| profile
-    set --> mix
-    set --> act
-    set --> artist
-    mix -->|"back link"| act
-    mix -->|"Set:"| set
-    mix --> artist
-    shows --> act
-    artist --> act
-    artist -->|"listed DJs"| profile
-    artist --> set
-    find --> act
-    find --> profile
-    forpage --> promoters
-    forpage --> djs
-    forpage --> find
-    promoters --> djs
-    promoters --> find
-    promoters --> act
-    promoters --> kit
-    profile -.->|"mixes"| mix
-    profile -.->|"press kits"| kit
-    kit -.->|"performer"| act
-    mix -.->|"members"| profile
-    party -->|"Upcoming events"| event
-    party -->|"Hosted by"| profile
-    event --> party
-    event --> venue
-    event -->|"Lineup"| profile
-    venue -->|"Upcoming events"| event
-    venue --> party
-    shows --> event
-    shows --> party
-    shows --> venue
-    party -.->|"venues"| venue
-```
-
-Source: the tables above, read at [`fe5cadef`](https://github.com/cutenode/localnetwork/tree/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598) and updated as rows turn `on main`
+Source: the page types' tables in [link-matrix/](link-matrix/), [ADR 0012](adr/0012-pages-follow-what-people-look-at-and-link-to-each-other.md)

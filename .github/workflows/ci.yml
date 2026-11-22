@@ -246,7 +246,7 @@ jobs:
               - '.github/workflows/locallibrary-ci.yml'
             # The web app, and what its Docker image copies in from outside apps/web: the shared
             # tokens, and the tools' READMEs, docs and changelogs for their pages (see .dockerignore).
-            # Its tests also read its bug report form and docs/link-matrix.md, and `pnpm check`
+            # Its tests also read its bug report form and the link matrix, and `pnpm check`
             # type-checks the root's tools/ (its tsconfig includes them).
             web: &web
               - 'apps/web/**'
@@ -261,6 +261,7 @@ jobs:
               - '.github/labels.yml'
               - '.github/ISSUE_TEMPLATE/web-bug.yml'
               - 'docs/link-matrix.md'
+              - 'docs/link-matrix/**'
               - 'tools/**/*.ts'
               - 'packages/tokens/**'
               - 'package.json'

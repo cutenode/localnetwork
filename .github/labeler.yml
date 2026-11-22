@@ -1,7 +1,7 @@
 # Which labels a pull request gets from the files it changes (see .github/workflows/pr-labels.yml).
 web:
   - changed-files:
-      - any-glob-to-any-file: ["apps/web/**", "packages/tokens/**", "flags/**"]
+      - any-glob-to-any-file: ["apps/web/**", "packages/tokens/**", "flags/**", "docs/link-matrix{.md,/**}"]
 
 locallibrary:
   - changed-files:

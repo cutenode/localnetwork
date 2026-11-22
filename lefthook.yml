@@ -143,6 +143,7 @@ pre-push:
         - 'README.md'
         - '.github/{CONTRIBUTING.md,SECURITY.md,labels.yml,ISSUE_TEMPLATE/web-bug.yml}'
         - 'docs/link-matrix.md'
+        - 'docs/link-matrix/**'
         - 'tools/budgets/**'
         - 'tools/*.ts'
         - 'benchmarks/budgets/web.json'

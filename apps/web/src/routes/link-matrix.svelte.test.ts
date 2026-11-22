@@ -1,7 +1,6 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
-import matrix from '../../../../docs/link-matrix.md?raw';
-import { matrixRows, type LinkChecks } from '#lib/testing/link-matrix.ts';
+import { matrixDocs, matrixRows, type LinkChecks } from '#lib/testing/link-matrix.ts';
 
 // One module per page type, so a page type's issue adds its checks without touching the others'.
 const pageTypes = Object.values(
@@ -21,8 +20,9 @@ describe.each(pageTypes)('$pageType', ({ render, links }) => {
 	});
 });
 
-it('checks every row docs/link-matrix.md marks on main, and only those', () => {
-	const onMain = matrixRows(matrix)
+it('checks every row docs/link-matrix/ marks on main, and only those', () => {
+	const onMain = Object.values(matrixDocs)
+		.flatMap((markdown) => matrixRows(markdown))
 		.filter((row) => row.onMain === 'on main')
 		.map((row) => `${row.pageType}: ${row.linksTo}`);
 
