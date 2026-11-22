@@ -5,6 +5,7 @@
 		"npm ci --prefix apps/locallibrary/bombadil",
 		"pnpm lint:tools",
 		"pnpm check:tools",
+		"pnpm knip",
 		"pnpm -r --no-bail verify"
 	],
 	"verify:rust": [

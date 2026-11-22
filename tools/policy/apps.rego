@@ -70,16 +70,10 @@ checked_jobs contains [path, name] if {
 	some name, _ in lib.file(path).jobs
 }
 
-# The steps of the root's verify scripts (tools/verify/steps.json), and the commands of the apps'
-# `verify`, which the root's runs. An app's `pnpm -w` runs the root's script.
+# The steps of the root's verify scripts (tools/verify/steps.json).
 verify_commands contains c if {
 	some commands in lib.file("tools/verify/steps.json")
 	some c in commands
-}
-
-verify_commands contains regex.replace(trim_space(c), `^pnpm -w `, "pnpm ") if {
-	some path in lib.paths("{apps,packages}/*/package.json")
-	some c in split(lib.file(path).scripts.verify, "&&")
 }
 
 # Steps that set up the runner (the checkout, toolchains, caches, installs), which a laptop has done.

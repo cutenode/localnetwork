@@ -135,13 +135,13 @@ test_pre_push_job_without_a_glob if {
 
 # CI's checks with a step of each kind the verify scripts are held to, and the scripts that run them.
 ci_checks := array.concat(
-	[f | some f in fixtures.repo; f.path != "apps/site/package.json"],
+	fixtures.repo,
 	[
 		{"path": "tools/verify/steps.json", "contents": {
+			"verify": ["pnpm knip"],
 			"verify:rust": ["cargo fmt --all --check", "cargo doc-strict"],
 			"verify:repo": ["pnpm exec ast-grep scan", "git ls-files -z \"*.sh\" | xargs -0 shellcheck", "npm ci --prefix apps/b", "npm run check --prefix apps/c"],
 		}},
-		{"path": "apps/site/package.json", "contents": json.patch(site, [{"op": "replace", "path": "/scripts/verify", "value": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test"}])},
 		{"path": ".github/workflows/locallibrary-ci.yml", "contents": {"jobs": {
 			"lint": {"steps": [
 				{"uses": "actions/checkout@abc"},
@@ -168,7 +168,7 @@ test_ci_steps_in_verify if {
 }
 
 test_ci_step_missing_from_verify if {
-	steps := {"verify:rust": ["cargo fmt --all --check"], "verify:repo": ["pnpm exec ast-grep scan"]}
+	steps := {"verify": ["pnpm knip"], "verify:rust": ["cargo fmt --all --check"], "verify:repo": ["pnpm exec ast-grep scan"]}
 	repo := array.concat([f | some f in ci_checks; f.path != "tools/verify/steps.json"], [{"path": "tools/verify/steps.json", "contents": steps}])
 	denied := apps.deny with input as repo
 	denied == {

@@ -100,9 +100,9 @@ jobs:
           tool: taplo@0.10.0
       - run: taplo fmt --check
 
-  # Knip over the whole repo, so a change to tools/ or Bombadil alone, which starts no app's CI, gets
-  # checked too. A job of its own so the policies don't wait on installing every app, whose configs
-  # knip loads.
+  # Knip over the whole repo, the one place CI runs it, so a change to tools/ or Bombadil alone, which
+  # starts no app's CI, gets checked too. A job of its own so the policies don't wait on installing
+  # every app, whose configs knip loads.
   knip:
     if: github.event_name == 'workflow_dispatch' || inputs.policy
     runs-on: ubuntu-latest
