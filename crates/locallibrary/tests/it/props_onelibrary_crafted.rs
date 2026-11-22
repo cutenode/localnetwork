@@ -7,8 +7,9 @@ use std::sync::OnceLock;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::model::{AudioFile, TrackFields};
-use locallibrary::onelibrary::cipher::{self, PAGE_SIZE};
-use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
+use locallibrary::onelibrary::{self, OneLibrary};
+use loclib_rekordbox_db::onelibrary::cipher::{self, PAGE_SIZE};
+use loclib_rekordbox_db::onelibrary::{ContentRecord, CueRow, Tree};
 use rusqlite::types::Value;
 
 use crate::props_onelibrary::new_library;
@@ -149,7 +150,7 @@ fn write(one: &mut OneLibrary, op: usize) -> locallibrary::Result<String> {
             one.add_my_tag(90, 0, "Era", true)?;
             one.add_my_tag(91, 90, "Nineties", false)?;
             // Not a category: refused whatever the schema.
-            let under_a_tag = one.add_my_tag(92, 91, "Late", false).map_err(|e| e.code());
+            let under_a_tag = one.add_my_tag(92, 91, "Late", false).map_err(|e| locallibrary::Error::from(e).code());
             one.rename_my_tag(91, "90s")?;
             let linked = one.link_my_tag(91, &[1, 2, 3])?;
             let unlinked = (one.unlink_my_tag(91, &[1])?, one.unlink_my_tags_of(&[2])?);
@@ -285,7 +286,7 @@ fn prop_a_schema_lacking_what_is_needed_is_reported(tc: TestCase) {
 /// `bytes` with the root page of `table`'s b-tree (or the schema table's) damaged in one of
 /// three ways, re-encrypted with the file's own salt.
 fn damaged(bytes: &[u8], table: &str, kind: u8) -> Vec<u8> {
-    let (codec, mut plain) = onelibrary::decrypt(bytes, None).unwrap();
+    let (codec, mut plain) = loclib_rekordbox_db::onelibrary::decrypt(bytes, None).unwrap();
     let one = OneLibrary::from_encrypted(bytes, None).unwrap();
     let root: u32 = one
         .connection()
@@ -320,7 +321,7 @@ fn prop_damaged_databases_hash_but_never_open(tc: TestCase) {
     let bad = damaged(intact, &table, tc.draw(gs::integers::<u8>().max_value(2)));
     let hashes = onelibrary::content_hashes(&bad, None).unwrap();
     assert_ne!(hashes, onelibrary::content_hashes(intact, None).unwrap());
-    let (codec, plain) = onelibrary::decrypt(&bad, None).unwrap();
+    let (codec, plain) = loclib_rekordbox_db::onelibrary::decrypt(&bad, None).unwrap();
     assert_eq!(onelibrary::content_hashes(&codec.encrypt(&plain).unwrap(), None).unwrap(), hashes);
     // Damage SQLite meets reading the schema is its own error rather than a check's finding.
     let err = OneLibrary::from_encrypted(&bad, None).unwrap_err().to_string();
@@ -355,7 +356,7 @@ fn prop_a_damaged_working_copy_is_never_saved(tc: TestCase) {
             assert!(!damage, "a damaged {table} was saved");
             assert_eq!(OneLibrary::from_encrypted(&bytes, None).unwrap().library().unwrap().tracks.len(), 3);
         }
-        Err(e) => assert!(damage && e.code() == "onelibrary", "{e}"),
+        Err(e) => assert!(damage && matches!(e, loclib_rekordbox_db::Error::OneLibrary(_)), "{e}"),
     }
 }
 
@@ -371,7 +372,7 @@ fn prop_a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     if none {
         one.connection().execute_batch("DROP TABLE property").unwrap();
         let bytes = one.to_encrypted().unwrap();
-        let (codec, plain) = onelibrary::decrypt(&bytes, None).unwrap();
+        let (codec, plain) = loclib_rekordbox_db::onelibrary::decrypt(&bytes, None).unwrap();
         let again = codec.encrypt(&plain).unwrap();
         assert_eq!(
             onelibrary::content_hashes(&again, None).unwrap(),
@@ -396,7 +397,7 @@ fn prop_a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     let after = one.to_encrypted().unwrap();
     let hash = |b: &[u8]| onelibrary::content_hash(b, None).unwrap();
     assert_eq!(hash(&before) == hash(&after), !many, "{rows} rows");
-    let (codec, plain) = onelibrary::decrypt(&after, None).unwrap();
+    let (codec, plain) = loclib_rekordbox_db::onelibrary::decrypt(&after, None).unwrap();
     assert_eq!(hash(&codec.encrypt(&plain).unwrap()), hash(&after));
     assert!(cipher::for_file(&after).is_ok());
 }
@@ -411,7 +412,7 @@ fn prop_ids_players_cant_number_are_refused(tc: TestCase) {
         gs::integers::<i64>().min_value(i64::from(u32::MAX) + 1)
     ));
     // (statements setting `{id}`, whether a negative one means none, and the reader to try)
-    type Reader = fn(&OneLibrary) -> locallibrary::Result<String>;
+    type Reader = fn(&OneLibrary) -> loclib_rekordbox_db::Result<String>;
     let library: Reader = |one| one.library().map(|l| format!("{l:?}"));
     let images: Reader = |one| one.images_used_outside_tracks().map(|i| format!("{i:?}"));
     let banks: Reader = |one| one.hot_cue_bank_lists().map(|b| format!("{b:?}"));

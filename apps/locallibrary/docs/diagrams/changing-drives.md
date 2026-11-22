@@ -288,7 +288,7 @@ flowchart TD
     commit --> journal["One entry in the journal"]
 ```
 
-Source: [`crates/locallibrary/src/edit.rs`](../../../../crates/locallibrary/src/edit.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs)
+Source: [`crates/locallibrary/src/edit.rs`](../../../../crates/locallibrary/src/edit.rs), [`crates/loclib-rekordbox-db/src/onelibrary/mod.rs`](../../../../crates/loclib-rekordbox-db/src/onelibrary/mod.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs)
 
 ## Edits after an export
 

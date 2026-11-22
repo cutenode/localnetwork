@@ -10,7 +10,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::pack::{self, PackOptions};
 use locallibrary::progress::Ctx;
 use locallibrary::{artwork, paths};
@@ -35,7 +35,7 @@ fn prop_a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase)
     let root = source(dir.path(), n);
     common::add_onelibrary(&root);
     // Images on OneLibrary playlists: some drawn number, each perhaps with its smaller variant.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let art =
         fs::read(paths::to_fs(&root, &paths::key(&common::library(&root).tracks[0].artwork_path.clone().unwrap())))
             .unwrap();

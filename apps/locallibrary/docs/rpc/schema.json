@@ -20777,17 +20777,20 @@
         "updated": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Rows changed in place."
         },
         "added": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Rows added."
         },
         "removed": {
           "type": "integer",
           "format": "uint",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Rows removed."
         },
         "bank_list_entries_removed": {
           "type": "integer",

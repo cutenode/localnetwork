@@ -156,14 +156,14 @@ fn restore_preview_shows_what_deleting_a_track_would_bring_back() {
 #[test]
 fn diffs_show_what_changed_in_onelibrary() {
     use locallibrary::edit::Edit;
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     let dir = tempfile::tempdir().unwrap();
     let a = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&a);
     let b = dir.path().join("B");
     common::copy_dir(&a, &b);
     common::apply(&b, &[Edit::CreatePlaylist { path: "Mine".into(), folder: false }]);
-    let mut one = OneLibrary::open_root(&b).unwrap();
+    let mut one = onelibrary::open_root(&b).unwrap();
     one.create_playlist("Booth", 0, false).unwrap();
     fs::write(b.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 
@@ -181,13 +181,13 @@ fn diffs_show_what_changed_in_onelibrary() {
 /// only in OneLibrary isn't counted as the same.
 #[test]
 fn a_playlist_only_onelibrary_has_or_changed_is_diffed() {
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     let dir = tempfile::tempdir().unwrap();
     let a = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&a);
     let b = dir.path().join("B");
     common::copy_dir(&a, &b);
-    let mut one = OneLibrary::open_root(&b).unwrap();
+    let mut one = onelibrary::open_root(&b).unwrap();
     let booth = one.create_playlist("Booth", 0, false).unwrap();
     one.add_to_playlist(booth, 1).unwrap();
     let aab = one.library().unwrap().find_playlist("aab").unwrap().id;

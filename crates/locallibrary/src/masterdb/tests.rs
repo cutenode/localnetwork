@@ -2,7 +2,8 @@ use rusqlite::params;
 
 use super::*;
 use crate::model::Playlist;
-use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
+use loclib_rekordbox_db::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
+use loclib_rekordbox_db::onelibrary::kind_for_hot_cue;
 
 /// With no temporary folder to unpack a copy into (`TMPDIR` on a drive that's gone), reading,
 /// copying and listing a `master.db` each fail naming that folder, not the database.
@@ -325,7 +326,7 @@ fn a_damaged_b_tree_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let f = sample();
     let codec = codec(DEFAULT_KEY);
-    let bytes = crate::onelibrary::tests::with_broken_table(&f.conn, &codec, f.plain(), "djmdCue");
+    let bytes = loclib_rekordbox_db::test_util::with_broken_table(&f.conn, &codec, f.plain(), "djmdCue");
     let path = write(dir.path(), &bytes);
     let err = open(&path, DEFAULT_KEY).unwrap_err().to_string();
     assert!(err.contains("SQLite finds it damaged"), "{err}");
@@ -365,7 +366,7 @@ fn committed_wal_frames_are_replayed_and_the_original_is_left_alone() {
         })
         .collect();
     let path = write(dir.path(), &codec.encrypt(&before).unwrap());
-    let wal = crate::onelibrary::wal::tests::build(PAGE_SIZE, (1, 2), &frames);
+    let wal = loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (1, 2), &frames);
     std::fs::write(dir.path().join("master.db-wal"), &wal).unwrap();
     let original = std::fs::read(&path).unwrap();
 
@@ -383,7 +384,7 @@ fn master_db_is_copied_again_when_its_wal_restarts_meanwhile() {
     let dir = tempfile::tempdir().unwrap();
     let (path, to) = (dir.path().join("master.db"), dir.path().join("copy"));
     let wal_path = dir.path().join("master.db-wal");
-    let generation = |salts| crate::onelibrary::wal::tests::build(PAGE_SIZE, salts, &[]);
+    let generation = |salts| loclib_sqlcipher::wal::tests::build(PAGE_SIZE, salts, &[]);
     std::fs::write(&path, "before the checkpoint").unwrap();
     std::fs::write(&wal_path, generation((1, 2))).unwrap();
     // rekordbox checkpoints into master.db and restarts its WAL just after the first copy.
@@ -1070,7 +1071,7 @@ fn prop_a_collection_reads_with_the_changes_its_wal_holds(tc: hegel::TestCase) {
                     (p, commit, codec.encrypt_page(p, &after[at..at + PAGE_SIZE]).unwrap())
                 })
                 .collect();
-            (codec.encrypt(&before).unwrap(), crate::onelibrary::wal::tests::build(PAGE_SIZE, (1, 2), &frames))
+            (codec.encrypt(&before).unwrap(), loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (1, 2), &frames))
         }
     };
     let copy = dir.path().join("copy");
@@ -1209,7 +1210,7 @@ fn prop_a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (path, to) = (dir.path().join("master.db"), dir.path().join("copy"));
     let wal_path = dir.path().join("master.db-wal");
-    let generation = |n: u32| crate::onelibrary::wal::tests::build(PAGE_SIZE, (n, n + 1), &[]);
+    let generation = |n: u32| loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (n, n + 1), &[]);
     std::fs::write(&path, "state 0").unwrap();
     let start = tc.draw(gs::integers::<u8>().max_value(2));
     match start {

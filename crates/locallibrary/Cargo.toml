@@ -120,6 +120,7 @@ loclib-aup = { workspace = true, features = ["schemars"] }
 loclib-drive-speed = { workspace = true, features = ["schemars"] }
 loclib-format = { workspace = true, features = ["schemars"] }
 loclib-disk.workspace = true
+loclib-rekordbox-db = { workspace = true, features = ["schemars"] }
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }
@@ -141,6 +142,7 @@ loclib-sqlcipher = { workspace = true, features = ["test-util"] }
 loclib-aup = { workspace = true, features = ["test-util"] }
 loclib-drive-speed = { workspace = true, features = ["test-util"] }
 loclib-format = { workspace = true, features = ["test-util"] }
+loclib-rekordbox-db = { workspace = true, features = ["test-util"] }
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

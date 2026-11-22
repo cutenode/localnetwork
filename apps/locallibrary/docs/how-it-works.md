@@ -32,6 +32,9 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
                             exportLibrary.db and master.db are decrypted and written
+crates/loclib-rekordbox-db/ rekordbox's OneLibrary database (exportLibrary.db): its passphrase and the keys
+                            derived from it, kept between runs; reading, editing and re-encrypting a working
+                            copy through SQLite
 crates/loclib-anlz/         rekordbox's analysis files (ANLZ0000.DAT, .EXT, .2EX): path rewriting, beat grid,
                             cues (read and write), waveforms, phrases, decoded into loclib-model's analysis
                             types; the writers keep every section they don't change byte for byte
@@ -179,8 +182,8 @@ crates/locallibrary/src/    the library, built on the crates above
   anlz.rs      a track's analysis files on a drive, read through loclib-anlz (which it re-exports)
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
-  onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
-               cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
+  onelibrary.rs  a drive's exportLibrary.db and its WAL: reading them, and writing an edited
+               database back (the database itself is loclib-rekordbox-db's)
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
   format/      drive formatting: which layouts players read, which disks may be erased, the plan, and
                running the fake-capacity probe (loclib-capacity) first; the disks and the work are

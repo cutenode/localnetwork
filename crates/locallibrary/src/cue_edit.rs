@@ -25,10 +25,11 @@ use crate::edit::Replayed;
 use crate::fsutil;
 use crate::hash::Hash;
 use crate::model::{Library, Track, TrackColor, TrackRef};
-use crate::onelibrary::{CueRow, CueRowChanges, OneLibrary};
+use crate::onelibrary::OneLibrary;
 use crate::paths::{self, FileClass};
 use crate::progress::Ctx;
 use crate::{Error, Result};
+use loclib_rekordbox_db::onelibrary::{CueRow, CueRowChanges};
 
 /// How far (ms) a memory cue may be from the position given to find it.
 pub(crate) const FIND_TOLERANCE_MS: u32 = 100;

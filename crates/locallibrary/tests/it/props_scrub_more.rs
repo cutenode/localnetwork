@@ -14,7 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::{self, OneLibrary};
+use locallibrary::onelibrary;
 use locallibrary::paths::{self, FileClass};
 use locallibrary::player;
 use locallibrary::progress::Ctx;
@@ -54,7 +54,7 @@ fn prop_a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase
         .collect();
     // Its bytes differ from the snapshot's, its library doesn't: never damage.
     if on_onelibrary {
-        let again = OneLibrary::open(&main).unwrap().to_encrypted().unwrap();
+        let again = main.library_plus().unwrap().to_encrypted().unwrap();
         onelibrary::write(&main, &again).unwrap();
     }
     let rotted = tc.draw(gs::sampled_from(audio.clone()));
@@ -124,7 +124,7 @@ fn prop_rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
             let colour = tc.draw(gs::integers::<i64>().min_value(0).max_value(8));
             player::set(&mut main, Some(&name), Some(colour)).unwrap();
         } else {
-            let again = OneLibrary::open(&main).unwrap().to_encrypted().unwrap();
+            let again = main.library_plus().unwrap().to_encrypted().unwrap();
             onelibrary::write(&main, &again).unwrap();
         }
     }

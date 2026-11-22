@@ -12,7 +12,7 @@ use locallibrary::anlz::{CuePoint, HOT_CUE_PALETTE};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, paths};
 
@@ -154,7 +154,7 @@ fn exported(root: &Path, lib: &Library) -> Vec<(String, Vec<u8>)> {
 fn cue_state(root: &Path) -> String {
     let d = Device::open_export(root).unwrap();
     let lib = d.library().unwrap();
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = onelibrary::open_root(root).unwrap();
     let plus = one.library().unwrap();
     let mut out = String::new();
     let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();

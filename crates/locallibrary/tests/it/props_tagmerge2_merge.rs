@@ -13,7 +13,6 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions, PlaylistMode};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Library, Playlist, paths, pdb};
 use rekordbox_pdb::{ExtDatabase, ExtEditor, NewTrack, PdbEditor};
@@ -120,7 +119,7 @@ fn guest(dir: &Path, outside: &str) -> PathBuf {
     }
     ed.save(&ext_path).unwrap();
     common::add_onelibrary(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let ext = ExtDatabase::from_file(&ext_path).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
@@ -168,7 +167,7 @@ fn prop_a_merge_says_what_it_leaves_behind(tc: TestCase) {
     .unwrap();
     common::add_onelibrary(&both);
     let ext = ExtDatabase::from_file(both.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(&both).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&both).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
     }
@@ -246,7 +245,7 @@ fn prop_a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: Tes
     ed.link(ed.tags(ed.categories()[0].0)[0].0, 1).unwrap();
     ed.save(src_root.join(paths::EXPORT_EXT_PDB)).unwrap();
     common::add_onelibrary(&src_root);
-    let one = OneLibrary::open_root(&src_root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&src_root).unwrap();
     one.connection().execute_batch("DROP TABLE myTag_content").unwrap();
     fs::write(src_root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     let src = Device::open_export(&src_root).unwrap();

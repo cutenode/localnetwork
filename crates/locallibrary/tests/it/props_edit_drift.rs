@@ -14,7 +14,6 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::model::TrackFields;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, paths, pdb};
@@ -43,7 +42,7 @@ fn drifted(dir: &Path, plus: bool) -> PathBuf {
 
 /// A player adds `file` to the end of OneLibrary's `playlist`.
 fn player_adds(root: &Path, playlist: &str, file: &str) {
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     let lib = one.library().unwrap();
     let id = lib.tracks.iter().find(|t| t.file_path == file).unwrap().id;
     one.add_to_playlist(lib.find_playlist(playlist).unwrap().id, id).unwrap();

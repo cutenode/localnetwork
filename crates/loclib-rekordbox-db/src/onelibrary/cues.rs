@@ -25,11 +25,10 @@
 
 use rusqlite::params;
 use rusqlite::types::Value;
-use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::{OneLibrary, ident, int, text};
-use crate::{Error, Result, masterdb};
+use crate::{Error, Result};
 
 /// Seek columns for a cue's position and its loop end, reset when the position moves.
 const IN_SEEK: [&str; 5] = [
@@ -54,12 +53,15 @@ pub struct CueRow {
     pub cue_id: Option<i64>,
     /// `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ...
     pub hot_cue: Option<u8>,
+    /// Where it is, in microseconds.
     pub in_usec: i64,
     /// End of the loop, for loops.
     pub out_usec: Option<i64>,
+    /// Its name (`cueComment`).
     pub comment: String,
     /// `colorTableIndex` (see the module docs); 0 for none.
     pub color: u8,
+    /// A loop that starts active.
     pub active_loop: bool,
     /// A quantised loop's length in beats, as numerator and denominator.
     pub loop_beats: Option<(u16, u16)>,
@@ -69,10 +71,14 @@ pub struct CueRow {
 }
 
 /// What [`OneLibrary::replace_cues`] did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CueRowChanges {
+    /// Rows changed in place.
     pub updated: usize,
+    /// Rows added.
     pub added: usize,
+    /// Rows removed.
     pub removed: usize,
     /// Hot cue bank list entries that pointed at removed cues.
     pub bank_list_entries_removed: usize,
@@ -85,6 +91,22 @@ impl std::ops::AddAssign for CueRowChanges {
         self.removed += o.removed;
         self.bank_list_entries_removed += o.bank_list_entries_removed;
     }
+}
+
+/// The hot cue (0 = A) a `kind` (OneLibrary's `cue.kind`, master.db's `djmdCue.Kind`) stands for,
+/// or `None` for a memory cue or loop. rekordbox skips 4, which marks a memory loop, so hot cue D
+/// is 5.
+pub fn hot_cue_from_kind(kind: i64) -> Option<u8> {
+    match kind {
+        1..=3 => Some((kind - 1) as u8),
+        5.. => u8::try_from(kind - 2).ok(),
+        _ => None,
+    }
+}
+
+/// The `Kind` hot cue `h` (0 = A) is stored as; the inverse of [`hot_cue_from_kind`].
+pub fn kind_for_hot_cue(h: u8) -> i64 {
+    if h < 3 { i64::from(h) + 1 } else { i64::from(h) + 2 }
 }
 
 /// rekordbox's 1/150 s frames. (In 128 bits: `usec * 150` overflows past about 6e16 µs.)
@@ -102,7 +124,7 @@ impl CueRow {
         let (numerator, denominator) = (num("beatLoopNumerator"), num("beatLoopDenominator"));
         CueRow {
             cue_id,
-            hot_cue: masterdb::hot_cue_from_kind(num("kind")),
+            hot_cue: hot_cue_from_kind(num("kind")),
             in_usec,
             out_usec: (out_usec >= 0 && out_usec > in_usec).then_some(out_usec),
             comment: get("cueComment").map(|v| text(v.into())).unwrap_or_default(),
@@ -130,7 +152,7 @@ impl CueRow {
         let i = Value::Integer;
         let mut out = Vec::new();
         if changed(&|w| w.hot_cue == self.hot_cue) {
-            out.push(("kind", i(self.hot_cue.map_or(0, masterdb::kind_for_hot_cue))));
+            out.push(("kind", i(self.hot_cue.map_or(0, kind_for_hot_cue))));
         }
         if changed(&|w| w.in_usec == self.in_usec) {
             out.push(("inUsec", i(self.in_usec)));

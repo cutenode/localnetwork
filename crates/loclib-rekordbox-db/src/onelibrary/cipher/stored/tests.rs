@@ -1,6 +1,6 @@
 use hegel::generators as gs;
 
-use super::super::{Codec, keys};
+use super::super::{Codec, keep_keys_in, keys};
 use super::*;
 
 const KEYS: Keys = Keys { cipher: [1; 32], hmac: [2; 32] };
@@ -71,9 +71,7 @@ fn prop_a_damaged_file_reads_as_none(tc: hegel::TestCase) {
 #[test]
 fn the_codec_uses_kept_keys_and_keeps_those_it_derives() {
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
-    // environment while the test runs.
-    unsafe { std::env::set_var(TEST_FOLDER, dir.path()) };
+    keep_keys_in(Some(dir.path().to_path_buf()));
     save(dir.path(), &[1; SALT_LEN], &KEYS);
     assert_eq!(keys(&[1; SALT_LEN]).cipher, KEYS.cipher);
 
@@ -87,4 +85,8 @@ fn the_codec_uses_kept_keys_and_keeps_those_it_derives() {
 
     let _ = Codec::with_key(b"another key", [4; SALT_LEN]);
     assert!(load(dir.path(), &[4; SALT_LEN]).is_none());
+
+    keep_keys_in(None);
+    let _ = keys(&[5; SALT_LEN]);
+    assert!(load(dir.path(), &[5; SALT_LEN]).is_none());
 }

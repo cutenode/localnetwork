@@ -331,7 +331,6 @@ fn merge_plans_only_what_the_targets_export_pdb_can_hold() {
 #[test]
 fn merging_from_export_pdb_brings_cues_into_onelibrary() {
     use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
-    use locallibrary::onelibrary::OneLibrary;
     let dir = tempfile::tempdir().unwrap();
     let mut src = Device::open_export(common::demo_drive(dir.path(), "Guest")).unwrap();
     let t = src.library().unwrap().tracks[0].clone();
@@ -347,7 +346,7 @@ fn merging_from_export_pdb_brings_cues_into_onelibrary() {
 
     let plan = merge::plan(&src, &dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
     merge::apply(&plan, &src, &mut dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
-    let one = OneLibrary::open(&dst).unwrap();
+    let one = dst.library_plus().unwrap();
     let merged = one.library().unwrap().tracks.into_iter().find(|m| m.title == t.title).unwrap();
     let rows = one.cue_rows(merged.id).unwrap();
     let mut got: Vec<_> = rows.iter().map(|r| (r.hot_cue, r.in_usec / 1000)).collect();

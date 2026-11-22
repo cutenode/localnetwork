@@ -2,32 +2,28 @@
 //! rounds of PBKDF2, about 50 ms, which was 60% of the instructions of listing a library of 4,000
 //! tracks, in every command. A database's keys depend only on rekordbox's published passphrase
 //! and the salt at the start of the file, so whoever can read the drive can derive them anyway; they
-//! still go in a folder and files only this user can read, and nowhere else. A file that's been
-//! damaged reads as none, and the keys are derived again.
+//! are still kept only where the caller says ([`super::keep_keys_in`]), in a folder and files only
+//! this user can read. A file that's been damaged reads as none, and the keys are derived again.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{PoisonError, RwLock};
 
 use super::{Keys, SALT_LEN};
 
 /// Keys, salt-checked hash: what a file holds.
 const FILE_LEN: usize = 32 + 32 + 32;
 
-/// Set by tests: the folder to keep keys in. Builds with debug assertions keep none without it, so
-/// tests leave the cache of whoever runs them alone.
-#[cfg(debug_assertions)]
-const TEST_FOLDER: &str = "LOCALLIBRARY_KEY_CACHE";
+/// The folder keys are kept in: none until the caller names one.
+static FOLDER: RwLock<Option<PathBuf>> = RwLock::new(None);
 
-/// Where keys are kept, if this computer has somewhere.
-#[cfg(debug_assertions)]
+/// Where keys are kept, if the caller named somewhere.
 pub(super) fn folder() -> Option<PathBuf> {
-    std::env::var_os(TEST_FOLDER).map(PathBuf::from)
+    FOLDER.read().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
-/// Where keys are kept, if this computer has somewhere.
-#[cfg(not(debug_assertions))]
-pub(super) fn folder() -> Option<PathBuf> {
-    Some(directories::ProjectDirs::from("", "", "locallibrary")?.cache_dir().join("onelibrary-keys"))
+pub(super) fn set_folder(folder: Option<PathBuf>) {
+    *FOLDER.write().unwrap_or_else(PoisonError::into_inner) = folder;
 }
 
 fn file(folder: &Path, salt: &[u8; SALT_LEN]) -> PathBuf {

@@ -2211,6 +2211,7 @@ dependencies = [
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-rekordbox-db",
  "loclib-sqlcipher",
  "loclib-tracklist",
  "loclib-transcode",
@@ -2274,6 +2275,7 @@ dependencies = [
  "loclib-mixid",
  "loclib-mysettings",
  "loclib-progress",
+ "loclib-rekordbox-db",
  "loclib-tracklist",
  "rekordbox-pdb",
  "rusqlite",
@@ -2480,6 +2482,23 @@ version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-rekordbox-db"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chrono",
+ "getrandom 0.3.4",
+ "loclib-model",
+ "loclib-sqlcipher",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

@@ -482,7 +482,7 @@ fn undoing_the_player_name_forgets_it() {
 
     // rekordbox exports its own name, then an edit is undone: the drive still remembers MAIN, for
     // `refresh` to put back.
-    let one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&root).unwrap();
     one.connection().execute("UPDATE property SET deviceName = 'REKORDBOX'", []).unwrap();
     std::fs::write(paths::to_fs(&root, paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     common::apply(&root, &[locallibrary::edit::Edit::CreatePlaylist { path: "Friday".into(), folder: false }]);
@@ -499,7 +499,7 @@ fn a_player_name_the_database_cant_take_leaves_no_backup() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
     common::add_onelibrary(&root);
-    let one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&root).unwrap();
     one.connection().execute("DROP TABLE property", []).unwrap();
     let db = root.join(paths::LIBRARY_PLUS_DB);
     std::fs::write(&db, one.to_encrypted().unwrap()).unwrap();

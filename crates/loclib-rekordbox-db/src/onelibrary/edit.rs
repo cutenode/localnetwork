@@ -1,15 +1,17 @@
-//! Editing OneLibrary's playlists, histories and track details in place (see [`crate::edit`]).
+//! Editing OneLibrary's playlists, histories and track details in place.
 
 use rusqlite::{OptionalExtension, params};
 
 use super::{CueRow, Lookup, OneLibrary, id32, int};
-use crate::model::{AudioFile, TrackFields};
 use crate::{Error, Result};
+use loclib_model::model::{AudioFile, TrackFields};
 
 /// The playlist-shaped trees edits can change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tree {
+    /// Playlists and their folders (`playlist`).
     Playlist,
+    /// History lists and their folders (`history`).
     History,
 }
 
@@ -23,6 +25,7 @@ impl Tree {
 }
 
 impl OneLibrary {
+    /// Rename a playlist, history list or folder.
     pub fn rename_node(&mut self, tree: Tree, id: u32, name: &str) -> Result<()> {
         let t = tree.table();
         let n = self.conn.execute(&format!("UPDATE {t} SET name = ?1 WHERE {t}_id = ?2"), params![name, id])?;

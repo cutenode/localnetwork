@@ -36,9 +36,6 @@ use crate::paths;
 use crate::progress::Ctx;
 use crate::{Error, Result};
 
-/// `property` columns that describe the drive rather than the library.
-pub const PER_DRIVE_COLUMNS: [&str; 2] = ["deviceName", "backGroundColorType"];
-
 /// Longest name accepted (what players display of a longer one is untested).
 pub const MAX_NAME: usize = 32;
 
@@ -96,7 +93,7 @@ pub fn db_identity(root: &Path) -> Option<DbIdentity> {
     if !paths::to_fs(root, paths::LIBRARY_PLUS_DB).is_file() {
         return None;
     }
-    OneLibrary::open_root(root).ok().and_then(|one| db_identity_of(&one).ok())
+    onelibrary::open_root(root).ok().and_then(|one| db_identity_of(&one).ok())
 }
 
 /// rekordbox's `DeviceLibBackup` record.
@@ -136,7 +133,7 @@ pub fn set(device: &mut Device, name: Option<&str>, colour: Option<i64>) -> Resu
     // Edited and read back in memory first: a database that can't take the change leaves no
     // backup and nothing marked as interrupted.
     let want = DbIdentity { name: name.map(|n| n.trim().to_string()), colour };
-    let bytes = with_identity(&OneLibrary::open(device)?, &want, true)?;
+    let bytes = with_identity(&device.library_plus()?, &want, true)?;
     let changes = Changes { databases: NewDatabases { plus: Some(bytes), ..Default::default() }, ..Default::default() };
     let mut opts = Options::new(LineageOp::Edit, "set the player name and colour").backup("player name and colour");
     // The name and colour aren't part of the library's content (its fingerprint leaves them out),
@@ -276,7 +273,7 @@ pub fn preserve(device: &Device, before: Option<&DbIdentity>) -> Result<bool> {
     if shown(&now) == shown(before) {
         return Ok(false);
     }
-    onelibrary::write(device, &with_identity(&OneLibrary::open(device)?, before, false)?)?;
+    onelibrary::write(device, &with_identity(&device.library_plus()?, before, false)?)?;
     Ok(true)
 }
 

@@ -10,8 +10,9 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::model::TrackColor;
 use locallibrary::model::TrackFields;
-use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
+use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::{Error, Track, paths};
+use loclib_rekordbox_db::onelibrary::{ContentRecord, CueRow, Tree};
 
 use crate::props_onelibrary::{any_track, field, new_library};
 
@@ -174,8 +175,8 @@ fn prop_edited_track_details_read_back(tc: TestCase) {
             ids.insert(0, u32::MAX);
         }
         match (one.set_track_fields(&ids, &f), colour) {
-            (Err(e), Some(None)) => assert_eq!(e.code(), "invalid", "{e}"),
-            (Err(e), _) if missing => assert!(matches!(e, Error::NotFound(_)), "{e}"),
+            (Err(e), Some(None)) => assert!(matches!(e, loclib_rekordbox_db::Error::Invalid(_)), "{e}"),
+            (Err(e), _) if missing => assert!(matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}"),
             (Ok(()), colour) if !missing && colour != Some(None) => {
                 for id in &ids {
                     applied(&mut model[id], &f, colour.flatten());
@@ -225,7 +226,9 @@ fn prop_nodes_are_found_by_parent_and_name(tc: TestCase) {
                 let (id, n) = (pick(&tc), name(&tc));
                 match one.rename_node(tree, id, &n) {
                     Ok(()) => nodes[&id].1 = n,
-                    Err(e) => assert!(!nodes.contains_key(&id) && matches!(e, Error::NotFound(_)), "{e}"),
+                    Err(e) => {
+                        assert!(!nodes.contains_key(&id) && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}")
+                    }
                 }
             }
             3 => {
@@ -233,7 +236,9 @@ fn prop_nodes_are_found_by_parent_and_name(tc: TestCase) {
                 let seq = tc.draw(gs::integers::<u32>().max_value(20));
                 match one.place_node(tree, id, parent, seq) {
                     Ok(()) => nodes[&id].0 = parent,
-                    Err(e) => assert!(!nodes.contains_key(&id) && matches!(e, Error::NotFound(_)), "{e}"),
+                    Err(e) => {
+                        assert!(!nodes.contains_key(&id) && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}")
+                    }
                 }
             }
             _ => {
@@ -248,7 +253,7 @@ fn prop_nodes_are_found_by_parent_and_name(tc: TestCase) {
                 }
                 match one.remove_nodes(tree, &gone) {
                     Ok(()) => nodes.retain(|id, _| !gone.contains(id)),
-                    Err(e) => assert!(missing && matches!(e, Error::NotFound(_)), "{e}"),
+                    Err(e) => assert!(missing && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}"),
                 }
             }
         }
@@ -383,10 +388,10 @@ fn prop_removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
     let points = columns.iter().any(|c| c.contains("content_id") || c.contains("cue_id"));
 
     let (lib, cues) = (one.library().unwrap(), one.cue_rows(ids[0]).unwrap());
-    let refused = |r: locallibrary::Result<()>| match r {
+    let refused = |r: loclib_rekordbox_db::Result<()>| match r {
         Ok(()) => false,
         Err(e) => {
-            assert!(e.code() == "onelibrary" && e.to_string().contains(&table), "{e}");
+            assert!(matches!(e, loclib_rekordbox_db::Error::OneLibrary(_)) && e.to_string().contains(&table), "{e}");
             true
         }
     };
@@ -439,7 +444,7 @@ fn prop_written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
         (_, _, got) => panic!("{wal_kind}: {got:?}"),
     }
     if onelibrary::read_files(&root).is_err() {
-        assert!(OneLibrary::open_root(&root).is_err());
+        assert!(locallibrary::onelibrary::open_root(&root).is_err());
     }
 
     let new = crate::props_onelibrary_crafted::rich_library();
@@ -448,7 +453,7 @@ fn prop_written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
             assert_ne!(wal_kind, 2);
             assert_eq!(onelibrary::read_files(&root).unwrap(), (new.to_vec(), None));
             assert!(!shm.exists());
-            assert_eq!(OneLibrary::open(&device).unwrap().library().unwrap().tracks.len(), 3);
+            assert_eq!(device.library_plus().unwrap().library().unwrap().tracks.len(), 3);
         }
         Err(e) => {
             assert!(wal_kind == 2 && matches!(&e, Error::Io { path, .. } if *path == wal), "{e}");

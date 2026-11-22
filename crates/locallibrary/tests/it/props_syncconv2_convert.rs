@@ -18,7 +18,6 @@ use locallibrary::artwork::medium_variant;
 use locallibrary::convert::{self, ConvertOptions, ConvertPlan, ConvertReport, Target};
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::{CancelToken, Ctx, Event, Phase, Progress};
 use locallibrary::{Error, Library, paths, pdb, tags};
 
@@ -169,7 +168,7 @@ fn images_come_across_once_each_with(tc: &TestCase, way: Way) {
 
 /// Give OneLibrary's tracks `ids` My Tag "Mood/Dark".
 fn tag_in_onelibrary(root: &Path, ids: &[u32]) {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     one.connection()
         .execute_batch("INSERT INTO myTag VALUES (901, 0, 'Mood', 1, 0), (902, 0, 'Dark', 0, 901);")
         .unwrap();
@@ -232,7 +231,7 @@ fn my_tags_go_where_export_ext_lets_them_with(tc: &TestCase, ext: Ext, opts: Con
         tag_in_onelibrary(&root, &plus_tagged);
         // A rebuild from a OneLibrary that lost a track drops that track's links.
         if opts.replace {
-            let mut one = OneLibrary::open_root(&root).unwrap();
+            let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
             let lose = tc.draw(gs::sampled_from(one_ids.clone()));
             plus_tagged.retain(|id| *id != lose);
             removed = Some(one.library().unwrap().track(lose).unwrap().file_path.clone());
@@ -314,7 +313,7 @@ fn prop_what_a_conversion_cant_do_is_said(tc: TestCase) {
     for (n, kind) in ["track", "playlist", "history list"].into_iter().enumerate() {
         let root = drive(dir.path(), &format!("Long {n}"), false);
         common::onelibrary_only(&root);
-        let mut one = OneLibrary::open_root(&root).unwrap();
+        let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
         let id = tc.draw(gs::sampled_from(one.library().unwrap().tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
         match kind {
             "track" => {
@@ -395,7 +394,7 @@ fn prop_what_a_conversion_cant_do_is_said(tc: TestCase) {
     let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(files.len() - 1));
     common::apply(&root, &[Edit::SetEntries { playlist: "Both".into(), paths: files[..k].to_vec(), create: true }]);
     common::add_onelibrary(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let both = plus.find_playlist("Both").unwrap();
     let extra = plus.tracks.iter().find(|t| !both.track_ids.contains(&t.id)).unwrap().id;
@@ -489,7 +488,7 @@ fn prop_a_playlist_inside_a_playlist_comes_across_at_the_top(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drive(dir.path(), "A", false);
     common::onelibrary_only(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let ids: Vec<u32> = plus.tracks.iter().map(|t| t.id).collect();
     let had = plus.playlists.iter().filter(|p| !p.is_folder).count();
@@ -530,7 +529,7 @@ fn prop_an_image_outside_the_drive_is_left_out(tc: TestCase) {
     common::onelibrary_only(&root);
     // A real image just outside the drive, so only where it is keeps it out.
     fs::write(dir.path().join("outside.jpg"), common::media::png(8, 8, 1)).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let ids: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
     let tracks = tc.draw(gs::vecs(gs::sampled_from(ids)).min_size(1).max_size(3).unique(true));
     let path = tc.draw(gs::sampled_from(vec!["/../outside.jpg", "/PIONEER/../../outside.jpg"]));
@@ -555,7 +554,7 @@ fn prop_a_track_grown_too_long_after_the_plan_leaves_the_drive_as_it_was(tc: Tes
     let opts = ConvertOptions { to: Target::DeviceLibrary, replace: false };
     let mut d = Device::open_export(&root).unwrap();
     let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&root).unwrap();
     let id = tc.draw(gs::sampled_from(one.library().unwrap().tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
     let long = "x".repeat(tc.draw(gs::integers::<usize>().min_value(5_000).max_value(9_000)));
     one.connection().execute("UPDATE content SET djComment = ?1 WHERE content_id = ?2", (&long, id)).unwrap();

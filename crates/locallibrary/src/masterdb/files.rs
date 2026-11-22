@@ -17,8 +17,9 @@ use super::{
     Db, agent_option, agent_options_path, default_path, in_cloud, int, open_copy, settings_path, share_dir, text,
 };
 use crate::error::IoContext;
-use crate::onelibrary::cipher::{self, Codec};
 use crate::{Error, Result};
+use loclib_rekordbox_db::onelibrary::cipher::{self, Codec};
+use loclib_sqlcipher::untrusted::distrust;
 
 /// Where rekordbox's files are: `master.db` where [`default_path`] finds it ([`super::PATH_ENV`]
 /// too), the folder it's in and the `share` folder there, and rekordbox's settings folder.
@@ -160,7 +161,7 @@ impl Db<'_> {
             let why = "its agentRegistry has no registry_id, which tells the sign-in rows apart";
             return Err(Error::parse(self.path, why));
         }
-        let trigger = crate::onelibrary::distrust(&self.conn, &["trigger"], "rekordbox").map_err(|e| self.sql(e))?;
+        let trigger = distrust(&self.conn, &["trigger"], "rekordbox").map_err(|e| self.sql(e))?;
         if let Some(why) = trigger {
             let instead = "copy it with the credentials kept (with_credentials)";
             return Err(Error::parse(self.path, format!("{why}; {instead}")));

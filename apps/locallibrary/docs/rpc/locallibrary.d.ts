@@ -5259,8 +5259,11 @@ export type CueReport = {
 
 /** What [`OneLibrary::replace_cues`] did. */
 export type CueRowChanges = {
+  /** Rows changed in place. */
   updated: number;
+  /** Rows added. */
   added: number;
+  /** Rows removed. */
   removed: number;
   /** Hot cue bank list entries that pointed at removed cues. */
   bank_list_entries_removed: number;

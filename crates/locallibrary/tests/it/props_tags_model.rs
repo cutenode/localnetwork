@@ -13,7 +13,6 @@ use std::path::Path;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use locallibrary::tags::{self, Edit};
@@ -132,7 +131,7 @@ fn after(m: &Model, edit: &Edit, files: &[(u32, String)], ext: bool) -> Result<M
 /// Give OneLibrary the categories and tags exportExt.pdb has, as rekordbox exports both.
 fn mirror(root: &Path) {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
         for t in ext.tags_in(c.id) {

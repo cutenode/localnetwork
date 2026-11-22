@@ -11,7 +11,7 @@ use std::fs;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::{edit, paths};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
@@ -22,7 +22,7 @@ fn titles(root: &std::path::Path) -> Vec<Vec<String>> {
     if root.join(paths::EXPORT_PDB).is_file() {
         out.push(common::library(root).tracks.into_iter().map(|t| t.title).collect());
     }
-    if let Ok(lib) = OneLibrary::open_root(root).and_then(|one| one.library()) {
+    if let Ok(lib) = onelibrary::open_root(root).and_then(|one| Ok(one.library()?)) {
         out.push(lib.tracks.into_iter().map(|t| t.title).collect());
     }
     out
@@ -78,7 +78,7 @@ fn prop_a_demos_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
     if art > 0 && has_plus {
         fs::create_dir_all(root.join("PIONEER/Artwork/00001")).unwrap();
         fs::write(root.join(image), b"jpeg").unwrap();
-        let mut one = OneLibrary::open_root(&root).unwrap();
+        let mut one = onelibrary::open_root(&root).unwrap();
         let id = i64::from(one.add_image(&format!("/{image}")).unwrap());
         let house = one.library().unwrap().tracks.iter().find(|t| t.title == "House 1").unwrap().id;
         let conn = one.connection();
@@ -147,7 +147,7 @@ fn prop_a_demos_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
             true
         }
         2 if has_plus => {
-            let mut one = OneLibrary::open_root(&root).unwrap();
+            let mut one = onelibrary::open_root(&root).unwrap();
             let first = one.library().unwrap().tracks.iter().find(|t| t.title == "House 1").unwrap().id;
             one.remove_tracks(&[first]).unwrap();
             fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();

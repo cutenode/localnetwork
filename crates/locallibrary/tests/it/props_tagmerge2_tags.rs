@@ -14,7 +14,6 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::tags::{self, Edit, Source};
 use locallibrary::{Error, paths};
@@ -24,7 +23,7 @@ use rekordbox_pdb::{ExtDatabase, ExtEditor};
 /// exports both.
 fn mirror(root: &Path) {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
         for t in ext.tags_in(c.id) {
@@ -57,7 +56,7 @@ fn ext_held(root: &Path) -> Held {
 }
 
 fn plus_held(root: &Path) -> Held {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     let lib = one.library().unwrap();
     let rows = one.my_tag_rows().unwrap();
     let links = one.my_tag_links().unwrap();
@@ -116,7 +115,7 @@ fn prop_tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
         ed.add_tag(id_of("Genre"), last + 1, "Extra").unwrap();
     }
     ed.save(&ext_path).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     for c in ["Components", "Untitled Column"] {
         one.remove_my_tag(id_of(c).into()).unwrap();
     }
@@ -408,7 +407,7 @@ fn prop_links_that_cant_follow_their_tracks_are_dropped(tc: TestCase) {
     ed.save(&ext_path).unwrap();
     let lost = tc.draw(gs::integers::<u32>().min_value(1).max_value(3));
     let lost_file = d.library().unwrap().track(lost).unwrap().file_path.clone();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let plus_id = plus.tracks.iter().find(|t| t.file_path == lost_file).unwrap().id;
     one.remove_tracks(&[plus_id]).unwrap();

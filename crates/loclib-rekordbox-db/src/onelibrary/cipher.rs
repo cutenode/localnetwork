@@ -1,7 +1,9 @@
 //! OneLibrary's page cipher: SQLCipher 4 ([`loclib_sqlcipher`]) under a passphrase shared by
 //! every rekordbox installation (found by the pyrekordbox project). rekordbox's own collection
-//! database (`master.db`, see [`crate::masterdb`]) is encrypted the same way under another
-//! passphrase ([`Codec::with_key`]).
+//! database (`master.db`) is encrypted the same way under another passphrase
+//! ([`Codec::with_key`]).
+
+use std::path::PathBuf;
 
 pub use loclib_sqlcipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC, check_plain_header};
 use loclib_sqlcipher::{Keys, derive_keys};
@@ -12,6 +14,13 @@ use crate::{Error, Result};
 pub const PASSPHRASE: &str = "r8gddnr4k847830ar6cqzbkk0el6qytmb3trbbx805jm74vez64i5o8fnrqryqls";
 
 mod stored;
+
+/// Keep the keys derived for each file's salt in `folder` from now on, in files only this user can
+/// read, so opening a file with that salt again, in this process or a later one, skips deriving
+/// them (256,000 rounds of PBKDF2, about 50 ms). `None`, as before any call, keeps none.
+pub fn keep_keys_in(folder: Option<PathBuf>) {
+    stored::set_folder(folder);
+}
 
 /// The codec of an existing encrypted file (its salt is the first 16 bytes).
 pub fn for_file(bytes: &[u8]) -> Result<Codec> {
@@ -33,8 +42,8 @@ fn with_salt(salt: [u8; SALT_LEN]) -> Codec {
     Codec::with_keys(salt, keys(&salt))
 }
 
-/// The keys for `salt`, kept from an earlier run where this computer keeps them ([`stored`]), or
-/// derived (and kept).
+/// The keys for `salt`, kept from an earlier run in the folder [`keep_keys_in`] named, or derived
+/// (and kept there).
 fn keys(salt: &[u8; SALT_LEN]) -> Keys {
     let derive = || derive_keys(PASSPHRASE.as_bytes(), salt);
     let Some(folder) = stored::folder() else { return derive() };

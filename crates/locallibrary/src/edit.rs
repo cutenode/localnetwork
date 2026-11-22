@@ -37,13 +37,14 @@ use crate::hash::Hash;
 use crate::model::{
     AudioFile, Library, LibraryDiff, MAX_DEPTH, Playlist, PlaylistKey, Track, TrackFields, TrackRef, is_isrc,
 };
-use crate::onelibrary::{OneLibrary, Tree};
+use crate::onelibrary::OneLibrary;
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
 use crate::query::{self, DriveContext, Filter, TrackSelector};
 use crate::tags::TagChange;
 use crate::{Error, Result};
+use loclib_rekordbox_db::onelibrary::Tree;
 
 // ---------------------------------------------------------------------------------------------
 // Edits
@@ -864,35 +865,35 @@ impl EditDb for PlusDb {
         &mut self.lib
     }
     fn create(&mut self, name: &str, parent: u32, folder: bool) -> Result<u32> {
-        self.one.create_playlist(name, parent, folder)
+        Ok(self.one.create_playlist(name, parent, folder)?)
     }
     fn rename(&mut self, id: u32, name: &str) -> Result<()> {
-        self.one.rename_node(Tree::Playlist, id, name)
+        Ok(self.one.rename_node(Tree::Playlist, id, name)?)
     }
     fn place(&mut self, id: u32, parent: u32, sort_order: u32) -> Result<()> {
-        self.one.place_node(Tree::Playlist, id, parent, sort_order)
+        Ok(self.one.place_node(Tree::Playlist, id, parent, sort_order)?)
     }
     fn delete(&mut self, ids: &[u32]) -> Result<()> {
-        self.one.remove_nodes(Tree::Playlist, ids)
+        Ok(self.one.remove_nodes(Tree::Playlist, ids)?)
     }
     fn set_entries(&mut self, id: u32, tracks: &[u32]) -> Result<()> {
-        self.one.set_playlist_entries(id, tracks)
+        Ok(self.one.set_playlist_entries(id, tracks)?)
     }
     fn set_fields(&mut self, ids: &[u32], _: &[usize], fields: &TrackFields) -> Result<()> {
-        self.one.set_track_fields(ids, fields)
+        Ok(self.one.set_track_fields(ids, fields)?)
     }
     fn delete_tracks(&mut self, ids: &[u32]) -> Result<()> {
-        self.one.remove_tracks(ids)
+        Ok(self.one.remove_tracks(ids)?)
     }
     fn repoint(&mut self, from: u32, to: u32) -> Result<()> {
         self.one.repoint_track(from, to)?;
         Ok(())
     }
     fn set_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, shift_ms: i32) -> Result<()> {
-        self.one.set_track_path(id, path, file, shift_ms)
+        Ok(self.one.set_track_path(id, path, file, shift_ms)?)
     }
     fn delete_history(&mut self, ids: &[u32]) -> Result<()> {
-        self.one.remove_nodes(Tree::History, ids)
+        Ok(self.one.remove_nodes(Tree::History, ids)?)
     }
 }
 

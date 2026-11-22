@@ -43,7 +43,8 @@ use chrono::Utc;
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 use crate::error::{Action, Reason};
-use crate::onelibrary::{ContentRecord, OneLibrary};
+use crate::onelibrary::OneLibrary;
+use loclib_rekordbox_db::onelibrary::ContentRecord;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -551,7 +552,7 @@ impl DriveTags {
             }
             None => None,
         };
-        let plus = one.and_then(|one| match one.library().and_then(|l| DbTags::plus(one, &l)) {
+        let plus = one.and_then(|one| match one.library().map_err(Error::from).and_then(|l| DbTags::plus(one, &l)) {
             Ok(t) => Some(t),
             Err(e) => {
                 warn(e);
@@ -1045,7 +1046,8 @@ pub fn apply(
             warnings.warn("My Tags", w);
         }
         tagged.push(carried);
-        plus_after = tags_read.then(|| one.library().and_then(|l| DbTags::plus(&one, &l))).transpose()?;
+        plus_after =
+            tags_read.then(|| one.library().map_err(Error::from).and_then(|l| DbTags::plus(&one, &l))).transpose()?;
         plus_bytes = Some(bytes);
     }
     // exportExt.pdb after OneLibrary, so a tag new to both gets OneLibrary's id there too.
@@ -1400,19 +1402,19 @@ impl PlaylistDb for PdbEditor {
 
 impl PlaylistDb for OneLibrary {
     fn add_playlist(&mut self, name: &str, parent: u32, is_folder: bool) -> Result<u32> {
-        self.create_playlist(name, parent, is_folder)
+        Ok(self.create_playlist(name, parent, is_folder)?)
     }
 
     fn add_entry(&mut self, playlist: u32, track: u32) -> Result<()> {
-        self.add_to_playlist(playlist, track)
+        Ok(self.add_to_playlist(playlist, track)?)
     }
 
     fn add_history(&mut self, name: &str) -> Result<u32> {
-        self.create_history(name, 0, false)
+        Ok(self.create_history(name, 0, false)?)
     }
 
     fn add_history_entry(&mut self, history: u32, track: u32) -> Result<()> {
-        self.add_to_history(history, track)
+        Ok(self.add_to_history(history, track)?)
     }
 }
 

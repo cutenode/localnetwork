@@ -513,12 +513,12 @@ fn an_interrupted_undo_is_taken_back_by_undo() {
 /// snapshot that has it there, into both databases.
 #[test]
 fn a_playlist_only_onelibrary_had_comes_back() {
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
     let without = std::fs::read(root.join(paths::LIBRARY_PLUS_DB)).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let booth = one.create_playlist("Booth", 0, false).unwrap();
     for t in [7, 2] {
         one.add_to_playlist(booth, t).unwrap();
@@ -542,12 +542,12 @@ fn a_playlist_only_onelibrary_had_comes_back() {
 /// Undoing shows what it changes in OneLibrary too: here a playlist a CDJ-3000X made there since.
 #[test]
 fn undoing_shows_what_it_changes_in_onelibrary() {
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
     apply(&root, &[Edit::CreatePlaylist { path: "Mine".into(), folder: false }]);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     one.create_playlist("Booth", 0, false).unwrap();
     std::fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 
@@ -561,10 +561,10 @@ fn undoing_shows_what_it_changes_in_onelibrary() {
 /// OneLibrary had (a CDJ-3000X added it).
 #[test]
 fn a_restored_playlist_has_the_entries_either_database_had() {
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     let dir = tempfile::tempdir().unwrap();
     let root = drive_with_gigs(dir.path());
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let pdb = pdb_library(&root);
     let extra = &pdb.tracks[9].file_path;

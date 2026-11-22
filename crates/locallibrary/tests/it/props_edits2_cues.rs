@@ -410,7 +410,7 @@ fn prop_converted_tracks_get_the_cues_their_analysis_files_hold(tc: TestCase) {
     let plan = convert::plan(&d, &opts, &ctx).unwrap();
     let report = convert::apply(&plan, &mut d, &opts, &ctx).unwrap();
     assert_eq!(report.cues, want.iter().map(|(_, n)| n).sum::<usize>());
-    let one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     for (file, n) in &want {
         let id = plus.tracks.iter().find(|t| t.file_path == *file).unwrap().id;

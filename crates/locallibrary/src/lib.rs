@@ -21,8 +21,8 @@
 //!   sets).
 //! * [`cue_edit`]: set, rename, recolour, delete and copy hot cues, memory cues and loops.
 //! * [`edit`]: edit playlists, folders and track details on a drive, in both databases.
-//! * [`onelibrary`]: read and edit `exportLibrary.db`, the only database newer players
-//!   (CDJ-3000X, OPUS-QUAD, XDJ-AZ...) read.
+//! * [`onelibrary`]: a drive's `exportLibrary.db`, the only database newer players (CDJ-3000X,
+//!   OPUS-QUAD, XDJ-AZ...) read (reading and editing it is the loclib-rekordbox-db crate's).
 //! * [`convert`]: build either database from the other.
 //! * [`tags`]: read and edit My Tags in `exportExt.pdb` and OneLibrary.
 //! * [`harmony`]: Camelot keys, harmonic matches and mix costs (from loclib-model, like the

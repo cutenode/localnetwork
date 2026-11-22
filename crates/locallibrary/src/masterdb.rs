@@ -3,7 +3,7 @@
 //! rekordbox 6 and 7 keep the collection (tracks, playlists, cues, My Tags, history) in
 //! `master.db` in rekordbox's settings folder: `~/Library/Pioneer/rekordbox/` on macOS,
 //! `%APPDATA%\Pioneer\rekordbox\` on Windows. Like OneLibrary's `exportLibrary.db` it's SQLite
-//! encrypted with SQLCipher 4's defaults (see [`crate::onelibrary::cipher`]), under a passphrase
+//! encrypted with SQLCipher 4's defaults (see [`loclib_rekordbox_db::onelibrary::cipher`]), under a passphrase
 //! every installation shares. The pyrekordbox project documents the format
 //! (`docs/source/formats/db6.md`) and the passphrase (`pyrekordbox/masterdb/database.py` carries
 //! it obfuscated, and checks a key given instead starts `402fd`). Should a rekordbox release
@@ -59,11 +59,12 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::import::{self, MatchKind, Matcher, Status};
 use crate::model::{Library, LibrarySummary, Playlist, Track, TrackColor, TrackRef, untangle};
-use crate::onelibrary::{self, cipher, wal};
 use crate::paths;
 use crate::tags::TagsByTrack;
 use crate::{Error, Result};
 use loclib_model::diff::{self, PlaylistDiff};
+use loclib_rekordbox_db::onelibrary::{cipher, hot_cue_from_kind, wal};
+use loclib_sqlcipher::untrusted::distrust;
 pub use smartlist::SmartList;
 
 /// The SQLCipher passphrase every rekordbox 6 and 7 installation uses for `master.db`, as
@@ -309,8 +310,8 @@ fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(
     // given. Reads run only SELECTs, which fire no trigger. The one write, taking the cloud
     // agent's sign-in out of a copy (`files::export`), refuses a file with a trigger first. Views
     // aren't refused, as rekordbox may make some.
-    let why = onelibrary::distrust(&conn, &[], "rekordbox")
-        .and_then(|why| Ok(why.or(onelibrary::damaged(&conn)?)))
+    let why = distrust(&conn, &[], "rekordbox")
+        .and_then(|why| Ok(why.or(loclib_sqlcipher::untrusted::damaged(&conn)?)))
         .map_err(|e| Error::parse(path, e))?;
     if let Some(why) = why {
         return Err(Error::parse(path, why));
@@ -379,7 +380,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     let mut page = vec![0u8; cipher::PAGE_SIZE];
     for pgno in 2..=(len / cipher::PAGE_SIZE as u64) as u32 {
         src.read_exact(&mut page).at(&enc)?;
-        if onelibrary::reads_main_page(pgno, committed.as_ref()) {
+        if loclib_sqlcipher::reads_main_page(pgno, committed.as_ref()) {
             dst.write_all(&codec.decrypt_page(pgno, &page).map_err(damaged)?).at(&out)?;
         } else {
             dst.write_all(&[0; cipher::PAGE_SIZE]).at(&out)?;
@@ -389,7 +390,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     std::fs::remove_file(&enc).at(&enc)?;
     if let Some(committed) = committed {
         let main_pages = (len / cipher::PAGE_SIZE as u64) as usize;
-        let replayed = onelibrary::wal_pages(&codec, &committed, main_pages).map_err(damaged)?;
+        let replayed = loclib_sqlcipher::wal_pages(&codec, &committed, main_pages).map_err(damaged)?;
         dst.set_len(u64::from(committed.db_pages) * cipher::PAGE_SIZE as u64).at(&out)?;
         for (pgno, plain) in replayed {
             dst.seek(SeekFrom::Start((u64::from(pgno) - 1) * cipher::PAGE_SIZE as u64)).at(&out)?;
@@ -961,21 +962,6 @@ pub struct DriveDiff {
     /// counted as missing from it.
     pub uncertain: Vec<TrackRef>,
     pub diff: PlaylistDiff,
-}
-
-/// The hot cue (0 = A) a `djmdCue.Kind` stands for, or `None` for a memory cue or loop. rekordbox
-/// skips 4, which marks a memory loop, so hot cue D is 5.
-pub(crate) fn hot_cue_from_kind(kind: i64) -> Option<u8> {
-    match kind {
-        1..=3 => Some((kind - 1) as u8),
-        5.. => u8::try_from(kind - 2).ok(),
-        _ => None,
-    }
-}
-
-/// The `Kind` hot cue `h` (0 = A) is stored as; the inverse of [`hot_cue_from_kind`].
-pub(crate) fn kind_for_hot_cue(h: u8) -> i64 {
-    if h < 3 { i64::from(h) + 1 } else { i64::from(h) + 2 }
 }
 
 pub mod files;

@@ -43,7 +43,7 @@ fn unreadable_tag_and_onelibrary_databases_are_left_out_with_warnings() {
 
 /// The drive at `root`'s OneLibrary database without `table`.
 fn drop_onelibrary_table(root: &std::path::Path, table: &str) {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     one.connection().execute_batch(&format!("DROP TABLE \"{table}\"")).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 }

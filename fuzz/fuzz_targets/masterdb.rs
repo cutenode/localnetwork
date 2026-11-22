@@ -14,7 +14,7 @@ use std::io::Write;
 
 use libfuzzer_sys::fuzz_target;
 use locallibrary::masterdb;
-use locallibrary::onelibrary::cipher::SQLITE_MAGIC;
+use loclib_rekordbox_db::onelibrary::cipher::SQLITE_MAGIC;
 
 fuzz_target!(|data: &[u8]| {
     if !data.starts_with(SQLITE_MAGIC) {

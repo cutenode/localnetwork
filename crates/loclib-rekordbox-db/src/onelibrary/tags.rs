@@ -1,21 +1,23 @@
 //! My Tags in OneLibrary: `myTag`, shaped like `playlist` (categories have attribute 1 and parent
-//! 0, tags are the children of a category), and `myTag_content` (tag, track) links. See
-//! [`crate::tags`] for how they're matched with `exportExt.pdb`'s.
+//! 0, tags are the children of a category), and `myTag_content` (tag, track) links.
 
 use rusqlite::{OptionalExtension, params};
 
 use super::{OneLibrary, int, text};
-use crate::error::Reason;
 use crate::{Error, Result};
 
 /// A `myTag` row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MyTagRow {
+    /// `myTag_id`.
     pub id: i64,
     /// The category a tag belongs to; 0 for a category.
     pub parent: i64,
+    /// What it's called.
     pub name: String,
+    /// A category, rather than a tag in one.
     pub is_category: bool,
+    /// Its place among its siblings (`sequenceNo`).
     pub sequence: i64,
 }
 
@@ -72,12 +74,12 @@ impl OneLibrary {
         let taken: bool =
             self.conn.query_row("SELECT count(*) > 0 FROM myTag WHERE myTag_id = ?1", [id], |r| r.get(0))?;
         if taken {
-            return Err(Error::conflict(Reason::Exists, format!("My Tag id {id} is already used in exportLibrary.db")));
+            return Err(Error::Exists(format!("My Tag id {id} is already used in exportLibrary.db")));
         }
         if !is_category {
             let parent = self.my_tag(parent)?;
             if !parent.is_category {
-                return Err(Error::invalid(format!("My Tag {:?} isn't a category", parent.name)));
+                return Err(Error::Invalid(format!("My Tag {:?} isn't a category", parent.name)));
             }
         }
         let sequence: i64 = self.conn.query_row(
@@ -95,6 +97,7 @@ impl OneLibrary {
         Ok(())
     }
 
+    /// Rename a category or tag.
     pub fn rename_my_tag(&mut self, id: i64, name: &str) -> Result<()> {
         if self.conn.execute("UPDATE myTag SET name = ?1 WHERE myTag_id = ?2", params![name, id])? != 1 {
             return Err(Error::NotFound(format!("My Tag #{id} in exportLibrary.db")));
@@ -129,7 +132,7 @@ impl OneLibrary {
     /// Give tracks a tag; returns how many didn't have it yet.
     pub fn link_my_tag(&mut self, tag: i64, tracks: &[u32]) -> Result<usize> {
         if self.my_tag(tag)?.is_category {
-            return Err(Error::invalid(format!("My Tag #{tag} is a category, not a tag")));
+            return Err(Error::Invalid(format!("My Tag #{tag} is a category, not a tag")));
         }
         let tx = self.conn.savepoint()?;
         let mut added = 0;
@@ -179,7 +182,7 @@ impl OneLibrary {
 /// removing it would remove them all.
 fn refuse_parent_id(id: i64) -> Result<()> {
     match id {
-        0 => Err(Error::invalid("My Tag id 0 is reserved for the top level (every category's parent)")),
+        0 => Err(Error::Invalid("My Tag id 0 is reserved for the top level (every category's parent)".into())),
         _ => Ok(()),
     }
 }

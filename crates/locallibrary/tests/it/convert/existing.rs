@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, backup, paths, player};
 
@@ -28,7 +27,7 @@ fn after_a_set(dir: &Path) -> (PathBuf, String) {
     common::add_history(&root, "HISTORY 001", &[3, 1, 4]);
     let mut d = Device::open_export(&root).unwrap();
     player::set(&mut d, Some("BOOTH"), Some(3)).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let history = one.create_history("HISTORY 002", 0, false).unwrap();
     for t in [5, 6] {
         one.add_to_history(history, t).unwrap();
@@ -62,7 +61,13 @@ fn titles_of(root: &Path, ids: &[u32]) -> Vec<String> {
 }
 
 fn hot_cue_bank_lists(root: &Path) -> Vec<String> {
-    OneLibrary::open_root(root).unwrap().hot_cue_bank_lists().unwrap().into_iter().map(|l| l.name).collect()
+    locallibrary::onelibrary::open_root(root)
+        .unwrap()
+        .hot_cue_bank_lists()
+        .unwrap()
+        .into_iter()
+        .map(|l| l.name)
+        .collect()
 }
 
 fn player_name(root: &Path) -> Option<String> {
@@ -174,7 +179,7 @@ fn adding_counts_the_space_of_the_database_it_adds_to() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&root);
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&root).unwrap();
     // Comments OneLibrary keeps (export.pdb couldn't hold them) make it far bigger than export.pdb.
     let comment = "x".repeat(1 << 18);
     one.connection().execute("UPDATE content SET djComment = ?1", [&comment]).unwrap();

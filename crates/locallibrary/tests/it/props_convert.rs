@@ -15,7 +15,6 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, backup, paths, pdb};
 use rekordbox_pdb::PdbEditor;
@@ -90,7 +89,7 @@ fn drifted_drive(tc: &TestCase, dir: &Path) -> std::path::PathBuf {
         ed.save(root.join(paths::EXPORT_PDB)).unwrap();
     }
     if tc.draw(gs::booleans()) {
-        let mut one = OneLibrary::open_root(&root).unwrap();
+        let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
         let plus_ids: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
         let p = one.create_playlist(tc.draw(gs::sampled_from(&["Only Plus", "Peak"][..])), 0, false).unwrap();
         for t in tc.draw(gs::vecs(gs::sampled_from(plus_ids.clone())).max_size(3)) {
@@ -331,7 +330,7 @@ fn prop_xml_holds_the_drives_library(tc: TestCase) {
 /// Give OneLibrary the categories and tags exportExt.pdb has, as rekordbox exports both.
 fn mirror_tags(root: &Path) {
     let ext = rekordbox_pdb::ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
         for t in ext.tags_in(c.id) {
@@ -366,8 +365,8 @@ fn prop_converting_carries_my_tags_and_says_what_it_leaves(tc: TestCase) {
 /// One case of [`prop_converting_carries_my_tags_and_says_what_it_leaves`], `variant` choosing what's drawn.
 #[hegel::test_helper]
 fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, variant: u8) {
-    use locallibrary::onelibrary::ContentRecord;
     use locallibrary::tags::{self, Source};
+    use loclib_rekordbox_db::onelibrary::ContentRecord;
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
     let mut d = Device::open_export(&root).unwrap();
@@ -384,7 +383,7 @@ fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, varian
     }
     common::add_onelibrary(&root);
     mirror_tags(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     // A track only OneLibrary has (a player's own import, say), a hot cue bank list.
     if tc.draw(gs::booleans()) {
         let t = &lib.tracks[0];
@@ -430,7 +429,7 @@ fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, varian
         fs::write(root.join(key), b"not a database").unwrap();
     }
     let pdb_before = pdb::read_library(&root.join(paths::EXPORT_PDB)).ok();
-    let plus_before = OneLibrary::open_root(&root).ok().and_then(|o| o.library().ok());
+    let plus_before = locallibrary::onelibrary::open_root(&root).ok().and_then(|o| o.library().ok());
     let d = Device::open_export(&root).unwrap();
     let from_tags = match to {
         Target::OneLibrary => tagged(&d, Source::ExportExt),
@@ -613,11 +612,11 @@ fn prop_xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
 /// beside what export.pdb has.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_the_whole_library_is_both_databases_put_together(tc: TestCase) {
-    use locallibrary::onelibrary::ContentRecord;
+    use loclib_rekordbox_db::onelibrary::ContentRecord;
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "A");
     common::add_onelibrary(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let ids: Vec<u32> = plus.tracks.iter().map(|t| t.id).collect();
     // A track only OneLibrary has.
@@ -662,11 +661,11 @@ fn prop_the_whole_library_is_both_databases_put_together(tc: TestCase) {
 /// bit; export.pdb's keep theirs, and the library numbered for files carries no id with it set.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_tracks_only_onelibrary_has_get_ids_of_their_own(tc: TestCase) {
-    use locallibrary::onelibrary::ContentRecord;
+    use loclib_rekordbox_db::onelibrary::ContentRecord;
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let defaults = one.content_defaults().unwrap();
     fs::create_dir_all(root.join("Contents/Player")).unwrap();
@@ -715,7 +714,7 @@ fn prop_adding_to_export_pdb_keeps_the_my_tags_it_had(tc: TestCase) {
     tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     common::add_onelibrary(&root);
     // OneLibrary loses a track export.pdb still lists.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
     one.remove_tracks(&[tc.draw(gs::sampled_from(plus))]).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
@@ -766,7 +765,7 @@ fn prop_onelibrary_my_tags_that_cant_be_read_stay_behind(tc: TestCase) {
     tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let before = tagged(&d, Source::ExportExt);
     common::add_onelibrary(&root);
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&root).unwrap();
     one.connection().execute_batch("DROP TABLE myTag_content; DROP TABLE myTag;").unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 

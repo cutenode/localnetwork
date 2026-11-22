@@ -46,7 +46,7 @@ fn onelibrary_of(library: &Library) -> OneLibrary {
         let mut one = OneLibrary::create().unwrap();
         let defaults = one.content_defaults().unwrap();
         for t in &library.tracks {
-            let rec = crate::onelibrary::ContentRecord::from_track(t, false, &defaults);
+            let rec = loclib_rekordbox_db::onelibrary::ContentRecord::from_track(t, false, &defaults);
             assert_eq!(one.add_track(&rec, &t.file_path, "", None).unwrap(), t.id);
         }
         one.to_encrypted().unwrap()

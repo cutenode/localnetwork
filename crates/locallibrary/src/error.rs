@@ -433,6 +433,34 @@ impl<T> IoContext<T> for io::Result<T> {
     }
 }
 
+// The player module reads and writes OneLibrary's `property` table through rusqlite itself.
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Error::OneLibrary(e.to_string())
+    }
+}
+
+impl From<loclib_sqlcipher::Error> for Error {
+    fn from(e: loclib_sqlcipher::Error) -> Self {
+        loclib_rekordbox_db::Error::from(e).into()
+    }
+}
+
+impl From<loclib_rekordbox_db::Error> for Error {
+    fn from(e: loclib_rekordbox_db::Error) -> Self {
+        use loclib_rekordbox_db::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            E::OneLibrary(message) => Error::OneLibrary(message),
+            E::NotFound(message) => Error::NotFound(message),
+            E::Invalid(message) => Error::Invalid(message),
+            E::Exists(message) => Error::conflict(Reason::Exists, message),
+            // A variant a newer loclib-rekordbox-db adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 impl From<rekordbox_pdb::PdbError> for Error {
     fn from(e: rekordbox_pdb::PdbError) -> Self {
         Error::Pdb(e.to_string())

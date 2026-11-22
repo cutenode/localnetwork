@@ -15,8 +15,8 @@
 use std::sync::LazyLock;
 
 use libfuzzer_sys::fuzz_target;
-use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, SQLITE_MAGIC};
-use locallibrary::onelibrary::{self, OneLibrary, wal};
+use loclib_rekordbox_db::onelibrary::cipher::{self, Codec, PAGE_SIZE, SQLITE_MAGIC};
+use loclib_rekordbox_db::onelibrary::{self, OneLibrary, wal};
 
 /// Deriving a salt's keys takes 256,000 rounds of PBKDF2, so plain inputs all get this one random
 /// salt (as a new file does), and reading them back finds its keys already derived.

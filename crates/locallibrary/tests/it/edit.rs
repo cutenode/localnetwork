@@ -837,7 +837,7 @@ fn history_lists_only_onelibrary_has_are_selected() {
     let dir = tempfile::tempdir().unwrap();
     let root = both_databases(dir.path());
     let plus = common::plus_library(&root);
-    let mut one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let list = one.create_history("HISTORY 003", 0, false).unwrap();
     for t in [&plus.tracks[3], &plus.tracks[1]] {
         one.add_to_history(list, t.id).unwrap();

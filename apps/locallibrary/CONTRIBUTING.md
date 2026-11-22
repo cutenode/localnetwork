@@ -339,7 +339,7 @@ plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
 ```bash
 sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
 sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
-  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+  '.read crates/loclib-rekordbox-db/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
 cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
 ```
 

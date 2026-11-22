@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::merge::{self, MergeOptions};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::tags::{self, Edit, Source, TagReport};
 use locallibrary::{Error, backup, paths, pdb};
@@ -20,7 +19,7 @@ use rekordbox_pdb::{ExtDatabase, ExtEditor, ExtTableType};
 /// as rekordbox exports them to both.
 fn mirror_tags_into_onelibrary(root: &Path) {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
         for t in ext.tags_in(c.id) {
@@ -83,7 +82,7 @@ fn ext_tags(root: &Path) -> IndexMap<String, Vec<String>> {
 
 /// The same, in exportLibrary.db.
 fn plus_tags(root: &Path) -> IndexMap<String, Vec<String>> {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     let lib = one.library().unwrap();
     let rows = one.my_tag_rows().unwrap();
     let name = |id: i64| rows.iter().find(|r| r.id == id).unwrap();
@@ -103,7 +102,7 @@ fn plus_tags(root: &Path) -> IndexMap<String, Vec<String>> {
 fn order(root: &Path, category: &str) -> (Vec<String>, Vec<String>) {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
     let c = ext.categories().into_iter().find(|c| c.name == category).unwrap().id;
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     let rows = one.my_tag_rows().unwrap();
     let pc = rows.iter().find(|r| r.is_category && r.name == category).unwrap().id;
     (
@@ -202,7 +201,7 @@ fn edits_both_databases_and_can_be_undone() {
     assert_eq!(ext_order, plus_order);
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
     let ext_id = ext.tags.iter().find(|t| t.name == "Minimal").unwrap().id;
-    let rows = OneLibrary::open_root(&root).unwrap().my_tag_rows().unwrap();
+    let rows = locallibrary::onelibrary::open_root(&root).unwrap().my_tag_rows().unwrap();
     assert_eq!(rows.iter().find(|r| r.name == "Minimal").unwrap().id, i64::from(ext_id));
 
     apply(&mut d, add("Situation/Lounge", vec![demos[0]]));
@@ -376,7 +375,7 @@ fn reports_where_the_databases_disagree() {
     let mut ed = ExtEditor::from_file(&ext_path).unwrap();
     ed.add_tag(2, 0x7000_0001, "Strings").unwrap();
     ed.save(&ext_path).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let techno = one.my_tag_rows().unwrap().into_iter().find(|r| r.name == "Techno").unwrap().id;
     let noise = one.library().unwrap().search("NOISE")[0].id;
     one.link_my_tag(techno, &[noise]).unwrap();
@@ -507,7 +506,7 @@ fn tag(d: &mut Device, path: &str, query: &str) {
 /// A tag's id in each database.
 fn ids_of(root: &Path, name: &str) -> (Option<u32>, Option<i64>) {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let plus = OneLibrary::open_root(root).ok().map(|one| one.my_tag_rows().unwrap());
+    let plus = locallibrary::onelibrary::open_root(root).ok().map(|one| one.my_tag_rows().unwrap());
     (
         ext.tags.iter().find(|t| t.name == name).map(|t| t.id),
         plus.and_then(|rows| rows.into_iter().find(|r| r.name == name)).map(|r| r.id),
@@ -680,7 +679,7 @@ fn convert_to_device_library_moves_exportext_links_to_the_new_ids() {
     tag(&mut d, "Genre/Minimal", "NOISE");
     // OneLibrary drifts: it loses Demo Track 1 (so the rebuilt export.pdb numbers the others
     // differently) and NOISE gains a tag only it has.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let lib = one.library().unwrap();
     let id = |title: &str| lib.tracks.iter().find(|t| t.title == title).unwrap().id;
     one.remove_tracks(&[id("Demo Track 1")]).unwrap();
@@ -713,7 +712,7 @@ fn converting_into_a_database_the_drive_has_adds_the_other_ones_tags() {
     tag(&mut d, "Genre/Techno", "Demo Track 2");
     tag(&mut d, "Situation/Lounge", "Demo Track 1");
     // OneLibrary loses Demo Track 1's Lounge and gains Synth on NOISE.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let lib = one.library().unwrap();
     let id = |title: &str| lib.tracks.iter().find(|t| t.title == title).unwrap().id;
     one.unlink_my_tags_of(&[id("Demo Track 1")]).unwrap();
@@ -752,7 +751,7 @@ fn convert_to_device_library_drops_links_it_cant_place() {
     let mut d = Device::open_export(&root).unwrap();
     tag(&mut d, "Genre/Techno", "Demo Track 1");
     let ext = fs::read(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let techno = one.my_tag_rows().unwrap().into_iter().find(|r| r.name == "Techno").unwrap().id;
     let noise = one.library().unwrap().tracks.iter().find(|t| t.title == "NOISE").unwrap().id;
     one.unlink_my_tags_of(&[1, 2, 3]).unwrap();
@@ -808,7 +807,7 @@ fn a_onelibrary_category_id_past_u32_still_plans_what_applies() {
         ed.remove(*id).unwrap();
     }
     ed.save(&ext_path).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     one.add_my_tag(i64::from(u32::MAX) + 1, 0, "Venue", true).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     let mut d = Device::open_export(&root).unwrap();

@@ -12,7 +12,6 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{paths, tags};
 use rekordbox_pdb::{ExtDatabase, ExtEditor, PdbError};
@@ -350,7 +349,7 @@ fn tagged_drive(dir: &Path) -> PathBuf {
     common::export_new_track(&root, "Noise Maker", "NOISE");
     common::add_onelibrary(&root);
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
         for t in ext.tags_in(c.id) {

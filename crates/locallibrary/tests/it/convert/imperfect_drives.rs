@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use locallibrary::convert::{self, ConvertOptions, ConvertPlan, ConvertReport, Target};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, paths};
 
@@ -34,7 +33,7 @@ fn convert(root: &Path, opts: &ConvertOptions) -> (ConvertPlan, ConvertReport, V
 
 /// Give a OneLibrary database My Tag "Mood/Dark" on its first track.
 fn tag_first_track(root: &Path) {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     one.connection()
         .execute_batch(
             "INSERT INTO myTag VALUES (1, 0, 'Mood', 1, 0), (2, 0, 'Dark', 0, 1);
@@ -139,7 +138,7 @@ fn folders_and_playlists_whose_folder_is_gone_come_across() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::onelibrary_only(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let sets = one.create_playlist("Sets", 0, true).unwrap();
     let warmup = one.create_playlist("Warmup", sets, false).unwrap();
     one.add_to_playlist(warmup, 3).unwrap();
@@ -221,7 +220,7 @@ fn rebuilding_onelibrary_keeps_its_my_tags() {
     common::add_onelibrary(&root);
     tag_first_track(&root);
     let tags_of_first = |root: &Path| -> Vec<(String, String)> {
-        let one = OneLibrary::open_root(root).unwrap();
+        let one = locallibrary::onelibrary::open_root(root).unwrap();
         let first = one.library().unwrap().tracks[0].id;
         one.export_track(first).unwrap().unwrap().my_tags
     };

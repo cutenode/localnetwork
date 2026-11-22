@@ -15,7 +15,6 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::merge::{self, MatchMode, MergeOptions, PlaylistMode};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, Playlist, backup, paths, pdb};
 use rekordbox_pdb::{NewTrack, PdbEditor};
@@ -39,7 +38,7 @@ fn shape(lib: &Library) -> (BTreeSet<String>, Vec<(String, Vec<String>)>) {
 /// A cue on the first track of `root`'s OneLibrary, in a hot cue bank list (inside a folder, or
 /// one that's missing).
 fn bank_list(root: &Path, in_folder: bool) {
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     let first = one.library().unwrap().tracks[0].id;
     one.connection()
         .execute("INSERT INTO cue (cue_id, content_id, kind, inUsec) VALUES (900, ?1, 0, 2000000)", [first])
@@ -112,7 +111,7 @@ fn prop_merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(
         }
     }
     // A bank list comes when its cue's track does, with the merge folder above it.
-    let lists = OneLibrary::open_root(&main).unwrap().hot_cue_bank_lists().unwrap();
+    let lists = locallibrary::onelibrary::open_root(&main).unwrap().hot_cue_bank_lists().unwrap();
     let banks: Vec<&Playlist> = lists.iter().filter(|l| l.name == "Bank").collect();
     assert_eq!(banks.len(), report.hot_cue_bank_lists_added);
     let first_is_new = plan.new_tracks.iter().any(|t| t.source_id == src.library().unwrap().tracks[0].id);

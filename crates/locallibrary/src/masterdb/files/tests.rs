@@ -6,7 +6,7 @@ use serde_json::json;
 use super::*;
 use crate::masterdb::tests::{Fixture, sample};
 use crate::masterdb::{DEFAULT_KEY, PATH_ENV, sqlcipher};
-use crate::onelibrary::cipher::{SALT_LEN, SQLITE_MAGIC};
+use loclib_rekordbox_db::onelibrary::cipher::{SALT_LEN, SQLITE_MAGIC};
 
 /// The cloud agent's secret in [`library`], which a copy without credentials has nowhere.
 pub(crate) const SECRET: &str = "SECRET-TOKEN-0123456789";

@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_util::with_broken_table;
 
 /// rekordbox's columns are loosely typed: numbers can come back as text or reals, and text
 /// as numbers.
@@ -58,15 +59,6 @@ fn creates_empty_databases_sqlite_and_the_cipher_accept() {
     assert_eq!(lib.find_playlist("Set").unwrap().track_ids, [t]);
     // Two new databases never share a salt.
     assert_ne!(bytes[..16], OneLibrary::create().unwrap().to_encrypted().unwrap()[..16]);
-}
-
-/// A database whose b-tree for `table` claims more cells than a page holds, re-encrypted.
-pub(crate) fn with_broken_table(conn: &Connection, codec: &Codec, mut plain: Vec<u8>, table: &str) -> Vec<u8> {
-    let root: u32 =
-        conn.query_row("SELECT rootpage FROM sqlite_master WHERE name = ?1", [table], |r| r.get(0)).unwrap();
-    let at = (root as usize - 1) * PAGE_SIZE;
-    plain[at + 3..at + 5].copy_from_slice(&u16::MAX.to_be_bytes());
-    codec.encrypt(&plain).unwrap()
 }
 
 #[test]

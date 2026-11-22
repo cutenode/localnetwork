@@ -10,7 +10,7 @@ use std::fs;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::player::{self, DbIdentity};
 use locallibrary::progress::Ctx;
@@ -51,7 +51,7 @@ fn prop_a_players_name_and_colour_read_back_as_set(tc: TestCase) {
     assert_eq!(player::db_identity(&root), Some(other));
 
     // A database with no property row shows no name and no colour.
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = onelibrary::open_root(&root).unwrap();
     one.connection().execute("DELETE FROM property", []).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     assert_eq!(player::db_identity(&root), Some(DbIdentity::default()));
@@ -165,7 +165,7 @@ fn prop_a_property_row_of_the_wrong_type_shows_no_identity(tc: TestCase) {
         "UPDATE property SET backGroundColorType = 'red'",
         "UPDATE property SET backGroundColorType = 2.5",
     ]));
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = onelibrary::open_root(&root).unwrap();
     one.connection().execute(wrong, []).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     let mut d = Device::open_export(&root).unwrap();

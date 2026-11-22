@@ -21,10 +21,11 @@ use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
-use locallibrary::onelibrary::{ContentRecord, OneLibrary, cipher};
+use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress};
 use locallibrary::store::Store;
 use locallibrary::{Library, backup, edit, paths, pdb, sound};
+use loclib_rekordbox_db::onelibrary::{ContentRecord, cipher};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 /// The analyzer the tests' role values are kept for: one answering every role doctor reads, each
@@ -451,7 +452,7 @@ pub fn onelibrary_only(root: &Path) {
 
 /// The library in a drive's OneLibrary database.
 pub fn plus_library(root: &Path) -> Library {
-    OneLibrary::open_root(root).unwrap().library().unwrap()
+    locallibrary::onelibrary::open_root(root).unwrap().library().unwrap()
 }
 
 /// Has the `sqlcipher` CLI read the drive's OneLibrary database and its WAL: SQLCipher accepts

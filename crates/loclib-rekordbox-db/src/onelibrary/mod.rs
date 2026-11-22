@@ -1,7 +1,7 @@
 //! OneLibrary (rekordbox's name since 7.2; "Device Library Plus" before): the
 //! `PIONEER/rekordbox/exportLibrary.db` database rekordbox 6.8+/7 writes for newer players. The
 //! CDJ-3000X, CDJ-1500X, OPUS-QUAD, OMNIS-DUO, XDJ-AZ and XDJ-AN read only this file and ignore
-//! `export.pdb`, so every edit locallibrary makes has to land here too.
+//! `export.pdb`, so an edit to a drive's library has to land here too.
 //!
 //! The file is SQLite encrypted with SQLCipher (see [`cipher`]). rekordbox leaves it in WAL mode,
 //! often with its latest changes only in `exportLibrary.db-wal`, so reading replays the WAL's
@@ -9,8 +9,9 @@
 //! artwork has its own `PIONEER/Artwork/<folder>/b<id>.jpg` (+ `_m`) files.
 //!
 //! Editing happens on a decrypted working copy in a temporary directory, with plain SQLite. The
-//! result is checked (`PRAGMA integrity_check`, an encrypt/decrypt round trip) and written back as
-//! one checkpointed file with the drive's own salt, the old WAL removed first (see [`write()`]).
+//! result is checked (`PRAGMA integrity_check`, an encrypt/decrypt round trip) and comes back as
+//! one checkpointed file with the drive's own salt ([`OneLibrary::to_encrypted`]). Whoever writes it
+//! to the drive removes the old WAL first: SQLite would replay it into the new file.
 
 pub mod cipher;
 mod cues;
@@ -18,49 +19,31 @@ mod edit;
 mod tags;
 pub use loclib_sqlcipher::wal;
 
-pub use cues::{CueRow, CueRowChanges};
+pub use cues::{CueRow, CueRowChanges, hot_cue_from_kind, kind_for_hot_cue};
 pub use edit::Tree;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::commit::Swap;
-use crate::device::Device;
+use loclib_model::model::{Library, Playlist, Track, TrackColor, untangle};
+use loclib_sqlcipher::untrusted::{damaged, distrust};
+
 use crate::error::IoContext;
-use crate::model::{Library, Playlist, Track, TrackColor, untangle};
-use crate::paths;
 use crate::{Error, Result};
 
 use cipher::{Codec, PAGE_SIZE};
-pub(crate) use loclib_sqlcipher::{reads_main_page, wal_pages};
-// Opening a file someone else wrote: shared with master.db and Audacity projects.
-pub(crate) use loclib_sqlcipher::untrusted::{damaged, distrust};
 pub use tags::MyTagRow;
 
-impl From<rusqlite::Error> for Error {
-    fn from(e: rusqlite::Error) -> Self {
-        Error::OneLibrary(e.to_string())
-    }
-}
-
-impl From<loclib_sqlcipher::Error> for Error {
-    fn from(e: loclib_sqlcipher::Error) -> Self {
-        match e {
-            // Here the key is rekordbox's own, so a page that fails is the file's fault.
-            loclib_sqlcipher::Error::Authentication(pgno) => {
-                Error::OneLibrary(format!("page {pgno} fails authentication (not a rekordbox database, or corrupt)"))
-            }
-            other => Error::OneLibrary(other.to_string()),
-        }
-    }
-}
+/// `property` columns that describe the drive rather than the library: the name and background
+/// colour players show. [`content_hash`] leaves them out.
+pub const PER_DRIVE_COLUMNS: [&str; 2] = ["deviceName", "backGroundColorType"];
 
 /// `name` as an SQL identifier: in double quotes, with any it holds doubled (column names come
 /// from the drive's own schema).
-pub(crate) fn ident(name: &str) -> String {
+fn ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
@@ -77,16 +60,16 @@ pub fn decrypt(db: &[u8], wal: Option<&[u8]>) -> Result<(Codec, Vec<u8>)> {
 /// re-encryption, which rewrite every byte of the files.
 ///
 /// Two things that don't describe the library are left out, so drives holding the same library
-/// hash alike: the per-drive name and background colour players show (`property.deviceName`,
-/// `property.backGroundColorType`, see [`crate::player`]), and the header counters SQLite bumps on
-/// every write (file change counter and version-valid-for, bytes 24-27 and 92-95).
-pub fn content_hash(db: &[u8], wal: Option<&[u8]>) -> Result<crate::hash::Hash> {
+/// hash alike: the per-drive name and background colour players show ([`PER_DRIVE_COLUMNS`]), and
+/// the header counters SQLite bumps on every write (file change counter and version-valid-for,
+/// bytes 24-27 and 92-95).
+pub fn content_hash(db: &[u8], wal: Option<&[u8]>) -> Result<blake3::Hash> {
     Ok(content_hashes(db, wal)?.0)
 }
 
 /// [`content_hash`] and the hash locallibrary computed before the per-drive name was left out
 /// (every decrypted page, as is). Lineage recorded before then holds the second kind.
-pub fn content_hashes(db: &[u8], wal: Option<&[u8]>) -> Result<(crate::hash::Hash, crate::hash::Hash)> {
+pub fn content_hashes(db: &[u8], wal: Option<&[u8]>) -> Result<(blake3::Hash, blake3::Hash)> {
     let (_, plain) = decrypt(db, wal)?;
     let property = property_page(&plain).unwrap_or(None);
     let usable = PAGE_SIZE - cipher::RESERVE;
@@ -111,7 +94,7 @@ pub fn content_hashes(db: &[u8], wal: Option<&[u8]>) -> Result<(crate::hash::Has
             }
         }
     }
-    Ok((current.finalize().into(), legacy.finalize().into()))
+    Ok((current.finalize(), legacy.finalize()))
 }
 
 /// The `property` table's page and its rows without the per-drive columns, when the table is a
@@ -143,7 +126,7 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
         for (i, name) in names.iter().enumerate() {
-            if crate::player::PER_DRIVE_COLUMNS.iter().any(|c| c.eq_ignore_ascii_case(name)) {
+            if PER_DRIVE_COLUMNS.iter().any(|c| c.eq_ignore_ascii_case(name)) {
                 continue;
             }
             canonical.extend_from_slice(name.as_bytes());
@@ -154,30 +137,6 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
         canonical.push(b'\n');
     }
     Ok(Some((root, canonical)))
-}
-
-/// Replace a drive's OneLibrary database with `bytes`, a complete encrypted file.
-///
-/// The WAL and shared-memory index go before the new file is renamed into place: SQLite would
-/// replay a WAL into whatever database sits next to it, and a database without its WAL is still a
-/// consistent (older) state. Callers hold the drive lock.
-pub fn write(device: &Device, bytes: &[u8]) -> Result<()> {
-    let db = Swap::bytes(device.path(paths::LIBRARY_PLUS_DB), bytes)?;
-    let wal = [paths::LIBRARY_PLUS_WAL, paths::LIBRARY_PLUS_SHM].map(|key| Swap::Remove(device.path(key)));
-    crate::commit::swap(wal.into_iter().chain([db]).collect())
-}
-
-/// Read a drive's `exportLibrary.db` and `-wal` (if present).
-pub fn read_files(root: &Path) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
-    let db = paths::to_fs(root, paths::LIBRARY_PLUS_DB);
-    let bytes = crate::fsutil::read(&db).at(&db)?;
-    let wal = paths::to_fs(root, paths::LIBRARY_PLUS_WAL);
-    let wal = match crate::fsutil::read(&wal) {
-        Ok(b) => Some(b),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(Error::Io { path: wal, source: e }),
-    };
-    Ok((bytes, wal))
 }
 
 /// An empty SQLite database (one page: header and an empty schema table) laid out for SQLCipher:
@@ -207,7 +166,7 @@ fn empty_database() -> Vec<u8> {
 }
 
 /// rekordbox's file type code (`content.fileType`): export.pdb's table.
-pub(crate) fn file_type(path: &str) -> i64 {
+fn file_type(path: &str) -> i64 {
     loclib_model::audio::file_type_code(path).into()
 }
 
@@ -327,15 +286,23 @@ const REFERENCE_COLUMNS: [&str; 11] = [
 pub struct ContentRecord {
     /// Every other column of the row, as stored (unknown columns are carried as they are).
     pub values: Vec<(String, Value)>,
+    /// The artist's name.
     pub artist: Option<String>,
+    /// The remixer's name.
     pub remixer: Option<String>,
+    /// The original artist's name.
     pub original_artist: Option<String>,
+    /// The composer's name.
     pub composer: Option<String>,
+    /// The lyricist's name.
     pub lyricist: Option<String>,
     /// Album name and album artist.
     pub album: Option<(String, Option<String>)>,
+    /// The genre's name.
     pub genre: Option<String>,
+    /// The record label's name.
     pub label: Option<String>,
+    /// The key's name, as rekordbox writes it (`Am`, `8A`).
     pub key: Option<String>,
     /// The track's `cue` rows: the source's `cue_id` and every other column but `content_id`.
     pub cues: Vec<(i64, Vec<(String, Value)>)>,
@@ -346,7 +313,9 @@ pub struct ContentRecord {
 /// Defaults for columns `export.pdb` has no equivalent for (see [`ContentRecord::from_track`]).
 #[derive(Debug, Clone)]
 pub struct ContentDefaults {
+    /// `analysedBits` for an analysed track: which analysis files it has.
     pub analysed_bits: Value,
+    /// `contentLink`.
     pub content_link: Value,
 }
 
@@ -429,41 +398,11 @@ impl std::fmt::Debug for OneLibrary {
     }
 }
 
-/// The drive's OneLibrary database and its library, if it has one. On a drive that also has
-/// `export.pdb`, one that can't be read is reported and left alone rather than failing the edit.
-pub(crate) fn open_plus(
-    device: &Device,
-    has_pdb: bool,
-    warnings: &mut Vec<String>,
-) -> Result<Option<(Library, OneLibrary)>> {
-    if !device.has_library_plus() {
-        return Ok(None);
-    }
-    match device.library_plus().and_then(|one| Ok((one.library()?, one))) {
-        Ok(x) => Ok(Some(x)),
-        Err(e) if has_pdb => {
-            warnings.push(format!(
-                "{e}. Only export.pdb will be changed, so CDJ-3000X, OPUS-QUAD, XDJ-AZ and other players that \
-                 read OneLibrary won't see this until the drive is exported from rekordbox again"
-            ));
-            Ok(None)
-        }
-        Err(e) => Err(e),
-    }
-}
-
 impl OneLibrary {
-    /// Open a drive's OneLibrary database (and its WAL).
-    pub fn open(device: &Device) -> Result<OneLibrary> {
-        Self::open_root(device.root())
-    }
-
-    /// Open the OneLibrary database below any directory laid out like a drive (a backup, say).
-    pub fn open_root(root: &Path) -> Result<OneLibrary> {
-        let (db, wal) = read_files(root)?;
-        OneLibrary::from_encrypted(&db, wal.as_deref())
-    }
-
+    /// A working copy of `exportLibrary.db` (the file's bytes) with the committed part of its WAL
+    /// (`exportLibrary.db-wal`, when there is one) replayed. Refused when it doesn't decrypt with
+    /// rekordbox's key, SQLite finds it damaged, its schema holds views or triggers (rekordbox makes
+    /// none), or it has no `content` table.
     pub fn from_encrypted(db: &[u8], wal: Option<&[u8]>) -> Result<OneLibrary> {
         let (codec, plain) = decrypt(db, wal)?;
         let one = OneLibrary::from_plain(codec, plain)?;
@@ -555,6 +494,7 @@ impl OneLibrary {
 
     // -- reading ----------------------------------------------------------------------------
 
+    /// Its tracks (lookups resolved to names), playlists and history lists.
     pub fn library(&self) -> Result<Library> {
         let mut stmt = self.conn.prepare(
             "SELECT c.content_id, c.title, a.name, al.name, aa.name, g.name, l.name, k.name, r.name, oa.name,
@@ -854,6 +794,7 @@ impl OneLibrary {
         id32(self.next_id("image", "image_id")?, "image")
     }
 
+    /// Give tracks the image row `image` as their artwork.
     pub fn set_track_image(&mut self, ids: &[u32], image: u32) -> Result<()> {
         let tx = self.conn.savepoint()?;
         {
@@ -1028,7 +969,7 @@ impl OneLibrary {
 
     /// Refuse to delete tracks or cues while a table rekordbox 7 doesn't have (`schema.sql`) has
     /// a column naming them: a newer rekordbox's, whose rows would be left pointing at nothing.
-    pub(super) fn check_no_unknown_references(&self) -> Result<()> {
+    fn check_no_unknown_references(&self) -> Result<()> {
         let known: FxHashSet<&str> = include_str!("schema.sql")
             .lines()
             .filter_map(|l| l.strip_prefix("CREATE TABLE ")?.split('(').next())
@@ -1235,4 +1176,4 @@ impl OneLibrary {
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

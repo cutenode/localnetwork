@@ -189,6 +189,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   players load from a drive
 - [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
   (rekordbox's OneLibrary and collection) in pure Rust, with their write-ahead log replayed
+- [loclib-rekordbox-db](../../crates/loclib-rekordbox-db): reading and editing rekordbox's
+  OneLibrary database (`exportLibrary.db`) on USB drives
 - [loclib-anlz](../../crates/loclib-anlz): reading and writing rekordbox's analysis files: beat
   grids, cues, waveforms, phrases and the audio path
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
@@ -301,7 +303,9 @@ flowchart LR
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
-    core --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
+    core --> rkdb["loclib-rekordbox-db<br/>OneLibrary"]
+    rkdb --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
+    core --> sqlc
     core --> anlz["loclib-anlz<br/>analysis files"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> cap["loclib-capacity<br/>fake-capacity probe"]

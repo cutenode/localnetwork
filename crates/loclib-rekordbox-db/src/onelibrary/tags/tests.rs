@@ -46,7 +46,7 @@ fn id_0_is_refused() {
     one.add_my_tag(1, 0, "Genre", true).unwrap();
     one.add_my_tag(2, 1, "Deep", false).unwrap();
     for category in [true, false] {
-        assert_eq!(one.add_my_tag(0, if category { 0 } else { 1 }, "Zero", category).unwrap_err().code(), "invalid");
+        assert!(matches!(one.add_my_tag(0, if category { 0 } else { 1 }, "Zero", category), Err(Error::Invalid(_))));
     }
     // A database made elsewhere may hold one already.
     one.conn
@@ -55,7 +55,7 @@ fn id_0_is_refused() {
             [],
         )
         .unwrap();
-    assert_eq!(one.remove_my_tag(0).unwrap_err().code(), "invalid");
+    assert!(matches!(one.remove_my_tag(0), Err(Error::Invalid(_))));
     assert_eq!(names(&one, 0), [("Genre".into(), 0), ("Zero".into(), 1)]);
     assert_eq!(names(&one, 1), [("Deep".into(), 0)]);
 }
@@ -81,9 +81,9 @@ fn prop_id_0_is_refused_whatever_the_tags(tc: hegel::TestCase) {
     let parent = if category { 0 } else { tc.draw(gs::integers::<i64>().min_value(1).max_value(categories)) };
     let name = tc.draw(gs::text().max_size(8));
     let e = one.add_my_tag(0, parent, &name, category).unwrap_err();
-    assert_eq!(e.code(), "invalid", "{e}");
+    assert!(matches!(e, Error::Invalid(_)), "{e}");
     assert!(e.to_string().contains("id 0 is reserved"), "{e}");
-    assert_eq!(one.remove_my_tag(0).unwrap_err().code(), "invalid");
+    assert!(matches!(one.remove_my_tag(0), Err(Error::Invalid(_))));
     assert_eq!((one.my_tag_rows().unwrap(), one.my_tag_links().unwrap()), before);
     one.add_my_tag(1000, parent, &name, category).unwrap();
     assert!(one.my_tag_rows().unwrap().iter().any(|r| r.id == 1000 && r.parent == parent && r.name == name));
