@@ -477,8 +477,13 @@ jobs:
           DIST_ARGS: ${{ matrix.dist_args }}
           MANIFEST: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
         run: |
+          # dist's own message ends a failure as an error, so the run's summary says what failed, not
+          # only dist's exit code. Its output still shows as it runs.
           # shellcheck disable=SC2086 # the arguments are words
-          dist build --print=linkage --output-format=json $DIST_ARGS > dist-manifest.json
+          if ! dist build --print=linkage --output-format=json $DIST_ARGS 2>&1 >dist-manifest.json | tee dist.log; then
+            sed -n 's/^ *× *//p' dist.log | sed 's/^/::error title=dist build::/'
+            exit 1
+          fi
           cp dist-manifest.json "$MANIFEST"
           {
             echo "paths<<EOF"
