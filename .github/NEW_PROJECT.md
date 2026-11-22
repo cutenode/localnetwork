@@ -8,7 +8,7 @@ Most of the steps are checked, so a missed one fails CI with a message that says
 - The website's tests check that every folder in `apps/` has a tool page and is named in the root README, CONTRIBUTING, SECURITY, the website's README and the `web: tools` label (`apps/web/src/lib/tools/docs.test.ts`).
 - locallibrary's build fails while a folder in `plugins/` isn't one of its dependencies, or a folder in `plugins/accounts/` has no manifest (`apps/locallibrary/build.rs`), and its tests check that every one ships and is in its docs (`apps/locallibrary/tests/it/plugins.rs`).
 - clippy's `cargo_common_metadata` wants full metadata on every crate that isn't `publish = false`, and the release workflow's plan fails while it would release anything but locallibrary.
-- `tools/lexicons.sh` lints the lexicons with [goat](https://github.com/bluesky-social/goat) and compares them with the published ones. It runs goat's pinned version with `go run`, so it needs Go 1.27 or newer.
+- `pnpm lexicons:goat lint --lint-level error` lints the lexicons with [goat](https://github.com/bluesky-social/goat), and `pnpm lexicons:goat breaking` compares them with the published ones. The script runs goat's pinned version with `go run`, so it needs Go 1.27 or newer, and leaves out the `space/` lexicons and `permissions.json`, which use the spaces alpha goat doesn't know yet. `tools/policy/lexicons.rego` holds every string in them to a format, a maxLength or a maxGraphemes.
 
 What no check sees: `CODEOWNERS`, the changelog, what the READMEs say, and settings outside the repository (Railway's, DNS, secrets).
 

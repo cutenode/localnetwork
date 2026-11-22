@@ -135,16 +135,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # goat has no action of its own: tools/lexicons.sh runs its pinned version with `go run`, and
-      # Go checks the module against its public checksum database. goat needs a newer Go than the
-      # runner's.
+      # goat has no action of its own: the root's `lexicons:goat` script runs its pinned version with
+      # `go run`, and Go checks the module against its public checksum database. goat needs a newer
+      # Go than the runner's.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.1"
           cache: false
-      - run: tools/lexicons.sh lint
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo
+      # The strings without a limit are a policy (tools/policy/lexicons.rego), which the policy job runs.
+      - run: pnpm lexicons:goat lint --lint-level error
       # Compares with the published lexicons, so it skips any that aren't published yet.
-      - run: tools/lexicons.sh breaking
+      - run: pnpm lexicons:goat breaking
 
   # Every pull request, Markdown alone too: a diagram (apps/*/README.md and apps/*/docs/diagrams/)
   # whose Source: files changed needs its own file changed, or a `diagrams-checked:` line in the

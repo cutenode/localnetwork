@@ -481,7 +481,7 @@ jobs:
               - '.github/pull_request_template.md'
             repo_checks_lexicons:
               - 'lexicons/**'
-              - 'tools/lexicons.sh'
+              - 'package.json'
               - '.github/workflows/repo-checks.yml'
             repo_checks_ruleset:
               - '.github/rulesets/**'
