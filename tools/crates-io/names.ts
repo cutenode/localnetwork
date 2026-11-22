@@ -1,8 +1,9 @@
-// `node tools/crates-io/cli.ts check`: whether each loclib crate's name on crates.io is ours. Setup
-// runs it before it changes anything. It fails only when a spelling of a crate's name is on crates.io
-// and the crate isn't ours there: under its exact name with an owner in OWNERS. A crate crates.io
-// doesn't have yet gets a warning annotation instead, since loclib-release.yml can't publish a first
-// version and setup has to, but a pull request shouldn't wait for setup to pass.
+// `node tools/crates-io/cli.ts check`: whether each loclib crate's name on crates.io is ours. Pull
+// requests that change a crate's manifest run it (ci.yml's locallibrary_crates paths), and setup runs
+// it before it changes anything. It fails only when a spelling of a crate's name is on crates.io and
+// the crate isn't ours there: under its exact name with an owner in OWNERS. A crate crates.io doesn't
+// have yet gets a warning annotation instead, since loclib-release.yml can't publish a first version
+// and setup has to, but a pull request shouldn't wait for setup to pass.
 // Until setup has, loclib-release.yml publishes nothing (`new`, below).
 //
 // crates.io counts `loclib-aup` and `loclib_aup` as one name, and its API answers for either. The

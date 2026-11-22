@@ -478,7 +478,9 @@ for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`, with the 
 changing anything unless the token is from an account in `OWNERS` and has `trusted-publishing`.
 The environment needs `gh` signed in as a repository admin.
 
-`node tools/crates-io/cli.ts check` is the name check on its own. It fails when any spelling of a
-crate's name is on crates.io and the crate isn't ours there, under its exact name with an owner in
-`OWNERS` (`tools/crates-io/names.ts`): crates.io counts `loclib-aup` and `loclib_aup` as the same
-name. A crate crates.io doesn't have yet gets a warning to run setup.
+`node tools/crates-io/cli.ts check` is the name check on its own. Pull requests that change a
+crate's `Cargo.toml` or add a crate run it, and `node tools/crates-io/cli.ts package`, which runs
+`cargo package` over the crates without building them. The name check fails when any spelling of
+a crate's name is on crates.io and the crate isn't ours there, under its exact name with an owner
+in `OWNERS` (`tools/crates-io/names.ts`): crates.io counts `loclib-aup` and `loclib_aup` as the
+same name. A crate crates.io doesn't have yet gets a warning to run setup.

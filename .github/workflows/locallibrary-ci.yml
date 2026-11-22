@@ -58,6 +58,10 @@ on:
         description: Whether a pull request changed what the fuzz targets reach (ci.yml's locallibrary_fuzz paths).
         type: boolean
         required: true
+      crates:
+        description: Whether a pull request changed a crate's manifest or added a crate (ci.yml's locallibrary_crates paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
@@ -81,9 +85,10 @@ jobs:
   # fmt, clippy, the doctests and the docs, which build the same crates, in one job. A change to the
   # crates' READMEs alone (`docs`) runs only the doctests and the docs. A pull request that changes
   # what `dist plan` reads gets the plan here too (`dist`), in place of a runner of its own in
-  # locallibrary-release.yml.
+  # locallibrary-release.yml, and one that changes a crate's manifest (`crates`) gets the crates
+  # packaged and their names checked on crates.io.
   lint:
-    if: inputs.linux || inputs.docs || inputs.cache || inputs.dist
+    if: inputs.linux || inputs.docs || inputs.cache || inputs.dist || inputs.crates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -160,6 +165,22 @@ jobs:
             echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
             exit 1
           fi
+      # tools/crates-io needs only Node: it uses none of the root's packages.
+      - if: inputs.crates
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # `cargo package --no-verify` over the crates that aren't `publish = false`: what crates.io
+      # would get from each, without building it (tools/crates-io/package.ts). The full
+      # `cargo publish --dry-run` builds every crate, so it runs weekly (locallibrary-scheduled.yml)
+      # and in setup.
+      - if: inputs.crates
+        run: node tools/crates-io/cli.ts package
+      # Each crate's name on crates.io is free or ours (tools/crates-io/names.ts). A crate crates.io
+      # doesn't have yet only gets a warning, and loclib-release.yml publishes nothing until setup
+      # has published it.
+      - if: inputs.crates
+        run: node tools/crates-io/cli.ts check
 
   # What's behind cfg(windows), well before other-os's Windows leg gets that far: clippy for the
   # GNU target, cross-compiled on Linux with MinGW for the crates that build C.

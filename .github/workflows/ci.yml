@@ -69,6 +69,7 @@ jobs:
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
       locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
       locallibrary_fuzz: ${{ steps.scope.outputs.locallibrary_fuzz }}
+      locallibrary_crates: ${{ steps.scope.outputs.locallibrary_crates }}
       web: ${{ steps.scope.outputs.web }}
       web_verify: ${{ steps.scope.outputs.web_verify }}
       web_integration: ${{ steps.scope.outputs.web_integration }}
@@ -227,6 +228,12 @@ jobs:
               - '!**/{tests,testing,test_util,screens,props}.rs'
               - '!**/tests/**'
               - '!**/*.md'
+            # A crate's manifest, a new crate's too, and the name check: lint packages the crates and
+            # checks their names on crates.io.
+            locallibrary_crates:
+              - '**/Cargo.toml'
+              - 'tools/crates-io/**'
+              - '.github/workflows/locallibrary-ci.yml'
             # What `dist plan` reads (see locallibrary-release.yml).
             locallibrary_dist:
               - '**/Cargo.toml'
@@ -560,7 +567,7 @@ jobs:
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
             locallibrary_dist locallibrary_other_os locallibrary_macos locallibrary_semver locallibrary_commands locallibrary_fuzz \
-            web_verify web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
+            locallibrary_crates web_verify web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons \
             repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
             out[$name]=false
@@ -574,6 +581,7 @@ jobs:
             set_if locallibrary_semver changed locallibrary_semver
             set_if locallibrary_commands changed locallibrary_commands
             set_if locallibrary_fuzz changed locallibrary_fuzz
+            set_if locallibrary_crates changed locallibrary_crates
             set_if web_verify changed web
             set_if web_integration changed web_integration
             set_if web_e2e changed web_e2e
@@ -635,7 +643,7 @@ jobs:
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_budgets locallibrary_dist locallibrary_other_os locallibrary_semver
+            locallibrary_budgets locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_crates
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_bombadil \
             repo_checks_text repo_checks_commits repo_checks_diagrams
@@ -714,6 +722,7 @@ jobs:
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
       commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
       fuzz: ${{ needs.changes.outputs.locallibrary_fuzz == 'true' }}
+      crates: ${{ needs.changes.outputs.locallibrary_crates == 'true' }}
 
   web:
     needs: changes

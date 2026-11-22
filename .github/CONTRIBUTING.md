@@ -108,6 +108,7 @@ cargo hegel-coverage          # the Hegel properties alone, held to the same thr
 cargo +1.91 check --workspace --locked
 cargo deny --locked check advisories bans licenses sources
 cargo notices                 # the third-party notices, which fail on a licence about.toml doesn't accept
+node tools/crates-io/cli.ts check  # on pull requests that change a Cargo.toml: every loclib crate's name is free on crates.io, or ours
 ```
 
 CI also sets `CI`, which makes Hegel try the same inputs on every run, `NEXTEST_PROFILE=ci`, and `LOCALLIBRARY_REQUIRE_SQLCIPHER=1`, which fails the SQLCipher tests that otherwise skip without it. Set all three to match it.

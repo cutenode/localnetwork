@@ -1,11 +1,12 @@
-// `node tools/crates-io/cli.ts check | new | status | setup`: names.ts says what check and new do,
-// setup.ts what status and setup do. This wires them to the real commands, crates.io and the
-// terminal.
+// `node tools/crates-io/cli.ts check | new | package | status | setup`: names.ts says what check and
+// new do, package.ts what package does, and setup.ts what status and setup do. This wires them to
+// the real commands, crates.io and the terminal.
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { client } from './client.ts';
 import { type Ports, type Run, check, unpublished } from './names.ts';
+import { packageCrates } from './package.ts';
 import { setup, status } from './setup.ts';
 
 const run: Run = (command, args, { input, env, show = false } = {}) => {
@@ -40,6 +41,7 @@ const ask = async (prompt: string): Promise<string> => {
 const command = new Map([
 	['check', check],
 	['new', unpublished],
+	['package', packageCrates],
 	['status', status],
 	['setup', setup]
 ]).get(process.argv[2] ?? '');
@@ -53,7 +55,7 @@ const ports: Ports = {
 };
 
 if (command === undefined) {
-	console.error('Usage: node tools/crates-io/cli.ts check | new | status | setup');
+	console.error('Usage: node tools/crates-io/cli.ts check | new | package | status | setup');
 	process.exitCode = 1;
 } else {
 	try {

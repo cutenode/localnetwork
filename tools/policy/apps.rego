@@ -96,6 +96,7 @@ ci_only_steps := {
 	"diagrams": "the drift check reads the pull request's body",
 	"commits": "lefthook's commit-msg hook runs commitlint on each commit",
 	"./.github/actions/patch-coverage": "it covers the lines a pull request changes, so it runs on pull requests only",
+	"node tools/crates-io/cli.ts check": "it asks crates.io who owns each crate's name, so it needs the network",
 }
 
 # How a laptop spells a step CI spells another way: the verify scripts, and the commands

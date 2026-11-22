@@ -20,6 +20,7 @@
 		"pnpm exec lefthook run pre-push --job \"clippy for Windows\" --force",
 		"cargo test --doc --workspace --locked",
 		"cargo doc-strict",
+		"node tools/crates-io/cli.ts package",
 		"node tools/verify/release-cli.ts",
 		"cargo nextest run --workspace --locked"
 	],

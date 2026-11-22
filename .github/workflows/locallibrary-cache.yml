@@ -88,6 +88,7 @@ jobs:
       semver: false
       commands: false
       fuzz: false
+      crates: false
 
   # Each set of apt packages a workflow installs (.github/actions/apt-packages), restored or saved
   # on main every night. A pull request reads main's caches but can't see another pull request's,
