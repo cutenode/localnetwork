@@ -6,19 +6,23 @@ repository root. Paths below that start with `crates/`, `vendor/`, `plugins/` or
 from there; the rest are from this folder.
 
 ```bash
-cargo test --workspace --locked     # unit + integration tests against real rekordbox export fixtures
+cargo nextest run --workspace --locked   # unit + integration tests against real rekordbox export fixtures
+cargo test --doc --workspace --locked    # the doctests, which nextest doesn't run
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all --check
-RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+cargo doc-strict                         # the docs, with rustdoc's warnings as errors
 ```
 
-CI expects all four to pass, and the builds without the default features to build and pass
+Run the tests with nextest, as CI does: `.config/nextest.toml` gives each test its timeout and
+the wall-clock budget tests the whole machine, which plain `cargo test` ignores. `pnpm verify:rust`
+runs all five and the rest of CI's lint job. CI expects them to pass, and the builds without the
+default features to build and pass
 their tests too (see [Install](docs/install.md#install) for the features; CI tests them weekly):
 
 ```bash
-cargo test -p locallibrary-core --no-default-features --locked
-cargo test -p locallibrary --no-default-features --locked
-cargo test -p locallibrary --no-default-features --features account --locked
+cargo nextest run -p locallibrary-core --no-default-features --locked
+cargo nextest run -p locallibrary --no-default-features --locked
+cargo nextest run -p locallibrary --no-default-features --features account --locked
 cargo clippy -p locallibrary --no-default-features --features tui,account --all-targets --locked -- -D warnings
 ```
 
@@ -32,8 +36,8 @@ locallibrary: it depends on them, re-exports them where their code used to live,
 their errors into its own in `crates/locallibrary/src/error.rs`, keeping the messages and RPC
 error codes. Their tests sit beside their code (`cargo test -p loclib-tracklist`), and tests that
 need locallibrary's fixtures stay in locallibrary. Each one's README is its crate docs, so the
-README's examples are doctests: run `cargo test --doc -p <crate>` after changing one, since CI
-skips changes to Markdown alone.
+README's examples are doctests: run `cargo test --doc -p <crate>` after changing one (CI runs the
+doctests and docs when a loclib crate's README changes).
 
 The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrary-plugin-<id>`),
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
@@ -191,7 +195,8 @@ function or region coverage drops below the thresholds there, just under what CI
 Linux; raise them when coverage goes up. It
 measures only the code that ships: unit tests live in a module's own `tests.rs` (`foo.rs` declares
 `#[cfg(test)] mod tests;`, and the tests are in `foo/tests.rs`), which the alias leaves out with the
-TUI's other test-only files (`props.rs`, `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new
+TUI's other test-only files (`props.rs`, `screens.rs`, `stories.rs`, `testing.rs`), `test_util.rs`,
+loclib-testkit and the test plugin. Keep new
 unit tests in those files, not inline. It needs `cargo-llvm-cov` and `cargo-nextest`, and the
 `llvm-tools` that `rust-toolchain.toml` installs, found through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
 proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
@@ -335,7 +340,7 @@ cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/one
 report in headless Chrome with random keys, clicks and resizes, checking properties over time
 (`bombadil/tui.ts`, `bombadil/report.ts`): the header and footer are always drawn, the deck stays on
 screen, `g` and a letter switches views, help opens and closes, a typed line keeps its cursor in view, edits finish, the report's
-counts agree and its player stays consistent. macOS and Linux only, with Node 22:
+counts agree and its player stays consistent. macOS and Linux only, with the Node in `.node-version`:
 
 ```bash
 cd bombadil && npm ci       # from this folder
