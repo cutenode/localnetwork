@@ -184,6 +184,17 @@ Besides each check passing, a pull request has to stay within these:
 - Changelog: a locallibrary change people will notice adds its changelog line in `apps/locallibrary/changes/`, in a file named after the branch without `bnb/` ([changes/README.md](../apps/locallibrary/changes/README.md)). No check sees it, so the template asks.
 - Labels: `pnpm policy` fails a file that no rule in [labeler.yml](labeler.yml) labels, and a code file with no area label. A new folder needs a rule there.
 
+## Flaky tests
+
+A test that passes and fails on the same code gets its cause fixed. Don't raise its timeout or add retries.
+
+- Fix the cause: fake timers instead of real waits, waiting on what the test needs instead of a delay, and fixed fixtures and seeds.
+- Confirm the fix with repeated runs: `pnpm -C apps/<app> exec vitest run --repeats=20 <file>`, `pnpm -C apps/web exec playwright test --repeat-each=20 <file>`, or `cargo nextest run --workspace --locked --retries 0 --stress-count 50 -E 'test(<name>)'`.
+- Rerun a failure alone before blaming the machine's load.
+- If it can't be fixed in the same pull request, open an issue with the failing run.
+
+The tooling already does some of this: localtoolbox's tests run shuffled and repeated in CI (`test:shuffle`, `test:repeat`), Playwright retries a test once in CI, and Hegel tries the same inputs on every CI run.
+
 ## Pull requests
 
 - For anything beyond a typo or a small fix, open an issue or comment on one before you start, so nobody spends time on a change that's unwanted or already being made. A small fix links an issue too.
