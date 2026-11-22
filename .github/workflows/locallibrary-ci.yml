@@ -331,6 +331,13 @@ jobs:
           cache: pnpm
       - if: github.event_name == 'pull_request'
         run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      # A merge commit from before the base branch's budget tooling last changed, which a close and
+      # reopen can leave, would measure and check with the old tooling.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: node tools/budgets/cli.ts current HEAD^1 "origin/$BASE_REF" "$GITHUB_REPOSITORY" "$NUMBER"
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
@@ -418,6 +425,12 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      # As in the budgets job. A merge queue group's base is main as the group was made.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: node tools/budgets/cli.ts current HEAD^1 "origin/$BASE_REF" "$GITHUB_REPOSITORY" "$NUMBER"
       - uses: ./.github/actions/release-budgets
         with:
           out: ${{ github.workspace }}/target/budgets

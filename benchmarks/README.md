@@ -37,6 +37,12 @@ what the `budgets` job does and run `release-budgets`, and a group's head become
 has its numbers when it lands. The artifacts keep the repository's default retention. When no run
 measured the base, the job measures it too and says so in a notice.
 
+A pull request's merge commit has to sit on a base with its branch's current `tools/budgets/`
+(`tools/budgets/cli.ts current`), or the job fails before measuring: GitHub's merge commit can be
+on an old base, which would check with old tooling. Close and reopen the pull request once
+`gh api repos/<owner>/<repo>/pulls/<number> --jq .merge_commit_sha` prints a merge commit on the
+current base (the message gives the command), and update the branch only if that doesn't happen.
+
 A merge queue group runs `release-budgets` on its pull requests together, against the group's base,
 and allows each pull request in it its allowance, so two that each passed alone can't land over
 together.

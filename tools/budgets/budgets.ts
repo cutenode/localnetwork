@@ -15,6 +15,9 @@
 //       see creep.ts
 //   node tools/budgets/cli.ts raises <base-ref> <raises-file>
 //       fails on an allowance widened or a metric dropped that no raise names
+//   node tools/budgets/cli.ts current <base-ref> <branch> <repo> <pull-request>
+//       fails when <base-ref> predates <branch>'s last change to tools/budgets/, and says how to get
+//       a current merge commit
 //
 // A raise is a commit's `Budget-Raise: <area>/<metric> +<amount>: <why>` trailer, which <raises-file>
 // holds as `git log --format='%(trailers:key=Budget-Raise)'` prints it: in a commit, review covers it
@@ -255,6 +258,34 @@ function raises(base: string, raisesFile: string): Outcome {
 	return { lines: found, ok: found.length === 0 };
 }
 
+/**
+ * Whether `base` has `branch`'s budget tooling. A pull request's merge commit holds its base as it was
+ * when GitHub made it, and a close and reopen can leave an old one, which would measure and check with
+ * the old tooling (LOC-710).
+ */
+function current(base: string, branch: string, repo: string, number: string): Outcome {
+	const changed = execFileSync('git', ['log', '-1', '--format=%H', branch, '--', 'tools/budgets'], {
+		encoding: 'utf8'
+	}).trim();
+
+	try {
+		execFileSync('git', ['merge-base', '--is-ancestor', changed, base]);
+
+		return { lines: [], ok: true };
+	} catch {
+		const short = changed.slice(0, 9);
+
+		// A close and reopen gets a new merge commit once GitHub has made one on the current base, which
+		// keeps the pull request's history as it is; updating the branch is for when it doesn't.
+		return {
+			lines: [
+				`${base} predates ${short}, ${branch}'s last change to tools/budgets/, so this would check with old tooling. Close and reopen the pull request once \`gh api repos/${repo}/pulls/${number} --jq .merge_commit_sha\` prints a merge commit whose first parent contains ${short}, and update the branch only if that doesn't happen.`
+			],
+			ok: false
+		};
+	}
+}
+
 /** What a command prints, and whether it passed. */
 export type Outcome = { lines: string[]; ok: boolean };
 
@@ -282,11 +313,19 @@ export function run([command, ...args]: string[]): Outcome {
 		return raises(base, raisesFile);
 	}
 
+	if (command === 'current' && args.length === 4) {
+		// SAFETY: the length is checked just above.
+		const [base, branch, repo, number] = args as [string, string, string, string];
+
+		return current(base, branch, repo, number);
+	}
+
 	return {
 		lines: [
 			'usage: cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]',
 			'       cli.ts noise <job> <dir> <dir>...',
-			'       cli.ts raises <base-ref> <raises-file>'
+			'       cli.ts raises <base-ref> <raises-file>',
+			'       cli.ts current <base-ref> <branch> <repo> <pull-request>'
 		],
 		ok: false
 	};

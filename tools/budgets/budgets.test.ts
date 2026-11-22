@@ -258,8 +258,31 @@ describe('the commands', () => {
 		});
 	});
 
+	describe('current', () => {
+		it("fails a base from before the branch's last change to the budget tooling", () => {
+			git('init', '-q', '-b', 'main');
+			mkdirSync('tools/budgets', { recursive: true });
+			writeFileSync('tools/budgets/cli.ts', '1');
+			const old = commit('old tooling');
+			writeFileSync('tools/budgets/cli.ts', '2');
+			const tooling = commit('new tooling');
+			writeFileSync('raises.md', 'unrelated');
+			const later = commit('after it');
+			const short = tooling.slice(0, 9);
+			expect(run(['current', old, 'main', 'owner/repo', '7'])).toEqual({
+				lines: [
+					`${old} predates ${short}, main's last change to tools/budgets/, so this would check with old tooling. Close and reopen the pull request once \`gh api repos/owner/repo/pulls/7 --jq .merge_commit_sha\` prints a merge commit whose first parent contains ${short}, and update the branch only if that doesn't happen.`
+				],
+				ok: false
+			});
+			expect(run(['current', tooling, 'main', 'owner/repo', '7'])).toEqual({ lines: [], ok: true });
+			expect(run(['current', later, 'main', 'owner/repo', '7']).ok).toBe(true);
+		});
+	});
+
 	it.each([
 		[[]],
+		[['current', 'HEAD', 'main']],
 		[['check', 'pull-request', 'base', 'head']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '0']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '1.5']],
