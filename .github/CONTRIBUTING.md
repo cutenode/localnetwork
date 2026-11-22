@@ -117,7 +117,7 @@ zizmor --offline .github
 
 The `*:tools` scripts cover what no app's own scripts reach. `format:tools` formats `tools/`, `.railway/`, the flags, budgets and tokens, and Bombadil's specs; `lint:tools` lints `tools/`, `.railway/` and Bombadil's specs; `check:tools` type-checks `tools/`, `.railway/railway.ts` and the generated RPC types in `apps/locallibrary/docs/rpc/`. Bombadil type-checks its specs with its own `typecheck`. The root's `pnpm format:check`, `pnpm lint` and `pnpm check` run them along with every app's. `pnpm test:tools` holds each file its tests load, but the oxlint plugin's, to full coverage. No test loads the command-line entry points (`cli.ts`, `release-cli.ts`), so they aren't measured.
 
-[typos](https://github.com/crate-ci/typos) checks spelling, with the repository's own words in `_typos.toml`. [lychee](https://lychee.cli.rs) checks relative links and their anchors on each pull request, and the rest weekly. A link that can't work yet goes in `.lycheeignore` with why.
+[typos](https://github.com/crate-ci/typos) checks spelling, with the repository's own words in `_typos.toml`. [lychee](https://lychee.cli.rs) checks relative links and their anchors on each pull request, and the rest weekly. A link that can't work yet, or a site that turns lychee away, goes in `.lycheeignore` with why.
 
 ast-grep's rules (`sgconfig.yml`, in `tools/ast-grep/rules/` with their cases in `tools/ast-grep/tests/`) include `no-direct-pds-read`, which fails a record read that skips HappyView, in TypeScript, Svelte or Rust. Its exceptions are in the rule. clippy (`clippy.toml`) bans jacquard's typed requests for the same reads.
 
