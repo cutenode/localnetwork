@@ -145,6 +145,15 @@ node tools/readmes/cli.ts drift origin/main body.md
 
 `cargo remove` also deletes the root `Cargo.toml`'s `[profile.dev.package.*]` entries, with their comments, for every crate no member depends on directly: its clean-up after a removal ([rust-lang/cargo#11194](https://github.com/rust-lang/cargo/pull/11194), since Cargo 1.67) only keeps the entries for direct dependencies. `pnpm policy` fails while one is missing and its crate is still in `Cargo.lock`, so put it back with `git checkout -p Cargo.toml`. A new entry goes in `dev_optimised` in `tools/policy/cargo.rego` too.
 
+### Git hooks
+
+The hooks ([Setup](#setup)) skip a job whose tool you haven't installed (ShellCheck, typos, StyLua and selene, taplo, the Windows target). Don't skip the hooks with `--no-verify`: CI runs the same checks, so that only moves the failure later. If one job is broken on your machine, skip only that job by its name in `lefthook.yml`, and open an issue about it:
+
+```bash
+LEFTHOOK_EXCLUDE='tests localtoolbox' git push    # several jobs: 'tests localtoolbox,typecheck localtoolbox'
+pnpm exec lefthook run pre-push --job 'tests localtoolbox' --force   # rerun one job without pushing
+```
+
 ## What CI runs
 
 CI (`ci.yml`) runs a tool's checks only when its files (or the shared ones) change. It ends with a "CI passed" check, which is skipped, and so counts as passing, unless a check failed. `pr-issue.yml` reports "PR issue passed" ([Pull requests](#pull-requests)). Those two are the checks `main` requires before a merge (`.github/rulesets/protect-main.json`), along with code scanning and a code owner's approval. On a draft pull request nothing runs, and "CI passed" fails, until you mark it ready for review. If no run starts then, use "Re-run all jobs" (re-running only the failed jobs keeps the draft's result).
