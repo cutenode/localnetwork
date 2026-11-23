@@ -1365,8 +1365,10 @@ describe('readOpsPage', () => {
 		})
 	);
 
+	// A few ops are enough to line each up with its index, and every one can be nested thousands of levels deep, so a
+	// longer page only makes each run slower.
 	const page = fc.record({
-		ops: fc.array(op),
+		ops: fc.array(op, { maxLength: 3 }),
 		commit: fc.constant(commit),
 		cursor: fc.option(fc.string(), { nil: undefined })
 	});
@@ -1440,7 +1442,8 @@ describe('readOpsPage', () => {
 						return { index, held: deep, kept: deep ? null : false };
 					})
 				);
-			})
+			}),
+			{ numRuns: 50 }
 		);
 	});
 });
