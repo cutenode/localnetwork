@@ -3,6 +3,7 @@ import { UserError } from '#lib/server/core.ts';
 import { cacheBriefly } from '#lib/server/http.ts';
 import { listed, mixMeta } from '#lib/server/meta.ts';
 import { projectRecords } from '#lib/server/meta-records.ts';
+import { hideInactiveProject } from '#lib/server/project-page.ts';
 import { mixRecording } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
@@ -17,6 +18,7 @@ export const load: PageServerLoad = async (event) => {
 	const canEdit = isManager || !!viewer?.isStaff;
 
 	if (project.status !== 'active' && !canEdit) error(404, 'No project with that name');
+	await hideInactiveProject(app, project);
 
 	const n = Number(params.n);
 	const mix = Number.isInteger(n) && n >= 1 ? project.profile.mixes?.[n - 1] : undefined;

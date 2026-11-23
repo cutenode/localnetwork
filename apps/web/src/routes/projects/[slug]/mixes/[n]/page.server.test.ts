@@ -185,3 +185,11 @@ it('lets an unexpected failure through as it is', async () => {
 		})
 	).rejects.toBe(failing);
 });
+
+it("hides a mix once none of the project's managers is active", async () => {
+	await f.managersAre('takendown', 'deactivated');
+	await expect(mixPage('1')).rejects.toMatchObject({ status: 404, body: { title: "Neon Tide isn't active" } });
+
+	await f.managersAre('deleted', 'deleted');
+	await expect(mixPage('1')).rejects.toMatchObject({ status: 410, body: { title: 'Neon Tide is gone' } });
+});

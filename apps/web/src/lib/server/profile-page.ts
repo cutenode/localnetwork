@@ -2,6 +2,7 @@ import { isValidDid, isValidHandle } from '@atproto/syntax';
 import { error, isRedirect, redirect } from '@sveltejs/kit';
 import { accountLabel, profileHref } from '#lib/format.ts';
 import type { AccountView } from '#lib/types.ts';
+import { hideUnlessActive } from './active-accounts';
 import type { IdentityResolver } from './atproto/identity';
 import { unlessOffline } from './happyview/offline';
 import { takesInquiries } from './services/booking-performers';
@@ -63,20 +64,12 @@ export async function pageAccount(locals: App.Locals, param: string, rest: strin
 	}
 
 	misses.refund(ip);
-	const status = await locals.app.core.accountStatuses.status(account.did);
 	const who = account.handle ? `@${account.handle}` : 'This account';
 
-	if (status === 'deleted') {
-		error(410, { status: 410, title: `${who} was deleted`, message: 'Their profile and sets are gone.' });
-	}
-
-	if (status !== 'active') {
-		error(404, {
-			status: 404,
-			title: `${who} isn't active`,
-			message: 'Their profile and sets come back when the account does.'
-		});
-	}
+	await hideUnlessActive(locals.app, [account.did], {
+		deleted: { title: `${who} was deleted`, message: 'Their profile and sets are gone.' },
+		inactive: { title: `${who} isn't active`, message: 'Their profile and sets come back when the account does.' }
+	});
 
 	return account;
 }
