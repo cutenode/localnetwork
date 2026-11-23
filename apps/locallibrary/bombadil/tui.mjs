@@ -42,7 +42,7 @@ Object.assign(process.env, {
 });
 
 // The run must see the copy and nothing else.
-const seen = execFileSync(bin, ['--json', 'drives'], { encoding: 'utf8' }).match(/"root"/g)?.length ?? 0;
+const seen = execFileSync(bin, ['--json', 'drive', 'ls'], { encoding: 'utf8' }).match(/"root"/g)?.length ?? 0;
 
 if (seen !== 1) {
 	console.error(`expected to see only ${drive}, saw ${seen} drives`);
@@ -74,14 +74,14 @@ let status = await runBombadil([
 
 // Whatever the run wrote to the drive must still read. `doctor` reads it and exits 4 for the
 // problems it finds, which it always does here: the copy has no audio files.
-for (const command of ['info', 'tracks', 'playlists', 'doctor']) {
-	const { status: code, stderr } = spawnSync(bin, ['--json', command, drive], {
+for (const command of [['drive', 'info'], ['tracks'], ['playlist'], ['doctor']]) {
+	const { status: code, stderr } = spawnSync(bin, ['--json', ...command, drive], {
 		encoding: 'utf8',
 		stdio: ['ignore', 'ignore', 'pipe']
 	});
 
-	if (code !== 0 && !(command === 'doctor' && code === 4)) {
-		console.error(`after the run, \`locallibrary ${command} ${drive}\` failed:\n${stderr}`);
+	if (code !== 0 && !(command[0] === 'doctor' && code === 4)) {
+		console.error(`after the run, \`locallibrary ${command.join(' ')} ${drive}\` failed:\n${stderr}`);
 		status = 1;
 	}
 }
