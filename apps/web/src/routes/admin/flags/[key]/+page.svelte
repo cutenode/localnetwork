@@ -77,7 +77,7 @@
 				<p id="percentage-hint" class="hint">Accounts stay in as this grows.</p>
 			</div>
 			{#if flag.type === 'release'}
-				<!-- Release flags only: an ops flag's signed-out visitors follow everyone, so a kill switch reaches callers with no
+				<!-- Release flags only: an ops flag reaches signed-out visitors once every account has it, so a kill switch reaches callers with no
 				     account. Disabled until saved at every account, so it isn't sent; the server turns it off below that anyway. -->
 				<label class="flex items-start gap-2.5 has-disabled:text-fg-muted">
 					<input type="checkbox" class="checkbox mt-0.5 disabled:cursor-not-allowed disabled:opacity-50" name="signedOut" bind:checked={fields.signedOut} disabled={!everyAccount} aria-describedby="signed-out-hint" />

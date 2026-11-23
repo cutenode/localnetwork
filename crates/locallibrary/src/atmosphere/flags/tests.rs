@@ -526,8 +526,14 @@ fn a_check_ends_as_the_cache_and_the_servers_say(tc: TestCase) {
         Session::Ended => sign_in_ended(root, &pds.url),
     }
     let last = age.map(|age| {
-        // Signed-out callers follow everyone, as the website answers for an ops flag like this one.
-        let gates = Gates { enabled: true, signed_out: was.0, everyone: was.0, percentage: was.1, targeted: was.2 };
+        // Signed-out callers have it once every account does, as the website answers for an ops flag like this one.
+        let gates = Gates {
+            enabled: true,
+            signed_out: was.0 || was.1 == 100,
+            everyone: was.0,
+            percentage: was.1,
+            targeted: was.2,
+        };
         let mut cache = cached(said_of, TimeDelta::minutes(age), gates, now);
         cache.last_attempt_at = Some(now - TimeDelta::minutes(attempted));
         cache

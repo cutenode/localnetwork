@@ -661,6 +661,27 @@ describe('start', () => {
 			expect(notes().some((note) => note.message === 'reconciled venue blocks')).toBe(true);
 		});
 
+		it('skip the rounds that write once pauseReconcilers is saved at 100%, with no account to ask for', async () => {
+			const { logger, notes } = writtenLog('info');
+			const app = await start(HOURLY, logger);
+			await app.flags.indexFlag(`at://${ROOT}/${COLLECTION.staffFlag}/pauseReconcilers`, {
+				key: 'pauseReconcilers',
+				everyone: false,
+				percentage: 100,
+				groups: [],
+				dids: [],
+				updatedBy: ROOT,
+				updatedAt: nowIso()
+			});
+			app.start();
+
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			await vi.waitFor(() =>
+				expect(notes().filter((note) => note.flag === 'pauseReconcilers' && note.round === 'listings')).toHaveLength(1)
+			);
+			expect(deletes()).toBe(0);
+		});
+
 		it('skip the rounds a bootstrap runs while pauseReconcilers is on', async () => {
 			const { logger, notes } = writtenLog('info');
 			const app = await start({ ...NO_KEY, FLAG_OVERRIDES: 'pauseReconcilers=on' }, logger);

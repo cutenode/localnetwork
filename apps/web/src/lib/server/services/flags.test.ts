@@ -112,12 +112,16 @@ describe('FlagService', () => {
 		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
-	it('gives a signed-out visitor an ops flag only while it is on for everyone', async () => {
+	it('gives a signed-out visitor an ops flag only while every account has it', async () => {
 		const admin = await t.viewer(ADMIN);
-		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 100, dids: [DJ] });
+		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 99, dids: [DJ] });
 
 		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
 		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
+
+		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 100 });
+
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 
 		await t.flags.updateFlag(admin, FLAG, { ...off, everyone: true });
 
@@ -178,14 +182,14 @@ describe('FlagService', () => {
 			expect(await t.flags.evaluate(null)).toMatchObject({ [RELEASE]: false });
 		});
 
-		it('follow everyone for an ops flag, whatever a save asks, so a kill switch works with no account', async () => {
+		it('follow every account for an ops flag, whatever a save asks, so a kill switch works with no account', async () => {
 			const admin = await t.viewer(ADMIN);
 			await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, everyone: true });
 
 			expect(await t.flags.evaluate(null)).toMatchObject({ [PAGE_FLAG]: true });
 			expect(stored(COLLECTION.staffFlag, PAGE_FLAG)?.value).toMatchObject({ signedOut: true });
 
-			await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 100, signedOut: true });
+			await t.flags.updateFlag(admin, PAGE_FLAG, { ...off, percentage: 99, signedOut: true });
 
 			expect(await t.flags.evaluate(null)).toMatchObject({ [PAGE_FLAG]: false });
 			expect(await t.flags.flag(PAGE_FLAG)).toMatchObject({ signedOut: false });

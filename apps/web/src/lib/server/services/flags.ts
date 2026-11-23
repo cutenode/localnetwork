@@ -69,13 +69,15 @@ const isOps = (key: string) => FLAGS.some((flag) => flag.key === key && flag.typ
 /**
  * Whether signed-out visitors have `key`, from what a record says or a save asks for. A kill switch has to work where
  * there's no account (xrpc routes, background rounds, signed-out locallibrary), so an ops flag has no setting of its
- * own: it follows `everyone`. A release flag's is off unless staff turn it on, and only holds while every account has
+ * own: it's on for them once it's on for every account, `everyone` or 100%. A release flag's is off unless staff turn it on, and only holds while every account has
  * the flag, so lowering it for accounts turns it off for signed-out visitors too.
  */
 function signedOutFor(key: string, gates: Pick<FlagInput, 'everyone' | 'percentage'>, asked: boolean | undefined) {
-	if (isOps(key)) return gates.everyone;
+	const everyAccount = gates.everyone || gates.percentage === 100;
 
-	return !!asked && (gates.everyone || gates.percentage === 100);
+	if (isOps(key)) return everyAccount;
+
+	return !!asked && everyAccount;
 }
 
 /**

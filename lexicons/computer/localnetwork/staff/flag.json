@@ -17,7 +17,7 @@
 					},
 					"signedOut": {
 						"type": "boolean",
-						"description": "Signed-out visitors have it too. Only counts while it's on for every account, so it's turned on last. Missing means false for a release flag and the same as everyone for an ops flag."
+						"description": "Signed-out visitors have it too. Only counts while it's on for every account, so it's turned on last. Missing means false for a release flag. An ops flag has it whenever it's on for every account."
 					},
 					"everyone": { "type": "boolean", "description": "On for every signed-in account." },
 					"percentage": {
