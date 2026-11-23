@@ -205,6 +205,14 @@ describe('the commands', () => {
 				'size/other: measured, but has no budget'
 			);
 		});
+		it('reads no raises file when none is given', () => {
+			rmSync('raises.md');
+			write('base/size.json', { binary: 1000 });
+			write('head/size.json', { binary: 1005 });
+			expect(run(['check', 'pull-request', 'base', 'head']).ok).toBe(true);
+			write('head/size.json', { binary: 1011 });
+			expect(run(['check', 'pull-request', 'base', 'head']).ok).toBe(false);
+		});
 		it('leaves the areas of other jobs alone', () => {
 			expect(run(['check', 'weekly', 'base', 'head', 'raises.md']).ok).toBe(true);
 		});
@@ -283,7 +291,7 @@ describe('the commands', () => {
 	it.each([
 		[[]],
 		[['current', 'HEAD', 'main']],
-		[['check', 'pull-request', 'base', 'head']],
+		[['check', 'pull-request', 'base']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '0']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '1.5']],
 		[['raises', 'HEAD']],

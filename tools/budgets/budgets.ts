@@ -3,9 +3,9 @@
 // to how much it grows that number over the commit it merges into, not to a committed limit, so
 // main's own growth never turns a pull request red and pull requests never edit these files.
 //
-//   node tools/budgets/cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]
+//   node tools/budgets/cli.ts check <job> <base-dir> <head-dir> [<raises-file> [entries]]
 //       fails on a metric that grew past its allowance (times `entries`, the pull requests a merge
-//       queue group holds) and the raises <raises-file> declares for it
+//       queue group holds) and the raises <raises-file> declares for it; with no <raises-file>, none
 //   node tools/budgets/cli.ts baseline <sha> <filter> <artifact> <dir>
 //       see baseline.ts
 //   node tools/budgets/cli.ts noise <job> <dir> <dir>...
@@ -177,8 +177,14 @@ function measuredIn(dir: string, area: string): Measured | undefined {
 	return existsSync(path) ? readJson<Measured>(path) : undefined;
 }
 
-function check(job: string, baseDir: string, headDir: string, raisesFile: string, entries: number): Outcome {
-	const raised = declared(readFileSync(raisesFile, 'utf8'));
+function check(
+	job: string,
+	baseDir: string,
+	headDir: string,
+	raisesFile: string | undefined,
+	entries: number
+): Outcome {
+	const raised = raisesFile === undefined ? new Map<string, number>() : declared(readFileSync(raisesFile, 'utf8'));
 	const rows: Row[] = [];
 	const found: string[] = [];
 
@@ -291,9 +297,9 @@ export type Outcome = { lines: string[]; ok: boolean };
 
 /** Runs a command and gives the lines to print and whether it passed. */
 export function run([command, ...args]: string[]): Outcome {
-	if (command === 'check' && (args.length === 4 || args.length === 5)) {
+	if (command === 'check' && args.length >= 3 && args.length <= 5) {
 		// SAFETY: the length is checked just above.
-		const [job, baseDir, headDir, raisesFile, entries] = args as [string, string, string, string, string?];
+		const [job, baseDir, headDir, raisesFile, entries] = args as [string, string, string, string?, string?];
 		const groupSize = Number(entries ?? '1');
 
 		if (Number.isInteger(groupSize) && groupSize > 0) return check(job, baseDir, headDir, raisesFile, groupSize);
@@ -322,7 +328,7 @@ export function run([command, ...args]: string[]): Outcome {
 
 	return {
 		lines: [
-			'usage: cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]',
+			'usage: cli.ts check <job> <base-dir> <head-dir> [<raises-file> [entries]]',
 			'       cli.ts noise <job> <dir> <dir>...',
 			'       cli.ts raises <base-ref> <raises-file>',
 			'       cli.ts current <base-ref> <branch> <repo> <pull-request>'

@@ -70,7 +70,7 @@ To run the check yourself, download a run's measurements and its base's:
 ```bash
 gh run download <run> -n budgets -D target/budgets
 gh run download <base-run> -n budgets -D target/budgets-base
-node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets /dev/null
+node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets
 ```
 
 ## Creep and noise
