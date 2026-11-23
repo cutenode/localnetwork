@@ -12,6 +12,12 @@
 				"properties": {
 					"epk": { "type": "string", "format": "at-uri", "description": "The computer.localnetwork.epk record." },
 					"message": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the message is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"onBehalfOf": {
 						"type": "string",
 						"format": "did",

@@ -10,12 +10,14 @@ declare global {
 			status: number;
 			message: string;
 			requestId?: string;
+			/** The error page's heading, when the status alone doesn't say what happened. */
+			title?: string;
 		}
 
 		interface Locals {
 			app: ServerApp;
 			viewer: Viewer | null;
-			/** Every feature flag for this viewer, or for a signed-out visitor. Not set on XRPC requests. */
+			/** Every feature flag for this viewer, or as a signed-out visitor gets them, which XRPC requests do too. */
 			flags: Flags;
 			/** The flags a staff member is previewing in this browser, already in `flags`. */
 			flagPreview?: FlagPreview;

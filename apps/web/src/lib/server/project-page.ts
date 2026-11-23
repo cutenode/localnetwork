@@ -1,8 +1,24 @@
 import { error } from '@sveltejs/kit';
+import type { ProjectView } from '#lib/types.ts';
+import { hideUnlessActive } from './active-accounts';
+
+/**
+ * Hides an act's pages (its profile, its mixes and its press kits) once none of its managers' accounts is active:
+ * 410 when every one was deleted, else 404 (see hideUnlessActive).
+ */
+export async function hideInactiveProject(app: App.Locals['app'], project: Pick<ProjectView, 'managers' | 'profile'>) {
+	const { name } = project.profile;
+
+	await hideUnlessActive(app, project.managers, {
+		deleted: { title: `${name} is gone`, message: 'Every account that managed it was deleted.' },
+		inactive: { title: `${name} isn't active`, message: "Its pages come back when one of its managers' accounts does." }
+	});
+}
 
 /**
  * What a project's public pages (its profile and its press kit) both load: the project, 404 when
- * it's hidden from this viewer, the booking details for its managers and staff, its managers, and
+ * it's hidden from this viewer or 404 or 410 when none of its managers is active (see
+ * hideInactiveProject), the booking details for its managers and staff, its managers, and
  * the managers' own DJ records, streamed so a slow PDS never holds the page up. Everyone else sees
  * booking details only in a press kit they have access to, which records the view. Records already
  * at hand (or no managers to ask) render with the page, so no placeholder comes and goes and moves
@@ -17,6 +33,7 @@ export async function loadProjectPage(locals: App.Locals, slug: string) {
 	const isManager = !!viewer && project.managers.includes(viewer.did);
 
 	if (project.status !== 'active' && !isManager && !viewer?.isStaff) error(404, 'No project with that name');
+	await hideInactiveProject(app, project);
 	const seesDetails = isManager || !!viewer?.isStaff;
 
 	const [details, accounts] = await Promise.all([

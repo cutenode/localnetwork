@@ -445,7 +445,11 @@ export class AuditLog {
 
 		if (filter.actor) query = query.where('actorDid', '=', filter.actor);
 
-		if (filter.action) query = query.where('action', 'like', `${filter.action.replace(/[%_]/g, '')}%`);
+		if (filter.action) {
+			// An action or its group: `flag` is flag.update but not flagGroup.update.
+			const action = filter.action.replace(/[%_]/g, '');
+			query = query.where((eb) => eb.or([eb('action', '=', action), eb('action', 'like', `${action}.%`)]));
+		}
 
 		if (filter.subject) query = query.where('subject', '=', filter.subject);
 

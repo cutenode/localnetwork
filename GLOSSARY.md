@@ -53,8 +53,12 @@ The separate area where staff moderate and run the site. Only staff can see it. 
 _Avoid_: admin dashboard, admin panel
 
 **Flag**:
-A switch that turns a feature on for some people before everyone. The website and locallibrary share its key and give an account the same answer. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. A flag can say which kinds of page it shows on, so staff can switch it from there.
+A switch that turns a feature on for some people before everyone. The website and locallibrary share its key and give an account the same answer. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on. Signed-out visitors come last, through a switch of their own that waits until every account has the flag; a kill switch reaches them whenever it's on for everyone. A flag can say which kinds of page it shows on, so staff can switch it from there.
 _Avoid_: feature toggle, experiment, setting
+
+**Shows on**:
+The kinds of page a flag changes: the home page, profiles, acts, parties, venues, events, sets, mixes or press kits, or every page. Each flag lists its own in the catalog, and its page in the staff console shows them.
+_Avoid_: contexts, placement, scope
 
 **Flag group**:
 A named list of accounts a flag can be turned on for. It has nothing to do with an act, and the people in it don't know they're in it.
@@ -69,7 +73,7 @@ A flag that stops something that already works while it's on. It's named for the
 _Avoid_: circuit breaker, pause flag
 
 **Rollout**:
-The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted.
+The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted: they get a flag all at once, and only after every account has it.
 _Avoid_: percentage (in copy), canary, staged release
 
 ## People and acts
@@ -221,6 +225,10 @@ _Avoid_: edit, revision, review request (those go to staff)
 **Grant**:
 Letting one account read one press kit's private part.
 _Avoid_: access, approval, permission (that's staff)
+
+**Press kit request**:
+Asking to see one press kit's private part. A manager approves it, which makes a grant, or declines it. The answer stays after a grant is removed, and someone declined can't ask to see that press kit again, though a manager can still invite them.
+_Avoid_: review request (that goes to staff)
 
 ## Music
 

@@ -25,6 +25,12 @@
 						"ref": "#fields",
 						"description": "What each changed field held in the published press kit when the draft changed it; a changed field missing here was empty. Publishing compares these with the current values to find fields someone else published since. Absent for a press kit that isn't published yet."
 					},
+					"langs": {
+						"type": "array",
+						"description": "The languages of the text this draft changes. Publishing gives them to whichever of the press kit's records it changes the text of.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"onBehalfOf": {
 						"type": "string",
 						"format": "did",

@@ -6,6 +6,7 @@ import {
 	isDatetimeStringLenient,
 	isValidDid,
 	isValidHandle,
+	isValidLanguage,
 	isValidNsid,
 	isValidRecordKey,
 	isValidTid,
@@ -127,6 +128,14 @@ const datetime = fc
 	.date({ min: new Date('1970-01-01T00:00:00Z'), max: new Date('2100-01-01T00:00:00Z'), noInvalidDate: true })
 	.map((date) => date.toISOString());
 
+/** BCP 47 tags as records carry them: a primary language, sometimes with a script or region. */
+const language = fc
+	.oneof(
+		fc.constantFrom('en', 'de', 'pt-BR', 'ja', 'zh-Hant-TW', 'en-XA'),
+		fc.stringMatching(/^[a-z]{2,3}(-[A-Z]{2})?$/)
+	)
+	.filter(isValidLanguage);
+
 /** Each format the record lexicons use: how to make a value, and the check the validator makes of it. */
 const FORMATS = new Map<string, { valid: fc.Arbitrary<string>; check: (value: string) => boolean }>([
 	['did', { valid: did, check: isValidDid }],
@@ -134,6 +143,7 @@ const FORMATS = new Map<string, { valid: fc.Arbitrary<string>; check: (value: st
 	['at-uri', { valid: atUri, check: isAtUriString }],
 	['cid', { valid: cid, check: isCid }],
 	['datetime', { valid: datetime, check: isDatetimeStringLenient }],
+	['language', { valid: language, check: isValidLanguage }],
 	['uri', { valid: fc.oneof(fc.webUrl(), atUri, did).filter(isValidUri), check: isValidUri }]
 ]);
 

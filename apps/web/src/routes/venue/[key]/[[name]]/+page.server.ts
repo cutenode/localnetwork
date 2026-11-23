@@ -1,23 +1,22 @@
 import { error, redirect } from '@sveltejs/kit';
-import { capabilitiesIn } from '#lib/capabilities.ts';
+import { type Capability, capabilitiesIn } from '#lib/capabilities.ts';
 import type { ListedEvent } from '#lib/events.ts';
 import { listedEvent } from '#lib/server/events-list.ts';
+import { pageContext } from '#lib/server/edit-mode.ts';
 import { cacheBriefly, requireFlag } from '#lib/server/http.ts';
 import { pageMeta } from '#lib/server/meta.ts';
 import type { VenueView } from '#lib/server/services/venues.ts';
 import { spacePagePath } from '#lib/space-paths.ts';
-import type { Viewer } from '#lib/types.ts';
+import type { SpacePerson, Viewer } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
 /**
  * The venue's dashboard pages the viewer can use: its events waiting for it with venue.approve, its settings with
  * page.edit or venue.block (staff can use both), and otherwise claiming it.
  */
-async function dashboardLinks(app: App.Locals['app'], venue: VenueView, viewer: Viewer) {
+function dashboardLinks(venue: VenueView, viewer: Viewer, person: SpacePerson | undefined, held: Capability[]) {
 	const base = `/dashboard/venues/${venue.skey}`;
-	const person = (await app.sharedSpaces.people(venue.space, viewer)).find((someone) => someone.did === viewer.did);
-	const held = capabilitiesIn('venue', person?.capabilities ?? []);
-	const can = (capability: (typeof held)[number]) => viewer.isStaff || held.includes(capability);
+	const can = (capability: Capability) => viewer.isStaff || held.includes(capability);
 
 	return [
 		...(can('venue.approve') ? [{ label: 'Events to confirm', href: `${base}/events` }] : []),
@@ -46,12 +45,20 @@ export const load: PageServerLoad = async (event) => {
 	const { name, address } = venue;
 	const place = [address.locality, address.country].filter(Boolean).join(', ');
 
-	cacheBriefly(event, 60);
+	const person = viewer
+		? (await app.sharedSpaces.people(venue.space, viewer)).find((someone) => someone.did === viewer.did)
+		: undefined;
+
+	const held = capabilitiesIn('venue', person?.capabilities ?? []);
+	const { can } = pageContext(locals, 'venue', venue.space, held);
+
+	// Its people and staff change what it shows from the dashboard, and come back to see it.
+	cacheBriefly(event, 60, can ?? []);
 
 	return {
 		venue: { name, address, geo: venue.geo ?? null },
 		events: listed.filter((shown): shown is ListedEvent => !!shown),
-		dashboard: flags.peopleSpaces && viewer ? await dashboardLinks(app, venue, viewer) : [],
+		dashboard: flags.peopleSpaces && viewer ? dashboardLinks(venue, viewer, person, held) : [],
 		meta: pageMeta(app.config.publicUrl, {
 			title: name,
 			description: `${name} in ${place}: upcoming events on Local Network.`,

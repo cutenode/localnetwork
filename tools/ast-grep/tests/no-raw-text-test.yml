@@ -1,0 +1,28 @@
+id: no-raw-text
+valid:
+  - |
+    <a class="menu-link" href="/privacy">{m.footer_privacy()}</a>
+  - |
+    <button aria-label={open ? m.close_menu() : m.menu()}>{#if open}<X size={20} />{:else}<Menu size={20} />{/if}</button>
+  - |
+    <span>{count}&nbsp;·&nbsp;{m.shows()}</span>
+  - |
+    <!-- Signed out, /report sends people on to GitHub, so the link says so. -->
+    <a href="/report?from={encodeURIComponent(page.url.pathname)}" class="menu-link">{m.report()}</a>
+  - |
+    <script lang="ts">
+      const label = 'Ignored here: oxlint sees the script';
+    </script>
+  - |
+    <button type="button" onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>{hotkeys.enabled ? m.shortcuts_on() : m.shortcuts_off()}</button>
+invalid:
+  - |
+    <a class="menu-link" href="/privacy">Privacy</a>
+  - |
+    <span class="text-fg-subtle">Records on {protocol} · private data</span>
+  - |
+    <button type="button">{m.shortcuts()} on</button>
+  - |
+    <button aria-label="Close menu"><X /></button>
+  - |
+    <img src={src} alt="Mixer" />

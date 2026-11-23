@@ -20,6 +20,12 @@
 						"items": { "type": "string", "maxLength": 32, "knownValues": ["flags", "flagGroups"] }
 					},
 					"note": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the note is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"createdAt": { "type": "string", "format": "datetime" }
 				}
 			}

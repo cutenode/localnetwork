@@ -4,6 +4,7 @@ import { NotificationChannels } from '#lib/server/notifications/channels.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
+import type { Flags } from '#lib/types.ts';
 import { actions, load } from './+page.server.ts';
 import type { PageServerData } from './$types';
 
@@ -61,9 +62,12 @@ async function inquiries(count: number) {
 	return t.notifications.list(DJ, { limit: count });
 }
 
-/** The DJ's inbox at `url`, the rows awaited. */
-const opened = async (url = '/dashboard/inbox', sends: ('email' | 'dm')[] = []) => {
-	const data = await loadRoute<PageServerData>(load, { app: app(sends), viewer: await t.viewer(DJ), url });
+/** Both channels rolled out to the DJ. */
+const ROLLED_OUT: Partial<Flags> = { inboxEmail: true, inboxDm: true };
+
+/** The DJ's inbox at `url`, the rows awaited, with `flags` theirs. */
+const opened = async (url = '/dashboard/inbox', sends: ('email' | 'dm')[] = [], flags = ROLLED_OUT) => {
+	const data = await loadRoute<PageServerData>(load, { app: app(sends), viewer: await t.viewer(DJ), url, flags });
 
 	return { ...data, ...(await data.inbox) };
 };
@@ -134,6 +138,11 @@ it('says where else the inbox goes only where the site sends and the account wou
 
 	await notificationChannels.setTopics(DJ, 'email', []);
 	expect((await opened(undefined, ['email', 'dm'])).alsoSent).toEqual(['dm']);
+
+	// Nor by a channel whose flag is off for them, since the outbox skips it.
+	await notificationChannels.setTopics(DJ, 'email', ['bookings']);
+	expect((await opened(undefined, ['email', 'dm'], { inboxEmail: true })).alsoSent).toEqual(['email']);
+	expect((await opened(undefined, ['email', 'dm'], {})).alsoSent).toEqual([]);
 });
 
 it('sends someone signed out to sign in', async () => {

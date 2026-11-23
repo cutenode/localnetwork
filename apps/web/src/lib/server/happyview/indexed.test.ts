@@ -3,10 +3,12 @@ import { jsonToLex } from '@atproto/lex-json';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { silentLogger } from '../logger';
+import { writtenLog } from '../testing/written-log';
 import { FakeHappyView } from '../testing/happyview';
 import { HappyViewClient } from './client';
-import { IndexedRepo } from './indexed';
+import { IndexedRepo, reindex } from './indexed';
 
 const DJ = 'did:plc:dj';
 
@@ -94,5 +96,32 @@ describe('IndexedRepo', () => {
 			`backfill ${COLLECTION.djSet} ${DJ}`,
 			`backfill ${COLLECTION.djSet} ${DJ}`
 		]);
+	});
+
+	it("starts no re-read for a write while pauseBackfills is on, saying so, and does once it's off", async () => {
+		const hv = new FakeHappyView('did:plc:root');
+		const { client, calls } = admin(hv);
+		let paused = true;
+		const flags = { evaluate: async () => ({ ...flagsOff, pauseBackfills: paused }) };
+		const { logger, notes } = writtenLog('info');
+		const repo = new IndexedRepo(client, logger, 0, flags);
+		const backfills = () => calls.filter((call) => call.startsWith('backfill'));
+
+		await repo.awaitWrite(DJ, COLLECTION.djSet, '3set', 'bafynewer');
+		await repo.getRecordOrReindex(DJ, COLLECTION.djSet, 'missing');
+		await reindex(client, logger, flags, COLLECTION.follow, [DJ]);
+
+		expect(backfills()).toEqual([]);
+		expect(
+			notes()
+				.filter((note) => note.flag === 'pauseBackfills')
+				.map((note) => note.collection)
+		).toEqual([COLLECTION.djSet, COLLECTION.djSet, COLLECTION.follow]);
+
+		paused = false;
+		await repo.awaitWrite(DJ, COLLECTION.djSet, '3set', 'bafynewer');
+		await reindex(client, logger, flags, COLLECTION.follow, [DJ]);
+
+		expect(backfills()).toEqual([`backfill ${COLLECTION.djSet} ${DJ}`, `backfill ${COLLECTION.follow} ${DJ}`]);
 	});
 });

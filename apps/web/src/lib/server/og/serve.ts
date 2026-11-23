@@ -1,6 +1,7 @@
 import { LRUCache } from 'lru-cache';
 import PQueue from 'p-queue';
 import type { Logger } from '../logger';
+import { cardPaths } from './paths';
 import type { Png } from './render';
 
 /** Card URLs that name a record's version: the card at one never changes. */
@@ -29,6 +30,16 @@ class Busy extends Error {}
 
 const png = (body: Png, cacheControl: string) =>
 	new Response(body, { headers: { 'content-type': 'image/png', 'cache-control': cacheControl } });
+
+/**
+ * Where a card goes while drawing is paused (pauseOgCards): to the site's card, which is drawn once and kept, so a
+ * crawler that read a page before the pause still gets a picture. Not kept, so the card comes back with the flag off.
+ */
+export function sendToSiteCard(log: Logger, path: string): Response {
+	log.info('card drawing paused', { card: path, flag: 'pauseOgCards' });
+
+	return new Response(null, { status: 302, headers: { location: cardPaths.site, 'cache-control': 'no-store' } });
+}
 
 /**
  * Serves cards from a cache of `budget` bytes, least recently used out first, drawing a missing one with at most

@@ -84,6 +84,21 @@ it("keeps a signed-in viewer's page out of shared caches", async () => {
 	expect(headers['cache-control']).toBe('private, max-age=300');
 });
 
+it('keeps no copy for its managers and staff, who can change it', async () => {
+	for (const did of [DJ, ADMIN]) {
+		const { loadData, headers } = routeEvent({
+			app: app(),
+			viewer: await f.t.viewer(did),
+			params: { slug: project.slug, n: '1' },
+			url: `/projects/${project.slug}/mixes/1`
+		});
+
+		await loadData<PageServerData>(load);
+
+		expect(headers['cache-control']).toBe('no-store');
+	}
+});
+
 it("shows a mix's tracklist, its player and its page's head, cached for five minutes", async () => {
 	const { loadData, headers, locals } = routeEvent({
 		app: app(),
@@ -169,4 +184,12 @@ it('lets an unexpected failure through as it is', async () => {
 			url: `/projects/${project.slug}/mixes/1`
 		})
 	).rejects.toBe(failing);
+});
+
+it("hides a mix once none of the project's managers is active", async () => {
+	await f.managersAre('takendown', 'deactivated');
+	await expect(mixPage('1')).rejects.toMatchObject({ status: 404, body: { title: "Neon Tide isn't active" } });
+
+	await f.managersAre('deleted', 'deleted');
+	await expect(mixPage('1')).rejects.toMatchObject({ status: 410, body: { title: 'Neon Tide is gone' } });
 });

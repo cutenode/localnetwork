@@ -3,6 +3,7 @@
 local json = require('internal.json')
 
 function handle(input)
+	skipInactive(input)
 	local q = text(input.q)
 	local limit = pageSize(input.limit, 25, 50)
 	local where, args = '', { limit }

@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { TID } from '@atproto/common-web';
 import type { Kysely } from 'kysely';
+import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import type { NotificationChannel, NotificationTopic, NotificationView, PausedReason } from '#lib/types.ts';
 import { backoffMs } from '../audit/log';
 import { type Db, nowIso, parseJson } from '../db';
 import type { Database, NotificationChannelRow } from '../db/schema';
 import type { Logger } from '../logger';
+import type { FlagService } from '../services/flags';
 import type { NotificationChannels } from './channels';
 import { view } from './notifier';
 
@@ -57,6 +59,21 @@ const KEEP_MS = 30 * 86_400_000;
 
 const CHANNELS: NotificationChannel[] = ['email', 'dm'];
 
+/** The flag each channel rolls out behind, a recipient at a time. */
+const CHANNEL_FLAG = { email: 'inboxEmail', dm: 'inboxDm' } as const satisfies Record<NotificationChannel, FlagKey>;
+
+/** Where the outbox reads who each channel's flag is on for. */
+export type ChannelFlags = { evaluate(did: string): ReturnType<FlagService['evaluate']> };
+
+/**
+ * The channels a page offers or mentions to the viewer: the ones this site sends by and has rolled out to them. `dm`
+ * is Bluesky chat, for asking whether the root's DMs reach them.
+ */
+export const offeredChannels = ({ app, flags }: Pick<App.Locals, 'app' | 'flags'>) => ({
+	email: flags[CHANNEL_FLAG.email] && app.outbox.configured.includes('email'),
+	dm: flags[CHANNEL_FLAG.dm] ? app.dm : null
+});
+
 type Due = {
 	id: string;
 	notificationId: string;
@@ -82,6 +99,7 @@ export class Outbox {
 			db: Db;
 			logger: Logger;
 			channels: NotificationChannels;
+			flags: ChannelFlags;
 			senders: Partial<Record<NotificationChannel, ChannelSender>>;
 			maxAttempts?: number;
 		}
@@ -286,11 +304,21 @@ export class Outbox {
 		const sender = this.deps.senders[channel];
 		const recipient = await this.deps.channels.get(did, channel);
 		const fresh = !batch[0].batchId;
-		// Read on the site already, or the channel's off, paused, or no longer set up here: nothing to send.
-		const skipped = batch.filter((row) => !sender || recipient?.status !== 'active' || (fresh && row.readAt));
+		const rolledOut = (await this.deps.flags.evaluate(did))[CHANNEL_FLAG[channel]];
+
+		// Read on the site already, or the channel's off, paused, not rolled out to them, or no longer set up here:
+		// nothing to send. Not rolled out is skipped for good, not held, or everything held would go out at once when
+		// the flag came on.
+		const skipped = batch.filter(
+			(row) => !sender || !rolledOut || recipient?.status !== 'active' || (fresh && row.readAt)
+		);
+
 		const sending = batch.filter((row) => !skipped.includes(row));
 
 		if (skipped.length > 0) await this.finish(skipped, { status: 'skipped' });
+
+		if (!rolledOut)
+			logger.info('skipped notifications: the channel is off for them', { did, channel, items: skipped.length });
 
 		if (!sender || !recipient || sending.length === 0) return;
 		const ids = sending.map((row) => row.id);

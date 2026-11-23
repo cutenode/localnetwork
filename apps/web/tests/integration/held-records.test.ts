@@ -5,6 +5,7 @@ import type { HeldRecordView, Viewer } from '../../src/lib/types.ts';
 import { load } from '../../src/routes/dashboard/account/data/+page.server.ts';
 import { actions } from '../../src/routes/dashboard/account/data/[kind]/+page.server.ts';
 import { TestNetwork } from './network.ts';
+import { flagsOff } from '../../src/lib/testing/flags.ts';
 
 describe('deleting what the root wrote on your behalf, on a real atproto spaces network', () => {
 	let net: TestNetwork;
@@ -32,7 +33,7 @@ describe('deleting what the root wrote on your behalf, on a real atproto spaces 
 
 	const event = (viewer: Viewer, form?: Record<string, string>) => ({
 		url,
-		locals: { app: net.app, viewer, log: silentLogger },
+		locals: { app: net.app, viewer, log: silentLogger, flags: flagsOff },
 		request: new Request(url, { method: 'POST', body: new URLSearchParams(form) })
 	});
 

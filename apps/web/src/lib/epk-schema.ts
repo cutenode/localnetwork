@@ -36,6 +36,7 @@ export const epkRecordSchema = z.object({
 	bio: z.string().optional(),
 	mixes: z.array(mix).optional(),
 	photos: z.array(photo).optional(),
+	langs: z.array(z.string()).optional(),
 	access: z.object({ anyone: rule, promoters: rule, following: rule, bookedWith: rule }),
 	createdAt: z.string(),
 	updatedAt: z.string().optional()
@@ -50,6 +51,7 @@ export const epkContentSchema = z.object({
 		.object({ email: z.string().optional(), phone: z.string().optional(), note: z.string().optional() })
 		.optional(),
 	techRider: z.string().optional(),
+	langs: z.array(z.string()).optional(),
 	updatedAt: z.string()
 });
 
@@ -57,12 +59,13 @@ export const epkContentSchema = z.object({
 export const epkFieldsSchema = epkRecordSchema
 	.pick({ title: true, headline: true, bio: true, mixes: true, photos: true, access: true })
 	.partial()
-	.extend({ content: epkContentSchema.omit({ updatedAt: true }).optional() });
+	.extend({ content: epkContentSchema.omit({ updatedAt: true, langs: true }).optional() });
 
 export const epkDraftSchema = z.object({
 	base: z.object({ uri: z.string(), cid: z.string() }).optional(),
 	changes: epkFieldsSchema,
 	previous: epkFieldsSchema.optional(),
+	langs: z.array(z.string()).optional(),
 	onBehalfOf: z.string().optional(),
 	createdAt: z.string(),
 	updatedAt: z.string()
@@ -80,6 +83,16 @@ export const epkGrantSchema = z.object({
 	epk: z.string().optional(),
 	via: z.string(),
 	request: z.string().optional(),
+	createdAt: z.string()
+});
+
+/** A press kit request's answer. An outcome this app doesn't know fails to parse, so it changes nothing. */
+export const epkDecisionSchema = z.object({
+	request: z.string(),
+	requester: z.string(),
+	epk: z.string(),
+	outcome: z.enum(['approved', 'declined']),
+	decidedBy: z.string(),
 	createdAt: z.string()
 });
 

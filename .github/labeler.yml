@@ -60,7 +60,7 @@ atstore:
           - "apps/web/src/lib/{dj,dj-schema,performers,project-form,project-migration}.*"
           - "apps/web/src/lib/profile-tabs/**"
           - "apps/web/src/lib/server/services/{projects,dj,sets,profiles,performers,performer-*,project-migration}.*"
-          - "apps/web/src/lib/server/{project-page,profile-page,performer-uri,locallibrary}.*"
+          - "apps/web/src/lib/server/{active-accounts,project-page,profile-page,performer-uri,locallibrary}.*"
           - "apps/web/src/lib/server/forms/{claim,project,profile}.*"
           - "apps/web/src/lib/components/{Project*,ClaimFields,DjSets,DjStats,LinkedSet}.svelte"
           - "apps/web/src/lib/components/profile.svelte.test.ts"
@@ -141,7 +141,7 @@ atstore:
           - "apps/web/src/lib/{audit-sentences,requests,request-standing,capabilities,bug-report,verification}.*"
           - "apps/web/src/lib/server/services/{staff,flags,project-admin,requests,diff,bug-reports,verifications}.*"
           - "apps/web/src/lib/server/forms/flags.*"
-          - "apps/web/src/lib/server/flags/**"
+          - "apps/web/src/lib/{,server/}flags/**"
           - "flags/**"
           - "apps/web/src/lib/server/audit/**"
           - "apps/web/src/lib/components/DiffTable.svelte"
@@ -170,10 +170,10 @@ atstore:
 "web: server":
   - changed-files:
       - any-glob-to-any-file:
-          - "apps/web/src/{hooks.server,app.d}.*"
+          - "apps/web/src/{hooks.client,hooks.server,app.d}.*"
           - "apps/web/src/lib/{nsid,types,space-paths}.*"
           - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing,backup}/**"
-          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,edit-mode,http,logger,rate-limit}.*"
+          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,edit-mode,http,langs,logger,rate-limit}.*"
           - "apps/web/src/lib/server/{env-files,crawler-head,images,utf8,moved-pages,meta,meta-records,structured-data}.*"
           - "apps/web/src/lib/server/services/{shared-spaces,space-joins,space-members,manager-spaces,own-repo,held-records,services}.*"
           - "apps/web/src/routes/{xrpc,.well-known,media,healthz}/**"
@@ -193,7 +193,7 @@ atstore:
           - "!apps/web/src/lib/components/profile.svelte.test.ts"
       - any-glob-to-any-file:
           - "apps/web/src/lib/{ui,assets,og}/**"
-          - "apps/web/src/lib/{format,nav,combobox,form-*,hotkeys,headline,hosts,meta,structured-data,home,resolved,web-url}.*"
+          - "apps/web/src/lib/{format,nav,combobox,form-*,hotkeys,headline,hosts,locale,test-locale,meta,structured-data,home,resolved,web-url}.*"
           - "apps/web/src/lib/server/og/**"
           - "apps/web/src/lib/server/{home,landing,social-home}.*"
           - "apps/web/src/routes/{+layout,+error,layout,error,heads,link-matrix,listings,stored-images,social-home}.*"

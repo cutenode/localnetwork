@@ -188,7 +188,9 @@ locallibrary account flags --refresh    # ask now
 Local Network turns new things on for some accounts first, with the same flags on the website and
 here. A flag is on when it's on for everyone, when it names your account or a group you're in, or
 when your DID falls inside its percentage, the sum the website does (`flags/README.md` in the repo).
-Signed out, only flags on for everyone are on. A flag staff turned off is off for everyone.
+Signed out, a flag is on only once it's on for signed-out visitors: staff turn that on last, after
+every account has it, and a kill switch has it whenever it's on for everyone. A flag staff turned
+off is off for everyone.
 
 Only a command that depends on a flag asks, and nothing else goes to the network because of them.
 The website's answer is kept in `flags.json` in the store folder for an hour, or until the next

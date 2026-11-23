@@ -28,3 +28,6 @@ test-results
 
 *storybook.log
 storybook-static
+
+# inlang writes its compile cache next to the project settings.
+project.inlang/cache/

@@ -13,6 +13,12 @@
 					"kind": { "type": "string", "maxLength": 32, "knownValues": ["act", "party", "venue"] },
 					"name": { "type": "string", "minLength": 1, "maxLength": 640, "maxGraphemes": 64 },
 					"slug": { "type": "string", "minLength": 2, "maxLength": 64 },
+					"langs": {
+						"type": "array",
+						"description": "The languages of the text in fields, as the space's own record names them.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"people": {
 						"type": "array",
 						"maxLength": 50,

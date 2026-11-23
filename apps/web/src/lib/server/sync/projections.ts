@@ -32,9 +32,10 @@ const SHARED_SPACE_COLLECTIONS = new Set<string>([
 /**
  * Maps records synced from spaces onto the local index. Records are checked
  * against our lexicons, and authority rules are enforced here: only the root
- * account's decisions, roles, and details count, only the press kit grants
- * of their space's authority, and in a performer's, party's or venue's space,
- * only what the root wrote, in a space under the root.
+ * account's decisions (on moderation and press kit requests), roles, and
+ * details count, only the press kit grants of their space's authority, and in
+ * a performer's, party's or venue's space, only what the root wrote, in a
+ * space under the root.
  */
 export function createProjections(deps: {
 	core: Core;
@@ -212,6 +213,11 @@ export function createProjections(deps: {
 			case COLLECTION.epkRequest:
 				// indexRequest checks the space: a project's request space, or a press kit's, where requests went before.
 				await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+
+				return;
+			case COLLECTION.epkDecision:
+				if (fromRoot && type === SPACE_TYPE.epkRequests && ref?.authority === rootDid)
+					await epks.indexDecision({ space: change.space, value });
 
 				return;
 			case COLLECTION.epkGrant:

@@ -11,6 +11,7 @@ import {
 } from '../../src/routes/admin/spaces/[kind]/[skey]/+page.server.ts';
 import { load as spacesLoad } from '../../src/routes/admin/spaces/+page.server.ts';
 import { TestNetwork } from './network.ts';
+import { flagsOff } from '../../src/lib/testing/flags.ts';
 
 const listRecordsOutput = z.object({
 	records: z.array(z.object({ value: z.object({ subject: z.string() }) }))
@@ -92,7 +93,7 @@ describe('shared spaces on a real atproto spaces network', () => {
 		const staff = await net.viewer('mira');
 		const { kind, skey } = { kind: 'performer', skey: parseSpaceUri(space)!.skey };
 		const url = new URL(`http://127.0.0.1/admin/spaces/${kind}/${skey}`);
-		const locals = { app: net.app, viewer: staff, log: silentLogger };
+		const locals = { app: net.app, viewer: staff, log: silentLogger, flags: flagsOff };
 
 		const list = await spacesLoad({ url, locals, params: {} });
 		expect(await list.spaces).toMatchObject([{ uri: space, kind, people: 2, listed: true }]);

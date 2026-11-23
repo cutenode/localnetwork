@@ -123,6 +123,23 @@ describe('BookingService', () => {
 		]);
 	});
 
+	it('names the language of what each side wrote, and none on records nobody wrote words in', async () => {
+		const space = await open();
+		const promoter = await t.viewer(PROMOTER);
+		await t.bookings.message({ actor: await t.viewer(DJ), space, text: 'Free that night' });
+		await t.bookings.setStatus({ actor: promoter, space, status: 'cancelled' });
+
+		const langs = (repo: string) => t.net.spaceRecordsIn(space, repo).map(({ value }) => [value.$type, value.langs]);
+
+		expect(langs(PROMOTER)).toEqual([
+			[COLLECTION.bookingInquiry, ['en']],
+			[COLLECTION.bookingStatus, undefined]
+		]);
+		expect(langs(DJ)).toEqual([[COLLECTION.bookingMessage, ['en']]]);
+		// The root's record opening the thread says "Thread opened" itself.
+		expect(langs(ROOT)).toEqual([[COLLECTION.bookingStatus, undefined]]);
+	});
+
 	it('opens a thread on the second read of an inquiry the directory failed on the first', async () => {
 		const space = await syncedSpace([PROMOTER, DJ]);
 		const project = await bookable();

@@ -51,6 +51,25 @@ it('refuses a key that would not work as a property, and a field it does not kno
 	);
 });
 
+it('reads the kinds of page a flag shows on, and refuses one it does not know', () => {
+	const file = { key: 'a', description: 'x', type: 'ops', showsOn: ['profile'] };
+
+	expect(parseCatalog([['/flags/catalog/a.json', file]])).toEqual([file]);
+	expect(parseCatalog([['/flags/catalog/a.json', { ...file, showsOn: ['global'] }]])[0]?.showsOn).toEqual(['global']);
+
+	for (const showsOn of [['planet'], ['project'], ['request'], ['press-kit']]) {
+		expect(() => parseCatalog([['/flags/catalog/a.json', { ...file, showsOn }]]), showsOn[0]).toThrow('Invalid option');
+	}
+
+	expect(() => parseCatalog([['/flags/catalog/a.json', { ...file, showsOn: [] }]])).toThrow('Too small');
+});
+
+it('reads showsOn on release flags too', () => {
+	const file = { key: 'a', description: 'x', type: 'release', removeBy: '2026-12-01', showsOn: ['party', 'venue'] };
+
+	expect(parseCatalog([['/flags/catalog/a.json', file]])).toEqual([file]);
+});
+
 /** Parses one flag named `a`, with `fields` on top of its key and description. */
 const parseFlag = (fields: { type?: string; removeBy?: string }) =>
 	parseCatalog([['/flags/catalog/a.json', { key: 'a', description: 'x', ...fields }]]);

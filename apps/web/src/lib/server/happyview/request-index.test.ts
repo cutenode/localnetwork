@@ -3,6 +3,7 @@ import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { COLLECTION, REQUEST_INDEX } from '#lib/nsid.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { lexicons } from '../atproto/lexicons';
 import { silentLogger } from '../logger';
 import { serviceJwt } from '../testing/service-jwt';
@@ -68,6 +69,7 @@ describe('requestIndex', () => {
 			audience: AUDIENCE,
 			getSigningKey: async () => key.did(),
 			backfills,
+			paused: false,
 			log: silentLogger
 		});
 
@@ -139,6 +141,14 @@ describe('requestIndex', () => {
 		expect(await call(backfills, await token())).toEqual({ status: 200, body: { indexed: false } });
 		expect(await call(backfills, await token())).toEqual({ status: 200, body: { indexed: false } });
 		expect(backfilled).toHaveLength(LOCALLIBRARY.length);
+	});
+
+	it('says nothing was re-read while pauseBackfills is on, and starts none', async () => {
+		const flags = { evaluate: async () => ({ ...flagsOff, pauseBackfills: true }) };
+		const answer = await call(new Backfills(happyView(), silentLogger, flags), await token());
+
+		expect(answer).toEqual({ status: 200, body: { indexed: false } });
+		expect(backfilled).toEqual([]);
 	});
 
 	it("says nothing was re-read without HappyView's API key", async () => {

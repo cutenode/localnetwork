@@ -4,7 +4,9 @@
 //! which aborts the process wherever memory isn't overcommitted (Windows, Linux with
 //! `vm.overcommit_memory=2`), and a tag claiming more asks for it anywhere. It reads each sample
 //! into a buffer of the size the file gives it, so one claiming 4 GiB asks for that for every
-//! packet. An abort can't be caught, so such a file is refused here.
+//! packet. symphonia-codec-alac sizes its buffers from the frame length an ALAC setup claims, so
+//! one claiming 4 billion samples asks for 16 GiB a channel too. An abort can't be caught, so such
+//! a file is refused here.
 
 use std::fs::File;
 use std::io::{self, BufReader, ErrorKind, Read, Seek, SeekFrom};
@@ -24,6 +26,11 @@ const TABLES: [(&[u8; 4], u64); 5] = [(b"stsz", 4), (b"stco", 4), (b"co64", 8), 
 
 const TOO_MANY: &str = "a sample table claims more entries than the file holds";
 const TOO_BIG: &str = "a sample is larger than the file";
+const TOO_LONG: &str = "an ALAC frame claims more samples than any encoder writes";
+
+/// The most samples an ALAC frame may claim. Apple's encoder writes 4,096; this leaves room for
+/// any other while keeping a frame's buffers to a few MiB.
+const ALAC_FRAME: u32 = 1 << 16;
 
 /// Deeper than any atom symphonia reads (`moov/udta/meta/ilst/<tag>/data` is 6).
 const DEPTH: u8 = 8;
@@ -32,8 +39,8 @@ const DEPTH: u8 = 8;
 const PROBE_LIMIT: u64 = 1 << 20;
 
 /// Refuse `path` when it's an MP4 whose atoms claim more than the file holds: a sample table
-/// whose count wouldn't fit in it, a sample larger than the file, or an atom inside another
-/// running past it or the file's end.
+/// whose count wouldn't fit in it, a sample larger than the file, an ALAC frame longer than
+/// `ALAC_FRAME`, or an atom inside another running past it or the file's end.
 /// Anything else, MP4 or not, is left for the decoder to make sense of. So is what isn't a regular
 /// file (a FIFO): what this read of it took would be gone when the decoder opened it again, and
 /// its atoms can't be walked without seeking.
@@ -113,9 +120,7 @@ fn walk(r: &mut dyn Source, mut at: u64, end: u64, len: u64, level: Level) -> io
     };
     while at.saturating_add(8) <= end {
         r.seek(SeekFrom::Start(at))?;
-        let size = u64::from(read_u32(r)?);
-        let mut kind = [0; 4];
-        r.read_exact(&mut kind)?;
+        let (size, kind) = (u64::from(read_u32(r)?), read_kind(r)?);
         let (size, header) = match size {
             0 => (end - at, 8),
             1 => (read_u64(r)?, 16),
@@ -144,6 +149,10 @@ fn walk(r: &mut dyn Source, mut at: u64, end: u64, len: u64, level: Level) -> io
                 return Ok(Some(why));
             }
         } else if let Some(why) = table(r, &kind, body, body_end, len)? {
+            return Ok(Some(why));
+        } else if &kind == b"stsd"
+            && let Some(why) = alac_frames(r, body, body_end)?
+        {
             return Ok(Some(why));
         }
         at = atom_end;
@@ -209,6 +218,63 @@ fn table(r: &mut dyn Source, kind: &[u8; 4], body: u64, body_end: u64, len: u64)
         }
     }
     Ok(None)
+}
+
+/// What's wrong with the ALAC setups among the sample entries in the `stsd` body from `body` to
+/// `body_end`, if anything: a frame longer than [`ALAC_FRAME`]. Each setup is an `alac` atom inside
+/// an `alac` entry, after the entry's fields (28 bytes, 16 more in version 1 and 36 in version 2).
+/// Entries symphonia can't read are left for it to report.
+fn alac_frames(r: &mut dyn Source, body: u64, body_end: u64) -> io::Result<Option<&'static str>> {
+    // Past the version, flags and entry count.
+    let mut at = body + 8;
+    while at.saturating_add(8) <= body_end {
+        r.seek(SeekFrom::Start(at))?;
+        let (size, kind) = (u64::from(read_u32(r)?), read_kind(r)?);
+        if size < 8 {
+            return Ok(None);
+        }
+        let entry_end = at.saturating_add(size).min(body_end);
+        if &kind == b"alac" {
+            r.seek(SeekFrom::Start(at + 16))?;
+            let fields = match read_u16(r)? {
+                0 => 28,
+                1 => 44,
+                2 => 64,
+                _ => return Ok(None),
+            };
+            let mut child = at + 8 + fields;
+            // A header, the version and flags, and the frame length.
+            while child.saturating_add(16) <= entry_end {
+                r.seek(SeekFrom::Start(child))?;
+                let (size, kind) = (u64::from(read_u32(r)?), read_kind(r)?);
+                if &kind == b"alac" {
+                    read_u32(r)?;
+                    if read_u32(r)? > ALAC_FRAME {
+                        return Ok(Some(TOO_LONG));
+                    }
+                    break;
+                }
+                if size < 8 {
+                    break;
+                }
+                child = child.saturating_add(size);
+            }
+        }
+        at = entry_end;
+    }
+    Ok(None)
+}
+
+fn read_kind(r: &mut (impl Read + ?Sized)) -> io::Result<[u8; 4]> {
+    let mut kind = [0; 4];
+    r.read_exact(&mut kind)?;
+    Ok(kind)
+}
+
+fn read_u16(r: &mut (impl Read + ?Sized)) -> io::Result<u16> {
+    let mut b = [0; 2];
+    r.read_exact(&mut b)?;
+    Ok(u16::from_be_bytes(b))
 }
 
 fn read_u32(r: &mut (impl Read + ?Sized)) -> io::Result<u32> {

@@ -96,6 +96,10 @@ jobs:
         working-directory: .
         run: pnpm lexicons:format --check
       - run: pnpm lint
+      # The message catalogs (messages/, project.inlang): every message in each locale, with the
+      # variables and plural forms English has. Words written into a migrated component instead of
+      # the catalog are ast-grep's no-raw-text, in repo-checks.yml.
+      - run: pnpm i18n:check
       - run: pnpm check
       - run: pnpm -w knip
       # No --with-deps, here or below: the runner has the libraries Chromium needs, and the fonts it

@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { NotificationView } from '#lib/types.ts';
 import { type Db, openDatabase } from '../db';
 import { silentLogger } from '../logger';
 import { RateLimiter } from '../rate-limit';
 import { NotificationChannels } from './channels';
 import { Notifier, type NotifyInput } from './notifier';
-import { type ChannelSender, Outbox, type Recipient, type SendOutcome } from './outbox';
+import { type ChannelFlags, type ChannelSender, Outbox, type Recipient, type SendOutcome } from './outbox';
 
 const MINUTE = 60_000;
 
@@ -37,6 +38,16 @@ describe('Outbox', () => {
 	let sender: FakeSender;
 	let outbox: Outbox;
 	let inbox: Notifier;
+	/** Who each channel's rollout flag is off for. It's on for everyone else. */
+	let offFor: Record<'inboxEmail' | 'inboxDm', string[]>;
+
+	const flags: ChannelFlags = {
+		evaluate: async (did) => ({
+			...flagsOff,
+			inboxEmail: !offFor.inboxEmail.includes(did),
+			inboxDm: !offFor.inboxDm.includes(did)
+		})
+	};
 
 	const message = (key: string, overrides: Partial<NotifyInput<'booking.message'>> = {}) =>
 		inbox.notify({
@@ -51,6 +62,14 @@ describe('Outbox', () => {
 		});
 
 	const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
+
+	/** Each delivery's recipient, channel and status, in that order. */
+	const deliveries = async () =>
+		db
+			.selectFrom('notificationDelivery')
+			.select(['did', 'channel', 'status'])
+			.orderBy(['did', 'channel', 'id'])
+			.execute();
 
 	const statuses = async () =>
 		(await db.selectFrom('notificationDelivery').select('status').orderBy('id').execute()).map((row) => row.status);
@@ -87,7 +106,8 @@ describe('Outbox', () => {
 		db = await openDatabase(':memory:');
 		await optIn(neon);
 		sender = new FakeSender();
-		outbox = new Outbox({ db, logger: silentLogger, channels, senders: { email: sender }, maxAttempts: 3 });
+		offFor = { inboxEmail: [], inboxDm: [] };
+		outbox = new Outbox({ db, logger: silentLogger, channels, flags, senders: { email: sender }, maxAttempts: 3 });
 		inbox = new Notifier({ db, logger: silentLogger, outbox });
 	});
 
@@ -222,13 +242,13 @@ describe('Outbox', () => {
 	it('sends as soon as something comes due, without waiting for the next round', async () => {
 		vi.useRealTimers();
 		const quick = Object.assign(new FakeSender(), { windowMs: 0 });
-		outbox = new Outbox({ db, logger: silentLogger, channels, senders: { email: quick } });
+		outbox = new Outbox({ db, logger: silentLogger, channels, flags, senders: { email: quick } });
 		inbox = new Notifier({ db, logger: silentLogger, outbox });
 
 		await message('now');
 		await vi.waitFor(() => expect(quick.messages).toHaveLength(1));
 		await outbox.kick();
-		expect(new Outbox({ db, logger: silentLogger, channels, senders: {} }).configured).toEqual([]);
+		expect(new Outbox({ db, logger: silentLogger, channels, flags, senders: {} }).configured).toEqual([]);
 	});
 
 	it('sends a test right away to someone with email on, and pauses an address that refuses it', async () => {
@@ -250,7 +270,7 @@ describe('Outbox', () => {
 
 	it('sends by every channel someone turned on, each on its own clock', async () => {
 		const dm = Object.assign(new FakeSender(), { windowMs: MINUTE });
-		outbox = new Outbox({ db, logger: silentLogger, channels, senders: { email: sender, dm } });
+		outbox = new Outbox({ db, logger: silentLogger, channels, flags, senders: { email: sender, dm } });
 		inbox = new Notifier({ db, logger: silentLogger, outbox });
 		await channels.enableDm(neon, true);
 		expect(outbox.configured).toEqual(['email', 'dm']);
@@ -264,6 +284,43 @@ describe('Outbox', () => {
 		later(MINUTE);
 		await outbox.processDue();
 		expect([sender.messages.length, dm.messages.length]).toEqual([1, 1]);
+	});
+
+	it("skips for good what's due by a channel whose flag is off for its recipient, and keeps it in their inbox", async () => {
+		const dm = Object.assign(new FakeSender(), { windowMs: 2 * MINUTE });
+		outbox = new Outbox({ db, logger: silentLogger, channels, flags, senders: { email: sender, dm } });
+		inbox = new Notifier({ db, logger: silentLogger, outbox });
+		await optIn(remy);
+		await channels.enableDm(neon, true);
+		await channels.enableDm(remy, true);
+		// Off for Neon on both channels, and for Remy on DMs only.
+		offFor = { inboxEmail: [neon], inboxDm: [neon, remy] };
+
+		await message('rolling out');
+		later(2 * MINUTE);
+		await outbox.processDue();
+
+		expect(sender.messages.map((out) => out.to.did)).toEqual([remy]);
+		expect(dm.messages).toEqual([]);
+		expect(await deliveries()).toEqual([
+			{ did: neon, channel: 'dm', status: 'skipped' },
+			{ did: neon, channel: 'email', status: 'skipped' },
+			{ did: remy, channel: 'dm', status: 'skipped' },
+			{ did: remy, channel: 'email', status: 'sent' }
+		]);
+		expect(await inbox.unreadCount(neon)).toBe(1);
+
+		// Turning the flags back on sends only what comes after, so nothing skipped goes out in a burst.
+		offFor = { inboxEmail: [], inboxDm: [] };
+		later(2 * MINUTE);
+		await outbox.processDue();
+		expect([sender.messages.length, dm.messages.length]).toEqual([1, 0]);
+
+		await message('rolled out');
+		later(2 * MINUTE);
+		await outbox.processDue();
+		expect(sender.messages.map((out) => out.to.did)).toEqual([remy, neon, remy]);
+		expect(dm.messages.map((out) => out.to.did)).toEqual([neon, remy]);
 	});
 
 	it('keeps finished deliveries for 30 days', async () => {

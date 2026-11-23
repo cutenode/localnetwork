@@ -72,6 +72,29 @@ describe('PlannerService', () => {
 		]);
 	});
 
+	it("names the language of a save's note and a show's notes, keeping it through saves that leave the notes alone", async () => {
+		await t.planner.save(promoter, project('3quiet'));
+		await t.planner.save(promoter, project('3noted'), 'Ask about May');
+		const saves = t.net.spaceRecordsIn(plannerSpace(PROMOTER), PROMOTER).map(({ value }) => [value.note, value.langs]);
+		expect(saves).toEqual(
+			expect.arrayContaining([
+				[undefined, undefined],
+				['Ask about May', ['en']]
+			])
+		);
+
+		const rkey = await t.planner.saveShow(promoter, { details: { title: 'Opening', notes: 'Two rooms' }, lineup: [] });
+		expect((await t.planner.show(promoter, rkey))?.langs).toEqual(['en']);
+		// As if the notes had been written in German.
+		const stored = t.net.spaceRecordsIn(plannerSpace(PROMOTER), PROMOTER).find(({ value }) => value.lineup);
+		stored!.value.langs = ['de'];
+
+		await t.planner.saveShow(promoter, { rkey, details: { title: 'Opening II', notes: 'Two rooms' }, lineup: [] });
+		expect((await t.planner.show(promoter, rkey))?.langs).toEqual(['de']);
+		await t.planner.saveShow(promoter, { rkey, details: { title: 'Opening II' }, lineup: [] });
+		expect((await t.planner.show(promoter, rkey))?.langs).toBeUndefined();
+	});
+
 	it('lists planned shows by date, using when it was planned for a show without one', async () => {
 		const plan = (title: string, date?: string) =>
 			t.planner.saveShow(promoter, { details: { title, date }, lineup: [] });

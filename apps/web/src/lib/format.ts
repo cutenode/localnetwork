@@ -1,3 +1,4 @@
+import { languageOf } from './locale.ts';
 import { FEE_TIERS, labelFor, PROJECT_KINDS } from './taxonomy/options';
 import type { AccountView, DjSetView, Location, ProjectFee, ProjectProfile, RequestKind, RequestView } from './types';
 
@@ -52,10 +53,12 @@ export function setHref(uri: string, handle: string | null = null): string {
 	return `${profileHref({ did, handle })}/sets/${rkey}`;
 }
 
-const RELATIVE = {
-	long: new Intl.RelativeTimeFormat('en', { numeric: 'auto' }),
+// Dates, times and numbers below are in the reader's language (languageOf).
+
+const RELATIVE: Record<'long' | 'narrow', Intl.RelativeTimeFormatOptions> = {
+	long: { numeric: 'auto' },
 	/** "2h ago", for a stamp at the end of a row. */
-	narrow: new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' })
+	narrow: { numeric: 'auto', style: 'narrow' }
 };
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -76,7 +79,8 @@ export function timeAgo(
 	const seconds = (Date.parse(iso) - now) / 1000;
 
 	for (const [unit, size] of UNITS) {
-		if (Math.abs(seconds) >= size) return RELATIVE[style].format(Math.round(seconds / size), unit);
+		if (Math.abs(seconds) >= size)
+			return new Intl.RelativeTimeFormat(languageOf(), RELATIVE[style]).format(Math.round(seconds / size), unit);
 	}
 
 	return 'just now';
@@ -89,7 +93,7 @@ export function formatDate(
 	if (!iso) return '';
 	const date = new Date(iso);
 
-	return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en', options).format(date);
+	return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(languageOf(), options).format(date);
 }
 
 export function formatDateTime(iso: string | null | undefined): string {
@@ -108,9 +112,17 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 /** A datetime written with its venue's UTC offset as a show date: the venue's clock, kept as UTC. */
 export const asShowDate = (iso: string): string => `${iso.slice(0, 19)}Z`;
 
-/** A night the way lists lead with it, like "Sat 14 Nov", from a show date, which is in UTC. */
+/**
+ * A night the way lists lead with it, like "Sat 14 Nov", from a show date, which is in UTC. In English the day comes
+ * first, as British English writes it; another language takes its own order.
+ */
 export const nightLabel = (iso: string): string =>
-	new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+	new Intl.DateTimeFormat(languageOf() === 'en' ? 'en-GB' : languageOf(), {
+		weekday: 'short',
+		day: 'numeric',
+		month: 'short',
+		timeZone: 'UTC'
+	})
 		.format(new Date(iso))
 		.replace(',', '');
 
@@ -127,10 +139,12 @@ export function feeLabel(fee: ProjectFee): string {
 
 	const money = (amount: number) =>
 		fee.currency
-			? new Intl.NumberFormat('en', { style: 'currency', currency: fee.currency, maximumFractionDigits: 0 }).format(
-					amount
-				)
-			: amount.toLocaleString('en');
+			? new Intl.NumberFormat(languageOf(), {
+					style: 'currency',
+					currency: fee.currency,
+					maximumFractionDigits: 0
+				}).format(amount)
+			: amount.toLocaleString(languageOf());
 
 	const range =
 		fee.minAmount !== undefined && fee.maxAmount !== undefined
@@ -184,7 +198,7 @@ export function hueFor(value: string): number {
 }
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-	return `${count.toLocaleString('en')} ${count === 1 ? singular : plural}`;
+	return `${count.toLocaleString(languageOf())} ${count === 1 ? singular : plural}`;
 }
 
 /** A DJ set in one line: its title (or venue), and the day it was played. */

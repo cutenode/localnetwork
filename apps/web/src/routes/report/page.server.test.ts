@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { OptionalScopeUnsupported, type OptionalScope, type SignedInAccount } from '#lib/server/atproto/oauth.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
+import type { Flags } from '#lib/types.ts';
 import type { PageServerData } from './$types';
 import { actions, load } from './+page.server.ts';
 
@@ -54,6 +55,9 @@ class FakeBugReports {
 	}
 }
 
+/** Reports to userinput.app rolled out to the DJ. */
+const ROLLED_OUT: Partial<Flags> = { userinputReports: true };
+
 let t: Awaited<ReturnType<typeof createTestServices>>;
 
 beforeEach(async () => {
@@ -72,6 +76,7 @@ it('shows the form, with what the report will say about the page and browser', a
 	const data = await loadRoute<PageServerData>(load, {
 		app: app(),
 		viewer: await t.viewer(DJ),
+		flags: ROLLED_OUT,
 		url: '/report?from=/shows',
 		headers: { 'user-agent': FIREFOX }
 	});
@@ -87,6 +92,7 @@ it('leaves the page out when it came from somewhere else', async () => {
 	const data = await loadRoute<PageServerData>(load, {
 		app: app(new FakeBugReports(true, [])),
 		viewer: await t.viewer(DJ),
+		flags: ROLLED_OUT,
 		url: '/report?from=https://evil.test'
 	});
 
@@ -100,8 +106,42 @@ it('sends someone signed out, or a site with no board to post to, to GitHub', as
 	});
 
 	await expect(
-		callRoute(load, { app: app(new FakeBugReports(false)), viewer: await t.viewer(DJ), url: '/report' })
+		callRoute(load, {
+			app: app(new FakeBugReports(false)),
+			viewer: await t.viewer(DJ),
+			url: '/report',
+			flags: ROLLED_OUT
+		})
 	).rejects.toMatchObject({ status: 303, location: expect.stringContaining('https://github.com/') });
+});
+
+it("sends someone reports to userinput.app aren't rolled out to on to GitHub, posting nothing", async () => {
+	const bugReports = new FakeBugReports();
+	const oauth = new FakeOAuth();
+	const viewer = await t.viewer(DJ);
+
+	const github = {
+		status: 303,
+		location: expect.stringContaining('https://github.com/cutenode/localnetwork/issues/new')
+	};
+
+	await expect(
+		callRoute(load, { app: app(bugReports, oauth), viewer, url: '/report?from=/shows' })
+	).rejects.toMatchObject(github);
+	await expect(
+		callRoute(actions.allow, { app: app(bugReports, oauth), viewer, url: '/report?/allow', form: {} })
+	).rejects.toMatchObject(github);
+	await expect(
+		callRoute(actions.send, {
+			app: app(bugReports, oauth),
+			viewer,
+			url: '/report?/send&from=/shows',
+			form: { title: 'Map is blank', body: 'Never loads.' }
+		})
+	).rejects.toMatchObject({ status: 303, location: expect.stringContaining('title=Map+is+blank') });
+
+	expect(bugReports.posts).toEqual([]);
+	expect(oauth.started).toEqual([]);
 });
 
 it('sends the viewer to approve posting bug reports, then back to the report', async () => {
@@ -111,6 +151,7 @@ it('sends the viewer to approve posting bug reports, then back to the report', a
 		callRoute(actions.allow, {
 			app: app(undefined, oauth),
 			viewer: await t.viewer(DJ),
+			flags: ROLLED_OUT,
 			url: '/report?/allow&from=/shows',
 			form: {}
 		})
@@ -133,6 +174,7 @@ it('comes back to the bare report page when it was opened from nowhere in partic
 		callRoute(actions.allow, {
 			app: app(undefined, oauth),
 			viewer: await t.viewer(DJ),
+			flags: ROLLED_OUT,
 			url: '/report?/allow',
 			form: {}
 		})
@@ -148,6 +190,7 @@ it("says so when the viewer's server won't let apps post bug reports, or can't b
 		await callRoute(actions.allow, {
 			app: app(undefined, new FakeOAuth('refusesBugReports')),
 			viewer,
+			flags: ROLLED_OUT,
 			url: '/report?/allow',
 			form: {}
 		})
@@ -157,6 +200,7 @@ it("says so when the viewer's server won't let apps post bug reports, or can't b
 		await callRoute(actions.allow, {
 			app: app(undefined, new FakeOAuth('down')),
 			viewer,
+			flags: ROLLED_OUT,
 			url: '/report?/allow',
 			form: {}
 		})
@@ -182,6 +226,7 @@ it('posts the report with the page and browser under it', async () => {
 	const result = await callRoute(actions.send, {
 		app: app(bugReports),
 		viewer: await t.viewer(DJ),
+		flags: ROLLED_OUT,
 		url: '/report?/send&from=/shows',
 		headers: { 'user-agent': FIREFOX },
 		form: { title: '  Map is blank  ', body: 'The map on the shows page never loads.' }
@@ -201,6 +246,7 @@ it('asks for a title, keeping what was typed', async () => {
 	const result = await callRoute(actions.send, {
 		app: app(),
 		viewer: await t.viewer(DJ),
+		flags: ROLLED_OUT,
 		url: '/report?/send',
 		form: { title: ' ', body: 'Something broke.' }
 	});
@@ -222,6 +268,7 @@ it("offers GitHub instead when the report can't be posted", async () => {
 	const result = await callRoute(actions.send, {
 		app: app(bugReports),
 		viewer: await t.viewer(DJ),
+		flags: ROLLED_OUT,
 		url: '/report?/send',
 		form: { title: 'Map is blank', body: 'Never loads.' }
 	});

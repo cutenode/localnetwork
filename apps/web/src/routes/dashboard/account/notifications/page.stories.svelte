@@ -14,8 +14,8 @@
 	const data = (email: ChannelView | null, dm: ChannelView | null, availability: DmAvailability = 'ok', available = true): PageProps['data'] => ({
 		...accountLayout,
 		topics: ['bookings'],
-		email: { available, channel: email, returned: null },
-		dm: { available, channel: dm, availability: Promise.resolve(availability), root: 'localnetwork.computer' }
+		email: { available, notYet: false, channel: email, returned: null },
+		dm: { available, notYet: false, channel: dm, availability: Promise.resolve(availability), root: 'localnetwork.computer' }
 	});
 </script>
 

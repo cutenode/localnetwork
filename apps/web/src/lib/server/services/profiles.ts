@@ -1,6 +1,7 @@
 import { XRPCError } from '@atproto/api';
 import type { JsonObject } from '@atproto/lex-json';
 import { z } from 'zod';
+import { writerLangs } from '#lib/locale.ts';
 import { BSKY_PROFILE, COLLECTION } from '#lib/nsid.ts';
 import type {
 	BasicsSection,
@@ -14,6 +15,7 @@ import type {
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import { type Core, UserError } from '../core';
 import { nowIso } from '../db';
+import { editedLangs, sectionsText } from '../langs';
 import type { Upload } from '../forms/project';
 import type { IndexedRepo } from '../happyview/indexed';
 import { AVATAR_TYPES } from '../images';
@@ -194,6 +196,14 @@ export class ProfileService {
 				...(performer && { performer }),
 				...(input.promoter && { promoter: input.promoter }),
 				...(performer && input.takesInquiries && { takesInquiries: true }),
+				...editedLangs(
+					sectionsText(input.basics, performer),
+					existing && {
+						text: sectionsText(existing.record.basics, existing.record.performer),
+						langs: existing.record.langs
+					},
+					writerLangs()
+				),
 				createdAt: existing?.record.createdAt ?? now,
 				updatedAt: now
 			});

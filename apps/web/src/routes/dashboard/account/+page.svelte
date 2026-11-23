@@ -4,7 +4,6 @@
 	import LinkRows from '#lib/components/LinkRows.svelte';
 	import { accountLabel, pluralize, timeAgo } from '#lib/format.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
-	import type { ChannelView } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import type { PageProps } from './$types';
 
@@ -18,8 +17,6 @@
 
 	const held = resolved(() => data.held, undefined);
 
-	const onOrOff = (channel: ChannelView | null) => (channel ? (channel.status === 'active' ? 'on' : 'paused') : 'off');
-
 	/** A row's line: nothing yet while its source is out, and what the page holds in general if that source failed. */
 	const line = <T,>(value: T | null | undefined, about: string, say: (value: T) => string) => {
 		if (value === undefined) return null;
@@ -28,7 +25,7 @@
 	};
 
 	const lines = $derived<(string | null)[]>([
-		line(channels.value, ACCOUNT_PAGES[0].about, ([email, dm]) => `Email ${onOrOff(email)} · Bluesky DMs ${onOrOff(dm)}`),
+		line(channels.value, ACCOUNT_PAGES[0].about, ([email, dm]) => `Email ${email} · Bluesky DMs ${dm}`),
 		line(latest.value, ACCOUNT_PAGES[1].about, ([entry]) => (entry ? `${auditSentence(entry)} · ${timeAgo(entry.createdAt)}` : 'Nothing yet')),
 		line(held.value, ACCOUNT_PAGES[2].about, (records) => (records.length ? `${pluralize(records.length, 'record')} held for you` : 'Nothing held for you')),
 		line(requests.value, ACCOUNT_PAGES[3].about, (list) => {

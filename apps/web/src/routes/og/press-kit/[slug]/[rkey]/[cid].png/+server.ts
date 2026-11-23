@@ -5,7 +5,7 @@ import { PHOTO_TYPES } from '#lib/server/images.ts';
 import { cardImage, performerCard, projectAvatar } from '#lib/server/og/cards.ts';
 import { cardPaths } from '#lib/server/og/paths.ts';
 import { renderCard } from '#lib/server/og/render.ts';
-import { cards } from '#lib/server/og/serve.ts';
+import { cards, sendToSiteCard } from '#lib/server/og/serve.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -21,6 +21,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const path = cardPaths.pressKit(project.slug, kit.epk);
 
 	if (params.cid !== kit.epk.cid) redirect(302, path);
+
+	if (locals.flags.pauseOgCards) return cards.kept(path) ?? sendToSiteCard(log, path);
 
 	return cards.respond(log, path, async () => {
 		const first = kit.epk.record.photos?.[0];

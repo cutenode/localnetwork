@@ -24,14 +24,18 @@ afterEach(async () => {
  * Calls the layout's load at `url` for a session whose grant now lacks scopes the app asks for, which the server hook
  * gives no viewer.
  */
+/** The site with no userinput.app space, so reports go to GitHub. */
+const site = () => ({ ...t, bugReports: { enabled: false } });
+
 const loadNeedingReauth = (url: string) =>
-	loadRoute<LayoutServerData>(load, { app: t, sessionToken: 'session-token', reauth: true, url });
+	loadRoute<LayoutServerData>(load, { app: site(), sessionToken: 'session-token', reauth: true, url });
 
 it('gives someone signed out no viewer and no requests to review', async () => {
-	expect(await loadRoute<LayoutServerData>(load, { app: t, url: '/' })).toEqual({
+	expect(await loadRoute<LayoutServerData>(load, { app: site(), url: '/' })).toEqual({
 		viewer: null,
 		pendingRequests: 0,
-		flags: flagsOff
+		flags: flagsOff,
+		reportsToUserinput: false
 	});
 });
 
@@ -45,15 +49,17 @@ it('counts the pending requests for staff only', async () => {
 	const admin = await t.viewer(ADMIN);
 	const dj = await t.viewer(DJ);
 
-	expect(await loadRoute<LayoutServerData>(load, { app: t, viewer: admin, url: '/' })).toEqual({
+	expect(await loadRoute<LayoutServerData>(load, { app: site(), viewer: admin, url: '/' })).toEqual({
 		viewer: admin,
 		pendingRequests: 1,
-		flags: flagsOff
+		flags: flagsOff,
+		reportsToUserinput: false
 	});
-	expect(await loadRoute<LayoutServerData>(load, { app: t, viewer: dj, url: '/' })).toEqual({
+	expect(await loadRoute<LayoutServerData>(load, { app: site(), viewer: dj, url: '/' })).toEqual({
 		viewer: dj,
 		pendingRequests: 0,
-		flags: flagsOff
+		flags: flagsOff,
+		reportsToUserinput: false
 	});
 });
 
@@ -68,12 +74,29 @@ it('lets a session that has to sign in again load the login page itself', async 
 	expect(await loadNeedingReauth('/login')).toEqual({
 		viewer: null,
 		pendingRequests: 0,
-		flags: flagsOff
+		flags: flagsOff,
+		reportsToUserinput: false
 	});
 });
 
 it('hands pages the flags the server hook worked out', async () => {
-	const data = await loadRoute<LayoutServerData>(load, { app: t, url: '/', flags: { parityCanary: true } });
+	const data = await loadRoute<LayoutServerData>(load, { app: site(), url: '/', flags: { parityCanary: true } });
 
 	expect(data.flags).toEqual({ ...flagsOff, parityCanary: true });
+});
+
+it('says reports go to userinput.app only when the site has a space and the flag is on for the viewer', async () => {
+	const viewer = await t.viewer(DJ);
+
+	const reports = (enabled: boolean, userinputReports: boolean) =>
+		loadRoute<LayoutServerData>(load, {
+			app: { ...t, bugReports: { enabled } },
+			viewer,
+			url: '/',
+			flags: { userinputReports }
+		}).then((data) => data.reportsToUserinput);
+
+	expect(await reports(true, true)).toBe(true);
+	expect(await reports(true, false)).toBe(false);
+	expect(await reports(false, true)).toBe(false);
 });

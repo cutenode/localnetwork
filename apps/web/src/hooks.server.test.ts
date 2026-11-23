@@ -10,6 +10,7 @@ import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
+import { m } from '#lib/paraglide/messages.js';
 import { requireFlag } from '#lib/server/http.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
@@ -194,7 +195,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
 });
 
-it('lets a page behind a flag 404 until the flag is on for the viewer, a staff preview included', async () => {
+it('lets a page behind a flag 404 until the flag is on for the viewer, signed-out visitors last', async () => {
 	const s = await services({ admins: [ADMIN] });
 	const { handle } = hooksWith(async () => s.app);
 	const adminToken = await s.sessions.create(ADMIN, null);
@@ -225,15 +226,14 @@ it('lets a page behind a flag 404 until the flag is on for the viewer, a staff p
 	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(404);
 	expect(await page({})).toBe(404);
 
-	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', {
-		enabled: true,
-		everyone: true,
-		percentage: 0,
-		groups: [],
-		dids: []
-	});
+	const everyAccount = { enabled: true, everyone: true, percentage: 0, groups: [], dids: [] };
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', everyAccount);
 
 	expect(await page({ [SESSION_COOKIE]: djToken })).toBe(200);
+	expect(await page({})).toBe(404);
+
+	await s.flags.updateFlag(await s.viewer(ADMIN), 'spacePages', { ...everyAccount, signedOut: true });
+
 	expect(await page({})).toBe(200);
 });
 
@@ -462,6 +462,96 @@ it("writes the page's crawler tags into the head, once, and gzips the page", asy
 	);
 });
 
+it("renders the page in the locale its cookie names, with the page's lang and dir to match", async () => {
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+
+	const resolve = async (_event: RequestEvent, options?: ResolveOptions) => {
+		const head = `<html lang="%lang%" dir="%dir%"><head>${CRAWLER_HEAD}</head>`;
+		const html = (await options!.transformPageChunk!({ html: head, done: false })) ?? '';
+
+		return new Response(`${html}<body>${m.footer_privacy()}</body>`);
+	};
+
+	// SvelteKit's cookies and Paraglide both read the request's Cookie header.
+	const page = async (locale?: string) => {
+		const { event } = routeEvent({
+			url: '/',
+			headers: locale ? { cookie: `ln_locale=${locale}` } : {},
+			cookies: locale ? { ln_locale: locale } : {}
+		});
+
+		// SAFETY: as above.
+		const response = await handle({ event: event as never, resolve });
+
+		return { html: await response.text(), vary: response.headers.get('vary') };
+	};
+
+	expect(await page('en-XA')).toEqual({
+		html: '<html lang="en-XA" dir="ltr"><head></head><body>[Ƥřīṽȧȧƈẏ]</body>',
+		vary: 'Cookie'
+	});
+	expect((await page()).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
+	expect((await page('xx')).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
+});
+
+it('leaves a first visit shareable by caches, varying on Cookie only for a request that picked a language', async () => {
+	// Arrange
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+	const shared = { 'cache-control': 'public, max-age=60' };
+
+	// Act
+	const first = await handledWithLocals(handle, { url: '/artists' }, 200, shared);
+
+	const picked = await handledWithLocals(
+		handle,
+		{ url: '/artists', headers: { cookie: 'ln_locale=en-XA' }, cookies: { ln_locale: 'en-XA' } },
+		200,
+		shared
+	);
+
+	// Assert
+	const headers = ({ response }: { response: Response }) => ({
+		vary: response.headers.get('vary'),
+		cacheControl: response.headers.get('cache-control'),
+		setCookie: response.headers.getSetCookie()
+	});
+
+	expect({ first: headers(first), firstCookies: [...first.cookies.options.keys()], picked: headers(picked) }).toEqual({
+		first: { vary: null, cacheControl: 'public, max-age=60', setCookie: [] },
+		firstCookies: [],
+		picked: { vary: 'Cookie', cacheControl: 'public, max-age=60', setCookie: [] }
+	});
+});
+
+it("keeps the locale cookie out of a public immutable answer's Vary, so caches share an OG card or avatar", async () => {
+	// Arrange
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+	const image = { 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' };
+	const request = { url: '/og/project/3proj.png', cookies: { ln_locale: 'en' } };
+
+	// Act
+	const { response } = await handledWithLocals(handle, request, 200, image);
+
+	const page = await handledWithLocals(handle, { ...request, url: '/artists' }, 200, {
+		'cache-control': 'public, max-age=60'
+	});
+
+	const gzipped = await handledWithLocals(handle, { ...request, headers: { 'accept-encoding': 'gzip' } }, 200, {
+		...image,
+		'content-type': 'application/json'
+	});
+
+	// Assert
+	expect({
+		image: response.headers.get('vary'),
+		page: page.response.headers.get('vary'),
+		gzipped: gzipped.response.headers.get('vary')
+	}).toEqual({ image: null, page: 'Cookie', gzipped: 'accept-encoding' });
+});
+
 it("preloads the scripts, styles and the two typefaces' Latin files, and nothing else", async () => {
 	const s = await services();
 	const { handle } = hooksWith(async () => s.app);
@@ -575,12 +665,17 @@ async function services(
 	return { app: parts, sessions, logs, flags: t.flags, viewer: t.viewer };
 }
 
-/** Runs the handle hook on a request built from `init`, with a page that answers `status`. */
-async function handledWithLocals(handle: Hooks['handle'], request: RouteEventInit, status = 200) {
+/** Runs the handle hook on a request built from `init`, with a page that answers `status` with `headers`. */
+async function handledWithLocals(
+	handle: Hooks['handle'],
+	request: RouteEventInit,
+	status = 200,
+	headers: Record<string, string> = {}
+) {
 	const { event, cookies } = routeEvent(request);
 	// The hook sets these itself, so they start out unset as SvelteKit leaves them.
 	const locals: Partial<App.Locals> = {};
-	const resolve = async () => new Response('page', { status, headers: { 'content-type': 'text/plain' } });
+	const resolve = async () => new Response('page', { status, headers: { 'content-type': 'text/plain', ...headers } });
 
 	// SAFETY: the hook reads the request, URL, route, cookies and client address, all set by routeEvent.
 	const response = await handle({ event: { ...event, locals } as never, resolve });

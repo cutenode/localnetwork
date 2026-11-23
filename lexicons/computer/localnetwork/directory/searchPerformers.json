@@ -59,7 +59,13 @@
 					},
 					"sort": { "type": "string", "maxLength": 32, "knownValues": ["relevance", "distance", "recent", "name"] },
 					"limit": { "type": "integer", "minimum": 1, "maximum": 60, "default": 24 },
-					"cursor": { "type": "string", "maxLength": 512 }
+					"cursor": { "type": "string", "maxLength": 512 },
+					"inactive": {
+						"type": "array",
+						"maxLength": 100,
+						"items": { "type": "string", "format": "did" },
+						"description": "Accounts that aren't active (deactivated, taken down, suspended or deleted). A listed DJ among them is left out, and so is a solo project they alone manage."
+					}
 				}
 			},
 			"output": {

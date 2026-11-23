@@ -3,7 +3,7 @@ import PerformerCard from '#lib/og/cards/PerformerCard.svelte';
 import { performerCard, projectAvatar } from '#lib/server/og/cards.ts';
 import { cardPaths } from '#lib/server/og/paths.ts';
 import { renderCard } from '#lib/server/og/render.ts';
-import { cards } from '#lib/server/og/serve.ts';
+import { cards, sendToSiteCard } from '#lib/server/og/serve.ts';
 import type { RequestHandler } from './$types';
 
 /** A performer's link-preview card. Only an active project has one, as only its page is public. */
@@ -15,6 +15,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const path = cardPaths.project(project);
 
 	if (params.cid !== project.cid) redirect(302, path);
+
+	if (locals.flags.pauseOgCards) return cards.kept(path) ?? sendToSiteCard(log, path);
 
 	return cards.respond(log, path, async () =>
 		renderCard(PerformerCard, performerCard(project, await projectAvatar(app.core, project, 360, log)))

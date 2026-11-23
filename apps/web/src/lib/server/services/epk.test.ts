@@ -1,3 +1,4 @@
+import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type EpkAccess, type EpkView, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
@@ -45,6 +46,29 @@ describe('EpkService', () => {
 	};
 
 	const requestSpace = () => epkRequestSpace(ROOT, f.project.rkey);
+
+	/** Has the space host refuse decision records, as it does before their lexicon is published. Returns the undo. */
+	const refuseDecisions = () => {
+		const { root } = f.t.core;
+
+		f.t.core.root = async () => {
+			const client = await root();
+			const create = client.createSpaceRecord.bind(client);
+
+			client.createSpaceRecord = async (input) => {
+				if (input.collection === COLLECTION.epkDecision)
+					throw new XRPCError(400, 'InvalidRequest', `Unknown collection: ${input.collection}`);
+
+				return create(input);
+			};
+
+			return client;
+		};
+
+		return () => {
+			f.t.core.root = root;
+		};
+	};
 
 	/** The grant the root wrote for `did` to see `epk`, in the project's request space. */
 	const grantOf = (epk: EpkView, did: string) =>
@@ -162,6 +186,14 @@ describe('EpkService', () => {
 		expect(await f.t.epks.forProject(f.project)).toHaveLength(MAX_EPKS_PER_PROJECT);
 	});
 
+	it('names the language of the message a request to see the private part comes with', async () => {
+		const epk = await f.publish(DJ);
+
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), { message: 'For a feature' });
+
+		expect(f.t.net.spaceRecordsIn(requestSpace(), STRANGER).map(({ value }) => value.langs)).toEqual([['en']]);
+	});
+
 	it('keeps the private part from people until any manager approves them, and the root writes the grant', async () => {
 		const epk = await f.publish(DJ);
 		const kit = f.kit(epk);
@@ -219,6 +251,40 @@ describe('EpkService', () => {
 		expect((await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {})).kind).toBe('granted');
 		expect(grantOf(epk, STRANGER)?.via).toBe('auto');
 		expect(await f.t.epks.requests(epk)).toEqual([]);
+	});
+
+	it("lets nobody in when the space host refuses the decision, so approving again works once it doesn't", async () => {
+		// Arrange
+		const epk = await f.publish(DJ);
+		const kit = f.kit(epk);
+		const stranger = await f.t.viewer(STRANGER);
+		await f.t.epks.request(stranger, kit, {});
+		const [request] = await f.t.epks.requests(epk);
+		const accept = refuseDecisions();
+
+		// Act
+		const refused = f.t.epks.decide(await f.t.viewer(DJ), kit, request.uri, 'approve');
+
+		// Assert
+		await expect(refused).rejects.toThrow(/Unknown collection/);
+		expect({
+			state: (await f.t.epks.accessState(kit, stranger)).kind,
+			grant: grantOf(epk, STRANGER),
+			member: f.t.net.spaces.get(epk.space)?.members.has(STRANGER)
+		}).toEqual({ state: 'pending', grant: undefined, member: false });
+		accept();
+		await f.t.epks.decide(await f.t.viewer(DJ), kit, request.uri, 'approve');
+		expect((await f.t.epks.accessState(kit, stranger)).kind).toBe('granted');
+	});
+
+	it("leaves a request for the managers when the space host refuses its automatic approval's decision", async () => {
+		const epk = await f.publish(DJ, { access: preset('open') });
+		refuseDecisions();
+
+		await expect(f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {})).rejects.toThrow(/Unknown collection/);
+
+		expect(grantOf(epk, STRANGER)).toBeUndefined();
+		expect((await f.t.epks.requests(epk)).map(({ status }) => status)).toEqual(['pending']);
 	});
 
 	it("leaves an automatic approval of a legacy press kit waiting, since only its maker's space holds it", async () => {
@@ -327,6 +393,34 @@ describe('EpkService', () => {
 		await expect(f.t.epks.request(stranger, kit, {})).rejects.toThrow(/didn't share/);
 		await expect(f.t.epks.decide(await f.t.viewer(DJ), kit, request.uri, 'approve')).rejects.toThrow(
 			/already been answered/
+		);
+	});
+
+	it("records every answer to a request as the root's decision in the request space, and an invite as none", async () => {
+		const kit = f.kit(await f.publish(DJ));
+		const open = f.kit(await f.publish(DJ, { title: 'Open', access: preset('open') }));
+		await f.t.epks.request(await f.t.viewer(STRANGER), kit, {});
+		await f.t.epks.request(await f.t.viewer(PROMOTER), kit, {});
+		await f.t.epks.request(await f.t.viewer(NO_SPACES), open, {});
+		const asked = await f.t.db.selectFrom('epkRequest').select(['uri', 'requesterDid']).execute();
+		const uriOf = (did: string) => asked.find((request) => request.requesterDid === did)!.uri;
+		await f.t.epks.decide(await f.t.viewer(CODJ), kit, uriOf(STRANGER), 'decline');
+		await f.t.epks.decide(await f.t.viewer(DJ), kit, uriOf(PROMOTER), 'approve');
+		await f.t.epks.invite(await f.t.viewer(DJ), kit, FRIEND);
+
+		const decisions = f.t.net
+			.spaceRecordsIn(requestSpace(), ROOT)
+			.filter((record) => record.uri.includes(COLLECTION.epkDecision))
+			.map(({ value }) => value);
+
+		expect(decisions).toHaveLength(3);
+		expect(decisions).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ request: uriOf(STRANGER), epk: kit.epk.uri, outcome: 'declined', decidedBy: CODJ }),
+				expect.objectContaining({ request: uriOf(PROMOTER), epk: kit.epk.uri, outcome: 'approved', decidedBy: DJ }),
+				// The press kit's rules approved it, so the root did.
+				expect.objectContaining({ request: uriOf(NO_SPACES), epk: open.epk.uri, outcome: 'approved', decidedBy: ROOT })
+			])
 		);
 	});
 

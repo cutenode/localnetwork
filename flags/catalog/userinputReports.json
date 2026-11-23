@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "userinputReports",
+	"description": "Bug reports posted to userinput.app from the reporter's own account, once USERINPUT_SPACE is set. Off for an account, Report a bug opens GitHub's issue form instead. Turn it off for everyone to send all reports to GitHub while userinput.app is down.",
+	"type": "ops"
+}

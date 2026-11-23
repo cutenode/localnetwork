@@ -2,6 +2,7 @@ import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { sql } from 'kysely';
 import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
 import type {
@@ -54,6 +55,8 @@ export type BookingRecord = {
 	promoter?: string;
 	plannerShow?: string;
 	announcedShow?: string;
+	/** The languages of what its writer wrote in it: the message, text or note. */
+	langs?: string[];
 	onBehalfOf?: string;
 	createdAt: string;
 };
@@ -173,6 +176,7 @@ export class BookingService {
 			project: performer.uri,
 			show: JSON.parse(JSON.stringify(input.show)),
 			message,
+			langs: writerLangs(),
 			createdAt: nowIso()
 		};
 
@@ -342,7 +346,7 @@ export class BookingService {
 		await this.requireParticipant(input.actor, input.space);
 		const { client, onBehalf } = await spaceWriter(this.core, input.actor);
 
-		const draft: BookingRecord = { text, createdAt: nowIso() };
+		const draft: BookingRecord = { text, langs: writerLangs(), createdAt: nowIso() };
 
 		if (onBehalf) draft.onBehalfOf = input.actor.did;
 		const record = validateRecord(COLLECTION.bookingMessage, draft);
@@ -381,7 +385,7 @@ export class BookingService {
 		const draft: BookingRecord = { status: input.status, createdAt: nowIso() };
 		const note = input.note?.trim();
 
-		if (note) draft.note = note;
+		if (note) Object.assign(draft, { note, langs: writerLangs() });
 
 		if (onBehalf) draft.onBehalfOf = input.actor.did;
 		const record = validateRecord(COLLECTION.bookingStatus, draft);

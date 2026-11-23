@@ -32,10 +32,10 @@
 	const display = $derived(size === 'display');
 </script>
 
-<div class={['flex gap-x-14 gap-y-4.5', align === 'split' ? 'flex-wrap items-end justify-between' : 'flex-col', align === 'center' && 'mx-auto max-w-245 items-center text-center', align === 'start' && 'max-w-190']}>
+<div class={['flex gap-x-14 gap-y-4.5', align === 'split' ? 'flex-wrap items-end justify-between' : 'flex-col', align === 'center' && 'mx-auto w-full max-w-245 items-center text-center', align === 'start' && 'max-w-190']}>
 	<div class={['flex flex-col gap-4.5', align === 'split' && 'min-w-0 flex-[1_1_32rem]', align === 'center' && 'items-center']}>
 		{#if eyebrow}<Eyebrow {tone}>{eyebrow}</Eyebrow>{/if}
-		<svelte:element this={`h${level}`} {id} class={['m-0 font-semibold text-balance', display ? 'text-display' : 'text-title']}>{#if typeof title === 'string'}{title}{:else}{@render title()}{/if}</svelte:element>
+		<svelte:element this={`h${level}`} {id} class={['m-0 font-semibold text-balance wrap-anywhere', display ? 'text-display' : 'text-title']}>{#if typeof title === 'string'}{title}{:else}{@render title()}{/if}</svelte:element>
 	</div>
 	{#if lede}
 		<p class={['m-0 text-fg-muted', display ? 'max-w-160 text-lede sm:text-intro' : 'text-lede', align === 'split' && 'min-w-0 flex-[1_1_22rem]']}>{lede}</p>
