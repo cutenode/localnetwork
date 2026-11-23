@@ -83,6 +83,45 @@ fn sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase) {
     }
 }
 
+/// An M4A whose ALAC setup claims any frame length: one longer than [`ALAC_FRAME`] (symphonia
+/// sizes its buffers from it, 16 GiB for the 4 billion of the fuzz input in
+/// `fuzz/seeds/mp4/alac-frame-length.m4a`) is refused by every way of reading it, and any other
+/// passes.
+#[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(frame = 0xfffa_1000u32)]
+#[hegel::explicit_test_case(frame = ALAC_FRAME + 1)]
+#[hegel::explicit_test_case(frame = ALAC_FRAME)]
+fn alac_frames_longer_than_any_encoder_writes_are_refused(tc: TestCase) {
+    let frame = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(2 * ALAC_FRAME), gs::integers::<u32>()));
+    let mut file = m4a(8_000, &mp4_empty_tables(), &[]);
+    // The frame length follows the setup's header, version and flags.
+    let setup = file.windows(4).rposition(|w| w == b"alac").unwrap() + 8;
+    file[setup..setup + 4].copy_from_slice(&frame.to_be_bytes());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, &file).unwrap();
+
+    match vet_container(&path) {
+        Ok(()) => assert!(frame <= ALAC_FRAME, "a frame of {frame} passed"),
+        Err(Error::Parse { message, .. }) => {
+            assert!(frame > ALAC_FRAME, "{frame}: {message}");
+            assert_eq!(message, TOO_LONG);
+            for read in read_all(&path) {
+                assert_eq!(read.as_deref(), Some(TOO_LONG));
+            }
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// The input the mp4 fuzz target crashed on: an ALAC setup claiming 4,294,578,176 samples a frame.
+#[test]
+fn the_fuzzers_alac_frame_length_is_refused() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/mp4/alac-frame-length.m4a");
+    let Err(Error::Parse { message, .. }) = vet_container(&path) else { panic!("it passed") };
+    assert_eq!(message, TOO_LONG);
+}
+
 /// Where symphonia reads a sample's size from: `stsz` (one size for every sample, or each
 /// sample's), and a fragmented MP4's default (`trex`, `tfhd`) or each sample's in a run (`trun`).
 const SIZES: [&str; 5] = ["stsz", "stsz entry", "trex", "tfhd", "trun"];
