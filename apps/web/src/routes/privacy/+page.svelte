@@ -35,7 +35,7 @@
 				<thead><tr><th>Name</th><th>What it's for</th><th>Kept for</th></tr></thead>
 				<tbody>
 					<tr><td><code>ln_session</code></td><td>Keeps you signed in. We store only a hash of it, with the browser you signed in from.</td><td>{data.sessionDays} days, or until you sign out</td></tr>
-					<tr><td><code>ln_locale</code></td><td>The language you see the site in.</td><td>400 days</td></tr>
+					<tr><td><code>ln_locale</code></td><td>The language you picked for the site. Set only when you pick one.</td><td>400 days</td></tr>
 					<tr><td><code>ln_shows_place</code></td><td>The city you last picked on Shows or the home page, so both open on it.</td><td>1 year</td></tr>
 					<tr><td><code>ln_signed_out</code></td><td>Set when you sign out, naming the account, so the next page clears its form drafts from this browser.</td><td>Until the next page reads it</td></tr>
 					<tr><td><code>ln_flag_preview</code></td><td>Staff only: the features they're previewing in this browser.</td><td>1 hour</td></tr>

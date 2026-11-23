@@ -473,22 +473,56 @@ it("renders the page in the locale its cookie names, with the page's lang and di
 		return new Response(`${html}<body>${m.footer_privacy()}</body>`);
 	};
 
-	const page = async (headers: Record<string, string>) => {
-		const { event } = routeEvent({ url: '/', headers });
+	// SvelteKit's cookies and Paraglide both read the request's Cookie header.
+	const page = async (locale?: string) => {
+		const { event } = routeEvent({
+			url: '/',
+			headers: locale ? { cookie: `ln_locale=${locale}` } : {},
+			cookies: locale ? { ln_locale: locale } : {}
+		});
+
 		// SAFETY: as above.
 		const response = await handle({ event: event as never, resolve });
 
 		return { html: await response.text(), vary: response.headers.get('vary') };
 	};
 
-	expect(await page({ cookie: 'ln_locale=en-XA' })).toEqual({
+	expect(await page('en-XA')).toEqual({
 		html: '<html lang="en-XA" dir="ltr"><head></head><body>[Ƥřīṽȧȧƈẏ]</body>',
 		vary: 'Cookie'
 	});
-	expect((await page({})).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
-	expect((await page({ cookie: 'ln_locale=xx' })).html).toBe(
-		'<html lang="en" dir="ltr"><head></head><body>Privacy</body>'
+	expect((await page()).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
+	expect((await page('xx')).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
+});
+
+it('leaves a first visit shareable by caches, varying on Cookie only for a request that picked a language', async () => {
+	// Arrange
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+	const shared = { 'cache-control': 'public, max-age=60' };
+
+	// Act
+	const first = await handledWithLocals(handle, { url: '/artists' }, 200, shared);
+
+	const picked = await handledWithLocals(
+		handle,
+		{ url: '/artists', headers: { cookie: 'ln_locale=en-XA' }, cookies: { ln_locale: 'en-XA' } },
+		200,
+		shared
 	);
+
+	// Assert
+	const headers = ({ response }: { response: Response }) => ({
+		vary: response.headers.get('vary'),
+		cacheControl: response.headers.get('cache-control'),
+		setCookie: response.headers.getSetCookie()
+	});
+
+	expect({ first: headers(first), firstCookies: [...first.cookies.options.keys()], picked: headers(picked) }).toEqual({
+		first: { vary: null, cacheControl: 'public, max-age=60', setCookie: [] },
+		firstCookies: [],
+		picked: { vary: 'Cookie', cacheControl: 'public, max-age=60', setCookie: [] }
+	});
 });
 
 it("keeps the locale cookie out of a public immutable answer's Vary, so caches share an OG card or avatar", async () => {
@@ -500,7 +534,10 @@ it("keeps the locale cookie out of a public immutable answer's Vary, so caches s
 
 	// Act
 	const { response } = await handledWithLocals(handle, request, 200, image);
-	const page = await handledWithLocals(handle, { url: '/artists' }, 200, { 'cache-control': 'public, max-age=60' });
+
+	const page = await handledWithLocals(handle, { ...request, url: '/artists' }, 200, {
+		'cache-control': 'public, max-age=60'
+	});
 
 	const gzipped = await handledWithLocals(handle, { ...request, headers: { 'accept-encoding': 'gzip' } }, 200, {
 		...image,

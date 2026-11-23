@@ -229,6 +229,7 @@ export default defineConfig({
 				'src/lib/**/*.{ts,svelte}',
 				'src/routes/**/+*.server.ts',
 				'src/routes/**/+server.ts',
+				'src/hooks.client.ts',
 				'src/hooks.server.ts'
 			],
 			// The tests, their harness (fakes and request builders that only tests import), stories and types, the
