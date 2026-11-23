@@ -223,19 +223,19 @@ fn targeting_goes_with_the_account_it_was_said_of() {
     assert!(w.pds.requests().is_empty());
 }
 
-/// Signed out: the public request alone, and only what's on for everyone.
+/// Signed out: the public request alone, and only what's on for every account.
 #[test]
 fn signed_out_only_the_public_answer_counts() {
     let w = world();
     let now = Utc::now();
-    w.pds.set_flags(&[(FLAG, false, 100)], &[FLAG]);
+    w.pds.set_flags(&[(FLAG, false, 50)], &[FLAG]);
     assert!(!check_at(w.root(), FLAG, now));
     assert_eq!(w.asked(), [false]);
     assert_eq!(w.tokens(), 0);
     assert_eq!(Cache::load(w.root()).did, None);
     assert!(!all_at(w.root(), false, now).needs_sign_in, "nobody's signed in");
 
-    w.pds.set_flags(&[(FLAG, true, 0)], &[]);
+    w.pds.set_flags(&[(FLAG, false, 100)], &[]);
     assert!(check_at(w.root(), FLAG, now + FRESH));
 }
 
@@ -575,7 +575,7 @@ fn a_check_ends_as_the_cache_and_the_servers_say(tc: TestCase) {
     } else {
         (false, 0, false)
     };
-    let expected = everyone || (signed_in && (targeted || percentage == 100));
+    let expected = everyone || percentage == 100 || (signed_in && targeted);
     let said =
         format!("{age:?} {attempted} {said_of:?} {was:?} {now_is:?} {session:?} {public:?} {with_token:?} {busy}");
     assert_eq!(on, expected, "{said}");

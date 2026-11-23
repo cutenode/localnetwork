@@ -40,7 +40,7 @@ const PROBE_LIMIT: u64 = 1 << 20;
 
 /// Refuse `path` when it's an MP4 whose atoms claim more than the file holds: a sample table
 /// whose count wouldn't fit in it, a sample larger than the file, an ALAC frame longer than
-/// [`ALAC_FRAME`], or an atom inside another running past it or the file's end.
+/// `ALAC_FRAME`, or an atom inside another running past it or the file's end.
 /// Anything else, MP4 or not, is left for the decoder to make sense of. So is what isn't a regular
 /// file (a FIFO): what this read of it took would be gone when the decoder opened it again, and
 /// its atoms can't be walked without seeking.
