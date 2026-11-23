@@ -509,7 +509,9 @@ jobs:
         run: |
           mkdir -p target/budgets
           # The size of the one file of these that exists: the binary, then the archive dist made
-          # (.tar.xz, or .zip on Windows), not the .sha256 beside it. None or two fails the step.
+          # (.tar.xz, or .zip on Windows), not the .sha256 beside it. None or two fails the step. The
+          # binary is named for the runner's OS: Git Bash's `-f locallibrary` is true for
+          # locallibrary.exe too.
           size() {
             local found=() file
             for file; do [ -f "$file" ] && found+=("$file"); done
@@ -519,7 +521,9 @@ jobs:
             fi
             wc -c < "${found[0]}"
           }
-          binary=$(size "target/$TARGET/dist/locallibrary" "target/$TARGET/dist/locallibrary.exe")
+          exe=
+          [ "$RUNNER_OS" = Windows ] && exe=.exe
+          binary=$(size "target/$TARGET/dist/locallibrary$exe")
           archive=$(size "target/distrib/locallibrary-$TARGET.tar.xz" "target/distrib/locallibrary-$TARGET.zip")
           jq -n --argjson binary "$binary" --argjson archive "$archive" \
             '{"locallibrary": $binary, "archive": $archive}' > "target/budgets/size-$TARGET.json"
