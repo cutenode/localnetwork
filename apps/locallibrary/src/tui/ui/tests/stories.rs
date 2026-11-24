@@ -5,7 +5,7 @@
 //! what the player draws, or is one no story makes, and when a widget in loclib-waveform has no
 //! story. To update them:
 //!
-//! `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'`
+//! `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::ui::tests::stories::/)'`
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,13 @@ use super::super::phrase_chip;
 
 const CAPTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../web/src/lib/tui/captures");
 const WIDGETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/loclib-waveform/src");
-const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'";
+/// The player's own widgets with stories: its header, its footer and the Keys screen.
+const CHROME: [&str; 3] = [
+    concat!(env!("CARGO_MANIFEST_DIR"), "/src/tui/ui/header.rs"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/src/tui/ui/footer.rs"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/src/tui/ui/keybinds.rs"),
+];
+const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::ui::tests::stories::/)'";
 const MODES: [(Mode, &str); 2] = [(Mode::Dark, "dark"), (Mode::Light, "light")];
 
 /// Draws frame `n` of a story.
@@ -296,7 +302,7 @@ fn files_in(dir: &Path) -> Vec<PathBuf> {
 #[cfg_attr(windows, ignore = "crossterm may draw through the console API, not escape codes")]
 fn the_stories_are_what_the_player_draws() {
     let t = track();
-    let stories = stories(&t);
+    let stories: Vec<Story> = stories(&t).into_iter().chain(chrome::stories()).chain(keys::stories()).collect();
     let root = Path::new(CAPTURES);
     let mut made = BTreeSet::new();
     let mut pages = serde_json::Map::new();
@@ -313,9 +319,7 @@ fn the_stories_are_what_the_player_draws() {
     }
     draw_in(None);
     let listed: serde_json::Map<_, _> = (stories.iter())
-        .map(|s| {
-            (s.id.into(), json!({ "widget": s.widget, "cols": s.cols, "rows": s.rows, "moves": s.every.is_some() }))
-        })
+        .map(|s| (s.id.into(), json!({ "cols": s.cols, "rows": s.rows, "moves": s.every.is_some() })))
         .collect();
     let manifest = root.join("stories.json");
     let json = serde_json::to_string_pretty(&json!({ "pages": pages, "stories": listed })).unwrap();
@@ -330,20 +334,43 @@ fn the_stories_are_what_the_player_draws() {
     assert!(stale.is_empty(), "no story makes {stale:?}: remove them with\n  {RERUN}");
 }
 
-/// Every widget loclib-waveform has, in a story of its own (as the web app's components are).
+/// Every widget loclib-waveform has, and the player's own (its header, footer and Keys screen), in
+/// a story of its own (as the web app's components are).
 #[test]
 fn every_widget_has_a_story() {
     let t = track();
-    let storied: BTreeSet<&str> = stories(&t).iter().map(|s| s.widget).collect();
-    let widgets: BTreeSet<String> = files_in(Path::new(WIDGETS))
+    let storied: BTreeSet<&str> =
+        stories(&t).into_iter().chain(chrome::stories()).chain(keys::stories()).map(|s| s.widget).collect();
+    let widgets: BTreeSet<String> = (files_in(Path::new(WIDGETS)).into_iter().chain(CHROME.map(PathBuf::from)))
+        .collect::<Vec<_>>()
         .iter()
         .flat_map(|p| std::fs::read_to_string(p).unwrap().lines().map(str::to_string).collect::<Vec<_>>())
         .filter_map(|line| {
             let (_, ty) = line.split_once("Widget for ").filter(|_| line.starts_with("impl"))?;
+            let ty = ty.trim_start_matches('&');
             Some(ty.split(|c: char| !c.is_alphanumeric() && c != '_').next()?.to_string())
         })
         .collect();
-    assert!(widgets.len() >= 8, "found the widgets: {widgets:?}");
+    assert!(
+        widgets.len() >= 10 && widgets.contains("Header") && widgets.contains("Footer"),
+        "found the widgets: {widgets:?}"
+    );
     let missing: Vec<_> = widgets.iter().filter(|w| !storied.contains(w.as_str())).collect();
     assert!(missing.is_empty(), "no story draws {missing:?}: add one to src/tui/ui/tests/stories.rs");
+}
+
+mod chrome;
+mod keys;
+
+/// A story that moves draws something new in every frame: one that repeats a frame is stuck.
+#[test]
+fn a_moving_story_changes_every_frame() {
+    let t = track();
+    for s in stories(&t).into_iter().filter(|s| s.every.is_some()) {
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(s.cols, s.rows)).unwrap();
+        let frames: Vec<_> = (0..s.frames).map(|i| terminal.draw(|f| (s.draw)(f, i)).unwrap().buffer.clone()).collect();
+        for (i, pair) in frames.windows(2).enumerate() {
+            assert_ne!(pair[0], pair[1], "{}: frame {} is frame {i} again", s.id, i + 1);
+        }
+    }
 }
