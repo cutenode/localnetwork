@@ -1,9 +1,11 @@
 import { error, json } from '@sveltejs/kit';
+import { hideInactiveAccount } from '#lib/server/profile-page.ts';
 import type { RequestHandler } from './$types';
 
 /** What a set plays, asked for when someone presses Play on it (see RecordingService). */
 export const GET: RequestHandler = async ({ params, locals }) => {
 	const { app, log } = locals;
+	await hideInactiveAccount(locals.app, params.did);
 	const set = await app.recordings.set(params.did, params.rkey);
 
 	if (!set) error(404, 'No set here');

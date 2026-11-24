@@ -67,3 +67,15 @@ it("is a 404 for a set the directory doesn't have", async () => {
 		status: 404
 	});
 });
+
+it("is a 404 once the DJ's account isn't active, and a 410 once it's deleted, as the set's page is", async () => {
+	const params = { did: DJ, rkey: '3kset' };
+
+	t.accountStatus.set(DJ, 'deactivated');
+	await t.accountStatuses.refresh();
+	await expect(callRoute(GET, { app: app(), params })).rejects.toMatchObject({ status: 404 });
+
+	t.accountStatus.set(DJ, 'deleted');
+	await t.accountStatuses.refresh();
+	await expect(callRoute(GET, { app: app(), params })).rejects.toMatchObject({ status: 410 });
+});

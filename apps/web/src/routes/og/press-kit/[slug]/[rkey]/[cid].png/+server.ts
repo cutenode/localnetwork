@@ -6,6 +6,7 @@ import { cardImage, performerCard, projectAvatar } from '#lib/server/og/cards.ts
 import { cardPaths } from '#lib/server/og/paths.ts';
 import { renderCard } from '#lib/server/og/render.ts';
 import { cards, sendToSiteCard } from '#lib/server/og/serve.ts';
+import { hideInactiveProject } from '#lib/server/project-page.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -18,6 +19,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const kit = project?.status === 'active' ? await app.epks.get(project, params.rkey) : null;
 
 	if (!project || !kit) error(404, 'Not found');
+	await hideInactiveProject(app, project);
 	const path = cardPaths.pressKit(project.slug, kit.epk);
 
 	if (params.cid !== kit.epk.cid) redirect(302, path);

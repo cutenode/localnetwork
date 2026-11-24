@@ -214,6 +214,7 @@ flowchart TD
   Meta -- "a profile's picture" --> Avatar["/media/[did]/[cid]"]
   Meta -- "other pages" --> Card["/og/... PNG"]
   Meta -- "pauseOgCards on" --> Site["/og/site.png"]
+  Card -- "an act's, mix's or press kit's,<br/>no manager active" --> Hidden["404, or 410 once<br/>every manager was deleted"]
   Card --> Cached{"Kept in memory?"}
   Cached -- "yes" --> Png["Served"]
   Cached -- "no" --> Draw["Drawn from a Svelte card, then kept,<br/>or 503 when too many are waiting"]

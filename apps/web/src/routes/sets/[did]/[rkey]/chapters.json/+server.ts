@@ -1,9 +1,11 @@
 import { error } from '@sveltejs/kit';
 import { setChapters } from '#lib/mix/chapters.ts';
+import { hideInactiveAccount } from '#lib/server/profile-page.ts';
 import type { RequestHandler } from './$types';
 
 /** A set's tracklist as Podcasting 2.0 JSON chapters, for podcast apps playing its recording. */
 export const GET: RequestHandler = async ({ params, locals }) => {
+	await hideInactiveAccount(locals.app, params.did);
 	const set = await locals.app.recordings.set(params.did, params.rkey);
 
 	if (!set) error(404, 'No set here');

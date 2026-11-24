@@ -5,7 +5,8 @@
 // answers what the service answered. Codes, verifiers, tokens and secrets are never logged.
 //
 // Each service has an ops flag (its pauseFlag) that stops its exchange without a deploy, say when a
-// secret leaks. The request has no account, so only "on for everyone" pauses it.
+// secret leaks. The request has no account, so it pauses once the flag is on for every account
+// (everyone, or 100%).
 //
 // It only trades codes sent back to locallibrary's listener on this computer: a redirect_uri, when
 // a grant has one, must be `http://127.0.0.1:<port>/callback` or `http://[::1]:<port>/callback`,

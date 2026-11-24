@@ -11,7 +11,7 @@ import { clientIp, guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger, type Logger } from '#lib/server/logger.ts';
 import { movedTo } from '#lib/server/moved-pages.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
-import { cookieName as LOCALE_COOKIE, getTextDirection } from '#lib/paraglide/runtime.js';
+import { getTextDirection } from '#lib/paraglide/runtime.js';
 import { paraglideMiddleware } from '#lib/paraglide/server.js';
 
 const fallbackLogger = createLogger({
@@ -169,12 +169,10 @@ export function serverHooks({
 		if (isUnlisted(event.route.id)) response.headers.set('x-robots-tag', 'noindex');
 		const cacheControl = response.headers.get('cache-control');
 
-		// Paraglide varies every answer on Cookie, for the locale cookie. Without one the page is the English everyone
-		// signed out gets, so caches share it (docs/adr/0018). A public immutable answer (an OG card, an avatar, a
-		// recording) is the same in every language, and varying it would have caches keep a copy per cookie, or none.
-		const isImmutable = cacheControl?.includes('public') && cacheControl.includes('immutable');
-
-		if (isImmutable || !event.cookies.get(LOCALE_COOKIE)) {
+		// Paraglide varies every answer on Cookie, for the locale cookie, and cacheBriefly does for the session cookie, so a
+		// copy made signed out is never what someone gets once signed in. A public immutable answer (an OG card, an
+		// avatar, a recording) is the same for everyone, and varying it would have caches keep a copy per cookie, or none.
+		if (cacheControl?.includes('public') && cacheControl.includes('immutable')) {
 			const fields = (response.headers.get('vary') ?? '').split(',').map((field) => field.trim());
 			const kept = fields.filter((field) => field && field.toLowerCase() !== 'cookie');
 
