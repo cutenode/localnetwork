@@ -3,7 +3,7 @@
 // `.claude/worktrees/`) would let format and lint pass having looked at nothing. These pin the two things
 // that stop that: each app's walk, and each of the root's own, finds its files, and a walk that finds none fails.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -31,6 +31,17 @@ const linted = (args: string[], cwd: string) => {
 
 const apps = ['apps/web', 'apps/localtoolbox', 'packages/atstore'];
 
+// An app's walk is counted with every rule off and no JS plugins (an empty config): the files it takes
+// come from the ignore files, not the rules, and loading the plugins took seconds a walk, past vitest's
+// 5 s under a parallel run.
+const scratch = mkdtempSync(join(tmpdir(), 'walks-config-'));
+
+const noRules = join(scratch, 'oxlintrc.json');
+
+writeFileSync(noRules, '{}');
+
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
 const root = join(import.meta.dirname, '../..');
 
 describe.each(apps)('%s', (app) => {
@@ -39,7 +50,7 @@ describe.each(apps)('%s', (app) => {
 	});
 
 	it('is walked by oxlint', () => {
-		expect(linted([], join(root, app))).toBeGreaterThan(0);
+		expect(linted(['-c', noRules, '-A', 'all'], join(root, app))).toBeGreaterThan(0);
 	});
 });
 
