@@ -2,6 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { jsonToLex } from '@atproto/lex-json';
 import { describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { JsonRecord } from '../atproto/repo-client';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
@@ -112,7 +113,7 @@ describe('RecordingService.source', () => {
 	it("plays a plyr.fm recording from plyr's CDN, ahead of the set's links", async () => {
 		const { recordings } = await service([], { plyrTrack: {} });
 
-		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: ARCHIVE }] })).toEqual({
+		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: ARCHIVE }] }, flagsOff)).toEqual({
 			kind: 'audio',
 			src: 'https://audio.plyr.fm/audio/f1.mp3',
 			from: 'plyr.fm',
@@ -124,13 +125,13 @@ describe('RecordingService.source', () => {
 	it("falls back to plyr's own player for a gated track, but takes audio from a link over it", async () => {
 		const { recordings } = await service([], { plyrTrack: { gated: true } });
 
-		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: SOUNDCLOUD }] })).toEqual({
+		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: SOUNDCLOUD }] }, flagsOff)).toEqual({
 			kind: 'embed',
 			src: 'https://plyr.fm/embed/track/1567',
 			platform: 'plyr.fm',
 			link: 'https://plyr.fm/track/1567'
 		});
-		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: ARCHIVE }] })).toMatchObject({
+		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: ARCHIVE }] }, flagsOff)).toMatchObject({
 			from: 'archive.org'
 		});
 	});
@@ -138,21 +139,39 @@ describe('RecordingService.source', () => {
 	it("uses the links when plyr.fm doesn't have the track", async () => {
 		const { recordings } = await service([]);
 
-		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: SOUNDCLOUD }] })).toMatchObject({
-			kind: 'embed',
-			platform: 'SoundCloud'
-		});
-		expect(await recordings.source({ recording: ref(PLYR_URI) })).toBeNull();
+		expect(await recordings.source({ recording: ref(PLYR_URI), links: [{ uri: SOUNDCLOUD }] }, flagsOff)).toMatchObject(
+			{
+				kind: 'embed',
+				platform: 'SoundCloud'
+			}
+		);
+		expect(await recordings.source({ recording: ref(PLYR_URI) }, flagsOff)).toBeNull();
 	});
 
 	it("plays a recording on a manager's PDS through the site's audio route", async () => {
 		const { recordings } = await service([{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording() }]);
 
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) })).toEqual({
+		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) }, flagsOff)).toEqual({
 			kind: 'audio',
 			src: `/media/audio/${DJ}/${AUDIO_CID}`,
 			from: 'pds'
 		});
+	});
+
+	it("plays the set's links instead of a PDS recording while pauseRecordingStream is on, and plyr.fm's as before", async () => {
+		const { recordings } = await service([{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording() }], {
+			plyrTrack: {}
+		});
+
+		const paused = { ...flagsOff, pauseRecordingStream: true };
+		const pds = ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`);
+
+		expect(await recordings.source({ recording: pds, links: [{ uri: SOUNDCLOUD }] }, paused)).toMatchObject({
+			kind: 'embed',
+			platform: 'SoundCloud'
+		});
+		expect(await recordings.source({ recording: pds }, paused)).toBeNull();
+		expect(await recordings.source({ recording: ref(PLYR_URI) }, paused)).toMatchObject({ from: 'plyr.fm' });
 	});
 
 	it('plays a recording without durationSeconds, which the player reads from the audio', async () => {
@@ -160,7 +179,9 @@ describe('RecordingService.source', () => {
 			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording({}, {}) }
 		]);
 
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) })).toMatchObject({
+		expect(
+			await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) }, flagsOff)
+		).toMatchObject({
 			src: `/media/audio/${DJ}/${AUDIO_CID}`
 		});
 		expect(await recordings.audio(DJ, AUDIO_CID)).toEqual({ mimeType: 'audio/mpeg', size: 1234 });
@@ -171,7 +192,9 @@ describe('RecordingService.source', () => {
 			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording({ mimeType: 'video/mp4' }) }
 		]);
 
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) })).toMatchObject({
+		expect(
+			await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) }, flagsOff)
+		).toMatchObject({
 			src: `/media/audio/${DJ}/${AUDIO_CID}`
 		});
 		expect(await recordings.audio(DJ, AUDIO_CID)).toEqual({ mimeType: 'video/mp4', size: 1234 });
@@ -183,11 +206,15 @@ describe('RecordingService.source', () => {
 			{ collection: COLLECTION.djRecording, rkey: 'over', record: recording({ cid: 'bafyover', size: MAX_SIZE + 1 }) }
 		]);
 
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/cap`) })).toMatchObject({
+		expect(
+			await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/cap`) }, flagsOff)
+		).toMatchObject({
 			src: `/media/audio/${DJ}/bafycap`
 		});
 		expect(await recordings.audio(DJ, 'bafycap')).toEqual({ mimeType: 'audio/mpeg', size: MAX_SIZE });
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/over`) })).toBeNull();
+		expect(
+			await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/over`) }, flagsOff)
+		).toBeNull();
 		expect(await recordings.audio(DJ, 'bafyover')).toBeNull();
 	});
 
@@ -205,7 +232,7 @@ describe('RecordingService.source', () => {
 			`at://${STRANGER}/${COLLECTION.djRecording}/3rec`,
 			`at://${DJ}/app.bsky.feed.post/3rec`
 		])
-			expect(await recordings.source({ recording: ref(uri) })).toBeNull();
+			expect(await recordings.source({ recording: ref(uri) }, flagsOff)).toBeNull();
 	});
 });
 
@@ -240,7 +267,10 @@ describe('RecordingService.set and forMix', () => {
 		);
 
 		expect(
-			await recordings.forMix({ url: SOUNDCLOUD, set: { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' } })
+			await recordings.forMix(
+				{ url: SOUNDCLOUD, set: { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' } },
+				flagsOff
+			)
 		).toMatchObject({ platform: 'SoundCloud' });
 	});
 
@@ -252,32 +282,59 @@ describe('RecordingService.set and forMix', () => {
 
 		const setUri = (rkey: string) => ({ uri: `at://${DJ}/${COLLECTION.djSet}/${rkey}`, cid: 'bafyx' });
 
-		expect(await recordings.forMix({ url: SOUNDCLOUD, set: setUri('3set') })).toMatchObject({ from: 'plyr.fm' });
-		expect(await recordings.forMix({ url: ARCHIVE, set: setUri('3embed') })).toMatchObject({ from: 'archive.org' });
-		expect(await recordings.forMix({ url: 'https://www.mixcloud.com/neon/x/', set: setUri('3embed') })).toMatchObject({
+		expect(await recordings.forMix({ url: SOUNDCLOUD, set: setUri('3set') }, flagsOff)).toMatchObject({
+			from: 'plyr.fm'
+		});
+		expect(await recordings.forMix({ url: ARCHIVE, set: setUri('3embed') }, flagsOff)).toMatchObject({
+			from: 'archive.org'
+		});
+		expect(
+			await recordings.forMix({ url: 'https://www.mixcloud.com/neon/x/', set: setUri('3embed') }, flagsOff)
+		).toMatchObject({
 			platform: 'SoundCloud'
 		});
-		expect(await recordings.forMix({ url: SOUNDCLOUD, set: setUri('gone') })).toMatchObject({ platform: 'SoundCloud' });
-		expect(await recordings.forMix({ url: 'https://neon.example/mix' })).toBeNull();
+		expect(await recordings.forMix({ url: SOUNDCLOUD, set: setUri('gone') }, flagsOff)).toMatchObject({
+			platform: 'SoundCloud'
+		});
+		expect(await recordings.forMix({ url: 'https://neon.example/mix' }, flagsOff)).toBeNull();
 	});
 
 	it("plays a mix's own recording before its linked set, and its link when the recording can't play", async () => {
 		const { recordings } = await service([set({ links: [{ uri: SOUNDCLOUD }] })], { plyrTrack: {} });
 		const linked = { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' };
 
-		expect(await recordings.forMix({ url: SOUNDCLOUD, set: linked, recording: ref(PLYR_URI) })).toMatchObject({
-			from: 'plyr.fm',
-			src: 'https://audio.plyr.fm/audio/f1.mp3'
-		});
+		expect(await recordings.forMix({ url: SOUNDCLOUD, set: linked, recording: ref(PLYR_URI) }, flagsOff)).toMatchObject(
+			{
+				from: 'plyr.fm',
+				src: 'https://audio.plyr.fm/audio/f1.mp3'
+			}
+		);
 		expect(
-			await recordings.forMix({ url: SOUNDCLOUD, recording: ref(`at://${DJ}/app.bsky.feed.post/3rec`) })
+			await recordings.forMix({ url: SOUNDCLOUD, recording: ref(`at://${DJ}/app.bsky.feed.post/3rec`) }, flagsOff)
 		).toMatchObject({ platform: 'SoundCloud' });
 
 		const { recordings: offline } = await service([]);
 
-		expect(await offline.forMix({ url: SOUNDCLOUD, recording: ref(PLYR_URI) })).toMatchObject({
+		expect(await offline.forMix({ url: SOUNDCLOUD, recording: ref(PLYR_URI) }, flagsOff)).toMatchObject({
 			platform: 'SoundCloud'
 		});
+	});
+
+	it("plays a mix's link instead of its own or its set's PDS recording while pauseRecordingStream is on", async () => {
+		const pds = ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`);
+
+		const { recordings } = await service([
+			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording() },
+			set({ recording: pds })
+		]);
+
+		const paused = { ...flagsOff, pauseRecordingStream: true };
+		const linked = { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' };
+
+		expect(await recordings.forMix({ url: SOUNDCLOUD, recording: pds }, paused)).toMatchObject({
+			platform: 'SoundCloud'
+		});
+		expect(await recordings.forMix({ url: SOUNDCLOUD, set: linked }, paused)).toMatchObject({ platform: 'SoundCloud' });
 	});
 });
 
@@ -351,9 +408,11 @@ describe('RecordingService.audio', () => {
 			}
 		});
 
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/a`) })).toBeNull();
+		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/a`) }, flagsOff)).toBeNull();
 		fail = false;
-		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/a`) })).toMatchObject({
+		expect(
+			await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/a`) }, flagsOff)
+		).toMatchObject({
 			from: 'pds'
 		});
 	});

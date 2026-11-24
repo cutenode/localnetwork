@@ -14,7 +14,7 @@ export const REPO = join(import.meta.dirname, '../../..');
 export function buildCli() {
 	execFileSync(
 		'cargo',
-		['build', '--quiet', '--locked', '--manifest-path', join(REPO, 'Cargo.toml'), '-p', 'locallibrary-cli'],
+		['build', '--quiet', '--locked', '--manifest-path', join(REPO, 'Cargo.toml'), '-p', 'locallibrary'],
 		{
 			stdio: 'inherit'
 		}

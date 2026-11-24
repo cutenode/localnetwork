@@ -15,6 +15,12 @@
 					"requester": { "type": "string", "format": "did" },
 					"outcome": { "type": "string", "maxLength": 32, "knownValues": ["approved", "rejected", "changesRequested"] },
 					"reason": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the reason is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"decidedBy": { "type": "string", "format": "did" },
 					"project": { "type": "string", "format": "at-uri" },
 					"projectRevision": { "type": "integer", "minimum": 1 },

@@ -63,6 +63,23 @@ it("filters by an actor's handle, action, outcome, and text, and echoes the filt
 	expect(data.filters).toEqual({ actor: 'admin.test', action: 'role', outcome: 'success', q: 'mod' });
 });
 
+it("finds a flag's changes, and only that flag's, where the flag's page links to", async () => {
+	const admin = await t.viewer(ADMIN);
+	const gates = { enabled: true, everyone: true, percentage: 0, groups: [], dids: [] };
+	await t.flags.updateFlag(admin, 'dashboardCalendar', gates);
+	await t.flags.recordPreview(admin, 'dashboardCalendar', true);
+	await t.flags.updateFlag(admin, 'parityCanary', gates);
+	await t.flags.createGroup(admin, { name: 'dashboardCalendar testers', members: [MOD] });
+	await t.audit.idle();
+
+	const data = await audit('/admin/audit?action=flag&q=dashboardCalendar');
+
+	expect(data.entries.map((entry) => [entry.action, entry.subject])).toEqual([
+		['flag.preview', 'dashboardCalendar'],
+		['flag.update', 'dashboardCalendar']
+	]);
+});
+
 it("filters by the actor as typed when it isn't a handle it can resolve", async () => {
 	expect((await audit(`/admin/audit?actor=${ADMIN}`)).entries).toHaveLength(1);
 	expect((await audit('/admin/audit?actor=nobody.example')).entries).toEqual([]);

@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { Viewer } from '#lib/types.ts';
@@ -31,6 +32,13 @@ export class DjListings {
 		if (!found || !parsed.success || parsed.data.subject !== did) return null;
 
 		return { uri: found.uri, cid: found.cid, request: parsed.data.request, createdAt: parsed.data.createdAt };
+	}
+
+	/** The DIDs of every DJ staff list. Throws when the directory can't answer. */
+	async listed(): Promise<string[]> {
+		const records = await this.repos.listAll(this.core.rootDid, COLLECTION.listingProfile, { strict: true });
+
+		return records.map((record) => new AtUri(record.uri).rkey);
 	}
 
 	/**

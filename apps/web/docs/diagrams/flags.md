@@ -10,7 +10,7 @@ Deciding a flag, flags on each request, getFlags, the staff console and the flag
 
 ## Deciding a flag
 
-Whether one flag is on for one caller. Only flags in `flags/catalog/` exist: a record for a flag that's gone from it is ignored.
+Whether one flag is on for one caller. Only flags in `flags/catalog/` exist: a record for a flag that's gone from it is ignored. A caller with no DID comes last. `signedOut` is worked out as the record is read: an ops flag's is its `everyone`, and a release flag's only holds while every account has it.
 
 ```mermaid
 flowchart TD
@@ -21,11 +21,15 @@ flowchart TD
   Record -- "no" --> Off
   Record -- "yes" --> Enabled{"enabled?"}
   Enabled -- "no" --> Off
-  Enabled -- "yes" --> Everyone{"everyone?"}
+  Enabled -- "yes" --> Caller{"A DID?"}
+  Caller -- "no" --> SignedOut{"signedOut, and everyone<br/>or 100%?"}
+  SignedOut -- "yes" --> On
+  SignedOut -- "no" --> Off
+  Caller -- "yes" --> Everyone{"everyone?"}
   Everyone -- "yes" --> On
   Everyone -- "no" --> Targeted{"The DID is in its accounts<br/>or one of its groups?"}
   Targeted -- "yes" --> On
-  Targeted -- "no" --> Bucket{"Signed in, and SHA-256 of key + DID,<br/>mod 100, under percentage?"}
+  Targeted -- "no" --> Bucket{"SHA-256 of key + DID,<br/>mod 100, under percentage?"}
   Bucket -- "yes" --> On
   Bucket -- "no" --> Off
 ```
@@ -75,11 +79,13 @@ Source: [`src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts`](../.
 
 ## Changing flags
 
-What `/admin/flags` writes. Admins hold both grants; a moderator holds what an admin gives them on `/admin/staff`. Each write is audited, and saving a flag or a group unchanged writes nothing.
+What `/admin/flags` writes. Admins hold both grants; a moderator holds what an admin gives them on `/admin/staff`. Each write is audited, and saving a flag or a group unchanged writes nothing. A save writes an ops flag's `signedOut` as its `everyone`, and a release flag's as off while it's below every account.
 
 ```mermaid
 flowchart TD
-  Flag["/admin/flags/[key]"] -- "save, needs flags" --> PutFlag["Put staff.flag in the staff space,<br/>keyed by the flag"]
+  Flag["/admin/flags/[key]"] -- "save, needs flags" --> Last{"Signed-out visitors ticked for a<br/>release flag that had them off,<br/>below every account?"}
+  Last -- "yes" --> TooSoon["Refused: turn it on<br/>for every account first"]
+  Last -- "no" --> PutFlag["Put staff.flag in the staff space,<br/>keyed by the flag"]
   Flag -- "preview on, off or clear,<br/>needs flags" --> Preview["ln_flag_preview for an hour,<br/>audited as flag.preview"]
   Groups["/admin/flags/groups"] -- "create or edit,<br/>needs flagGroups" --> PutGroup["Put staff.group in the staff space"]
   Groups -- "delete, needs flagGroups" --> InUse{"A flag targets it?"}
@@ -108,6 +114,7 @@ erDiagram
   feature_flag {
     text key PK
     integer enabled
+    integer signed_out
     integer everyone
     integer percentage
     text group_rkeys

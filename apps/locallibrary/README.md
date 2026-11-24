@@ -255,7 +255,7 @@ How locallibrary is put together, drawn from its code.
 
 ### How the parts connect
 
-The front ends, the core library they share, and what it reads and writes.
+The front ends, the library crate they share (locallibrary-core), and what it reads and writes.
 
 ```mermaid
 flowchart TD
@@ -263,7 +263,7 @@ flowchart TD
     you --> player["Player"]
     gui["GUI front end"] -->|"JSON-RPC over stdio"| sidecar["Sidecar<br/>locallibrary rpc"]
     login["Log in"] -->|"launchd or systemd"| watch["locallibrary watch"]
-    cli --> api["Core library<br/>locallibrary::api"]
+    cli --> api["locallibrary-core<br/>locallibrary::api"]
     player --> api
     sidecar --> api
     watch --> api
@@ -282,11 +282,11 @@ Source: [`src/main.rs`](src/main.rs), [`src/rpc.rs`](src/rpc.rs), [`src/tui/mod.
 
 ### What the binary is built from
 
-The crates the binary and the core library link.
+The crates the binary and locallibrary-core link.
 
 ```mermaid
 flowchart LR
-    bin["locallibrary binary<br/>apps/locallibrary"] --> core["Core library<br/>crates/locallibrary"]
+    bin["locallibrary binary<br/>apps/locallibrary"] --> core["locallibrary-core<br/>crates/locallibrary"]
     bin --> plugins["Built-in plugins<br/>plugins/, linked in"]
     bin --> wave["loclib-waveform<br/>the player's widgets, visualiser analysis"]
     bin --> sdk["loclib-plugin<br/>protocol, manifest, SDK"]
@@ -329,12 +329,14 @@ flowchart TD
     kind -->|"nothing, elsewhere"| help["Usage, exit 2"]
     kind -->|"a plugin's command"| contributed["Run it through<br/>the plugin host"]
     kind -->|"a command"| run["Run it"]
+    kind -->|"on macOS, a command that writes drives,<br/>from a terminal"| job["Run it as a launchd job of the copy<br/>launchd wrote, in this terminal;<br/>here if that fails"]
     tui --> stop["Stop plugins it started,<br/>exit with the outcome"]
     contributed --> stop
     run --> stop
+    job --> stop
 ```
 
-Source: [`src/main.rs`](src/main.rs), [`src/help.rs`](src/help.rs), [`src/completion.rs`](src/completion.rs), [`src/plugins.rs`](src/plugins.rs), [`src/plugin_cmd/contributed.rs`](src/plugin_cmd/contributed.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/launchd.rs`](src/launchd.rs), [`src/help.rs`](src/help.rs), [`src/completion.rs`](src/completion.rs), [`src/plugins.rs`](src/plugins.rs), [`src/plugin_cmd/contributed.rs`](src/plugin_cmd/contributed.rs)
 
 ### Exit status
 

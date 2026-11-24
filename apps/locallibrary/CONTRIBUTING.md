@@ -16,10 +16,10 @@ CI expects all four to pass, and the builds without the default features to buil
 their tests too (see [Install](docs/install.md#install) for the features; CI tests them weekly):
 
 ```bash
+cargo test -p locallibrary-core --no-default-features --locked
 cargo test -p locallibrary --no-default-features --locked
-cargo test -p locallibrary-cli --no-default-features --locked
-cargo test -p locallibrary-cli --no-default-features --features account --locked
-cargo clippy -p locallibrary-cli --no-default-features --features tui,account --all-targets --locked -- -D warnings
+cargo test -p locallibrary --no-default-features --features account --locked
+cargo clippy -p locallibrary --no-default-features --features tui,account --all-targets --locked -- -D warnings
 ```
 
 Code that needs a feature is behind `#[cfg(feature = "...")]`; tests that need one say so the
@@ -66,6 +66,7 @@ merge, or on a pull request with the `all-os` label (add it, then re-run CI):
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
 | `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
 | `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
+| `fuzz` | on pull requests that change what the fuzz targets reach: every target for a minute (see Fuzzing) |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
 nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
@@ -103,7 +104,7 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - `format` and `eject` on a disk image each test creates and attaches (hdiutil on macOS, a loop
   device on Linux, a VHD on Windows; `crates/locallibrary/src/format/tests/disk_image.rs`). They skip
   themselves without `LOCALLIBRARY_DISK_IMAGE_TESTS=1`. On a Mac,
-  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary --lib -E 'test(/^format::disk_image::/)'`
+  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary-core --lib -E 'test(/^format::disk_image::/)'`
   runs them;
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
@@ -111,7 +112,7 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - dist's release build of every target, unsigned and without a tag (see Releasing);
-- the fuzz targets, five minutes each (see Fuzzing);
+- every fuzz target, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
 
@@ -150,9 +151,9 @@ playhead and visualisers move with nothing heard (the AT Store screenshots, `pnp
 repository root, play tracks this way).
 
 ```bash
-cargo test -p locallibrary --test it                        # the library's integration tests
-cargo test -p locallibrary --test it sync::                 # one area's
-cargo test -p locallibrary-cli --test it rpc::              # the sidecar's, in the CLI's
+cargo test -p locallibrary-core --test it         # the library's integration tests
+cargo test -p locallibrary-core --test it sync::  # one area's
+cargo test -p locallibrary --test it rpc::        # the sidecar's, in the CLI's
 ```
 
 The fixtures in `crates/locallibrary/tests/fixtures/` are real rekordbox files from
@@ -161,7 +162,7 @@ tests also use the vendored rekordbox-pdb's exports (MIT, `vendor/rekordbox-pdb/
 The tests cross-check what locallibrary writes against rekordcrate's independent parser. The
 OneLibrary fixtures (`onelibrary/`, rekordbox's schema with synthetic tracks) are made by the
 `sqlcipher` CLI, so reading is checked against an independent SQLCipher. An ignored test remakes
-them: `cargo test -p locallibrary --test it remake_sqlcipher_fixtures -- --ignored`. With
+them: `cargo test -p locallibrary-core --test it remake_sqlcipher_fixtures -- --ignored`. With
 `sqlcipher` installed, the tests that merge, clean, convert or edit a OneLibrary database also
 have it check the result (`tests/support/sqlcipher.rs`); without it they skip that check, unless
 `LOCALLIBRARY_REQUIRE_SQLCIPHER=1` is set, as in CI, which makes them fail.
@@ -215,8 +216,8 @@ replaces `target/debug/locallibrary`, even with nothing to rebuild. A second che
 ## Benchmarks
 
 ```bash
-cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
-cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
+cargo bench -p locallibrary-core --bench library -- --save-baseline before   # on the code before a change
+cargo bench -p locallibrary-core --bench library -- --baseline before        # after it: the change in each
 cargo bench -p loclib-mixid --bench mixid -- matcher/find   # one group
 ```
 
@@ -254,7 +255,7 @@ and stores; `props_cli_asked.rs` answers `setup`'s questions in a terminal and s
 `store serve` with Ctrl-C.
 
 ```bash
-cargo test -p locallibrary --test it props_pdb::               # one module
+cargo test -p locallibrary-core --test it props_pdb::          # one module
 HEGEL_SEED=7 cargo test ...                                    # repeat a run
 cargo nextest run --stress-duration 10m -E 'test(props_pdb::)' # fresh inputs for ten minutes
 ```
@@ -309,9 +310,15 @@ cargo +nightly fuzz run anlz fuzz/artifacts/anlz/crash-...  # replay a crash
 What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 `fuzz/artifacts/<target>/` (both ignored by git). A crash is a bug in the parser: fix it there
 (in `vendor/rekordbox-pdb`, with an entry in its `PATCHES.md`) and add the minimized input
-(`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
-workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
-input of any crash.
+(`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others.
+
+CI runs every target `cargo fuzz list` names through its `fuzz-<target>` alias, several at once
+(`.github/actions/fuzz`), so a new target needs its alias and nothing in the workflows. The
+scheduled workflow runs each for five minutes, minimizes what it grew and keeps that as the
+`fuzz-corpus` artifact for 90 days, which outlasts the weeks it skips. Pull requests that change
+the code a target reaches run each for a minute from that corpus. Either uploads the input of any
+crash (`fuzz-artifacts`); to start from the kept corpus locally,
+`gh run download <run> -n fuzz-corpus -D fuzz/corpus`.
 
 The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
 plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
@@ -357,7 +364,7 @@ loclib-waveform widget has no story, so a change to how one draws shows up as a 
 Update them with:
 
 ```bash
-LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::ui::tests::stories::/)'
+LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::ui::tests::stories::/)'
 ```
 
 A new story is an entry in `stories()` there and a `<Story>` in `apps/web/src/lib/tui/`, which
@@ -373,16 +380,21 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
    and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
    takes its notes from that section.
 2. Bump `version` in `[workspace.package]` in the root `Cargo.toml` (the CLI's and the plugins'
-   version; the loclib crates have their own, see below), run `cargo check` so `Cargo.lock`
-   follows, and commit.
-3. Tag the commit with the CLI package's name and push the tag:
-   `git tag locallibrary-cli-v0.2.0 && git push origin locallibrary-cli-v0.2.0`. Only tags that
-   start with `locallibrary` release it (`tag-namespace` in `dist-workspace.toml`), so the
-   repository's other apps can tag their own. A version with a suffix
-   (`locallibrary-cli-v0.2.0-beta.1`) is a prerelease, which leaves the Homebrew formula alone.
+   version; the loclib crates have their own, see below), and in the path dependencies on the
+   core and the plugins that state it, in `apps/locallibrary/Cargo.toml` and `fuzz/Cargo.toml`,
+   since `^0.1.0` matches neither a new minor version nor a prerelease of the same one. Run
+   `cargo check`, and `cargo metadata --manifest-path fuzz/Cargo.toml` for fuzz's, so the
+   lockfiles follow, and commit.
+3. Tag the commit `<package>-v<version>`, the one tag rule for every release in the repository
+   ([ADR 0005](docs/adr/0005-the-app-gets-the-plain-name.md)), and push the tag:
+   `git tag locallibrary-v0.2.0 && git push origin locallibrary-v0.2.0`. dist refuses a tag that
+   isn't the package's version. Only tags that start with `locallibrary` release it
+   (`tag-namespace` in `dist-workspace.toml`), so the repository's other apps can tag their own.
+   A version with a suffix (`0.2.0-beta.1`, tagged `locallibrary-v0.2.0-beta.1`) is a prerelease,
+   which leaves the Homebrew formula alone.
 
 The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (x86_64 glibc) and
-Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
+Windows (x86_64), plus `locallibrary-installer.sh`, `locallibrary-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
 `.github/build-setup.yml`, `.github/actions/install-dist` or the workflow itself,

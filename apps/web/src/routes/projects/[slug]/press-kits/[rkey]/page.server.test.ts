@@ -155,3 +155,10 @@ it("answers a press kit that isn't there with a 404", async () => {
 		body: { message: 'Press kit not found' }
 	});
 });
+
+it("hides a press kit once all of the project's managers were deleted", async () => {
+	const epk = await f.publish(DJ);
+	await f.managersAre('deleted', 'deleted');
+
+	await expect(pressKit(epk.rkey, null)).rejects.toMatchObject({ status: 410, body: { title: 'Neon Tide is gone' } });
+});

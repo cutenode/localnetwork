@@ -17,6 +17,8 @@ type RequestIndexOptions = {
 	audience: string;
 	getSigningKey: (did: string, forceRefresh: boolean) => Promise<string>;
 	backfills: Backfills;
+	/** pauseRequestIndex: the answer is that nothing was indexed, as without an API key, and HappyView is left alone. */
+	paused: boolean;
 	log: Logger;
 };
 
@@ -25,7 +27,7 @@ type RequestIndexOptions = {
  * records, and only theirs, since locallibrary needs the ones Jetstream never brought before it replaces them.
  */
 export async function requestIndex(authorization: string | null, options: RequestIndexOptions): Promise<Response> {
-	const { audience, getSigningKey, backfills, log } = options;
+	const { audience, getSigningKey, backfills, paused, log } = options;
 	let did: string;
 
 	try {
@@ -34,6 +36,12 @@ export async function requestIndex(authorization: string | null, options: Reques
 		log.warn('rejected requestIndex', { err: error });
 
 		return Response.json({ error: 'AuthenticationRequired', message: 'Invalid service auth' }, { status: 401 });
+	}
+
+	if (paused) {
+		log.info('requestIndex paused', { did, flag: 'pauseRequestIndex' });
+
+		return Response.json({ indexed: false });
 	}
 
 	const done = await Promise.all(LOCALLIBRARY_COLLECTIONS.map((collection) => backfills.backfill(collection, [did])));

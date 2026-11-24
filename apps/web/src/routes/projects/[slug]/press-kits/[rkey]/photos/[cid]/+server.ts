@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { imageResponse, PHOTO_TYPES } from '#lib/server/images.ts';
+import { hideInactiveProject } from '#lib/server/project-page.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -13,7 +14,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const hidden = !project || (project.status !== 'active' && !isManager && !viewer?.isStaff);
 	const kit = hidden ? null : await app.epks.get(project, params.rkey);
 
-	if (!kit) error(404, 'Photo not found');
+	if (!project || !kit) error(404, 'Photo not found');
+	await hideInactiveProject(app, project);
 	const access = viewer ? await app.epks.accessState(kit, viewer) : null;
 	const photo = await app.epks.photo(kit.epk, params.cid, access?.kind === 'manager' || access?.kind === 'granted');
 

@@ -98,4 +98,27 @@ describe('PerformerSearch', () => {
 			DJ
 		]);
 	});
+
+	it("leaves out a DJ while their account isn't active, and shows them again once it is", async () => {
+		const found = async () => (await t.performers.search({ sort: 'name' })).items.map((item) => item.kind);
+
+		t.accountStatus.set(DJ, 'deactivated');
+		await t.accountStatuses.refresh();
+		expect(await found()).toEqual(['project']);
+
+		t.accountStatus.set(DJ, 'active');
+		await t.accountStatuses.refresh();
+		expect(await found()).toEqual(['project', 'dj']);
+	});
+
+	it("shows a DJ found deleted once their PDS says they're active, as after moving PDS", async () => {
+		const found = async () => (await t.performers.search({ sort: 'name' })).items.map((item) => item.kind);
+
+		t.accountStatus.set(DJ, 'deleted');
+		await t.accountStatuses.refresh();
+		t.accountStatus.set(DJ, 'active');
+		await t.accountStatuses.refresh();
+
+		expect(await found()).toEqual(['project', 'dj']);
+	});
 });

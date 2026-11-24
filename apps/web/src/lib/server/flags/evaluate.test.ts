@@ -12,10 +12,21 @@ const percentage = fc.integer({ min: 0, max: 100 });
 describe('the rule locallibrary shares', () => {
 	it.each(vectors.cases)('$key for $did at $percentage%', (vector) => {
 		// A case without `enabled` is a flag whose record doesn't say, which is on.
-		const { key, did, enabled = true, everyone, targeted, percentage, bucket: expected, on } = vector;
+		// One without `signedOut` is a flag signed-out visitors don't have.
+		const {
+			key,
+			did,
+			enabled = true,
+			signedOut = false,
+			everyone,
+			targeted,
+			percentage,
+			bucket: expected,
+			on
+		} = vector;
 
 		expect(did === null ? null : bucket(key, did)).toBe(expected);
-		expect(isOn({ enabled, everyone, targeted, percentage }, key, did)).toBe(on);
+		expect(isOn({ enabled, signedOut, everyone, targeted, percentage }, key, did)).toBe(on);
 	});
 });
 
@@ -27,9 +38,10 @@ describe('turning a flag off', () => {
 				fc.option(did),
 				fc.boolean(),
 				fc.boolean(),
+				fc.boolean(),
 				percentage,
-				(flag, account, everyone, targeted, share) => {
-					expect(isOn({ enabled: false, everyone, targeted, percentage: share }, flag, account)).toBe(false);
+				(flag, account, signedOut, everyone, targeted, share) => {
+					expect(isOn({ enabled: false, signedOut, everyone, targeted, percentage: share }, flag, account)).toBe(false);
 				}
 			)
 		);
@@ -41,7 +53,7 @@ describe('rollouts', () => {
 		fc.assert(
 			fc.property(key, did, percentage, percentage, (flag, account, a, b) => {
 				const [low, high] = a < b ? [a, b] : [b, a];
-				const gates = { enabled: true, everyone: false, targeted: false };
+				const gates = { enabled: true, signedOut: false, everyone: false, targeted: false };
 
 				const stays =
 					!isOn({ ...gates, percentage: low }, flag, account) || isOn({ ...gates, percentage: high }, flag, account);
@@ -54,7 +66,7 @@ describe('rollouts', () => {
 	it('takes in every account at 100 and none at 0', () => {
 		fc.assert(
 			fc.property(key, did, (flag, account) => {
-				const gates = { enabled: true, everyone: false, targeted: false };
+				const gates = { enabled: true, signedOut: false, everyone: false, targeted: false };
 
 				expect(isOn({ ...gates, percentage: 100 }, flag, account)).toBe(true);
 				expect(isOn({ ...gates, percentage: 0 }, flag, account)).toBe(false);
@@ -65,7 +77,9 @@ describe('rollouts', () => {
 	it('never counts a signed-out visitor', () => {
 		fc.assert(
 			fc.property(key, percentage, (flag, share) => {
-				expect(isOn({ enabled: true, everyone: false, targeted: false, percentage: share }, flag, null)).toBe(false);
+				const gates = { enabled: true, signedOut: false, everyone: false, targeted: false, percentage: share };
+
+				expect(isOn(gates, flag, null)).toBe(false);
 			})
 		);
 	});
@@ -74,5 +88,36 @@ describe('rollouts', () => {
 		const account = 'did:plc:z72i7hdynmk6r22z27h6tvur';
 
 		expect(new Set(['a', 'b', 'c', 'd', 'e', 'f'].map((flag) => bucket(flag, account))).size).toBeGreaterThan(1);
+	});
+});
+
+describe('signed-out visitors', () => {
+	it('get nothing until they are turned on, even a flag on for everyone', () => {
+		fc.assert(
+			fc.property(key, fc.boolean(), fc.boolean(), percentage, (flag, everyone, targeted, share) => {
+				const gates = { enabled: true, signedOut: false, everyone, targeted, percentage: share };
+
+				expect(isOn(gates, flag, null)).toBe(false);
+			})
+		);
+	});
+
+	it('get a flag once they are turned on and every account has it', () => {
+		const gates = { enabled: true, signedOut: true, targeted: false };
+
+		expect(isOn({ ...gates, everyone: true, percentage: 0 }, 'socialHome', null)).toBe(true);
+		expect(isOn({ ...gates, everyone: false, percentage: 100 }, 'socialHome', null)).toBe(true);
+		expect(isOn({ ...gates, everyone: false, percentage: 99 }, 'socialHome', null)).toBe(false);
+	});
+
+	it('only get what every account has, and change nothing for an account', () => {
+		fc.assert(
+			fc.property(key, did, fc.boolean(), percentage, (flag, account, everyone, share) => {
+				const gates = { enabled: true, signedOut: true, everyone, targeted: false, percentage: share };
+
+				expect(!isOn(gates, flag, null) || everyone || share === 100).toBe(true);
+				expect(isOn(gates, flag, account)).toBe(isOn({ ...gates, signedOut: false }, flag, account));
+			})
+		);
 	});
 });

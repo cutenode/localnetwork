@@ -693,7 +693,12 @@ impl App {
                 }
                 self.show_drive_pane(self.drive_pane);
             }
-            View::Profile if self.profile.view.is_none() && !self.profile.loading => crate::tui::profile::refresh(self),
+            View::Profile
+                if (self.profile.view.is_none() && !self.profile.loading)
+                    || crate::tui::profile::collection_changed(self) =>
+            {
+                crate::tui::profile::refresh(self)
+            }
             _ => {}
         }
     }

@@ -67,6 +67,7 @@ export async function flagInput(form: FormData, identity: Resolver): Promise<Fla
 	return {
 		enabled: form.get('off') !== 'on',
 		everyone: form.get('everyone') === 'on',
+		signedOut: form.get('signedOut') === 'on',
 		percentage: wholeNumber(text(form, 'percentage', 8), 'Percentage', 0, 100) ?? 0,
 		groups: all(form, 'groups', 100),
 		dids: await accounts(form, 'accounts', identity)

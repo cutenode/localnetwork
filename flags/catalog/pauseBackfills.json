@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseBackfills",
+	"description": "Stops the site asking HappyView to re-read repos: refreshes, the set picker, requestIndex and re-reads after a write carry on with what HappyView has. The root's performers are still re-read at start. Turn it on for everyone.",
+	"type": "ops"
+}

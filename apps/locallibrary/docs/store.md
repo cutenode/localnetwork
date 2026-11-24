@@ -67,7 +67,9 @@ On macOS that's a launchd agent, `~/Library/LaunchAgents/local.locallibrary.watc
 to `~/Library/Logs/locallibrary-watch.log`; on Linux a systemd user service,
 `~/.config/systemd/user/locallibrary-watch.service` (`journalctl --user -u locallibrary-watch`
 shows the log). It runs the `locallibrary` you installed it with, with `--store` and `--settle`
-when you gave them, so install it again after moving the binary. Installing again replaces it,
+when you gave them, so install it again after moving the binary. On macOS it runs the copy drive
+writes run from (see [drives](drives.md)), so its writes leave no `._*` files; install it again
+after upgrading, and it runs the new one. Installing again replaces it,
 options and all. `status` reminds you of it when a drive holds changes the store lacks.
 
 macOS may ask to let `locallibrary` read removable volumes; if drives are never looked at, check

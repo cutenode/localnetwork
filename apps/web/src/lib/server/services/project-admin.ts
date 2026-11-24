@@ -1,3 +1,4 @@
+import { writerLangs } from '#lib/locale.ts';
 import type { ProjectDetails, ProjectProfile, ProjectStatus, ProjectView, Viewer } from '#lib/types.ts';
 import { type Core, ForbiddenError, UserError } from '../core';
 import type { ProjectService } from './projects';
@@ -70,7 +71,8 @@ export class ProjectAdmin {
 			managers: input.managers ?? [],
 			status: 'active',
 			createdBy: input.actor.did,
-			details: input.details && Object.keys(input.details).length ? input.details : undefined
+			details: input.details && Object.keys(input.details).length ? input.details : undefined,
+			langs: writerLangs()
 		});
 
 		await this.core.audit.record({
@@ -107,7 +109,8 @@ export class ProjectAdmin {
 			managers: input.project.managers,
 			status: input.project.status,
 			createdBy: input.project.createdBy,
-			details: input.details
+			details: input.details,
+			langs: writerLangs()
 		});
 
 		await this.core.audit.record({

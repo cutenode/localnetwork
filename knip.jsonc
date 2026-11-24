@@ -11,7 +11,8 @@
 		".": {
 			// The workflows set their folder with `defaults.run.working-directory`, which knip's GitHub
 			// Actions plugin doesn't read, so it looks for apps/web's binaries and scripts in the root package.
-			"ignoreBinaries": ["fuzz", "playwright", "tsx"],
+			// valgrind is the system's, which tools/budgets/cachegrind.test.ts looks for.
+			"ignoreBinaries": ["fuzz", "playwright", "tsx", "valgrind"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
 			// tools/policy.sh runs it, and the workflows that run the other tools/*/cli.ts don't.
@@ -24,13 +25,15 @@
 			// elsewhere.
 			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
 			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
-			// scripts/fuzz.ts loads the fuzz targets by name.
+			// scripts/fuzz.ts loads the fuzz targets by name. Paraglide's CLI and Vite plugin read its config from the
+			// inlang project.
 			"entry": [
 				"src/lib/server/atproto/lexicon-files.ts!",
 				"src/lib/server/notifications/kind-files.ts!",
 				"src/lib/server/happyview/lua-files.ts!",
 				"scripts/db-backup.ts!",
-				"fuzz/*.fuzz.ts"
+				"fuzz/*.fuzz.ts",
+				"project.inlang/paraglide.config.ts"
 			],
 			"project": [
 				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,mdx,svelte,css}!",
@@ -47,8 +50,13 @@
 				"!src/lib/components/edit/EditBarFrame.svelte!",
 				"!src/lib/components/edit/EditPageHarness.svelte!"
 			],
-			// src/lib/server/og/render.ts resolves their font files by path at runtime.
-			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]
+			// src/lib/server/og/render.ts resolves their font files by path at runtime, and project.inlang/settings.json
+			// loads the message format plugin by path.
+			"ignoreDependencies": [
+				"@fontsource/instrument-sans",
+				"@fontsource/jetbrains-mono",
+				"@inlang/plugin-message-format"
+			]
 		},
 		"apps/localtoolbox": {
 			// The content scripts, the main-world script that feeds content.ts, the popup's classic scripts,

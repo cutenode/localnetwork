@@ -107,7 +107,7 @@ describe('loadProfilePage', () => {
 		} catch (cause) {
 			if (isRedirect(cause)) return { redirect: cause.location, status: cause.status };
 
-			if (isHttpError(cause)) return { status: cause.status };
+			if (isHttpError(cause)) return { status: cause.status, ...(cause.body.title && { title: cause.body.title }) };
 			throw cause;
 		}
 	};
@@ -141,6 +141,15 @@ describe('loadProfilePage', () => {
 			account: { did: CY, handle: null }
 		});
 		expect(await open('cy.test')).toEqual({ status: 404 });
+	});
+
+	it("names an account that isn't active by its handle, and one without a verified handle as this account", async () => {
+		t.accountStatus.set(ADA, 'deactivated');
+		t.accountStatus.set(CY, 'deleted');
+		await t.accountStatuses.refresh();
+
+		expect(await open('ada.test')).toEqual({ status: 404, title: "@ada.test isn't active" });
+		expect(await open(CY)).toEqual({ status: 410, title: 'This account was deleted' });
 	});
 
 	it('gives an account without a profile a page with its Bluesky name, or else its handle', async () => {

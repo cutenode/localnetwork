@@ -174,7 +174,7 @@ Inside the page the same rule holds: each field takes the box its text took, the
 
 ## Caching
 
-`cacheBriefly` lets a signed-in viewer's browser keep a page for 60 seconds (300 on mixes). Someone who can edit a page would then see the old page after saving and reloading, so a page passes the viewer's `can` (`cacheBriefly(event, 60, can)`) and answers with `no-store` whenever it isn't empty.
+`cacheBriefly` lets a signed-in viewer's browser keep a page for 60 seconds (300 on mixes). Someone who can edit a page would then see the old page after saving and reloading, so a page passes the viewer's `can` (`cacheBriefly(event, 60, can)`) and answers with `no-store` whenever it isn't empty. Party, event and venue pages pass their `pageContext`'s `can`, so anyone holding a capability in the space gets `no-store`, and so do staff. A venue's people change it from the dashboard rather than in place, but come back to the page to see it. A mix page passes `page.edit` for its project's managers and staff.
 
 ## What the server adds
 

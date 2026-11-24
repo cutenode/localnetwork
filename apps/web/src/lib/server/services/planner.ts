@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { TID } from '@atproto/common-web';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION, SELF_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { PlannerSaveView, PlannerShowView, ShowDetails, Viewer } from '#lib/types.ts';
 import { isValidRecord, validateRecord } from '../atproto/lexicons';
@@ -7,16 +8,18 @@ import { createSpaceIfMissing, memberSpacePolicy, type RepoClient } from '../atp
 import { plannerSpace } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso } from '../db';
+import { editedLangs } from '../langs';
 import { actorRole } from './requests';
 
 export type Slot = { project: string; slot?: string; status?: 'considering' | 'contacted' | 'confirmed' };
 
 /** Record values by collection, mirroring lexicons/computer/localnetwork/planner. */
 type PlannerRecords = {
-	[COLLECTION.plannerSave]: { project: string; note?: string; createdAt: string };
+	[COLLECTION.plannerSave]: { project: string; note?: string; langs?: string[]; createdAt: string };
 	[COLLECTION.plannerShow]: {
 		details: ShowDetails;
 		lineup: PlannerShowView['lineup'];
+		langs?: string[];
 		createdAt: string;
 		updatedAt?: string;
 	};
@@ -123,7 +126,7 @@ export class PlannerService {
 
 		const entry: PlannerRecords[typeof COLLECTION.plannerSave] = { project: projectUri, createdAt: nowIso() };
 
-		if (note) entry.note = note;
+		if (note) Object.assign(entry, { note, langs: writerLangs() });
 		const record = validateRecord(COLLECTION.plannerSave, entry);
 
 		const ref = await client.putSpaceRecord({
@@ -179,6 +182,7 @@ export class PlannerService {
 				rkey,
 				details: value.details,
 				lineup: value.lineup,
+				...(value.langs && { langs: value.langs }),
 				createdAt: value.createdAt,
 				updatedAt: value.updatedAt
 			}))
@@ -202,6 +206,11 @@ export class PlannerService {
 				JSON.stringify({
 					details: input.details,
 					lineup: input.lineup,
+					...editedLangs(
+						[input.details.notes],
+						existing && { text: [existing.details.notes], langs: existing.langs },
+						writerLangs()
+					),
 					createdAt: existing?.createdAt ?? now,
 					updatedAt: now
 				})

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { silentLogger } from '../logger';
 import type { Png } from './render';
-import { createCardServer } from './serve';
+import { createCardServer, sendToSiteCard } from './serve';
 
 /** A card of `bytes` bytes. */
 const png = (bytes: number): Png => new Uint8Array(bytes);
@@ -74,5 +74,13 @@ describe('the card server', () => {
 		expect((await waiting).status).toBe(200);
 		// With room again, the turned-away card is drawn.
 		expect((await server.respond(silentLogger, '/turned-away', async () => png(10))).status).toBe(200);
+	});
+
+	it("sends a paused card to the site's card, not kept, so the card comes back once drawing does", () => {
+		const paused = sendToSiteCard(silentLogger, '/og/project/neon-tide/bafy.png');
+
+		expect(paused.status).toBe(302);
+		expect(paused.headers.get('location')).toBe('/og/site.png');
+		expect(paused.headers.get('cache-control')).toBe('no-store');
 	});
 });

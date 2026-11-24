@@ -3,7 +3,7 @@
 //! coloured rectangle and monospace text. Each test fails when a file differs from what the code
 //! makes. To update them:
 //!
-//! `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::docs::tests::/)'`
+//! `LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::docs::tests::/)'`
 
 use std::path::Path;
 
@@ -21,7 +21,7 @@ use super::super::screens::{Fixture, fixture};
 use super::super::{theme, ui};
 
 const DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/docs");
-const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli -E 'test(/tui::docs::tests::/)'";
+const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary -E 'test(/tui::docs::tests::/)'";
 /// Comments Markdown drops: the website shows an HTML comment as text.
 const KEYS_START: &str = "[//]: # (The key tables are generated from the keymap: see src/tui/docs/tests.rs.)";
 const KEYS_END: &str = "[//]: # (End of the key tables.)";

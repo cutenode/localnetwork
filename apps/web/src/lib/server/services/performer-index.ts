@@ -69,13 +69,14 @@ export function performerListingSource(db: Db): ListingSource {
 	return {
 		async publicFields(space) {
 			const row = await db.selectFrom('performer').select('record').where('spaceUri', '=', space).executeTakeFirst();
-			const subject = parseJson<PerformerRecord | null>(row?.record, null)?.subject;
+			const record = parseJson<PerformerRecord | null>(row?.record, null);
+			const subject = record?.subject;
 
 			if (subject?.$type !== ACT_TYPE) return null;
 			const { slug, form, basics, performer } = subject;
 			const fields: JsonObject = JSON.parse(JSON.stringify({ form, basics, performer }));
 
-			return { name: basics.name, slug, fields };
+			return { name: basics.name, slug, fields, langs: record?.langs };
 		}
 	};
 }

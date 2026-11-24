@@ -33,6 +33,7 @@ import { load as publicKit } from '../../src/routes/projects/[slug]/press-kits/[
 import { grantKey, type PressKit } from '../../src/lib/server/services/epk.ts';
 import type { ProjectView } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
+import { flagsOff } from '../../src/lib/testing/flags.ts';
 
 /** A 1x1 PNG. */
 const PNG = Uint8Array.from(
@@ -460,7 +461,7 @@ describe('shared press kits on a real atproto spaces network', () => {
 		const [neon, remy, pat] = [await net.viewer('neon'), await net.viewer('remy'), await net.viewer('pat')];
 		const night = await project('Night Shift', ['neon', 'remy']);
 		const slug = night.slug;
-		const locals = (viewer: typeof neon | null) => ({ app: net.app, viewer, log: silentLogger });
+		const locals = (viewer: typeof neon | null) => ({ app: net.app, viewer, log: silentLogger, flags: flagsOff });
 
 		/** A handler's result as a promise, so a redirect it throws, even synchronously, rejects it. */
 		const handled = async <T>(run: () => T | Promise<T>): Promise<T> => run();

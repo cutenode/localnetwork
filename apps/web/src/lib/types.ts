@@ -1,4 +1,5 @@
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import type { ShowsOn } from '#lib/flags/shows-on.ts';
 /** View models shared between server and browser code. */
 
 import type { BlobRef } from '@atproto/lex-data';
@@ -183,6 +184,8 @@ export type ProfileRecord = LexiconRead<
 		promoter?: PromoterSection;
 		/** Whether the DJ takes booking inquiries here, which they turn on themself. */
 		takesInquiries?: boolean;
+		/** The languages its text is written in. */
+		langs?: string[];
 		createdAt: string;
 		updatedAt: string;
 	},
@@ -213,6 +216,8 @@ export type PerformerRecord = {
 	subject:
 		| ({ $type: 'computer.localnetwork.performer#act' } & ActSubject)
 		| { $type: 'computer.localnetwork.performer#dj'; did: string };
+	/** The languages an act's text is written in. */
+	langs?: string[];
 	formerly?: string[];
 	createdAt: string;
 	updatedAt: string;
@@ -221,6 +226,8 @@ export type PerformerRecord = {
 /** A named night or series (`computer.localnetwork.party`), as the root wrote it into the party's space. */
 export type PartyRecord = {
 	basics: BasicsSection;
+	/** The languages its text is written in. */
+	langs?: string[];
 	/** Absent while it's a draft. */
 	publishedAt?: string;
 	createdAt: string;
@@ -234,6 +241,8 @@ export type EventCredit = { performer: string; startsAt?: string; endsAt?: strin
 export type EventRecord = {
 	name: string;
 	description?: string;
+	/** The languages the description is written in. */
+	langs?: string[];
 	/** With the venue's UTC offset, or the draft's time zone's. Only a draft can be without it, or without a venue. */
 	startsAt?: string;
 	endsAt?: string;
@@ -362,6 +371,8 @@ export type ProjectRecord = LexiconRead<
 		revision: number;
 		createdBy: string;
 		lastRequest?: string;
+		/** The languages the profile's text is written in. */
+		langs?: string[];
 		createdAt: string;
 		updatedAt: string;
 	},
@@ -378,6 +389,8 @@ export type ProjectView = {
 	status: ProjectStatus;
 	revision: number;
 	createdBy: string;
+	/** The languages the profile's text is written in. */
+	langs?: string[];
 	createdAt: string;
 	updatedAt: string;
 	avatarUrl: string | null;
@@ -447,6 +460,8 @@ export type RequestRecord = LexiconRead<
 		/** For a list request: the profile to list, and the version it was asked for with. */
 		listing?: { subject: string; cid?: string };
 		message?: string;
+		/** The languages the requester wrote its text in. */
+		langs?: string[];
 		onBehalfOf?: string;
 		withdrawnAt?: string;
 		createdAt: string;
@@ -505,14 +520,23 @@ export type FlagAccount = { did: string; handle: string | null };
 export type FlagView = {
 	key: FlagKey;
 	description: string;
+	/** A release flag goes once it's rolled out; an ops flag stays, and has no signed-out setting of its own. */
+	type: 'release' | 'ops';
+	/** The kinds of page it changes, from its catalog file. Empty when the file names none. */
+	showsOn: ShowsOn[];
+	/** When a release flag should be gone from the code, as YYYY-MM-DD. Ops flags stay, so they have none. */
+	removeBy?: string;
 	/** False when it's turned off for everyone. The gates below are kept for when it's back on. */
 	enabled: boolean;
+	/** Signed-out visitors have it too. Only ever true while every account does. */
+	signedOut: boolean;
+	/** Every signed-in account. */
 	everyone: boolean;
 	percentage: number;
 	groups: { rkey: string; name: string }[];
 	accounts: FlagAccount[];
 	updatedAt: string | null;
-	/** On for everyone, or every account, and unchanged for 30 days: time to take it out of the code. */
+	/** A release flag on for every caller, signed out too, and unchanged for 30 days: time to take it out of the code. */
 	readyToRemove: boolean;
 };
 
@@ -685,6 +709,8 @@ export type PlannerShowView = {
 	rkey: string;
 	details: ShowDetails;
 	lineup: { project: string; slot?: string; status?: string }[];
+	/** The languages the show's notes are written in. */
+	langs?: string[];
 	createdAt: string;
 	updatedAt?: string;
 };

@@ -1,3 +1,4 @@
+import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import adapter from '@sveltejs/adapter-node';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { enhancedImages } from '@sveltejs/enhanced-img';
@@ -24,9 +25,20 @@ const uncachedGlobs: Plugin = {
 // port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
 const BROWSER_TEST_SERVER = { strictPort: false };
 
+// Every test runs in one locale and time zone, whatever the machine's, so a date or number reads the same on a
+// laptop as in CI. Node takes them from the environment it starts with, which Vitest gives each test process; the
+// browser tests' Chromium takes them from its context. Playwright's e2e tests pin the same (playwright.config.ts).
+const TEST_LOCALE = 'en-US';
+
+const TEST_TIME_ZONE = 'UTC';
+
 // A media element's clock follows the audio output, and on a Mac that has stopped, a recording sitting at 0:00 while
 // its player says it's playing. Without audio output, Chromium keeps the time itself.
-const browserTests = () => playwright({ launchOptions: { args: ['--disable-audio-output'] } });
+const browserTests = () =>
+	playwright({
+		launchOptions: { args: ['--disable-audio-output'] },
+		contextOptions: { locale: TEST_LOCALE, timezoneId: TEST_TIME_ZONE }
+	});
 
 type BrowserOptions = NonNullable<NonNullable<TestProjectInlineConfiguration['test']>['browser']>;
 
@@ -121,14 +133,18 @@ const SHARED_MODULE_SIZE = 4096;
 
 const LIB = /[\\/]src[\\/]lib[\\/]/;
 
+const PARAGLIDE_RUNTIME = /[\\/]src[\\/]lib[\\/]paraglide[\\/]runtime\.js$/;
+
 // The shared group brings a module's imports along with it, whatever their size, so a small
 // component that renders a large one puts the large one in every visitor's download (ArtistPage
 // brought ArtistSupport, 12 KB). So everything of ours a module imports, all the way down, has to
 // be small too. Lucide's index isn't counted: it re-exports every icon, and only the ones used ship.
+// Nor is Paraglide's runtime, which every visitor downloads already, so a component that formats a
+// date or shows a message can still be shared.
 const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<string>()): boolean => {
 	const module = ctx.getModuleInfo(id);
 
-	if (seen.has(id) || !module || !LIB.test(id)) return true;
+	if (seen.has(id) || !module || !LIB.test(id) || PARAGLIDE_RUNTIME.test(id)) return true;
 	seen.add(id);
 
 	return (module.code?.length ?? 0) <= SHARED_MODULE_SIZE && module.importedIds.every((dep) => isSmall(dep, ctx, seen));
@@ -173,6 +189,8 @@ const SHARED =
 export default defineConfig({
 	plugins: [
 		uncachedGlobs,
+		// The message functions and locale runtime in src/lib/paraglide, from messages/ (project.inlang/paraglide.config.ts).
+		paraglideVitePlugin({ project: './project.inlang' }),
 		tailwindcss(),
 		// `?enhanced` images: AVIF and WebP at each width, with their size set so nothing shifts as they load.
 		enhancedImages(),
@@ -265,6 +283,7 @@ export default defineConfig({
 		// its 4-core runners, and locally the suites ran no slower with it. Vitest sizes one pool for projects
 		// that run together, so the cap is set here for all of them rather than on the browser projects.
 		maxWorkers: 3,
+		env: { LC_ALL: 'en_US.UTF-8', TZ: TEST_TIME_ZONE },
 		expect: { requireAssertions: true },
 		tags: [
 			{
@@ -283,10 +302,11 @@ export default defineConfig({
 				'src/lib/**/*.{ts,svelte}',
 				'src/routes/**/+*.server.ts',
 				'src/routes/**/+server.ts',
+				'src/hooks.client.ts',
 				'src/hooks.server.ts'
 			],
 			// The tests, their harness (fakes and request builders that only tests import), stories and types, the
-			// generated lexicon types included.
+			// generated lexicon types and Paraglide's generated messages and runtime included.
 			exclude: [
 				'src/lib/server/testing/**',
 				'src/lib/testing/**',
@@ -294,7 +314,8 @@ export default defineConfig({
 				'src/lib/**/*.svelte.{test,spec}.ts',
 				'src/lib/**/*.stories.svelte',
 				'src/lib/**/types.ts',
-				'src/lib/lexicons/**'
+				'src/lib/lexicons/**',
+				'src/lib/paraglide/**'
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],

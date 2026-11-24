@@ -10,6 +10,7 @@ local function day(value)
 end
 
 function handle(input)
+	skipInactive(input)
 	local where, args = '', {}
 	local since, before = day(input.since), day(input.before)
 	local city, country = text(input.city), text(input.country)

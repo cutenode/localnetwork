@@ -21,12 +21,13 @@ sequenceDiagram
   participant R as Root's repo
   participant K as Press kit's space
   M->>A: Save, over the version<br/>the form opened on
-  A->>B: epk.draft: changed fields<br/>and what they replace
+  A->>B: epk.draft: changed fields, what they<br/>replace, and the writer's languages<br/>when it changes words
   M->>A: Publish
   A->>A: Compare each field<br/>with what's published now
   alt Another manager changed the field
     A-->>M: Conflict, pick a<br/>side per field
   else
+    Note over A,K: epk and epk.content each take the draft's<br/>languages only when it changes their words
     A->>R: Copy new photos,<br/>put epk over the live CID
     A->>A: Wait up to 5 s<br/>for HappyView
     A->>K: Root writes epk.content
@@ -50,7 +51,9 @@ flowchart TD
   Audiences -- "review" --> Pending["epk.request in the performer's<br/>request space, waits for a manager"]
   Audiences -- "auto" --> Auto["epk.request, then a grant at once<br/>(a legacy press kit's waits for its move)"]
   Pending -- "manager approves" --> Grant["Root adds them to the press kit's space<br/>and writes epk.grant to the request space"]
+  Pending -- "manager declines" --> Declined["Root writes epk.decision, declined,<br/>to the request space; they can't ask again"]
   Auto --> Grant
+  Grant -- "it answered a request" --> Approved["Root writes epk.decision, approved,<br/>which outlasts the grant"]
   Invite["A manager invites them"] --> Grant
 ```
 
@@ -58,7 +61,7 @@ Source: [`src/lib/epk.ts`](../../src/lib/epk.ts), [`src/lib/server/services/epk.
 
 ## Press kit grant lifecycle
 
-Where someone stands with one press kit. Someone declined can't ask again, but a manager can still invite them.
+Where someone stands with one press kit. Someone declined can't ask again, but a manager can still invite them. The root's decision record keeps a decline through a re-sync, even after the asker deletes their request.
 
 ```mermaid
 stateDiagram-v2
@@ -123,7 +126,7 @@ Any of the performer's managers can delete a press kit the root holds. The space
 flowchart TD
   Ask["Delete in the press kit's editor"] --> Check["A manager of the performer,<br/>and not a legacy press kit"]
   Check --> Space["Root deletes the press kit's space,<br/>which puts everyone out of it"]
-  Space --> Records["Root deletes the requests it wrote<br/>for people, and the grant records"]
+  Space --> Records["Root deletes the requests it wrote<br/>for people, its decisions and grant records"]
   Records --> Public["Root deletes the epk record"]
   Public --> Wait["Waits for HappyView to stop serving it"]
   Wait --> Index["Forgets the local rows"]

@@ -59,7 +59,7 @@ it('searches with an empty query when none is given', async () => {
 });
 
 it('streams null for the artists while the directory is offline, so the search box still shows', async () => {
-	const supports = new SupportService(offline, f.t.accounts, silentLogger);
+	const supports = new SupportService(offline, f.t.core, silentLogger);
 	const data = await loadRoute<PageServerData>(load, { app: { ...app(), supports }, url: '/artists?q=Ferrule' });
 
 	expect(await data.artists).toBeNull();

@@ -10,8 +10,9 @@ use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 
+/// Without rekordbox's collection on this computer, which a test's profile would read otherwise.
 fn profile(store: Option<&Store>, req: &ProfileRequest) -> locallibrary::Result<api::ProfileView> {
-    api::profile(store, &ProfileRequest { no_analysis: true, ..req.clone() }, &Ctx::silent())
+    api::profile(store, &ProfileRequest { no_analysis: true, no_collection: true, ..req.clone() }, &Ctx::silent())
 }
 
 /// The names of the drives a profile read.

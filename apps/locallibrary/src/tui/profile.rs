@@ -60,6 +60,9 @@ pub struct ProfileTab {
     detail_area: Rect,
     /// The Atmosphere account, and signing in or out (the bar at the top).
     pub account: Account,
+    /// rekordbox's collection as it was when the profile was last built: coming back to the tab
+    /// after rekordbox saved builds it again.
+    collection_seen: Option<super::app::CollectionStamp>,
 }
 
 impl ProfileTab {
@@ -80,6 +83,7 @@ impl ProfileTab {
             sections_area: Rect::default(),
             detail_area: Rect::default(),
             account: Account::default(),
+            collection_seen: None,
         }
     }
 
@@ -177,10 +181,26 @@ pub fn stop(app: &mut App) {
     t.loading = false;
 }
 
+/// The collection this tab's profile reads, when it reads one: rekordbox's on this computer.
+fn collection(app: &App) -> Option<&std::path::Path> {
+    app.collection_db.as_deref().filter(|_| app.profile.only_drive.is_none())
+}
+
+/// Whether rekordbox saved its collection since the profile was built from it.
+pub fn collection_changed(app: &App) -> bool {
+    let t = &app.profile;
+    t.view.is_some()
+        && !t.loading
+        && collection(app).is_some_and(|db| t.collection_seen != Some(super::app::CollectionStamp::of(db)))
+}
+
 /// Rebuild the profile in the background (a running build is cancelled).
 pub fn refresh(app: &mut App) {
     let root = app.store_root.clone();
+    // Taken before the build: a save while it reads shows as a change, and is read next time.
+    let seen = collection(app).map(super::app::CollectionStamp::of);
     let t = &mut app.profile;
+    t.collection_seen = seen;
     t.account.load(&root);
     if let Some(c) = t.cancel.take() {
         c.cancel();

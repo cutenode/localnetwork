@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
 import { draftKey } from '#lib/form-draft.svelte.ts';
+import { setLocale } from '#lib/paraglide/runtime.js';
 import { SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
 import type { Viewer } from '#lib/types.ts';
 import Layout from './+layout.svelte';
@@ -28,9 +29,12 @@ beforeEach(() => {
 	for (const key of [mine, theirs]) localStorage.setItem(key, JSON.stringify({ savedAt: '', base: '', values: {} }));
 });
 
-afterEach(() => {
+afterEach(async () => {
 	for (const key of [mine, theirs]) localStorage.removeItem(key);
 	document.cookie = `${SIGNED_OUT_COOKIE}=; Max-Age=0; Path=/`;
+	// setLocale writes its cookie too, which the next file's tests would read.
+	await setLocale('en', { reload: false });
+	document.cookie = 'ln_locale=; Max-Age=0; Path=/';
 });
 
 it('drops the drafts of the accounts the sign-out response names on the next page load, and only theirs', async () => {
@@ -55,4 +59,12 @@ it('links /for from the footer on every page, since the header leaves it out', a
 	await expect
 		.element(page.getByRole('contentinfo').getByRole('link', { name: "Who it's for" }))
 		.toHaveAttribute('href', '/for');
+});
+
+it('takes every word in the footer from the message catalog, so en-XA leaves no plain English there', async () => {
+	await setLocale('en-XA', { reload: false });
+	await render(Layout, { params: {}, data: { viewer: null, pendingRequests: 0 }, children });
+
+	await expect.element(page.getByRole('contentinfo').getByRole('link').first()).toBeVisible();
+	expect(page.getByRole('contentinfo').element().textContent).not.toMatch(/[A-Za-z]/);
 });

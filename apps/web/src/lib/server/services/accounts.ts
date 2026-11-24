@@ -29,8 +29,6 @@ export class AccountService {
 			.values({
 				did: input.did,
 				handle: input.handle,
-				displayName: null,
-				avatarUrl: null,
 				pdsUrl: input.pdsUrl,
 				spacesCapable: input.spacesCapable ? 1 : 0,
 				grantedScope: input.grantedScope,
@@ -98,8 +96,6 @@ export class AccountService {
 					.values({
 						did,
 						handle: resolved.handle,
-						displayName: null,
-						avatarUrl: null,
 						pdsUrl: resolved.pds,
 						spacesCapable: 0,
 						grantedScope: null,

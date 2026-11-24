@@ -14,6 +14,7 @@ import {
 	LEGACY_KIT,
 	MAX_EPKS_PER_PROJECT
 } from '#lib/epk.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { AccountView, ProjectView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -28,6 +29,7 @@ import { backstageSpace, parsePublicRecordUri, parseSpaceUri } from '../atproto/
 import { type Core, NotFoundError, ReauthError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { EpkDraftTable } from '../db/schema';
+import { withLangs } from '../langs';
 import type { EpkService } from './epk';
 import {
 	applyChanges,
@@ -35,6 +37,7 @@ import {
 	cidOf,
 	cleared,
 	EPK_FIELDS,
+	EPK_TEXT_FIELDS,
 	fieldsFrom,
 	fieldsOf,
 	photosOf,
@@ -139,6 +142,9 @@ export class EpkDrafts {
 			updatedAt: now
 		};
 
+		if (changed.some((field) => EPK_TEXT_FIELDS.includes(field) && valueOf(values, field)))
+			record.langs = writerLangs();
+
 		if (kit) {
 			record.base = before?.base ?? { uri: kit.epk.uri, cid: kit.epk.cid };
 			record.previous = fieldsFrom(
@@ -218,7 +224,8 @@ export class EpkDrafts {
 
 		if (!live && kits.length >= MAX_EPKS_PER_PROJECT)
 			throw new UserError(`A project can have at most ${MAX_EPKS_PER_PROJECT} press kits`);
-		const published = live ? fieldsOf(live.record, await this.epks.content(live)) : {};
+		const liveContent = live && (await this.epks.content(live));
+		const published = live ? fieldsOf(live.record, liveContent) : {};
 		const keep = new Set(options.keep ?? []);
 		const fields = changedFields(draft.changes).filter((field) => !keep.has(field));
 
@@ -244,6 +251,14 @@ export class EpkDrafts {
 		}
 
 		const { content, ...visible } = applyChanges(published, changes);
+		const inContent = (field: EpkField) => field.startsWith('content.');
+
+		// Each record's words are in the draft's languages once it changes them, and in the ones they had until then.
+		const rewrote = (part: (field: EpkField) => boolean) =>
+			fields.some((field) => part(field) && EPK_TEXT_FIELDS.includes(field));
+
+		const publicLangs = rewrote((field) => !inContent(field)) ? draft.langs : live?.record.langs;
+		const contentLangs = rewrote(inContent) ? draft.langs : liveContent?.langs;
 
 		if (!visible.title || !visible.access)
 			throw new UserError('Give the press kit a name and say who can ask to see the rest');
@@ -267,6 +282,7 @@ export class EpkDrafts {
 			COLLECTION.epk,
 			toJson({
 				...visible,
+				...withLangs([visible.headline, visible.bio], publicLangs),
 				title: visible.title,
 				access: visible.access,
 				project: current.uri,
@@ -295,7 +311,14 @@ export class EpkDrafts {
 			space: kitSpace,
 			collection: COLLECTION.epkContent,
 			rkey: EPK_CONTENT_KEY,
-			record: validateRecord(COLLECTION.epkContent, toJson({ ...content, updatedAt: now }))
+			record: validateRecord(
+				COLLECTION.epkContent,
+				toJson({
+					...content,
+					...withLangs([content?.bio, content?.techRider, content?.contact?.note], contentLangs),
+					updatedAt: now
+				})
+			)
 		});
 		this.epks.forget();
 

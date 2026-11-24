@@ -20,10 +20,11 @@ import { type JsonRecord, type RecordRef, xrpcErrorName } from '../atproto/repo-
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
-import type { Backfills } from '../happyview/backfills';
+import type { BackfillFlags, Backfills } from '../happyview/backfills';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
+import { detailsText, editedLangs, sectionsText, withLangs } from '../langs';
 import type { PlyrClient } from '../plyr';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
@@ -125,6 +126,7 @@ function projectView(rootDid: string, ref: RecordRef & { rkey: string }, record:
 		status: record.status,
 		revision: record.revision,
 		createdBy: record.createdBy,
+		...(record.langs && { langs: record.langs }),
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
 		avatarUrl: avatar ? `/media/${rootDid}/${avatar}` : null
@@ -144,16 +146,18 @@ export class ProjectService {
 	/**
 	 * `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it).
 	 * `plyr` finds the records of plyr.fm tracks that mixes link; without it, only recordings already published stay.
+	 * `flags` are the app's, for pauseBackfills.
 	 */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
 		private readonly indexWaitMs = INDEX_WAIT_MS,
 		backfills?: Backfills,
-		private readonly plyr?: PlyrClient
+		private readonly plyr?: PlyrClient,
+		private readonly flags?: BackfillFlags
 	) {
 		this.sets = new SetService(core, directory, backfills);
-		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
+		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs, flags));
 	}
 
 	/**
@@ -345,7 +349,8 @@ export class ProjectService {
 	 * plyr.fm mixes point at their tracks' records (see withRecordings), moves its
 	 * spaces' members along when its managers change, optionally updates its
 	 * private details in the industry space, and waits for the directory to
-	 * serve it. Returns field-level changes.
+	 * serve it. Returns field-level changes. `langs` are the languages the profile's and details' text is in where it's
+	 * new: the writer's, or the request's it comes from. The profile's text keeps the ones it had while it's the same.
 	 */
 	async publish(input: {
 		existing?: ProjectView | null;
@@ -355,6 +360,7 @@ export class ProjectService {
 		createdBy: string;
 		details?: ProjectDetails | null;
 		lastRequest?: string;
+		langs?: string[];
 	}): Promise<{ project: ProjectView; changes: FieldChange[] }> {
 		const { existing } = input;
 		const root = await this.core.root();
@@ -371,6 +377,11 @@ export class ProjectService {
 			status: input.status,
 			revision: (existing?.revision ?? 0) + 1,
 			createdBy: existing?.createdBy ?? input.createdBy,
+			...editedLangs(
+				sectionsText(profile, profile),
+				existing && { text: sectionsText(existing.profile, existing.profile), langs: existing.langs },
+				input.langs
+			),
 			createdAt: existing?.createdAt ?? now,
 			updatedAt: now
 		};
@@ -405,7 +416,13 @@ export class ProjectService {
 		if (input.details !== undefined) {
 			const before = existing ? await this.details(existing.uri) : null;
 			const details = input.details ?? {};
-			const detailRecord = validateRecord(COLLECTION.projectDetails, { project: ref.uri, details, updatedAt: now });
+
+			const detailRecord = validateRecord(COLLECTION.projectDetails, {
+				project: ref.uri,
+				details,
+				...withLangs(detailsText(details), input.langs),
+				updatedAt: now
+			});
 
 			const written = await root.putSpaceRecord({
 				space: this.core.spaces.industry,
@@ -435,7 +452,7 @@ export class ProjectService {
 			void this.sets.refresh(added);
 
 			for (const collection of [...MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet), BSKY_FOLLOW])
-				void reindex(this.directory, this.core.logger, collection, added);
+				void reindex(this.directory, this.core.logger, this.flags, collection, added);
 		}
 
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };

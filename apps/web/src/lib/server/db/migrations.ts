@@ -618,6 +618,19 @@ export const migrations = {
 				.execute(db);
 			await sql.raw('CREATE INDEX venue_approval_event ON venue_approval (event_uri)').execute(db);
 		}
+	},
+	// Names and avatars come from profile records through HappyView; these were only ever written null.
+	'022_account_without_profile': {
+		async up(db) {
+			await sql.raw('ALTER TABLE account DROP COLUMN display_name').execute(db);
+			await sql.raw('ALTER TABLE account DROP COLUMN avatar_url').execute(db);
+		}
+	},
+	// Signed-out visitors became a flag's own setting. Records from before it don't say, which FlagService reads.
+	'023_feature_flag_signed_out': {
+		async up(db) {
+			await sql.raw('ALTER TABLE feature_flag ADD COLUMN signed_out INTEGER').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

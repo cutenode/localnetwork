@@ -73,6 +73,10 @@ jobs:
       - run: tools/policy.sh
       - run: pnpm exec ast-grep test --skip-snapshot-tests
       - run: pnpm exec ast-grep scan
+      # For tools/budgets/cachegrind.test.ts, which runs only where valgrind is.
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: valgrind
       - name: Tools tests
         run: pnpm test:tools
       # The lines the pull request changed (tools/coverage/patch.json).

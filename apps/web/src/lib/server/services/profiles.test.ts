@@ -152,6 +152,34 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		expect((await t.profiles.get(DJ))?.record.basics.avatar).toBeUndefined();
 	});
 
+	it('names the language its words are in, keeping the one they had through saves that leave them alone', async () => {
+		const viewer = await t.viewer(DJ);
+
+		const save = async (basics: { name: string; bio?: string }) =>
+			t.profiles.save(viewer, { basics, avatar: 'keep', swap: (await t.profiles.get(DJ))?.cid ?? null });
+
+		const langs = async () => (await t.profiles.get(DJ))?.record.langs;
+		// Written in German, somewhere else.
+		await t.net.client(DJ).putRecord({
+			collection: COLLECTION.profile,
+			rkey: 'self',
+			record: {
+				$type: COLLECTION.profile,
+				basics: { name: 'Neon', bio: 'Techno am Sonntag' },
+				langs: ['de'],
+				createdAt: '2026-10-30T00:00:00.000Z',
+				updatedAt: '2026-10-30T00:00:00.000Z'
+			}
+		});
+
+		await save({ name: 'Neon Tide', bio: 'Techno am Sonntag' });
+		expect(await langs()).toEqual(['de']);
+		await save({ name: 'Neon Tide', bio: 'Techno on Sundays' });
+		expect(await langs()).toEqual(['en']);
+		await save({ name: 'Neon Tide' });
+		expect(await langs()).toBeUndefined();
+	});
+
 	it("has the directory read any account's Bluesky profile for its pronouns, before they have a profile here", async () => {
 		await t.net.client(DJ).putRecord({
 			collection: BSKY_PROFILE,

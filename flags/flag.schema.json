@@ -20,6 +20,15 @@
 					"maxLength": 300,
 					"description": "What the flag gates, for the staff console."
 				},
+				"showsOn": {
+					"description": "The kinds of page the flag changes, or global for every page. act is a /projects page until acts move. The staff console lists them as Shows on.",
+					"minItems": 1,
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": ["global", "home", "profile", "act", "party", "venue", "event", "set", "mix", "pressKit"]
+					}
+				},
 				"type": {
 					"type": "string",
 					"const": "release",
@@ -52,6 +61,15 @@
 					"minLength": 1,
 					"maxLength": 300,
 					"description": "What the flag gates, for the staff console."
+				},
+				"showsOn": {
+					"description": "The kinds of page the flag changes, or global for every page. act is a /projects page until acts move. The staff console lists them as Shows on.",
+					"minItems": 1,
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": ["global", "home", "profile", "act", "party", "venue", "event", "set", "mix", "pressKit"]
+					}
 				},
 				"type": {
 					"type": "string",

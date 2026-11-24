@@ -2,6 +2,7 @@ import { TID } from '@atproto/common-web';
 import { ACCESS_PRESETS, type EpkAccess, type EpkFields, type EpkPhoto, type EpkView } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView } from '#lib/types.ts';
+import type { AccountStatus } from '../atproto/account-status';
 import { validateRecord } from '../atproto/lexicons';
 import { memberSpacePolicy } from '../atproto/repo-client';
 import { toJson } from '../services/epk-fields';
@@ -58,6 +59,13 @@ export async function pressKitServices() {
 			fixture.project = await t.projectAdmin.setManagers({ actor: admin, project: fixture.project, managers });
 
 			return fixture.project;
+		},
+
+		/** Sets DJ's and CODJ's account statuses as their PDSes would answer, and has the site ask again. */
+		async managersAre(dj: AccountStatus, codj: AccountStatus): Promise<void> {
+			t.accountStatus.set(DJ, dj);
+			t.accountStatus.set(CODJ, codj);
+			await t.accountStatuses.refresh();
 		},
 
 		/** The press kit with the project as it is now. */

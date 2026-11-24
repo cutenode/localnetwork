@@ -3,6 +3,10 @@
 The command line tool, terminal player and sidecar that keep rekordbox USB drives in sync, backed
 up and edited, and the plugins that add to them.
 
+"core" is only part of a crate's name (`locallibrary-core`, the library the app is built on). Docs
+and copy say locallibrary, or name the crate where the crate is meant, never "the core"
+([ADR 0005](docs/adr/0005-the-app-gets-the-plain-name.md)).
+
 ## Libraries and exports
 
 **Library**:

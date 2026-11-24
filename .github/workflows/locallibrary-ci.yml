@@ -49,6 +49,10 @@ on:
         description: Whether a pull request changed what decides which commands each build has (ci.yml's locallibrary_commands paths).
         type: boolean
         required: true
+      fuzz:
+        description: Whether a pull request changed what the fuzz targets reach (ci.yml's locallibrary_fuzz paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
@@ -108,7 +112,7 @@ jobs:
       # benches too: what only the default features use is dead code here.
       # locallibrary-scheduled.yml runs its tests and every other combination.
       - if: inputs.linux || inputs.cache
-        run: cargo clippy -p locallibrary -p locallibrary-cli --no-default-features --all-targets --locked -- -D warnings
+        run: cargo clippy -p locallibrary-core -p locallibrary --no-default-features --all-targets --locked -- -D warnings
       # On its own: built with the crates above, it gets the features they ask for.
       - if: inputs.linux || inputs.cache
         run: cargo clippy -p loclib-interop --no-default-features --all-targets --locked -- -D warnings
@@ -119,7 +123,7 @@ jobs:
         with:
           tool: cargo-nextest@0.9.148
       - if: inputs.commands
-        run: cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
+        run: cargo nextest run -p locallibrary --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
       # The TUI's audio output goes through ALSA on Linux.
       - if: inputs.linux || inputs.docs || inputs.cache
         uses: ./.github/actions/apt-packages
@@ -145,10 +149,10 @@ jobs:
       # dist releases every package with a binary that doesn't opt out, so a new one would
       # otherwise join locallibrary's releases (and its tag namespace) unnoticed.
       - if: inputs.dist
-        name: Check only locallibrary-cli is released
+        name: Check only locallibrary is released
         run: |
-          if ! jq -e '[.releases[]?.app_name] == ["locallibrary-cli"]' "$RUNNER_TEMP/plan-dist-manifest.json" > /dev/null; then
-            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
+          if ! jq -e '[.releases[]?.app_name] == ["locallibrary"]' "$RUNNER_TEMP/plan-dist-manifest.json" > /dev/null; then
+            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
             exit 1
           fi
 
@@ -513,6 +517,31 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
+
+  # A minute of every fuzz target, from the corpus the weekly run keeps (locallibrary-scheduled.yml),
+  # so a pull request that breaks a parser finds out before it merges rather than the next Monday.
+  # A crash fails the job and uploads its input.
+  fuzz:
+    if: inputs.fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      # The corpus the weekly run keeps.
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/fuzz
+        with:
+          seconds: 60
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+          if-no-files-found: ignore
 
   coverage:
     needs: [test, hegel]

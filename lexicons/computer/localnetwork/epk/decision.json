@@ -1,0 +1,35 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.epk.decision",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A manager's answer to a request to see the private part of a press kit. Written only by the Local Network root account, into the project's computer.localnetwork.space.epkRequests space beside the request. Someone declined can't ask to see that press kit again.",
+			"record": {
+				"type": "object",
+				"required": ["request", "requester", "epk", "outcome", "decidedBy", "createdAt"],
+				"properties": {
+					"request": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The computer.localnetwork.epk.request record."
+					},
+					"requester": { "type": "string", "format": "did" },
+					"epk": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The computer.localnetwork.epk record it asked to see."
+					},
+					"outcome": { "type": "string", "maxLength": 32, "knownValues": ["approved", "declined"] },
+					"decidedBy": {
+						"type": "string",
+						"format": "did",
+						"description": "The manager who answered, or the root account when the press kit's rules approved the request."
+					},
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

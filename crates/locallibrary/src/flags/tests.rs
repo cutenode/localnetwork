@@ -16,7 +16,7 @@ fn answered(did: Option<&str>, age: TimeDelta, gates: Gates, now: DateTime<Utc>)
     }
 }
 
-const NOTHING_ON: Gates = Gates { enabled: true, everyone: false, percentage: 0, targeted: false };
+const NOTHING_ON: Gates = Gates { enabled: true, signed_out: false, everyone: false, percentage: 0, targeted: false };
 
 /// Both the website and this code read these, so the two can't come to disagree.
 #[test]
@@ -74,7 +74,7 @@ fn a_damaged_cache_is_no_cache() {
 #[test]
 fn an_unknown_key_is_off() {
     let now = Utc::now();
-    let gates = Gates { enabled: true, everyone: true, percentage: 100, targeted: true };
+    let gates = Gates { enabled: true, signed_out: true, everyone: true, percentage: 100, targeted: true };
     let cache = answered(Some("did:plc:abc"), TimeDelta::zero(), gates, now);
     assert!(cache.on(FLAG, Some("did:plc:abc"), now));
     assert!(!cache.on("notAFlag", Some("did:plc:abc"), now));
@@ -96,7 +96,7 @@ fn a_build_without_the_account_has_every_flag_off() {
     off(dir.path());
     assert!(!dir.path().join(CACHE_FILE).exists());
 
-    let gates = Gates { enabled: true, everyone: true, percentage: 100, targeted: true };
+    let gates = Gates { enabled: true, signed_out: true, everyone: true, percentage: 100, targeted: true };
     let left = answered(None, TimeDelta::zero(), gates, Utc::now());
     crate::fsutil::write_json_atomic(&dir.path().join(CACHE_FILE), &left).unwrap();
     off(dir.path());
@@ -123,21 +123,40 @@ fn raising_a_percentage_only_adds_accounts(tc: TestCase) {
     assert!(!at(0) && at(100));
 }
 
-/// Signed out there's no DID: a percentage can't apply and nothing cached can target anyone, so
-/// only a flag on for everyone is on, as on the website.
+/// Signed out there's no DID: a percentage can't pick anyone and nothing cached can target
+/// anyone, so a flag is on only for signed-out callers and once every account has it, as on the
+/// website.
 #[hegel::test(test_cases = 100)]
-fn signed_out_only_flags_on_for_everyone_are_on(tc: TestCase) {
+fn signed_out_only_flags_on_for_them_and_every_account_are_on(tc: TestCase) {
     let now = Utc::now();
     let gates = Gates {
         enabled: tc.draw(gs::booleans()),
+        signed_out: tc.draw(gs::booleans()),
         everyone: tc.draw(gs::booleans()),
         percentage: tc.draw(gs::integers::<u32>().max_value(100)),
         targeted: tc.draw(gs::booleans()),
     };
     let did = tc.draw(gs::optional(gs::just("did:plc:abc")));
-    let on_for_everyone = gates.enabled && gates.everyone;
-    assert_eq!(answered(did, TimeDelta::zero(), gates, now).on(FLAG, None, now), on_for_everyone);
-    assert_eq!(decide(&Gates { targeted: false, ..gates }, FLAG, None), on_for_everyone);
+    let on = gates.enabled && gates.signed_out && (gates.everyone || gates.percentage == 100);
+    assert_eq!(answered(did, TimeDelta::zero(), gates, now).on(FLAG, None, now), on);
+    assert_eq!(decide(&Gates { targeted: false, ..gates }, FLAG, None), on);
+}
+
+/// Signed in, the signed-out setting changes nothing.
+#[hegel::test(test_cases = 100)]
+fn signed_out_changes_nothing_for_an_account(tc: TestCase) {
+    let gates = Gates {
+        enabled: tc.draw(gs::booleans()),
+        signed_out: tc.draw(gs::booleans()),
+        everyone: tc.draw(gs::booleans()),
+        percentage: tc.draw(gs::integers::<u32>().max_value(100)),
+        targeted: tc.draw(gs::booleans()),
+    };
+    let did = tc.draw(gs::text());
+    assert_eq!(
+        decide(&gates, FLAG, Some(&did)),
+        decide(&Gates { signed_out: !gates.signed_out, ..gates }, FLAG, Some(&did))
+    );
 }
 
 /// A flag staff turned off is off for everyone, whoever it targets or however far it's rolled out,
@@ -147,6 +166,7 @@ fn a_flag_turned_off_is_off_for_everyone(tc: TestCase) {
     let now = Utc::now();
     let on = Gates {
         enabled: true,
+        signed_out: tc.draw(gs::booleans()),
         everyone: tc.draw(gs::booleans()),
         percentage: tc.draw(gs::integers::<u32>().max_value(100)),
         targeted: tc.draw(gs::booleans()),
@@ -156,7 +176,10 @@ fn a_flag_turned_off_is_off_for_everyone(tc: TestCase) {
     let said_of = tc.draw(gs::optional(gs::just("did:plc:abc")));
     assert!(!decide(&off, FLAG, did));
     assert!(!answered(said_of, TimeDelta::zero(), off, now).on(FLAG, did, now));
-    let expected = on.everyone || on.targeted || did.is_some_and(|did| bucket(FLAG, did) < on.percentage);
+    let expected = match did {
+        Some(did) => on.everyone || on.targeted || bucket(FLAG, did) < on.percentage,
+        None => on.signed_out && (on.everyone || on.percentage == 100),
+    };
     assert_eq!(decide(&on, FLAG, did), expected);
 }
 
@@ -166,6 +189,20 @@ fn no_word_on_enabled_is_enabled() {
     let enabled = |flag: Value| serde_json::from_value::<Flag>(flag).unwrap().gates.enabled;
     assert!(enabled(json!({ "key": FLAG, "everyone": true, "percentage": 0, "targeted": false })));
     assert!(!enabled(json!({ "key": FLAG, "enabled": false, "everyone": true, "percentage": 0, "targeted": false })));
+}
+
+/// A website or a cache from before signed-out visitors had their own setting says nothing about
+/// it: signed out, the flag is off, and the cache keeps the field's name as the website sends it.
+#[test]
+fn no_word_on_signed_out_is_off() {
+    let signed_out = |flag: Value| serde_json::from_value::<Flag>(flag).unwrap().gates.signed_out;
+    assert!(!signed_out(json!({ "key": FLAG, "everyone": true, "percentage": 100, "targeted": false })));
+    assert!(signed_out(
+        json!({ "key": FLAG, "signedOut": true, "everyone": true, "percentage": 0, "targeted": false })
+    ));
+    let gates = Gates { signed_out: true, ..NOTHING_ON };
+    let kept = serde_json::to_value(Flag { key: FLAG.into(), gates }).unwrap();
+    assert_eq!(kept["signedOut"], json!(true));
 }
 
 /// An answer is fresh for an hour, stale up to 14 days and then no answer; it's asked for again
@@ -181,7 +218,8 @@ fn an_answer_ages_as_the_design_says(tc: TestCase) {
     let now = Utc::now();
     let minutes = tc.draw(gs::integers::<i64>().min_value(0).max_value(40_000));
     let attempted = tc.draw(gs::integers::<i64>().min_value(0).max_value(40));
-    let mut cache = answered(None, TimeDelta::minutes(minutes), Gates { everyone: true, ..NOTHING_ON }, now);
+    let gates = Gates { everyone: true, signed_out: true, ..NOTHING_ON };
+    let mut cache = answered(None, TimeDelta::minutes(minutes), gates, now);
     cache.last_attempt_at = Some(now - TimeDelta::minutes(attempted));
 
     let expected = match minutes {

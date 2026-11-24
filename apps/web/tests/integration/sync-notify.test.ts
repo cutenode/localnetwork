@@ -8,6 +8,7 @@ import { silentLogger } from '../../src/lib/server/logger.ts';
 import { POST as confirmRegistration } from '../../src/routes/xrpc/com.atproto.space.confirmRegistration/+server.ts';
 import { POST as notifySpaceUpdate } from '../../src/routes/xrpc/com.atproto.space.notifySpaceUpdate/+server.ts';
 import { TestNetwork } from './network.ts';
+import { flagsOff } from '../../src/lib/testing/flags.ts';
 
 const NOTE = 'computer.localnetwork.test.note';
 
@@ -34,7 +35,7 @@ describe("space updates from a real atproto spaces host, sent to the app's own r
 
 		const response =
 			route && net
-				? await route({ request, locals: { app: net.app, log: silentLogger } })
+				? await route({ request, locals: { app: net.app, log: silentLogger, flags: flagsOff } })
 				: new Response(null, { status: 503 });
 
 		calls.push({ nsid, body: JSON.parse(body), status: response.status });

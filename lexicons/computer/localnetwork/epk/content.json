@@ -29,6 +29,12 @@
 					},
 					"contact": { "type": "ref", "ref": "computer.localnetwork.epk.defs#contact" },
 					"techRider": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 },
+					"langs": {
+						"type": "array",
+						"description": "The languages its text is written in: the bio, tech rider and contact note. Quotes are in whatever language their sources wrote them.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"updatedAt": { "type": "string", "format": "datetime" }
 				}
 			}

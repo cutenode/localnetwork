@@ -202,7 +202,7 @@ export const locallibrary: Listing = {
 	screenshots: ['player', 'library', 'mixes', 'report'],
 	page: true,
 	async capture(browser, signal) {
-		await run('cargo', ['build', '--quiet', '--locked', '-p', 'locallibrary-cli'], { signal });
+		await run('cargo', ['build', '--quiet', '--locked', '-p', 'locallibrary'], { signal });
 		const bin = join(process.env.CARGO_TARGET_DIR ?? join(ROOT, 'target'), 'debug/locallibrary');
 		const unlock = lock(`${WORK}.lock`);
 

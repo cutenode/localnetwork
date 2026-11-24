@@ -10,7 +10,7 @@
 # * a Homebrew job that skips itself until HOMEBREW_TAP_TOKEN exists;
 # * no pull_request trigger: ci.yml's locallibrary lint job runs `dist plan` and the check below
 #   when a pull request changes what it reads, in a runner it already has;
-# * a step in `plan` that fails when the plan releases anything but locallibrary-cli;
+# * a step in `plan` that fails when the plan releases anything but locallibrary;
 # * the workflow's name says it's locallibrary's, beside the repo's other workflows;
 # * timeouts on every job, a read-only token everywhere but `host` (the one job that writes: it
 #   creates the GitHub Release), the pinned Rust toolchain installed explicitly, and the tag
@@ -29,8 +29,8 @@
 #
 # Runs on:
 #
-# * a pushed tag that starts with `locallibrary` and has a version ("locallibrary-cli-v0.1.0",
-#   "locallibrary-cli-v0.2.0-beta.1"): builds the archives and installers, creates the GitHub
+# * a pushed tag that starts with `locallibrary` and has a version ("locallibrary-v0.1.0",
+#   "locallibrary-v0.2.0-beta.1"): builds the archives and installers, creates the GitHub
 #   Release (a prerelease when the version has a suffix) and pushes the Homebrew formula.
 
 name: locallibrary release
@@ -93,10 +93,10 @@ jobs:
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
       # dist releases every package with a binary that doesn't opt out, so a new one would
       # otherwise join locallibrary's releases (and its tag namespace) unnoticed.
-      - name: Check only locallibrary-cli is released
+      - name: Check only locallibrary is released
         run: |
-          if ! jq -e '[.releases[]?.app_name] == ["locallibrary-cli"]' plan-dist-manifest.json > /dev/null; then
-            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' plan-dist-manifest.json), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
+          if ! jq -e '[.releases[]?.app_name] == ["locallibrary"]' plan-dist-manifest.json > /dev/null; then
+            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' plan-dist-manifest.json), not only locallibrary. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
             exit 1
           fi
       - name: "Upload dist-manifest.json"

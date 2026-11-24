@@ -29,6 +29,12 @@
 						"maxGraphemes": 1000,
 						"description": "A short bio anyone can read."
 					},
+					"langs": {
+						"type": "array",
+						"description": "The languages the headline and bio are written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"mixes": {
 						"type": "array",
 						"maxLength": 12,

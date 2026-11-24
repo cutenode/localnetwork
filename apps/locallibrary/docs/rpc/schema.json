@@ -9959,6 +9959,11 @@
           "type": "boolean",
           "description": "Skip analysis files: no phrase mood or cue statistics, but much faster.",
           "default": false
+        },
+        "no_collection": {
+          "type": "boolean",
+          "description": "Leave out rekordbox's collection on this computer (`master.db`). It's read only when no\ndrive or library is named: then it's the collection the profile describes, as rekordbox\nshows it now, rather than the copies on drives and in the store.",
+          "default": false
         }
       }
     },
@@ -25067,7 +25072,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "description": "`drive` or `store`."
+          "description": "`collection` (rekordbox's `master.db` on this computer), `drive` or `store`."
         },
         "name": {
           "type": "string"

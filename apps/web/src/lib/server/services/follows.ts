@@ -5,6 +5,7 @@ import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import { type HappyViewClient, HappyViewError } from '../happyview/client';
+import type { BackfillFlags } from '../happyview/backfills';
 import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
 import { writeOwn } from './own-repo';
 import { actorRole } from './requests';
@@ -34,7 +35,9 @@ export class FollowService {
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
-		private readonly indexWaitMs = INDEX_WAIT_MS
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		/** The app's, for pauseBackfills. */
+		private readonly flags?: BackfillFlags
 	) {}
 
 	async state(subject: Followable, viewer: string | undefined): Promise<FollowState> {
@@ -118,6 +121,6 @@ export class FollowService {
 
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
 		this.core.logger.warn('the directory has not caught up with a follow yet', { subject: subject.uri, actor });
-		await reindex(this.directory, this.core.logger, COLLECTION.follow, [actor]);
+		await reindex(this.directory, this.core.logger, this.flags, COLLECTION.follow, [actor]);
 	}
 }

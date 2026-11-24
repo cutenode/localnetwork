@@ -67,6 +67,7 @@ jobs:
               - 'vendor/**'
               - 'packages/tokens/**'
               - 'fuzz/**'
+              - '.github/actions/fuzz/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -125,10 +126,10 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148
+      - run: cargo nextest run -p locallibrary-core --no-default-features --locked --no-fail-fast
       - run: cargo nextest run -p locallibrary --no-default-features --locked --no-fail-fast
-      - run: cargo nextest run -p locallibrary-cli --no-default-features --locked --no-fail-fast
-      - run: cargo nextest run -p locallibrary-cli --no-default-features --features account --locked --no-fail-fast
-      - run: cargo clippy -p locallibrary-cli --no-default-features --features tui,account --all-targets --locked -- -D warnings
+      - run: cargo nextest run -p locallibrary --no-default-features --features account --locked --no-fail-fast
+      - run: cargo clippy -p locallibrary --no-default-features --features tui,account --all-targets --locked -- -D warnings
 
   # Clippy over every combination of features, in a job of its own: after the tests above it would
   # share their 45 minutes, and any of them failing would keep it from running.
@@ -218,13 +219,20 @@ jobs:
         with:
           packages: dosfstools exfatprogs
       - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' }}
-        run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
+        run: cargo nextest run -p locallibrary-core --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
         env:
           LOCALLIBRARY_DISK_IMAGE_TESTS: "1"
           NEXTEST_PROFILE: ci
           # losetup, sfdisk and mkfs need root on Linux, so the test binary runs under sudo there.
           # Only the Linux target reads this.
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo --preserve-env
+      # Drive writes run as a launchd job, end to end: a terminal, launchd and a FAT32 disk image
+      # (apps/locallibrary/tests/it/launchd_writes.rs). They need the runner's logged-in session,
+      # and say so when there's none.
+      - if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: cargo test --locked -p locallibrary --test it -- launchd_writes --nocapture
+        env:
+          LOCALLIBRARY_DISK_IMAGE_TESTS: "1"
 
   # format::apply and eject on a real disk: each test creates a small disk image, attaches it
   # (hdiutil, a loop device, a VHD), formats or ejects it, and detaches it
@@ -250,7 +258,7 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148
-      - run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
+      - run: cargo nextest run -p locallibrary-core --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
 
   # Mutation testing with cargo-mutants (settings in .cargo/mutants.toml): it makes small changes
   # to the code (a function returning a default, a flipped comparison) and runs the package's
@@ -303,7 +311,7 @@ jobs:
           fi
           git diff "$base" HEAD > "$RUNNER_TEMP/week.diff"
           list=$(set -o pipefail; cargo metadata --no-deps --format-version 1 --locked |
-            jq -r '.packages[].name | select(. != "locallibrary" and . != "locallibrary-cli") | "-p", .')
+            jq -r '.packages[].name | select(. != "locallibrary-core" and . != "locallibrary") | "-p", .')
           mapfile -t packages <<< "$list"
           status=0
           cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" "${packages[@]}" || status=$?
@@ -328,55 +336,38 @@ jobs:
           path: mutants.out
           if-no-files-found: ignore
 
-  # libFuzzer feeds the parsers for what a drive or an import holds (export.pdb and exportExt.pdb,
-  # analysis files, the players' settings files, tracklists, someone else's keybinds record), and
-  # PdbEditor's edits, inputs grown from the test fixtures, five minutes a target (the
-  # fuzz-<target> aliases in .cargo/config.toml, see CONTRIBUTING.md).
-  # One job runs them in turn, so the targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
+  # libFuzzer feeds the parsers of what a drive, an import or another computer hands locallibrary,
+  # and PdbEditor's edits, inputs grown from the test fixtures: every target `cargo fuzz list` names
+  # for five minutes, several at once (.github/actions/fuzz, see CONTRIBUTING.md). One job runs them
+  # all, so the targets' shared dependencies build once. The corpus each run grows is minimized and
+  # kept as an artifact for the next one and for pull requests' smoke runs (locallibrary-ci.yml); a
   # crash fails the job and uploads its input.
   fuzz:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      # The corpus the last run kept.
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The pinned toolchain for cargo-fuzz's own build, and nightly for the targets (libFuzzer's
-      # instrumentation and the sanitizer need it).
-      - run: rustup toolchain install && rustup toolchain install nightly --profile minimal --component rust-src
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: ./.github/actions/fuzz
         with:
-          workspaces: fuzz
-      # install-action has no cargo-fuzz of its own. Its cargo-install fallback builds it from
-      # crates.io with the lockfile (rust-cache keeps the binary), where the default would have
-      # cargo-binstall download one using the job's token.
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-fuzz@0.13.2
-          fallback: cargo-install
-      # A cache entry can't be overwritten: each run saves under its own key and the next restores
-      # the newest. Saved even when a target crashed, so what it found before isn't lost.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
-          restore-keys: fuzz-corpus-
-      - name: Fuzz each target for five minutes
-        run: |
-          status=0
-          for target in pdb pdb_edit anlz mysettings tracklist keybinds; do
-            cargo +nightly "fuzz-$target" -max_total_time=300 -timeout=10 -rss_limit_mb=2048 || status=1
-            # Down to the inputs that each add coverage, so the cache doesn't grow every week.
-            cargo +nightly fuzz cmin "$target" "fuzz/corpus/$target"
-          done
-          exit "$status"
+          seconds: 300
+      # Down to the inputs that each add coverage, so the corpus doesn't grow every week. Kept even
+      # when a target crashed, so what it found before isn't lost.
       - if: ${{ !cancelled() }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        run: cargo fuzz list | while read -r target; do cargo +nightly fuzz cmin "$target" "fuzz/corpus/$target"; done
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
+          name: fuzz-corpus
           path: fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
+          retention-days: 90
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -422,7 +413,7 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148
-      # As the fuzz corpus is: each run saves under its own key and the next restores the newest.
+      # Each run saves under its own key, and the next run restores the newest.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .hegel
@@ -525,7 +516,7 @@ jobs:
             wc -c < "${found[0]}"
           }
           binary=$(size "target/$TARGET/dist/locallibrary" "target/$TARGET/dist/locallibrary.exe")
-          archive=$(size "target/distrib/locallibrary-cli-$TARGET.tar.xz" "target/distrib/locallibrary-cli-$TARGET.zip")
+          archive=$(size "target/distrib/locallibrary-$TARGET.tar.xz" "target/distrib/locallibrary-$TARGET.zip")
           jq -n --argjson binary "$binary" --argjson archive "$archive" \
             '{"locallibrary": $binary, "archive": $archive}' > "target/budgets/size-$TARGET.json"
           # No run measures these targets between weekly ones, so there's no base: the table is a record.

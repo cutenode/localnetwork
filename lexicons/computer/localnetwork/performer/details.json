@@ -11,6 +11,12 @@
 				"required": ["details", "updatedAt"],
 				"properties": {
 					"details": { "type": "ref", "ref": "computer.localnetwork.defs#projectDetails" },
+					"langs": {
+						"type": "array",
+						"description": "The languages the rate notes, tech rider and hospitality are written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"updatedAt": { "type": "string", "format": "datetime" }
 				}
 			}

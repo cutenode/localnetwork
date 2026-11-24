@@ -150,6 +150,20 @@ it('shows a hidden project to its managers, without following and kept out of se
 	await expect(page()).rejects.toMatchObject({ status: 404 });
 });
 
+it('hides the project once none of its managers is active, saying it was deleted when all of them were', async () => {
+	await f.managersAre('deactivated', 'active');
+	expect((await page()).project.uri).toBe(f.project.uri);
+
+	await f.managersAre('deactivated', 'deleted');
+	await expect(page()).rejects.toMatchObject({ status: 404, body: { title: "Neon Tide isn't active" } });
+
+	await f.managersAre('deleted', 'deleted');
+	await expect(page(await f.t.viewer(ADMIN))).rejects.toMatchObject({
+		status: 410,
+		body: { title: 'Neon Tide is gone' }
+	});
+});
+
 it("saves the project to the viewer's planner, and takes it out again", async () => {
 	const friend = await f.t.viewer(FRIEND);
 

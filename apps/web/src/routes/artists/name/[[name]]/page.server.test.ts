@@ -91,7 +91,7 @@ it('names the page after the address while the directory is offline', async () =
 		fetch: async () => new Response('Service Unavailable', { status: 503 })
 	});
 
-	const supports = new SupportService(directory, f.t.accounts, silentLogger);
+	const supports = new SupportService(directory, f.t.core, silentLogger);
 
 	const data = await loadRoute<PageServerData>(load, {
 		app: { ...app(), supports },
@@ -101,4 +101,16 @@ it('names the page after the address while the directory is offline', async () =
 
 	expect(data.supports).toBeNull();
 	expect(data.meta).toMatchObject({ title: 'Ferrule', noindex: true });
+});
+
+it("shows the site's card in place of the artist's while pauseOgCards is on", async () => {
+	const data = await loadRoute<PageServerData>(load, {
+		app: app(),
+		params: { name: 'Ostgut Ton' },
+		url: '/artists/name/Ostgut%20Ton',
+		flags: { pauseOgCards: true }
+	});
+
+	expect(data.meta.url).toBe(`https://localnetwork.test/artists/${MBID}`);
+	expect(data.meta.image?.url).toBe('https://localnetwork.test/og/site.png');
 });

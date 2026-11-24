@@ -65,6 +65,7 @@ jobs:
       locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
       locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
+      locallibrary_fuzz: ${{ steps.scope.outputs.locallibrary_fuzz }}
       web: ${{ steps.scope.outputs.web }}
       web_verify: ${{ steps.scope.outputs.web_verify }}
       web_integration: ${{ steps.scope.outputs.web_integration }}
@@ -153,6 +154,7 @@ jobs:
               - '.github/actions/pr-comment/**'
               - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
+              - '.github/actions/fuzz/**'
               - '.github/actions/patch-coverage/**'
               # The budgets and coverage jobs run tools/*/cli.ts on this Node.
               - '.node-version'
@@ -213,6 +215,18 @@ jobs:
               - 'apps/locallibrary/Cargo.toml'
               - 'apps/locallibrary/tests/it/cli.rs'
               - '.github/workflows/locallibrary-ci.yml'
+            # What the fuzz targets reach (the smoke run): the targets, their seeds, dictionaries and
+            # aliases, and the code of the crates they're built on, tests left out.
+            locallibrary_fuzz:
+              - 'fuzz/**'
+              - 'crates/*/src/**'
+              - 'vendor/*/src/**'
+              - '.cargo/config.toml'
+              - '.github/actions/fuzz/**'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '!**/{tests,testing,test_util,screens,props}.rs'
+              - '!**/tests/**'
+              - '!**/*.md'
             # What `dist plan` reads (see locallibrary-release.yml).
             locallibrary_dist:
               - '**/Cargo.toml'
@@ -544,7 +558,7 @@ jobs:
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
+            locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands locallibrary_fuzz web_verify \
             web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
             repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
@@ -558,6 +572,7 @@ jobs:
             set_if locallibrary_dist changed locallibrary_dist
             set_if locallibrary_semver changed locallibrary_semver
             set_if locallibrary_commands changed locallibrary_commands
+            set_if locallibrary_fuzz changed locallibrary_fuzz
             set_if web_verify changed web
             set_if web_integration changed web_integration
             set_if web_e2e changed web_e2e
@@ -674,7 +689,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.locallibrary == 'true'
     permissions:
-      # The budgets' bases, from other runs' artifacts.
+      # The budgets' bases, from other runs' artifacts, and the fuzz corpus the weekly run keeps as
+      # one.
       actions: read
       contents: read
       # The coverage comment.
@@ -691,6 +707,7 @@ jobs:
       other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
       commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
+      fuzz: ${{ needs.changes.outputs.locallibrary_fuzz == 'true' }}
 
   web:
     needs: changes

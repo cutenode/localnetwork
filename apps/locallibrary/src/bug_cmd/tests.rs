@@ -135,7 +135,7 @@ fn how_it_was_installed_is_told_by_where_the_binary_is() {
     assert_eq!(install_method(&at("opt/homebrew/Cellar/locallibrary/0.1.0/bin/locallibrary")), Some(HOMEBREW));
     // `cargo install` lists what it installed; the installer script doesn't.
     std::fs::create_dir_all(at("cargo/bin")).unwrap();
-    let listing = json!({ "installs": { "locallibrary-cli 0.1.0 (path+file:///src)": { "bins": ["locallibrary"] } } });
+    let listing = json!({ "installs": { "locallibrary 0.1.0 (path+file:///src)": { "bins": ["locallibrary"] } } });
     std::fs::write(at("cargo/.crates2.json"), listing.to_string()).unwrap();
     assert_eq!(install_method(&at("cargo/bin/locallibrary")), Some(CARGO_INSTALL));
     assert_eq!(install_method(&at("cargo/bin/locallibrary.exe")), Some(CARGO_INSTALL));

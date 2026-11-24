@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseRequestIndex",
+	"description": "Stops locallibrary asking HappyView to re-read an account's records: requestIndex answers that nothing was indexed, as it does without a HappyView API key. Turn it on for everyone: the request comes signed out.",
+	"type": "ops"
+}

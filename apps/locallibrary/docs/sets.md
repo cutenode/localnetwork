@@ -246,7 +246,7 @@ the TUI only). Tracks your profile hides (`profile hide`) are `ID - ID`.
 ## DJ profile
 
 ```bash
-locallibrary profile                          # your mounted drives and the store
+locallibrary profile                          # rekordbox's collection, your mounted drives and the store
 locallibrary profile Home --since 2026        # one library; sets played this year
 locallibrary profile -s tempo,mixing --sets   # just those sections, and every set
 locallibrary profile document -o profile.json # what a public profile would show
@@ -259,8 +259,12 @@ snapshots and every history list `pull` archived), so their analysis counts; a t
 has still counts, from what the set kept. Until you declare a set, the histories players record
 stand in: those with 5 tracks or more (`--min-tracks`). Practice lands in those too, so the report
 calls them sessions and the public document never counts them. Genres, Artists, Era and Energy
-always describe the collection instead: every track in the libraries read (the drives' and the
-store's latest snapshots), each once however often you played it. With nothing played to count, the
+always describe the collection instead, each track once however often you played it: rekordbox's
+own collection on this computer (`master.db`), as rekordbox shows it now, with its analysis from
+rekordbox's folder. Drives and the store's snapshots are copies of it from when they were exported,
+so with rekordbox here their tracks only find what the sets and histories played; without it, every
+track in them is the collection. `--no-collection` leaves rekordbox's collection out, and naming a
+drive or a library (`-l`) reads only that. With nothing played to count, the
 other sections describe the collection too, and the same recording on several drives or in several
 files counts once.
 Without drives named, it reads the mounted drives the store knows (ones you've pulled or synced), so

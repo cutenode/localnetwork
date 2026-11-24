@@ -33,6 +33,8 @@ export const COLLECTION = {
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
+	/** The root's record of a manager's answer to a press kit request, in the project's request space. */
+	epkDecision: `${NS}.epk.decision`,
 	epkGrant: `${NS}.epk.grant`,
 	/** A manager's unpublished changes to a press kit, in their repo in the project's backstage. */
 	epkDraft: `${NS}.epk.draft`,
