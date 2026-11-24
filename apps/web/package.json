@@ -29,7 +29,7 @@
 		"test:unit": "vitest --project server",
 		"test:client": "vitest run --project client",
 		"test:integration": "vitest run --project integration",
-		"test:coverage": "vitest run --coverage --project=!build --project=!docker --project=!storybook-phone --tags-filter=!budget",
+		"test:coverage": "vitest run --coverage --project=!build --project=!docker --project=!storybook-phone --project=!storybook-tui-phone --tags-filter=!budget",
 		"test:build": "vitest run --project build",
 		"test:docker": "vitest run --project docker",
 		"test:e2e": "playwright test",
@@ -46,7 +46,8 @@
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test && pnpm test:storybook && pnpm test:build",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
-		"test:storybook": "vitest run --project storybook --project storybook-phone",
+		"test:storybook": "vitest run --project storybook --project storybook-phone --project storybook-tui --project storybook-tui-phone",
+		"test:tui-screens": "vitest run --project storybook-tui --project storybook-tui-phone",
 		"fuzz": "node scripts/fuzz.ts",
 		"happyview:parity": "tsx scripts/happyview-parity.ts"
 	},

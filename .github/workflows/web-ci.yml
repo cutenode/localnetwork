@@ -103,6 +103,13 @@ jobs:
       - run: pnpm exec playwright install chromium
       - run: pnpm test
       - run: pnpm test:storybook
+      # A TUI story's screenshot, the saved one and the difference, when they don't match.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: tui-screenshots
+          path: apps/web/.vitest/attachments/
+          if-no-files-found: ignore
       # The static Storybook, which also loads what the stories' tests skip: the manager config
       # (.storybook/manager.ts) and the MDX docs pages. The step names its folder, which knip's
       # GitHub Actions plugin reads where it skips the job's default.
@@ -207,6 +214,13 @@ jobs:
           docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:3.0.0-beta.14
           docker pull postgres:17.11-alpine
       - run: pnpm test:coverage
+      # A TUI story's screenshot, the saved one and the difference, when they don't match.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: tui-screenshots-coverage
+          path: apps/web/.vitest/attachments/
+          if-no-files-found: ignore
       # The lines the pull request changed (tools/coverage/patch.json).
       - if: github.event_name == 'pull_request'
         uses: ./.github/actions/patch-coverage
