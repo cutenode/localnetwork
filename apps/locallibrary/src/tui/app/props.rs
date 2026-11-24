@@ -1698,7 +1698,13 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
     let paths: Vec<String> = app.loaded.as_ref().unwrap().library.tracks.iter().map(|t| t.file_path.clone()).collect();
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     app.add_to_crate(&root, &paths);
-    let draw = |app: &mut App| super::super::ui::screen(app, 160, 40);
+    // The clicks need only where things were drawn, so a frame goes to one terminal kept for the case, without the
+    // screen's text, at the smallest size that has every target: drawing is most of a case's time, and a slow case
+    // fails Hegel's TooSlow check on a busy machine (LOC-1030).
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 32)).unwrap();
+    let mut draw = |app: &mut App| {
+        terminal.draw(|f| super::super::ui::draw(f, app)).unwrap();
+    };
     let mut info = Device::open(&root).unwrap().info();
     info.name = Some("TEST".into());
     app.drives = vec![info.clone(), DeviceInfo { root: root.join("OTHER"), name: Some("OTHER".into()), ..info }];
