@@ -33,7 +33,7 @@ fuzz-pdb_edit = ["fuzz", "run", "pdb_edit", "fuzz/corpus/pdb_edit", "--", "-crea
 fuzz-anlz = ["fuzz", "run", "anlz", "fuzz/corpus/anlz", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ", "--", "-create_missing_dirs=1", "-dict=fuzz/dicts/anlz.dict"]
 fuzz-mysettings = ["fuzz", "run", "mysettings", "fuzz/corpus/mysettings", "crates/locallibrary/tests/fixtures/rekordcrate/settings", "--", "-create_missing_dirs=1"]
 fuzz-tracklist = ["fuzz", "run", "tracklist", "fuzz/corpus/tracklist", "fuzz/seeds/tracklist", "--", "-create_missing_dirs=1"]
-fuzz-mp4 = ["fuzz", "run", "mp4", "fuzz/corpus/mp4", "crates/locallibrary/tests/fixtures/audio", "--", "-create_missing_dirs=1"]
+fuzz-mp4 = ["fuzz", "run", "mp4", "fuzz/corpus/mp4", "fuzz/seeds/mp4", "crates/locallibrary/tests/fixtures/audio", "--", "-create_missing_dirs=1"]
 fuzz-wav = ["fuzz", "run", "wav", "fuzz/corpus/wav", "fuzz/seeds/wav", "--", "-create_missing_dirs=1"]
 fuzz-aup = ["fuzz", "run", "aup", "fuzz/corpus/aup", "fuzz/seeds/aup", "--", "-create_missing_dirs=1"]
 fuzz-traktor = ["fuzz", "run", "traktor", "fuzz/corpus/traktor", "fuzz/seeds/traktor", "--", "-create_missing_dirs=1"]

@@ -5,7 +5,7 @@ use hegel::generators as gs;
 use loclib_progress::Ctx;
 
 use super::*;
-use crate::{Damaged, decode, decode_native, open};
+use crate::{Damaged, decode, decode_native, open, vet_container};
 use loclib_testkit::audio::{be, m4a, mp4_atom, mp4_empty_tables, mp4_full};
 
 /// Every way of reading `path` (opening it, decoding it at its rate and to mono), as the error

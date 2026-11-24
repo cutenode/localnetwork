@@ -1,7 +1,8 @@
-//! MP4 and M4A audio: `vet_container`'s atom walk, symphonia opening and decoding the start of
-//! whatever it lets through, and the probe's format, health and length checks. symphonia sizes
-//! its tables from the counts a file claims, an allocation abort `catch_unwind` can't stop, which
-//! libFuzzer's `-malloc_limit_mb` reports as a crash.
+//! MP4 and M4A audio: `vet_container`'s atom walk (and its FLAC metadata walk, as symphonia finds a
+//! FLAC anywhere in a file's first MiB), symphonia opening and decoding the start of whatever it
+//! lets through, and the probe's format, health and length checks. symphonia sizes its tables from
+//! the counts a file claims, an allocation abort `catch_unwind` can't stop, which libFuzzer's
+//! `-malloc_limit_mb` reports as a crash.
 
 #![no_main]
 

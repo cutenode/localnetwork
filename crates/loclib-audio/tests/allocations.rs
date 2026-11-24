@@ -1,4 +1,4 @@
-//! What vetting a file that isn't an MP4 allocates. `check` vets every file it can't read, so a
+//! What vetting a file that isn't an MP4 or a FLAC allocates. `check` vets every file it can't read, so a
 //! read buffer here would be one for each of them.
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -41,7 +41,7 @@ fn allocations(f: impl FnOnce()) -> u64 {
     ALLOCATIONS.with(Cell::get) - before
 }
 
-/// A file whose bytes and name don't say MP4 is passed allocating nothing beyond opening it.
+/// A file whose bytes and name don't say MP4, and whose bytes don't say FLAC, is passed allocating nothing beyond opening it.
 #[test]
 fn vetting_a_file_that_isnt_an_mp4_allocates_nothing() {
     let dir = tempfile::tempdir().unwrap();

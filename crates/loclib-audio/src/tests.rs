@@ -791,7 +791,7 @@ fn prop_a_sink_or_cancelling_stops_a_decode_where_it_says(tc: TestCase) {
 
 /// A FLAC of `blocks` (16-bit mono at 44.1 kHz, every block as long, 256 samples at most), each
 /// frame verbatim with its CRCs.
-fn flac(blocks: &[Vec<i16>]) -> Vec<u8> {
+pub(crate) fn flac(blocks: &[Vec<i16>]) -> Vec<u8> {
     fn crc8(bytes: &[u8]) -> u8 {
         bytes
             .iter()
