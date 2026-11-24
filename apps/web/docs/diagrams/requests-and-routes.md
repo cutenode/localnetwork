@@ -75,7 +75,7 @@ flowchart LR
   Responses["Cache-Control"]
   Responses -- "/charts, /artists, party, venue<br/>and event pages: 60 s" --> Brief["cacheBriefly: public with no session<br/>cookie, else private, Vary: Cookie;<br/>no-store for anyone who can edit it"]
   Responses -- "an active performer's<br/>mix page: 5 minutes" --> Brief
-  Responses -- "/media, recordings, most /og cards" --> Year["public, a year, immutable"]
+  Responses -- "/media, recordings, most /og cards" --> Year["public, a year, immutable,<br/>the one kind without Vary: Cookie"]
   Responses -- "/og artist cards, /og/site.png" --> Hour["public, an hour and a day"]
   Responses -- "public press kit photos" --> Day["public, a day, immutable"]
   Responses -- "private and draft photos, request avatars" --> Private["private, an hour"]
@@ -256,7 +256,7 @@ flowchart LR
   Small -- "/dashboard/account/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
   Small -- "/projects/[slug]/epk" --> B["308 to its press kits"]
   Small -- "/epk/[did]/[rkey] and its photos" --> C["Finds the press kit, 308 to<br/>its page, or 404"]
-  Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
+  Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters, or 404<br/>(410 once deleted) while the<br/>DJ's account isn't active"]
   Small -- "/api/actors" --> E["Bluesky's typeahead, kept<br/>10 minutes in memory"]
   Small -- "/healthz" --> F["200, with HappyView<br/>and backup status"]
   Small -- "/for/djs" --> G["An example listing with the directory's<br/>totals, the next shows and the<br/>month's charts, streamed"]

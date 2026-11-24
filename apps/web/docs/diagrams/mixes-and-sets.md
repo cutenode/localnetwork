@@ -78,7 +78,9 @@ What plays when someone presses Play. Audio the page plays itself wins over a pl
 ```mermaid
 flowchart TD
   Publish["locallibrary publishes dj.set<br/>and dj.recording to the DJ's repo"] --> HV["HappyView keeps them"]
-  Play["Play: /sets/[did]/[rkey]/player.json"] --> Set["Set record from HappyView"]
+  Play["Play: /sets/[did]/[rkey]/player.json"] --> Active{"DJ's account active?"}
+  Active -- "no" --> Hidden["404, or 410 once deleted"]
+  Active -- "yes" --> Set["Set record from HappyView"]
   HV --> Set
   Set --> Recording{"Its recording?"}
   Recording -- "fm.plyr.track" --> Plyr["api.plyr.fm: file on audio.plyr.fm,<br/>or plyr's player if it's gated"]
