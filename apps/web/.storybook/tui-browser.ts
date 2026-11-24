@@ -50,6 +50,11 @@ export const TUI_BROWSER_ARGS = [
 /** The label that says which process started the container: it alone removes it. */
 const OWNER = 'locallibrary.tui-browser.owner';
 
+/** npm's download cache, kept between containers: each one installs Playwright's server with npx, which without the
+ *  cache downloads it first, and in an emulated container on a busy machine that alone took minutes. Only the
+ *  content-addressed cache is shared, which two checkouts' containers can fill at once. */
+const NPM_CACHE = 'locallibrary-tui-browser-npm';
+
 /** The image of the Playwright the tests use: its server and its client must be the same version. */
 const image = () => {
 	// SAFETY: it's playwright's own package.json, and every package.json has a version.
@@ -130,6 +135,8 @@ export default async function setup() {
 				'--init',
 				'--publish',
 				`127.0.0.1:${TUI_BROWSER_PORT}:3000`,
+				'--volume',
+				`${NPM_CACHE}:/root/.npm/_cacache`,
 				from,
 				'npx',
 				'--yes',
@@ -146,7 +153,13 @@ export default async function setup() {
 	const started = Date.now();
 
 	while (!listening()) {
-		if (Date.now() - started > 120_000) throw new Error(`the TUI browser (${from}) didn't start`);
+		if (Date.now() - started > 120_000) {
+			// A container left behind would be taken for this checkout's next run's, so the one started here goes.
+			if (!shared) docker('rm', '--force', NAME);
+
+			throw new Error(`the TUI browser (${from}) didn't start`);
+		}
+
 		await new Promise((r) => setTimeout(r, 250));
 	}
 
