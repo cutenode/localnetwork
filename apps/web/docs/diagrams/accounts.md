@@ -159,7 +159,7 @@ Source: [`src/lib/server/atproto/root.ts`](../../src/lib/server/atproto/root.ts)
 
 ## Token exchange flow
 
-How a locallibrary plugin gets tokens from a service that wants a client secret. Each service has a pauseFlag; turning it on for everyone stops that service's exchange.
+How a locallibrary plugin gets tokens from a service that wants a client secret. Each service has a pauseFlag; turning it on for every account (everyone, or 100%) stops that service's exchange.
 
 ```mermaid
 sequenceDiagram

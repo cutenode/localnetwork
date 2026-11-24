@@ -11,7 +11,7 @@ import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { m } from '#lib/paraglide/messages.js';
-import { requireFlag } from '#lib/server/http.ts';
+import { cacheBriefly, requireFlag } from '#lib/server/http.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
@@ -495,7 +495,7 @@ it("renders the page in the locale its cookie names, with the page's lang and di
 	expect((await page('xx')).html).toBe('<html lang="en" dir="ltr"><head></head><body>Privacy</body>');
 });
 
-it('leaves a first visit shareable by caches, varying on Cookie only for a request that picked a language', async () => {
+it('writes no locale cookie on a first visit, so its page is the one every signed-out visitor shares', async () => {
 	// Arrange
 	const s = await services();
 	const { handle } = hooksWith(async () => s.app);
@@ -519,9 +519,47 @@ it('leaves a first visit shareable by caches, varying on Cookie only for a reque
 	});
 
 	expect({ first: headers(first), firstCookies: [...first.cookies.options.keys()], picked: headers(picked) }).toEqual({
-		first: { vary: null, cacheControl: 'public, max-age=60', setCookie: [] },
+		first: { vary: 'Cookie', cacheControl: 'public, max-age=60', setCookie: [] },
 		firstCookies: [],
 		picked: { vary: 'Cookie', cacheControl: 'public, max-age=60', setCookie: [] }
+	});
+});
+
+it("keeps Cookie in a briefly cached page's Vary whoever asks, so signing in or out never gets a copy from before", async () => {
+	// Arrange
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+	const token = await s.sessions.create(DJ, null);
+
+	/** The headers of /artists as its loader caches it (cacheBriefly), for a request carrying `cookies`. */
+	const artists = async (cookies: Record<string, string>) => {
+		const { event } = routeEvent({ url: '/artists', cookies });
+
+		const resolve = async (resolved: RequestEvent) => {
+			const headers: Record<string, string> = {};
+			cacheBriefly({ locals: resolved.locals, setHeaders: (set) => Object.assign(headers, set) });
+
+			return new Response('page', { headers });
+		};
+
+		// SAFETY: as in handledWithLocals.
+		const response = await handle({ event: { ...event, locals: {} } as never, resolve });
+
+		return { cacheControl: response.headers.get('cache-control'), vary: response.headers.get('vary') };
+	};
+
+	// Act
+	const answers = {
+		signedOut: await artists({}),
+		signedIn: await artists({ [SESSION_COOKIE]: token }),
+		picked: await artists({ ln_locale: 'en-XA' })
+	};
+
+	// Assert
+	expect(answers).toEqual({
+		signedOut: { cacheControl: 'public, max-age=60', vary: 'Cookie' },
+		signedIn: { cacheControl: 'private, max-age=60', vary: 'Cookie' },
+		picked: { cacheControl: 'public, max-age=60', vary: 'Cookie' }
 	});
 });
 

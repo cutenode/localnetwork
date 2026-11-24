@@ -6,7 +6,7 @@ So signed-out visitors are a switch of their own on each flag, and the last one 
 
 Ops flags have no setting of their own. A kill switch has to work where there's no account: xrpc routes, the server's background rounds, crawlers and locallibrary signed out all ask with no DID. An ops flag's `signedOut` is on whenever it's on for every signed-in account, `everyone` or 100%, so a kill switch saved at 100% pauses background rounds too. Saving one writes it that way, and a record without the field reads that way. A release flag's record without it reads as off.
 
-Nothing about a signed-out visitor is kept in their browser, so every signed-out visitor gets the same page, and those pages stay shared-cacheable.
+No flag puts anything in a signed-out visitor's browser, so every signed-out visitor gets the same flags, and those pages stay shared-cacheable. The only cookie one can have is the language they picked ([0019](0019-english-stays-unprefixed-and-records-carry-their-language.md)), which the cache varies on.
 
 ## Considered options
 

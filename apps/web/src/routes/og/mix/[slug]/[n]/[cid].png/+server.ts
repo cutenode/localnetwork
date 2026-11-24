@@ -6,6 +6,7 @@ import { cardImage, dataUrlBytes, projectAvatar } from '#lib/server/og/cards.ts'
 import { cardPaths } from '#lib/server/og/paths.ts';
 import { renderCard } from '#lib/server/og/render.ts';
 import { cards, sendToSiteCard } from '#lib/server/og/serve.ts';
+import { hideInactiveProject } from '#lib/server/project-page.ts';
 import type { RequestHandler } from './$types';
 
 const COVER = 300;
@@ -16,6 +17,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const project = await app.projects.bySlug(params.slug);
 
 	if (project?.status !== 'active') error(404, 'Not found');
+	await hideInactiveProject(app, project);
 	const n = Number(params.n);
 	const mix = Number.isInteger(n) && n >= 1 ? project.profile.mixes?.[n - 1] : undefined;
 	const tracklist = mix?.tracklist;
