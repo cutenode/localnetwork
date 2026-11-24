@@ -181,14 +181,29 @@ fn keep_exports_in(app: &mut App, dir: &Path) {
 /// Wait for the job and the reads under way, and let a confirmation take keys at once (it
 /// ignores them for a moment from when it shows).
 fn settle(app: &mut App) {
-    // A sign-in from the palette waits for the browser, which a test never opens: it's stopped,
-    // as Esc stops it.
-    if app.job.as_ref().is_some_and(|j| j.label == "Signing in") {
+    // A sign-in waits for the browser, which a test never opens, or for keys typed in its form: it's stopped, as Esc
+    // stops it. Giving a plugin access signs in to an account that way too (LOC-1035).
+    if app.job.as_ref().is_some_and(|j| SIGNING_IN.contains(&j.label.as_str())) {
         app.cancel_job();
     }
     wait(app, |a| a.job.is_none() && a.loading.is_none());
     if let Some(Modal::Confirm(c)) = &mut app.modal {
         c.shown -= std::time::Duration::from_secs(1);
+    }
+}
+
+/// The jobs that sign in to an account, which wait on the person.
+const SIGNING_IN: [&str; 2] = ["Signing in", "Giving access"];
+
+/// Giving a plugin access waits on a sign-in the walk can't finish; settling stops it instead of waiting for it.
+#[test]
+fn settling_stops_giving_access_as_it_stops_signing_in() {
+    let Fixture { _dir, mut app, .. } = walk_fixture();
+    for label in SIGNING_IN {
+        app.job = Some(super::app::testing::job(false, false));
+        app.job.as_mut().unwrap().label = label.into();
+        settle(&mut app);
+        assert!(app.job.is_none(), "{label} stopped");
     }
 }
 
