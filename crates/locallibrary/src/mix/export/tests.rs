@@ -95,6 +95,28 @@ fn exports_what_a_page_needs_and_nothing_local() {
     assert!(json.contains("\"keyLock\":true"));
 }
 
+/// rekordbox counted these phrases at half tempo (one ends halfway through a two-beat grid), so
+/// the phrase it starts on beat 2 lands past the grid's end and isn't exported. The case the
+/// export property found (LOC-1026).
+#[test]
+fn a_phrase_past_the_half_tempo_grid_is_left_out() {
+    let mut r = report();
+    r.plays.truncate(1);
+    r.transitions.clear();
+    let dir = tempfile::tempdir().unwrap();
+    let device = Device::open(dir.path()).unwrap();
+    let library = Library { tracks: vec![r.plays[0].track.clone()], ..Default::default() };
+    let phrase = |start_beat, end_beat| Phrase { kind: PhraseKind::Chorus, start_beat, end_beat, fill_beat: None };
+    let analyses = vec![TrackAnalysis {
+        beats: (0..2).map(|i| Beat { beat_number: i as u16 + 1, bpm: 120.0, time_ms: i * 500 }).collect(),
+        structure: Some(SongStructure { mood: Mood::High, phrases: vec![phrase(0, 2), phrase(2, 0)] }),
+        ..Default::default()
+    }];
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
+    let e = build(&r, Some(drive), &ProfilePrefs::default());
+    assert_eq!(e.plays[0].track.phrases.len(), 1);
+}
+
 /// A track the profile hides is "ID - ID", with nothing else that names it; a cover found
 /// next to the recording (a guess) stays out.
 #[test]
@@ -313,13 +335,14 @@ fn prop_exports_count_what_the_report_found(tc: TestCase) {
 
     for (i, (x, a)) in e.plays.iter().zip(&analyses).enumerate() {
         let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
-        let phrases = a
-            .structure
-            .as_ref()
-            .unwrap()
+        // A phrase is on the grid where its first beat is, at the half tempo rekordbox may have
+        // counted the phrases at (`beat_scale`).
+        let structure = a.structure.as_ref().unwrap();
+        let scale = structure.beat_scale(a.beats.len());
+        let phrases = structure
             .phrases
             .iter()
-            .filter(|ph| (1..=a.beats.len()).contains(&(ph.start_beat as usize).max(1)))
+            .filter(|ph| crate::anlz::SongStructure::grid_index(ph.start_beat, scale) < a.beats.len())
             .count();
         let preview = a.preview.as_ref().filter(|w| !w.columns.is_empty());
         let page = extras(
