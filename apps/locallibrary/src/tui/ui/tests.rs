@@ -324,6 +324,28 @@ fn messages_wait_and_the_log_keeps_them() {
     assert_eq!(said, ["just now", "30 s ago", "3 min ago", "2 h ago"]);
 }
 
+/// Over the deck, a dialog stays below the deck's head, what's playing, as other views' dialogs leave the strip:
+/// a log long enough to fill the screen, or the help, still shows "Nothing playing" (LOC-1024).
+#[test]
+fn a_dialog_over_the_deck_leaves_what_is_playing() {
+    let (mut app, _dir) = app_with(library());
+    app.deck_layout = true;
+    let long = "a message long enough to wrap across a line or two of the messages dialog, said again and again";
+    for _ in 0..40 {
+        app.log.push_back((long.into(), Level::Error, std::time::Instant::now()));
+    }
+    for (w, h) in [(80, 24), (160, 45)] {
+        app.show_log = true;
+        let s = screen(&mut app, w, h);
+        assert!(s.contains("Messages") && s.contains("Nothing playing"), "the log at {w}x{h}:\n{s}");
+        app.show_log = false;
+        app.help = true;
+        let s = screen(&mut app, w, h);
+        assert!(s.contains("Nothing playing"), "the help at {w}x{h}:\n{s}");
+        app.help = false;
+    }
+}
+
 /// A message too wide for the screen breaks between words, and inside a word (a path) too
 /// long for a line.
 #[test]

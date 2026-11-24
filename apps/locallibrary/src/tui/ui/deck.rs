@@ -135,6 +135,7 @@ pub(super) fn draw_deck(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(rows.readout),
     ])
     .areas(area);
+    app.areas.deck_head = head;
     draw_head(f, app, head);
     draw_zoom(f, app, zoom, rows.zoom_cues);
     let phrases = app.now.as_ref().is_some_and(|n| !n.phrases.is_empty());

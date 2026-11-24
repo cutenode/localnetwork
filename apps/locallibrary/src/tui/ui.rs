@@ -96,6 +96,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
     }
     let over = shell.over();
+    // Over the deck, a dialog stays below its head, what's playing, as other views' dialogs leave the strip.
+    let over = match shell.density != Density::DeckOnly && app.deck_showing() {
+        true => {
+            let below = app.areas.deck_head.bottom().max(over.y);
+            ratatui::layout::Rect { y: below, height: over.bottom().saturating_sub(below), ..over }
+        }
+        false => over,
+    };
     let footer = Footer::of(app, shell.footer.width);
     app.areas.hints = footer.hint_areas(shell.footer);
     f.render_widget(&footer, shell.footer);

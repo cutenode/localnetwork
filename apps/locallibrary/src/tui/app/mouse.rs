@@ -17,6 +17,8 @@ use super::*;
 #[derive(Default)]
 pub struct Areas {
     pub tabs: Vec<(View, Rect)>,
+    /// The deck's head, what's playing: a dialog over the deck stays below it.
+    pub deck_head: Rect,
     /// How much room the panes had.
     pub density: Density,
     /// The titles of what's beside the Drives view's list.

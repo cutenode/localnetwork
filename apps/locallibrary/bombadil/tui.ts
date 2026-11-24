@@ -111,7 +111,8 @@ function overlay(s: Screen): boolean {
 		helpOpen(s) ||
 		panelOpen(s) ||
 		confirming(s) ||
-		s.lines.some((l) => /╭ (Actions · |Sure\? |Output |Jobs )/.test(l)) ||
+		// By title too, since a narrow terminal can cut the bottom line's keys short.
+		s.lines.some((l) => /╭ (Actions · |Sure\? |Output |Jobs |Messages )/.test(l)) ||
 		// Every dialog's border ends with what esc does.
 		s.lines.some((l) => /╰.* esc (close|cancel|back) /.test(l)) ||
 		// Squeezed into a small terminal, a dialog may show only its border.
