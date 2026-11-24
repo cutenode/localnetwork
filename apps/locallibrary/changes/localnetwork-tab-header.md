@@ -12,4 +12,4 @@
 ### Removed
 
 - `a` (profile from every drive or just the open one) and `m` (pin a signature track) in the
-  localnetwork view. `h` now hides the selected artist under Artists, as `H` did.
+  localnetwork view. Hiding the selected artist under Artists is in `e`.

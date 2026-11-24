@@ -13,14 +13,14 @@ use super::*;
 fn tagging_needs_a_drive_and_a_track() {
     let (mut app, _dir) = app_with(library());
     let (mut no_drive, _store) = blank(View::Library);
-    press(&mut no_drive, "T");
+    no_drive.perform(Act::Tag, None);
     assert_eq!(last_message(&no_drive), "open a drive first");
     press(&mut app, "/nothing like this\n");
-    press(&mut app, "T");
+    app.perform(Act::Tag, None);
     assert_eq!(last_message(&app), "no track selected");
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     app.handle_msg(super::super::app::Msg::Volumes(Vec::new(), Some((root, false))));
-    press(&mut app, "T");
+    app.perform(Act::Tag, None);
     assert_eq!(last_message(&app), "the drive was unplugged");
     assert!(app.job.is_none());
 }
@@ -36,9 +36,9 @@ fn takes_a_tag_off_and_offers_it_for_another_track() {
     let plan = locallibrary::tags::plan(&device, &edit).unwrap();
     locallibrary::tags::apply(&plan, &mut device, &Ctx::silent()).unwrap();
     let mut app = app_on(&root);
-    // (Through the actions menu: T there does what T does.)
+    // (Through the actions menu, whose t gives a My Tag.)
     let choices = |app: &mut App| {
-        press(app, "eT");
+        press(app, "et");
         wait(app, |a| a.job.is_none());
         match &app.modal {
             Some(Modal::Pick(p)) => p.items.iter().map(|i| i.label.clone()).collect::<Vec<_>>(),
@@ -81,7 +81,7 @@ fn lists_the_rules_in_the_store() {
 
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     assert_eq!(rules(&mut app)[0], "No rules yet.");
-    press(&mut app, "x");
+    press(&mut app, "\u{1b}");
     let mut all = store.smart_playlists().unwrap();
     let rule = SmartPlaylist {
         path: "Smart/Peak".into(),

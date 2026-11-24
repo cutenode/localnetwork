@@ -251,7 +251,7 @@ fn the_status_line_says_what_is_under_way() {
     });
     let head = |app: &mut App, w| screen(app, w, 30).lines().nth(28).unwrap().to_string();
     let (line, secs) = drawn(&[started], || head(&mut app, 160));
-    let said = |s| format!("Checking DNA {s}s 3 of 40 tracks  esc cancel");
+    let said = |s| format!("Checking DNA {s}s · 3 of 40 tracks  esc cancel");
     assert!(secs[0].clone().any(|s| line.contains(&said(s))), "{line}");
     // Narrow, the job's progress is cut short.
     app.job.as_mut().unwrap().detail = "a long way through a great many tracks".into();
@@ -416,7 +416,7 @@ fn the_drives_view_says_what_is_known_of_a_drive() {
     }
 
     app.status_loading = false;
-    assert!(screen(&mut app, 140, 60).contains("press R to check"));
+    assert!(screen(&mut app, 140, 60).contains("press f5 to check"));
     app.status = Some(Err("the store can't be read".into()));
     assert!(screen(&mut app, 140, 60).contains("the store can't be read"));
     for (relation, error, library, says) in [
@@ -449,6 +449,22 @@ fn the_drives_view_says_what_is_known_of_a_drive() {
         "a copy of it (or it of) /Volumes/DNA 1",
     ] {
         assert!(s.contains(said), "{said}\n{s}");
+    }
+}
+
+/// The drive's Actions rows name the keys that do them in the Drives view: `e` opens the drive's
+/// actions, `u` undoes, enter browses.
+#[test]
+fn the_drives_actions_rows_name_their_keys() {
+    let (mut app, dir) = blank(View::Drives);
+    let root = dir.path().join("DNA");
+    std::fs::create_dir_all(&root).unwrap();
+    app.drives = vec![locallibrary::Device::open(&root).unwrap().info()];
+    app.drive_state.select(Some(0));
+    let s = screen(&mut app, 140, 60);
+    for (key, what) in [("e", "save a snapshot · check"), ("enter", "browse it in the library")] {
+        let row = s.lines().find(|l| l.contains(what)).unwrap_or_else(|| panic!("{what}\n{s}"));
+        assert!(row.contains(&format!("  {key:<6}{what}")), "{key} beside {what}:\n{s}");
     }
 }
 
@@ -488,7 +504,7 @@ fn the_drives_view_lists_libraries_with_their_clones() {
     assert_eq!(app.drive_state.selected(), Some(1), "SD");
     up(&mut app);
     let s = screen(&mut app, 140, 30);
-    for said in ["2 of 2 clones plugged in", "● REKORDBOX", "● SD", "press R to check"] {
+    for said in ["2 of 2 clones plugged in", "● REKORDBOX", "● SD", "press f5 to check"] {
         assert!(s.contains(said), "{said}\n{s}");
     }
     app.status_loading = true;
@@ -804,7 +820,7 @@ fn dialogs_draw_what_they_ask() {
     let (mut app, _dir) = app_with(library());
     app.modal = Some(Modal::Ask("DNA.xml is there already. Replace it?".into(), Box::new(|_: &mut App| {})));
     let s = screen(&mut app, 100, 24);
-    assert!(s.contains("Sure?") && s.contains("Replace it?") && s.contains("y yes  n no"), "{s}");
+    assert!(s.contains("Sure?") && s.contains("Replace it?") && s.contains("y yes · n no"), "{s}");
 
     app.track_state.select(Some(0));
     let mut menu = Menu::new(app.target().unwrap(), Some((70, 2)));
@@ -1601,7 +1617,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
     match over {
         1 => {
             app.modal = Some(Modal::Ask("DNA.xml is there already. Replace it?".into(), Box::new(|_: &mut App| {})));
-            vec!["Sure?".to_string(), "Replace it?".into(), "y yes  n no".into()]
+            vec!["Sure?".to_string(), "Replace it?".into(), "y yes · n no".into()]
         }
         2 => {
             use super::super::drives::{Report, Tone};
@@ -2191,4 +2207,126 @@ fn the_undo_in_a_message_is_drawn_as_a_key() {
     let x = (1..120).find(|x| buffer[(*x, y)].symbol() == "u" && buffer[(*x - 1, y)].symbol() == " ").unwrap();
     assert!(line(y).concat().contains("a track was missing"));
     assert_eq!(buffer[(x, y)].fg, theme::key().fg.unwrap());
+}
+
+/// Text that names a key names the person's own (LOC-853): with Activate, add to the queue, play
+/// next, the drive's actions, undo, play or pause and refresh moved to f keys, the views that say
+/// them show the new keys and none of the old; with play next and the drive's actions given no
+/// key, they're named as `:` finds them.
+#[test]
+fn drawn_text_names_the_keys_as_changed() {
+    use super::super::app::{ReplayOffer, UNDO_HINT};
+    use locallibrary::keybinds::Keybinds;
+    let binds = |pairs: &[(&str, &[&str])]| {
+        let mut out = Keybinds::default();
+        for (id, keys) in pairs {
+            out.keys.insert(id.to_string(), keys.iter().map(|k| k.to_string()).collect());
+        }
+        out
+    };
+    let (mut app, _dir) = app_with(library());
+    app.set_keybinds(binds(&[
+        ("playback.activate", &["f2"]),
+        ("queue.add", &["f3"]),
+        ("queue.play-next", &["f4"]),
+        ("drive.actions", &["f6"]),
+        ("drive.undo", &["f7"]),
+        ("playback.play-pause", &["f8"]),
+        ("player.refresh", &["f9"]),
+        ("drive.replay-edits", &["f10"]),
+    ]));
+
+    // The library: the empty queue, nothing playing, a change that can be undone.
+    app.show_crate = true;
+    app.toast(format!("rated 3 stars{UNDO_HINT}"), Level::Info);
+    let s = screen(&mut app, 160, 45);
+    for want in ["f4 plays the selected", "f3 adds it to the end", "Pick a track and press f2.", "f7 undo"] {
+        assert!(s.contains(want), "{want:?} isn't drawn:\n{s}");
+    }
+    for old in ["q plays", "a adds", "press enter", "u undo"] {
+        assert!(!s.contains(old), "{old:?} is still drawn:\n{s}");
+    }
+
+    // The last run's queue, ready to carry on with, and the offer to replay edits.
+    let l = app.loaded.as_ref().unwrap();
+    let (library, root) = (l.library.clone(), l.root().to_path_buf());
+    app.queue =
+        super::super::app::Queue { library, items: vec![0], root: root.clone(), order: vec![0], ..Default::default() };
+    app.resume = Some(std::time::Duration::from_secs(95));
+    app.replay_offer = Some(ReplayOffer { root, drive: "DNA".into(), edits: 2 });
+    let s = screen(&mut app, 160, 45);
+    for want in ["f8 carries on with", "Replay? f10 replay · esc not now"] {
+        assert!(s.contains(want), "{want:?} isn't drawn:\n{s}");
+    }
+    for old in ["space carries on", "y replay"] {
+        assert!(!s.contains(old), "{old:?} is still drawn:\n{s}");
+    }
+
+    // A drive in the Drives view, the store not read yet.
+    app.replay_offer = None;
+    app.view = View::Drives;
+    let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+    app.drives = vec![locallibrary::Device::open(&root).unwrap().info()];
+    app.drive_state.select(Some(0));
+    let s = screen(&mut app, 160, 45);
+    for want in ["press f9 to check", "f6    save a snapshot", "f2    browse it in the library"] {
+        assert!(s.contains(want), "{want:?} isn't drawn:\n{s}");
+    }
+    for old in ["press f5", "e     save a snapshot", "enter browse"] {
+        assert!(!s.contains(old), "{old:?} is still drawn:\n{s}");
+    }
+
+    // No key for the drive's actions or for playing next: they're named as `:` finds them.
+    app.set_keybinds(binds(&[("drive.actions", &[]), ("queue.play-next", &[])]));
+    let s = screen(&mut app, 160, 45);
+    assert!(
+        s.contains(
+            "save a snapshot · check · sync · pack · bring back a playlist · replay edits · eject: actions in :"
+        ),
+        "{s}"
+    );
+    app.view = View::Library;
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("Nothing picked. play next in :, a adds"), "{s}");
+}
+
+/// An action given no key in keybinds.json is named as `:` finds it: the idle line (nothing to
+/// carry on with, or the last run's queue), the Drives view's unread store and both of
+/// Recordings' empty panes say so, and the default key isn't drawn.
+#[test]
+fn an_action_with_no_key_is_named_for_the_palette() {
+    use super::super::keymap::{Act, ids};
+    use locallibrary::keybinds::Keybinds;
+    let mut binds = Keybinds::default();
+    for act in [Act::Activate, Act::PlayPause, Act::Refresh, Act::PaneActions] {
+        binds.keys.insert(ids::id(act).unwrap().into_owned(), Vec::new());
+    }
+    let (mut app, _dir) = app_with(library());
+    app.set_keybinds(binds);
+
+    app.show_crate = true;
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("Pick a track.") && !s.contains("press enter"), "{s}");
+
+    // The last run's queue, ready to carry on with.
+    let l = app.loaded.as_ref().unwrap();
+    let (library, root) = (l.library.clone(), l.root().to_path_buf());
+    app.queue =
+        super::super::app::Queue { library, items: vec![0], root: root.clone(), order: vec![0], ..Default::default() };
+    app.resume = Some(std::time::Duration::from_secs(95));
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains(" in : carries on with") && !s.contains("space carries on"), "{s}");
+
+    app.view = View::Drives;
+    app.drives = vec![locallibrary::Device::open(&root).unwrap().info()];
+    app.drive_state.select(Some(0));
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("  refresh in : to check") && !s.contains("press f5"), "{s}");
+
+    app.view = View::Mixes;
+    let s = screen(&mut app, 160, 45);
+    for want in ["Pick a recording, or open a recording by path in :.", "│opens a recording, or a folder│"] {
+        assert!(s.contains(want), "{want:?} isn't drawn:\n{s}");
+    }
+    assert!(!s.contains("from e"), "{s}");
 }

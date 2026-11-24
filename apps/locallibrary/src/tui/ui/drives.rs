@@ -17,9 +17,13 @@ use crate::tui::icons;
 use crate::output::{bytes, duration, plural};
 use crate::tui::app::{App, DrivePane};
 use crate::tui::drives::DriveRow;
+use crate::tui::keymap::{self, Act, Scope};
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
+
+/// The scopes the Drives view's list and info pane look their keys up in.
+const DRIVES: [Scope; 2] = [Scope::Drives, Scope::Global];
 
 /// How wide the snapshots' table has to be for every column.
 const ALL_COLUMNS: u16 = 100;
@@ -27,6 +31,28 @@ const ALL_COLUMNS: u16 = 100;
 /// A section's heading in the Drives view's right pane.
 fn pane_heading(s: &str) -> Line<'static> {
     Line::styled(s.to_uppercase(), bold(theme::current().info))
+}
+
+/// The Actions section's rows: each act's key, then what it does. One with no key here is named
+/// as `:` finds it, and one with no name either isn't listed.
+fn action_rows(rows: &[(Act, &str)]) -> Vec<Line<'static>> {
+    let row = |&(act, what): &(Act, &str)| match keymap::key_name(&DRIVES, act) {
+        Some(k) => Some(Line::from(vec![
+            Span::styled(format!("  {k:<6}"), theme::key()),
+            Span::styled(what.to_string(), text()),
+        ])),
+        None => keymap::typed_name(act).map(|n| Line::styled(format!("  {what}: {n} in :"), text())),
+    };
+    rows.iter().filter_map(row).collect()
+}
+
+/// The store's standing before it's been read: the key that reads it, or its name in `:`.
+fn unchecked() -> Line<'static> {
+    let said = match keymap::key_name(&DRIVES, Act::Refresh) {
+        Some(k) => format!("  press {k} to check"),
+        None => format!("  {} in : to check", keymap::typed_name(Act::Refresh).unwrap_or_default()),
+    };
+    Line::styled(said, dim())
 }
 
 /// A labelled value in the Drives view's right pane.
@@ -37,28 +63,33 @@ fn pane_field(k: &str, v: String) -> Line<'static> {
 /// Where a drive stands against the store: a mark and a few words, coloured, and (with `hints`)
 /// what to do about it.
 pub(super) fn standing(s: &DriveStatus, hints: bool) -> Vec<Span<'static>> {
-    let save = Some("e, then save a snapshot");
+    // The drive's actions menu has these; with no key for it, they're found by name in `:`.
+    let menu = keymap::key_name(&DRIVES, Act::DriveActions);
+    let then = |what: &str| menu.as_ref().map_or_else(|| format!("{what} in :"), |k| format!("{k}, then {what}"));
+    let save = Some(then("save a snapshot"));
     let (icon, msg, hint, c) = match (s.relation, &s.error) {
         (_, Some(e)) => (icons::CROSS.get(), format!("error: {e}"), None, theme::current().critical),
         (None, _) if s.library.is_none() => {
-            (icons::RING.get(), "not in the store".to_string(), save, theme::current().dim)
+            (icons::RING.get(), "not in the store".to_string(), save.clone(), theme::current().dim)
         }
         (None, _) => (icons::RING.get(), "library has no snapshots".to_string(), None, theme::current().dim),
         (Some(Relation::Identical), _) => (icons::CHECK.get(), "up to date".to_string(), None, theme::current().good),
         (Some(Relation::RightNewer), _) => match s.back_from_set {
-            Some(0) => (icons::AHEAD.get(), "back from a set".to_string(), save, theme::current().warning),
+            Some(0) => (icons::AHEAD.get(), "back from a set".to_string(), save.clone(), theme::current().warning),
             Some(n) => (
                 icons::AHEAD.get(),
                 format!("back from a set: {}", plural(n, "new history list")),
-                save,
+                save.clone(),
                 theme::current().warning,
             ),
-            None => (icons::AHEAD.get(), "has changes not in the store".to_string(), save, theme::current().warning),
+            None => {
+                (icons::AHEAD.get(), "has changes not in the store".to_string(), save.clone(), theme::current().warning)
+            }
         },
         (Some(Relation::LeftNewer), _) => (
             icons::BEHIND.get(),
             "behind the store".to_string(),
-            Some("e, then sync, or locallibrary library push"),
+            Some(format!("{}, or locallibrary library push", then("sync"))),
             theme::current().warning,
         ),
         (Some(Relation::Diverged), _) => {
@@ -104,7 +135,7 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// The title of what's beside the list: its tabs, each with its number, there for clicks.
+/// The title of what's beside the list: its tabs, there for clicks.
 fn side_tabs(app: &mut App, area: Rect) -> Line<'static> {
     let name = match app.drive_header {
         Some(DriveRow::Library(_)) => "Library",
@@ -116,9 +147,9 @@ fn side_tabs(app: &mut App, area: Rect) -> Line<'static> {
     let mut spans = Vec::new();
     // The title starts a column in, after the corner.
     let mut x = area.x + 1;
-    for (n, (pane, name)) in (2u8..).zip(tabs) {
+    for (pane, name) in tabs {
         let shown = app.drive_tab == pane;
-        let tab = pane_title(n, name, shown && focused);
+        let tab = pane_title(name, shown && focused);
         let w = tab.width() as u16;
         app.areas.drive_tabs.push((pane, Rect::new(x, area.y, w, 1)));
         x += w;
@@ -240,7 +271,7 @@ fn draw_info(f: &mut Frame, app: &mut App, detail: Rect) {
                 ));
             }
         }
-        _ => lines.push(Line::styled("  press R to check", dim())),
+        _ => lines.push(unchecked()),
     }
     lines.push(Line::raw(""));
 
@@ -329,13 +360,13 @@ fn draw_info(f: &mut Frame, app: &mut App, detail: Rect) {
     lines.push(pane_heading("Actions"));
     // `u` undoes on the drive changed last this run, which may be another.
     let undo = app.undo_drive().map(|r| format!("undo the last change to {}", app.drive_label(&r))).unwrap_or_default();
-    for (k, what) in [
-        ("e", "save a snapshot · check · sync · pack · bring back a playlist · replay edits · eject"),
-        ("u", undo.as_str()),
-        ("enter", "browse it in the library"),
-    ] {
-        lines.push(Line::from(vec![Span::styled(format!("  {k:<6}"), theme::key()), Span::styled(what, text())]));
-    }
+    // Nothing to undo: no undo row.
+    let rows = [
+        (Act::DriveActions, "save a snapshot · check · sync · pack · bring back a playlist · replay edits · eject"),
+        (Act::Undo, undo.as_str()),
+        (Act::Activate, "browse it in the library"),
+    ];
+    lines.extend(action_rows(&rows.into_iter().filter(|(_, what)| !what.is_empty()).collect::<Vec<_>>()));
 
     app.drive_scroll = app.drive_scroll.min(lines.len() as u16);
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((app.drive_scroll, 0)), detail);
@@ -391,7 +422,7 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
     app.drive_rows.select(app.drive_row(&rows));
     let focused = app.drive_pane == DrivePane::List;
     if area.height <= 1 {
-        return title_row(f, pane_title(1, "Drives", focused), focused, area);
+        return title_row(f, pane_title("Drives", focused), focused, area);
     }
     // Each row takes two lines.
     app.drive_rows.fit(area.height.saturating_sub(2) as usize / 2, rows.len());
@@ -494,13 +525,14 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
         }
         (Some(Err(e)), _) => lines.push(Line::styled(format!("  {e}"), dim())),
         _ if app.status_loading => lines.push(Line::styled("  checking…", dim())),
-        _ => lines.push(Line::styled("  press R to check", dim())),
+        _ => lines.push(unchecked()),
     }
     lines.push(Line::raw(""));
     lines.push(pane_heading("Actions"));
-    for (k, what) in [("enter", "browse its newest clone in the library"), ("e", "sync, check or eject its clones")] {
-        lines.push(Line::from(vec![Span::styled(format!("  {k:<6}"), theme::key()), Span::styled(what, text())]));
-    }
+    lines.extend(action_rows(&[
+        (Act::Activate, "browse its newest clone in the library"),
+        (Act::DriveActions, "sync, check or eject its clones"),
+    ]));
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 

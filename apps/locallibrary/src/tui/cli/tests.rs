@@ -178,7 +178,7 @@ fn the_jobs_run_on_the_drive() {
         let Some(Modal::Report(r)) = &app.modal else { panic!("{job:?}: no report: {}", last_message(&app)) };
         assert!(r.title.starts_with(title), "{}", r.title);
         assert!(!r.lines.is_empty());
-        press(&mut app, "x");
+        press(&mut app, "\u{1b}");
     }
     app.perform(Act::Run(Cli::Dedupe), None);
     wait(&mut app, |a| a.job.is_none());
@@ -229,14 +229,14 @@ fn refreshing_is_planned_first() {
     }
 }
 
-/// The help lists keys, saying `:` searches everything; a search there that no key matches goes
-/// on in the palette, which finds the command.
+/// The help lists keys, saying a search no key matches goes on to the commands; the palette then
+/// finds the command.
 #[test]
 fn the_help_hands_a_search_on_to_the_palette() {
     let (mut app, _dir) = blank(View::Library);
     press(&mut app, "?");
     let s = super::super::ui::screen(&mut app, 100, 30);
-    assert!(s.contains(": searches everything"), "{s}");
+    assert!(s.contains("searches the commands"), "{s}");
     press(&mut app, "duplicates");
     let s = super::super::ui::screen(&mut app, 100, 30);
     assert!(s.contains("enter searches the commands (:)"), "{s}");

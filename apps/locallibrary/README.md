@@ -247,7 +247,7 @@ How locallibrary is put together, drawn from its code.
 - [Changing drives](docs/diagrams/changing-drives.md): plans, the write routine, syncs, undo, edits and jobs
 - [The store and drives](docs/diagrams/store-and-drives.md): what's in the store and on a drive, pull, push, copies, browsing and checks
 - [Library data](docs/diagrams/data.md): reading a library, My Settings, sets, mixes and the DJ profile
-- [The player](docs/diagrams/player.md): first run, views, panes, jobs, threads, playback and what it remembers
+- [The player](docs/diagrams/player.md): first run, views, panes, jobs, threads, playback, the queue, deck controls, plugins, dialogs waiting their turn and what it remembers
 - [Plugins](docs/diagrams/plugins.md): loading, hooks, what a plugin can reach, events and services
 - [The sidecar](docs/diagrams/sidecar.md): its lifecycle, requests, plans, every method and its contract
 - [Accounts](docs/diagrams/accounts.md): the DJ account, token exchange, keys and access

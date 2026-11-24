@@ -290,10 +290,11 @@ AIFF chunks the Serato cue tag writer checks before writing into them), `aup` (A
 the binary XML, the project it builds and its mixdown), `traktor` (Traktor's `collection.nml`,
 the beat grids it lays down and what an import makes of it), `onelibrary` (`exportLibrary.db` and
 its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
-`master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules) and
-`rekordbox_sync` (`playlists3*.sync`). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for
-formats whose tests keep their examples inline; `pdb_edit` grows its edit sequences from nothing)
-looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
+`master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules),
+`rekordbox_sync` (`playlists3*.sync`) and `keybinds` (someone else's published keys, as an import
+reads them, and each key read back from how it's written). libFuzzer mutates the test fixtures
+(and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
+sequences from nothing) looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
 libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values the readers branch
 on), so it gets past a header without guessing four bytes at once. `fuzz/` is a workspace of its
 own and needs nightly:

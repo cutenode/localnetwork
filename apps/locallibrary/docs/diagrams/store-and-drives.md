@@ -65,7 +65,7 @@ flowchart TD
     hub --> yours["What you set<br/>settings.json, players.json, smart.json, sets.json, profile.json, mix.json"]
     hub --> registry["The registry<br/>drives.json"]
     hub --> worked["Worked out, kept to save time<br/>cache/, reports/, profile-document.json, flags.json"]
-    hub --> player["The player<br/>tui.json"]
+    hub --> player["The player<br/>tui.json, keybinds.json"]
     hub --> art["art embed's copies<br/>embed-backups/"]
     hub --> plugins["Plugins<br/>plugins/ID/work/, plugins/ID/data/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
     hub --> accounts["Accounts<br/>atmosphere.json, accounts.json, and without a keychain atmosphere-session.json, secrets/"]
@@ -183,7 +183,7 @@ flowchart TD
     dest -->|"drive verify --from --repair"| drive["A damaged drive"]
     order["Order of a copy: files, then snapshots<br/>with all their files, then libraries.json"] -.-> folder
     order -.-> dest
-    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, store-prefs.json, tui.json,<br/>embed-backups/, views.json, locks, caches, reports"] -.-> folder
+    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, store-prefs.json, tui.json, keybinds.json,<br/>embed-backups/, views.json, locks, caches, reports"] -.-> folder
     leftout -.-> dest
 ```
 

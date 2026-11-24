@@ -319,24 +319,20 @@ Source: [`src/tui/plugins/panels.rs`](../../src/tui/plugins/panels.rs), [`crates
 
 ## Plugin settings and keys
 
-Where what you set for a plugin goes, from `plugin settings` or the player's form.
+Where what you set for a plugin goes, from `plugin settings` or the player's form. A key for one of its commands isn't a setting: it's in the player's `keybinds.json`, as `plugin.ID.NAME`, where the player moves earlier versions' `keys.NAME` settings as it starts.
 
 ```mermaid
 flowchart TD
     set["plugin settings ID KEY VALUE,<br/>or the player's form"] --> plain["A setting, given to each hook"]
     set --> secret["A secret, --secret"]
     set --> service["services.NAME: a switch"]
-    set --> key["keys.NAME: a key in the player"]
     plain --> file[("plugins/ID/settings.json")]
     secret --> keychain["The keychain, or secrets/plugins/ID.json.<br/>Filled into net/fetch by the host, never shown"]
     service --> file
-    key --> taken{"In the player's form: the player uses it,<br/>or another command has it?"}
-    taken -->|yes| refused["Refused, saying why"]
-    taken -->|no| file
-    key -->|"plugin settings: saved, and the player<br/>says why and leaves it unbound"| file
+    file -->|"keys.NAME, from an earlier version,<br/>moved once as the player starts"| keybinds[("keybinds.json,<br/>plugin.ID.NAME")]
 ```
 
-Source: [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`src/tui/keymap/bound.rs`](../../src/tui/keymap/bound.rs), [`src/tui/plugins.rs`](../../src/tui/plugins.rs)
+Source: [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/keybinds/migrate.rs`](../../../../crates/locallibrary/src/keybinds/migrate.rs), [`src/tui/plugins.rs`](../../src/tui/plugins.rs)
 
 ## Plugin events and suggestions
 

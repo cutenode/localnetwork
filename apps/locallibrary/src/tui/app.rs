@@ -40,7 +40,6 @@ use super::choices::Hints;
 use super::crate_list::Crate;
 use super::drives::{DriveKey, DriveRow};
 use super::edits::{Job, Modal, Pick};
-use super::keymap;
 use super::state::{self, Saved, SavedQueue};
 use super::terminal::LateAnswers;
 // What the test modules find through `use super::*`.
@@ -232,8 +231,14 @@ pub struct App {
     pub picking: Option<Pick>,
     /// The fixes the last check gave (plugins' and locallibrary's own), offered in the palette.
     pub fixes: Vec<super::plugins::checks::Fixing>,
-    /// The keys the user bound to plugins' commands and operations (see `keymap::bound`).
-    pub plugin_keys: Vec<keymap::bound::Bound>,
+    /// The keys set in `keybinds.json`, as kept (see `tui::keybinds`).
+    pub keybinds: locallibrary::keybinds::Keybinds,
+    /// `keybinds.json` couldn't be read: the keys are as they came, and it's never saved over.
+    pub keybinds_unreadable: bool,
+    /// The Keys screen, while it's open.
+    pub keys: Option<super::keybinds::KeysScreen>,
+    /// Publishing the keys to the account.
+    pub publishing: super::keybinds::Publishing,
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
@@ -309,10 +314,6 @@ pub struct App {
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
-    /// `g` (or `q`) was pressed at this time and waits for what follows (see `keymap`).
-    pub chord: Option<Instant>,
-    /// The chord waiting is `q`'s, the queue's, rather than `g`'s.
-    pub chord_queue: bool,
     /// The terminal says it draws sixels.
     pub sixel: bool,
     /// What's been read of cover art.
@@ -345,14 +346,18 @@ pub struct App {
     pub toast: Option<(String, Level, Instant)>,
     /// An error a newer message came after before it was dismissed: still shown, above it.
     pub held: Option<String>,
-    /// Every message since starting, oldest first (the last `LOG`), shown by `!`.
+    /// Every message since starting, oldest first (the last `LOG`), shown by messages (in `:`).
     pub log: VecDeque<(String, Level, Instant)>,
     pub show_log: bool,
     pub log_scroll: u16,
     /// When esc was pressed with marks to clear: a second esc soon after clears them.
     clear_marks_armed: Option<Instant>,
+    /// When esc was pressed with nothing left to close: a second esc soon after quits.
+    quit_armed: Option<Instant>,
     /// How much the footer says.
     pub hints: Hints,
+    /// With no hints, the footer still says `? help`.
+    pub help_hint: bool,
     /// The palette's commands run lately, newest first, by name.
     pub recent_commands: Vec<String>,
     /// The first-run line is up, until a key or a click.
@@ -501,7 +506,10 @@ impl App {
             waiting: VecDeque::new(),
             picking: None,
             fixes: Vec::new(),
-            plugin_keys: Vec::new(),
+            keybinds: Default::default(),
+            keybinds_unreadable: false,
+            keys: None,
+            publishing: Default::default(),
             job: None,
             last_backup: None,
             status: None,
@@ -544,8 +552,6 @@ impl App {
             vis: Vis::Bars,
             deck_secs: 8.0,
             flash: None,
-            chord: None,
-            chord_queue: false,
             sixel: false,
             covers: Default::default(),
             played_tracks: FxHashSet::default(),
@@ -567,7 +573,9 @@ impl App {
             show_log: false,
             log_scroll: 0,
             clear_marks_armed: None,
+            quit_armed: None,
             hints: Hints::default(),
+            help_hint: true,
             recent_commands: Vec::new(),
             intro: false,
             intro_seen: Some(VERSION.to_string()),

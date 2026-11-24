@@ -229,6 +229,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
             json!({ "$type": collection, "generatedAt": "2026-10-04T09:30:00.000Z", "precision": "exact", "basis": "plays" })
         }
         lexicon::RECORDING => crate::publish::recording::record(blob(), 3600, chrono::Utc::now()),
+        lexicon::KEYBINDS => crate::keybinds::Keybinds::default().to_record(chrono::Utc::now()),
         _ => {
             json!({ "$type": collection, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z" })
         }

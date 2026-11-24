@@ -339,6 +339,14 @@ pub fn overlay(app: &App) -> bool {
     app.help || app.show_log || app.modal.is_some() || app.deck.outputs.is_some()
 }
 
+/// Esc, saying yes when it asks whether to stop the job under way, or to quit while something is.
+pub fn esc_and_yes(app: &mut App) {
+    press(app, "\u{1b}");
+    if matches!(&app.modal, Some(Modal::Ask(q, _)) if q.ends_with("stop it?") || q.ends_with("quit anyway?")) {
+        press(app, "y");
+    }
+}
+
 /// A key that isn't typed, such as an arrow or page down.
 pub fn key(app: &mut App, code: KeyCode) {
     app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
@@ -826,4 +834,22 @@ impl Drop for Plugged {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// Signed in as @dj.example.com, for a long while yet.
+#[cfg(feature = "account")]
+pub fn signed_in() -> locallibrary::api::AccountInfo {
+    serde_json::from_value(serde_json::json!({
+        "did": "did:plc:abc",
+        "handle": "dj.example.com",
+        "pds": "https://pds.example",
+        "auth_server": "https://pds.example",
+        "scopes": ["atproto"],
+        "signed_in_at": "2026-01-05T12:00:00Z",
+        "sign_in_again_by": "2099-01-01T00:00:00Z",
+        "access_expires_at": null,
+        "client": { "kind": "hosted", "client_id": "https://example.com/client.json" },
+        "storage": "file"
+    }))
+    .unwrap()
 }

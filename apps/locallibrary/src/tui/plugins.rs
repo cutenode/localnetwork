@@ -345,12 +345,10 @@ impl App {
 
     /// Keep a plugin's settings as the form has them (`given`), in the background: those that
     /// changed, each left empty put back to its default, and each secret typed in (one left
-    /// empty is kept); a key for one of its commands the player refuses is said, and left as it
-    /// was. A service turned on starts, one turned off stops, and the keys are bound again.
+    /// empty is kept). A service turned on starts, and one turned off stops.
     pub(super) fn save_settings(&mut self, plugin: &'static str, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let (Ok(m), Ok(listed)) = (plugins.manifest(plugin), plugins.setting_list(plugin)) else { return };
-        let refused = self.refused_keys(plugin, &given);
         let store_root = self.store_root.clone();
         self.task("Saving settings".into(), move |_| {
             let store = Store::open_or_init(&store_root)?;
@@ -359,7 +357,7 @@ impl App {
             for s in &listed {
                 let value = given.get(&s.key);
                 let typed = value.and_then(Value::as_str).is_some_and(|v| !v.is_empty());
-                if (s.kind == SettingType::Secret && !typed) || refused.contains(&s.key) {
+                if s.kind == SettingType::Secret && !typed {
                     continue;
                 }
                 if s.kind == SettingType::Secret || value.or(s.default.as_ref()) != now.get(&s.key) {
@@ -378,10 +376,7 @@ impl App {
                 if changed > 0 {
                     app.panels.stale(plugin);
                 }
-                app.bind_plugin_keys();
-                if refused.is_empty() {
-                    app.toast(said, Level::Info);
-                }
+                app.toast(said, Level::Info);
             }))
         });
     }

@@ -124,6 +124,8 @@ jobs:
               - 'crates/**'
               # The widgets' Storybook captures, which src/tui/ui/tests/stories.rs checks are what it draws.
               - 'apps/web/src/lib/tui/captures/**'
+              # The client document the web app hosts, which src/atmosphere/tests.rs checks is the one it writes.
+              - 'apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json'
               - 'plugins/**'
               - 'vendor/**'
               - 'fuzz/**'

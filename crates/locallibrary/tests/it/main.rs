@@ -38,6 +38,7 @@ mod edit;
 mod export;
 mod format;
 mod jobs;
+mod keybinds;
 mod layout;
 mod merge;
 mod mixes;

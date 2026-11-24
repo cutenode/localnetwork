@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui_image::Image;
 
-use crate::output::{clock, plural};
+use crate::output::plural;
 use crate::tui::app::{App, Matches, NowPlaying, PhraseSpan, Vis};
 use crate::tui::art::Picture;
 use crate::tui::icons;
@@ -118,14 +118,7 @@ pub(super) fn about_line(now: &NowPlaying) -> Option<Line<'static>> {
 pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let Some(now) = &app.now else {
         let mut lines = vec![Line::raw(""), Line::styled("Nothing playing", bold(theme::current().text))];
-        match app.resumable() {
-            // Where the last run left off.
-            Some((t, at)) => lines.push(Line::from(vec![
-                Span::styled("space", theme::key()),
-                Span::styled(format!(" carries on with {} from {}", t.display_name(), clock(at.as_secs_f64())), dim()),
-            ])),
-            None => lines.push(Line::styled("Pick a track and press enter.", dim())),
-        }
+        lines.push(idle_line(app));
         if let Some(e) = &app.audio_error {
             lines.push(Line::raw(""));
             lines.push(Line::styled(format!("No audio output: {e}"), fg(theme::current().critical)));

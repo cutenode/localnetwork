@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use locallibrary::Track;
 use locallibrary::query::SortKey;
-use locallibrary::store::{PLAYER_FILE as FILE, player_fallback as fallback};
+use locallibrary::store::{PLAYER_FILE as FILE, player_dir, player_file};
 use serde::{Deserialize, Serialize};
 
 use super::browse::SavedNode;
@@ -74,6 +74,8 @@ pub struct Saved {
     pub art_halfblocks: bool,
     /// How much the footer says (`full`, `compact`, `off`): all of it without one.
     pub hints: Option<String>,
+    /// With no hints, the footer still says `? help` (on unless turned off).
+    pub help_hint: Option<bool>,
     /// The palette's commands run lately, newest first, by name.
     pub recent_commands: Vec<String>,
     /// The version that last showed what a first run shows once.
@@ -117,21 +119,12 @@ pub struct SavedQueue {
     pub at_ms: u64,
 }
 
-fn has_store(store_root: &Path) -> bool {
-    store_root.join("store.json").is_file()
-}
-
 /// Read the saved state (the store's, else the one kept beside it): the defaults when there's
 /// none, `None` when there's one that can't be read or parsed (a newer build's, say), which the
 /// player then runs without and doesn't save over.
 pub fn load(store_root: &Path) -> Option<Saved> {
-    let dir = if has_store(store_root) && store_root.join(FILE).is_file() {
-        Some(store_root.to_path_buf())
-    } else {
-        fallback(store_root)
-    };
-    let Some(dir) = dir else { return Some(Saved::default()) };
-    match std::fs::read(dir.join(FILE)) {
+    let Some(file) = player_file(store_root, FILE) else { return Some(Saved::default()) };
+    match std::fs::read(file) {
         Ok(bytes) => serde_json::from_slice(&bytes).ok(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Saved::default()),
         Err(_) => None,
@@ -142,9 +135,7 @@ pub fn load(store_root: &Path) -> Option<Saved> {
 /// directory that holds anything else, so the player mustn't be the first to create it: until
 /// then the state goes beside it. Never inside the drive that was open.
 pub fn save(store_root: &Path, saved: &Saved) {
-    let Some(dir) = (if has_store(store_root) { Some(store_root.to_path_buf()) } else { fallback(store_root) }) else {
-        return;
-    };
+    let Some(dir) = player_dir(store_root) else { return };
     // Compared resolved: the drive's root comes resolved (macOS's /var is /private/var), the
     // store's folder as it was given.
     let resolved = locallibrary::fsutil::resolved;

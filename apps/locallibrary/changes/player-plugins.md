@@ -4,7 +4,7 @@
   does, and asks for the selected track's panels again once that plugin's settings are saved,
   where it kept showing what they answered before until the selection moved.
 - Smart playlist rules, edits' track selectors (`--filter`) and sorting a playlist on the drive
-  (`playlist sort`, the player's `s`) take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`), as
+  (`playlist sort`, and sorting in the player's `e`) take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`), as
   `tracks` does, where they were refused. A rule naming a field no plugin installed declares, or
   a value its field can't hold, is refused when it's added and when it's applied, saying so, and
   an edit whose filter names a field no track has a value of yet warns that they need analyzing.

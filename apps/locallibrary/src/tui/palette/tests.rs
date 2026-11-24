@@ -1,3 +1,5 @@
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+
 use super::super::app::testing::{LEFT, app_with, blank, key, last_message, library, mouse, point, press, spot};
 use super::*;
 
@@ -55,8 +57,8 @@ fn the_palette_lists_the_views_commands_first_and_runs_one() {
     press(&mut app, "gotod");
     let Some(Modal::Pick(p)) = &app.modal else { panic!() };
     assert_eq!(p.items[p.selected().unwrap()].label, "go to Drives");
-    // Keys go to the box, not to the player: Q didn't quit.
-    press(&mut app, "Q");
+    // Keys go to the box, not to the player: x didn't stop anything.
+    press(&mut app, "x");
     assert!(!app.quit);
     key(&mut app, KeyCode::Backspace);
     press(&mut app, "\n");
@@ -149,7 +151,7 @@ fn every_views_commands_name_their_keys_as_the_help_does() {
     // Each command in the palette, beside the key the help shows for it.
     for b in KEYMAP.iter().filter(|b| !b.name.is_empty() && !b.shown.is_empty()) {
         let Some(k) = b.keys.first() else { continue };
-        assert!(b.shown.contains(&key_name(k)), "{:?}: {} isn't in {:?}", b.act, key_name(k), b.shown);
+        assert!(b.shown.contains(&k.name()), "{:?}: {} isn't in {:?}", b.act, k.name(), b.shown);
     }
 }
 
@@ -173,43 +175,6 @@ fn fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
     for at in 0..=text.len() {
         let padded = format!("{}x{}", &text[..at], &text[at..]);
         assert!(fuzzy(&query, &padded) <= score, "{query:?} in {padded:?} beats {text:?}");
-    }
-}
-
-/// Keys are named apart, whatever they are: characters as themselves (space by name), arrows as
-/// arrows, other keys by their name, with shift or ctrl said, and a run of digits from one to the
-/// other; no two keys share a name.
-#[hegel::test(test_cases = 300)]
-fn keys_are_named_apart(tc: hegel::TestCase) {
-    use hegel::generators as gs;
-    let codes = [
-        KeyCode::Up,
-        KeyCode::Down,
-        KeyCode::Left,
-        KeyCode::Right,
-        KeyCode::PageDown,
-        KeyCode::F(5),
-        KeyCode::Tab,
-        KeyCode::Enter,
-    ];
-    let any = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(4)) {
-        0 => K::Ch(tc.draw(gs::sampled_from(&[' ', 'a', 'A', '1', ':'][..]))),
-        1 => K::Code(tc.draw(gs::sampled_from(&codes[..]))),
-        2 => K::Shift(tc.draw(gs::sampled_from(&codes[..]))),
-        3 => K::Ctrl(tc.draw(gs::sampled_from(&['c', 'q', 'u'][..]))),
-        _ => K::Digits('1', tc.draw(gs::sampled_from(&['5', '8'][..]))),
-    };
-    let (a, b) = (any(&tc), any(&tc));
-    let (na, nb) = (key_name(&a), key_name(&b));
-    assert_eq!(na == nb, format!("{a:?}") == format!("{b:?}"), "{a:?} and {b:?} both read {na:?}");
-    match a {
-        K::Ch(' ') => assert_eq!(na, "space"),
-        K::Ch(c) => assert_eq!(na, c.to_string()),
-        K::Code(KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right) => assert!("↑↓←→".contains(&na)),
-        K::Code(_) => assert!(na.chars().all(|c| !c.is_uppercase()), "{na}"),
-        K::Shift(_) => assert!(na.starts_with("shift ")),
-        K::Ctrl(c) => assert_eq!(na, format!("ctrl-{c}")),
-        K::Digits(x, y) => assert_eq!(na, format!("{x}-{y}")),
     }
 }
 
@@ -373,20 +338,31 @@ fn recent_commands_outlive_a_run() {
     assert_eq!(prefs.recent_commands.unwrap(), ["shuffle on or off"]);
 }
 
-/// A command shows its key; one with no key here says where it lives.
+/// A command shows its key; one with no key here says where it lives, and one that's only in `:` says
+/// nothing.
 #[test]
 fn every_command_shows_its_key_or_its_home() {
     let detail = |view, act| commands(view).into_iter().find(|(a, _)| *a == act).unwrap().1.detail;
-    assert_eq!(detail(View::Library, Act::Quit), "Q");
-    assert_eq!(detail(View::Library, Act::QueueNext), "q n");
-    assert_eq!(detail(View::Drives, Act::Pull), "W · pull");
-    assert_eq!(detail(View::Prepare, Act::Eject), "E · eject");
+    assert_eq!(detail(View::Library, Act::Quit), "ctrl-c");
+    assert_eq!(detail(View::Library, Act::QueueNext), "q");
+    assert_eq!(detail(View::Drives, Act::Pull), "Prepare · pull");
+    assert_eq!(detail(View::Prepare, Act::Eject), "Prepare · eject");
     assert_eq!(detail(View::Library, Act::Pull), "Prepare · pull");
     assert_eq!(detail(View::Library, Act::Jobs), "&");
-    assert_eq!(detail(View::Library, Act::ShowView(View::Drives)), "g d");
+    assert_eq!(detail(View::Library, Act::ShowView(View::Drives)), "3");
+    assert_eq!(detail(View::Mixes, Act::MixOpen), "in e");
+    assert_eq!(detail(View::Library, Act::Shuffle), "");
+    // Shift-↓ moves in the queue, not from the track list where the palette opens.
+    assert_eq!(detail(View::Library, Act::CrateMove(1)), "");
+    assert_eq!(detail(View::Mixes, Act::Next), "", "n skips the set's tracks there");
+    // A key shown does the command where the palette opens.
     for view in View::ALL {
+        let (mut app, _dir) = blank(view);
+        app.view = view;
+        let scopes = keymap::scopes(&app);
         for (act, item) in commands(view) {
-            assert!(!item.detail.is_empty(), "{act:?} in {view:?}");
+            let Some(k) = keymap::key_for(&scopes, act).filter(|k| k.name() == item.detail) else { continue };
+            assert_eq!(keymap::lookup(&scopes, &k.pressed()).map(|h| h.act), Some(act), "{act:?} in {view:?}");
         }
     }
 }
@@ -417,7 +393,7 @@ fn the_reasons_follow_what_the_player_is_doing() {
     assert_eq!(app.unavailable(Act::Pull), None);
     assert_eq!(app.unavailable(Act::Stop).as_deref(), Some("nothing's playing"));
     assert_eq!(app.unavailable(Act::SmartNew).as_deref(), Some("search first (/)"));
-    assert_eq!(app.unavailable(Act::SortReverse).as_deref(), Some("sort the list first (b)"));
+    assert_eq!(app.unavailable(Act::SortReverse).as_deref(), Some("sort the list first (click a column)"));
     assert_eq!(app.unavailable(Act::CrateClear).as_deref(), Some("the crate is empty"));
     app.job = Some(super::super::app::testing::job(false, false));
     assert_eq!(app.unavailable(Act::Pull).as_deref(), Some("wait for planning to finish"));
@@ -435,17 +411,15 @@ fn the_reasons_follow_what_the_player_is_doing() {
 #[test]
 fn e_opens_a_panes_actions() {
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "gp\u{1b}e");
+    press(&mut app, "2\u{1b}e");
     let Some(Modal::Pick(p)) = &app.modal else { panic!("no menu") };
     assert_eq!(p.title, "Actions · Prepare");
     assert_eq!((p.items[0].label.as_str(), p.items[0].detail.as_str()), ("run", "enter"));
-    assert!(p.items.iter().any(|i| i.label == "eject the drive" && i.detail == "E"));
+    assert!(p.items.iter().any(|i| i.label == "eject the drive" && i.detail == "d"));
     press(&mut app, "\n");
     assert!(app.job.is_some(), "the first job selected, a check, runs");
 
-    for (view, first) in
-        [(View::Mixes, "open · play from"), (View::Profile, "put the section in the document, or take it out")]
-    {
+    for (view, first) in [(View::Mixes, "open · play from"), (View::Profile, "open")] {
         let (mut app, _dir) = blank(view);
         press(&mut app, "e");
         let Some(Modal::Pick(p)) = &app.modal else { panic!("no menu in {view:?}") };
@@ -502,4 +476,54 @@ fn prop_ranking_keeps_every_match(tc: hegel::TestCase) {
     if let Some(i) = selected {
         assert!(s.contains(&format!("command {i}")), "{i}: {s}");
     }
+}
+
+/// A list that isn't an actions menu has no acts to choose by: its letters are typed, never taken
+/// for an item's.
+#[test]
+fn only_an_actions_menu_is_chosen_by_its_letters() {
+    let mut p = Picker::new(
+        "Tags",
+        vec![Item::new("Deep", "")],
+        Then::PackWhat { source: std::path::PathBuf::new(), target: None, choices: Vec::new() },
+    );
+    assert!(!p.select_act(Act::Check) && p.typing());
+    let mut menu = Picker::actions("Actions", vec![Item::new("check the drive", "c")], Then::Act(vec![Act::Check]));
+    assert!(!menu.typing() && menu.select_act(Act::Check));
+    assert!(!menu.select_act(Act::Eject), "an act the menu doesn't offer");
+}
+
+/// Each view's actions menu runs the item a shown letter belongs to: two views' menus may give one
+/// letter to their own act (`w`), and each runs its own.
+#[test]
+fn every_letter_an_actions_menu_shows_is_its_items() {
+    let (mut app, _dir) = app_with(library());
+    for view in [View::Prepare, View::Profile, View::Mixes] {
+        app.set_view(view);
+        app.open_actions();
+        let Some(Modal::Pick(p)) = app.modal.take() else { panic!("{view:?} has an actions menu") };
+        let lettered = p.items.iter().zip(p.acts()).filter(|(item, _)| item.detail.chars().count() == 1);
+        let mut letters = 0;
+        for (item, &act) in lettered {
+            let c = item.detail.chars().next().unwrap();
+            let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+            assert_eq!(keymap::menu_act(p.acts(), &key), Some(act), "{view:?}: {c} is {}", item.label);
+            letters += 1;
+        }
+        assert!(letters > 1, "{view:?}'s menu shows its letters");
+    }
+}
+
+/// Filtering an actions menu, its border says esc clears the filter, and esc does.
+#[test]
+fn a_filtered_actions_menu_says_esc_clears_it() {
+    let (mut app, _dir) = app_with(library());
+    app.set_view(View::Prepare);
+    app.open_actions();
+    press(&mut app, "/c");
+    assert!(crate::tui::ui::screen(&mut app, 100, 30).contains("esc clear"));
+    key(&mut app, KeyCode::Esc);
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("esc cleared the filter, not the menu") };
+    assert!(p.query.is_empty());
+    assert!(!crate::tui::ui::screen(&mut app, 100, 30).contains("esc clear"));
 }

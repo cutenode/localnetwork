@@ -12,14 +12,8 @@ import { CharSets, lastAction } from '@antithesishq/bombadil/terminal/defaults/a
 
 export { exitSuccess, noReplacementChars } from '@antithesishq/bombadil/terminal/defaults/properties';
 
-/** The views in tab order, each with the letter that follows `g` to go there. */
-const VIEWS = [
-	['Library', 'l'],
-	['Prepare', 'p'],
-	['Drives', 'd'],
-	['Recordings', 'r'],
-	['localnetwork', 'n']
-];
+/** The views in tab order: digit 1 goes to the first, 5 to the last. */
+const VIEWS = ['Library', 'Prepare', 'Drives', 'Recordings', 'localnetwork'];
 
 /** Below this, there's only the deck and the size it needs. */
 const SMALLEST = { columns: 60, rows: 20 };
@@ -58,13 +52,14 @@ function screenOf(state: State): Screen {
 	let tabs = 0;
 	let active = 0;
 	let activeCount = 0;
-	VIEWS.forEach(([view, letter], i) => {
-		const at = text.indexOf(` ${letter} ${view} `);
+	VIEWS.forEach((view, i) => {
+		// The tabs come first, before what the view is about; localnetwork's is last on the row.
+		const at = view === 'localnetwork' ? text.lastIndexOf(view) : text.indexOf(view);
 
 		if (at < 0) return;
 		tabs++;
 		// The active tab is bold on a coloured background; the others are dim.
-		const style = cells[cellAt[at + 1]].style;
+		const style = cells[cellAt[at]].style;
 
 		if ((style.attributes & 0b1) !== 0 && style.backgroundColor !== 'None') {
 			active = i + 1;
@@ -98,19 +93,14 @@ function deckOnly(s: Screen): boolean {
 	return s.columns < SMALLEST.columns || s.rows < SMALLEST.rows;
 }
 
-/** `g` was pressed and the next key finishes it. */
-function chord(s: Screen): boolean {
-	return s.status.includes(' GO TO ');
-}
-
-/** The key help is open. Known by its footer: the Profile view has a "Keys" pane and row. */
+/** The key help is open. Known by its border's keys: the Profile view has a "Keys" pane and row. */
 function helpOpen(s: Screen): boolean {
-	return has(s, 'enter runs it · esc close');
+	return has(s, 'enter run it · esc close');
 }
 
-/** The messages or a report is open: any key but the scrolling ones closes it. */
+/** The messages or a report is open: it scrolls, and esc closes it. */
 function panelOpen(s: Screen): boolean {
-	return has(s, 'any other key closes');
+	return has(s, '↑↓ scroll · esc close');
 }
 
 /** A dialog drawn over the screen: help, the messages, a report, the actions menu, a
@@ -122,24 +112,29 @@ function overlay(s: Screen): boolean {
 		panelOpen(s) ||
 		confirming(s) ||
 		s.lines.some((l) => /╭ (Actions · |Sure\? |Output |Jobs )/.test(l)) ||
-		s.lines.some((l) => l.includes('↑↓ choose · enter · esc close')) ||
+		// Every dialog's border ends with what esc does.
+		s.lines.some((l) => /╰.* esc (close|cancel|back) /.test(l)) ||
 		// Squeezed into a small terminal, a dialog may show only its border.
 		s.header.trimStart().startsWith('╭')
 	);
 }
 
-/** The footer is a prompt (a name for a playlist, folder, tag or rule, a path to write to). */
+/** The footer is a prompt (a name for a playlist, folder, tag or rule, a path to write to): its
+ *  chip says TYPING, then what's asked. */
 function prompting(s: Screen): boolean {
-	return /^ (New playlist|New folder|Rename .* to|Save the crate|New My Tag|Bring back|Smart playlist at|Export to|rekordbox XML|Folder holding an export)[^:]*: /.test(
-		s.footer
-	);
+	return /^ +TYPING +[^:]+: /.test(s.footer);
+}
+
+/** The search box is open on the keys row. */
+function searching(s: Screen): boolean {
+	return s.footer.includes(' SEARCH ');
 }
 
 /** The line text is being typed on (search, a prompt, a path or a handle), or null: keys go
  *  there. Known by what's typed there, not by the cursor: the Profile view's bars and the Mixes
  *  view's playhead draw the same `▏`. */
 function typingLine(s: Screen): string | null {
-	if (s.footer.startsWith(' / ') || prompting(s)) return s.footer;
+	if (searching(s) || prompting(s)) return s.footer;
 	const path = s.lines.findIndex((l) => l.includes('Open a recording or folder:'));
 
 	if (path >= 0) return s.lines[path + 1] ?? '';
@@ -153,23 +148,55 @@ function typing(s: Screen): boolean {
 
 /** Picking a playlist to add tracks to: most keys are ignored. */
 function picking(s: Screen): boolean {
-	return s.footer.startsWith(' ◆ ');
+	return s.footer.includes(' PICK ');
 }
 
 /** The base state: global keys (views, help, quit) do what they say. */
 function base(s: Screen): boolean {
-	return s.tabs === VIEWS.length && !overlay(s) && !typing(s) && !picking(s) && !chord(s);
+	return s.tabs === VIEWS.length && !overlay(s) && !typing(s) && !picking(s);
 }
 
-/** The Deck layout, in place of the deck strip. */
+/** Player mode, in place of the deck strip: its keys row has enter play the pick next (the pads
+ *  on show the hot cues in any view). */
 function deckLayout(s: Screen): boolean {
-	return s.status.includes(' DECK ');
+	return s.footer.includes('↑↓ enter play next');
 }
 
 /** A confirmation ("Write to DEMO?", "Eject DEMO?"), known by its keys at the bottom: only `y`
  *  does it, and only once it has been up for 400 ms. */
 function confirming(s: Screen): boolean {
-	return s.lines.some((l) => / y (write|save|eject|sync|pack|undo) {2}n cancel /.test(l));
+	return s.lines.some((l) => / y \w+ · n no · /.test(l));
+}
+
+/** The digits play hot cues: in player mode, or with the pads on (the deck strip says so). */
+function pads(s: Screen): boolean {
+	return deckLayout(s) || has(s, ' pads on ');
+}
+
+/** Views whose actions menu (`e`) leaves the machine: in localnetwork `l` (or its row) signs in
+ *  over the network, and in Recordings `f` opens any folder typed. */
+const GUARDED_MENUS = ['localnetwork', 'Recordings'];
+
+/** What's typed or clicked may reach a guarded actions menu: one is open, a menu's title is cut
+ *  short enough to be one, or a dialog may be open that can't be read (the screen shows only the
+ *  deck, or a dialog's border). */
+function guarded(s: Screen): boolean {
+	const titles = s.lines.flatMap((l) => {
+		const m = /╭ Actions(?: · ([^─╮]*?))? *[─╮]/.exec(l);
+
+		return m ? [m[1] ?? ''] : [];
+	});
+
+	return (
+		deckOnly(s) ||
+		s.header.trimStart().startsWith('╭') ||
+		titles.some((t) => GUARDED_MENUS.some((v) => v.startsWith(t) || t.startsWith(v)))
+	);
+}
+
+/** One esc with nothing open: a second now would quit, which ends the run. */
+function quitting(s: Screen): boolean {
+	return s.footer.includes('esc again to quit');
 }
 
 /** Planning or making a change (the status line says so until the job is done). */
@@ -247,12 +274,12 @@ export const editsFinish = always(
 	now(() => editing(screen.current)).implies(eventually(() => !editing(screen.current)).within(30, 'seconds'))
 );
 
-/** `g` and a view's letter in the base state switches to that view. */
-export const gotoSwitchesViews = always(() => {
-	if (!base(screen.current)) return true;
+/** A view's digit in the base state switches to that view, unless the digits play hot cues. */
+export const digitSwitchesViews = always(() => {
+	if (!base(screen.current) || pads(screen.current)) return true;
 
 	return next(() => {
-		const view = VIEWS.findIndex(([, letter]) => typed() === `g${letter}`);
+		const view = VIEWS.findIndex((_, i) => typed() === `${i + 1}`);
 		const s = screen.current;
 
 		return view < 0 || s.tabs < VIEWS.length || s.active === view + 1;
@@ -266,8 +293,8 @@ export const questionMarkOpensHelp = always(() => {
 	return next(() => typed() !== '?' || helpOpen(screen.current));
 });
 
-/** With the messages or a report open, a key other than the scrolling ones closes it. */
-export const anyOtherKeyClosesPanels = always(() => {
+/** With the messages or a report open, esc (or enter) closes it, and no other key does. */
+export const escClosesPanels = always(() => {
 	const s = screen.current;
 
 	if (!panelOpen(s)) return true;
@@ -275,9 +302,9 @@ export const anyOtherKeyClosesPanels = always(() => {
 	return next(() => {
 		const t = typed();
 
-		if (t === null || t.length !== 1 || 'jk '.includes(t) || t === '\x1b') return true;
+		if (t === '\x1b') return !panelOpen(screen.current);
 
-		return !panelOpen(screen.current);
+		return t === null || t.length !== 1 || t === '\r' || panelOpen(screen.current);
 	});
 });
 
@@ -310,48 +337,52 @@ export const browseOpensOverTheDeck = always(() => {
 
 /** Esc in the search box closes it. */
 export const escapeLeavesSearch = always(() => {
-	if (!screen.current.footer.startsWith(' / ')) return true;
+	if (!searching(screen.current)) return true;
 
-	return next(() => typed() !== '\x1b' || !screen.current.footer.startsWith(' / '));
+	return next(() => typed() !== '\x1b' || !searching(screen.current));
 });
 
 // ---------------------------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------------------------
 
-// Every key the TUI binds, except the ones that leave the run or the machine: `Q`, Ctrl-C and
-// Ctrl-Q quit (which ends the test), `L` signs in and out over the network, `:` opens the command
-// palette, which reaches signing in too, and `O` opens any folder typed in the Mixes view. `y` and
-// `u` stay in: they write edits (and undo them), and the only drive the TUI can see is a
-// throwaway copy (which it won't eject: it's no volume). Text (`TEXT`) is typed only where a line
-// is being typed, so `Q`, `L` and `:` there are just letters.
-const KEYS = CharSet.fromLiterals(
-	..."1234567890?!/abcdefghijklmnopqrstuvwxyzABCDEGHJKMNPRSTUXZ*#[]+=-_ ',.<>{}()".split('')
-);
+// Every key the TUI binds, except the ones that leave the run or the machine: Ctrl-C and Ctrl-Q
+// quit (which ends the test), as does a second esc while the keys row says so (`ESC` leaves that
+// out), and `:` opens the command palette, which reaches signing in and opening any folder. In the
+// actions menu (`e`) of localnetwork, `l` signs in over the network (then a handle and enter), and
+// in Recordings' `f` opens any folder typed (then a path and enter): while one of those menus may
+// be open (`guarded`), neither letter, `/` (its filter), enter nor a click is sent, so neither row
+// runs. `y` and `u` stay in: they write edits (and undo them), and the only drive the TUI can see
+// is a throwaway copy (which it won't eject: it's no volume). Text (`TEXT`) is typed only where a
+// line is being typed, so `:` there is just a character.
+const KEY_CHARS = '12345678?/&abcdefghijklmnopqrstuvwxyz#+=-_ ,.'.split('');
 
-/** `g` and each view's letter, typed at once. */
-const GOTO = CharSet.fromLiterals(...VIEWS.map(([, letter]) => `g${letter}`));
+const KEYS = CharSet.fromLiterals(...KEY_CHARS);
 
-/** Browse, the waveform's colours, the layouts, zooming and visualisers. */
-const DECK_KEYS = CharSet.fromLiterals(...'bwf[]v'.split(''));
+const GUARDED_KEYS = CharSet.fromLiterals(...KEY_CHARS.filter((c) => !'lf/'.includes(c)));
 
-const NAVIGATION = CharSet.union(
+/** Player mode's own keys: browse, the waveform's colours, closing it, the hot cues and a loop. */
+const DECK_KEYS = CharSet.fromLiterals(...'bwf12345678l,.ch'.split(''));
+
+const MOVES = [
+	'\t', // Tab
+	'\x7f', // Backspace
+	'\x15', // Ctrl-U: clear the line
+	'\x17', // Ctrl-W: delete a word
+	'\x1b[1;2A', // Shift-Up: move in the queue
+	'\x1b[1;2B', // Shift-Down
+	'\x1b[1;2C', // Shift-Right: seek 30 s
+	'\x1b[1;2D', // Shift-Left
+	'\x1b[15~' // F5: refresh
+];
+
+const GUARDED_NAVIGATION = CharSet.union(
 	CharSets.CONTROL_ARROWS,
 	CharSets.CONTROL_NAVIGATION,
-	CharSet.fromLiterals(
-		'\r', // Enter
-		'\t', // Tab
-		'\x1b', // Esc
-		'\x7f', // Backspace
-		'\x15', // Ctrl-U: clear the line
-		'\x17', // Ctrl-W: delete a word
-		'\x1b[1;2A', // Shift-Up: move in the crate
-		'\x1b[1;2B', // Shift-Down
-		'\x1b[1;2C', // Shift-Right: seek 30 s
-		'\x1b[1;2D', // Shift-Left
-		'\x1b[15~' // F5: refresh
-	)
+	CharSet.fromLiterals(...MOVES)
 );
+
+const NAVIGATION = CharSet.union(GUARDED_NAVIGATION, CharSet.fromLiterals('\r'));
 
 /** Names for playlists, folders and searches: plain and not so plain. */
 const TEXT = CharSet.union(
@@ -362,6 +393,11 @@ const TEXT = CharSet.union(
 );
 
 const size: Cell<{ rows: number; columns: number }> = extract((state) => state.grid.size);
+
+/** The keys to press now: all of them, or without the guarded menus' letters. */
+function keysNow(): CharSet.Entries {
+	return guarded(screen.current) ? GUARDED_KEYS : KEYS;
+}
 
 export const keys = weighted([
 	// Asked to write: look over the changes for a moment (only scrolling keys), then say yes.
@@ -376,19 +412,28 @@ export const keys = weighted([
 				: []
 		)
 	],
-	[50, actions(() => [{ TypeText: { CharSet: KEYS } }])],
-	[10, actions(() => [{ TypeText: { CharSet: GOTO } }])],
+	[50, actions(() => [{ TypeText: { CharSet: keysNow() } }])],
 	// The deck's own keys, once it's showing.
-	[10, actions(() => [{ TypeText: { CharSet: deckLayout(screen.current) ? DECK_KEYS : KEYS } }])],
-	[30, actions(() => [{ TypeText: { CharSet: NAVIGATION } }])],
+	[
+		10,
+		actions(() => [
+			{ TypeText: { CharSet: deckLayout(screen.current) && !guarded(screen.current) ? DECK_KEYS : keysNow() } }
+		])
+	],
+	[30, actions(() => [{ TypeText: { CharSet: guarded(screen.current) ? GUARDED_NAVIGATION : NAVIGATION } }])],
+	// Esc, but not the second that would quit.
+	[10, actions(() => (quitting(screen.current) ? [] : [{ TypeText: { CharSet: CharSet.fromLiterals('\x1b') } }]))],
 	// Typing goes into the search box and name prompts more than anywhere else.
-	[10, actions(() => [{ TypeText: { CharSet: typing(screen.current) ? TEXT : KEYS } }])],
+	[
+		10,
+		actions(() => [{ TypeText: { CharSet: typing(screen.current) && !guarded(screen.current) ? TEXT : keysNow() } }])
+	],
 	[
 		4,
 		actions(() => {
 			const s = size.current;
 
-			return s ? [{ Click: { row: [0, s.rows - 1], column: [0, s.columns - 1] } }] : [];
+			return s && !guarded(screen.current) ? [{ Click: { row: [0, s.rows - 1], column: [0, s.columns - 1] } }] : [];
 		})
 	],
 	[2, actions(() => [{ ScrollUp: {} }, { ScrollDown: {} }])],

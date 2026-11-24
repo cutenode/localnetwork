@@ -128,9 +128,21 @@ fn hosted_metadata_is_a_native_public_client() {
         m["scope"],
         "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
          repo:app.userinput.discussion?action=create \
+         repo:computer.localnetwork.locallibrary.keybinds?action=create&action=update \
          rpc?aud=*&lxm=computer.localnetwork.directory.requestIndex&lxm=computer.localnetwork.flags.getFlags"
     );
     assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());
+}
+
+/// The document Local Network's web app hosts at [`CLIENT_ID`] is the one locallibrary writes:
+/// servers refuse a sign-in that asks for a scope it doesn't list.
+#[test]
+fn the_hosted_document_is_the_one_written() {
+    let hosted = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json");
+    let hosted: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(hosted).unwrap()).unwrap();
+    assert_eq!(hosted, client_metadata(CLIENT_ID, &[]).unwrap());
+    assert_eq!(check_document(&hosted, CLIENT_ID, &player_scopes()), Ok(()));
 }
 
 #[test]
@@ -1184,6 +1196,10 @@ fn signing_in_again_keeps_what_the_session_may_do() {
     assert_eq!(kept_scopes(&signed_in_with(&["atproto", REPORT_SCOPE])), kept);
     let both = [&publishing[..], &[REPORT_SCOPE]].concat();
     assert_eq!(kept_scopes(&signed_in_with(&both)), [publish_scopes(), vec![report()]].concat());
+    // The player's sign-in keeps publishing keys, and only that: it doesn't grow into publishing.
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto", KEYBINDS_SCOPE])), player_scopes());
+    let keys_only: Vec<&str> = publishing.iter().copied().filter(|s| s.contains(lexicon::KEYBINDS)).collect();
+    assert_eq!(kept_scopes(&signed_in_with(&[&["atproto"][..], &keys_only].concat())), player_scopes());
     // locallibrary's document allows a sign-in that keeps them all.
     let doc = client_metadata(CLIENT_ID, &[]).unwrap();
     assert_eq!(check_document(&doc, CLIENT_ID, &kept_scopes(&signed_in_with(&both))), Ok(()));
@@ -1362,7 +1378,8 @@ fn prop_checking_stops_when_cancelled_or_unlockable(tc: TestCase) {
 }
 
 /// Signing in again asks for what the session may do now, whatever it was granted: publishing
-/// when it may write any record type, bug reports when it may file them, `atproto` always; the
+/// when it may write any record type but the player's keys, else the keys when it may write them,
+/// bug reports when it may file them, `atproto` always; the
 /// way on from a missing bug-report scope asks for that scope once, on top. locallibrary's
 /// document allows all of it.
 #[hegel::test(test_cases = 100)]
@@ -1372,9 +1389,12 @@ fn prop_signing_in_again_keeps_what_the_session_may_do(tc: TestCase) {
     let granted: Vec<String> = tc.draw(gs::subsequences(pool));
     let info = signed_in_with(&[&["atproto"][..], &granted.iter().map(String::as_str).collect::<Vec<_>>()].concat());
     let kept = kept_scopes(&info);
-    let publishes = lexicon::COLLECTIONS.iter().any(|c| missing_scope(&info, c).is_none());
+    let mut records = lexicon::COLLECTIONS.iter().filter(|c| **c != lexicon::KEYBINDS);
+    let publishes = records.any(|c| missing_scope(&info, c).is_none());
+    let keys = missing_scope(&info, lexicon::KEYBINDS).is_none();
     let reports = may_create(&info, lexicon::DISCUSSION);
     assert_eq!(kept.contains(&format!("include:{PUBLISH_SET}")), publishes, "{granted:?}");
+    assert_eq!(kept.contains(&KEYBINDS_SCOPE.to_string()), keys && !publishes, "{granted:?}");
     assert_eq!(kept.contains(&REPORT_SCOPE.to_string()), reports, "{granted:?}");
     assert_eq!(kept[0], "atproto");
     assert_eq!(check_document(&client_metadata(CLIENT_ID, &[]).unwrap(), CLIENT_ID, &kept), Ok(()));

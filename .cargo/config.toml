@@ -34,6 +34,7 @@ fuzz-onelibrary = ["fuzz", "run", "onelibrary", "fuzz/corpus/onelibrary", "crate
 fuzz-masterdb = ["fuzz", "run", "masterdb", "fuzz/corpus/masterdb", "fuzz/seeds/masterdb", "--", "-create_missing_dirs=1"]
 fuzz-smartlist = ["fuzz", "run", "smartlist", "fuzz/corpus/smartlist", "fuzz/seeds/smartlist", "--", "-create_missing_dirs=1"]
 fuzz-rekordbox_sync = ["fuzz", "run", "rekordbox_sync", "fuzz/corpus/rekordbox_sync", "fuzz/seeds/rekordbox_sync", "--", "-create_missing_dirs=1"]
+fuzz-keybinds = ["fuzz", "run", "keybinds", "fuzz/corpus/keybinds", "fuzz/seeds/keybinds", "--", "-create_missing_dirs=1"]
 # `cargo notices`: the licences of what the locallibrary binary is built from, in
 # THIRD-PARTY-NOTICES.md at the root (ignored by git), which dist puts in the release archives
 # (about.toml says more).

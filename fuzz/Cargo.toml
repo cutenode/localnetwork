@@ -108,7 +108,7 @@ arbitrary = { version = "1.5", features = ["derive"] }
 chrono = { version = "0.4.45", default-features = false }
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
-locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
+locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false, features = ["account"] }
 locallibrary-plugin-interop = { version = "0.1.0", path = "../plugins/interop" }
 loclib-anlz = { version = "0.1.0", path = "../crates/loclib-anlz" }
 loclib-audio = { version = "0.1.0", path = "../crates/loclib-audio" }
@@ -117,4 +117,12 @@ loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }
 rusqlite = "0.41"
+serde_json = "1.0.154"
 tempfile = "3"
+
+[[bin]]
+name = "keybinds"
+path = "fuzz_targets/keybinds.rs"
+test = false
+doc = false
+bench = false

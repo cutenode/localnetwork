@@ -106,7 +106,7 @@ impl App {
         self.next_pick = ListState::default().with_selected(any.then_some(0));
     }
 
-    /// The tracks `q n` and `q a` queue, and the drive they're on: in player mode the pick among
+    /// The tracks `q` and `a` queue, and the drive they're on: in player mode the pick among
     /// what mixes into the playing track; in the library the marked tracks (in the list's order)
     /// or the selected one, the selected match, or the queue's selected entry.
     pub(super) fn picked_tracks(&self) -> Option<(PathBuf, Vec<Track>)> {
@@ -136,9 +136,9 @@ impl App {
         }
     }
 
-    /// `q n` (`next`) or `q a`: queue the tracks picked (see `picked_tracks`) to play next, before
+    /// `q` (`next`) or `a`: queue the tracks picked (see `picked_tracks`) to play next, before
     /// the other picks, or after them.
-    pub(super) fn queue_picked(&mut self, next: bool) {
+    pub(in crate::tui) fn queue_picked(&mut self, next: bool) {
         match self.picked_tracks() {
             Some((root, tracks)) => self.queue_tracks(&root, tracks, next),
             None => self.toast("select a track to queue", Level::Info),

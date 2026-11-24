@@ -202,12 +202,12 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   set's drives together), syncs a library's drives, packs a set (from playlists or the
   crate, the CDJ's TAG LIST), brings back playlists from snapshots, replays edits and ejects;
   `u` undoes the last change, on the drive it was made to; after a rekordbox export it offers to
-  replay the edits it went over; My Tags show in a column and under Browse, and `T` gives tracks
-  one; rule-based playlists come from the search box; `N` and `P` jump to the next and previous
-  phrase, quantized like cue jumps; in full screen, `enter` queues a harmonic suggestion to play
-  next, and `S` turns autoplay off. Every key is in one table that also draws
-  the help (the view's own keys first) and the footer's hints, and `:` opens a command palette
-  with every action by name.
+  replay the edits it went over; My Tags show in a column and under Browse, and the actions menu
+  (`e`) gives tracks one; rule-based playlists come from the search box; "next phrase" and
+  "previous phrase" in `:` jump by phrase, quantized like cue jumps; in player mode, `enter` queues
+  a harmonic suggestion to play next, and "autoplay" in `:` turns it off. Every key is in one
+  table that also draws the help (the view's own keys first) and the footer's hints, and `:` opens
+  a command palette with every action by name.
 - **For GUIs.** Every operation is a serde request and response in the library's `api` module,
   and `locallibrary rpc` serves them as newline-delimited JSON-RPC 2.0, to a trusted parent
   process only (see docs/sidecar.md). Its contract is machine-readable: `rpc.describe` and
@@ -294,7 +294,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   plan is confirmed, written and undone like any edit, an export shows what it would write and asks
   before overwriting, analyzers run from the palette and their fields are columns to sort and search
   by (and an analyzer's keys and BPMs are written to the tracks from there), plugins' settings are a
-  form in the palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks
+  form in the palette, and what plugins log goes to its messages (in `:`). `tracks --filter`, `tracks
   --sort` and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`).
   Importers read another program's file (`import FILE [LIBRARY] --format FORMAT`): locallibrary
   finds its tracks on the drive as it finds a tracklist's, says how many it couldn't, and adds what
@@ -812,10 +812,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   error making a temp file names its folder, without the random name it tried.
 - When two mounted drives go by one name (a drive and a copy of it), `setup`'s questions say
   which folder each is about.
-- What other code writes to stderr while the player runs goes to its messages (`!`) instead of
-  over the screen. On Linux with no sound card, pressing space printed ALSA's errors over the
+- What other code writes to stderr while the player runs goes to its messages (in `:`) instead
+  of over the screen. On Linux with no sound card, pressing space printed ALSA's errors over the
   player before it said there's no audio output.
-- The player's outputs list (`d`) opens at once and lists the devices in the background, where
+- The player's outputs list (in `:`) opens at once and lists the devices in the background, where
   the player froze until every one was found (a while with ALSA). Devices that can't be listed
   say why in the list, which used to show only the system's default.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a

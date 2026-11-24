@@ -41,9 +41,10 @@ than rekordbox 6. Profiles don't manage them until their meaning is known.
 
 `settings export` writes everything set here to one JSON file: the settings profile (base and
 per-drive overrides), the players `check` uses, your profile's preferences, the player's
-preferences (theme, colours, icons, columns, sort, visualiser, shuffle, repeat, quantize, single play, auto cue, how keys and waveforms look, the end of track warning, cover art and whether it's in half blocks, the hint setting, the palette's recent commands),
-the largest fingerprint index `mix` keeps (`store index-limit`), whether `pull` makes copy-on-write copies of rekordbox's collection (`store copy-on-write`) and every plugin's settings, the player keys you gave their commands and the services you turned
-on included. Plugins' secrets stay in the keychain, and where the player was (the drive, list and
+preferences (theme, colours, icons, columns, sort, visualiser, shuffle, repeat, quantize, single play, auto cue, how keys and waveforms look, the end of track warning, cover art and whether it's in half blocks, the hint settings, the palette's recent commands),
+the largest fingerprint index `mix` keeps (`store index-limit`), whether `pull` makes copy-on-write copies of rekordbox's collection (`store copy-on-write`) and every plugin's settings, the services you turned
+on included, and the keys you set in the player (its `keybinds.json`, see
+[Your own keys](player.md#your-own-keys)). Plugins' secrets stay in the keychain, and where the player was (the drive, list and
 queue, its panels and layout, the volume and output) stays on this computer. `settings import FILE` brings it back, here or on another
 computer:
 
@@ -56,6 +57,9 @@ locallibrary settings import settings.json --replace
 Importing adds the values this computer doesn't have and skips the ones it has already. Where a
 value differs, the one here stays and the plan lists it; `--replace` takes the file's instead (for
 a list, like the tracks your profile hides, the file's whole list). Lists otherwise get the names
-they lack. A plugin that isn't installed here keeps its settings for when it is. Close the player before
+they lack. A plugin that isn't installed here keeps its settings for when it is. The player's keys
+go action by action: an action's keys are one value. Close the player before
 importing: it saves what it remembers when it quits.
-[`settings-export.schema.json`](settings-export.schema.json) describes the file.
+[`settings-export.schema.json`](settings-export.schema.json) describes the file, and
+[`keybinds.schema.json`](keybinds.schema.json) its `keybinds` section, which is `keybinds.json`
+without `updatedAt`.

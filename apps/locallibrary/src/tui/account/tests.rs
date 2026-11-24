@@ -1,5 +1,8 @@
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+
 use super::super::app::View;
-use super::super::app::testing::{blank, last_message, wait};
+use super::super::app::testing::{blank, key, last_message, press as keys, wait};
+use super::super::edits::Modal;
 use super::*;
 
 /// The bar as text.
@@ -76,7 +79,7 @@ fn a_session_past_its_end_asks_to_sign_in_again() {
     let mut t = Account { info: Some(signed_in("2020-01-01T00:00:00Z")), ..Default::default() };
     let bar = shown(&t, 200);
     assert!(bar.contains("Atmosphere account @dj.example.com"), "{bar}");
-    assert!(bar.contains("the session has likely ended; L signs in again"), "{bar}");
+    assert!(bar.contains("the session has likely ended; sign in again from e"), "{bar}");
     assert!(!bar.contains("development client"), "a hosted client isn't called that: {bar}");
 
     // Far off, it isn't said when.
@@ -94,12 +97,14 @@ fn a_tab_clicked_while_typing_a_handle_puts_it_away() {
     let (mut app, _dir) = blank(View::Profile);
     super::press(&mut app);
     assert!(screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
-    point(&mut app, LEFT, "l Library");
+    point(&mut app, LEFT, "Library");
     assert_eq!(app.view, View::Library);
     press(&mut app, "gn");
     assert!(!screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
-    press(&mut app, "Q");
-    assert!(app.quit, "Q quits, not typed");
+    for _ in 0..4 {
+        key(&mut app, KeyCode::Esc);
+    }
+    assert!(app.quit, "esc twice quits, not typed");
 }
 
 #[test]
@@ -126,10 +131,10 @@ fn typing_a_handle_edits_it_and_enter_wants_one() {
 fn esc_stops_a_sign_in_and_l_waits_for_it() {
     let (mut app, _dir) = blank(View::Profile);
     assert!(!input(&mut app, KeyCode::Esc, KeyModifiers::NONE), "nothing to stop");
-    assert!(!input(&mut app, KeyCode::Char('L'), KeyModifiers::NONE), "L goes to the view");
 
     let cancel = starting(&mut app);
-    assert!(input(&mut app, KeyCode::Char('L'), KeyModifiers::NONE), "already signing in");
+    press(&mut app);
+    assert!(matches!(app.profile.account.sign_in, Some(SignIn::Starting(_))), "already signing in");
     assert!(!input(&mut app, KeyCode::Char('x'), KeyModifiers::NONE));
     assert!(input(&mut app, KeyCode::Esc, KeyModifiers::NONE));
     assert!(cancel.is_cancelled());
@@ -166,15 +171,18 @@ fn a_failed_sign_in_says_so_as_an_error() {
     assert!(matches!(&app.toast, Some((m, Level::Error, _)) if m == "the server said no"), "{:?}", app.toast);
 }
 
-/// The first press of `L` signed in only arms signing out for a few seconds.
+/// Signed in, the actions menu offers to sign out of the account, and signing out asks first:
+/// no keeps it signed in.
 #[test]
-fn a_second_press_long_after_the_first_asks_again() {
+fn signing_out_asks_first() {
     let (mut app, _dir) = blank(View::Profile);
+    assert_eq!(app.profile.account.action(), "sign in…");
     app.profile.account.info = Some(signed_in("2099-01-01T00:00:00Z"));
-    app.profile.account.logout_armed = Instant::now().checked_sub(Duration::from_secs(10));
+    assert_eq!(app.profile.account.action(), "sign out of @dj.example.com");
     super::press(&mut app);
-    assert!(!app.profile.account.busy(), "too long ago to count");
-    assert_eq!(last_message(&app), "signed in as @dj.example.com: press L again to sign out");
+    assert!(matches!(&app.modal, Some(Modal::Ask(q, _)) if q == "Sign out of @dj.example.com?"));
+    keys(&mut app, "n");
+    assert!(!app.profile.account.busy() && app.profile.account.info.is_some());
 }
 
 /// Signing out runs on a thread, which says how it went; here nobody was signed in.
@@ -183,14 +191,14 @@ fn signing_out_reports_back() {
     let (mut app, _dir) = blank(View::Profile);
     app.profile.account.info = Some(signed_in("2099-01-01T00:00:00Z"));
     super::press(&mut app);
-    super::press(&mut app);
+    keys(&mut app, "y");
     assert!(app.profile.account.busy());
     wait(&mut app, |a| !a.profile.account.busy());
     assert!(matches!(&app.toast, Some((m, Level::Info, _)) if m == "not signed in"), "{:?}", app.toast);
     assert!(app.profile.account.info.is_none(), "read again from the store");
 }
 
-/// Typing a handle (L, then letters, backspace, ctrl-u) shows what's typed in the bar, as
+/// Typing a handle (signing in, then letters, backspace, ctrl-u) shows what's typed in the bar, as
 /// much of its end as fits; esc puts it away; a sign-in under way goes from finding the
 /// server to the browser and stops at esc or when it's done, saying how it went.
 #[hegel::test(test_cases = 100)]
@@ -202,13 +210,17 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
         let width = tc.draw(gs::integers::<u16>().max_value(160));
         match tc.draw(gs::integers::<u8>().max_value(9)) {
-            0 => {
-                app.on_key(KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT));
-                match &mut typed {
-                    Some(t) => t.push('L'),
-                    None => typed = Some(String::new()),
+            // Signing in from `:` (or the actions menu); while typing, L is a letter of the handle.
+            0 => match &mut typed {
+                Some(t) => {
+                    app.on_key(KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT));
+                    t.push('L');
                 }
-            }
+                None => {
+                    app.perform(Act::ProfileAccount, None);
+                    typed = Some(String::new());
+                }
+            },
             1..=4 if typed.is_some() => {
                 let c = tc.draw(gs::sampled_from(&['a', 'b', '.', '日', '😹', ' '][..]));
                 assert!(input(&mut app, KeyCode::Char(c), KeyModifiers::NONE));
@@ -271,11 +283,11 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
 }
 
 /// Signed in, the bar names the account (as the development client, when it is) and, as a
-/// warning in the last two days, says when to sign in again, or that the session has likely ended; L once says how to sign out and L
-/// again soon after signs out (only once: a second L while it does waits), L long after asks
-/// again; a tab clicked while a handle is typed puts it away.
+/// warning in the last two days, says when to sign in again, or that the session has likely ended;
+/// signing out asks first, and yes signs out (only once: asked again while it does, it waits); a
+/// handle being typed is put away when another view is shown.
 #[hegel::test(test_cases = 100)]
-fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
+fn the_bar_says_who_is_signed_in_and_signing_out_asks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = blank(View::Profile);
     let days = tc.draw(gs::sampled_from(&[-400i64, -1, 1, 3, 200][..]));
@@ -291,7 +303,7 @@ fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     assert!(bar.contains(&format!("Atmosphere account {}", info.name())), "{bar}");
     assert_eq!(bar.contains("as the development client"), loopback, "{bar}");
     if info.expired() {
-        assert!(bar.contains("the session has likely ended; L signs in again"), "{bar}");
+        assert!(bar.contains("the session has likely ended; sign in again from e"), "{bar}");
     } else if days == 1 {
         let by = local_time(info.sign_in_again_by, "%Y-%m-%d");
         assert!(bar.contains(&format!("sign in again by {by} ({} days)", info.days_left())), "{bar}");
@@ -309,19 +321,18 @@ fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
         app.profile.account.stop_typing();
         assert!(!app.profile.account.typing());
     }
-    let long_ago = tc.draw(gs::booleans());
+    let no = tc.draw(gs::booleans());
     super::press(&mut app);
-    assert_eq!(last_message(&app), format!("signed in as {}: press L again to sign out", info.name()));
-    if long_ago {
-        app.profile.account.logout_armed = Some(Instant::now() - Duration::from_secs(5));
-        super::press(&mut app);
-        assert!(!app.profile.account.busy(), "asked again rather than signed out");
-        assert!(app.profile.account.logout_armed.is_some());
+    assert!(matches!(&app.modal, Some(Modal::Ask(q, _)) if *q == format!("Sign out of {}?", info.name())));
+    if no {
+        keys(&mut app, "n");
+        assert!(!app.profile.account.busy(), "kept signed in");
         return;
     }
-    super::press(&mut app);
+    keys(&mut app, "y");
     assert!(app.profile.account.busy() && shown(&app.profile.account, width).contains("Signing out…"));
-    assert!(input(&mut app, KeyCode::Char('L'), KeyModifiers::SHIFT), "L waits for it");
+    super::press(&mut app);
+    assert!(matches!(app.profile.account.sign_in, Some(SignIn::SigningOut)), "a second sign out waits for it");
     wait(&mut app, |a| !a.profile.account.busy());
     assert_eq!(last_message(&app), "not signed in");
 }
@@ -385,4 +396,47 @@ fn a_handle_is_typed_as_its_keys_say(tc: hegel::TestCase) {
     assert!(bar.contains("Approve in your browser at pds.example"), "{bar}");
     assert_eq!(bar.contains("as a local development app"), local_app, "{bar}");
     assert_eq!(bar.contains(&format!("the browser didn't open: {url}")), !opened, "{bar}");
+}
+
+/// Enter on a handle starts signing in on a thread, which says how it went: here the client's
+/// document is on this computer, which signing in refuses before going online.
+#[test]
+fn enter_on_a_handle_starts_signing_in() {
+    // SAFETY: nextest runs each test in a process of its own, and no thread is running yet.
+    unsafe {
+        std::env::set_var("LOCALLIBRARY_OAUTH_CLIENT_ID", "https://localhost/c.json");
+        std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file");
+    }
+    let (mut app, _dir) = blank(View::Profile);
+    super::press(&mut app);
+    keys(&mut app, "dj.example.com\n");
+    assert!(matches!(app.profile.account.sign_in, Some(SignIn::Starting(_))), "{:?}", app.toast);
+    wait(&mut app, |a| !a.profile.account.busy());
+    let said = "the client document at https://localhost/c.json can't be used";
+    assert!(app.log.iter().any(|(m, level, _)| m.contains(said) && *level == Level::Error), "{:?}", app.log);
+}
+
+/// Signed in, the keys the account published are looked for: here Local Network's directory
+/// can't be reached, which is said.
+#[test]
+fn signing_in_looks_for_the_accounts_keys() {
+    // SAFETY: as above.
+    unsafe { std::env::set_var("LOCALLIBRARY_HAPPYVIEW_URL", "http://127.0.0.1:9") };
+    let (mut app, _dir) = blank(View::Profile);
+    starting(&mut app);
+    // What signing in leaves in the store.
+    let account = serde_json::json!({
+        "account": {
+            "info": signed_in("2099-01-01T00:00:00Z"),
+            "session_id": "s1",
+            "redirect_uri": "http://127.0.0.1/callback",
+            "session": {}
+        }
+    });
+    std::fs::create_dir_all(&app.store_root).unwrap();
+    std::fs::write(app.store_root.join("atmosphere.json"), account.to_string()).unwrap();
+    on_event(&mut app, AccountEvent::Done { message: "signed in".into(), error: false });
+    assert!(app.profile.account.signed_in());
+    let read = |a: &App| a.log.iter().any(|(m, ..)| m.starts_with("your published keys couldn't be read: "));
+    wait(&mut app, read);
 }

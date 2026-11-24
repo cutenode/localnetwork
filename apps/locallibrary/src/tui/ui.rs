@@ -3,6 +3,9 @@
 mod chrome;
 mod deck;
 mod drives;
+mod footer;
+mod header;
+mod keybinds;
 mod library;
 mod overlays;
 mod player;
@@ -12,6 +15,9 @@ mod strip;
 pub(super) use chrome::*;
 use deck::{draw_deck, end_style};
 use drives::*;
+pub(super) use footer::Footer;
+pub(super) use header::Header;
+pub(super) use keybinds::KeysDialog;
 pub(super) use library::*;
 pub(super) use overlays::*;
 pub(super) use player::*;
@@ -65,9 +71,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if shell.density == Density::DeckOnly {
         draw_strip(f, app, shell.strip);
         draw_too_small(f, shell.body);
+        // With no footer, the bottom row says what a second esc does; the strip stays, the deck being
+        // what this size is for.
+        if app.quit_waiting() && !shell.body.is_empty() {
+            let line = ratatui::layout::Rect { y: shell.body.bottom() - 1, height: 1, ..shell.body };
+            f.render_widget(ratatui::widgets::Clear, line);
+            f.render_widget(ratatui::text::Line::from(footer::quit_line()), line);
+        }
     } else {
-        draw_header(f, app, shell.header, shell.context.is_empty());
-        draw_context(f, app, shell.context);
+        let header = Header::of(app);
+        app.areas.tabs = header.tab_areas(shell.header);
+        f.render_widget(&header, shell.header);
         match app.view {
             // The deck has the screen: the strip would only say it twice.
             View::Library if app.deck_showing() => draw_deck(f, app, shell.body.union(shell.strip)),
@@ -80,14 +94,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         if !app.deck_showing() {
             draw_strip(f, app, shell.strip);
         }
-        draw_footer(f, app, shell.footer);
     }
     let over = shell.over();
-    let message = draw_status(f, app, shell.status);
+    let footer = Footer::of(app, shell.footer.width);
+    app.areas.hints = footer.hint_areas(shell.footer);
+    f.render_widget(&footer, shell.footer);
+    let message = footer.room(shell.status());
     match &app.modal {
         Some(Modal::Menu(_)) => draw_menu(f, app, over),
         Some(Modal::Confirm(_)) => draw_confirm(f, app, over),
-        Some(Modal::Ask(q, _)) => draw_ask(f, q.clone(), over),
+        Some(Modal::Ask(..)) => draw_ask(f, app, over),
         Some(Modal::Pick(_)) => draw_picker(f, app, over),
         Some(Modal::Report(_)) => draw_report(f, app, over),
         Some(Modal::Form(_)) => draw_form(f, app, over),
@@ -97,6 +113,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.deck.outputs.is_some() {
         draw_outputs(f, app, over);
     }
+    if let Some(keys) = KeysDialog::of(app) {
+        f.render_widget(&keys, over);
+    }
     if app.help {
         draw_help(f, app, over);
     } else if app.show_log {
@@ -104,7 +123,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     } else if shell.density != Density::DeckOnly {
         draw_toasts(f, app, over, message);
     }
-    draw_chord(f, app, over);
     app.transitions.follow(shown(app), shell.body.union(shell.strip));
     // The overview's where this frame drew it, the deck's or the strip's: none, none washed.
     app.transitions.follow_warning(end_style(app).is_some(), app.areas.overview);

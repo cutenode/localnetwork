@@ -24,19 +24,22 @@ use locallibrary::{Device, Library, Store, Track, fsutil};
 use loclib_waveform::{Art, Pixels, cue_letter};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
 
-use super::app::{App, Level, Msg, edit_line, typed_tail};
+use super::app::{App, Level, Msg, View, edit_line, typed_tail};
 use super::icons;
-use super::keymap::Act;
+use super::keymap::{self, Act, Scope, dialogs};
 use super::keys::Camelot;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
-use super::ui::{Scrolled, block, clip, pane_title, title};
+use super::ui::{Scrolled, block, clip, key_says, pane_title, title};
 use crate::output::clock;
+
+/// The scopes the Recordings view looks its keys up in.
+const MIXES: [Scope; 2] = [Scope::Mixes, Scope::Global];
 
 /// Recordings remembered between runs.
 const RECENT: usize = 20;
@@ -157,7 +160,7 @@ pub struct MixTab {
     generation: u64,
     pub pane: Pane,
     pub rows: TableState,
-    /// A path being typed (`o`).
+    /// A path being typed (open… in `e`).
     pub input: Option<String>,
     /// Timeline zoom: 1 shows the whole set.
     pub zoom: u8,
@@ -233,6 +236,11 @@ impl MixTab {
         }
     }
 
+    /// The title of the recording open, if one is.
+    pub fn title(&self) -> Option<&str> {
+        self.report().map(|r| r.mix.title.as_str())
+    }
+
     fn selected_play(&self) -> Option<&Play> {
         self.report()?.plays.get(self.rows.selected()?)
     }
@@ -291,7 +299,7 @@ impl MixTab {
 // Opening and identifying
 // ---------------------------------------------------------------------------------------------
 
-/// `R`: list the open drive's recordings and the folders' again.
+/// f5: list the open drive's recordings and the folders' again.
 pub fn refresh(app: &mut App) {
     list_drive(app);
     list_folders(app);
@@ -745,9 +753,9 @@ fn html_report(app: &mut App) {
 /// the key was used.
 pub fn on_input(app: &mut App, key: KeyEvent) -> bool {
     let Some(text) = &mut app.mix.input else { return false };
-    match key.code {
-        KeyCode::Esc => app.mix.input = None,
-        KeyCode::Enter => {
+    match keymap::dialog_act(&dialogs::PROMPT, &key) {
+        Some(Act::Escape) => app.mix.input = None,
+        Some(Act::Activate) => {
             let path = typed_path(text);
             app.mix.input = None;
             if !path.as_os_str().is_empty() {
@@ -771,15 +779,6 @@ pub fn switch_pane(app: &mut App) {
     app.mix.pane = match app.mix.pane {
         Pane::Mixes if app.mix.report().is_some_and(|r| !r.plays.is_empty()) => Pane::Tracks,
         _ => Pane::Mixes,
-    }
-}
-
-/// A digit: the pane with that number, when there's something in it.
-pub fn jump_to_pane(app: &mut App, n: u32) {
-    match n {
-        1 => app.mix.pane = Pane::Mixes,
-        2 if app.mix.report().is_some_and(|r| !r.plays.is_empty()) => app.mix.pane = Pane::Tracks,
-        _ => {}
     }
 }
 
@@ -816,8 +815,8 @@ pub fn track_jump(app: &mut App, forward: bool) -> bool {
     true
 }
 
-/// `o` with a set open: the selected track in the library. Returns whether it did; otherwise
-/// `o` goes to the playing track as anywhere.
+/// Show in library (in `e`) with a set open: the selected track in the library. Returns whether it did; otherwise
+/// it goes to the playing track as anywhere.
 pub fn go_to(app: &mut App) -> bool {
     if app.mix.report().is_none() {
         return false;
@@ -842,7 +841,11 @@ pub fn escape(app: &mut App) -> bool {
 /// The Mixes view's own actions.
 pub fn perform(app: &mut App, act: Act) {
     match act {
-        Act::MixOpen => app.mix.input = Some(String::new()),
+        // The path is typed in the recordings list, which a narrow tracks pane hides.
+        Act::MixOpen => {
+            app.mix.pane = Pane::Mixes;
+            app.mix.input = Some(String::new());
+        }
         Act::MixZoom => {
             app.mix.zoom = match app.mix.zoom {
                 1 => 2,
@@ -967,26 +970,35 @@ fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
             Line::raw(""),
             Line::styled("Fingerprints are kept in the store: only tracks new to it take time.", dim()),
         ];
-        lines.push(Line::from(vec![Span::styled("esc ", theme::key()), Span::styled("stops", dim())]));
+        lines.push(Line::from(key_says(&MIXES, Act::Escape, " stops", dim())));
         let p = Paragraph::new(lines).alignment(Alignment::Center).wrap(Wrap { trim: true });
         f.render_widget(p.block(block(title("Mix", false), false)), main);
         return;
     }
     match &t.opened {
         None => {
+            let library = match keymap::view_key(View::Library) {
+                k if k.is_empty() => String::new(),
+                k => format!(" ({k})"),
+            };
             let drive = match &cx.drive {
                 Some(d) => format!("Tracks are looked for in the open drive's library ({d})."),
-                None => "Open a drive in the library first (1): tracks are looked for in its library.".into(),
+                None => format!("Open a drive in the library first{library}: tracks are looked for in its library."),
+            };
+            // The view's actions menu opens one; with no key for it, it's found by name.
+            let open = match keymap::key_name(&MIXES, Act::PaneActions) {
+                Some(k) => vec![
+                    Span::styled("Pick a recording, or open a file or a folder from ", dim()),
+                    Span::styled(k, theme::key()),
+                    Span::styled(".", dim()),
+                ],
+                None => vec![Span::styled(format!("Pick a recording, or {} in :.", keymap::name(Act::MixOpen)), dim())],
             };
             let lines = vec![
                 Line::raw(""),
                 Line::styled("A recorded set, and the tracks it plays", bold(theme::current().text)),
                 Line::raw(""),
-                Line::from(vec![
-                    Span::styled("Pick a recording, or press ", dim()),
-                    Span::styled("O", theme::key()),
-                    Span::styled(" to open a file or a folder.", dim()),
-                ]),
+                Line::from(open),
                 Line::styled(drive, dim()),
                 Line::styled(
                     "You get the set's waveform with each track's lane, tempo and keys as played, and every handoff.",
@@ -1011,8 +1023,7 @@ fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
 
 fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     let focused = t.pane == Pane::Mixes;
-    let b = block(pane_title(1, "Recordings", focused), focused)
-        .title_bottom(Line::from(vec![Span::styled(" O ", theme::key()), Span::styled("open… ", faint())]));
+    let b = block(pane_title("Recordings", focused), focused);
     let mut inner = b.inner(area);
     f.render_widget(b, area);
     if let Some(text_) = &t.input {
@@ -1044,7 +1055,14 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
                 dim(),
             ),
             Line::raw(""),
-            Line::styled("Press O to open a recording, or a folder of them.", faint()),
+            // From the view's actions menu, as the Mix pane says.
+            Line::styled(
+                keymap::key_name(&MIXES, Act::PaneActions).map_or_else(
+                    || format!("{} in : opens a recording, or a folder of them.", keymap::name(Act::MixOpen)),
+                    |k| format!("Open a recording, or a folder of them, from {k}."),
+                ),
+                faint(),
+            ),
         ];
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
         t.areas.list = area;
@@ -1231,8 +1249,6 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     if t.zoom > 1 {
         right.push(Span::styled(format!("{}× ", t.zoom), fg(theme::current().info)));
     }
-    right.push(Span::styled("z ", theme::key()));
-    right.push(Span::styled("zoom ", faint()));
     let b = block(title("Timeline", false), false).title(Line::from(right).right_aligned());
     let inner = b.inner(timeline);
     f.render_widget(b, timeline);
@@ -1583,7 +1599,7 @@ fn draw_tracklist(
     let head = Row::new(header.iter().take(cols).map(|h| Cell::from(Line::styled(*h, faint()))));
     let table = Table::new(body, widths)
         .header(head)
-        .block(block(pane_title(2, "Tracklist", focused), focused))
+        .block(block(pane_title("Tracklist", focused), focused))
         .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Text::from(vec![
             Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),

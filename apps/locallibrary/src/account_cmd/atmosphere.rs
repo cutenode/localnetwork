@@ -334,7 +334,10 @@ fn render_details(a: &AccountInfo) {
         true => warn(line),
         false => say!("  {line}"),
     }
-    let publishes = a.scopes.iter().any(|s| atmosphere::PUBLISH_SCOPES.contains(&s.as_str()));
+    // The player's sign-in may publish its keys and nothing else.
+    let keys = |s: &String| s == atmosphere::KEYBINDS_SCOPE;
+    let publishes = a.scopes.iter().any(|s| !keys(s) && atmosphere::PUBLISH_SCOPES.contains(&s.as_str()));
+    let publishes_keys = a.scopes.iter().any(keys);
     let reports = a.scopes.iter().any(|s| s == atmosphere::REPORT_SCOPE);
     let known = |s: &String| {
         [
@@ -345,17 +348,16 @@ fn render_details(a: &AccountInfo) {
         .concat()
         .contains(&s.as_str())
     };
-    let can = match (a.scopes.iter().all(known), publishes, reports) {
-        (false, ..) => format!("allowed: {}", a.scopes.join(" ")),
-        (true, false, false) => "knows who you are; can't post or change anything".to_string(),
-        (true, true, false) => {
-            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else".to_string()
-        }
-        (true, false, true) => "can post bug reports; can't post or change anything else".to_string(),
-        (true, true, true) => {
-            "can publish your My Settings, profile, sets and their recordings and post bug reports; can't post or change anything else"
-                .to_string()
-        }
+    let publishing = match (publishes, publishes_keys) {
+        (true, _) => Some("publish your My Settings, profile, sets and their recordings"),
+        (false, true) => Some("publish the player's keys"),
+        (false, false) => None,
+    };
+    let may: Vec<&str> = publishing.into_iter().chain(reports.then_some("post bug reports")).collect();
+    let can = match (a.scopes.iter().all(known), may.is_empty()) {
+        (false, _) => format!("allowed: {}", a.scopes.join(" ")),
+        (true, true) => "knows who you are; can't post or change anything".to_string(),
+        (true, false) => format!("can {}; can't post or change anything else", may.join(" and ")),
     };
     say!("  {}", dim(format!("{can} · session kept {}", storage_name(a.storage))));
     match &a.client {

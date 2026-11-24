@@ -14,7 +14,13 @@ const AUDIENCE = 'did:web:localnetwork.computer';
 
 const DJ = 'did:plc:dj';
 
-const LOCALLIBRARY = [COLLECTION.djSet, COLLECTION.djRecording, COLLECTION.djProfile, COLLECTION.locallibrarySettings];
+const LOCALLIBRARY = [
+	COLLECTION.djSet,
+	COLLECTION.djRecording,
+	COLLECTION.djProfile,
+	COLLECTION.locallibrarySettings,
+	COLLECTION.locallibraryKeybinds
+];
 
 const backfillInput = z.object({ collection: z.string(), dids: z.array(z.string()) });
 

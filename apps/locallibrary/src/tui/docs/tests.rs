@@ -40,7 +40,9 @@ fn table((title, rows): &HelpSection) -> String {
     // A row with no keys goes on from the one above it.
     let keys = |k: &str| if k.is_empty() { String::new() } else { format!("`{}`", cell(k)) };
     let rows: String = rows.iter().map(|(k, what)| format!("| {} | {} |\n", keys(k), cell(what))).collect();
-    format!("{title}:\n\n| Keys | |\n| --- | --- |\n{rows}\n")
+    // A title that names a key (`By name, in :`) already ends in its colon.
+    let colon = if title.ends_with(':') { "" } else { ":" };
+    format!("{title}{colon}\n\n| Keys | |\n| --- | --- |\n{rows}\n")
 }
 
 fn key_tables() -> String {

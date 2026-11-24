@@ -413,7 +413,7 @@ fn player(dir: &std::path::Path) -> Command {
 }
 
 /// The player on a terminal, start to end: it asks before it draws, each frame comes between the
-/// synchronized output marks, `q` quits it, and what it asked leaves nothing behind.
+/// synchronized output marks, ctrl-c quits it, and what it asked leaves nothing behind.
 #[hegel::test(test_cases = 2)]
 fn prop_the_player_starts_asks_draws_and_quits(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -421,7 +421,7 @@ fn prop_the_player_starts_asks_draws_and_quits(tc: TestCase) {
     let terminal = Terminal { capability: true, read_back: false, colours: true, dark: false, device: !late };
     let mut command = player(dir.path());
     command.env("TERM", "xterm-256color");
-    let (out, status) = on_a_pty(command, terminal, b"\x1b[?2026l", b"Q");
+    let (out, status) = on_a_pty(command, terminal, b"\x1b[?2026l", b"\x03");
     let shown = String::from_utf8_lossy(&out);
     assert!(status.success(), "{shown}");
     let at = |needle: &[u8]| out.windows(needle.len()).position(|w| w == needle);

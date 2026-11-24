@@ -29,7 +29,7 @@ pub(in crate::tui) fn entered_keys(tx: &Sender<Msg>, start: &AccountSignIn) -> O
 impl App {
     /// The form taking the keys `start` asks for, each field named by its key's title, and the
     /// account's name when `start` is `named`; what's entered goes back on `reply`. Closed, it's
-    /// never answered.
+    /// never answered. Asked for from a sign-in under way, it waits its turn behind another dialog.
     pub(in crate::tui) fn enter_keys(&mut self, start: &AccountSignIn, reply: Sender<EnteredKeys>) {
         let title = &start.title;
         let getting = format!("{} {}", getting_keys(start), start.url);
@@ -50,7 +50,7 @@ impl App {
             &Map::new(),
             For::Keys(start.keys.clone(), reply),
         );
-        self.modal = Some(Modal::Form(form));
+        self.show(Modal::Form(form));
     }
 }
 

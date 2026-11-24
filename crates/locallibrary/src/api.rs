@@ -2092,6 +2092,10 @@ pub use collection::*;
 mod publish;
 #[cfg(feature = "account")]
 pub use publish::*;
+#[cfg(feature = "account")]
+mod keybinds;
+#[cfg(feature = "account")]
+pub use keybinds::*;
 mod autopull;
 pub use autopull::*;
 mod cache;

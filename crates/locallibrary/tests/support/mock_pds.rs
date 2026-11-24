@@ -86,8 +86,9 @@ type Answered = (u16, Value);
 type Records = IndexMap<(String, String, String), (Value, String)>;
 
 /// The record types the website has the directory read again (its `requestIndex`).
-const LOCALLIBRARY_COLLECTIONS: [&str; 4] = [
+const LOCALLIBRARY_COLLECTIONS: [&str; 5] = [
     "computer.localnetwork.locallibrary.settings",
+    "computer.localnetwork.locallibrary.keybinds",
     "computer.localnetwork.dj.profile",
     "computer.localnetwork.dj.set",
     "computer.localnetwork.dj.recording",

@@ -2,7 +2,7 @@
 //! fixture drive with every view's data in (see `screens.rs`), with what must always hold checked
 //! after every step: the screen draws at any size with its header and footer, what's selected is
 //! there, the list shown is the library's, sorted as it says; and at the end, esc gets back out of
-//! whatever is open and Q quits.
+//! whatever is open and esc twice quits.
 //!
 //! The walks stay off the machine: nothing they press opens a browser, signs in, reads the
 //! machine's drives, goes online, ejects or writes outside the test's folder (see [`allowed`]).
@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, Mo
 use ratatui::layout::{Position, Rect};
 use rustc_hash::FxHashSet;
 
-use super::app::testing::{Template, mouse, overlay, wait};
+use super::app::testing::{Template, esc_and_yes, last_message, mouse, overlay, wait};
 use super::app::{App, Focus, View};
 use super::browse;
 use super::edits::{Modal, PromptFor};
@@ -26,17 +26,64 @@ use super::palette::{Then, fuzzy};
 use super::screens::{Fixture, fixture, shown};
 use super::ui::screen;
 
-/// Keys a walk presses, as [`key_event`] reads them; the common ones more than once, to come up
-/// more often.
+/// Keys a walk presses, as [`key_event`] reads them, and commands it chooses in the palette
+/// (see [`COMMANDS`]); the common ones more than once, to come up more often. Capitals are pressed
+/// too: no key is one.
 #[rustfmt::skip]
 const KEYS: &[&str] = &[
-    "j", "j", "k", "<up>", "<down>", "<down>", "<pgup>", "<pgdn>", "<home>", "<end>", "g", "G", "<left>", "<right>",
+    "j", "j", "k", "<up>", "<down>", "<down>", "<pgup>", "<pgdn>", "<home>", "<end>", "G", "<left>", "<right>",
     "<tab>", "<tab>", "<backtab>", "<enter>", "<enter>", "<enter>", "<esc>", "<esc>", "<del>", "<bs>", "<space>",
-    "/", "b", "B", "*", "#", "i", "m", "M", "a", "t", "e", "e", "T", "K", "J", "<S-up>", "<S-down>", "w", "X", "u",
-    "f", "v", "[", "]", "+", "-", "s", "r", "x", "o", "'", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "Q", "Z",
-    "l", "(", ")", "S", "A", "d", "z", "E", "O", "D", "h", "H", "n", "p", "y", "y", "q", "1", "2", "3", "4", "5",
-    "0", "?", "!", ":", "R", "<f5>", "<ins>", "<C-c>",
+    "/", "b", ":sort", ":sort back", ":ratings", ":my tags", "#", "i", "m", ":mark all", "a", "t", "e", "e",
+    ":my tag", "<S-up>", "<S-down>", "w", ":save queue", ":clear queue", "u", "f", "v", ":visualiser", ":zoom out",
+    ":zoom in", "+", "-", "s", ":shuffle", "r", ":repeat", "x", ":stop", "o", ":go to playing", ":pads", "c", "h",
+    ":next phrase", ":previous phrase", ",", ".", ":bar back", ":bar on", ":8 bars back", ":8 bars on", ":quantize",
+    "Q", "Z", "l", ":halve loop", ":double loop", ":single", ":auto cue", "d", ":outputs", "z", ":export set",
+    ":open folder", ":open recording", ":zoom set", ":show in library", ":document", ":in document",
+    ":hide artist", ":rounding", "n", "p", "y", "y", "q", "1", "2", "3", "4", "5", "0", "?", "!", ":messages", ":", "<f5>", "<ins>", "<C-c>",
+    "&", ":forget played",
 ];
+
+/// The commands a walk chooses in the palette (`:` and the command's name) by the name it gives
+/// them, for what has no key of its own.
+#[rustfmt::skip]
+const COMMANDS: &[(&str, Act)] = &[
+    (":sort", Act::Sort), (":sort back", Act::SortReverse), (":ratings", Act::Ratings),
+    (":my tags", Act::TagsColumn), (":mark all", Act::MarkAll), (":my tag", Act::Tag),
+    (":save queue", Act::CrateSave), (":clear queue", Act::CrateClear), (":visualiser", Act::Visualiser),
+    (":zoom out", Act::Zoom(false)), (":zoom in", Act::Zoom(true)), (":shuffle", Act::Shuffle),
+    (":repeat", Act::Repeat), (":stop", Act::Stop), (":go to playing", Act::GoTo), (":pads", Act::Pads),
+    (":next phrase", Act::Phrase(true)), (":previous phrase", Act::Phrase(false)),
+    (":bar back", Act::BeatJump(-4)), (":bar on", Act::BeatJump(4)), (":8 bars back", Act::BeatJump(-32)),
+    (":8 bars on", Act::BeatJump(32)), (":quantize", Act::Quantize), (":halve loop", Act::LoopSize(false)),
+    (":double loop", Act::LoopSize(true)), (":single", Act::Single), (":auto cue", Act::AutoCue),
+    (":outputs", Act::Outputs), (":messages", Act::Messages), (":forget played", Act::ResetPlayed),
+    (":open folder", Act::OpenFolder), (":in document", Act::ProfileInclude),
+    (":document", Act::ProfileDocument), (":save document", Act::ProfileWrite),
+    (":hide artist", Act::ProfileHideArtist), (":rounding", Act::ProfileRounding),
+    (":open recording", Act::MixOpen), (":zoom set", Act::MixZoom), (":export set", Act::MixExport),
+    (":show in library", Act::MixGoTo),
+];
+
+/// The command `name` stands for in a walk's keys, if it's one of [`COMMANDS`].
+fn command_named(name: &str) -> Option<Act> {
+    COMMANDS.iter().find(|(n, _)| *n == name).map(|&(_, act)| act)
+}
+
+/// Press the key `name`, or choose the command it stands for as the palette would: only with
+/// nothing else taking the keys, and only a command the palette offers in this view. Returns
+/// whether it was pressed or chosen.
+fn press_or_choose(app: &mut App, name: &str) -> bool {
+    let Some(act) = command_named(name) else {
+        app.on_key(key_event(name));
+        return true;
+    };
+    let offered = super::palette::commands(app.view).iter().any(|(a, _)| *a == act);
+    let chosen = offered && !app.input_taken();
+    if chosen {
+        app.perform(act, None);
+    }
+    chosen
+}
 
 /// Words a walk types: commands for the palette, names for prompts, searches and filters.
 #[rustfmt::skip]
@@ -95,22 +142,18 @@ fn allowed(app: &App, key: KeyEvent) -> bool {
         return true;
     }
     match &app.modal {
-        Some(Modal::Confirm(c)) => {
-            return !(matches!(key.code, KeyCode::Char('y' | 'Y')) && c.plan.operation() == "eject");
+        Some(Modal::Confirm(c)) => !(matches!(key.code, KeyCode::Char('y' | 'Y')) && c.plan.operation() == "eject"),
+        Some(Modal::Pick(p)) => {
+            // A view's actions menu chooses by a letter too (`l` signs in, in localnetwork's).
+            let letter = match &p.then {
+                Then::Act(acts) if !p.typing() => super::keymap::menu_act(acts, &key),
+                _ => None,
+            };
+            let denied = letter.is_some_and(|act| DENIED.contains(&act));
+            !(denied || enter && p.selected().is_some_and(|i| denied_pick(&p.then, i)))
         }
-        Some(Modal::Pick(p)) => return !(enter && p.selected().is_some_and(|i| denied_pick(&p.then, i))),
         // Providers go online (the cover art plugin to MusicBrainz).
-        Some(Modal::Form(f)) => return !(enter && matches!(f.then, super::form::For::Fetch { .. })),
-        Some(_) => return true,
-        None => {}
-    }
-    if app.input_taken() {
-        return true;
-    }
-    let ch = |c| key.code == KeyCode::Char(c);
-    match app.view {
-        View::Profile => !(ch('L') || ch('a')),
-        View::Mixes => !ch('w'),
+        Some(Modal::Form(f)) => !(enter && matches!(f.then, super::form::For::Fetch { .. })),
         _ => true,
     }
 }
@@ -187,6 +230,9 @@ fn draw_step(tc: &TestCase, keys: &'static [&'static str], (w, h): (u16, u16)) -
 /// Take `step`, as a person would (but not where [`allowed`] says not to).
 fn take(app: &mut App, step: &Step, size: &mut (u16, u16), dir: &Path) {
     match *step {
+        Step::Key(name) if command_named(name).is_some() => {
+            press_or_choose(app, name);
+        }
         Step::Key(name) => {
             let key = key_event(name);
             if allowed(app, key) {
@@ -327,9 +373,11 @@ fn state(app: &mut App) {
 }
 
 /// Esc, as often as it takes, puts away whatever's open (a dialog, a typed line, the help, full
-/// screen) once the background is done; then q quits.
+/// screen) once the background is done, never quitting while it does; then, with nothing left to
+/// close, esc twice quits.
 fn back_out(app: &mut App) {
-    let out = |a: &App| !a.input_taken() && !a.deck_layout;
+    // Player mode stays chosen through a visit to another view, where there's nothing to close.
+    let out = |a: &App| !a.input_taken() && !a.deck_showing();
     settle(app);
     // A quit asked for while the drive was written happens once the write is done: the walk
     // ended there.
@@ -340,13 +388,21 @@ fn back_out(app: &mut App) {
         if out(app) {
             break;
         }
-        app.on_key(key_event("<esc>"));
+        esc_and_yes(app);
         app.tick();
     }
     assert!(out(app), "esc didn't get out: modal {}, searching {}", app.modal.is_some(), app.searching);
     assert!(!app.quit, "esc quit");
-    app.on_key(key_event("Q"));
-    assert!(app.quit, "Q didn't quit");
+    // Then esc peels what's left a layer at a time (browsing over player mode, player mode, the pads, a panel, the
+    // marks over two escs, a question before stopping what's under way, answered yes) and twice more quits.
+    for _ in 0..16 {
+        if app.quit {
+            break;
+        }
+        esc_and_yes(app);
+        app.tick();
+    }
+    assert!(app.quit, "esc twice didn't quit");
 }
 
 /// The fixture's drive and store, and the drive's folder name: made once (pulling the drive into
@@ -397,20 +453,51 @@ fn walk_in(tc: &TestCase, start: &str, keys: &'static [&'static str], steps: usi
     set_test_mode(None);
 }
 
+/// Player mode stays chosen through a visit to another view, where esc has nothing to close: backing out of a
+/// walk that ended there stops at once, and player mode is still chosen (LOC-1014).
+#[test]
+fn backing_out_of_another_view_leaves_player_mode_chosen() {
+    let Fixture { _dir, mut app, .. } = walk_fixture();
+    app.on_key(key_event("1"));
+    app.on_key(key_event("f"));
+    assert!(app.deck_showing());
+    app.perform(Act::ShowView(View::Drives), None);
+    back_out(&mut app);
+    assert!(app.deck_layout && app.view == View::Drives, "player mode chosen, still in Drives");
+}
+
+/// With every layer esc peels up at once (browsing over player mode, the pads, a search kept, the queue open and a
+/// marked track), backing out still ends in a quit.
+#[test]
+fn backing_out_peels_every_layer_then_quits() {
+    let Fixture { _dir, mut app, .. } = walk_fixture();
+    for key in ["1", "f", "b", "/", "a", "<enter>", "m"] {
+        app.on_key(key_event(key));
+    }
+    (app.show_crate, app.focus) = (true, Focus::Crate);
+    app.perform(Act::Pads, None);
+    assert!(app.deck.pads && app.deck_layout && !app.deck_showing(), "browsing over player mode, the pads on");
+    back_out(&mut app);
+}
+
 /// Anything pressed, typed or clicked, in any view, at any size, keeps the player whole.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn any_walk_keeps_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", KEYS, 30);
 }
 
-/// The library's keys: every key but those for the other views.
+/// The library's keys and commands: every one but those for the other views (the digits in a
+/// menu are ratings, in player mode hot cues; 1 comes back to the library).
 #[rustfmt::skip]
 const LIBRARY_KEYS: &[&str] = &[
-    "j", "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>", "<home>", "<end>", "g", "G", "<left>", "<right>", "<tab>",
+    "j", "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>", "<home>", "<end>", "<left>", "<right>", "<tab>",
     "<tab>", "<backtab>", "<enter>", "<enter>", "<enter>", "<esc>", "<esc>", "<del>", "<bs>", "<space>", "/", "/",
-    "b", "B", "*", "#", "i", "m", "M", "a", "t", "e", "e", "e", "T", "K", "J", "<S-up>", "<S-down>", "w", "X", "u",
-    "f", "v", "[", "]", "+", "-", "s", "r", "x", "o", "'", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "Q", "Z",
-    "l", "(", ")", "S", "A", "d", "n", "p", "y", "y", "y", "0", "3", "5", "?", "!", ":", ":", "R", "<ins>",
+    "b", ":sort", ":sort back", ":ratings", ":my tags", "i", "m", ":mark all", "a", "t", "e", "e", "e", ":my tag",
+    "<S-up>", "<S-down>", "w", ":save queue", ":clear queue", "u", "f", ":visualiser", ":zoom out", ":zoom in",
+    "+", "-", ":shuffle", ":repeat", ":stop", ":go to playing", ":pads", "c", "h", ":next phrase",
+    ":previous phrase", ",", ".", ":bar back", ":bar on", ":8 bars back", ":8 bars on", ":quantize", "l",
+    ":halve loop", ":double loop", ":single", ":auto cue", ":outputs", "n", "p", "q", "y", "y", "y", "0", "1", "3",
+    "5", "?", ":messages", ":", ":", "<f5>", "<ins>",
 ];
 
 /// The library: browsing, searching, sorting, marking, the crate, the menus, dialogs and edits.
@@ -419,57 +506,155 @@ fn library_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", LIBRARY_KEYS, 30);
 }
 
-/// What a library walk found: the outputs list (`d`) in a terminal too short for it is drawn over
-/// the header, as a dialog is, and in one three rows tall it has what's under the deck.
+/// What a library walk found: the outputs list (in :) in a terminal too short for it is drawn
+/// over the header, as a dialog is, and in one three rows tall it has what's under the deck.
 #[test]
 fn the_outputs_list_may_cover_the_header() {
     let Fixture { _dir, mut app, .. } = walk_fixture();
     app.on_key(key_event("1"));
-    app.on_key(key_event("d"));
+    assert!(press_or_choose(&mut app, ":outputs"));
     assert!(screen(&mut app, 80, 20).contains("the system's default"));
     check(&mut app, (80, 20));
     check(&mut app, (80, 3));
 }
 
+/// What walks seldom get to: a plan to eject the drive is never said yes to (the drive is
+/// the machine's), and any other key goes in.
+#[test]
+fn a_walk_never_ejects_the_drive() {
+    let (mut app, dir) = super::app::testing::app_with(super::app::testing::library());
+    let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+    app.plan(root, |_| Ok(Box::new(super::app::testing::Plan { operation: "eject", ..Default::default() })));
+    settle(&mut app);
+    let mut size = (120, 30);
+    take(&mut app, &Step::Key("y"), &mut size, dir.path());
+    assert!(matches!(app.modal, Some(Modal::Confirm(_))) && app.job.is_none(), "y went in");
+    take(&mut app, &Step::Key("n"), &mut size, dir.path());
+    assert!(app.modal.is_none(), "n didn't");
+}
+
 /// The Drives and Snapshots views' keys, and their menus and dialogs'.
 const DRIVES_KEYS: &[&str] = &[
-    "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>", "g", "G", "<enter>", "<enter>", "e", "e", "e", "<esc>", "u", "R",
-    "y", "y", "n", "2", "2", "3", "<tab>", "?", "!", ":", "<bs>",
+    "j",
+    "k",
+    "<up>",
+    "<down>",
+    "<pgup>",
+    "<pgdn>",
+    "<home>",
+    "<end>",
+    "<enter>",
+    "<enter>",
+    "e",
+    "e",
+    "e",
+    "<esc>",
+    "u",
+    "<f5>",
+    "y",
+    "y",
+    "n",
+    "<tab>",
+    "<tab>",
+    "<backtab>",
+    "?",
+    ":messages",
+    ":",
+    "<bs>",
 ];
 
 /// The Drives and Snapshots views: their lists, the drive's actions and what they plan.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn drives_walks_keep_the_player_whole(tc: TestCase) {
-    walk_in(&tc, "2", DRIVES_KEYS, 25);
+    walk_in(&tc, "3", DRIVES_KEYS, 25);
 }
 
-/// The Profile view's keys.
+/// The Profile view's keys, its menu's letters and its commands.
 const PROFILE_KEYS: &[&str] = &[
-    "j", "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>", "g", "G", "<tab>", "<tab>", "<enter>", "<esc>", "i", "m", "h",
-    "H", "D", "D", "w", "#", "R", "?", ":",
+    "j",
+    "j",
+    "k",
+    "<up>",
+    "<down>",
+    "<pgup>",
+    "<pgdn>",
+    "<home>",
+    "<end>",
+    "<tab>",
+    "<tab>",
+    "<enter>",
+    "<esc>",
+    "e",
+    "i",
+    "m",
+    "h",
+    ":in document",
+    ":hide artist",
+    ":document",
+    ":document",
+    ":save document",
+    ":rounding",
+    "w",
+    "#",
+    "<f5>",
+    "?",
+    ":",
 ];
 
 /// The Profile view: its sections and lists, what goes in the document, pins and hidden names.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn profile_walks_keep_the_player_whole(tc: TestCase) {
-    walk_in(&tc, "4", PROFILE_KEYS, 25);
+    walk_in(&tc, "5", PROFILE_KEYS, 25);
 }
 
-/// The Mixes view's keys.
+/// The Mixes view's keys, its menu's letters and its commands.
 const MIX_KEYS: &[&str] = &[
-    "j", "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>", "g", "G", "<tab>", "<tab>", "<enter>", "<esc>", "<space>",
-    "n", "p", "O", "z", "z", "<del>", "o", "E", "x", "R", "?", ":", "<bs>",
+    "j",
+    "j",
+    "k",
+    "<up>",
+    "<down>",
+    "<pgup>",
+    "<pgdn>",
+    "<home>",
+    "<end>",
+    "<tab>",
+    "<tab>",
+    "<enter>",
+    "<esc>",
+    "<space>",
+    "n",
+    "p",
+    ":open recording",
+    ":zoom set",
+    ":zoom set",
+    "<del>",
+    ":show in library",
+    ":export set",
+    "e",
+    "z",
+    "o",
+    "x",
+    ":stop",
+    "<f5>",
+    "?",
+    ":",
+    "<bs>",
 ];
 
 /// The Mixes view: the recordings, the set's timeline and tracks, playing from them.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn mix_walks_keep_the_player_whole(tc: TestCase) {
-    walk_in(&tc, "5", MIX_KEYS, 25);
+    walk_in(&tc, "4", MIX_KEYS, 25);
 }
 
-/// The keys that turn something on or off, or step through settings, as the library takes them.
-const TOGGLES: &[&str] =
-    &["*", "#", "i", "t", "s", "r", "v", "f", "[", "]", "+", "-", "Z", "S", "A", "'", "<tab>", "<backtab>"];
+/// The keys and commands that turn something on or off, or step through settings, as the library
+/// takes them.
+#[rustfmt::skip]
+const TOGGLES: &[&str] = &[
+    ":ratings", ":my tags", "i", "t", ":shuffle", ":repeat", ":visualiser", "f", ":zoom out", ":zoom in", "+", "-",
+    ":quantize", ":single", ":auto cue", ":pads", "<tab>", "<backtab>",
+];
 
 /// What the toggles set, as a person keeping count would see it.
 #[derive(Debug, Clone, PartialEq)]
@@ -525,8 +710,8 @@ impl Toggles {
 
     fn press(&mut self, key: &str) {
         match key {
-            "*" => self.ratings = !self.ratings,
-            "#" => self.tags = !self.tags,
+            ":ratings" => self.ratings = !self.ratings,
+            ":my tags" => self.tags = !self.tags,
             "i" => {
                 self.details = !self.details;
                 if !self.details && self.focus == Focus::Details {
@@ -543,14 +728,14 @@ impl Toggles {
                     self.focus = Focus::Tracks;
                 }
             }
-            "s" => self.shuffle = !self.shuffle,
-            "r" => self.repeat = (self.repeat + 1) % 3,
-            "v" => self.vis = (self.vis + 1) % 4,
+            ":shuffle" => self.shuffle = !self.shuffle,
+            ":repeat" => self.repeat = (self.repeat + 1) % 3,
+            ":visualiser" => self.vis = (self.vis + 1) % 4,
             "f" => (self.deck_layout, self.browsing) = (!self.deck_layout, false),
-            "Z" => self.quantize = !self.quantize,
-            "S" => self.single = !self.single,
-            "A" => self.auto_cue = !self.auto_cue,
-            "'" => self.pads = !self.pads,
+            ":quantize" => self.quantize = !self.quantize,
+            ":single" => self.single = !self.single,
+            ":auto cue" => self.auto_cue = !self.auto_cue,
+            ":pads" => self.pads = !self.pads,
             "<tab>" | "<backtab>" => {
                 let mut order = vec![Focus::Drives, Focus::Playlists, Focus::Tracks];
                 order.extend(self.crate_panel.then_some(Focus::Crate));
@@ -573,13 +758,13 @@ fn toggles_do_what_they_say(tc: TestCase) {
     let (mut volume, mut zoom) = (app.volume, app.deck_secs);
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(40)) {
         let key = tc.draw(gs::sampled_from(TOGGLES));
-        app.on_key(key_event(key));
+        assert!(press_or_choose(&mut app, key), "{key} not offered");
         model.press(key);
         match key {
             "+" => volume = (volume + 0.05).min(1.5),
             "-" => volume = (volume - 0.05).max(0.0),
-            "]" => zoom = (zoom / 1.5).max(1.5),
-            "[" => zoom = (zoom * 1.5).min(60.0),
+            ":zoom in" => zoom = (zoom / 1.5).max(1.5),
+            ":zoom out" => zoom = (zoom * 1.5).min(60.0),
             _ => {}
         }
         assert_eq!(Toggles::of(&app), model, "after {key}");
@@ -590,7 +775,11 @@ fn toggles_do_what_they_say(tc: TestCase) {
 }
 
 /// The keys of the marks and the crate, with moving about and between the panes.
-const CRATE_KEYS: &[&str] = &["j", "k", "<home>", "G", "m", "m", "M", "a", "a", "t", "<tab>", "K", "J", "<del>", "X"];
+#[rustfmt::skip]
+const CRATE_KEYS: &[&str] = &[
+    "j", "k", "<home>", "<end>", "m", "m", ":mark all", "a", "a", "t", "<tab>", "<S-up>", "<S-down>", "<del>",
+    ":clear queue",
+];
 
 /// The marks and the crate as a person keeping count would see them: which tracks are marked,
 /// what's in the crate in its order and which of it is selected, and where the cursor is.
@@ -610,6 +799,20 @@ struct Crated {
 /// it, in any order, do what a person keeping count expects (with the crate showing or not).
 #[hegel::test(test_cases = 100)]
 fn marks_and_the_crate_keep_count(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().max_value(40));
+    keep_count((0..n).map(|_| tc.draw(gs::sampled_from(CRATE_KEYS))));
+}
+
+/// What [`marks_and_the_crate_keep_count`]'s walks seldom get to: shift and the arrows moving a
+/// track of the queue, with the queue's focus.
+#[test]
+fn a_track_moves_in_the_queue() {
+    keep_count(["a", "j", "a", "t", "<tab>", "<S-down>", "<S-up>", "<S-up>"].into_iter());
+}
+
+/// Press `keys` (of [`CRATE_KEYS`]), checking after each that the marks and the crate are as a
+/// person keeping count expects.
+fn keep_count(keys: impl Iterator<Item = &'static str>) {
     use super::browse::NodeId;
     let (mut app, _dir) = super::app::testing::app_with(super::app::testing::library());
     let l = app.loaded.as_ref().unwrap();
@@ -632,25 +835,33 @@ fn marks_and_the_crate_keep_count(tc: TestCase) {
         focus: Focus::Tracks,
     };
     let clamp = |i: usize, d: isize, n: usize| (i as isize + d).clamp(0, n as isize - 1) as usize;
-    for _ in 0..tc.draw(gs::integers::<usize>().max_value(40)) {
-        let key = tc.draw(gs::sampled_from(CRATE_KEYS));
+    for key in keys {
         // Deleting in the tree plans a change to the drive: not what's counted here.
         if key == "<del>" && m.focus == Focus::Playlists {
             continue;
         }
-        app.on_key(key_event(key));
+        assert!(press_or_choose(&mut app, key), "{key} not offered");
         let n = paths.len();
         let step = match key {
-            "j" => 1,
-            "k" => -1,
+            "j" | "<S-down>" => 1,
+            "k" | "<S-up>" => -1,
             "<home>" => -1000,
-            "G" => 1000,
+            "<end>" => 1000,
             _ => 0,
         };
         match (key, m.focus) {
-            ("j" | "k" | "<home>" | "G", Focus::Tracks) => m.track = clamp(m.track, step, n),
-            ("j" | "k" | "<home>" | "G", Focus::Playlists) => m.tree = clamp(m.tree, step, tree.len()),
-            ("j" | "k" | "<home>" | "G", Focus::Crate) if !m.crate_list.is_empty() => {
+            // The queue's own: shift and the arrows move its track; elsewhere they move as the arrows.
+            ("<S-up>" | "<S-down>", Focus::Crate) => {
+                if let Some(i) = m.crate_sel {
+                    let to = clamp(i, step, m.crate_list.len());
+                    let p = m.crate_list.remove(i);
+                    m.crate_list.insert(to, p);
+                    m.crate_sel = Some(to);
+                }
+            }
+            (_, Focus::Tracks) if step != 0 => m.track = clamp(m.track, step, n),
+            (_, Focus::Playlists) if step != 0 => m.tree = clamp(m.tree, step, tree.len()),
+            ("j" | "k" | "<home>" | "<end>", Focus::Crate) if !m.crate_list.is_empty() => {
                 m.crate_sel = Some(clamp(m.crate_sel.unwrap_or(0), step, m.crate_list.len()))
             }
             ("m", Focus::Tracks) => {
@@ -669,7 +880,7 @@ fn marks_and_the_crate_keep_count(tc: TestCase) {
                     m.tree = clamp(m.tree, 1, tree.len());
                 }
             }
-            ("M", _) => {
+            (":mark all", _) => {
                 if m.marks.is_empty() {
                     m.marks.extend(paths.iter().cloned());
                 } else {
@@ -706,14 +917,6 @@ fn marks_and_the_crate_keep_count(tc: TestCase) {
                 let n = if m.shown { 4 } else { 3 };
                 m.focus = order[(order.iter().position(|o| *o == f).unwrap() + 1) % n];
             }
-            ("K" | "J", Focus::Crate) => {
-                if let Some(i) = m.crate_sel {
-                    let to = clamp(i, if key == "K" { -1 } else { 1 }, m.crate_list.len());
-                    let p = m.crate_list.remove(i);
-                    m.crate_list.insert(to, p);
-                    m.crate_sel = Some(to);
-                }
-            }
             ("<del>", Focus::Crate) => {
                 if let Some(i) = m.crate_sel {
                     m.crate_list.remove(i);
@@ -721,10 +924,10 @@ fn marks_and_the_crate_keep_count(tc: TestCase) {
                     m.crate_sel = (len > 0).then(|| i.min(len - 1));
                 }
             }
-            // The crate's own key: only in the crate.
-            ("X", Focus::Crate) if !m.crate_list.is_empty() => {
+            // From the palette, wherever the focus is.
+            (":clear queue", _) if !m.crate_list.is_empty() => {
                 // It asks first: yes.
-                assert!(matches!(app.modal, Some(Modal::Ask(..))), "X didn't ask");
+                assert!(matches!(app.modal, Some(Modal::Ask(..))), "clearing the queue didn't ask");
                 app.on_key(key_event("y"));
                 m.crate_list.clear();
                 m.crate_sel = None;
@@ -861,11 +1064,13 @@ fn the_search_shows_what_holds_the_words(tc: TestCase) {
     }
 }
 
-/// The player's keys: playback, the deck, the visualisers.
+/// The player's keys and commands: playback, the deck, the visualisers.
+#[rustfmt::skip]
 const DECK_KEYS: &[&str] = &[
-    "<space>", "<space>", "<left>", "<right>", "n", "n", "p", "x", "s", "r", "S", "A", "c", "C", "N", "P", ",", ".",
-    "<", ">", "{", "}", "Z", "l", "l", "(", ")", "f", "1", "2", "4", "v", "[", "]", "o", "d", "<enter>", "<esc>", "+",
-    "-", "'",
+    "<space>", "<space>", "<left>", "<right>", "n", "n", "p", ":stop", ":shuffle", ":repeat", ":single", ":auto cue",
+    "c", "h", ":next phrase", ":previous phrase", ",", ".", ":bar back", ":bar on", ":8 bars back", ":8 bars on",
+    ":quantize", "l", "l", ":halve loop", ":double loop", "f", "1", "2", "4", ":visualiser", ":zoom out", ":zoom in",
+    ":go to playing", ":outputs", "<enter>", "<esc>", "+", "-", ":pads",
 ];
 
 /// What must hold of what's playing: the queue's order is its tracks', each once; what plays is
@@ -889,7 +1094,7 @@ fn playing_holds(app: &App) {
 
 /// Playing through the queue with the player's keys, its time passing between them (half-second
 /// tracks at two sample rates, at a tempo to loop and jump by), keeps the queue whole and what
-/// plays within it, and n, s and x do what they say.
+/// plays within it, and n, shuffle and stop do what they say.
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
 fn playing_keeps_the_queue_whole(tc: TestCase) {
     let (_dir, mut app, mut out) = super::app::testing::playing_wavs(&[8000, 8000, 11025, 8000]);
@@ -912,12 +1117,12 @@ fn playing_keeps_the_queue_whole(tc: TestCase) {
                 let key = tc.draw(gs::sampled_from(DECK_KEYS));
                 let (pos, len, item) = (app.queue.pos, app.queue.len(), app.queue.order.get(app.queue.pos).copied());
                 let (repeat, playing) = (app.repeat, app.now.is_some());
-                // With the outputs listed (d), a key closes the list instead.
+                // With the outputs listed, a key goes to the list instead (and nothing's chosen in :).
                 let free = !app.input_taken();
-                app.on_key(key_event(key));
+                press_or_choose(&mut app, key);
                 match key {
                     _ if !free => {}
-                    "x" => assert!(app.now.is_none(), "x stops"),
+                    ":stop" => assert!(app.now.is_none(), "stop stops"),
                     // In the library (not full screen, where it queues the pick) n is the next.
                     "n" if !app.deck_layout && playing => {
                         let want = if pos + 1 < len {
@@ -930,7 +1135,9 @@ fn playing_keeps_the_queue_whole(tc: TestCase) {
                             None => assert!(app.now.is_none(), "n past the end stops"),
                         }
                     }
-                    "s" => assert_eq!(app.queue.order.get(app.queue.pos).copied(), item, "s keeps the track"),
+                    ":shuffle" => {
+                        assert_eq!(app.queue.order.get(app.queue.pos).copied(), item, "shuffle keeps the track")
+                    }
                     _ => {}
                 }
             }
@@ -989,14 +1196,15 @@ fn edits_write_what_they_say(tc: TestCase) {
     let n = model.ratings.len();
     // First a playlist of every track (marked, then "new playlist with them"), to edit after.
     let every: Vec<String> = app.loaded.as_ref().unwrap().library.tracks.iter().map(|t| t.file_path.clone()).collect();
-    for k in ["M", "e", "n"] {
+    app.perform(Act::MarkAll, None);
+    for k in ["e", "n"] {
         app.on_key(key_event(k));
     }
     "Friday".chars().for_each(|c| app.on_key(key_event(&c.to_string())));
     app.on_key(key_event("<enter>"));
     wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
     assert!(app.modal.is_none(), "`u` takes it back: nothing asks");
-    app.on_key(key_event("M"));
+    app.perform(Act::MarkAll, None);
     assert!(app.marks.is_empty());
     model.playlists.insert("Friday".into(), every);
     assert_eq!(read(), model, "a new playlist with the tracks marked");
@@ -1060,7 +1268,7 @@ fn edits_write_what_they_say(tc: TestCase) {
             Edit::NewPlaylist(name) => {
                 want.playlists.entry(name.to_string()).or_default();
                 app.on_key(key_event("e"));
-                app.on_key(key_event("N"));
+                app.on_key(key_event("l"));
                 name.chars().for_each(|c| app.on_key(key_event(&c.to_string())));
                 app.on_key(key_event("<enter>"));
             }
@@ -1180,7 +1388,7 @@ fn exports_hold_the_list_shown(tc: TestCase) {
         options: Default::default(),
     };
     locallibrary::api::edit_apply(&req, &locallibrary::Ctx::silent()).unwrap();
-    app.on_key(key_event("R"));
+    app.on_key(key_event("<f5>"));
     wait(&mut app, |a| a.loading.is_none());
     let list: Vec<&locallibrary::Track> = match tc.draw(gs::booleans()) {
         true => {
@@ -1236,7 +1444,7 @@ fn tags_on(root: &Path) -> std::collections::BTreeSet<(String, String)> {
 }
 
 /// Giving the selected (or marked) tracks a new My Tag or one the drive has, and taking one off,
-/// with `T`, its list and its prompt, leaves the drive's tags as a model of them says; the list
+/// with My Tag (in :), its list and its prompt, leaves the drive's tags as a model of them says; the list
 /// offers to take a tag off just when every track chosen has it.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn my_tags_go_on_and_come_off(tc: TestCase) {
@@ -1253,14 +1461,12 @@ fn my_tags_go_on_and_come_off(tc: TestCase) {
         app.marks.clear();
         app.on_key(key_event("<home>"));
         if all {
-            app.on_key(key_event("M"));
+            app.perform(Act::MarkAll, None);
         }
         let chosen: Vec<&String> = if all { names.iter().collect() } else { vec![&names[0]] };
-        app.on_key(key_event("T"));
+        app.perform(Act::Tag, None);
         wait(&mut app, |a| a.job.is_none());
-        let Some(Modal::Pick(p)) = &app.modal else {
-            panic!("T lists no tags: {}", super::app::testing::last_message(&app))
-        };
+        let Some(Modal::Pick(p)) = &app.modal else { panic!("My Tag lists no tags: {}", last_message(&app)) };
         let Then::Tag { choices, .. } = &p.then else { panic!("not the tags") };
         // The list: a new tag, then each of the drive's, to take off just where all have it.
         let drive = locallibrary::api::DriveRef { drive: root.display().to_string() };
@@ -1330,7 +1536,7 @@ fn the_drive_list_follows_what_is_plugged_in(tc: TestCase) {
     let mut first = true;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
         if tc.draw(gs::booleans()) {
-            app.on_key(key_event(tc.draw(gs::sampled_from(&["j", "k", "<home>", "G"][..]))));
+            app.on_key(key_event(tc.draw(gs::sampled_from(&["j", "k", "<home>", "<end>"][..]))));
             continue;
         }
         let mut list = tc.draw(gs::subsequences(&pool[..]));
@@ -1408,7 +1614,7 @@ fn a_playlist_comes_back_from_a_snapshot_as_it_was(tc: TestCase) {
     }
     edit(create("Keep", false, &paths));
     let kept = lists(&root);
-    app.on_key(key_event("R"));
+    app.on_key(key_event("<f5>"));
     wait(&mut app, |a| a.loading.is_none());
 
     let store = locallibrary::Store::open(&app.store_root).unwrap();
@@ -1427,7 +1633,7 @@ fn a_playlist_comes_back_from_a_snapshot_as_it_was(tc: TestCase) {
             edit(vec![sort("Keep", by)])
         }
     }
-    app.on_key(key_event("R"));
+    app.on_key(key_event("<f5>"));
     wait(&mut app, |a| a.loading.is_none());
 
     command(&mut app, "bring back a playlist");
@@ -1541,14 +1747,14 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
 
     let mut at = rows.iter().position(|r| *r == DriveRow::Drive(0)).unwrap();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
-        let key = tc.draw(gs::sampled_from(&["j", "k", "<home>", "G", "<pgdn>", "<pgup>", "e"][..]));
+        let key = tc.draw(gs::sampled_from(&["j", "k", "<home>", "<end>", "<pgdn>", "<pgup>", "e"][..]));
         let last = rows.len() - 1;
         at = match key {
             "j" => (at + 1).min(last),
             "k" => at.saturating_sub(1),
             "<home>" | "<pgup>" if key == "<home>" || at < 10 => 0,
             "<pgup>" => at - 10,
-            "G" => last,
+            "<end>" => last,
             "<pgdn>" => (at + 10).min(last),
             _ => at,
         };
@@ -1616,14 +1822,16 @@ fn a_smart_playlist_holds_what_the_search_showed(tc: TestCase) {
         "{:?}",
         r.lines
     );
-    // The panel scrolls, and any other key closes it.
+    // The panel scrolls, and esc closes it.
     for k in ["j", "<pgdn>", "k", "<pgup>", "<space>"] {
         app.on_key(key_event(k));
         assert!(matches!(app.modal, Some(Modal::Report(_))), "{k} closed the panel");
         check(&mut app, draw_size(&tc));
     }
     app.on_key(key_event("x"));
-    assert!(app.modal.is_none(), "x didn't close the panel");
+    assert!(app.modal.is_some(), "x closed the panel");
+    app.on_key(key_event("<esc>"));
+    assert!(app.modal.is_none(), "esc didn't close the panel");
 }
 
 /// The details panel of whichever track is selected lists what mixes into it: the api's matches
@@ -1717,7 +1925,7 @@ fn packing_puts_the_set_on_the_other_drive(tc: TestCase) {
         options: Default::default(),
     };
     locallibrary::api::edit_apply(&req, &locallibrary::Ctx::silent()).unwrap();
-    app.on_key(key_event("R"));
+    app.on_key(key_event("<f5>"));
     wait(&mut app, |a| a.loading.is_none());
     let target = _dir.path().join("TARGET");
     std::fs::create_dir(&target).unwrap();
@@ -1795,7 +2003,7 @@ fn the_menu_moves_and_closes_as_it_says(tc: TestCase) {
         app.playlist_state.select(Some(tc.draw(gs::integers::<usize>().max_value(rows - 1))));
     }
     if tc.draw(gs::booleans()) {
-        app.on_key(key_event("M"));
+        app.perform(Act::MarkAll, None);
     }
     app.on_key(key_event("e"));
     const MENU_KEYS: &[&str] =
@@ -1818,7 +2026,7 @@ fn the_menu_moves_and_closes_as_it_says(tc: TestCase) {
             (Some(_), "<enter>") => None,
             (Some(Sub::Rating), "0" | "3") | (Some(Sub::Colour), "0" | "3") => None,
             (Some(s), _) => Some((sel, Some(s), sub_sel)),
-            (None, "<esc>" | "q" | "e") => None,
+            (None, "<esc>" | "e") => None,
             (None, "k" | "<up>") => Some((sel.saturating_sub(1), None, sub_sel)),
             (None, "j" | "<down>") => Some(((sel + 1).min(items - 1), None, sub_sel)),
             (None, "0" | "3") if rating_ok => None,
