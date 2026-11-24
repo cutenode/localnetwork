@@ -242,7 +242,11 @@ fn prop_the_flac_vetted_is_the_one_symphonia_reads(tc: TestCase) {
     let found = find_flac(&mut File::open(&path).unwrap()).unwrap();
     match probed(&path) {
         Probed::Flac(at) => assert_eq!(found, Some(at)),
-        Probed::Other => assert_eq!(found, None),
+        // A build that also reads Ogg (rodio turns it on in the workspace) stops at its marker; the
+        // vet looks past it, to the FLAC after it, which only vets more.
+        Probed::Other => {
+            assert!(found.is_none_or(|at| file[..at as usize].windows(4).any(|w| w == b"OggS")), "{found:?}")
+        }
         Probed::Failed => {}
     }
 }
