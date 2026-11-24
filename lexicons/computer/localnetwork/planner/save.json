@@ -12,6 +12,12 @@
 				"properties": {
 					"project": { "type": "string", "format": "at-uri" },
 					"note": { "type": "string", "maxLength": 5000, "maxGraphemes": 500 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the note is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"createdAt": { "type": "string", "format": "datetime" }
 				}
 			}

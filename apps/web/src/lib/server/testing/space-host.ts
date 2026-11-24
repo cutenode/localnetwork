@@ -1,6 +1,7 @@
 import { TID } from '@atproto/common-web';
 import { P256Keypair } from '@atproto/crypto';
-import type { Cid, LexMap } from '@atproto/lex-data';
+import { encode } from '@atproto/lex-cbor';
+import { type Cid, cidForCbor, type LexMap } from '@atproto/lex-data';
 import { lexStringify } from '@atproto/lex-json';
 import { isDidString, isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
 import { isSpaceAtUriString } from '@atproto/syntax';
@@ -17,7 +18,6 @@ import {
 	RECORD_MAC_PROFILE,
 	type RecordPathParts,
 	RepoCommit,
-	serializeRecord,
 	type SpaceCommit,
 	verifyCredentialSig,
 	writeRepoStar
@@ -27,7 +27,8 @@ import { IdentityResolver, type ResolvedIdentity } from '../atproto/identity';
 import { parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
 import { silentLogger } from '../logger';
 
-type HostedRecord = RecordPathParts & { cid: Cid; bytes: Uint8Array; value: LexMap };
+/** A record, and its value unless it was put as bytes only, which listRepoOps then serves without one. */
+type HostedRecord = RecordPathParts & { cid: Cid; bytes: Uint8Array; value?: LexMap };
 
 type HostedOp = RecordPathParts & { cid: string | null; prev: string | null };
 
@@ -146,9 +147,17 @@ export class FakeSpaceHost {
 
 	/** Creates or updates a record in `did`'s repo in the space. */
 	async put(did: string, collection: string, rkey: string, value: LexMap): Promise<void> {
+		await this.putEncoded(did, collection, rkey, encode(value), value);
+	}
+
+	/**
+	 * Creates or updates a record from its DRISL bytes, as a writer can store bytes the encoder here won't make, such
+	 * as a record nested deep enough to overflow its stack.
+	 */
+	async putEncoded(did: string, collection: string, rkey: string, bytes: Uint8Array, value?: LexMap): Promise<void> {
 		if (!isNsidString(collection) || !isSpaceKeyString(rkey)) throw new Error(`Bad record path ${collection}/${rkey}`);
 		const repo = await this.repo(did);
-		const { cid, bytes } = await serializeRecord(collection, rkey, value);
+		const cid = await cidForCbor(bytes);
 		const prev = repo.records.get(`${collection}/${rkey}`)?.cid.toString() ?? null;
 		repo.records.set(`${collection}/${rkey}`, { collection, rkey, cid, bytes, value });
 		this.write(repo, { collection, rkey, cid: cid.toString(), prev });
@@ -257,7 +266,7 @@ export class FakeSpaceHost {
 			const ops = repo.ops.slice(from, next).map((op) => {
 				const current = repo.records.get(`${op.collection}/${op.rkey}`);
 
-				return current?.cid.toString() === op.cid ? { ...op, value: current.value } : op;
+				return current?.value && current.cid.toString() === op.cid ? { ...op, value: current.value } : op;
 			});
 
 			const cursor = next < repo.ops.length ? String(next) : undefined;

@@ -83,6 +83,96 @@ fn prop_sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase
     }
 }
 
+/// An M4A whose ALAC setup claims any frame length: one longer than [`ALAC_FRAME`] (symphonia
+/// sizes its buffers from it, 16 GiB for the 4 billion of the fuzz input in
+/// `fuzz/seeds/mp4/alac-frame-length.m4a`) is refused by every way of reading it, and any other
+/// passes.
+#[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(frame = 0xfffa_1000u32)]
+#[hegel::explicit_test_case(frame = ALAC_FRAME + 1)]
+#[hegel::explicit_test_case(frame = ALAC_FRAME)]
+fn prop_alac_frames_longer_than_any_encoder_writes_are_refused(tc: TestCase) {
+    let frame = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(2 * ALAC_FRAME), gs::integers::<u32>()));
+    let mut file = m4a(8_000, &mp4_empty_tables(), &[]);
+    // The frame length follows the setup's header, version and flags.
+    let setup = file.windows(4).rposition(|w| w == b"alac").unwrap() + 8;
+    file[setup..setup + 4].copy_from_slice(&frame.to_be_bytes());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, &file).unwrap();
+
+    match vet_container(&path) {
+        Ok(()) => assert!(frame <= ALAC_FRAME, "a frame of {frame} passed"),
+        Err(Error::Parse { message, .. }) => {
+            assert!(frame > ALAC_FRAME, "{frame}: {message}");
+            assert_eq!(message, TOO_LONG);
+            for read in read_all(&path) {
+                assert_eq!(read.as_deref(), Some(TOO_LONG));
+            }
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// An M4A whose one ALAC entry is in any version of the sample entry (0 to 2 are the ones
+/// symphonia reads, each with more fields before its boxes), with `before` 0 (nothing), 1 (a
+/// whole box) or 2 (a box claiming less than its header) ahead of its setup, and maybe an entry
+/// claiming less than its header ahead of it. The frame is checked only where the walk can trust
+/// what came before: a broken box or entry, or a version it doesn't know, leaves the file for
+/// symphonia to report.
+#[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(version = 1u16, before = 1u8, broken_entry = false, frame = u32::MAX)]
+#[hegel::explicit_test_case(version = 2u16, before = 0u8, broken_entry = false, frame = u32::MAX)]
+#[hegel::explicit_test_case(version = 3u16, before = 0u8, broken_entry = false, frame = u32::MAX)]
+#[hegel::explicit_test_case(version = 0u16, before = 2u8, broken_entry = false, frame = u32::MAX)]
+#[hegel::explicit_test_case(version = 0u16, before = 0u8, broken_entry = true, frame = u32::MAX)]
+fn prop_alac_frames_are_found_in_any_entry_symphonia_reads(tc: TestCase) {
+    let version = tc.draw(gs::integers::<u16>().max_value(3));
+    let before = tc.draw(gs::integers::<u8>().max_value(2));
+    let broken_entry = tc.draw(gs::booleans());
+    let frame = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(2 * ALAC_FRAME), gs::integers::<u32>()));
+    let extra = match version {
+        1 => 16,
+        2 => 36,
+        _ => 0,
+    };
+    let fields = [be(&[0, 1, u32::from(version) << 16, 0, 2 << 16 | 16, 0, 8000 << 16]), vec![0; extra]].concat();
+    let ahead = match before {
+        0 => vec![],
+        1 => mp4_atom(b"free", &[0; 4]),
+        // A size of 0, with room after it for the walk to read one more box.
+        _ => [be(&[0]), b"free".to_vec(), vec![0; 8]].concat(),
+    };
+    let setup = mp4_full(b"alac", &be(&[frame, 0, 0, 0, 0, 0]));
+    let entry = mp4_atom(b"alac", &[fields, ahead, setup].concat());
+    let broken = if broken_entry { [be(&[4]), b"junk".to_vec()].concat() } else { vec![] };
+    let stsd = mp4_full(b"stsd", &[be(&[1 + u32::from(broken_entry)]), broken, entry].concat());
+    let stbl = mp4_atom(b"stbl", &[stsd, mp4_empty_tables()].concat());
+    let trak = mp4_atom(b"trak", &mp4_atom(b"mdia", &mp4_atom(b"minf", &stbl)));
+    let file = [mp4_atom(b"ftyp", b"M4A \0\0\0\0M4A isom"), mp4_atom(b"moov", &trak)].concat();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, &file).unwrap();
+
+    let checked = version <= 2 && before != 2 && !broken_entry;
+    match vet_container(&path) {
+        Ok(()) => assert!(!checked || frame <= ALAC_FRAME, "a frame of {frame} passed"),
+        Err(Error::Parse { message, .. }) => {
+            assert!(checked && frame > ALAC_FRAME, "{frame} in version {version}: {message}");
+            assert_eq!(message, TOO_LONG);
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// The input the mp4 fuzz target crashed on: an ALAC setup claiming 4,294,578,176 samples a frame.
+#[test]
+fn the_fuzzers_alac_frame_length_is_refused() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/mp4/alac-frame-length.m4a");
+    let Err(Error::Parse { message, .. }) = vet_container(&path) else { panic!("it passed") };
+    assert_eq!(message, TOO_LONG);
+}
+
 /// Where symphonia reads a sample's size from: `stsz` (one size for every sample, or each
 /// sample's), and a fragmented MP4's default (`trex`, `tfhd`) or each sample's in a run (`trun`).
 const SIZES: [&str; 5] = ["stsz", "stsz entry", "trex", "tfhd", "trun"];

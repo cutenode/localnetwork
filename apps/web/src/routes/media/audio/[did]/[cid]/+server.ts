@@ -17,6 +17,7 @@ export const GET: RequestHandler = async ({ params, request, locals }) => {
 		range: request.headers.get('range'),
 		audio: (did, cid) => app.recordings.audio(did, cid),
 		identity: app.identity,
-		log
+		log,
+		flags: locals.flags
 	});
 };

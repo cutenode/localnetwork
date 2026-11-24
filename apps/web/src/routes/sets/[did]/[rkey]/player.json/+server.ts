@@ -7,7 +7,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const set = await app.recordings.set(params.did, params.rkey);
 
 	if (!set) error(404, 'No set here');
-	const source = await app.recordings.source(set);
+	const source = await app.recordings.source(set, locals.flags);
 	log.debug('set player source', {
 		set: set.uri,
 		source: source && (source.kind === 'audio' ? source.from : source.platform)

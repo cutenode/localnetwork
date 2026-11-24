@@ -17,6 +17,12 @@
 						"type": "string",
 						"maxLength": 2560,
 						"description": "The artist's name, in any case, when there's no mbid. It finds the artist sets credit under that name: the name alone when some sets give it no MBID, otherwise the MBID sets give it."
+					},
+					"inactive": {
+						"type": "array",
+						"maxLength": 100,
+						"items": { "type": "string", "format": "did" },
+						"description": "Accounts that aren't active (deactivated, taken down, suspended or deleted), whose sets don't count."
 					}
 				}
 			},

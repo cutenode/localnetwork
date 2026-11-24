@@ -60,12 +60,15 @@ export class SetService {
 		}
 	}
 
-	/** The linked sets HappyView has, by URI. A profile has at most 12 mixes, so one lookup takes them all. */
+	/**
+	 * The linked sets HappyView has, by URI, without those by accounts that aren't active. A profile has at most 12 mixes,
+	 * so one lookup takes them all.
+	 */
 	async byUri(refs: StrongRef[]): Promise<Map<string, DjSetView>> {
 		const uris = [...new Set(refs.map((ref) => ref.uri))];
 
 		if (uris.length === 0) return new Map();
-		const { sets } = await this.directory.query('getSets', { uris });
+		const { sets } = await this.directory.query('getSets', { uris, inactive: this.core.accountStatuses.inactive() });
 
 		return new Map(sets.map((set) => [set.uri, set]));
 	}

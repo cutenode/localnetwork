@@ -85,7 +85,7 @@ it("renders without the artist's supports while the directory is offline", async
 		fetch: async () => new Response('Service Unavailable', { status: 503 })
 	});
 
-	const supports = new SupportService(directory, f.t.accounts, silentLogger);
+	const supports = new SupportService(directory, f.t.core, silentLogger);
 
 	const data = await loadRoute<PageServerData>(load, {
 		app: { ...app(), supports },

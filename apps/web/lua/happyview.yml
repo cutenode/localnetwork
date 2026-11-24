@@ -137,6 +137,8 @@ globals:
     property: read-only
   MIN_DJS_TO_CHART:
     property: read-only
+  inactive:
+    property: read-only
   fetchThrough: &helper
     args:
       - type: '...'
@@ -147,6 +149,7 @@ globals:
   query: *helper
   append: *helper
   managers: *helper
+  skipInactive: *helper
   number: *helper
   text: *helper
   integer: *helper

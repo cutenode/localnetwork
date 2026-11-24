@@ -1,6 +1,7 @@
 "web: server":
   - changed-files:
       - any-glob-to-any-file:
+          - "apps/web/src/hooks.client.*"
           - "apps/web/src/hooks.server.*"
           - "apps/web/src/app.d.*"
           - "apps/web/src/lib/nsid.*"
@@ -19,6 +20,7 @@
           - "apps/web/src/lib/server/core.*"
           - "apps/web/src/lib/server/edit-mode.*"
           - "apps/web/src/lib/server/http.*"
+          - "apps/web/src/lib/server/langs.*"
           - "apps/web/src/lib/server/logger.*"
           - "apps/web/src/lib/server/rate-limit.*"
           - "apps/web/src/lib/server/env-files.*"

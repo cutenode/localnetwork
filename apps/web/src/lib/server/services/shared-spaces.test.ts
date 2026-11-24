@@ -549,6 +549,31 @@ describe('SharedSpaces', () => {
 			]);
 		});
 
+		it("names the language of the page's words, keeping the one they had through saves that leave them alone", async () => {
+			const space = await start();
+			const ada = await t.viewer(ADA);
+
+			const save = (bio?: string) =>
+				t.sharedSpaces.updatePage(ada, space, {
+					form: 'duo',
+					basics: { name: 'Crew', bio },
+					performer: {},
+					avatar: 'keep',
+					swap: page(space)!.cid
+				});
+
+			expect(page(space)?.value.langs).toBeUndefined();
+
+			await save('Two decks, one night');
+			expect(page(space)?.value.langs).toEqual(['en']);
+			// As if the bio had been written in German.
+			page(space)!.value.langs = ['de'];
+			await save('Two decks, one night');
+			expect(page(space)?.value.langs).toEqual(['de']);
+			await save();
+			expect(page(space)?.value.langs).toBeUndefined();
+		});
+
 		it('refuses to save the page for someone whose page.edit was taken away, and for a space with no act', async () => {
 			const space = await start();
 			await t.sharedSpaces.addPerson(await t.viewer(ADMIN), space, { did: BO, role: 'manager' });

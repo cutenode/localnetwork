@@ -2,7 +2,9 @@
 	import { ArrowLeft } from '@lucide/svelte';
 	import { enhance } from '$app/forms';
 	import FormMessage from '#lib/components/FormMessage.svelte';
+	import { SHOWS_ON } from '#lib/flags/shows-on.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
+	import { formatShowDate } from '#lib/format.ts';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
@@ -10,25 +12,52 @@
 
 	const flag = $derived(data.flag);
 
+	/** The kinds of page the flag changes, as its catalog file lists them. */
+	const showsOn = $derived(flag.showsOn.map((kind) => SHOWS_ON[kind]).join(', ') || 'None listed');
+
 	/** What this browser sees for the flag instead of what's saved, if anything. */
 	const previewing = $derived(data.flagPreview?.[flag.key]);
+
+	/** Signed-out visitors come last, so their switch waits until what's saved has the flag on for every account. */
+	const everyAccount = $derived(flag.everyone || flag.percentage === 100);
 
 	const fields = $derived(
 		formFields({
 			off: !flag.enabled,
 			everyone: flag.everyone,
 			percentage: flag.percentage,
+			signedOut: flag.signedOut,
 			groups: flag.groups.map(({ rkey }) => rkey),
 			accounts: flag.accounts.map((account) => account.handle ?? account.did).join('\n')
 		})
 	);
+
+	/** Why the signed-out switch is held, or what lowering the flag does to it. */
+	const signedOutHint = $derived.by(() => {
+		if (everyAccount) return 'Turns off if it drops below every account.';
+
+		if (fields.everyone || fields.percentage === 100) return 'Save first, then this opens.';
+
+		return "Only once it's on for every account.";
+	});
 </script>
 
 <svelte:head><title>{flag.key} · Flags · Local Network</title></svelte:head>
 
 <div class="flex flex-col gap-6">
 	<a href="/admin/flags" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Flags</a>
-	<SectionHeader level={1} title={flag.key} lede={flag.description} />
+	<div class="flex flex-col gap-3">
+		<SectionHeader level={1} title={flag.key} lede={flag.description} />
+		{#if flag.readyToRemove}
+			<p class="flex flex-wrap items-center gap-2 text-small text-fg-muted"><span class="pill bg-warning/10 text-warning">Ready to remove</span><span>Delete <code class="font-mono break-all text-fg">flags/catalog/{flag.key}.json</code> and the code it gates.</span></p>
+		{/if}
+		<div class="flex flex-col items-start gap-1 text-small text-fg-muted">
+			<p>Shows on: <span class="text-fg">{showsOn}</span></p>
+			<!-- removeBy is a calendar date, so it's read in UTC: local time would show it a day early west of Greenwich. -->
+			{#if flag.removeBy}<p>Remove by: <span class="text-fg">{formatShowDate(flag.removeBy)}</span></p>{/if}
+			<a class="link" href="/admin/audit?action=flag&q={flag.key}">Changes in the audit log</a>
+		</div>
+	</div>
 	<FormMessage {form} />
 	<form method="POST" action="?/save" class="card flex max-w-2xl flex-col gap-5 p-5" use:enhance={() => ({ update }) => update({ reset: false })}>
 		<label class="flex items-start gap-2.5">
@@ -40,13 +69,21 @@
 			{#if fields.off}<p class="hint -mb-2">Kept for when it's back on. None of it applies while it's off.</p>{/if}
 			<label class="flex items-start gap-2.5">
 				<input type="checkbox" class="checkbox mt-0.5" name="everyone" bind:checked={fields.everyone} aria-describedby="everyone-hint" />
-				<span><span class="font-medium">On for everyone</span><span id="everyone-hint" class="hint block">Signed-out visitors too.</span></span>
+				<span><span class="font-medium">On for everyone</span><span id="everyone-hint" class="hint block">{flag.type === 'ops' ? 'Signed-out visitors too.' : 'Every signed-in account.'}</span></span>
 			</label>
 			<div>
 				<label class="label" for="percentage">Percentage of accounts</label>
 				<input id="percentage" name="percentage" type="number" min="0" max="100" step="1" class="input max-w-32" bind:value={fields.percentage} aria-describedby="percentage-hint" />
-				<p id="percentage-hint" class="hint">Accounts stay in as this grows. Signed-out visitors aren't counted.</p>
+				<p id="percentage-hint" class="hint">Accounts stay in as this grows.</p>
 			</div>
+			{#if flag.type === 'release'}
+				<!-- Release flags only: an ops flag reaches signed-out visitors once every account has it, so a kill switch reaches callers with no
+				     account. Disabled until saved at every account, so it isn't sent; the server turns it off below that anyway. -->
+				<label class="flex items-start gap-2.5 has-disabled:text-fg-muted">
+					<input type="checkbox" class="checkbox mt-0.5 disabled:cursor-not-allowed disabled:opacity-50" name="signedOut" bind:checked={fields.signedOut} disabled={!everyAccount} aria-describedby="signed-out-hint" />
+					<span><span class="font-medium">Signed-out visitors</span><span id="signed-out-hint" class="hint block">{signedOutHint}</span></span>
+				</label>
+			{/if}
 			<fieldset>
 				<legend class="label">Groups</legend>
 				{#if data.groups.length === 0}

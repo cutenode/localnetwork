@@ -72,4 +72,11 @@ describe('DmSettings', () => {
 		await expect.element(page.getByText('Not set up on this site.')).toBeVisible();
 		expect(page.getByRole('button').elements()).toHaveLength(0);
 	});
+
+	it("says when the site sends DMs but they aren't on for this account yet", async () => {
+		await render(DmSettings, { available: false, notYet: true, channel: null, availability: null, root });
+
+		await expect.element(page.getByText('Not on for your account yet.')).toBeVisible();
+		expect(page.getByRole('button').elements()).toHaveLength(0);
+	});
 });

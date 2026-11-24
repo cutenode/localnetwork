@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "inboxDm",
+	"description": "Inbox items as Bluesky DMs from the root account. Off for an account, its settings don't offer DMs and the outbox skips what would have gone to it, which stays in the site inbox. Roll it out slowly: a burst of DMs could get the root rate limited or reported.",
+	"type": "ops"
+}

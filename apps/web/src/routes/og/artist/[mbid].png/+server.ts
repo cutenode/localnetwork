@@ -3,7 +3,7 @@ import ArtistCard from '#lib/og/cards/ArtistCard.svelte';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { cardPaths } from '#lib/server/og/paths.ts';
 import { renderCard } from '#lib/server/og/render.ts';
-import { cards } from '#lib/server/og/serve.ts';
+import { cards, sendToSiteCard } from '#lib/server/og/serve.ts';
 import { bareMbid } from '#lib/supports.ts';
 import type { RequestHandler } from './$types';
 
@@ -14,7 +14,8 @@ const CACHE_CONTROL = `public, max-age=${HOUR}`;
 
 /**
  * An artist's link-preview card, for an artist a set credits by MusicBrainz ID. A kept card is served without asking
- * the directory; while the directory is offline, a crawler is asked to come back.
+ * the directory; while the directory is offline, a crawler is asked to come back, and while drawing is paused it's sent
+ * to the site's card without asking.
  */
 export const GET: RequestHandler = async ({ params, locals }) => {
 	const { app, log } = locals;
@@ -25,6 +26,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const kept = cards.kept(path, CACHE_CONTROL);
 
 	if (kept) return kept;
+
+	if (locals.flags.pauseOgCards) return sendToSiteCard(log, path);
 	const supports = await unlessOffline(log, () => app.supports.artist({ mbid }));
 
 	if (!supports) {

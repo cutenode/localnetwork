@@ -94,6 +94,41 @@ describe('EpkDrafts', () => {
 		expect((await f.t.epks.dashboard(f.project)).kits[0].drafts).toEqual([]);
 	});
 
+	it('names the language of the words a draft changes, on just the records whose words it changes', async () => {
+		const wordless = { headline: undefined, bio: undefined, content: { mixes: values().content?.mixes } };
+		const epk = await f.publish(DJ, wordless);
+		const backstage = f.t.epks.drafts.space(f.project);
+		const draft = () => f.t.net.spaceRecordsIn(backstage, DJ)[0]?.value;
+		expect(published(epk.rkey).value.langs).toBeUndefined();
+		expect(content(epk.space).langs).toBeUndefined();
+
+		await save(DJ, epk.rkey, { ...wordless, title: 'Clubs 2027' });
+		expect(draft().langs).toBeUndefined();
+		await publish(DJ, epk.rkey);
+		expect(published(epk.rkey).value.langs).toBeUndefined();
+
+		await save(DJ, epk.rkey, {
+			...wordless,
+			title: 'Clubs 2027',
+			content: { ...wordless.content, bio: 'The long bio' }
+		});
+		expect(draft().langs).toEqual(['en']);
+		await publish(DJ, epk.rkey);
+		expect(content(epk.space).langs).toEqual(['en']);
+		expect(published(epk.rkey).value.langs).toBeUndefined();
+		// As if the long bio had been written in German.
+		content(epk.space).langs = ['de'];
+
+		await save(DJ, epk.rkey, {
+			title: 'Clubs 2027',
+			bio: 'Rolling techno, all night',
+			content: { ...wordless.content, bio: 'The long bio' }
+		});
+		await publish(DJ, epk.rkey);
+		expect(published(epk.rkey).value.langs).toEqual(['en']);
+		expect(content(epk.space).langs).toEqual(['de']);
+	});
+
 	it('stops at a field someone else published since the draft changed it, and overwrites it only when told to', async () => {
 		const epk = await f.publish(DJ);
 

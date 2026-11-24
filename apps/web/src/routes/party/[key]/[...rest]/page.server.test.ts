@@ -112,6 +112,28 @@ it('gives its people with page.edit the edit bar, and opens the editor at ?edit'
 	expect(await opened(STRANGER, `/party/${key}/night-shift?edit`)).not.toHaveProperty('role');
 });
 
+it('keeps no copy for its people and staff, who can change it, and lets the browser keep one for anyone else', async () => {
+	await start(true);
+
+	const cacheControl = async (did: string) => {
+		const { headers, loadData } = routeEvent({
+			app: app(),
+			viewer: await t.viewer(did),
+			url: `/party/${key}/night-shift`,
+			params: { key, rest: 'night-shift' },
+			flags: on
+		});
+
+		await loadData<PageServerData>(load);
+
+		return headers['cache-control'];
+	};
+
+	expect(await cacheControl(HOST)).toBe('no-store');
+	expect(await cacheControl(ADMIN)).toBe('no-store');
+	expect(await cacheControl(STRANGER)).toBe('private, max-age=60');
+});
+
 it('sends any other name, or none, on to the current one, keeping the query', async () => {
 	await start(true);
 

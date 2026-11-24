@@ -969,10 +969,10 @@ fn prop_a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
 }
 
 /// Whoever's asking and whatever the website lists, `account flags` shows each flag in the
-/// repository's catalog once, in order, and nothing else; a flag is on when it's on for everyone,
-/// for a signed-in account's share of the rollout, or (with a session that may ask) targeted at
-/// it; the text says what the JSON does, without asking again; and only a session from before the
-/// scope is told to sign in again.
+/// repository's catalog once, in order, and nothing else; a flag is on when it's on for everyone
+/// or at 100%, for a signed-in account's share of the rollout, or (with a session that may ask)
+/// targeted at it; the text says what the JSON does, without asking again; and only a session
+/// from before the scope is told to sign in again.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_the_flags_shown_are_the_catalogs_as_the_website_answers(tc: TestCase) {
     let pds = MockPds::start();
@@ -999,7 +999,7 @@ fn prop_the_flags_shown_are_the_catalogs_as_the_website_answers(tc: TestCase) {
     }
     let on_for = |(key, everyone, percentage): &(String, bool, u32)| {
         let in_rollout = who > 0 && locallibrary::flags::bucket(key, DID) < *percentage;
-        *everyone || in_rollout || (who == 2 && targeted.contains(&key.as_str()))
+        *everyone || *percentage == 100 || in_rollout || (who == 2 && targeted.contains(&key.as_str()))
     };
     let on: Vec<&str> = listed.iter().filter(|flag| on_for(flag)).map(|(key, ..)| key.as_str()).collect();
 

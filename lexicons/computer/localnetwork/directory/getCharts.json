@@ -37,6 +37,12 @@
 						"maximum": 100,
 						"default": 50,
 						"description": "The most tracks, and the most artists."
+					},
+					"inactive": {
+						"type": "array",
+						"maxLength": 100,
+						"items": { "type": "string", "format": "did" },
+						"description": "Accounts that aren't active (deactivated, taken down, suspended or deleted), whose sets don't count."
 					}
 				}
 			},

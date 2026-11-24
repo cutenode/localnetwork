@@ -1,10 +1,27 @@
 import type { JsonObject } from '@atproto/lex-json';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as fc from 'fast-check';
+import { sql } from 'kysely';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
-import { backstageSpace, bookingSpace, epkRequestSpace, epkSpace, sharedSpace } from '../atproto/spaces';
+import {
+	backstageSpace,
+	bookingSpace,
+	epkRequestSpace,
+	epkSpace,
+	parseSpaceRecordUri,
+	sharedSpace
+} from '../atproto/spaces';
 import { grantKey } from '../services/epk';
 import { createTestServices, ROOT } from '../testing/core';
-import { DJ, pressKitServices } from '../testing/press-kits';
+import {
+	anyRecord,
+	nearlyValidRecord,
+	RECORD_COLLECTIONS,
+	recordKey,
+	validRecord
+} from '../testing/lexicon-arbitraries';
+import { CODJ, DJ, FRIEND, NO_SPACES, pressKitServices, PROMOTER, STRANGER } from '../testing/press-kits';
+import type { SyncedChange } from './engine';
 import { createProjections } from './projections';
 import { flagsOff } from '#lib/testing/flags.ts';
 
@@ -275,6 +292,146 @@ describe('createProjections', () => {
 			await f.t.audit.idle();
 			await f.t.db.destroy();
 		}
+	});
+
+	describe('press kit decisions', () => {
+		let f: Awaited<ReturnType<typeof pressKitServices>>;
+		let kit: ReturnType<typeof f.kit>;
+		let space: string;
+		let sync: ReturnType<typeof createProjections>;
+
+		beforeEach(async () => {
+			f = await pressKitServices();
+			kit = f.kit(await f.publish(DJ));
+			space = epkRequestSpace(ROOT, f.project.rkey);
+			sync = createProjections(f.t);
+		});
+		afterEach(async () => {
+			await f.t.audit.idle();
+			await f.t.db.destroy();
+		});
+
+		/** `did` asks to see the press kit; returns their request's URI. */
+		const ask = async (did: string) => {
+			await f.t.epks.request(await f.t.viewer(did), kit, {});
+			const rows = await f.t.db.selectFrom('epkRequest').select('uri').where('requesterDid', '=', did).execute();
+
+			return rows[0].uri;
+		};
+
+		const answer = async (did: string, uri: string, outcome: 'approve' | 'decline') =>
+			f.t.epks.decide(await f.t.viewer(did), kit, uri, outcome);
+
+		const states = async () =>
+			Object.fromEntries(
+				await Promise.all(
+					[STRANGER, NO_SPACES, FRIEND].map(async (did) => {
+						const state = await f.t.epks.accessState(kit, await f.t.viewer(did));
+
+						return [did, state.kind] as const;
+					})
+				)
+			);
+
+		/**
+		 * What the access page shows of each answered request. A request whose record is gone comes back from its decision
+		 * alone, which doesn't say when it was asked or what the rules said then.
+		 */
+		const answers = async () =>
+			(await f.t.epks.requests(kit.epk)).map(({ uri, requester, status, decidedAt }) => ({
+				uri,
+				requester: requester.did,
+				status,
+				decidedAt
+			}));
+
+		/** Empties the press kit tables and syncs every record in the request space back in, decisions first or last. */
+		const rebuild = async (decisions: 'first' | 'last') => {
+			await f.t.db.deleteFrom('epkRequest').execute();
+			await f.t.db.deleteFrom('epkGrant').execute();
+			const isDecision = (uri: string) => parseSpaceRecordUri(uri)?.collection === COLLECTION.epkDecision;
+
+			const records = f.t.net
+				.spaceRecordsIn(space)
+				.toSorted((a, b) => Number(isDecision(b.uri)) - Number(isDecision(a.uri)));
+
+			for (const { uri, cid, value } of decisions === 'first' ? records : records.toReversed()) {
+				const { author, collection, rkey } = parseSpaceRecordUri(uri)!;
+				await sync({ kind: 'upsert', space, repoDid: author, collection, rkey, uri, cid, value });
+			}
+		};
+
+		const decision = (request: string, outcome: string) => ({
+			request,
+			requester: STRANGER,
+			epk: kit.epk.uri,
+			outcome,
+			decidedBy: DJ,
+			createdAt: new Date().toISOString()
+		});
+
+		it.each(['first', 'last'] as const)(
+			'keeps every answer when the request space syncs again, its decisions %s',
+			async (decisions) => {
+				await answer(CODJ, await ask(STRANGER), 'decline');
+				// The root holds this one, and its asker deletes it after the decline.
+				const held = await ask(NO_SPACES);
+				await answer(DJ, held, 'decline');
+				await f.t.heldRecords.delete(await f.t.viewer(NO_SPACES), held);
+				// Approved, then removed: the grant is gone, but the request was still answered.
+				await answer(DJ, await ask(FRIEND), 'approve');
+				await f.t.epks.revoke(await f.t.viewer(DJ), kit, FRIEND);
+				const before = { states: await states(), answers: await answers() };
+
+				await rebuild(decisions);
+
+				expect(before.states).toEqual({ [STRANGER]: 'declined', [NO_SPACES]: 'declined', [FRIEND]: 'canAsk' });
+				expect(await states()).toEqual(before.states);
+				expect(before.answers.map(({ status }) => status)).toEqual(['declined', 'declined']);
+				expect(await answers()).toEqual(before.answers);
+				expect(await f.t.epks.waiting(f.project)).toEqual([]);
+				await expect(f.t.epks.request(await f.t.viewer(STRANGER), kit, {})).rejects.toThrow(/didn't share/);
+				await expect(f.t.epks.request(await f.t.viewer(NO_SPACES), kit, {})).rejects.toThrow(/didn't share/);
+			}
+		);
+
+		it('gives a request that syncs after its decision back what it says, and back to its asker', async () => {
+			const asker = await f.t.viewer(NO_SPACES);
+			await f.t.epks.request(asker, kit, { message: 'For a May date' });
+			const [{ uri }] = await f.t.epks.requests(kit.epk);
+			await answer(DJ, uri, 'decline');
+
+			await rebuild('first');
+
+			expect(await f.t.epks.requests(kit.epk)).toMatchObject([{ uri, status: 'declined', message: 'For a May date' }]);
+			expect((await f.t.heldRecords.list(asker)).map((held) => held.uri)).toEqual([uri]);
+		});
+
+		it('takes a decision only from the root, in the request space', async () => {
+			const request = await ask(STRANGER);
+
+			const upsertDecision = (inSpace: string, repoDid: string, value: JsonObject) =>
+				sync({
+					kind: 'upsert',
+					space: inSpace,
+					repoDid,
+					collection: COLLECTION.epkDecision,
+					rkey: '3dec',
+					uri: `${inSpace}/${repoDid}/${COLLECTION.epkDecision}/3dec`,
+					cid: 'bafyreiabc',
+					value: { $type: COLLECTION.epkDecision, ...value }
+				});
+
+			// The request space takes public writes, so anyone could write a decision into it.
+			await upsertDecision(space, STRANGER, decision(request, 'approved'));
+			await upsertDecision(space, DJ, decision(request, 'declined'));
+			await upsertDecision(kit.epk.space, ROOT, decision(request, 'declined'));
+			await upsertDecision(space, ROOT, decision(request, 'maybe'));
+			expect((await f.t.epks.accessState(kit, await f.t.viewer(STRANGER))).kind).toBe('pending');
+
+			await upsertDecision(space, ROOT, decision(request, 'declined'));
+			expect(await f.t.epks.accessState(kit, await f.t.viewer(STRANGER))).toEqual({ kind: 'declined' });
+		});
 	});
 
 	it("indexes press kit drafts only from a backstage under the root, and drops them when they're deleted", async () => {
@@ -576,5 +733,271 @@ describe('createProjections', () => {
 			for (const table of ['spaceInvite', 'spaceJoinRequest', 'sharedSpace'] as const)
 				expect(await t.db.selectFrom(table).selectAll().execute()).toEqual([]);
 		});
+	});
+
+	describe('any synced record', () => {
+		/** The record collections this app has lexicons for, which a space member can write whatever the space. */
+		const COLLECTIONS = Object.values(COLLECTION).filter((collection) => RECORD_COLLECTIONS.includes(collection));
+
+		/** What only the root writes in a performer's, party's or venue's space. */
+		const SHARED = [
+			COLLECTION.person,
+			COLLECTION.invite,
+			COLLECTION.inviteLink,
+			COLLECTION.joinRequest,
+			COLLECTION.listingStatus,
+			COLLECTION.performer,
+			COLLECTION.venue,
+			COLLECTION.venueApproval,
+			COLLECTION.event,
+			COLLECTION.party
+		];
+
+		const BOOKING = [COLLECTION.bookingInquiry, COLLECTION.bookingMessage, COLLECTION.bookingStatus];
+
+		/** Every table's rows, in a stable order, to see what projecting changed. */
+		const tables = async () => {
+			await t.audit.idle();
+			const names = (await t.db.introspection.getTables()).map(({ name }) => name);
+
+			return Object.fromEntries(
+				await Promise.all(
+					names.map(async (name) => {
+						const { rows } = await sql`select * from ${sql.table(name)}`.execute(t.db);
+
+						return [name, rows.map((row) => JSON.stringify(row)).toSorted()];
+					})
+				)
+			);
+		};
+
+		/** The collections whose records the app keys by the DID they're about, and only reads at that key. */
+		const KEYED_BY_SUBJECT = new Set<string>([
+			COLLECTION.person,
+			COLLECTION.invite,
+			COLLECTION.joinRequest,
+			COLLECTION.staffRole
+		]);
+
+		/** `record` about the DID it's keyed by, when `keyed`, so it can apply. */
+		const keyedBy = (collection: string, record: JsonObject, rkey: string, keyed: boolean): JsonObject =>
+			keyed && KEYED_BY_SUBJECT.has(collection) ? { ...record, subject: rkey } : record;
+
+		/** A change to `collection` in `space` by `repoDid`: an upsert of `value`, or a delete without one. */
+		const change = (
+			space: string,
+			repoDid: string,
+			collection: string,
+			rkey: string,
+			value?: JsonObject
+		): SyncedChange => {
+			const uri = `${space}/${repoDid}/${collection}/${rkey}`;
+
+			return value
+				? { kind: 'upsert', space, repoDid, collection, rkey, uri, cid: 'bafyreiabc', value }
+				: { kind: 'delete', space, repoDid, collection, rkey, uri };
+		};
+
+		/** Changes by `authors` to `collections` in `space`, with content from `content`, and deletes when `deletes`. */
+		const changes = (
+			space: string,
+			authors: string[],
+			collections: string[],
+			content: (collection: string) => fc.Arbitrary<JsonObject>,
+			deletes: boolean
+		) =>
+			fc.tuple(fc.constantFrom(...authors), fc.constantFrom(...collections)).chain(([repoDid, collection]) =>
+				fc
+					.record({
+						rkey: fc.oneof(recordKey(collection), fc.constantFrom(ALICE, BOB, 'self')),
+						value: deletes ? fc.option(content(collection), { nil: undefined }) : content(collection),
+						keyed: fc.boolean()
+					})
+					.map(({ rkey, value, keyed }) =>
+						change(space, repoDid, collection, rkey, value && keyedBy(collection, value, rkey, keyed))
+					)
+			);
+
+		/** A space of each type, under the root and under someone else. */
+		const spaces = () => [
+			t.spaces.staff,
+			t.spaces.moderation,
+			t.spaces.audit,
+			t.spaces.industry,
+			bookingSpace(ROOT, '3gig'),
+			backstageSpace(ROOT, '3proj'),
+			epkSpace(ALICE, '3kit'),
+			epkRequestSpace(ROOT, '3proj'),
+			sharedSpace(ROOT, 'party', '3party'),
+			sharedSpace(ROOT, 'performer', '3perf'),
+			sharedSpace(ALICE, 'venue', '3venue')
+		];
+
+		/**
+		 * Records validateRecord refuses. Not broken at `subject`, which `keyedBy` would mend. Most go where the root's
+		 * records land as they are (a request, an audit copy, project details, a booking event), so a record that got past
+		 * validation would show in the tables.
+		 */
+		const refused = (space: string) => {
+			const content = (collection: string) =>
+				nearlyValidRecord(collection)
+					.filter(({ path }) => path !== '/subject')
+					.map(({ record }) => record);
+
+			return fc.oneof(
+				changes(t.spaces.moderation, [ROOT, ALICE], [COLLECTION.request], content, false),
+				changes(t.spaces.audit, [ROOT, ALICE], [COLLECTION.auditEntry], content, false),
+				changes(t.spaces.industry, [ROOT], [COLLECTION.projectDetails], content, false),
+				changes(bookingSpace(ROOT, '3gig'), [ROOT], BOOKING, content, false),
+				changes(space, [ROOT, ALICE, BOB], COLLECTIONS, content, false)
+			);
+		};
+
+		it('applies or skips any change without throwing, refused records change nothing, and a replay changes nothing', async () => {
+			// Rows carry the time they were written, which a replay would otherwise move on.
+			vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-13T12:00:00.000Z') });
+			onTestFinished(() => void vi.useRealTimers());
+
+			const anyChange = fc
+				.constantFrom(...spaces())
+				.chain((space) => changes(space, [ROOT, ALICE, BOB], COLLECTIONS, anyRecord, true));
+
+			const anyRefused = fc.constantFrom(...spaces()).chain(refused);
+
+			await fc.assert(
+				fc.asyncProperty(
+					fc.array(anyChange, { minLength: 1 }),
+					fc.array(anyRefused, { minLength: 1 }),
+					async (synced, invalid) => {
+						// With every service up, a throw would only leave the record to fail again on every retry (ADR 0009).
+						for (const each of synced) await project(each);
+						const once = await tables();
+
+						for (const each of invalid) await project(each);
+						expect(await tables()).toEqual(once);
+
+						for (const each of synced) await project(each);
+						expect(await tables()).toEqual(once);
+					}
+				),
+				{ numRuns: 50 }
+			);
+		}, 60_000);
+
+		it('changes nothing for a record its author has no say over, whatever it holds', async () => {
+			const request = `${t.spaces.moderation}/${ALICE}/${COLLECTION.request}/3req`;
+			await upsert(t.spaces.moderation, ALICE, COLLECTION.request, '3req', {
+				kind: 'create',
+				profile: { name: 'A', kind: 'solo', genres: ['x'], location: { city: 'c', country: 'DE' } },
+				createdAt: new Date().toISOString()
+			});
+
+			// Valid records most of the time, so only the author check stands between them and the tables. A decision names
+			// the open request, which it would decide.
+			const content = (collection: string) =>
+				fc
+					.oneof({ weight: 3, arbitrary: validRecord(collection) }, anyRecord(collection))
+					.map((record) => (collection === COLLECTION.decision ? { ...record, request } : record));
+
+			const staff = [COLLECTION.staffRole, COLLECTION.staffFlag, COLLECTION.staffGroup];
+
+			const notTheirs = fc.oneof(
+				changes(t.spaces.moderation, [ALICE, BOB], [COLLECTION.decision], content, false),
+				changes(t.spaces.staff, [ALICE, BOB], staff, content, true),
+				changes(t.spaces.industry, [ALICE, BOB], [COLLECTION.projectDetails], content, false),
+				// A press kit's space is its authority's to grant in, and no other kind of space holds grants.
+				changes(epkSpace(ALICE, '3kit'), [ROOT, BOB], [COLLECTION.epkGrant], content, false),
+				changes(backstageSpace(ROOT, '3proj'), [ROOT], [COLLECTION.epkGrant], content, false),
+				// Who's in a performer's, party's or venue's space is the root's to write, in a space under the root.
+				changes(sharedSpace(ROOT, 'party', '3party'), [ALICE, BOB], SHARED, content, true),
+				changes(sharedSpace(ALICE, 'party', '3party'), [ROOT, ALICE], SHARED, content, true),
+				// Nobody has joined this booking thread.
+				changes(bookingSpace(ROOT, '3gig'), [ALICE, BOB], BOOKING, content, false)
+			);
+
+			await fc.assert(
+				fc.asyncProperty(fc.array(notTheirs, { minLength: 1 }), async (synced) => {
+					const before = await tables();
+
+					for (const each of synced) await project(each);
+					expect(await tables()).toEqual(before);
+				}),
+				{ numRuns: 50 }
+			);
+		}, 60_000);
+
+		it('never answers a press kit request from a decision anyone but the root wrote, whatever it holds', async () => {
+			const f = await pressKitServices();
+			onTestFinished(async () => {
+				await f.t.audit.idle();
+				await f.t.db.destroy();
+			});
+			const kit = f.kit(await f.publish(DJ));
+			await f.t.epks.request(await f.t.viewer(STRANGER), kit, {});
+			const [request] = await f.t.epks.requests(kit.epk);
+			const sync = createProjections(f.t);
+			const space = epkRequestSpace(ROOT, f.project.rkey);
+			const rows = () => f.t.db.selectFrom('epkRequest').selectAll().execute();
+			const before = await rows();
+
+			// Valid most of the time and naming the open request and its press kit, so only the author check stands between
+			// a decision and the answer it would give.
+			const decision = fc
+				.oneof({ weight: 3, arbitrary: validRecord(COLLECTION.epkDecision) }, anyRecord(COLLECTION.epkDecision))
+				.map((record) => ({ ...record, request: request.uri, requester: STRANGER, epk: kit.epk.uri }));
+
+			await fc.assert(
+				fc.asyncProperty(
+					fc.constantFrom(DJ, CODJ, STRANGER, ALICE),
+					recordKey(COLLECTION.epkDecision),
+					decision,
+					async (repoDid, rkey, value) => {
+						await sync(change(space, repoDid, COLLECTION.epkDecision, rkey, value));
+						expect(await rows()).toEqual(before);
+					}
+				),
+				{ numRuns: 50 }
+			);
+		}, 60_000);
+
+		it("never lists a draft by someone who doesn't manage the project, whatever it holds", async () => {
+			const f = await pressKitServices();
+			onTestFinished(async () => {
+				await f.t.audit.idle();
+				await f.t.db.destroy();
+			});
+			const epk = await f.publish(DJ);
+			const sync = createProjections(f.t);
+			const space = backstageSpace(ROOT, f.project.rkey);
+
+			// Drafts of press kits that aren't published, which most of these are, list apart from the kits.
+			const listed = async () => {
+				const { kits, drafts } = await f.t.epks.dashboard(f.project);
+
+				return [...kits.flatMap((kit) => kit.drafts), ...drafts];
+			};
+
+			const before = await listed();
+
+			// Keyed by the published press kit, and often without a base naming another, as a manager's own draft would be.
+			const draft = fc
+				.tuple(
+					fc.oneof({ weight: 3, arbitrary: validRecord(COLLECTION.epkDraft) }, anyRecord(COLLECTION.epkDraft)),
+					fc.boolean()
+				)
+				.map(([record, based]) => {
+					const { base: _, ...unbased } = record;
+
+					return based ? record : unbased;
+				});
+
+			await fc.assert(
+				fc.asyncProperty(fc.constantFrom(PROMOTER, STRANGER), draft, async (repoDid, value) => {
+					await sync(change(space, repoDid, COLLECTION.epkDraft, epk.rkey, value));
+					expect(await listed()).toEqual(before);
+				}),
+				{ numRuns: 50 }
+			);
+		}, 60_000);
 	});
 });

@@ -10,6 +10,7 @@
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
 	import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
@@ -72,7 +73,7 @@
 
 <svelte:window {onkeydown} />
 
-<a href="#main" class="sr-only rounded-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-fg focus:px-3 focus:py-2 focus:text-fg-inverse">Skip to content</a>
+<a href="#main" class="sr-only rounded-md focus:not-sr-only focus:fixed focus:top-2 focus:start-2 focus:z-50 focus:bg-fg focus:px-3 focus:py-2 focus:text-fg-inverse">{m.skip_to_content()}</a>
 
 <SiteHeader
 	links={nav.links.map(withShortcut)}
@@ -92,13 +93,13 @@
 <!-- The dashboard's tabs are fixed to the bottom on a phone, so its footer finishes above them. -->
 <footer class={['border-t border-line print:hidden', page.url.pathname.startsWith('/dashboard') && 'max-lg:pb-[calc(3.5rem+env(safe-area-inset-bottom))]']}>
 	<div class="container-page flex flex-wrap items-center gap-x-6 gap-y-3 py-8 text-small">
-		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>How it works</a>
-		<a class="menu-link" href="/for" aria-keyshortcuts={shortcut('I')}>Who it's for</a>
-		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>Privacy</a>
-		<a class="menu-link" href="/tools">Tools</a>
-		<!-- Signed out, /report sends people on to GitHub, so the link says so. -->
-		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">{data.viewer ? 'Report a bug' : 'Report a bug on GitHub'}</a>
-		<button type="button" class="menu-link inline-flex min-h-9 items-center gap-2" aria-pressed={hotkeys.enabled} onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>Keyboard shortcuts: {hotkeys.enabled ? 'on' : 'off'}</button>
-		<span class="text-fg-subtle sm:ml-auto">Records on the AT Protocol · private data in spaces only their members can read</span>
+		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>{m.footer_how_it_works()}</a>
+		<a class="menu-link" href="/for" aria-keyshortcuts={shortcut('I')}>{m.footer_who_its_for()}</a>
+		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>{m.footer_privacy()}</a>
+		<a class="menu-link" href="/tools">{m.footer_tools()}</a>
+		<!-- Signed out, or when reports don't go to userinput.app for them, /report sends people on to GitHub, so the link says so. -->
+		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">{data.viewer && data.reportsToUserinput ? m.footer_report_bug() : m.footer_report_bug_github()}</a>
+		<button type="button" class="menu-link inline-flex min-h-9 items-center gap-2" aria-pressed={hotkeys.enabled} onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>{hotkeys.enabled ? m.footer_shortcuts_on() : m.footer_shortcuts_off()}</button>
+		<span class="text-fg-subtle sm:ms-auto">{m.footer_tagline()}</span>
 	</div>
 </footer>

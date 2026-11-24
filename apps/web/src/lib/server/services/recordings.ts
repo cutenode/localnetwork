@@ -3,7 +3,7 @@ import type { DjSet } from '#lib/dj.ts';
 import { djSetSchema } from '#lib/dj-schema.ts';
 import { linkSources, PLYR_TRACK, type PlayerSource, preferred } from '#lib/mix/source.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { ProjectMix } from '#lib/types.ts';
+import type { Flags, ProjectMix } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { RECORDING_MAX_BYTES, RECORDING_TYPES } from '../audio';
 import type { IndexedRepo } from '../happyview/indexed';
@@ -63,8 +63,8 @@ class Recent<T> {
 /**
  * Where a set's recording plays, decided when someone presses Play: its `recording` record (an `fm.plyr.track`, asked
  * of plyr.fm, or a `computer.localnetwork.dj.recording` on the DJ's PDS, served by /media/audio), then its links.
- * Records are read through HappyView. Recordings on a PDS play only for accounts that manage an active project, since
- * the site streams their bytes.
+ * Records are read through HappyView. Recordings on a PDS play only for active accounts that manage an active project,
+ * since the site streams their bytes, and not at all while pauseRecordingStream is on, which leaves the set's links to play.
  */
 export class RecordingService {
 	private readonly managers: Recent<boolean>;
@@ -74,7 +74,7 @@ export class RecordingService {
 	constructor(
 		private readonly repos: IndexedRepo,
 		private readonly plyr: PlyrClient,
-		/** Whether the account manages an active project. */
+		/** Whether the account is active and manages an active project. */
 		private readonly manages: (did: string) => Promise<boolean>,
 		private readonly logger: Logger,
 		now: () => number = Date.now
@@ -95,26 +95,29 @@ export class RecordingService {
 		return parsed.success ? { ...parsed.data, uri: record.uri } : null;
 	}
 
-	/** What a set plays: its recording record, then its links, audio first. */
-	async source(set: Pick<DjSet, 'recording' | 'links'>): Promise<PlayerSource | null> {
-		const recording = set.recording ? await this.recording(set.recording.uri) : null;
+	/**
+	 * What a set plays: its recording record, then its links, audio first. `flags` is the request's, for
+	 * pauseRecordingStream.
+	 */
+	async source(set: Pick<DjSet, 'recording' | 'links'>, flags: Flags): Promise<PlayerSource | null> {
+		const recording = set.recording ? await this.recording(set.recording.uri, flags) : null;
 
 		return preferred([recording, ...linkSources(set.links)]);
 	}
 
 	/**
 	 * What a mix on a profile plays: its own recording record, then its linked set's recording or links, else the mix's
-	 * own link. Never rejects, since the mix's page streams it.
+	 * own link. Never rejects, since the mix's page streams it. `flags` is the request's, for pauseRecordingStream.
 	 */
-	async forMix(mix: Pick<ProjectMix, 'url' | 'set' | 'recording'>): Promise<PlayerSource | null> {
+	async forMix(mix: Pick<ProjectMix, 'url' | 'set' | 'recording'>, flags: Flags): Promise<PlayerSource | null> {
 		const own = linkSources([{ uri: mix.url }]);
 
 		try {
-			const recording = mix.recording ? await this.recording(mix.recording.uri) : null;
+			const recording = mix.recording ? await this.recording(mix.recording.uri, flags) : null;
 			const ref = mix.set && parsePublicRecordUri(mix.set.uri);
 			const set = ref && ref.collection === COLLECTION.djSet ? await this.set(ref.did, ref.rkey) : null;
 
-			return preferred([recording, set && (await this.source(set)), ...own]);
+			return preferred([recording, set && (await this.source(set, flags)), ...own]);
 		} catch (error) {
 			this.logger.warn("could not find a mix's linked recording", {
 				err: error,
@@ -143,14 +146,21 @@ export class RecordingService {
 		});
 	}
 
-	private async recording(uri: string): Promise<PlayerSource | null> {
+	private async recording(uri: string, flags: Flags): Promise<PlayerSource | null> {
 		const ref = parsePublicRecordUri(uri);
 
 		if (ref?.collection === PLYR_TRACK) return this.plyrTrack(uri);
 
-		if (ref?.collection === COLLECTION.djRecording) return this.pdsRecording(ref.did, uri);
+		if (ref?.collection !== COLLECTION.djRecording) return null;
 
-		return null;
+		// Only a recording on a PDS streams through the site; plyr.fm's play from plyr's CDN.
+		if (flags.pauseRecordingStream) {
+			this.logger.info('recording stream paused', { recording: uri, flag: 'pauseRecordingStream' });
+
+			return null;
+		}
+
+		return this.pdsRecording(ref.did, uri);
 	}
 
 	/** A plyr.fm track plays from plyr's CDN, or in plyr's own player when its file isn't public. */
@@ -177,7 +187,10 @@ export class RecordingService {
 		return { kind: 'audio', src: `/media/audio/${did}/${parsed.data.audio.ref.$link}`, from: 'pds' };
 	}
 
-	/** Whether `did` manages an active project. A directory that can't say reads as no, and isn't remembered. */
+	/**
+	 * Whether `did` is active and manages an active project. A directory that can't say reads as no, and isn't
+	 * remembered.
+	 */
 	private async isManager(did: string): Promise<boolean> {
 		try {
 			return await this.managers.get(did, () => this.manages(did));

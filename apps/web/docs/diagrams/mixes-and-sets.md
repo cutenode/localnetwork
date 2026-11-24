@@ -82,8 +82,8 @@ flowchart TD
   HV --> Set
   Set --> Recording{"Its recording?"}
   Recording -- "fm.plyr.track" --> Plyr["api.plyr.fm: file on audio.plyr.fm,<br/>or plyr's player if it's gated"]
-  Recording -- "dj.recording by an<br/>active performer's manager" --> Stream["/media/audio/[did]/[cid]"]
-  Recording -- "none, or it won't resolve" --> Links["Its links: archive.org plays directly,<br/>others in their own players"]
+  Recording -- "dj.recording by an active account<br/>managing an active performer" --> Stream["/media/audio/[did]/[cid]"]
+  Recording -- "none, it won't resolve, or a dj.recording<br/>while pauseRecordingStream is on" --> Links["Its links: archive.org plays directly,<br/>others in their own players"]
   Stream --> Blob["getBlob from the DJ's PDS,<br/>Range answered by the app, nothing stored"]
 ```
 
@@ -98,7 +98,10 @@ flowchart TD
   Visit["/@[handle]/sets/[rkey]"] --> Account{"Names an account?"}
   Account -- "no" --> Miss["404, counted against<br/>the visitor's lookups"]
   Account -- "a DID, or another spelling<br/>of the handle" --> Redirect["302 to /@[handle]/sets/[rkey]"]
-  Account -- "yes" --> Set["recordings.set: the dj.set from HappyView"]
+  Account -- "yes" --> Active{"Account active?<br/>getRepoStatus, kept 30 minutes"}
+  Active -- "deactivated, taken<br/>down or suspended" --> Inactive["404: the account isn't active"]
+  Active -- "deleted" --> Deleted["410: the account was deleted"]
+  Active -- "yes" --> Set["recordings.set: the dj.set from HappyView"]
   Set -- "none, or it won't parse" --> Gone["404"]
   Set --> Render["Rendered: name, date, place,<br/>player and tracklist"]
   Render -.-> Event["Streamed: the event's name,<br/>when HappyView keeps that event"]
@@ -106,15 +109,16 @@ flowchart TD
   Mixes --> Report["Each links its tracklist page,<br/>else its listen link"]
 ```
 
-Source: [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts)
+Source: [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/atproto/account-status.ts`](../../src/lib/server/atproto/account-status.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts)
 
 ## Charts and artist pages
 
-Support counts come straight from the sets HappyView keeps, and nothing stores them. A listed DJ who manages no active performer doesn't count. With HappyView down, the pages say so.
+Support counts come straight from the sets HappyView keeps, and nothing stores them. A listed DJ who manages no active performer doesn't count, and neither does a DJ whose account isn't active. With HappyView down, the pages say so.
 
 ```mermaid
 flowchart TD
-  Sets["dj.set records of active performers' managers,<br/>each named track kept by the gate"] --> Sql["Lua queries group plays in SQL"]
+  Sets["dj.set records of active performers' managers,<br/>each named track kept by the gate"] --> Sql
+  Inactive["The app's list of deactivated,<br/>taken-down and suspended accounts"] -- "inactive param" --> Sql["Lua queries group plays in SQL"]
   Sql --> Charts["getCharts"]
   Sql --> Artist["getArtist"]
   Sql --> Search["searchArtists"]
@@ -126,4 +130,4 @@ flowchart TD
   Memo --> P3["/artists"]
 ```
 
-Source: [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`lua/computer/localnetwork/directory/getCharts.lua`](../../lua/computer/localnetwork/directory/getCharts.lua), [`lua/computer/localnetwork/directory/getArtist.lua`](../../lua/computer/localnetwork/directory/getArtist.lua)
+Source: [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/lib/server/atproto/account-status.ts`](../../src/lib/server/atproto/account-status.ts), [`src/routes/charts/+page.server.ts`](../../src/routes/charts/+page.server.ts), [`lua/computer/localnetwork/directory/getCharts.lua`](../../lua/computer/localnetwork/directory/getCharts.lua), [`lua/computer/localnetwork/directory/getArtist.lua`](../../lua/computer/localnetwork/directory/getArtist.lua)

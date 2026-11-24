@@ -38,6 +38,12 @@
 
 <Story name="Not set up here" args={{ available: false, channel: null }} />
 
+<!-- The site sends email, but it isn't rolled out to this account. -->
+<Story name="Not on for you yet" args={{ available: false, notYet: true, channel: null }} />
+
+<!-- Turned on before email stopped being offered to them, so it can still be turned off. -->
+<Story name="No longer offered, still on" args={{ available: false, channel: on }} />
+
 <Story name="Phone, on" args={{ available: true, channel: on }} globals={phone} />
 
 <Story name="Phone, waiting on the link" args={{ available: true, channel: paused('email_unverified') }} globals={phone} />

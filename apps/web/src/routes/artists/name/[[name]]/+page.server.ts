@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { cacheBriefly } from '#lib/server/http.ts';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
-import { artistMeta } from '#lib/server/meta.ts';
+import { artistMeta, listed } from '#lib/server/meta.ts';
 import { artistHref } from '#lib/supports.ts';
 import type { PageServerLoad } from './$types';
 
@@ -20,6 +20,10 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		supports,
-		meta: artistMeta(locals.app.config.publicUrl, artist.name, artistHref(artist), !!supports?.artist)
+		meta: await listed(
+			locals,
+			artistMeta(locals.app.config.publicUrl, artist.name, artistHref(artist), !!supports?.artist),
+			{}
+		)
 	};
 };

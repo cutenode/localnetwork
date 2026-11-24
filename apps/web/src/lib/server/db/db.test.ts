@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { type Db, nowIso, openDatabase, parseJson } from './index';
 import { migrations } from './migrations';
+import { SERVER_ONLY_COLUMNS, TABLE_SOURCE } from './schema';
 
 describe('database', () => {
 	let db: Db | undefined;
@@ -66,6 +67,52 @@ describe('database', () => {
 		]);
 	});
 
+	// Backups keep what a re-sync can't bring back, so every table has to say which it is.
+	it('marks every table rebuilt or server-only, and names only columns that exist', async () => {
+		db = await openDatabase(':memory:');
+
+		const camel = (name: string) => name.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+		const snake = (name: string) => name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
+		const columns = async (table: string) =>
+			(await sql<{ name: string }>`PRAGMA table_info(${sql.raw(snake(table))})`.execute(db!)).rows.map(
+				({ name }) => name
+			);
+
+		const tables = await sql<{ name: string }>`
+			SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB 'kysely_*'
+		`.execute(db);
+
+		expect(tables.rows.map(({ name }) => camel(name)).toSorted()).toEqual(Object.keys(TABLE_SOURCE).toSorted());
+
+		for (const [table, named] of Object.entries(SERVER_ONLY_COLUMNS))
+			expect(await columns(table)).toEqual(expect.arrayContaining(named.map(snake)));
+	});
+
+	it("drops the account's display name and avatar columns, keeping every account", async () => {
+		db = await openDatabase(':memory:');
+
+		const columns = async () =>
+			(await sql<{ name: string }>`PRAGMA table_info(account)`.execute(db!)).rows.map(({ name }) => name);
+
+		expect(await columns()).not.toContain('display_name');
+		expect(await columns()).not.toContain('avatar_url');
+
+		// Put the table back as 021 left it, with an account in it, and run 022 on its own.
+		await sql`ALTER TABLE account ADD COLUMN display_name TEXT`.execute(db);
+		await sql`ALTER TABLE account ADD COLUMN avatar_url TEXT`.execute(db);
+		await sql`INSERT INTO account (did, handle, created_at, updated_at) VALUES ('did:plc:a', 'a.test', 'now', 'now')`.execute(
+			db
+		);
+		await migrations['022_account_without_profile'].up(db);
+
+		expect(await columns()).not.toContain('display_name');
+		expect(await columns()).not.toContain('avatar_url');
+		expect(await db.selectFrom('account').select(['did', 'handle']).execute()).toEqual([
+			{ did: 'did:plc:a', handle: 'a.test' }
+		]);
+	});
+
 	it('maps camelCase columns, binary values, and booleans', async () => {
 		db = await openDatabase(':memory:');
 		const lt = new Uint8Array([1, 2, 3]);
@@ -89,8 +136,6 @@ describe('database', () => {
 			.values({
 				did: 'did:plc:a',
 				handle: null,
-				displayName: null,
-				avatarUrl: null,
 				pdsUrl: null,
 				// A boolean bound through the adapter is stored as 1.
 				spacesCapable: sql<number>`${true}`,

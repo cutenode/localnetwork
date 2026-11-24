@@ -17,7 +17,10 @@ export default defineConfig({
 	use: {
 		baseURL: `http://127.0.0.1:${APP_PORT}`,
 		trace: 'retain-on-failure',
-		screenshot: 'only-on-failure'
+		screenshot: 'only-on-failure',
+		// One locale and time zone, whatever the machine's, as vite.config.ts pins for Vitest. The server below too.
+		locale: 'en-US',
+		timezoneId: 'UTC'
 	},
 	// Pull requests run Chromium alone (`--project chromium`); the rest run weekly (web-scheduled.yml).
 	projects: [
@@ -44,7 +47,11 @@ export default defineConfig({
 			DEV_ENV_FILE: '',
 			GEOCODER: 'none',
 			ACTOR_SEARCH: 'none',
-			LOG_LEVEL: 'warn'
+			// The bug report tests post to the stand-in userinput.app space, which is rolled out behind this flag.
+			FLAG_OVERRIDES: 'userinputReports=on',
+			LOG_LEVEL: 'warn',
+			LC_ALL: 'en_US.UTF-8',
+			TZ: 'UTC'
 		}
 	}
 });

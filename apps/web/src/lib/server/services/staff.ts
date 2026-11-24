@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { StaffGrant, StaffMember, StaffRole, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -6,6 +7,7 @@ import { listAllSpaceRecords } from '../atproto/repo-client';
 import { reconcileMembers } from './space-members';
 import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import { withLangs } from '../langs';
 
 const STAFF_GRANTS = ['flags', 'flagGroups'] as const satisfies readonly StaffGrant[];
 
@@ -25,6 +27,7 @@ export const staffRoleRecord = z.object({
 		.optional(),
 	grantedBy: z.string(),
 	note: z.string().optional(),
+	langs: z.array(z.string()).optional(),
 	createdAt: z.string()
 });
 
@@ -127,7 +130,7 @@ export class StaffService {
 		// Changing a moderator's note keeps what they were given. An admin has it all anyway.
 		if (role === 'moderator' && grants.length > 0) grant.grants = grants;
 
-		if (note) grant.note = note;
+		if (note) Object.assign(grant, { note, langs: writerLangs() });
 		const record = validateRecord(COLLECTION.staffRole, grant);
 
 		await this.oneAtATime(async () => {
@@ -164,6 +167,16 @@ export class StaffService {
 		if (row?.role !== 'moderator') throw new UserError('Only moderators take grants');
 		const previous = parseJson<StaffGrant[]>(row.grants, []);
 
+		const root = await this.core.root();
+
+		// The note stays in the languages it was written in, which only the record holds, not the index.
+		const stored = await root.getSpaceRecord({
+			space: this.core.spaces.staff,
+			repo: root.did,
+			collection: COLLECTION.staffRole,
+			rkey: subject
+		});
+
 		const value: StaffRoleRecord = {
 			subject,
 			role: row.role,
@@ -172,9 +185,13 @@ export class StaffService {
 			createdAt: row.createdAt
 		};
 
-		if (row.note) value.note = row.note;
+		if (row.note)
+			Object.assign(
+				value,
+				{ note: row.note },
+				withLangs([row.note], staffRoleRecord.safeParse(stored?.value).data?.langs)
+			);
 		const record = validateRecord(COLLECTION.staffRole, value);
-		const root = await this.core.root();
 
 		const ref = await root.putSpaceRecord({
 			space: this.core.spaces.staff,

@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { soon } from '#lib/server/home.ts';
 import { requireViewer, safeNext, text } from '#lib/server/http.ts';
+import { offeredChannels } from '#lib/server/notifications/outbox.ts';
 import type { NotificationChannel } from '#lib/types.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -23,7 +24,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		app.notificationChannels.view(viewer.did, 'dm')
 	]);
 
-	// Only what the site can send and would send something on, so the line under the list never promises more.
+	// Only what the site sends them by and would send something on, so the line under the list never promises more.
+	const offered = offeredChannels(locals);
+
 	const sending = (channel: NotificationChannel, view: typeof email, available: boolean) =>
 		available && view?.status === 'active' && view.topics.length > 0 ? [channel] : [];
 
@@ -33,10 +36,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		paused: [email, dm].flatMap((channel) =>
 			channel?.status === 'paused' && channel.pausedReason ? [channel.pausedReason] : []
 		),
-		alsoSent: [
-			...sending('email', email, app.outbox.configured.includes('email')),
-			...sending('dm', dm, Boolean(app.dm))
-		]
+		alsoSent: [...sending('email', email, offered.email), ...sending('dm', dm, Boolean(offered.dm))]
 	};
 };
 

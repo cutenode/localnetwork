@@ -25,6 +25,12 @@
 						"maxLength": 20000,
 						"maxGraphemes": 2000
 					},
+					"langs": {
+						"type": "array",
+						"description": "The languages the promoter wrote the message and the show's notes in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"plannerShow": {
 						"type": "string",
 						"format": "at-uri",

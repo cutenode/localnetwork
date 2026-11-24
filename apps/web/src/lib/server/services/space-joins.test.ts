@@ -222,6 +222,16 @@ describe('SpaceJoins', () => {
 		});
 	});
 
+	it('names the language of the message an invite or a request to join comes with, and none without one', async () => {
+		await t.spaceJoins.invite(await t.viewer(ADA), space, { did: BO, role: 'cohost', message: 'Join us' });
+		await t.spaceJoins.invite(await t.viewer(ADA), space, { did: CY, role: 'cohost' });
+		await t.spaceJoins.requestToJoin(await t.viewer(DI), space, { message: 'Can I help?', hidden: false });
+
+		expect(stored(COLLECTION.invite, BO)?.value.langs).toEqual(['en']);
+		expect(stored(COLLECTION.invite, CY)?.value.langs).toBeUndefined();
+		expect(stored(COLLECTION.joinRequest, DI)?.value.langs).toEqual(['en']);
+	});
+
 	describe('requests to join', () => {
 		it('wait for someone with people.manage, who picks the role', async () => {
 			await t.spaceJoins.requestToJoin(await t.viewer(BO), space, { message: 'Can I help?', hidden: true });

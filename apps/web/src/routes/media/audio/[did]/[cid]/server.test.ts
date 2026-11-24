@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { IdentityResolver } from '#lib/server/atproto/identity.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { type Loopback, rebindToLoopback } from '#lib/server/testing/rebind.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { callRoute } from '#lib/testing/route-event.ts';
 import { GET } from './+server.ts';
 
@@ -38,11 +39,12 @@ it("won't stream a recording from a PDS whose name points at loopback when it co
 	});
 
 	const recordings = { audio: async () => ({ mimeType: 'audio/mpeg', size: 100 }) };
-	const locals = { app: { identity, recordings }, log: silentLogger };
+	const locals = { app: { identity, recordings }, log: silentLogger, flags: flagsOff };
 	const request = new Request('https://x.test/');
 	const event = { params: { did: DJ, cid: CID }, request, locals, fetch: globalThis.fetch };
 
-	// SAFETY: the route reads only its params, the request's headers, the app's identity and recordings, and the log.
+	// SAFETY: the route reads only its params, the request's headers, the app's identity and recordings, the log and the
+	// flags.
 	const response = await GET(event as never);
 
 	expect(response.status).toBe(502);
@@ -60,4 +62,24 @@ it("is a 404 for an address that isn't a DID and a blob CID, without looking for
 
 	await expect(callRoute(GET, { app, params: { did: 'dj.test', cid: CID } })).rejects.toMatchObject({ status: 404 });
 	await expect(callRoute(GET, { app, params: { did: DJ, cid: 'not-a-cid' } })).rejects.toMatchObject({ status: 404 });
+});
+
+it('answers 503 while pauseRecordingStream is on, without looking for the recording or reading it', async () => {
+	const app = {
+		recordings: {
+			audio: async () => {
+				throw new Error('looked for a recording');
+			}
+		},
+		identity: {
+			resolve: async () => {
+				throw new Error('looked for the PDS');
+			}
+		}
+	};
+
+	const response = await callRoute(GET, { app, params: { did: DJ, cid: CID }, flags: { pauseRecordingStream: true } });
+
+	expect(response.status).toBe(503);
+	expect(response.headers.get('cache-control')).toBe('no-store');
 });

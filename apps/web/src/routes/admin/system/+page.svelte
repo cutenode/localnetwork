@@ -104,6 +104,8 @@
 
 	<section class="flex flex-col gap-3">
 		<h2 class="section-title">Root spaces</h2>
+		<!-- Focusable so a keyboard can scroll the table sideways on a phone. -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<div role="region" aria-label="Root spaces" tabindex="0" class="card overflow-x-auto">
 			<table class="table-base min-w-200">
 				<thead><tr><th>Space</th><th>Read</th><th>Write</th><th>URI</th></tr></thead>

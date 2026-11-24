@@ -3,5 +3,6 @@
 	"key": "peopleSpaces",
 	"description": "The member pages of acts, parties and venues: inviting people, invite links, asking to join and people lists. Off, they answer 404.",
 	"type": "release",
-	"removeBy": "2027-02-12"
+	"removeBy": "2027-02-12",
+	"showsOn": ["act", "party", "venue"]
 }

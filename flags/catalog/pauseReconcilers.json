@@ -1,0 +1,6 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "pauseReconcilers",
+	"description": "Stops the rounds that write to the root's repo to fix drift (manager, staff and shared spaces, listings and calendar copies), at start and every round after. Turn it on for everyone. On a fresh database, the first rounds at start run before this is read.",
+	"type": "ops"
+}

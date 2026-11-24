@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { TID } from '@atproto/common-web';
 import type { Selectable } from 'kysely';
+import { writerLangs } from '#lib/locale.ts';
 import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import { eventPagePath, spacePagePath } from '#lib/space-paths.ts';
@@ -10,6 +11,7 @@ import { isValidRecord, validateRecord } from '../atproto/lexicons';
 import { recordCid } from '../atproto/repo-client';
 import { parseSpaceRecordUri, parseSpaceUri, sharedSpace, sharedSpaceKind, spaceRecordUri } from '../atproto/spaces';
 import { newToken } from '../auth/session';
+import { editedLangs } from '../langs';
 import { parsePerformerUri } from '../performer-uri';
 import { type Core, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
@@ -609,6 +611,7 @@ export class EventService {
 		return {
 			name,
 			...(description && { description }),
+			...editedLangs([description], current && { text: [current.description], langs: current.langs }, writerLangs()),
 			...when,
 			...(venue && { venue: venue.space }),
 			...(draftZone && { timeZone: draftZone }),

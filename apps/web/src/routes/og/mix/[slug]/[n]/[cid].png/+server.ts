@@ -5,7 +5,7 @@ import { PHOTO_TYPES } from '#lib/server/images.ts';
 import { cardImage, dataUrlBytes, projectAvatar } from '#lib/server/og/cards.ts';
 import { cardPaths } from '#lib/server/og/paths.ts';
 import { renderCard } from '#lib/server/og/render.ts';
-import { cards } from '#lib/server/og/serve.ts';
+import { cards, sendToSiteCard } from '#lib/server/og/serve.ts';
 import type { RequestHandler } from './$types';
 
 const COVER = 300;
@@ -24,6 +24,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const path = cardPaths.mix(project, n);
 
 	if (params.cid !== project.cid) redirect(302, path);
+
+	if (locals.flags.pauseOgCards) return cards.kept(path) ?? sendToSiteCard(log, path);
 
 	try {
 		return await cards.respond(log, path, async () => {

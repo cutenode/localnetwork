@@ -1,0 +1,13 @@
+{
+	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"skip_to_content": "Skip to content",
+	"footer_how_it_works": "How it works",
+	"footer_who_its_for": "Who it's for",
+	"footer_privacy": "Privacy",
+	"footer_tools": "Tools",
+	"footer_report_bug": "Report a bug",
+	"footer_report_bug_github": "Report a bug on GitHub",
+	"footer_shortcuts_on": "Keyboard shortcuts: on",
+	"footer_shortcuts_off": "Keyboard shortcuts: off",
+	"footer_tagline": "Records on the AT Protocol · private data in spaces only their members can read"
+}
