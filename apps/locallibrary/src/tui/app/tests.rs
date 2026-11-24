@@ -3925,6 +3925,23 @@ fn a_tracks_playlists_keep_their_names_whole() {
     );
 }
 
+/// With the pads on, a digit is a hot cue in any view, tracks marked or not, so it doesn't go to a view; esc turns the
+/// pads off, and then it does (LOC-1034).
+#[test]
+fn with_the_pads_on_a_digit_is_a_hot_cue_whatever_is_marked() {
+    let (mut app, _dir) = app_with(library());
+    press(&mut app, "m");
+    app.set_view(View::Drives);
+    app.perform(Act::Pads, None);
+    assert!(app.pads_on() && !app.marks.is_empty());
+    press(&mut app, "1");
+    assert_eq!(app.view, View::Drives, "1 is hot cue A while the pads are on");
+    press(&mut app, "\u{1b}");
+    assert!(!app.pads_on(), "esc turns the pads off first");
+    press(&mut app, "1");
+    assert_eq!(app.view, View::Library, "then 1 goes to the Library");
+}
+
 /// `q` plays next and waits for nothing: the key after it does what it does anyway; `Q` is nothing.
 #[test]
 fn q_plays_next_at_once() {
