@@ -46,6 +46,7 @@ The record types locallibrary writes to the DJ account. Per-drive overrides, not
 ```mermaid
 flowchart LR
     settings["settings publish"] --> settingsrec["computer.localnetwork.locallibrary.settings<br/>key self: the profile's base values"]
+    keys["The player, signed in,<br/>after a key changes"] --> keysrec["computer.localnetwork.locallibrary.keybinds<br/>key self: the keys that differ<br/>from the player's own"]
     profile["profile publish"] --> profilerec["computer.localnetwork.dj.profile<br/>key self: the profile document: sets,<br/>energy, genres, artists, era, collection"]
     sets["sets publish"] --> setrec["computer.localnetwork.dj.set<br/>keyed by the set's id or an older<br/>plays publish key, hidden tracks unnamed"]
     upload["sets publish --upload"] --> recording["computer.localnetwork.dj.recording<br/>the audio as a blob"]
@@ -55,7 +56,7 @@ flowchart LR
     plugin["A command running a plugin<br/>with atmosphere:write:NSID"] --> pluginrec["NSID records, each one<br/>you confirm in a terminal"]
 ```
 
-Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`docs/account.md`](../account.md), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`lexicons/computer/localnetwork`](../../../../lexicons/computer/localnetwork)
+Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`docs/account.md`](../account.md), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`lexicons/computer/localnetwork`](../../../../lexicons/computer/localnetwork), [`crates/locallibrary/src/api/keybinds.rs`](../../../../crates/locallibrary/src/api/keybinds.rs)
 
 ## Publishing a set
 

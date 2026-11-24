@@ -37,7 +37,7 @@ Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/sr
 
 ## My Settings
 
-Where the settings profile comes from and where it goes.
+Where the settings profile comes from and where it goes. An export carries the player's keys too.
 
 ```mermaid
 flowchart TD
@@ -49,9 +49,11 @@ flowchart TD
     profile -->|"settings apply, refresh, provision"| patched["Patched into each drive's files,<br/>backed up first"]
     profile -->|"settings publish: base values"| record["The DJ account"]
     profile -->|"settings export"| out["One file, for another computer"]
+    keys[("keybinds.json<br/>the keys set in the player")] -->|"settings export"| out
+    file -->|"settings import FILE"| keys
 ```
 
-Source: [`crates/locallibrary/src/settings.rs`](../../../../crates/locallibrary/src/settings.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs), [`crates/locallibrary/src/api.rs`](../../../../crates/locallibrary/src/api.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/loclib-mysettings/src/lib.rs`](../../../../crates/loclib-mysettings/src/lib.rs)
+Source: [`crates/locallibrary/src/settings.rs`](../../../../crates/locallibrary/src/settings.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs), [`crates/locallibrary/src/api.rs`](../../../../crates/locallibrary/src/api.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/loclib-mysettings/src/lib.rs`](../../../../crates/loclib-mysettings/src/lib.rs), [`crates/locallibrary/src/keybinds.rs`](../../../../crates/locallibrary/src/keybinds.rs)
 
 ## Importing published settings
 
