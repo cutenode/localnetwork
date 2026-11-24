@@ -107,6 +107,23 @@ describe('link-preview cards', () => {
 
 	const IMMUTABLE = 'public, max-age=31536000, immutable';
 
+	it("is a 404 for a performer, a mix or a press kit once none of the project's managers is active, and a 410 once all were deleted", async () => {
+		const kit = await f.publish(DJ);
+
+		const answers = async () =>
+			[
+				await get(projectCard, { slug: project.slug, cid: project.cid }),
+				await get(mixCard, { slug: project.slug, n: '1', cid: project.cid }),
+				await get(pressKitCard, { slug: project.slug, rkey: kit.rkey, cid: kit.cid })
+			].map((outcome) => outcome.status);
+
+		await f.managersAre('deactivated', 'deleted');
+		expect(await answers()).toEqual([404, 404, 404]);
+
+		await f.managersAre('deleted', 'deleted');
+		expect(await answers()).toEqual([410, 410, 410]);
+	});
+
 	describe("a performer's", () => {
 		const params = (cid: string) => ({ slug: project.slug, cid });
 

@@ -66,13 +66,17 @@ export async function pageAccount(locals: App.Locals, param: string, rest: strin
 	misses.refund(ip);
 	const who = account.handle ? `@${account.handle}` : 'This account';
 
-	await hideUnlessActive(locals.app, [account.did], {
-		deleted: { title: `${who} was deleted`, message: 'Their profile and sets are gone.' },
-		inactive: { title: `${who} isn't active`, message: 'Their profile and sets come back when the account does.' }
-	});
+	await hideInactiveAccount(locals.app, account.did, who);
 
 	return account;
 }
+
+/** Hides a page about `did`'s account, its profile or one of its sets, once it isn't active (ADR 0020). */
+export const hideInactiveAccount = (app: App.Locals['app'], did: string, who = 'This account') =>
+	hideUnlessActive(app, [did], {
+		deleted: { title: `${who} was deleted`, message: 'Their profile and sets are gone.' },
+		inactive: { title: `${who} isn't active`, message: 'Their profile and sets come back when the account does.' }
+	});
 
 /**
  * A person's profile, the name their pages go by (the profile's, else their Bluesky display name when the directory
