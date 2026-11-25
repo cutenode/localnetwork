@@ -129,7 +129,7 @@ Source: [`src/tui/jobs.rs`](../../src/tui/jobs.rs), [`src/tui/app/input.rs`](../
 
 ## Deck layout
 
-The Library view's two layouts. In the Deck layout the deck has the screen, as on a CDJ: the digits play hot cues and `enter` plays the pick of what mixes in next. Other views keep the deck strip under them.
+The Library view's two layouts. In the Deck layout the deck has the screen, as on a CDJ: the digits play hot cues (an empty pad sets one, `del` and a pad deletes one) and `enter` plays the pick of what mixes in next. Other views keep the deck strip under them.
 
 ```mermaid
 stateDiagram-v2
@@ -208,6 +208,7 @@ stateDiagram-v2
     Idle --> Planning: an action
     Planning --> Idle: esc, or nothing to change, or an error
     Planning --> Confirm: a plan
+    Planning --> Writing: a plan u takes back whole<br/>(an edit that loses nothing, a hot cue)
     Confirm --> Idle: esc or n
     Confirm --> Writing: y
     Writing --> Committed: databases being written, or files deleted
@@ -216,10 +217,11 @@ stateDiagram-v2
     Committed --> Idle: the change wasn't to the open drive
     Committed --> Reading: done, or failed
     Reading --> Idle
+    Idle --> Planning: the next hot cue a pad set,<br/>waiting its turn
     Committed --> Planning: a crate saved, now packed,<br/>the read not waited for
 ```
 
-Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs)
+Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/cue_saves.rs`](../../src/tui/cue_saves.rs)
 
 ## An unplugged drive in the player
 
