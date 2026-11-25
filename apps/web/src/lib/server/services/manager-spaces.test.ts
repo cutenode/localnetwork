@@ -3,7 +3,7 @@ import { DEFAULT_ACCESS } from '#lib/epk.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { JsonRecord } from '../atproto/repo-client';
 import type { ProjectView } from '#lib/types.ts';
-import { epkRequestSpace, spaceRecordUri } from '../atproto/spaces';
+import { writtenAs, epkRequestSpace, spaceRecordUri } from '../atproto/spaces';
 import { ForbiddenError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
 import type { BookingRecord } from './bookings';
@@ -270,6 +270,19 @@ describe('ManagerSpaces', () => {
 			expect(await threadsOf(OLD)).toEqual([]);
 		});
 
+		it("vouches for a thread whose audit entry names it in the alpha's form", async () => {
+			await rebuild(PROMOTER, legacy);
+			await t.audit.idle();
+			await t.db
+				.updateTable('auditEntry')
+				.set({ subject: writtenAs(open)[1] })
+				.where('subject', '=', open)
+				.execute();
+
+			await setManagers([NEW]);
+			expect(members(open)).toEqual([NEW, PROMOTER].sort());
+		});
+
 		it("doesn't take a project from the promoter's own audit copy, even one with a chain", async () => {
 			await rebuild(PROMOTER, legacy);
 			await t.audit.idle();
@@ -416,7 +429,7 @@ describe('ManagerSpaces', () => {
 		const spaces = new ManagerSpaces(t.core, new IndexedRepo(t.directory, t.core.logger, 0));
 		const before = [...t.net.spaces.keys()];
 
-		await spaces.sync(`at://${ROOT}/space/${project.rkey}`, [NEW]);
+		await spaces.sync(`at:space/${ROOT}/${project.rkey}`, [NEW]);
 		expect([...t.net.spaces.keys()]).toEqual(before);
 	});
 });

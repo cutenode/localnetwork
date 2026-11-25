@@ -23,7 +23,7 @@ const me = { did: 'did:plc:neon', handle: 'neon.test' };
 const co = { did: 'did:plc:remy', handle: 'remy.test' };
 
 const draft = (rkey: string, author: typeof me, status: EpkDraftView['status'], title?: string): EpkDraftView => ({
-	uri: `at://${ROOT}/space/computer.localnetwork.space.backstage/3p/${author.did}/computer.localnetwork.epk.draft/${rkey}`,
+	uri: `at:space/${ROOT}/computer.localnetwork.space.backstage/3p/${author.did}/computer.localnetwork.epk.draft/${rkey}`,
 	rkey,
 	author,
 	repo: author.did,
@@ -44,7 +44,7 @@ const dashboard: EpkDashboard = {
 				did: ROOT,
 				rkey: '3kclubs',
 				cid: 'bafyclubs',
-				space: `at://${ROOT}/space/computer.localnetwork.space.epk/3kclubs`,
+				space: `at:space/${ROOT}/computer.localnetwork.space.epk/3kclubs`,
 				legacy: false,
 				record: {
 					project: `at://${ROOT}/computer.localnetwork.project/3p`,

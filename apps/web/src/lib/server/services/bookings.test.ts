@@ -831,7 +831,7 @@ describe('BookingService', () => {
 				project: project.uri,
 				show: { title: 'Night' },
 				message: 'Free?',
-				plannerShow: `at://${OUTSIDER}/space/${SPACE_TYPE.planner}/self/${OUTSIDER}/${COLLECTION.plannerShow}/${planned}`,
+				plannerShow: `at:space/${OUTSIDER}/${SPACE_TYPE.planner}/self/${OUTSIDER}/${COLLECTION.plannerShow}/${planned}`,
 				createdAt: new Date().toISOString()
 			}
 		});

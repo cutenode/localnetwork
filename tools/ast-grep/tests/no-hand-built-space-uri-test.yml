@@ -1,0 +1,11 @@
+id: no-hand-built-space-uri
+valid:
+  - 'const space = spaceUri(did, type, skey);'
+  - 'const uri = `at://${did}/${collection}/${rkey}`;'
+  - 'const path = `/space/${type}/${skey}`;'
+  - "const space = 'app.userinput.space';"
+invalid:
+  - 'const space = `at:space/${did}/${type}/${skey}`;'
+  - "const space = 'at:space/did:plc:root/a.b.c/main';"
+  - 'const space = `at://${did}/space/${type}/${skey}`;'
+  - 'const space = `${SPACE_URI_PREFIX}${did}/${type}/${skey}`;'

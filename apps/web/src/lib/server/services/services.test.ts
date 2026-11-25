@@ -1,8 +1,10 @@
 import type { JsonValue } from '@atproto/lex-json';
+import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ProjectProfile } from '#lib/types.ts';
+import { writtenAs } from '../atproto/spaces';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
 import { createTestServices, ROOT } from '../testing/core';
@@ -583,6 +585,17 @@ describe('services', () => {
 				details: [{ field: 'details.bookingEmail', before: '[private]', after: '[private]' }],
 				stale: false
 			});
+
+			// The audit entry of one approved in the alpha names the request, and is found by it, in its old form.
+			const [, alpha] = writtenAs(approved.uri);
+			await t.db
+				.updateTable('auditEntry')
+				.set({ details: JSON.stringify({ request: alpha }), subject: alpha })
+				.where(sql<string>`json_extract(details, '$.request')`, '=', approved.uri)
+				.execute();
+			expect((await t.requests.changes(approved, published)).profile).toContainEqual(tagline);
+			expect(await t.audit.list({ subject: approved.uri, action: 'project.update' })).toHaveLength(1);
+			expect(await t.audit.list({ query: approved.uri, action: 'project.update' })).toHaveLength(1);
 
 			const rejected = await t.requests.submit({
 				actor: dj,

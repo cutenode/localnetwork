@@ -11,7 +11,7 @@ import {
 	recordCid,
 	xrpcErrorName
 } from './repo-client';
-import { spaceRecordUri, spaceUri } from './spaces';
+import { writtenAs, spaceRecordUri, spaceUri } from './spaces';
 
 const DID = 'did:plc:alice';
 
@@ -293,6 +293,30 @@ describe('AgentRootClient', () => {
 		await root.updateSpace({ space: SPACE, policy });
 		expect(await root.getDelegationToken(SPACE)).toBe('jwt');
 		expect(calls.map(({ body, params }) => body ?? params)).toEqual([{ space: SPACE, policy }, { space: SPACE }]);
+	});
+
+	it("reads records from the alpha with their space URIs as they're written now, under the CIDs they have", async () => {
+		const value = { $type: COLLECTION, about: writtenAs(SPACE)[1] };
+		const cid = await recordCid(value);
+		const uri = spaceRecordUri(SPACE, DID, COLLECTION, 'a');
+
+		const { client, root } = pds({
+			'com.atproto.space.getRecord': () => Response.json({ uri, cid, value }),
+			'com.atproto.space.listRecords': () =>
+				Response.json({ records: [{ collection: COLLECTION, rkey: 'a', cid, value }] }),
+			// Tests RepoClient's own read, as above.
+			// ast-grep-ignore: no-direct-pds-read
+			'com.atproto.repo.listRecords': () => Response.json({ records: [{ uri, cid, value }] })
+		});
+
+		const read = { cid, value: { $type: COLLECTION, about: SPACE } };
+
+		expect(await client.getSpaceRecord({ space: SPACE, repo: DID, collection: COLLECTION, rkey: 'a' })).toMatchObject(
+			read
+		);
+		expect((await client.listSpaceRecords({ space: SPACE, repo: DID })).records).toMatchObject([read]);
+		// ast-grep-ignore: no-direct-pds-read
+		expect(await root.listRecords(COLLECTION)).toMatchObject([read]);
 	});
 
 	it('lists every record of a public collection, page by page', async () => {

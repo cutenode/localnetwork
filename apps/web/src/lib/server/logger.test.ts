@@ -317,7 +317,7 @@ describe('a job', () => {
 
 				return 'done';
 			},
-			{ space: 'at://did:plc:root/space/gig' }
+			{ space: 'at:space/did:plc:root/gig' }
 		);
 
 		expect(result).toBe('done');
@@ -326,7 +326,7 @@ describe('a job', () => {
 			level: 'warn',
 			message: 'space sync failed',
 			job: 'space-sync',
-			space: 'at://did:plc:root/space/gig',
+			space: 'at:space/did:plc:root/gig',
 			changed: 3,
 			error: { name: 'Error', message: 'host unreachable', stack: expect.stringContaining('logger.test') },
 			notes: [{ component: 'sync', err: 'host unreachable' }]

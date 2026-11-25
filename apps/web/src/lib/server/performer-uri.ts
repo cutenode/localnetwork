@@ -1,6 +1,6 @@
-import { AtUri, isValidAtUri, isValidDid } from '@atproto/syntax';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { PerformerRef } from '#lib/types.ts';
+import { parsePublicRecordUri } from './atproto/spaces';
 
 /** The record key of a DJ's profile, which names them as a performer. */
 const PROFILE_KEY = 'self';
@@ -22,15 +22,14 @@ export function performerUri(rootDid: string, ref: PerformerRef): string {
 
 /** The performer `uri` names, or null when it names none. Acts and projects only count in the root's repo. */
 export function parsePerformerUri(rootDid: string, uri: string): PerformerRef | null {
-	if (!isValidAtUri(uri)) return null;
-	const parsed = new AtUri(uri);
+	const parsed = parsePublicRecordUri(uri);
 
-	if (parsed.isSpace || !isValidDid(parsed.host) || !parsed.rkey) return null;
+	if (!parsed) return null;
 
 	if (parsed.collection === COLLECTION.profile)
-		return parsed.rkey === PROFILE_KEY ? { kind: 'dj', did: parsed.host } : null;
+		return parsed.rkey === PROFILE_KEY ? { kind: 'dj', did: parsed.did } : null;
 
-	if (parsed.host !== rootDid) return null;
+	if (parsed.did !== rootDid) return null;
 
 	if (parsed.collection === COLLECTION.listing) return { kind: 'act', skey: parsed.rkey };
 

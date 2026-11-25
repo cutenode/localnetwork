@@ -10,13 +10,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LEXICON_ROOTS } from './lib/lexicon-files.ts';
 
+// `l.space` types one collection per space under TypeScript 6, so a space of two kinds of records doesn't
+// type-check. Nothing here reads these bindings.
+const SPACE_TYPES = 'computer.localnetwork.space.*';
+
 const folder = mkdtempSync(join(tmpdir(), 'lexicons-'));
 
 try {
 	for (const root of LEXICON_ROOTS) cpSync(root, folder, { recursive: true });
-	execFileSync('lex', ['build', '--lexicons', folder, '--out', 'src/lib/lexicons', '--clear', '--no-pretty'], {
-		stdio: 'inherit'
-	});
+	execFileSync(
+		'lex',
+		['build', '--lexicons', folder, '--out', 'src/lib/lexicons', '--clear', '--no-pretty', '--exclude', SPACE_TYPES],
+		{
+			stdio: 'inherit'
+		}
+	);
 } finally {
 	rmSync(folder, { recursive: true, force: true });
 }

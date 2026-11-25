@@ -20,7 +20,7 @@
 		did: ROOT,
 		rkey,
 		cid: `bafy${rkey}`,
-		space: `at://${ROOT}/space/computer.localnetwork.space.epk/${rkey}`,
+		space: `at:space/${ROOT}/computer.localnetwork.space.epk/${rkey}`,
 		legacy: false,
 		record: {
 			project: `at://${ROOT}/computer.localnetwork.project/3p`,
@@ -34,7 +34,7 @@
 	});
 
 	const draft = (rkey: string, author: typeof me, status: EpkDraftView['status'], title?: string): EpkDraftView => ({
-		uri: `at://${ROOT}/space/computer.localnetwork.space.backstage/3p/${author.did}/computer.localnetwork.epk.draft/${rkey}`,
+		uri: `at:space/${ROOT}/computer.localnetwork.space.backstage/3p/${author.did}/computer.localnetwork.epk.draft/${rkey}`,
 		rkey,
 		author,
 		repo: author.did,

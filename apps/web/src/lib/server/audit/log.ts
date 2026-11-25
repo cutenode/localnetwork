@@ -6,6 +6,7 @@ import { COLLECTION } from '#lib/nsid.ts';
 import type { RepoClient, RootRepoClient } from '../atproto/repo-client';
 import { xrpcErrorName } from '../atproto/repo-client';
 import { validateRecord } from '../atproto/lexicons';
+import { writtenAs } from '../atproto/spaces';
 import { type Db, nowIso, parseJson } from '../db';
 import type { AuditEntryRow, CopyStatus } from '../db/schema';
 import type { Logger } from '../logger';
@@ -451,16 +452,22 @@ export class AuditLog {
 			query = query.where((eb) => eb.or([eb('action', '=', action), eb('action', 'like', `${action}.%`)]));
 		}
 
-		if (filter.subject) query = query.where('subject', '=', filter.subject);
+		if (filter.subject) query = query.where('subject', 'in', writtenAs(filter.subject));
 
 		if (filter.outcome) query = query.where('outcome', '=', filter.outcome);
 
 		if (filter.before) query = query.where('seq', '<', filter.before);
 
 		if (filter.query) {
-			const like = `%${filter.query.replace(/[%_]/g, '')}%`;
+			const patterns = writtenAs(filter.query).map((text) => `%${text.replace(/[%_]/g, '')}%`);
 			query = query.where((eb) =>
-				eb.or([eb('summary', 'like', like), eb('subject', 'like', like), eb('actorDid', 'like', like)])
+				eb.or(
+					patterns.flatMap((like) => [
+						eb('summary', 'like', like),
+						eb('subject', 'like', like),
+						eb('actorDid', 'like', like)
+					])
+				)
 			);
 		}
 
@@ -572,10 +579,7 @@ export class AuditLog {
 			if (!isRootCopy && !isActorCopy) return;
 			const expected = AuditLog.toRecord(entry, isRootCopy);
 
-			const matches =
-				canonicalJson({ ...expected, $type: undefined }) === canonicalJson({ ...input.value, $type: undefined });
-
-			if (!matches) {
+			if (comparable(expected) !== comparable(input.value)) {
 				// A copy that differs from the chained entry (edited after the fact) is flagged even if it was verified before.
 				this.deps.logger.warn('audit copy does not match the local entry', { id: entry.id, uri: input.uri });
 				await db
@@ -677,6 +681,15 @@ export function entryContent(entry: AuditEntryRow) {
 		via: entry.via,
 		createdAt: entry.createdAt
 	};
+}
+
+const EMPTY = new Set(['""', '[]', '{}']);
+
+/** A copy's record as it's compared: without its type, and without empty fields, which `toRecord` leaves out. */
+function comparable(record: JsonObject): string {
+	const kept = Object.entries(record).filter(([key, value]) => key !== '$type' && !EMPTY.has(JSON.stringify(value)));
+
+	return canonicalJson(Object.fromEntries(kept));
 }
 
 function errorMessage(cause: unknown): string {

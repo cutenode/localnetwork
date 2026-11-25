@@ -8,7 +8,7 @@ import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts
 import { callRoute } from '#lib/testing/route-event.ts';
 import { POST } from './+server.ts';
 
-const SPACE = 'at://did:plc:authority/space/computer.localnetwork.space.booking/self';
+const SPACE = 'at:space/did:plc:authority/computer.localnetwork.space.booking/self';
 
 const TOKEN = 'registered-token';
 

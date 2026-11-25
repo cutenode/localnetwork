@@ -25,7 +25,7 @@ export default {
 					status: EVENT_STATUS.scheduled,
 					audience: 'public',
 					venue: {
-						space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor',
+						space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor',
 						skey: '3tresor',
 						name: 'Tresor',
 						locality: 'Berlin',

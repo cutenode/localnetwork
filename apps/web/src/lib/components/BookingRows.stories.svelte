@@ -21,7 +21,7 @@
 	const neonTide = { uri: 'at://did:plc:root/computer.localnetwork.project/neon-tide', slug: 'neon-tide', name: 'Neon Tide', href: '/projects/neon-tide' };
 
 	const thread = (skey: string, title: string | null, status: string, showDate: string | null, lastAuthor: string, overrides: Partial<BookingListThread> = {}): BookingListThread => ({
-		space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
+		space: `at:space/did:plc:root/computer.localnetwork.space.booking/${skey}`,
 		skey,
 		status,
 		title,

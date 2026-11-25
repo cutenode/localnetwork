@@ -114,7 +114,7 @@ export class ManagerSpaces {
 		const named = await Promise.all([
 			db.selectFrom('bookingThread').select('spaceUri').where('projectUri', '=', projectUri).execute(),
 			openedProjects(this.core, projectUri).execute(),
-			auditedProjects(this.core, projectUri).execute()
+			auditedProjects(this.core, { project: projectUri })
 		]);
 
 		const spaces = [...new Set(named.flat().map((row) => row.spaceUri))];
@@ -128,7 +128,7 @@ export class ManagerSpaces {
 				.where('spaceUri', 'in', spaces)
 				.execute(),
 			openedProjects(this.core).where('spaceUri', 'in', spaces).execute(),
-			auditedProjects(this.core).where('subject', 'in', spaces).execute()
+			auditedProjects(this.core, { spaces })
 		]);
 
 		const openedBy = new Map(opened.map((row) => [row.spaceUri, row.project]));

@@ -20,7 +20,7 @@ import type { Logger } from '../logger';
 import { type IdentityResolver, type ResolvedIdentity, requireKemKey } from './identity';
 import { isTooDeep, RecordValidationError, TOO_DEEP } from './lexicons';
 import type { StoredRecord } from './repo-client';
-import { parseSpaceUri, spaceRecordUri } from './spaces';
+import { currentSpaceUris, parseSpaceUri, spaceRecordUri } from './spaces';
 
 /** An XRPC error response from a PDS or space host. */
 export class XrpcResponseError extends Error {
@@ -338,7 +338,7 @@ export class SpaceCredentialManager {
 					throw new XrpcResponseError(502, 'InvalidResponse', error.message, nsid);
 				}
 
-				return record;
+				return { ...record, value: currentSpaceUris(record.value) };
 			});
 		} catch (error) {
 			// A record that isn't there comes back as 400 RecordNotFound.
