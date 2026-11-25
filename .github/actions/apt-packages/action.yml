@@ -31,7 +31,10 @@ runs:
         sudo apt-get update
         sudo apt-get install -y --download-only -o Dir::Cache::archives="$HOME/apt-packages" $PACKAGES
         sudo rm -rf ~/apt-packages/partial ~/apt-packages/lock
-    - if: steps.cached.outputs.cache-hit != 'true'
+    # Saved on main only, which every branch reads and locallibrary-cache.yml warms each night: a pull
+    # request's copy served only its own reruns, and each runner image a pull request met saved
+    # another, which pushed main's least read caches (the macOS one) past GitHub's 10 GB.
+    - if: steps.cached.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/apt-packages
