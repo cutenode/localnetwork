@@ -43,9 +43,10 @@ on an old base, which would check with old tooling. Close and reopen the pull re
 `gh api repos/<owner>/<repo>/pulls/<number> --jq .merge_commit_sha` prints a merge commit on the
 current base (the message gives the command), and update the branch only if that doesn't happen.
 
-A merge queue group runs `release-budgets` on its pull requests together, against the group's base,
-and allows each pull request in it its allowance, so two that each passed alone can't land over
-together.
+A merge queue group runs `release-budgets` on its pull request and the ones ahead of it in the
+queue together, against main's tip as the group's run started, and allows each of them its
+allowance, so two that each passed alone can't land over together, and one that grows back what the
+one ahead shrank still passes. The website's sizes are held the same way.
 
 Growing a metric past its allowance on purpose takes a `Budget-Raise` trailer on one of the pull
 request's commits, saying by how much in the metric's unit and why. A commit of its own does it:

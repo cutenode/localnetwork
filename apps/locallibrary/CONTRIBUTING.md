@@ -61,7 +61,7 @@ CI (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quic
 pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
 Linux, and pull requests on Windows too (`other-os`). macOS runs in the merge queue, once for each
 group of pull requests about to merge, or on a pull request with the `all-os` label (add it, then
-re-run CI):
+re-run CI). The queue runs Windows again unless the pull request passed it on the same files:
 
 | Job | What it runs |
 | --- | --- |
@@ -70,7 +70,7 @@ re-run CI):
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
 | `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`cargo hegel-coverage`); its totals sit beside the whole suite's |
-| `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
+| `other-os` | on macOS and Windows, without coverage: `cargo nextest run` in 2 shards, and clippy and the doctests, in a job of their own on Windows and with the first shard on macOS |
 | `fuzz` | on pull requests that change what the fuzz targets reach: every target for a minute (see Fuzzing) |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
