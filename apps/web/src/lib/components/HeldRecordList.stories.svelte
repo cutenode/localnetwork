@@ -8,7 +8,7 @@
 	const { Story } = defineMeta({ title: 'Dashboard/Your data', component: HeldRecordList, tags: ['autodocs'] });
 
 	const record = (uri: string, overrides: Partial<HeldRecordView> = {}): HeldRecordView => ({
-		uri: `at://did:plc:root/space/x/did:plc:root/${uri}`,
+		uri: `at:space/did:plc:root/x/did:plc:root/${uri}`,
 		kind: 'booking',
 		title: 'Message in Rooftop Rave',
 		excerpt: 'Any news on the 5th? We could push set times back an hour if that helps with travel from Leipzig.',

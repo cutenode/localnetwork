@@ -26,7 +26,7 @@ export default {
 					did: 'did:plc:root',
 					rkey: 'clubs',
 					cid: 'bafyepk',
-					space: 'ats://did:plc:root/computer.localnetwork.space/clubs',
+					space: 'at:space/did:plc:root/computer.localnetwork.space/clubs',
 					legacy: false,
 					record: {
 						project: NEON_TIDE.uri,

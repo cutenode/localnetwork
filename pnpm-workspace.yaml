@@ -17,47 +17,43 @@ allowBuilds:
   esbuild: false
   protobufjs: false
   sharp: false
-# Atproto Spaces alpha: pin every @atproto package to the same alpha build.
+# Atproto Spaces alpha: pin the @atproto packages that have a build of it to one alpha build.
 overrides:
-  '@atproto/api': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/aws': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/bsky': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/bsync': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/car': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/common': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/common-web': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/crypto': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/dev-env': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/did': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/identity': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-builder': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-cbor': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-client': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-data': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-document': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-installer': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-json': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-password-session': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-resolver': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lex-schema': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/lexicon': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-client': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-client-node': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-provider': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-provider-api': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-provider-ui': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-scopes': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/oauth-types': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/ozone': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/pds': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/repo': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/space': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/star': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/sync': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/syntax': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/xrpc': 0.0.0-spaces-alpha-20261113224550
-  '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261113224550
+  '@atproto/api': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/aws': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/bsky': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/bsync': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/car': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/common': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/common-web': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/crypto': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/dev-env': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/did': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/identity': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-builder': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-client': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-document': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-installer': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-password-session': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-resolver': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lex-schema': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/lexicon': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-client': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-client-node': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-provider': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-provider-api': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-provider-ui': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-scopes': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/oauth-types': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/ozone': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/pds': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/repo': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/space': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/sync': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/syntax': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/xrpc': 0.0.0-spaces-alpha-20261124235736
+  '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261124235736
   # Dev-only paths whose own ranges keep a version with known advisories.
   # connect-node 1.7.0 (atproto dev network) only takes Headers from undici, and only on Node < 18.
   '@connectrpc/connect-node>undici': ^6.29.1
@@ -94,6 +90,56 @@ auditConfig:
     - GHSA-fc5q-39xc-vjpf
 # Avoid installing packages published in last 3 days (in minutes).
 minimumReleaseAge: 4320
+# The spaces alpha the root account's PDS moved to, which refuses the older builds' space URIs. Drop
+# these once every one of them is three days old (LOC-1088).
+minimumReleaseAgeExclude:
+  - '@atproto-labs/did-resolver@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto-labs/fetch-node@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto-labs/handle-resolver-node@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto-labs/handle-resolver@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto-labs/identity-resolver@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto-labs/xrpc-utils@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/api@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/aws@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/bsky@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/bsync@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/car@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/common-web@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/common@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/crypto@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/dev-env@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/did@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/identity@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/jwk-jose@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/jwk-webcrypto@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/jwk@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-builder@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-client@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-document@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-installer@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-password-session@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-resolver@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-rpc@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex-schema@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lex@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/lexicon@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-client-node@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-client@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-provider-api@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-provider-ui@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-provider@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-resolver@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-scopes@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/oauth-types@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/ozone@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/pds@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/repo@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/space@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/sync@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/syntax@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/ws-client@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/xrpc-server@0.0.0-spaces-alpha-20261124235736'
+  - '@atproto/xrpc@0.0.0-spaces-alpha-20261124235736'
 # Disable exotic subdeps in older pnpm versions.
 blockExoticSubdeps: true
 # Fail if trusted publishing or provenance is gone from a package that used to have it.

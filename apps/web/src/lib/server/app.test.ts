@@ -818,7 +818,7 @@ describe('notification delivery', () => {
 			kind: 'booking.message',
 			to: [NEON],
 			key: 'first',
-			subject: `at://${ROOT}/space/computer.localnetwork.booking/3mabc`,
+			subject: `at:space/${ROOT}/computer.localnetwork.booking/3mabc`,
 			data: { skey: '3mabc', title: 'first', projectName: 'Neon Tide', from: 'promoter' },
 			href: '/dashboard/bookings/3mabc',
 			at: new Date().toISOString()
@@ -903,7 +903,7 @@ describe('a reinstated account', () => {
 			async (app) => {
 				await app.db.schema.dropTable('flagGroup').execute();
 				// Forgets the flags read so far, so the next check reads them again.
-				await app.flags.removeFlagByUri(`at://${ROOT}/space/gone`);
+				await app.flags.removeFlagByUri(`at:space/${ROOT}/gone`);
 			},
 			MANAGER_COLLECTIONS
 		]

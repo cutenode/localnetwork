@@ -9,7 +9,7 @@ export const projectPlan = (slug: string, name: string, overrides: Partial<Proje
 	name,
 	target: 'act',
 	dj: null,
-	space: `ats://${ROOT}/computer.localnetwork.space.performer/3k${slug}`,
+	space: `at:space/${ROOT}/computer.localnetwork.space.performer/3k${slug}`,
 	performerUri: `at://${ROOT}/computer.localnetwork.listing/3k${slug}`,
 	record: null,
 	people: [
@@ -20,7 +20,7 @@ export const projectPlan = (slug: string, name: string, overrides: Partial<Proje
 	hasDetails: true,
 	drafts: [],
 	pressKits: [{ uri: `at://${ROOT}/computer.localnetwork.epk/3kkit`, title: 'Clubs' }],
-	bookingThreads: [{ space: 'ats://booking', title: 'Rooftop', status: 'open' }],
+	bookingThreads: [{ space: 'at:space/booking', title: 'Rooftop', status: 'open' }],
 	rewrites: { follows: 2, upcomingShows: 1 },
 	decline: [],
 	redirect: { from: `/projects/${slug}`, to: `/act/${slug}` },
@@ -54,7 +54,7 @@ export const migrationPlan: MigrationPlan = {
 			performerUri: null,
 			people: [{ did: 'did:plc:pirate', handle: 'pirate.test', role: 'manager', relationship: null }],
 			decline: [
-				{ uri: 'ats://request', kind: 'claim', requester: 'did:plc:stranger', createdAt: '2026-11-01T00:00:00Z' }
+				{ uri: 'at:space/request', kind: 'claim', requester: 'did:plc:stranger', createdAt: '2026-11-01T00:00:00Z' }
 			],
 			redirect: { from: '/projects/pirate-signal', to: null },
 			blockers: [
@@ -64,7 +64,7 @@ export const migrationPlan: MigrationPlan = {
 		})
 	],
 	pendingCreates: [
-		{ uri: 'ats://create', kind: 'create', requester: 'did:plc:new', createdAt: '2026-11-01T00:00:00Z' }
+		{ uri: 'at:space/create', kind: 'create', requester: 'did:plc:new', createdAt: '2026-11-01T00:00:00Z' }
 	],
 	totals: { acts: 2, djs: 2, blocked: 2 }
 };

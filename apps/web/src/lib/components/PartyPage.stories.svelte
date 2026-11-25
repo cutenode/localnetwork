@@ -48,7 +48,7 @@
 
 	const owner = {
 		...harness,
-		subject: { kind: 'party' as const, uri: 'at://did:plc:root/space/party' },
+		subject: { kind: 'party' as const, uri: 'at:space/did:plc:root/party' },
 		can: capabilitiesFor('party', 'host'),
 		role: 'owner' as const,
 		newEventHref: '/party/3lzparty/new'

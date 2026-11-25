@@ -4,7 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import { formatShowDate, asShowDate } from '#lib/format.ts';
 import WaitingEvents from './WaitingEvents.svelte';
 
-const uri = 'at://did:plc:root/computer.localnetwork.space.party/3p/did:plc:root/computer.localnetwork.event/3e';
+const uri = 'at:space/did:plc:root/computer.localnetwork.space.party/3p/did:plc:root/computer.localnetwork.event/3e';
 
 describe('WaitingEvents', () => {
 	it("lists each event on the venue's clock, with its party, lineup and an Approve button", async () => {

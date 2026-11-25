@@ -6,6 +6,7 @@ import { COLLECTION } from '#lib/nsid.ts';
 import type { RepoClient, RootRepoClient } from '../atproto/repo-client';
 import { xrpcErrorName } from '../atproto/repo-client';
 import { validateRecord } from '../atproto/lexicons';
+import { writtenAs } from '../atproto/spaces';
 import { type Db, nowIso, parseJson } from '../db';
 import type { AuditEntryRow, CopyStatus } from '../db/schema';
 import type { Logger } from '../logger';
@@ -451,16 +452,22 @@ export class AuditLog {
 			query = query.where((eb) => eb.or([eb('action', '=', action), eb('action', 'like', `${action}.%`)]));
 		}
 
-		if (filter.subject) query = query.where('subject', '=', filter.subject);
+		if (filter.subject) query = query.where('subject', 'in', writtenAs(filter.subject));
 
 		if (filter.outcome) query = query.where('outcome', '=', filter.outcome);
 
 		if (filter.before) query = query.where('seq', '<', filter.before);
 
 		if (filter.query) {
-			const like = `%${filter.query.replace(/[%_]/g, '')}%`;
+			const patterns = writtenAs(filter.query).map((text) => `%${text.replace(/[%_]/g, '')}%`);
 			query = query.where((eb) =>
-				eb.or([eb('summary', 'like', like), eb('subject', 'like', like), eb('actorDid', 'like', like)])
+				eb.or(
+					patterns.flatMap((like) => [
+						eb('summary', 'like', like),
+						eb('subject', 'like', like),
+						eb('actorDid', 'like', like)
+					])
+				)
 			);
 		}
 

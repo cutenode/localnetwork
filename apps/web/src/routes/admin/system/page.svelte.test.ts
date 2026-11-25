@@ -89,7 +89,7 @@ describe('System page backups', () => {
 });
 
 const space = (name: string, lastError: string | null = null) => ({
-	space: `at://did:plc:root/space/computer.localnetwork.space.${name}/main`,
+	space: `at:space/did:plc:root/computer.localnetwork.space.${name}/main`,
 	type: `computer.localnetwork.space.${name}`,
 	skey: 'main',
 	spaceRev: null,

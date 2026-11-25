@@ -54,7 +54,7 @@ describe('SharedSpaces', () => {
 	it('starts a space only its people read and write, with its creator in it holding every capability of its kind', async () => {
 		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
 
-		expect(space).toMatch(/^at:\/\/did:plc:root\/space\/computer\.localnetwork\.space\.performer\//);
+		expect(space).toMatch(/^at:space\/did:plc:root\/computer\.localnetwork\.space\.performer\//);
 		expect(t.net.spaces.get(space)?.policy).toEqual(memberSpacePolicy());
 		expect(access(space)).toEqual({ [ADA]: readWrite });
 		expect(person(space, ADA)).toMatchObject({ subject: ADA, role: 'member', hidden: false, via: 'created' });
@@ -255,7 +255,7 @@ describe('SharedSpaces', () => {
 
 		await expect(t.sharedSpaces.leave(ada, t.spaces.staff)).rejects.toBeInstanceOf(NotFoundError);
 		await expect(
-			t.sharedSpaces.leave(ada, 'at://did:plc:other/space/computer.localnetwork.space.party/3k')
+			t.sharedSpaces.leave(ada, 'at:space/did:plc:other/computer.localnetwork.space.party/3k')
 		).rejects.toBeInstanceOf(NotFoundError);
 	});
 

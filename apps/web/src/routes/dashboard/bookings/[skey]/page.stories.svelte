@@ -21,7 +21,7 @@
 	const neonTide = { uri: 'at://did:plc:root/computer.localnetwork.project/2', slug: 'neon-tide', name: 'Neon Tide', href: '/projects/neon-tide' };
 
 	const thread = (status: string, lastAuthor = PAT, showDate: string | null = day(8)): BookingThreadView => ({
-		space: 'at://did:plc:root/computer.localnetwork.space.booking/3k1',
+		space: 'at:space/did:plc:root/computer.localnetwork.space.booking/3k1',
 		skey: '3k1',
 		status,
 		title: 'Rooftop Rave',

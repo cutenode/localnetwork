@@ -48,7 +48,7 @@ describe('FakeRootClient.applySpaceWrites', () => {
 		expect(keys()).toEqual(['a.b.c/1']);
 
 		await expect(
-			root.applySpaceWrites(`at://${ROOT}/space/computer.localnetwork.space.party/gone`, [])
+			root.applySpaceWrites(`at:space/${ROOT}/computer.localnetwork.space.party/gone`, [])
 		).rejects.toMatchObject({ error: 'SpaceNotFound' });
 
 		const many: RepoWrite[] = Array.from({ length: 201 }, (_, n) => ({

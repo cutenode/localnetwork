@@ -10,7 +10,7 @@ const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
 const [pat, neon, remy] = ['did:plc:pat', 'did:plc:neon', 'did:plc:remy'];
 
-const thread = 'at://did:plc:root/space/computer.localnetwork.booking/3mabc';
+const thread = 'at:space/did:plc:root/computer.localnetwork.booking/3mabc';
 
 const message = (overrides: Partial<NotifyInput<'booking.message'>> = {}): NotifyInput<'booking.message'> => ({
 	kind: 'booking.message',
@@ -133,7 +133,7 @@ describe('Notifier', () => {
 
 	it("counts and marks only the recipient's own items read", async () => {
 		await inbox.notify(message({ key: 'a' }));
-		await inbox.notify(message({ key: 'b', subject: 'at://did:plc:root/space/computer.localnetwork.booking/other' }));
+		await inbox.notify(message({ key: 'b', subject: 'at:space/did:plc:root/computer.localnetwork.booking/other' }));
 		await inbox.notify(message({ key: 'c' }));
 		expect(await inbox.unreadCount(neon)).toBe(3);
 
@@ -155,7 +155,7 @@ describe('Notifier', () => {
 	});
 
 	describe('subjects', () => {
-		const other = 'at://did:plc:root/space/computer.localnetwork.booking/other';
+		const other = 'at:space/did:plc:root/computer.localnetwork.booking/other';
 
 		const act = { skey: 'other', title: 'Closing Night', projectName: 'Neon Tide', from: 'act' } as const;
 

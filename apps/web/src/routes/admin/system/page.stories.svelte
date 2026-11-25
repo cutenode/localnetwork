@@ -14,7 +14,7 @@
 	const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
 	const space = (name: string) => ({
-		space: `at://did:plc:root/space/computer.localnetwork.space.${name}/main`,
+		space: `at:space/did:plc:root/computer.localnetwork.space.${name}/main`,
 		type: `computer.localnetwork.space.${name}`,
 		skey: 'main',
 		spaceRev: '3mzlqyh5lt22d',
