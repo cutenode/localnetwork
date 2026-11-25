@@ -4095,6 +4095,7 @@ dependencies = [
  "locallibrary-plugin-youtube",
  "loclib-aup",
  "loclib-drive-speed",
+ "loclib-format",
  "loclib-interop",
  "loclib-model",
  "loclib-plugin",
