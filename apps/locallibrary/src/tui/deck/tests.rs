@@ -175,12 +175,17 @@ fn auto_cue_finds_the_first_memory_cue_or_beat() {
 #[test]
 fn loops_from_the_grid() {
     let g = grid(100, 120.0, 64);
-    // From the beat the playhead is in, or from the playhead.
-    assert_eq!(auto_loop(&g, 1225.0, 4.0, true), Some((1100.0, 3100.0)));
+    // Bars start at 100, 2100, 4100...: from the nearest, or from the playhead.
+    assert_eq!(auto_loop(&g, 1225.0, 4.0, true), Some((2100.0, 4100.0)), "pressed early for bar 2");
+    assert_eq!(auto_loop(&g, 2160.0, 4.0, true), Some((2100.0, 4100.0)), "pressed late");
+    assert_eq!(auto_loop(&g, 900.0, 4.0, true), Some((100.0, 2100.0)), "in the first half of the bar");
     assert_eq!(auto_loop(&g, 1225.0, 4.0, false), Some((1225.0, 3225.0)));
     assert_eq!(auto_loop(&[], 1225.0, 4.0, true), None);
-    // The beat before the first starts before the track: the first one instead.
     assert_eq!(auto_loop(&g, 0.0, 4.0, true), Some((100.0, 2100.0)));
+    // A grid that marks no bars: from the beat the playhead is in, never before the first.
+    let unbarred: Vec<Beat> = g.iter().map(|b| Beat { beat_number: 0, ..b.clone() }).collect();
+    assert_eq!(auto_loop(&unbarred, 1225.0, 4.0, true), Some((1100.0, 3100.0)));
+    assert_eq!(auto_loop(&unbarred, 0.0, 4.0, true), Some((100.0, 2100.0)));
     assert_eq!((beats_label(4.0), beats_label(0.5), beats_label(0.25)), ("4".into(), "1/2".into(), "1/4".into()));
 }
 
@@ -726,8 +731,8 @@ fn prop_cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
     assert_eq!(l, lands(m));
 }
 
-/// A loop made on the grid is as many beats long as asked, from the beat the playhead is in
-/// (or the playhead itself with quantize off), never from before the track starts.
+/// A loop made on the grid is as many beats long as asked, from the nearest downbeat (or the
+/// playhead itself with quantize off), never from before the track starts.
 #[hegel::test(test_cases = 300)]
 fn prop_loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -740,7 +745,10 @@ fn prop_loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
     assert!((e - s - len).abs() < 1e-6, "{s}..{e} for {len} beats");
     let at = beat_index(&g, ms).unwrap();
     if on_beat {
-        assert!((s - s.round()).abs() < 1e-6 && (s - at).abs() < 1.0 + 1e-6, "beat {s} for the playhead at {at}");
+        let downbeats: Vec<f64> = (0..g.len()).filter(|i| g[*i].beat_number == 1).map(|i| i as f64).collect();
+        assert!(downbeats.contains(&s), "beat {s} isn't a downbeat");
+        let nearest = downbeats.iter().map(|d| (d - at).abs()).fold(f64::INFINITY, f64::min);
+        assert!(((s - at).abs() - nearest).abs() < 1e-6, "downbeat {s} for the playhead at {at}");
         assert!(start >= 0.0, "a loop from {start}");
     } else {
         assert!((start - ms).abs() < 1e-6);
