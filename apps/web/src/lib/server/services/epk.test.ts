@@ -82,7 +82,7 @@ describe('EpkService', () => {
 		expect([clubs.did, clubs.legacy, clubs.space]).toEqual([
 			ROOT,
 			false,
-			`at://${ROOT}/space/${SPACE_TYPE.epk}/${clubs.rkey}`
+			`at:space/${ROOT}/${SPACE_TYPE.epk}/${clubs.rkey}`
 		]);
 		expect(clubs.space).not.toBe(festivals.space);
 

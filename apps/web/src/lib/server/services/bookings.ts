@@ -17,7 +17,9 @@ import type {
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import { type JsonRecord, memberSpacePolicy, type RecordRef } from '../atproto/repo-client';
 import {
+	writtenAs,
 	bookingSpace,
+	currentSpaceUri,
 	parsePublicRecordUri,
 	parseSpaceRecordUri,
 	parseSpaceUri,
@@ -110,12 +112,15 @@ export const openedProjects = (core: Pick<Core, 'db' | 'rootDid'>, project?: str
 const AUDITED_PROJECT = sql<string>`json_extract(details, '$.project')`;
 
 /**
- * The project each thread's `booking.create` audit entry names, or only threads it names `project` for. The server
+ * The project each thread's `booking.create` audit entry names, for `project` or `spaces` only when given. The server
  * writes that entry when the thread opens, and a lost one is rebuilt only from the root's chained copy, never from the
  * promoter's own (AuditLog.onSyncedCopy), so it vouches for threads opened before the opening record named a project.
  */
-export const auditedProjects = (core: Pick<Core, 'db'>, project?: string) =>
-	core.db
+export async function auditedProjects(
+	core: Pick<Core, 'db'>,
+	{ project, spaces }: { project?: string; spaces?: string[] }
+): Promise<{ spaceUri: string; project: string }[]> {
+	let query = core.db
 		.selectFrom('auditEntry')
 		.select(['subject as spaceUri', AUDITED_PROJECT.as('project')])
 		.where('action', '=', 'booking.create')
@@ -123,6 +128,11 @@ export const auditedProjects = (core: Pick<Core, 'db'>, project?: string) =>
 		.where('subject', 'is not', null)
 		.where(AUDITED_PROJECT, project ? '=' : 'is not', project ?? null)
 		.$narrowType<{ spaceUri: string }>();
+
+	if (spaces) query = query.where('subject', 'in', spaces.flatMap(writtenAs));
+
+	return (await query.execute()).map((row) => ({ ...row, spaceUri: currentSpaceUri(row.spaceUri) }));
+}
 
 /** The key of `promoter`'s planner show `uri` names, or null for anything else, since the promoter writes the inquiry. */
 function plannerShowKey(promoter: string, uri: string | undefined): string | null {

@@ -20,7 +20,7 @@ const thread = (
 	const slug = project.toLowerCase().replaceAll(' ', '-');
 
 	return {
-		space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
+		space: `at:space/did:plc:root/computer.localnetwork.space.booking/${skey}`,
 		skey,
 		status,
 		title,

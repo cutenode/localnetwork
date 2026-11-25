@@ -4,7 +4,7 @@ import type { EpkView } from '#lib/epk.ts';
 import { epkContentSchema, epkGrantSchema } from '#lib/epk-schema.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import { validateRecord } from '../atproto/lexicons';
-import { epkRequestSpace, epkSpace } from '../atproto/spaces';
+import { epkRequestSpace, epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { ROOT } from '../testing/core';
 import { FakeRootClient } from '../testing/fakes';
 import { ADMIN, CODJ, DJ, FRIEND, PROMOTER, preset, pressKitServices, STRANGER, values } from '../testing/press-kits';
@@ -149,7 +149,7 @@ describe('LegacyEpks', () => {
 
 		// The root's PDS turns down its writes to the new space once the first request has moved there.
 		vi.spyOn(f.t.net, 'assertCanWrite').mockImplementation((did, written) => {
-			if (failed || did !== ROOT || !written.startsWith(`at://${ROOT}/`)) return;
+			if (failed || did !== ROOT || parseSpaceUri(written)?.authority !== ROOT) return;
 			failed = f.t.net.spaceRecordsIn(written, ROOT).some((record) => record.uri.includes(COLLECTION.epkRequest));
 
 			if (failed) throw new XRPCError(502, 'UpstreamFailure');

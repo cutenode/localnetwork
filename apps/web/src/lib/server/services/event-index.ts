@@ -11,14 +11,15 @@ type VenueApprovalRecord = { event: string; approvedBy: string; createdAt: strin
 
 /**
  * Indexes the root's event record, at `uri` in a party's space, or returns false when it isn't valid. Callers check
- * the root wrote it, in a party space under the root.
+ * the root wrote it, in a party space under the root. `cid` is a synced record's, left out for one just written.
  */
 export async function indexEvent(
 	db: Db,
 	space: string,
 	rkey: string,
 	uri: string,
-	value: JsonObject
+	value: JsonObject,
+	cid?: string
 ): Promise<boolean> {
 	if (!isValidRecord<EventRecord>(COLLECTION.event, value)) return false;
 
@@ -32,7 +33,7 @@ export async function indexEvent(
 		audience: value.audience,
 		publishedAt: value.publishedAt ?? null,
 		record: JSON.stringify(value),
-		cid: await recordCid({ ...value, $type: COLLECTION.event }),
+		cid: cid ?? (await recordCid({ ...value, $type: COLLECTION.event })),
 		updatedAt: value.updatedAt
 	};
 

@@ -1,4 +1,5 @@
-import { type AtUriParts, isValidDid, parseAtUriString } from '@atproto/syntax';
+import type { JsonObject } from '@atproto/lex-json';
+import { type AtUriParts, isValidDid, parseAtUriString, SPACE_URI_PREFIX } from '@atproto/syntax';
 import { SPACE_KINDS, type SpaceKind } from '#lib/capabilities.ts';
 import { ROOT_SPACE_KEY, SELF_SPACE_KEY, SPACE_TYPE, type SpaceType } from '#lib/nsid.ts';
 
@@ -14,7 +15,7 @@ function atUriParts(uri: string): AtUriParts | null {
 }
 
 export function spaceUri(authority: string, type: string, skey: string): string {
-	return `at://${authority}/space/${type}/${skey}`;
+	return `${SPACE_URI_PREFIX}${authority}/${type}/${skey}`;
 }
 
 export function parseSpaceUri(uri: string): SpaceRefParts | null {
@@ -48,6 +49,44 @@ export function spaceOfRecord(uri: string): string | null {
 	const parts = parseSpaceRecordUri(uri);
 
 	return parts ? spaceUri(parts.authority, parts.type, parts.skey) : null;
+}
+
+/**
+ * A space URI as the spaces alpha first wrote it, with its DID and the rest of its path. "space" isn't an NSID, so no
+ * public record's URI looks like one.
+ */
+const ALPHA_SPACE_URI = /^at:\/\/(did:[^/\s]+)\/space\/(\S+)$/;
+
+/**
+ * `uri` as hosts write it now, when it's a space URI in the alpha's form; any other string as it is. Records from the
+ * alpha hold that form for good, since rewriting one would change its CID. This isn't @atproto/syntax's
+ * `fromLegacySpaceUri` because the spaces beta drops that.
+ */
+export function currentSpaceUri(uri: string): string {
+	return uri.replace(ALPHA_SPACE_URI, `${SPACE_URI_PREFIX}$1/$2`);
+}
+
+/** The same as a whole JSON string: a quote in a string's text has a backslash before it, and no URI has either. */
+const ALPHA_SPACE_URI_IN_JSON = /(?<!\\)"at:\/\/(did:[^/"\\\s]+)\/space\/([^"\\\s]+)"/g;
+
+/** The JSON text `json`, with each string in it that is one of the alpha's space URIs as {@link currentSpaceUri} has it. */
+export function currentJson(json: string): string {
+	return json.replace(ALPHA_SPACE_URI_IN_JSON, `"${SPACE_URI_PREFIX}$1/$2"`);
+}
+
+/** A record as read from its host, with its space URIs as hosts write them now. Its CID is still the one it came with. */
+export function currentSpaceUris(value: JsonObject): JsonObject {
+	return JSON.parse(currentJson(JSON.stringify(value)));
+}
+
+/**
+ * The ways stored text may name the space or space record `uri`: as it's written now, and in the alpha's form, which
+ * audit entries and records from then keep, since a hash or CID covers them.
+ */
+export function writtenAs(uri: string): string[] {
+	if (!uri.startsWith(SPACE_URI_PREFIX)) return [uri];
+
+	return [uri, `at://${uri.slice(SPACE_URI_PREFIX.length).replace('/', '/space/')}`];
 }
 
 export function publicRecordUri(did: string, collection: string, rkey: string): string {

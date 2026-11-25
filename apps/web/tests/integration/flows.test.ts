@@ -19,7 +19,7 @@ import { AgentRepoClient, memberSpacePolicy, type RepoClient } from '../../src/l
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
-import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
+import { parseSpaceUri, plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
 import { flagsOff } from '../../src/lib/testing/flags.ts';
@@ -870,7 +870,7 @@ describe('Local Network on a real atproto spaces network', () => {
 			show: { title: 'Rooftop Rave', date: '2026-12-01T22:00:00.000Z', capacity: 300, budgetTier: 'emerging' },
 			message: 'Are you free on the 1st?'
 		});
-		expect(bookingSpace).toContain(`/space/${SPACE_TYPE.booking}/`);
+		expect(parseSpaceUri(bookingSpace)?.type).toBe(SPACE_TYPE.booking);
 		const root = await net.app.core.root();
 		const members = (await root.listMembers(bookingSpace)).map((member) => member.did).sort();
 		expect(members).toEqual([net.user('neon').did, net.user('pat').did, lee.did].sort());

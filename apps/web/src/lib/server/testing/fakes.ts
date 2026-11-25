@@ -11,7 +11,7 @@ import {
 	type RootRepoClient,
 	type StoredRecord
 } from '../atproto/repo-client';
-import { rkeyOf } from '../atproto/spaces';
+import { currentSpaceUris, parseSpaceUri, rkeyOf, spaceUri } from '../atproto/spaces';
 import type { RecordEvent } from './happyview';
 
 /** The most writes a PDS takes in one applyWrites, to a repo or a space (MAX_WRITES in @atproto/pds). */
@@ -20,6 +20,10 @@ const MAX_WRITES = 200;
 const assertBatchSize = (writes: RepoWrite[]) => {
 	if (writes.length > MAX_WRITES) throw new XRPCError(400, 'InvalidRequest', `Too many writes. Max: ${MAX_WRITES}`);
 };
+
+/** A record as a RepoClient reads it. */
+const asRead = (record: StoredRecord | undefined): StoredRecord | null =>
+	record ? { ...record, value: currentSpaceUris(record.value) } : null;
 
 /**
  * An in-memory stand-in for a network of PDSes, shared by every fake client
@@ -85,7 +89,7 @@ export class FakeNetwork {
 
 		if (!found || found.policy.publicWrite) return;
 
-		if (space.startsWith(`at://${did}/`) || found.members.get(did)?.write) return;
+		if (parseSpaceUri(space)?.authority === did || found.members.get(did)?.write) return;
 
 		throw new XRPCError(403, 'Forbidden', `${did} can't write to ${space}`);
 	}
@@ -162,7 +166,7 @@ export class FakeRootClient implements RootRepoClient {
 		assertBatchSize(writes);
 		this.net.assertCanWrite(this.did, space);
 
-		if (space.startsWith(`at://${this.did}/`) && !this.net.spaces.has(space))
+		if (parseSpaceUri(space)?.authority === this.did && !this.net.spaces.has(space))
 			throw new XRPCError(400, 'SpaceNotFound', `${space} doesn't exist`);
 
 		const key = (write: RepoWrite) => `${space}|${this.did}|${write.collection}|${write.rkey}`;
@@ -192,7 +196,7 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
-		return this.net.spaceRecords.get(`${input.space}|${input.repo}|${input.collection}|${input.rkey}`) ?? null;
+		return asRead(this.net.spaceRecords.get(`${input.space}|${input.repo}|${input.collection}|${input.rkey}`));
 	}
 
 	async listSpaceRecords(input: { space: string; repo: string; collection?: string }) {
@@ -206,7 +210,7 @@ export class FakeRootClient implements RootRepoClient {
 			.map(([key, value]) => {
 				const [, , collection, rkey] = key.split('|');
 
-				return { collection, rkey, cid: value.cid, value: value.value };
+				return { collection, rkey, cid: value.cid, value: currentSpaceUris(value.value) };
 			})
 			.toArray();
 
@@ -223,7 +227,7 @@ export class FakeRootClient implements RootRepoClient {
 
 	async createSpace(input: { spaceType: string; skey: string; policy: MemberSpacePolicy }): Promise<string> {
 		this.net.maybeFail(this.did);
-		const uri = `at://${this.did}/space/${input.spaceType}/${input.skey}`;
+		const uri = spaceUri(this.did, input.spaceType, input.skey);
 
 		if (this.net.spaces.has(uri)) throw new XRPCError(400, 'SpaceAlreadyExists');
 		this.net.spaces.set(uri, { uri, policy: structuredClone(input.policy), members: new Map() });
@@ -235,7 +239,7 @@ export class FakeRootClient implements RootRepoClient {
 	async getSpace(space: string) {
 		const found = this.net.spaces.get(space);
 
-		if (!found || !space.startsWith(`at://${this.did}/`)) return null;
+		if (!found || parseSpaceUri(space)?.authority !== this.did) return null;
 
 		return { space: found.uri, policy: structuredClone(found.policy) };
 	}
@@ -251,7 +255,7 @@ export class FakeRootClient implements RootRepoClient {
 
 		if (!found) throw new XRPCError(404, 'SpaceNotFound');
 
-		if (!space.startsWith(`at://${this.did}/`)) throw new XRPCError(403, 'Forbidden');
+		if (parseSpaceUri(space)?.authority !== this.did) throw new XRPCError(403, 'Forbidden');
 
 		return found;
 	}
@@ -289,7 +293,7 @@ export class FakeRootClient implements RootRepoClient {
 		return this.net.records
 			.entries()
 			.filter(([key]) => key.startsWith(prefix))
-			.map(([, value]) => value)
+			.map(([, value]) => asRead(value)!)
 			.toArray();
 	}
 
@@ -300,11 +304,14 @@ export class FakeRootClient implements RootRepoClient {
 		for (const key of this.net.spaceRecords.keys()) {
 			const [space, repo] = key.split('|');
 
-			if (repo === this.did && space.includes(`/space/${spaceType}/`)) spaces.add(space);
+			if (repo === this.did && parseSpaceUri(space)?.type === spaceType) spaces.add(space);
 		}
 
-		for (const space of this.net.spaces.keys())
-			if (space.startsWith(`at://${this.did}/space/${spaceType}/`)) spaces.add(space);
+		for (const space of this.net.spaces.keys()) {
+			const ref = parseSpaceUri(space);
+
+			if (ref?.authority === this.did && ref.type === spaceType) spaces.add(space);
+		}
 
 		return [...spaces];
 	}
@@ -343,7 +350,7 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async getRecord(input: { collection: string; rkey: string }) {
-		return this.net.records.get(`${this.did}|${input.collection}|${input.rkey}`) ?? null;
+		return asRead(this.net.records.get(`${this.did}|${input.collection}|${input.rkey}`));
 	}
 
 	/** Fails as a whole before writing anything, as the PDS does. */

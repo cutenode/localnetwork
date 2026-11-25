@@ -41,7 +41,7 @@
 		tickets: 'https://tickets.example/winter',
 		status: EVENT_STATUS.scheduled,
 		audience: 'public',
-		venue: { space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor', skey: '3tresor', name: 'Tresor', locality: 'Berlin', country: 'DE' },
+		venue: { space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor', skey: '3tresor', name: 'Tresor', locality: 'Berlin', country: 'DE' },
 		timeZone: 'Europe/Berlin',
 		confirmed: false,
 		neverConfirmed: false,
@@ -54,7 +54,7 @@
 
 	const owner = {
 		...harness,
-		subject: { kind: 'event' as const, uri: 'at://did:plc:root/space/party/did:plc:root/computer.localnetwork.event/3mwinter' },
+		subject: { kind: 'event' as const, uri: 'at:space/did:plc:root/party/did:plc:root/computer.localnetwork.event/3mwinter' },
 		can: capabilitiesFor('party', 'host'),
 		role: 'owner' as const
 	};

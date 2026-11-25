@@ -9,7 +9,7 @@ import { EVENT_STATUS } from '#lib/shows.ts';
 import EventPage from './EventPage.svelte';
 
 const tresor = {
-	space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor',
+	space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor',
 	skey: '3tresor',
 	name: 'Tresor',
 	locality: 'Berlin',
@@ -45,7 +45,7 @@ const link = 'https://localnetwork.test/party/3lzparty/3mwinter/winter-opening?t
 const host = {
 	subject: {
 		kind: 'event' as const,
-		uri: 'at://did:plc:root/space/party/did:plc:root/computer.localnetwork.event/3mwinter'
+		uri: 'at:space/did:plc:root/party/did:plc:root/computer.localnetwork.event/3mwinter'
 	},
 	can: capabilitiesFor('party', 'host'),
 	role: 'owner' as const,

@@ -19,7 +19,7 @@ describe('ClaimFields', () => {
 	});
 
 	it("asks a venue's claimant only for proof, and posts them as its owner", async () => {
-		const terms = claimTerms({ space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor' });
+		const terms = claimTerms({ space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor' });
 		const { form } = await renderInForm(ClaimFields, { values: {}, claimant, terms });
 
 		await expect.element(page.getByRole('group', { name: 'How are you connected?' })).not.toBeInTheDocument();

@@ -15,7 +15,7 @@
 	});
 
 	const event = (rkey: string, name: string, startsAt: string, party: string | null, lineup: number) => ({
-		uri: `at://did:plc:root/computer.localnetwork.space.party/3party/did:plc:root/computer.localnetwork.event/${rkey}`,
+		uri: `at:space/did:plc:root/computer.localnetwork.space.party/3party/did:plc:root/computer.localnetwork.event/${rkey}`,
 		name,
 		startsAt,
 		party,

@@ -24,7 +24,7 @@ describe('performer URIs', () => {
 			`at://did:plc:ada/${COLLECTION.profile}/other`,
 			`at://handle.test/${COLLECTION.profile}/self`,
 			`at://${ROOT}/${COLLECTION.show}/3kshow`,
-			`at://${ROOT}/space/${COLLECTION.listing}/3kact`,
+			`at:space/${ROOT}/${COLLECTION.listing}/3kact`,
 			'not a uri'
 		])
 			expect(parsePerformerUri(ROOT, uri), uri).toBeNull();

@@ -38,12 +38,12 @@ describe('MigrationPlan', () => {
 			projects: [
 				projectPlan('dupe', 'Dupe', {
 					people: [{ did: 'did:plc:nohandle', handle: null, role: 'member', relationship: null }],
-					blockers: [{ kind: 'slugTaken', slug: 'dupe', space: 'ats://taken' }]
+					blockers: [{ kind: 'slugTaken', slug: 'dupe', space: 'at:space/taken' }]
 				}),
 				projectPlan('twice', 'Twice', {
 					target: 'dj',
 					dj: { did: 'did:plc:twice', handle: null, rule: 'override' },
-					blockers: [{ kind: 'djSpaceTaken', did: 'did:plc:twice', space: 'ats://theirs' }]
+					blockers: [{ kind: 'djSpaceTaken', did: 'did:plc:twice', space: 'at:space/theirs' }]
 				})
 			],
 			pendingCreates: [],

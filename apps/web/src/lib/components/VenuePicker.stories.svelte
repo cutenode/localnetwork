@@ -6,9 +6,9 @@
 	import VenuePicker from './VenuePicker.svelte';
 
 	const venues: VenueOption[] = [
-		{ space: 'at://did:plc:root/computer.localnetwork.space.venue/3a', skey: '3a', name: 'Tresor', locality: 'Berlin', country: 'DE' },
-		{ space: 'at://did:plc:root/computer.localnetwork.space.venue/3c', skey: '3c', name: 'Tresor', locality: 'Hamburg', country: 'DE' },
-		{ space: 'at://did:plc:root/computer.localnetwork.space.venue/3b', skey: '3b', name: 'Tresor.West', locality: 'Dortmund', country: 'DE' }
+		{ space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3a', skey: '3a', name: 'Tresor', locality: 'Berlin', country: 'DE' },
+		{ space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3c', skey: '3c', name: 'Tresor', locality: 'Hamburg', country: 'DE' },
+		{ space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3b', skey: '3b', name: 'Tresor.West', locality: 'Dortmund', country: 'DE' }
 	];
 
 	const places: Place[] = [{ label: 'Berlin, Germany', city: 'Berlin', country: 'DE', latE6: 52_520_000, lngE6: 13_405_000 }];

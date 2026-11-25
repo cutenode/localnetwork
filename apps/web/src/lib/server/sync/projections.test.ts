@@ -4,6 +4,7 @@ import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import {
+	writtenAs,
 	backstageSpace,
 	bookingSpace,
 	epkRequestSpace,
@@ -457,6 +458,27 @@ describe('createProjections', () => {
 		expect(await drafts()).toEqual([]);
 	});
 
+	it("verifies an audit copy whose subject is in the alpha's form, as its entry has it", async () => {
+		const [, subject] = writtenAs(sharedSpace(ROOT, 'party', '3party'));
+
+		const entry = await t.audit.record(
+			{ actor: ALICE, action: 'event.update', summary: 'changed', subject, subjectKind: 'space' },
+			{ awaitDelivery: true }
+		);
+
+		const [copy] = t.net.spaceRecordsIn(t.spaces.audit, ROOT).filter(({ uri }) => uri.endsWith(entry.id));
+		await project({
+			kind: 'upsert',
+			space: t.spaces.audit,
+			repoDid: ROOT,
+			collection: COLLECTION.auditEntry,
+			rkey: entry.id,
+			...copy
+		});
+
+		expect(await t.audit.get(entry.id)).toMatchObject({ subject, rootStatus: 'verified' });
+	});
+
 	it("marks the root's audit copy failed when it's deleted", async () => {
 		const entry = await t.audit.record({ actor: ALICE, action: 'auth.login', summary: 'in' }, { awaitDelivery: true });
 		const stored = await t.audit.get(entry.id);
@@ -685,6 +707,40 @@ describe('createProjections', () => {
 			await remove(partySpace, ROOT, COLLECTION.event, '3e1');
 			await remove(venueSpace, ROOT, COLLECTION.venueApproval, '3a1');
 			expect([await events(), await approvals()]).toEqual([[], []]);
+		});
+
+		it("indexes the alpha's records by their spaces' URIs as they're written now, under the CIDs they have", async () => {
+			const partySpace = sharedSpace(ROOT, 'party', '3party');
+			const venueSpace = sharedSpace(ROOT, 'venue', '3venue');
+			const eventUri = `${partySpace}/${ROOT}/${COLLECTION.event}/3e1`;
+			const alpha = (uri: string) => writtenAs(uri)[1];
+
+			await upsert(partySpace, ROOT, COLLECTION.event, '3e1', {
+				name: 'Winter Opening',
+				startsAt: '2026-12-05T23:00:00+01:00',
+				venue: alpha(venueSpace),
+				audience: 'public',
+				createdBy: ALICE,
+				createdAt: now,
+				updatedAt: now
+			});
+			await upsert(venueSpace, ROOT, COLLECTION.venueApproval, '3a1', {
+				event: alpha(eventUri),
+				approvedBy: ALICE,
+				createdAt: now
+			});
+
+			expect(await t.db.selectFrom('event').select(['uri', 'venueSpace', 'cid', 'record']).execute()).toEqual([
+				{
+					uri: eventUri,
+					venueSpace,
+					cid: 'bafyreiabc',
+					record: expect.stringContaining(`"venue":"${venueSpace}"`)
+				}
+			]);
+			expect(await t.db.selectFrom('venueApproval').select(['spaceUri', 'eventUri']).execute()).toEqual([
+				{ spaceUri: venueSpace, eventUri }
+			]);
 		});
 
 		it('indexes an event without a status as scheduled, the calendar status default', async () => {

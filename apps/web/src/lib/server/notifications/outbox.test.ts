@@ -12,7 +12,7 @@ const MINUTE = 60_000;
 
 const [neon, remy] = ['did:plc:neon', 'did:plc:remy'];
 
-const thread = 'at://did:plc:root/space/computer.localnetwork.booking/3mabc';
+const thread = 'at:space/did:plc:root/computer.localnetwork.booking/3mabc';
 
 const sent: SendOutcome = { kind: 'sent', providerId: 'msg_1' };
 

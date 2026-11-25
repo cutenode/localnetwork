@@ -440,8 +440,7 @@ async function main() {
 		PUBLIC_URL: `http://127.0.0.1:${APP_PORT}`,
 		DATABASE_PATH: DB_PATH,
 		ROOT_IDENTIFIER: root.did,
-		// The alpha PDS only mints space delegation tokens for full-access
-		// sessions, so the root signs in with its account password, not an app password.
+		// Space methods refuse app passwords, so the root signs in with its account password.
 		ROOT_PASSWORD: ROOT.password,
 		ROOT_SERVICE: pds.url,
 		ADMIN_DIDS: dids['ada.test'],
