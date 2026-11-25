@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 /// What can go wrong reading or rendering a project.
+///
+/// The enum is exhaustive: a new kind of error is a breaking change, which 0.x releases make with a
+/// minor version.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum Error {
     /// A file isn't an Audacity project that can be read: not SQLite, missing a table, a damaged
     /// document, a sample block that's missing or in an unknown format.

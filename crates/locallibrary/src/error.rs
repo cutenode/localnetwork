@@ -504,8 +504,6 @@ impl From<loclib_drive_speed::Error> for Error {
             // What the drive's own writes failed with (`impl Drive for Device`), as they gave it.
             E::Drive(e) => e.downcast::<Error>().unwrap_or_else(|e| Error::invalid(e.to_string())),
             E::Cancelled(_) => Error::Cancelled,
-            // A variant a newer loclib-drive-speed adds keeps its message.
-            other => Error::invalid(other.to_string()),
         }
     }
 }
@@ -548,8 +546,6 @@ impl From<loclib_aup::Error> for Error {
         match e {
             E::Parse { path, message } => Error::Parse { path, message },
             E::Cancelled(_) => Error::Cancelled,
-            // A variant a newer loclib-aup adds keeps its message.
-            other => Error::Invalid(other.to_string()),
         }
     }
 }
