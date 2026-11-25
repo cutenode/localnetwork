@@ -194,6 +194,9 @@ needs.
   track's loaded or `esc`. The layout's kept between runs.
   - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
     bar starts and bar numbers, sitting on the waveform, each bar's line carried down through it. `[` and `]` zoom it, from 1.5 to 60 seconds across.
+    Drag it left or right to scrub: the track moves under the playhead with the pointer, held while
+    it moves, and plays on from where it's let go of (on the nearest beat with quantize on). A
+    click alone doesn't seek.
   - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
     Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
     wouldn't fit whole.
@@ -585,4 +588,5 @@ Changing the drive:
 [//]: # (End of the key tables.)
 
 Mouse: click to select (or a tab to switch views, or a pane's title to open it), double-click to play, scroll to move, click a
-column header to sort, click or drag the waveform to seek, right-click in the library for actions.
+column header to sort, click or drag the overview to seek, drag the zoomed waveform to scrub, right-click in the library for
+actions.
