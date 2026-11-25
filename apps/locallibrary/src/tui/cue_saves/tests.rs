@@ -272,3 +272,16 @@ fn the_hint_after_del_lists_the_pads() {
     assert!(rows.iter().any(|r| r.contains("Delete cue")), "{}", rows.join("\n"));
     assert!(rows.iter().any(|r| r.contains("1 … 8") && r.contains("hot cue A … H")), "{}", rows.join("\n"));
 }
+
+#[test]
+fn a_cue_not_saved_after_the_track_changed_leaves_the_deck_be() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    let root = app.now.as_ref().unwrap().root.clone();
+    press(&mut app, "f1");
+    let id = app.job.as_ref().expect("planning").id;
+    // Another track is playing by the time it comes back.
+    app.now.as_mut().unwrap().track.file_path = "/Contents/other.mp3".into();
+    app.on_planned(id, root, Err(locallibrary::Error::Cancelled));
+    assert_eq!(on_deck(&app).len(), 1, "the other track's cues aren't touched");
+    assert_eq!(last_message(&app), "hot cue A: not saved");
+}
