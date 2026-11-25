@@ -334,3 +334,62 @@ fn prop_the_check_runs_only_on_a_partition_unmounted_for_it(tc: hegel::TestCase)
         Err(e) => panic!("{e}"),
     }
 }
+
+/// A check runs the steps it has, in order, whichever those are (macOS and Windows have only the
+/// tool): a failed unmount stops it before the tool runs; otherwise the verdict is the tool's
+/// exit status, and the output its last 15 lines, then what mounting again said or that it
+/// couldn't.
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+#[hegel::explicit_test_case(unmount = 0u8, lines = vec!["phase 1".to_string()], status = 1, mount = 0u8)]
+fn prop_a_check_runs_the_steps_it_has(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("ran");
+    let step = |name: &str, out: &str, status: i32| {
+        let script = format!("echo {name} >>'{}'; printf '%s' '{out}'; exit {status}", log.display());
+        Cmd::new("sh", &["-c", &script])
+    };
+    // None, one that works, one that fails.
+    let unmount = tc.draw(gs::integers::<u8>().max_value(2));
+    let lines: Vec<String> = tc.draw(gs::vecs(gs::text().alphabet("abc 019").max_size(12)).max_size(25));
+    let status = tc.draw(gs::integers::<i32>().min_value(0).max_value(2));
+    let mount = tc.draw(gs::integers::<u8>().max_value(2));
+    let steps = Steps {
+        unmount: (unmount > 0).then(|| step("unmount", "", i32::from(unmount == 2))),
+        check: step("check", &lines.join("\n"), status),
+        mount: (mount > 0).then(|| {
+            step("mount", if mount == 1 { "Mounted at /media/DNA" } else { "not authorized" }, i32::from(mount == 2))
+        }),
+    };
+    let result = run(&steps, None);
+    let ran = std::fs::read_to_string(&log).unwrap_or_default();
+    let ran: Vec<&str> = ran.lines().collect();
+    if unmount == 2 {
+        assert!(
+            matches!(&result, Err(Error::External { message, .. }) if message.contains("so it didn't run")),
+            "{result:?}"
+        );
+        assert_eq!(ran, ["unmount"]);
+        return;
+    }
+    let outcome = result.unwrap();
+    let want: Vec<&str> = [(unmount == 1).then_some("unmount"), Some("check"), (mount > 0).then_some("mount")]
+        .into_iter()
+        .flatten()
+        .collect();
+    assert_eq!(ran, want);
+    assert_eq!(outcome.ok, status == 0);
+    let mut output: Vec<String> = lines.iter().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+    output.drain(..output.len().saturating_sub(15));
+    match mount {
+        1 => output.push("Mounted at /media/DNA".into()),
+        2 => {
+            let said = outcome.output.last().unwrap();
+            assert!(said.starts_with("couldn't mount it again (") && said.contains("not authorized"), "{said}");
+            output.push(said.clone());
+        }
+        _ => {}
+    }
+    assert_eq!(outcome.output, output);
+}

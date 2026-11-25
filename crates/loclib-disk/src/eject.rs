@@ -72,6 +72,7 @@ pub struct Ejected {
 /// is unmounted with `umount` and the power left on. On Windows, waits up to 10 seconds for the
 /// volume to go, since Explorer's Eject says nothing.
 pub fn run(root: &Path, cmds: &[Cmd]) -> Result<Ejected> {
+    let _ = root;
     let mut ran = Vec::new();
     #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_mut))]
     let mut powered_off = true;
@@ -95,7 +96,8 @@ pub fn run(root: &Path, cmds: &[Cmd]) -> Result<Ejected> {
         }
     }
     // Explorer's Eject reports nothing; the volume disappearing is the answer.
-    if cfg!(windows) && !wait_gone(root, Duration::from_secs(10)) {
+    #[cfg(windows)]
+    if !wait_gone(root, Duration::from_secs(10)) {
         return Err(Error::External {
             command: ran.join("; "),
             message: format!("{} is still there: a program may be using a file on it", root.display()),
@@ -104,6 +106,7 @@ pub fn run(root: &Path, cmds: &[Cmd]) -> Result<Ejected> {
     Ok(Ejected { commands: ran, powered_off })
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn wait_gone(root: &Path, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
