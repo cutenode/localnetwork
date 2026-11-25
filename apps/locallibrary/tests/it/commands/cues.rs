@@ -102,7 +102,7 @@ fn cues_auto_places_a_style_or_asks_for_one() {
 }
 
 /// In a terminal it asks, and takes a number.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "account"))]
 #[test]
 fn cues_auto_asks_which_style_in_a_terminal() {
     let env = Env::ascii();
