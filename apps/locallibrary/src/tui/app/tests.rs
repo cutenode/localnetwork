@@ -3339,7 +3339,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
     let plugins = crate::plugins::host().unwrap();
     plugins.analyze("echo", "heard", &root.display().to_string(), None, &store, &Ctx::silent()).unwrap();
 
-    let info = track_info(&root, &t, None, &store_root);
+    let info = track_info(&root, &t, None, None, &store_root);
     let said = "grid and waveform from echo.heard, not on the drive";
     assert_eq!(info.from_plugins.as_deref(), Some(said));
     assert_eq!(info.analysis.beats, grid);
@@ -3347,7 +3347,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
     assert_eq!((detail.style, detail.columns.len()), (anlz::WaveformStyle::ThreeBand, 2));
     // Another track, which rekordbox analysed, is all the drive's.
     let other = device.library().unwrap().tracks[1].clone();
-    assert_eq!(track_info(&root, &other, None, &store_root).from_plugins, None);
+    assert_eq!(track_info(&root, &other, None, None, &store_root).from_plugins, None);
 
     let (mut app, _played) = playing(info.analysis);
     app.now.as_mut().unwrap().from_plugins = info.from_plugins;
@@ -3378,7 +3378,7 @@ fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
     assert!(playing.len() > 12, "the export's keys: {keys:?}");
     let mut shown = FxHashSet::default();
     for (id, track) in (100..).zip(playing) {
-        let info = track_info(dir.path(), &track, Some(lib.clone()), &dir.path().join("store"));
+        let info = track_info(dir.path(), &track, Some(lib.clone()), None, &dir.path().join("store"));
         app.now = Some(NowPlaying {
             id,
             key: Camelot::parse(&track.key),
@@ -3427,7 +3427,7 @@ fn the_mixes_into_panel_shows_more_than_the_playing_key() {
     let (mut app, _dir) = playing_in(lib, TrackAnalysis::default());
     let l = app.loaded.as_ref().unwrap();
     let (root, lib) = (l.root().to_path_buf(), l.library.clone());
-    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), &root.join("store"));
+    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), None, &root.join("store"));
     app.handle_msg(Msg::TrackInfo(1, Box::new(info)));
     app.deck_layout = true;
     let s = super::super::ui::screen(&mut app, 120, 40);

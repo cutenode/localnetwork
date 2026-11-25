@@ -221,6 +221,7 @@ impl App {
                 let mut l = Loaded::prepare(Device::open(&root)?, library);
                 l.my_tags = MyTags::Read(std::sync::Arc::new(tags));
                 l.collection = Some(db);
+                l.collection_cues = Some(std::sync::Arc::new(c.cues));
                 Ok(Box::new(l))
             };
             let r = read().map_err(|e| e.to_string());

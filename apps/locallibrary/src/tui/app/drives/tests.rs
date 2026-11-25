@@ -32,7 +32,11 @@ fn master_db(dir: &Path) -> PathBuf {
              CREATE TABLE djmdPlaylist (ID TEXT PRIMARY KEY, Seq INTEGER, Name TEXT, Attribute INTEGER, ParentID TEXT);
              INSERT INTO djmdPlaylist VALUES ('10', 1, 'Shows', 1, 'root'), ('11', 1, 'Friday', 0, '10');
              CREATE TABLE djmdSongPlaylist (ID TEXT PRIMARY KEY, PlaylistID TEXT, ContentID TEXT, TrackNo INTEGER);
-             INSERT INTO djmdSongPlaylist VALUES ('a', '11', '1', 1), ('b', '11', '2', 2);",
+             INSERT INTO djmdSongPlaylist VALUES ('a', '11', '1', 1), ('b', '11', '2', 2);
+             CREATE TABLE djmdCue (ID TEXT PRIMARY KEY, ContentID TEXT, InMsec INTEGER, OutMsec INTEGER,
+                 Kind INTEGER, ColorTableIndex INTEGER, Comment TEXT, rb_local_deleted INTEGER DEFAULT 0);
+             INSERT INTO djmdCue (ID, ContentID, InMsec, OutMsec, Kind, ColorTableIndex, Comment)
+             VALUES ('c1', '1', 1500, -1, 1, 0, 'Start'), ('c2', '1', 500, -1, 0, 0, '');",
             here.display(),
             dir.join("Music/Gone.mp3").display(),
         ))
@@ -341,4 +345,24 @@ fn prop_moving_through_the_sources_stays_on_them(tc: hegel::TestCase) {
         assert_eq!(app.source_row(), at);
         assert_eq!(app.collection_row, collection && at == Some(0));
     }
+}
+
+/// rekordbox keeps the collection's cues in master.db, not in its analysis files: a track played
+/// from the collection has them (and auto cue starts it at the memory cue).
+#[test]
+fn a_track_from_the_collection_plays_with_its_cues_from_master_db() {
+    let (mut app, dir) = blank(View::Library);
+    app.collection_db = Some(master_db(dir.path()));
+    // Audio the player can open (the name doesn't decide how it's read).
+    std::fs::write(dir.path().join("Music/Here.mp3"), crate::tui::audio::tests::wav_of(8000, &[0; 8000])).unwrap();
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+    let l = app.loaded.as_ref().unwrap();
+    let (track, root) = (l.library.tracks.iter().find(|t| t.title == "Here").unwrap().clone(), l.root().to_path_buf());
+    let now = app.open(track, root, true);
+    app.now = Some(now);
+    let cues = |a: &App| a.now.as_ref().map(|n| n.analysis.cues.clone()).unwrap_or_default();
+    wait(&mut app, |a| !cues(a).is_empty());
+    let got: Vec<_> = cues(&app).iter().map(|c| (c.hot_cue, c.start_ms, c.comment.clone())).collect();
+    assert_eq!(got, [(None, 500, String::new()), (Some(0), 1500, "Start".into())]);
 }
