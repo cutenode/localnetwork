@@ -602,7 +602,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let cols = columns(area.width, app.sort, app.show_ratings, app.show_tags_column);
     let cols = with_fields(cols, &app.field_columns);
     // Against the master: the player has one deck, so it's the track playing.
-    let master = app.now.as_ref().map(|n| n.bpm_at(app.position_ms())).filter(|bpm| *bpm > 0.0);
+    let master = app.now.as_ref().map(|n| n.bpm_at(app.heard_ms())).filter(|bpm| *bpm > 0.0);
     let cols = with_gap(cols, master, area.width);
     let values = l.values().cloned();
     let my_tags = match &l.my_tags {
