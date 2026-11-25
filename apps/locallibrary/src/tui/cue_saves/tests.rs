@@ -175,3 +175,100 @@ fn after_del_the_cues_turn_red_until_a_pad_is_pressed() {
     press(&mut app, "9");
     assert_ne!(letters(&mut app).1, red, "any other key ends it");
 }
+
+#[test]
+fn the_palettes_cue_sets_one() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    app.perform(super::super::keymap::Act::SetHotCue, None);
+    assert_eq!(on_deck(&app).len(), 1);
+}
+
+#[test]
+fn with_nothing_playing_the_commands_say_so() {
+    let (mut app, _dir) = blank(View::Library);
+    super::super::deck::set_next_hot_cue(&mut app);
+    assert_eq!(last_message(&app), "nothing playing");
+    super::super::deck::delete_chord(&mut app);
+    assert_eq!(last_message(&app), "nothing playing");
+}
+
+#[test]
+fn an_unplugged_drive_takes_no_cue() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    app.loaded.as_mut().unwrap().stale = true;
+    press(&mut app, "f1");
+    assert!(on_deck(&app).is_empty());
+    assert_eq!(last_message(&app), "the drive was unplugged");
+}
+
+#[test]
+fn deleting_an_empty_pad_says_so() {
+    let (mut app, _dir) = playing(TrackAnalysis { cues: vec![cue(Some(0), 0, None)], ..Default::default() });
+    press(&mut app, "f");
+    key(&mut app, KeyCode::Delete);
+    press(&mut app, "2");
+    assert_eq!((last_message(&app), on_deck(&app).len()), ("no hot cue B", 1));
+}
+
+#[test]
+fn a_cancelled_plan_or_a_failed_write_puts_the_deck_back() {
+    let (mut app, _dir) = playing(TrackAnalysis { cues: vec![cue(Some(0), 0, None)], ..Default::default() });
+    let root = app.now.as_ref().unwrap().root.clone();
+    // Cancelled while planning: the cue set comes back off.
+    press(&mut app, "f2");
+    let id = app.job.as_ref().expect("planning").id;
+    app.on_planned(id, root.clone(), Err(locallibrary::Error::Cancelled));
+    assert_eq!(on_deck(&app), [(0, 0)]);
+    assert_eq!(last_message(&app), "hot cue B: not saved");
+
+    // Failed while writing: the cue deleted comes back.
+    key(&mut app, KeyCode::Delete);
+    press(&mut app, "1");
+    assert!(on_deck(&app).is_empty());
+    app.job = Some(job(true, false));
+    app.on_applied(99, root, Err(locallibrary::Error::Invalid("the drive is full".into())));
+    assert_eq!(on_deck(&app), [(0, 0)]);
+    assert!(last_message(&app).contains("the drive is full"), "{}", last_message(&app));
+}
+
+#[test]
+fn a_save_refused_as_it_starts_puts_the_deck_back() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    // Something else is being written: the pad's cue waits its turn.
+    app.job = Some(job(true, false));
+    press(&mut app, "f1");
+    assert_eq!((on_deck(&app).len(), app.cue_saves.len()), (1, 1));
+    // ...and the drive goes before its turn comes.
+    app.loaded.as_mut().unwrap().stale = true;
+    app.job = None;
+    app.next_cue_save();
+    assert!(on_deck(&app).is_empty() && app.cue_saves.is_empty() && app.cue_saving.is_none());
+}
+
+#[test]
+fn a_cue_the_drive_has_already_changes_nothing() {
+    let (_dir, root) = demo_drive();
+    let mut app = playing_on_drive(&root, 4_100);
+    let taken: Vec<String> = on_drive(&app).into_iter().map(|(h, _)| h).collect();
+    let free = (0..8u8).find(|s| !taken.contains(&((b'A' + s) as char).to_string())).unwrap();
+    let digit = ((b'1' + free) as char).to_string();
+    press(&mut app, &digit);
+    wait(&mut app, settled);
+    // The deck forgets it (as a re-read might), and the pad sets it again where it is.
+    app.now.as_mut().unwrap().analysis.cues.clear();
+    app.toast = None;
+    press(&mut app, &digit);
+    wait(&mut app, settled);
+    assert!(app.toast.is_none(), "nothing to say: {:?}", app.toast);
+}
+
+#[test]
+fn the_hint_after_del_lists_the_pads() {
+    let (mut app, _dir) = playing(TrackAnalysis { cues: vec![cue(Some(0), 0, None)], ..Default::default() });
+    press(&mut app, "f");
+    key(&mut app, KeyCode::Delete);
+    app.chord = Some(std::time::Instant::now() - super::super::app::CHORD_HINT * 2);
+    let (rows, _) = screen(&mut app);
+    assert!(rows.iter().any(|r| r.contains("Delete cue")), "{}", rows.join("\n"));
+    assert!(rows.iter().any(|r| r.contains("1 … 8") && r.contains("hot cue A … H")), "{}", rows.join("\n"));
+}

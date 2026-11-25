@@ -570,7 +570,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Visuals),
     tip(S::Deck, "f", "back", 7),
     tip(S::Deck, "?", "keys", 3),
-    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode, or with the pads on: hot cue A … H (jumps there and plays); an empty one is set where the playhead is, on the beat with quantize on", G::Deck),
+    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode, or with the pads on: hot cue A … H (jumps there and plays; an empty pad sets it)", G::Deck),
     tip(S::Pads, "1-8", "hot cue", 9),
     key(S::Deck, &[K::Code(C::Delete), K::Code(C::Backspace)], "del 1 … 8", A::DeleteCueChord, "", "delete hot cue A … H", G::Deck),
     // -----------------------------------------------------------------------------------------

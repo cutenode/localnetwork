@@ -536,7 +536,7 @@ Deck:
 
 | Keys | |
 | --- | --- |
-| `1 … 8` | in player mode, or with the pads on: hot cue A … H (jumps there and plays); an empty one is set where the playhead is, on the beat with quantize on |
+| `1 … 8` | in player mode, or with the pads on: hot cue A … H (jumps there and plays; an empty pad sets it) |
 | `1 … 8` | hot cue A … H |
 | `'` | pads on / off: the digit row plays hot cues instead of jumping to panes |
 | `,  .` | beat jump: one beat back / forward |
