@@ -6,8 +6,9 @@ name: CI
 # them did. One changes job per run, where each tool's workflow used to start its own, leaves the
 # runners to the work.
 #
-# Pull requests run on Linux, and locallibrary's Windows job when its code changed. Its macOS job,
-# which the plan's 5 macOS runners can't keep up with on every push, runs once for each merge queue
+# Pull requests run on Linux, and locallibrary's Windows jobs when its code changed. A merge queue
+# group runs those again unless its pull request's run passed them on the same files. Its macOS jobs,
+# which the plan's 5 macOS runners can't keep up with on every push, run once for each merge queue
 # group instead, or on a pull request with the `all-os` label. A group also runs CodeQL,
 # locallibrary's budgets and release build, the web app's verify and Lighthouse jobs, localtoolbox's
 # and atstore's checks, the workflow lint, Bombadil's install and type check, and the repo's
@@ -64,7 +65,7 @@ jobs:
       locallibrary_release: ${{ steps.scope.outputs.locallibrary_release }}
       locallibrary_budgets: ${{ steps.scope.outputs.locallibrary_budgets }}
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
-      locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
+      locallibrary_windows: ${{ steps.scope.outputs.locallibrary_windows }}
       locallibrary_macos: ${{ steps.scope.outputs.locallibrary_macos }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
       locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
@@ -93,6 +94,7 @@ jobs:
       codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
       codeql_base: ${{ steps.scope.outputs.codeql_base }}
       draft: ${{ steps.scope.outputs.draft }}
+      group_base: ${{ steps.main.outputs.sha }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
       # workflow passed on, so what a failed run didn't check runs on the next push, and a merge
@@ -541,6 +543,29 @@ jobs:
         run: |
           gh api "repos/$GH_REPO/pulls/$NUMBER" \
             --jq '"draft=\(.draft)", "all_os=\(any(.labels[]; .name == "all-os"))"' >> "$GITHUB_OUTPUT"
+      # Main's tip, which a merge queue group's budgets are measured over. The group's own base_sha is
+      # the entry ahead of it, and a pull request that grows a number the entry ahead shrank would be
+      # held to what that one left: #762 failed behind #759, where the two together were under one
+      # pull request's allowance. Read once, so a job that starts or re-runs after the entry ahead
+      # merged measures over the same commit.
+      - if: github.event_name == 'merge_group'
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh api "repos/$GH_REPO/commits/main" --jq '"sha=\(.sha)"' >> "$GITHUB_OUTPUT"
+      # Whether the group's pull request passed its Windows jobs on the same files, so the group can
+      # skip them (tools/queue/windows.ts). Only `true` skips them.
+      - if: github.event_name == 'merge_group'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - if: github.event_name == 'merge_group'
+        id: windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOWS_CHANGED: ${{ steps.filter.outputs.workflow_lint }}
+        run: node tools/queue/cli.ts >> "$GITHUB_OUTPUT"
       # Which jobs run. Everything runs for a pull request too big for the API's file list (it lists
       # at most 3000), and for a change to this workflow, on the OSes the event runs (see the top of
       # the file). A draft runs nothing.
@@ -553,6 +578,7 @@ jobs:
           ALL_OS: ${{ steps.pr.outputs.all_os }}
           BASE: ${{ github.base_ref }}
           LAST_PASSED: ${{ steps.base.outputs.sha }}
+          WINDOWS_TESTED: ${{ steps.windows.outputs.tested }}
         run: |
           matched() { [ "$(jq -r --arg f "$1" '.[$f] // "false"' <<< "$FILTER")" = true ]; }
           all=false
@@ -566,7 +592,7 @@ jobs:
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_dist locallibrary_other_os locallibrary_macos locallibrary_semver locallibrary_commands locallibrary_fuzz \
+            locallibrary_dist locallibrary_windows locallibrary_macos locallibrary_semver locallibrary_commands locallibrary_fuzz \
             locallibrary_crates web_verify web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons \
             repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
@@ -635,15 +661,17 @@ jobs:
           fi
           # Not `all`: a change to this workflow tests its wiring on Linux, and macOS and Windows
           # run only what changed for them. Windows runs on pull requests too, so a path or
-          # separator bug fails there rather than in the merge queue; macOS waits for the queue.
+          # separator bug fails there rather than in the merge queue, which skips what its pull request
+          # passed on the same files; macOS waits for the queue.
           if matched locallibrary || matched locallibrary_md; then
-            if [ "$macos" = true ] || { [ "$linux" = true ] && [ "$EVENT" = pull_request ]; }; then out[locallibrary_other_os]=true; fi
+            if [ "$EVENT" = pull_request ]; then out[locallibrary_windows]=$linux; fi
+            if [ "$EVENT" = merge_group ] && [ "$WINDOWS_TESTED" != true ]; then out[locallibrary_windows]=true; fi
             out[locallibrary_macos]=$macos
           fi
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_budgets locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_crates
+            locallibrary_budgets locallibrary_dist locallibrary_windows locallibrary_macos locallibrary_semver locallibrary_crates
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_bombadil \
             repo_checks_text repo_checks_commits repo_checks_diagrams
@@ -717,12 +745,13 @@ jobs:
       release: ${{ needs.changes.outputs.locallibrary_release == 'true' }}
       budgets: ${{ needs.changes.outputs.locallibrary_budgets == 'true' }}
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
-      other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
+      windows: ${{ needs.changes.outputs.locallibrary_windows == 'true' }}
       macos: ${{ needs.changes.outputs.locallibrary_macos == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
       commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
       fuzz: ${{ needs.changes.outputs.locallibrary_fuzz == 'true' }}
       crates: ${{ needs.changes.outputs.locallibrary_crates == 'true' }}
+      group-base: ${{ needs.changes.outputs.group_base }}
 
   web:
     needs: changes
@@ -739,6 +768,7 @@ jobs:
       e2e: ${{ needs.changes.outputs.web_e2e == 'true' }}
       lighthouse: ${{ needs.changes.outputs.web_lighthouse == 'true' }}
       docker: ${{ needs.changes.outputs.web_docker == 'true' }}
+      group-base: ${{ needs.changes.outputs.group_base }}
 
   localtoolbox:
     needs: changes

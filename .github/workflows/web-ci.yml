@@ -26,6 +26,10 @@ on:
         description: Whether what the Docker image is built from changed (web_docker).
         type: boolean
         required: true
+      group-base:
+        description: The commit a merge queue group's sizes are measured over, main's tip when its run started; empty otherwise.
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -122,7 +126,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           NUMBER: ${{ github.event.pull_request.number }}
-          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_BASE: ${{ inputs.group-base }}
         run: |
           if [ "$EVENT" = merge_group ]; then base=$GROUP_BASE; else base=$(git rev-parse HEAD^1); fi
           git log --format='%(trailers:key=Budget-Raise)' "$base..HEAD" > "$RUNNER_TEMP/raises.md"

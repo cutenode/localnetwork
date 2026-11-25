@@ -336,6 +336,42 @@ test_codeql_filter_with_both if {
 	}
 }
 
+budgets(base) := fixtures.with_file(".github/workflows/site-e2e.yml", json.patch(fixtures.file(".github/workflows/site-e2e.yml"), [{"op": "add", "path": "/jobs/test/steps", "value": [{"run": "check", "env": {"GROUP_BASE": base}}]}]))
+
+test_budgets_over_the_entry_ahead if {
+	".github/workflows/site-e2e.yml: job \"test\" reads the entry ahead of a merge queue group (base_sha); take main's tip from the workflow that calls it, as `inputs.group-base`" in workflows.deny with input as budgets("${{ github.event.merge_group.base_sha }}")
+}
+
+test_budgets_over_main if {
+	count(workflows.deny) == 0 with input as budgets("${{ inputs.group-base }}") with workflows.reports as reports
+}
+
+# A changes job that lets a group skip Windows, with the step's env and the globs of workflow_lint.
+with_windows_skip(env, globs) := with_ci(json.patch(ci, [
+	{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": sprintf("run:\n  - 'apps/**'\n  - 'packages/**'\nworkflow_lint:\n%s", [concat("", [sprintf("  - '%s'\n", [g]) | some g in globs])])},
+	{"op": "add", "path": "/jobs/changes/steps/-", "value": {"run": "node tools/queue/cli.ts >> \"$GITHUB_OUTPUT\"", "env": env}},
+]))
+
+from_filter := {"WORKFLOWS_CHANGED": "${{ steps.filter.outputs.workflow_lint }}"}
+
+test_windows_skip_without_the_filter if {
+	".github/workflows/site-ci.yml: give the tools/queue/cli.ts step `WORKFLOWS_CHANGED: ${{ steps.filter.outputs.workflow_lint }}`, so a group that changes a workflow runs Windows" in workflows.deny
+		with input as with_windows_skip({"WORKFLOWS_CHANGED": "false"}, [".github/workflows/**", ".github/actions/**"])
+}
+
+test_windows_skip_without_the_actions if {
+	".github/actions/last-passed/action.yml: add it to the workflow_lint paths filter; a merge queue group that changes it has to run Windows" in workflows.deny with input as with_windows_skip(from_filter, [".github/workflows/**"])
+}
+
+test_windows_skip_without_the_workflows if {
+	".github/workflows/ci.yml: add it to the workflow_lint paths filter; a merge queue group that changes it has to run Windows" in workflows.deny with input as with_windows_skip(from_filter, [".github/actions/**"])
+}
+
+test_windows_skip if {
+	count(workflows.deny) == 0 with input as with_windows_skip(from_filter, [".github/workflows/**", ".github/actions/**"])
+		with workflows.reports as reports
+}
+
 install(tools) := {"true": ["workflow_dispatch"], "jobs": {"lint": {"steps": [
 	{"uses": "taiki-e/install-action@0000000000000000000000000000000000000000", "with": {"tool": tools}},
 ]}}}
