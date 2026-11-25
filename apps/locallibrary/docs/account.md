@@ -43,7 +43,12 @@ writes records needs permission for each type it writes, which `account login --
   other kind. Servers
   look the set up when you sign in and every time the session is refreshed, so it has to be
   published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
-  DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
+  DNS record it checks); until it is, a sign-in that allows publishing fails. locallibrary asks
+  DNS for that record first, and while it isn't there, `account login --publish` and the publish
+  commands say publishing isn't open yet instead of opening the browser (`--dry-run` still shows
+  what would be published). When DNS can't be asked, signing in goes ahead, and a server's
+  `invalid_scope` refusal for the set is explained the same way. `LOCALLIBRARY_PERMISSION_SET=published`
+  (or `unpublished`) answers in place of DNS. It's named directly
   under `computer.localnetwork` because a set can only grant records under its own name's parent.
 - **The browser comes back to locallibrary** on a one-off `127.0.0.1` port, and only the address
   that carries this sign-in's `state` counts. When the browser runs on another computer (over
