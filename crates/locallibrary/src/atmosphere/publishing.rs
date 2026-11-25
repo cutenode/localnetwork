@@ -13,15 +13,15 @@
 //! then explained the same way ([`refused`]).
 //!
 //! `LOCALLIBRARY_PERMISSION_SET` set to `published` or `unpublished` answers instead of DNS, for
-//! tests and for trying either state; `testing::publishing_on_this_thread` answers for one thread. With `LOCALLIBRARY_TEST_OFFLINE` set and no answer given, DNS
-//! isn't asked and it isn't known.
+//! tests and for trying either state; `testing::publishing_on_this_thread` answers for one thread.
+//! With `LOCALLIBRARY_TEST_OFFLINE` set and no answer given, DNS isn't asked and it isn't known.
 
 use std::time::Duration;
 
 use hickory_resolver::TokioResolver;
 use hickory_resolver::proto::rr::RData;
 
-use super::{PUBLISH_SET, block_on};
+use super::{PUBLISH_SET, block_on, identity};
 
 /// The environment variable that answers in place of DNS: `published` or `unpublished`.
 pub const ANSWER_ENV: &str = "LOCALLIBRARY_PERMISSION_SET";
@@ -78,20 +78,19 @@ pub fn availability() -> Availability {
         Ok("unpublished") => return Availability::NotOpen,
         _ => {}
     }
-    if std::env::var_os("LOCALLIBRARY_TEST_OFFLINE").is_some() {
-        return Availability::Unknown;
-    }
+    let offline = std::env::var_os("LOCALLIBRARY_TEST_OFFLINE").is_some();
+    asked((!offline).then(identity::system_dns).flatten())
+}
+
+/// What `dns` says: not known without any to ask.
+fn asked(dns: Option<TokioResolver>) -> Availability {
+    let Some(dns) = dns else { return Availability::Unknown };
     let name = format!("{}.", lexicon_dns_name(PUBLISH_SET));
-    let _guard = crate::net::runtime().enter();
-    let Ok(dns) = TokioResolver::builder_tokio().and_then(|builder| builder.build()) else {
-        return Availability::Unknown;
-    };
     block_on(async {
         match tokio::time::timeout(TIMEOUT, dns.txt_lookup(name)).await {
             Ok(Ok(answer)) => {
-                let names_an_account = answer.answers().iter().any(|record| match &record.data {
-                    RData::TXT(txt) => txt.txt_data.iter().any(|s| s.starts_with(b"did=")),
-                    _ => false,
+                let names_an_account = answer.answers().iter().any(|record| {
+                    matches!(&record.data, RData::TXT(txt) if txt.txt_data.iter().any(|s| s.starts_with(b"did=")))
                 });
                 if names_an_account { Availability::Open } else { Availability::NotOpen }
             }

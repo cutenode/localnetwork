@@ -254,6 +254,16 @@ fn sets_publish_upload_from_the_command_line() {
     let (code, _, err) = run(&nothing, &["--yes"], &[], None);
     assert_ne!(code, 0);
     assert!(err.contains("ffmpeg, which encodes the recording (WAV)") && err.contains("https://ffmpeg.org"), "{err}");
+
+    // A session signed in without permission to publish can't upload, and the plan says why.
+    sign_in(&env.store, &pds.url, &["atproto"], json!({}));
+    let (code, out, err) = run(&bin, &[], &["--dry-run"], None);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("this session can't upload yet"), "{out}");
+    let publish = ["sets", "publish", "Friday", "--upload", "--dry-run"];
+    let r = env.command().env("LOCALLIBRARY_PERMISSION_SET", "unpublished").args(publish).output().unwrap();
+    let out = String::from_utf8(r.stdout).unwrap();
+    assert!(out.contains("publishing isn't open yet") && !out.contains("this session can't upload yet"), "{out}");
 }
 
 /// `sets publish` first runs the analyzer chosen for the MusicBrainz roles on the tracks it names
