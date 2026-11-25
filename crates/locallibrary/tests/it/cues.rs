@@ -442,3 +442,24 @@ fn auto_passes_over_tracks_it_cant_place_cues_on() {
     }
     assert!(plan.tracks.len() + plan.warnings.len() <= ids.len(), "{:?}", plan.warnings);
 }
+
+#[test]
+fn auto_warns_of_tracks_with_no_analysis_files_or_no_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let lib = Device::open(&root).unwrap().library().unwrap();
+    let (gridless, gone) = (&lib.tracks[0], &lib.tracks[1]);
+    fs::remove_file(root.join(paths::key(&gone.analyze_path))).unwrap();
+    // A grid section under another tag: the file reads, with no grid in it.
+    let dat = root.join(paths::key(&gridless.analyze_path));
+    let mut bytes = fs::read(&dat).unwrap();
+    let at = bytes.windows(4).position(|w| w == b"PQTZ").expect("a grid");
+    bytes[at + 3] = b'X';
+    fs::write(&dat, bytes).unwrap();
+
+    let ids = [gridless.id, gone.id];
+    let plan = api::cues_plan(&edit(&root, &ids, auto(CueStyle::FirstCue, false)), &Ctx::silent()).unwrap();
+    assert!(plan.tracks.is_empty() && plan.is_noop(), "neither can take cues");
+    assert!(plan.warnings.iter().any(|w| w.contains("has no analysis files")), "{:?}", plan.warnings);
+    assert!(plan.warnings.iter().any(|w| w.contains("has no beat grid")), "{:?}", plan.warnings);
+}
