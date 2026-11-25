@@ -1087,7 +1087,8 @@ fn palette(app: &App) -> (Vec<Item>, Vec<Act>) {
 
 /// The list open moved (with the arrows) to its `i`th item.
 fn move_to(app: &mut App, i: usize) {
-    for _ in 0..200 {
+    // As many presses as the list has rows: the palette holds hundreds, and grows with plugins.
+    for _ in 0..=picker(app).shown.len() {
         let p = picker(app);
         let at = p.state.selected().unwrap_or(0);
         // What's run lately comes first, so an item's place isn't its row.

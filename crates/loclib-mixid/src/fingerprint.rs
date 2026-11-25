@@ -161,10 +161,17 @@ pub struct Analyzer {
     levels: Option<Vec<FrameLevels>>,
 }
 
+/// A forward FFT of `len` points. Other crates plan theirs here instead of with an `FftPlanner`
+/// of their own: each crate that names `FftPlanner<f32>` compiles rustfft's planner again (about
+/// 80 KB of a release binary on x86_64), and a release build doesn't merge the copies.
+pub fn forward_fft(len: usize) -> Arc<dyn Fft<f32>> {
+    FftPlanner::new().plan_fft_forward(len)
+}
+
 impl Analyzer {
     /// `levels`: also record [`FrameLevels`] for every frame.
     pub fn new(density: Density, levels: bool) -> Analyzer {
-        let fft = FftPlanner::new().plan_fft_forward(FFT_LEN);
+        let fft = forward_fft(FFT_LEN);
         let fft_scratch = vec![Complex::default(); fft.get_inplace_scratch_len()];
         let window =
             (0..FFT_LEN).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / FFT_LEN as f32).cos()).collect();

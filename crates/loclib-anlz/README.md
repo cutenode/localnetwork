@@ -92,7 +92,8 @@ exports.
 - Find a track's analysis files on a drive, or pick a free `ANLZ000n` for new ones. locallibrary
   does that (`anlz::load`, `paths::analysis_stem`).
 - Write `PQT2` or work out `PWV4`, whose bytes aren't all understood.
-- Analyse audio. loclib-analysis works out tempo and 3-band waveforms from a track's sound.
+- Analyse audio. loclib-analysis works out tempo, beat grids and 3-band waveforms from a track's
+  sound.
 
 ## Licence
 

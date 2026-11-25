@@ -13,14 +13,16 @@ on = ["drive.mounted", "drive.changed"]
 
 [[contributes.analyzers]]
 name = "tempo-key-loudness"
-title = "Tempo, key and loudness"
+title = "Tempo, key, loudness and beat grid"
 # The host keeps the fields by the analyzer's version: loclib-analysis's VERSION, so tracks
 # measured the old way are measured again once it changes.
-version = "5"
+version = "6"
 
 # As doctor's `--analyze` reports them. A field with nothing to show is null: no tempo or key for
 # silence, no tempo for a blip too short for one, no key where the best keys tie, no loudness,
-# true peak or waveform for silence.
+# true peak or waveform for silence, no beat grid for silence or under 5 seconds. The tempo is the
+# beat grid's (to 0.01 BPM) where there is one, and its confidence is null where the tempo and key
+# estimate heard another tempo.
 [contributes.analyzers.fields]
 bpm = "number"
 bpm_confidence = "number"
@@ -33,6 +35,8 @@ true_peak_dbtp = "number"
 clipped_runs = "integer"
 # Lows, mids and highs, a column every 23 ms.
 waveform = "waveform"
+# One tempo throughout, bars counted from the first beat.
+beats = "beats"
 
 # The columns' names (`sound.integrated_lufs`) are wider than any of these values, so the columns
 # keep those widths.

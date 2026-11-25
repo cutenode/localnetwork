@@ -23,9 +23,11 @@ use loclib_progress::{Cancelled, Ctx};
 
 mod error;
 mod flac;
+mod lame;
 mod mp4;
 
 pub use error::{Error, Result};
+pub use lame::lame_frame_secs;
 
 /// How far symphonia's probe looks for a format's marker (`Probe::PROBE_SEARCH_LIMIT`).
 const PROBE_LIMIT: u64 = 1 << 20;

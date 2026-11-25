@@ -82,7 +82,7 @@
   description: Release builds, installers, Homebrew, signing and updates
 - name: "locallibrary: analysis"
   color: "c9adef"
-  description: Tempo, key and loudness from tracks' audio
+  description: Tempo, key, loudness and beat grids from tracks' audio
 - name: "locallibrary: mixes"
   color: "c9adef"
   description: Finding the tracks a recorded mix plays, and mix reports
