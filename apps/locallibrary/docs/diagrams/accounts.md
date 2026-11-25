@@ -57,11 +57,17 @@ sequenceDiagram
     participant S as Account's server
     participant B as Browser
     participant K as Keychain or file
+    participant N as DNS
+    opt Allowing publishing
+        L->>N: _lexicon.localnetwork.computer?
+        Note over L,N: No record: no server can grant<br/>the permission set, so it stops:<br/>publishing isn't open yet.<br/>No answer: goes on
+    end
     L->>C: Online, allowing<br/>these scopes?
     Note over L,C: Offline: the localhost<br/>development client.<br/>Online without them: refused
     L->>L: Find the server from<br/>a handle, DID or address
     Note over L: A handle neither DNS nor<br/>its web address names a DID for:<br/>stops, saying what each answered,<br/>and to try the server's address
     L->>S: Pushed authorization<br/>request, with PKCE
+    Note over L,S: invalid_scope for the<br/>permission set: publishing<br/>isn't open yet
     L->>B: Open the sign-in page
     B->>S: You approve
     B->>L: Back to a one-off<br/>127.0.0.1 port
@@ -70,7 +76,7 @@ sequenceDiagram
     L->>L: The rest in atmosphere.json
 ```
 
-Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/callback.rs`](../../../../crates/locallibrary/src/callback.rs), [`src/account_cmd/atmosphere.rs`](../../src/account_cmd/atmosphere.rs)
+Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/publishing.rs`](../../../../crates/locallibrary/src/atmosphere/publishing.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/callback.rs`](../../../../crates/locallibrary/src/callback.rs), [`src/account_cmd/atmosphere.rs`](../../src/account_cmd/atmosphere.rs)
 
 ## What the DJ account is allowed
 

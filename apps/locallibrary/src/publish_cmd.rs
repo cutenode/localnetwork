@@ -8,12 +8,13 @@
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::OnceLock;
 
 use anyhow::{Result, bail};
 use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, PlannedPublish, PlannedUpload, PublishPlan};
-use locallibrary::atmosphere::AccountInfo;
+use locallibrary::atmosphere::{AccountInfo, publishing};
 use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 use locallibrary::publish;
@@ -133,12 +134,23 @@ fn publish_flow(
     Ok(Done { outcome: Outcome::Applied, envelope: envelope(&p, &published, true, Outcome::Applied) })
 }
 
+/// Why publishing isn't open, when it isn't ([`publishing::availability`]). Only asked when the
+/// session would have to sign in again for it, and once a run: what DNS said holds till the end.
+fn not_open() -> Option<&'static str> {
+    static ANSWER: OnceLock<Option<&'static str>> = OnceLock::new();
+    *ANSWER.get_or_init(|| publishing::availability().why_not())
+}
+
 /// Sign `account` in again allowing publishing, once the DJ says so: the account the browser
 /// approved, or the outcome when they don't.
 fn sign_in_to_publish(
     Run { root, browser, out, ctx, .. }: Run<'_>,
     account: &AccountInfo,
 ) -> Result<std::result::Result<AccountInfo, Outcome>> {
+    // Signing in again can't get the permission while no server can grant it.
+    if let Some(why) = not_open() {
+        bail!("{why}. `--dry-run` shows what would be published");
+    }
     if out.json || !std::io::stdin().is_terminal() {
         bail!(
             "{}'s session doesn't allow publishing yet: sign in again with `locallibrary account login --publish`",
@@ -189,7 +201,9 @@ fn render_plan(p: &PublishPlan, what: &str, show: &impl Fn(&Value, Option<&Value
         say!("  {}", dim(note));
     }
     if p.missing_scope.is_some() {
-        warn("this session can't publish yet: it was signed in without permission to (publishing signs in again)");
+        warn(not_open().unwrap_or(
+            "this session can't publish yet: it was signed in without permission to (publishing signs in again)",
+        ));
     }
     say!("{}", dim("Anyone can read what you publish, and copies stay on the network even after it's deleted."));
 }
@@ -607,7 +621,9 @@ fn render_upload(p: &PlannedUpload) {
         say!("  {}", dim(note));
     }
     if p.missing_scope.is_some() {
-        warn("this session can't upload yet: it was signed in without permission to (uploading signs in again)");
+        warn(not_open().unwrap_or(
+            "this session can't upload yet: it was signed in without permission to (uploading signs in again)",
+        ));
     }
     say!("  {}", dim("then this set's record, pointing at it"));
     say!("{}", dim("Anyone can read what you publish, and copies stay on the network even after it's deleted."));

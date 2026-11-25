@@ -36,9 +36,13 @@ pub(crate) struct Resolver {
 /// The resolver, whose requests go only to public https addresses with `public_only` (signing in,
 /// where the servers are whatever the handle's DID document says).
 pub(crate) fn resolver(public_only: bool) -> Result<Resolver> {
+    Ok(Resolver::new(Http::new(public_only)?, system_dns()))
+}
+
+/// The DNS servers the system is set to use, or `None` when its DNS settings can't be read.
+pub(crate) fn system_dns() -> Option<TokioResolver> {
     let _guard = runtime().enter();
-    let dns = TokioResolver::builder_tokio().and_then(|builder| builder.build()).ok();
-    Ok(Resolver::new(Http::new(public_only)?, dns))
+    TokioResolver::builder_tokio().and_then(|builder| builder.build()).ok()
 }
 
 impl Resolver {
@@ -131,4 +135,4 @@ impl OAuthResolver for Resolver {}
 impl DpopExt for Resolver {}
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

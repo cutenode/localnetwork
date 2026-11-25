@@ -793,6 +793,8 @@ enum ClientChoice {
 /// signed in.
 #[hegel::test(test_cases = 8)]
 fn prop_starting_a_sign_in_with_local_servers_fails_for_the_first_reason(tc: TestCase) {
+    // Open, so a sign-in asking to publish reaches the server's refusal rather than the DNS check.
+    locallibrary::testing::publishing_on_this_thread(Some(locallibrary::atmosphere::publishing::Availability::Open));
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
