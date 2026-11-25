@@ -41,7 +41,7 @@ use std::cell::{OnceCell, RefCell};
 use crate::device::Device;
 use crate::fields::{Declared, FieldType, FieldValue, TrackValues};
 use crate::harmony::{self, Camelot};
-use crate::model::{Library, Playlist, Track, TrackColor, normalize};
+use crate::model::{Library, Playlist, Track, TrackColor, date_value, normalize};
 use crate::plays::HistoryList;
 use crate::tags::TagsByTrack;
 use crate::{Error, Result};
@@ -213,17 +213,6 @@ fn seconds(s: &str) -> Option<f64> {
     parts.iter().try_fold(0.0, |acc, p| Some(acc * 60.0 + p.parse::<f64>().ok()?)).filter(|v| v.is_finite())
 }
 
-/// A date (prefix) as a sortable number: `2026-09-30` -> 20260930, `2026-09` -> 20260900.
-pub(crate) fn date_value(s: &str, end: bool) -> Option<f64> {
-    let parts: Vec<&str> = s.trim().split(['-', '/']).collect();
-    let y: u32 = parts.first()?.parse().ok()?;
-    let m: u32 = parts.get(1).map_or(Some(if end { 12 } else { 1 }), |m| m.parse().ok())?;
-    let d: u32 = parts.get(2).map_or(Some(if end { 31 } else { 1 }), |d| d.parse().ok())?;
-    (parts.len() <= 3 && (1000..=9999).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d))
-        // Lazily: out-of-range parts (`999999`) would overflow before the checks reject them.
-        .then(|| (y * 10_000 + m * 100 + d) as f64)
-}
-
 /// A date condition, where a bare prefix (`2026-09`) means the whole month.
 fn date_cond(s: &str) -> Option<Num> {
     let s = s.trim();
@@ -337,32 +326,9 @@ fn tokens(s: &str) -> Vec<(String, Option<usize>)> {
     out
 }
 
-fn color_named(s: &str) -> Option<Option<TrackColor>> {
-    Some(match s.to_ascii_lowercase().as_str() {
-        "none" | "no" | "-" => None,
-        "pink" => Some(TrackColor::Pink),
-        "red" => Some(TrackColor::Red),
-        "orange" => Some(TrackColor::Orange),
-        "yellow" => Some(TrackColor::Yellow),
-        "green" => Some(TrackColor::Green),
-        "aqua" | "cyan" => Some(TrackColor::Aqua),
-        "blue" => Some(TrackColor::Blue),
-        "purple" | "violet" => Some(TrackColor::Purple),
-        _ => return None,
-    })
-}
-
 /// A colour by name (`aqua`) or rekordbox's number (1-8), or `none`.
 pub fn parse_color(s: &str) -> Result<Option<TrackColor>> {
-    if let Ok(n) = s.trim().parse::<u8>() {
-        return match n {
-            0 => Ok(None),
-            n => TrackColor::from_id(n).map(Some).ok_or_else(|| Error::invalid(format!("no colour number {n}"))),
-        };
-    }
-    color_named(s).ok_or_else(|| {
-        Error::invalid(format!("unknown colour {s:?} (pink, red, orange, yellow, green, aqua, blue, purple or none)"))
-    })
+    TrackColor::parse(s).map_err(Error::Invalid)
 }
 
 impl Filter {
@@ -449,7 +415,7 @@ impl Filter {
                 Some(Field::Color) => Cond::Color(
                     value
                         .split('|')
-                        .map(|c| color_named(c).ok_or_else(|| bad("not a colour")))
+                        .map(|c| TrackColor::named(c).ok_or_else(|| bad("not a colour")))
                         .collect::<Result<_>>()?,
                 ),
                 // As given: found the way `--playlist` finds one, letter case and all.

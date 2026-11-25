@@ -10,7 +10,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::pack::{self, PackOptions};
 use locallibrary::progress::Ctx;
 use locallibrary::{artwork, paths};
@@ -29,13 +29,13 @@ fn source(dir: &Path, n: usize) -> PathBuf {
 /// has one, whichever playlists it packs; its plan is never a no-op (the databases are rewritten).
 /// One whose files outgrow the drive says how much it needs and how much is free.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
+fn prop_a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let root = source(dir.path(), n);
     common::add_onelibrary(&root);
     // Images on OneLibrary playlists: some drawn number, each perhaps with its smaller variant.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let art =
         fs::read(paths::to_fs(&root, &paths::key(&common::library(&root).tracks[0].artwork_path.clone().unwrap())))
             .unwrap();

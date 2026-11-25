@@ -777,28 +777,28 @@ fn run_copies(tc: TestCase, cfg: Config) {
 /// Syncs and pushes onto drives holding nothing, an older copy or another library, cancelled at
 /// any checkpoint and run again: each ends with the source's library files, and compare agrees.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn copies_match_the_model(tc: TestCase) {
+fn prop_copies_match_the_model(tc: TestCase) {
     run_copies(tc, Config::default());
 }
 
 /// `--keep-extra` keeps a drive's own audio but never its old databases, and the next sync still
 /// runs from the source.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn keep_extra_never_turns_a_copy_into_the_newer_drive(tc: TestCase) {
+fn prop_keep_extra_never_turns_a_copy_into_the_newer_drive(tc: TestCase) {
     run_copies(tc, Config { keep_extra: true, ..Config::default() });
 }
 
 /// Audio outside `Contents/` goes where the database says, but never over a file of the DJ's
 /// that the target's own library doesn't use.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn copies_never_overwrite_the_djs_own_files(tc: TestCase) {
+fn prop_copies_never_overwrite_the_djs_own_files(tc: TestCase) {
     run_copies(tc, Config { outside: true, ..Config::default() });
 }
 
 /// A run cut off as by a pulled plug, possibly left that way while Main moves on: the next run
 /// finishes the job, torn files included, and compare sends it the right way meanwhile.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_unplugged_copy_is_finished_by_the_next_run(tc: TestCase) {
+fn prop_an_unplugged_copy_is_finished_by_the_next_run(tc: TestCase) {
     locallibrary::testing::no_reflinks();
     run_copies(tc, Config { unplug: true, ..Config::default() });
 }
@@ -853,7 +853,7 @@ fn sync_onto_another_library_cancelled_anywhere(template: &Path, opts: &SyncOpti
     }
 }
 
-/// The example hegel found for `an_unplugged_copy_is_finished_by_the_next_run`: a `--delete-first`
+/// The example hegel found for `prop_an_unplugged_copy_is_finished_by_the_next_run`: a `--delete-first`
 /// sync onto a drive holding another library, cancelled after deleting some of that library's
 /// audio and left that way, then a plain sync cancelled before its databases went in. The old
 /// library comes off the drive before its audio does, so neither leaves a library missing a file.
@@ -1135,20 +1135,20 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
 /// run again: the club drive holds the chosen playlists with the source's files, and nothing else
 /// on it changes.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn packs_match_the_model(tc: TestCase) {
+fn prop_packs_match_the_model(tc: TestCase) {
     run_packs(tc, PackConfig::default());
 }
 
 /// A club drive back from a set keeps what the players recorded: packing it again saves its
 /// history lists and cues first, and backs up the databases it replaces.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn packing_again_keeps_what_players_recorded(tc: TestCase) {
+fn prop_packing_again_keeps_what_players_recorded(tc: TestCase) {
     run_packs(tc, PackConfig { sets: true, ..PackConfig::default() });
 }
 
 /// A pack cut off as by a pulled plug ends, once run again, where an uninterrupted one does.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
+fn prop_an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
     locallibrary::testing::no_reflinks();
     run_packs(tc, PackConfig { unplug: true, ..PackConfig::default() });
 }
@@ -1234,12 +1234,12 @@ fn run_merge(tc: TestCase, outside: bool) {
 
 /// Undoing a merge, finished or cancelled at any checkpoint, gives every file back.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_merge_is_undone_exactly(tc: TestCase) {
+fn prop_a_merge_is_undone_exactly(tc: TestCase) {
     run_merge(tc, false);
 }
 
 /// A guest's track whose audio would land on a file of the DJ's outside `Contents/` goes beside it.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn merging_never_overwrites_the_djs_own_files(tc: TestCase) {
+fn prop_merging_never_overwrites_the_djs_own_files(tc: TestCase) {
     run_merge(tc, true);
 }

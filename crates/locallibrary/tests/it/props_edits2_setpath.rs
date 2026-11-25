@@ -34,7 +34,7 @@ fn no_path() -> Vec<u8> {
 #[hegel::explicit_test_case(dat = 2u8, ext = 0u8, ex2 = 3u8, shift = true)]
 #[hegel::explicit_test_case(dat = 0u8, ext = 3u8, ex2 = 1u8, shift = true)]
 #[hegel::explicit_test_case(dat = 5u8, ext = 0u8, ex2 = 5u8, shift = false)]
-fn pointing_a_track_rewrites_the_analysis_files_that_name_its_old_file(tc: TestCase) {
+fn prop_pointing_a_track_rewrites_the_analysis_files_that_name_its_old_file(tc: TestCase) {
     let dat = tc.draw(gs::integers::<u8>().max_value(5));
     let ext = tc.draw(gs::integers::<u8>().max_value(5));
     let ex2 = tc.draw(gs::integers::<u8>().max_value(5));
@@ -120,7 +120,7 @@ fn prop_a_track_is_pointed_only_at_a_path_its_export_pdb_row_holds(tc: TestCase)
     let t = common::library(&root).tracks[0].clone();
     let titled = |n: usize| Edit::EditTracks {
         tracks: TrackSelector::paths([t.file_path.clone()]),
-        fields: edit::TrackFields { title: Some("x".repeat(n)), ..Default::default() },
+        fields: locallibrary::model::TrackFields { title: Some("x".repeat(n)), ..Default::default() },
     };
     let mut d = Device::open_export(&root).unwrap();
     let planned = |n: usize| edit::plan(&d, &[titled(n)], &EditOptions::default(), &Ctx::silent());

@@ -68,7 +68,7 @@ fn every_kind_has_its_plain_text() {
 /// A chart's table has a row for each x any series has, in order, and each series' y there in
 /// its column (none where it has none).
 #[hegel::test(test_cases = 200)]
-fn a_charts_table_holds_every_point(tc: TestCase) {
+fn prop_a_charts_table_holds_every_point(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(3));
     let series: Vec<Series> = (0..n)
         .map(|i| {
@@ -117,7 +117,7 @@ fn tree_items(tc: &TestCase, depth: usize, drawn: &mut Vec<(String, usize)>, at:
 /// each its depth down; a picture as what it shows; sections each as its title and then what its
 /// view draws on its own; and what shows nothing says so.
 #[hegel::test(test_cases = 200)]
-fn any_view_is_drawn_whole(tc: TestCase) {
+fn prop_any_view_is_drawn_whole(tc: TestCase) {
     let mut drawn = Vec::new();
     let items = tree_items(&tc, tc.draw(gs::integers::<usize>().max_value(3)), &mut drawn, 0);
     let tree = View::Tree { title: None, items };
@@ -159,7 +159,7 @@ fn any_view_is_drawn_whole(tc: TestCase) {
 /// minutes (and hours) and seconds, a key in Camelot notation, a number with its column's unit,
 /// and a cell that isn't what its column says as it is.
 #[hegel::test(test_cases = 300)]
-fn any_cell_shows_as_its_column_says(tc: TestCase) {
+fn prop_any_cell_shows_as_its_column_says(tc: TestCase) {
     let names = |id: u32| id.is_multiple_of(2).then(|| format!("track {id}"));
     let unit = tc.draw(gs::optional(gs::sampled_from(vec!["BPM", "dB"])));
     let typed_as = |kind| Column::Typed(TypedColumn { name: "c".into(), kind, unit: unit.map(String::from) });

@@ -1,0 +1,2 @@
+# The tests' ioreg output keeps the spaces ioreg ends its `| ` lines with.
+tests.rs whitespace=-blank-at-eol

@@ -12,7 +12,7 @@ use locallibrary::anlz::{CuePoint, HOT_CUE_PALETTE};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, paths};
 
@@ -30,7 +30,7 @@ fn hot_cue() -> CuePoint {
 
 /// The eight slots read back from their letter (either case, with spaces) and from JSON.
 #[hegel::test(test_cases = 100)]
-fn hot_cue_names_round_trip(tc: TestCase) {
+fn prop_hot_cue_names_round_trip(tc: TestCase) {
     let h = HotCue(tc.draw(gs::integers::<u8>().max_value(HotCue::COUNT - 1)));
     let name = h.to_string();
     assert_eq!(name.parse::<HotCue>().unwrap(), h);
@@ -46,7 +46,7 @@ fn hot_cue_names_round_trip(tc: TestCase) {
 #[hegel::explicit_test_case(h = 32u8)]
 #[hegel::explicit_test_case(h = 191u8)]
 #[hegel::explicit_test_case(h = 255u8)]
-fn hot_cue_letters_are_injective(tc: TestCase) {
+fn prop_hot_cue_letters_are_injective(tc: TestCase) {
     let h = tc.draw(gs::integers::<u8>());
     let name = HotCue(h).to_string();
     assert_eq!(name.parse::<HotCue>().ok(), (h < HotCue::COUNT).then_some(HotCue(h)), "{h} -> {name:?}");
@@ -54,7 +54,7 @@ fn hot_cue_letters_are_injective(tc: TestCase) {
 
 /// Parsing any text never panics and accepts only one letter A-H.
 #[hegel::test(test_cases = 500)]
-fn hot_cue_parse_accepts_only_letters(tc: TestCase) {
+fn prop_hot_cue_parse_accepts_only_letters(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(gs::text().max_size(4), gs::text().alphabet("aAhHiI ").max_size(3)));
     if let Ok(h) = s.parse::<HotCue>() {
         assert!(h.0 < HotCue::COUNT);
@@ -74,7 +74,7 @@ fn hot_cue_palette_colours_are_unique() {
 
 /// A hot cue given palette code n, or palette entry n's colour, gets code n and its RGB.
 #[hegel::test(test_cases = 200)]
-fn hot_cue_palette_codes_round_trip(tc: TestCase) {
+fn prop_hot_cue_palette_codes_round_trip(tc: TestCase) {
     let code = tc.draw(gs::integers::<u8>().min_value(1).max_value(62));
     let rgb = HOT_CUE_PALETTE[usize::from(code) - 1];
     for spec in [code.to_string(), hex(rgb), hex(rgb).to_uppercase()] {
@@ -87,7 +87,7 @@ fn hot_cue_palette_codes_round_trip(tc: TestCase) {
 /// Any `#rrggbb` picks the nearest palette colour for a hot cue and the nearest of the eight
 /// colours for a memory cue.
 #[hegel::test(test_cases = 300)]
-fn any_rgb_picks_a_nearest_colour(tc: TestCase) {
+fn prop_any_rgb_picks_a_nearest_colour(tc: TestCase) {
     let rgb = tc.draw(gs::arrays::<_, u8, 3>(gs::integers::<u8>()));
     let mut c = hot_cue();
     cue_edit::set_color(&mut c, &hex(rgb)).unwrap();
@@ -102,7 +102,7 @@ fn any_rgb_picks_a_nearest_colour(tc: TestCase) {
 
 /// Whatever the text, a colour either applies (leaving a code the players know) or is refused.
 #[hegel::test(test_cases = 500)]
-fn set_color_accepts_only_known_colours(tc: TestCase) {
+fn prop_set_color_accepts_only_known_colours(tc: TestCase) {
     let spec = tc.draw(hegel::one_of!(
         gs::text().max_size(10),
         gs::from_regex("#[0-9a-fA-F+-]{0,7}").fullmatch(true),
@@ -122,7 +122,7 @@ fn set_color_accepts_only_known_colours(tc: TestCase) {
 
 /// `m:ss.mmm` names the exact millisecond.
 #[hegel::test(test_cases = 300)]
-fn clock_reads_back(tc: TestCase) {
+fn prop_clock_reads_back(tc: TestCase) {
     let ms = tc.draw(gs::integers::<u32>());
     let s = cue_edit::clock(ms);
     let (m, rest) = s.split_once(':').unwrap();
@@ -154,7 +154,7 @@ fn exported(root: &Path, lib: &Library) -> Vec<(String, Vec<u8>)> {
 fn cue_state(root: &Path) -> String {
     let d = Device::open_export(root).unwrap();
     let lib = d.library().unwrap();
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = onelibrary::open_root(root).unwrap();
     let plus = one.library().unwrap();
     let mut out = String::new();
     let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
@@ -218,7 +218,7 @@ fn cue_edit(tc: &TestCase, lib: &Library) -> (Vec<u32>, CueEdit) {
 /// replaying the drive's journal gives back the cues the edits made, in the analysis files and in
 /// OneLibrary's rows.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn replaying_cue_edits_after_a_new_export_redoes_them(tc: TestCase) {
+fn prop_replaying_cue_edits_after_a_new_export_redoes_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);

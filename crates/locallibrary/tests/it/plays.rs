@@ -4,7 +4,7 @@ use std::path::Path;
 
 use locallibrary::api::{self, PlayStatsRequest};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::{self, OneLibrary};
+use locallibrary::onelibrary;
 use locallibrary::plays;
 use locallibrary::progress::Ctx;
 use locallibrary::recordings::{self, CollectOptions, Tracklist};
@@ -47,7 +47,7 @@ fn history_lists_from_both_databases_count_once() {
     common::add_onelibrary(&root); // both databases hold HISTORY 001
     // A CDJ-3000X recorded one more, in OneLibrary only.
     let d = Device::open_export(&root).unwrap();
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let plus: Library = one.library().unwrap();
     let h = one.create_history("HISTORY 002", 0, false).unwrap();
     for t in plus.tracks.iter().filter(|t| t.title.starts_with("B")) {
@@ -94,7 +94,7 @@ fn a_recordings_tracklist_is_the_history_list_of_exactly_its_name() {
     common::onelibrary_only(&root);
     let mut d = Device::open_export(&root).unwrap();
     let lib = common::plus_library(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let folder = one.create_history("Friday", 0, true).unwrap();
     for (name, track) in [("FRIDAY", &lib.tracks[0]), ("Friday", &lib.tracks[1])] {
         let h = one.create_history(name, folder, false).unwrap();
@@ -213,7 +213,7 @@ fn archived_lists_were_recorded_after_their_drives_previous_pull() {
 /// cache, finds exactly what the first read did (where entries gone from the library were
 /// included) and parses no database; a kept file that can't be read is parsed again.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_archive_read_again_from_the_cache_is_the_archive(tc: hegel::TestCase) {
+fn prop_the_archive_read_again_from_the_cache_is_the_archive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

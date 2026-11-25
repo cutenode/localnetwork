@@ -458,7 +458,7 @@ const TRACK: (&str, &str) =
 /// without its recording and a position to hide it doesn't have are refused before the plugin's
 /// asked.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
+fn prop_a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let manifest =
         format!("{ECHO}\n[[contributes.settings]]\nkey = \"answer\"\ntitle = \"Answer\"\ntype = \"string\"\n");
     let f = Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default());
@@ -681,7 +681,7 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
 }
 
 /// How long the mock service's tokens last in
-/// [`a_destination_starts_only_when_its_accounts_will_last`].
+/// [`prop_a_destination_starts_only_when_its_accounts_will_last`].
 #[derive(Debug, Clone, Copy)]
 enum Lasting {
     /// An hour, then they're refreshed.
@@ -695,7 +695,7 @@ enum Lasting {
 }
 
 /// What's wrong with echo's access to the account in
-/// [`a_destination_starts_only_when_its_accounts_will_last`].
+/// [`prop_a_destination_starts_only_when_its_accounts_will_last`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Mistake {
     /// The account is signed out.
@@ -731,7 +731,7 @@ enum Mistake {
     big = false,
     later = Some(Losing::SignOut)
 )]
-fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
+fn prop_a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     let some = vec![vec![], vec!["read"], vec!["write"], vec!["read", "write"]];
     let needs: Vec<&str> = tc.draw(gs::sampled_from(some[1..].to_vec()));
     let m = mock_for(3600, "/userinfo", "", &asking(&needs, &[]));
@@ -836,7 +836,7 @@ fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     assert_eq!(first, resolving, "{said}: {actions:?}");
 }
 
-/// A step of [`a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied`].
+/// A step of [`prop_a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
     /// A track added to the drive, and the drive pulled.
@@ -854,7 +854,7 @@ enum Step {
 /// there's no copy there; and copying from that store to the destination, which holds the first
 /// one's copy, is refused unless forced.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied(tc: TestCase) {
+fn prop_a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied(tc: TestCase) {
     let f = Fixture::echo();
     let spec_of = tc.draw(gs::sampled_from(vec!["echo:folder", "echo:folder", "echo:nowhere", "nope:folder"]));
     match spec_of {
@@ -977,7 +977,7 @@ fn uploading() -> Fixture {
 /// publishing's progress, between the plugin's start and end of the upload. Its dry run may send
 /// none of it, and once it's published, nothing may.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_set_s_recording_is_sent_in_parts_as_it_s_published(tc: TestCase) {
+fn prop_a_set_s_recording_is_sent_in_parts_as_it_s_published(tc: TestCase) {
     use locallibrary::progress::{CancelToken, Event, Phase};
     let server = super::net::Server::new(|_, _| super::net::ok(""));
     let f = uploading();

@@ -664,7 +664,7 @@ fn details_left_out() -> Details {
 }
 
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
-fn sets_through_the_api_match_the_model(tc: TestCase) {
+fn prop_sets_through_the_api_match_the_model(tc: TestCase) {
     let desk = Desk::new();
     // Two sets of four tracks to start from, so that every step has sets to work on.
     let sets = [("Friday", "2026-10-03", "The Warehouse"), ("Warm-up", "2026-10-02", "NTS")]
@@ -691,7 +691,7 @@ fn sets_through_the_api_match_the_model(tc: TestCase) {
 /// country upper-cased, partners with a DID kept as accounts, a link without the name a plugin
 /// gave the one before; all of them, or (when any is refused) none.
 #[hegel::test(test_cases = 300)]
-fn details_are_written_whole_or_not_at_all(tc: TestCase) {
+fn prop_details_are_written_whole_or_not_at_all(tc: TestCase) {
     let base = Set {
         id: "3m2abcdefgh22".into(),
         title: Some("Before".into()),
@@ -795,7 +795,7 @@ fn any_set(tc: &TestCase) -> Set {
 /// saved: every set, entry and imported log, whatever text they hold; saved again, the file is
 /// the same.
 #[hegel::test(test_cases = 40)]
-fn the_book_round_trips_through_sets_json(tc: TestCase) {
+fn prop_the_book_round_trips_through_sets_json(tc: TestCase) {
     let desk = Desk::new();
     assert!(desk.book().sets.is_empty(), "no sets.json is an empty book");
     let few = |most: usize| tc.draw(gs::integers::<usize>().max_value(most));
@@ -846,7 +846,7 @@ fn tid_micros(id: &str) -> u64 {
 /// go on its first), so ids sort by day; ids drawn for one day differ; and listings show the
 /// first 8 characters.
 #[hegel::test(test_cases = 300)]
-fn set_ids_are_tids_on_their_day(tc: TestCase) {
+fn prop_set_ids_are_tids_on_their_day(tc: TestCase) {
     // From 1900 to 2240: a TID's 53 bits of microseconds last until 2255.
     let days = || gs::integers::<i64>().min_value(-25_567).max_value(98_600);
     let epoch = day(1970, 1, 1);
@@ -874,7 +874,7 @@ fn set_ids_are_tids_on_their_day(tc: TestCase) {
 /// A set is called by its title, else its venue; headed by that, else its day; placed at its
 /// venue and city as far as they're known; and described by day, name and short id.
 #[hegel::test(test_cases = 200)]
-fn a_set_names_itself_by_what_it_has(tc: TestCase) {
+fn prop_a_set_names_itself_by_what_it_has(tc: TestCase) {
     let pick = |pool: Vec<Option<&str>>| tc.draw(gs::sampled_from(pool)).map(String::from);
     let set = Set {
         id: "3m2abcdefgh22".into(),
@@ -1062,7 +1062,7 @@ fn set_from(id: &str, sessions: Vec<String>) -> Set {
 /// sets or dismissed, a dismissal is taken back with `undo`, and `session::find` finds each by
 /// id, id prefix in any case, or name when only one has it.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
+fn prop_imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();
     let mut written: Vec<(String, Vec<Row>, String)> = Vec::new();
@@ -1145,7 +1145,7 @@ fn imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
 /// while their play times overlap, the groups that have a log of 3 tracks or more, newest first,
 /// each counting the different tracks it logged (a minute of play each).
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn imported_logs_suggest_the_sets_the_model_predicts(tc: TestCase) {
+fn prop_imported_logs_suggest_the_sets_the_model_predicts(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();
     for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)) {
@@ -1224,7 +1224,7 @@ fn imported_logs_suggest_the_sets_the_model_predicts(tc: TestCase) {
 /// (or, across days, the first day one was seen, with a note); logs added to it later go after
 /// its tracks, the times all still counting from the earliest play.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn sets_built_from_imported_logs_are_timed_from_the_first_play(tc: TestCase) {
+fn prop_sets_built_from_imported_logs_are_timed_from_the_first_play(tc: TestCase) {
     let desk = Desk::new();
     let mut logs: Vec<Log> = Vec::new();
     for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
@@ -1313,7 +1313,7 @@ struct Listed {
 /// window, are each suggested alone (saying so) once they have 3 tracks; lists on a drive since
 /// its pull go together.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn history_lists_on_drives_are_sessions_once_each(tc: TestCase) {
+fn prop_history_lists_on_drives_are_sessions_once_each(tc: TestCase) {
     let desk = Desk::new();
     let main = common::bigger_drive(&desk.volumes, "Main");
     let library: Library = pdb::read_library(&main.join(paths::EXPORT_PDB)).unwrap();
@@ -1479,7 +1479,7 @@ fn history_lists_on_drives_are_sessions_once_each(tc: TestCase) {
 /// or as asked), the set lists those of its tracks the drive has, in set order (the playlist each once;
 /// made again, it has nothing to add), warning about each of the others by its place in the set.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn sets_become_playlists_on_a_drive(tc: TestCase) {
+fn prop_sets_become_playlists_on_a_drive(tc: TestCase) {
     let desk = Desk::new();
     let main = common::bigger_drive(&desk.volumes, "Main");
     let library: Library = pdb::read_library(&main.join(paths::EXPORT_PDB)).unwrap();

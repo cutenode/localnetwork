@@ -152,6 +152,7 @@ impl<'h> DriveReads<'h> {
 /// host doesn't tell plugins.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DriveInfo {
+    /// Its volume's name (`DJ` for `/Volumes/DJ`).
     pub volume_name: String,
     /// The id locallibrary gave it, once adopted.
     pub id: Option<String>,
@@ -165,14 +166,19 @@ pub struct DriveInfo {
     pub has_library_plus: bool,
     /// When rekordbox last exported to it (RFC 3339).
     pub exported_at: Option<String>,
+    /// How much its library holds (tracks, playlists, folders...); `None` when it has none that
+    /// can be read.
     pub summary: Option<LibrarySummary>,
+    /// Its size, in bytes; `None` when it can't be told.
     pub total_space: Option<u64>,
+    /// The space left on it, in bytes; `None` when it can't be told.
     pub free_space: Option<u64>,
 }
 
 /// `playlists.tree`'s answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaylistTree {
+    /// The playlists and folders at the top, in display order.
     pub playlists: Vec<PlaylistNode>,
     /// The history lists players recorded (in folders, on OneLibrary).
     pub history: Vec<PlaylistNode>,
@@ -181,10 +187,13 @@ pub struct PlaylistTree {
 /// A playlist or a folder in a [`PlaylistTree`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaylistNode {
+    /// Its id in the library.
     pub id: u32,
+    /// Its own name, without its folders.
     pub name: String,
     /// Through its folders (`Sets/2026/Warmup`).
     pub path: String,
+    /// Whether it's a folder.
     pub folder: bool,
     /// A playlist's entries (a track can be in it twice); 0 for a folder.
     pub tracks: usize,
@@ -231,13 +240,16 @@ pub struct TracksAnalysis {
 /// A track's analysis in [`TracksAnalysis`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysedTrack {
+    /// The track's id.
     pub track: u32,
+    /// Its beat grid, cues and phrases (without its waveforms, as [`DriveReads::analyses`] reads it).
     pub analysis: TrackAnalysis,
 }
 
 /// A track's artwork in `art.get`'s answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackArtwork {
+    /// The track's id.
     pub track: u32,
     /// `None` when it has none.
     pub image: Option<ArtworkImage>,
@@ -248,6 +260,7 @@ pub struct TrackArtwork {
 pub struct ArtworkImage {
     /// `image/jpeg`.
     pub mime: String,
+    /// The image's bytes, in base64.
     pub base64: String,
 }
 

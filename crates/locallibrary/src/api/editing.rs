@@ -10,7 +10,6 @@ use uuid::Uuid;
 use super::{DriveRef, LibraryCache, LibraryRef, TagsByTrack, resolve_drive, write_estimate};
 use crate::anlz::{self, Mood, TrackAnalysis};
 use crate::device::Device;
-use crate::drive_speed::Work;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport, journal::JournalEntry};
 use crate::error::{Action, Reason};
 use crate::fields::{Source, TrackValues};
@@ -23,6 +22,7 @@ use crate::relocate::{self, RelocateOptions, RelocatePlan};
 use crate::smart::{SmartPlaylist, SmartPlaylists};
 use crate::store::Store;
 use crate::{Error, Result};
+use loclib_drive_speed::Work;
 
 // ---------------------------------------------------------------------------------------------
 // Edits

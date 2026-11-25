@@ -271,7 +271,7 @@ pub fn compare_devices(left: &Device, right: &Device, ctx: &Ctx<'_>) -> Result<C
     // to OneLibrary: its differences count too.
     let (l, r) = (Databases::read(left).ok(), Databases::read(right).ok());
     if let (Some(l), Some(r)) = (l.as_ref().and_then(Databases::beside), r.as_ref().and_then(Databases::beside)) {
-        crate::diff::add_library_diff(&mut c.diff, older_to_newer(c.relation, l, r));
+        c.diff.add(older_to_newer(c.relation, l, r));
     }
     Ok(c)
 }

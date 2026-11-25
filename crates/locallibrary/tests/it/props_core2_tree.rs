@@ -12,7 +12,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::tree::{self, ScanOptions};
 
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn scans_key_files_as_the_library_names_them(tc: TestCase) {
+fn prop_scans_key_files_as_the_library_names_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("USB");
     let decomposed = tc.draw(gs::booleans());
@@ -58,7 +58,7 @@ fn scans_key_files_as_the_library_names_them(tc: TestCase) {
 
 #[cfg(unix)]
 #[hegel::test(test_cases = 4)]
-fn a_folder_that_cant_be_read_stops_the_scan(tc: TestCase) {
+fn prop_a_folder_that_cant_be_read_stops_the_scan(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("USB");

@@ -29,7 +29,7 @@ const CLUTTER: &[(&str, bool)] = &[
 const FORGED: &[&str] = &["../outside.txt", "Contents//x", "./.DS_Store", "Contents\\A\\.DS_Store", "a/../b"];
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn tidying_a_stale_plan_removes_only_what_is_still_clutter(tc: TestCase) {
+fn prop_tidying_a_stale_plan_removes_only_what_is_still_clutter(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     for (key, is_dir) in CLUTTER {

@@ -22,7 +22,7 @@ fn retries_with_force(e: &locallibrary::Error) -> bool {
 }
 
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn undo_takes_back_whats_still_there_and_nothing_else(tc: TestCase) {
+fn prop_undo_takes_back_whats_still_there_and_nothing_else(tc: TestCase) {
     for kind in 0..4 {
         undo_after(&tc, kind);
     }

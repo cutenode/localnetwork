@@ -1,10 +1,11 @@
-//! Audio files by name: the format each audio extension names, and which extensions DJ players
-//! list.
+//! Audio files by name: the format each audio extension names, which extensions DJ players list,
+//! and the code rekordbox's databases give each.
 
 /// An audio format, as a file's extension names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Format {
+    /// `.mp3`: MPEG audio layer III.
     Mp3,
     /// `.aac`: AAC on its own.
     Aac,
@@ -12,12 +13,17 @@ pub enum Format {
     Mpeg4,
     /// `.alac`: Apple Lossless.
     Alac,
+    /// `.wav` and `.wave`: WAVE, mostly plain PCM.
     Wav,
+    /// `.aif` and `.aiff`: AIFF.
     Aiff,
+    /// `.flac` and `.fla`: FLAC.
     Flac,
     /// Ogg Vorbis.
     Ogg,
+    /// `.opus`: Opus.
     Opus,
+    /// `.wma`: Windows Media Audio.
     Wma,
 }
 
@@ -54,6 +60,20 @@ impl Format {
     /// [`Format::from_name`] for files DJ players list: `None` for audio they skip.
     pub fn for_players(name: &str) -> Option<Format> {
         name.rsplit_once('.').and_then(|(_, ext)| find(&PLAYER_EXTENSIONS, ext))
+    }
+}
+
+/// rekordbox's format code for an audio file, by its extension: export.pdb's track `file_type`
+/// and OneLibrary's `content.fileType`. 0 for an extension rekordbox doesn't list.
+pub fn file_type_code(path: &str) -> u16 {
+    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("mp3") => 0x01,
+        Some("m4a" | "mp4" | "aac") => 0x04,
+        Some("flac") => 0x05,
+        Some("wav") => 0x0b,
+        Some("aiff" | "aif") => 0x0c,
+        _ => 0,
     }
 }
 

@@ -12,7 +12,7 @@ use locallibrary::artwork;
 use locallibrary::compare::{self, Relation, Side};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions};
-use locallibrary::onelibrary::{self, OneLibrary};
+use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
@@ -49,7 +49,7 @@ fn reads_sqlcipher_databases_and_their_wal() {
     assert_eq!(set.track_ids, [1, 2]);
 
     // The decrypted database is ordinary SQLite.
-    let (_, plain) = onelibrary::decrypt(&db, Some(&wal)).unwrap();
+    let (_, plain) = loclib_rekordbox_db::onelibrary::decrypt(&db, Some(&wal)).unwrap();
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("plain.db"), &plain).unwrap();
     let conn = rusqlite::Connection::open(dir.path().join("plain.db")).unwrap();
@@ -72,7 +72,7 @@ fn edited_databases_keep_their_salt_and_journal_mode() {
     one.add_to_playlist(list, 2).unwrap();
     let bytes = one.to_encrypted().unwrap();
     assert_eq!(&bytes[..16], &db[..16], "same salt");
-    let (_, plain) = onelibrary::decrypt(&bytes, None).unwrap();
+    let (_, plain) = loclib_rekordbox_db::onelibrary::decrypt(&bytes, None).unwrap();
     assert_eq!(plain[18], 2, "still a WAL-mode database, as rekordbox writes them");
     let lib = OneLibrary::from_encrypted(&bytes, None).unwrap().library().unwrap();
     assert_eq!(titles(&lib), ["One", "Two"]);
@@ -273,7 +273,7 @@ fn merge_adds_tracks_and_playlists_to_onelibrary() {
     // Source: a OneLibrary-only drive whose rows carry values export.pdb has no column for.
     let src_root = common::demo_drive(dir.path(), "Guest");
     common::onelibrary_only(&src_root);
-    let one = OneLibrary::open_root(&src_root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&src_root).unwrap();
     one.connection().execute("UPDATE content SET masterDbId = 777, contentLink = 4242", []).unwrap();
     one.connection()
         .execute("INSERT INTO cue (cue_id, content_id, kind, inUsec, outUsec) VALUES (1, 1, 0, 1500000, -1)", [])
@@ -304,7 +304,7 @@ fn merge_adds_tracks_and_playlists_to_onelibrary() {
         }
     }
     // Copied whole from the source's OneLibrary row, cues included.
-    let target = OneLibrary::open(&dst).unwrap();
+    let target = dst.library_plus().unwrap();
     let conn = target.connection();
     let copied: i64 = conn
         .query_row("SELECT count(*) FROM content WHERE masterDbId = 777 AND contentLink = 4242", [], |r| r.get(0))
@@ -344,7 +344,7 @@ fn merge_into_a_onelibrary_only_drive() {
     let lib = dst.library().unwrap();
     assert_eq!(lib.tracks.len(), 14);
     assert!(lib.find_playlist("Guest").unwrap().is_folder);
-    let one = OneLibrary::open(&dst).unwrap();
+    let one = dst.library_plus().unwrap();
     let rows: Vec<(String, i64, i64)> = one
         .connection()
         .prepare("SELECT fileName, fileType, analysedBits FROM content WHERE content_id > 12")
@@ -369,7 +369,7 @@ fn checkpoints_and_reencryption_keep_the_fingerprint() {
     let b = common::wal_drive(dir.path(), "B");
     // B holds the same library after a checkpoint: one re-encrypted file, no WAL (as a player
     // closing the database may leave it).
-    let one = OneLibrary::open_root(&b).unwrap();
+    let one = locallibrary::onelibrary::open_root(&b).unwrap();
     fs::write(b.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     fs::remove_file(b.join(paths::LIBRARY_PLUS_WAL)).unwrap();
     assert_ne!(read(&a, paths::LIBRARY_PLUS_DB), read(&b, paths::LIBRARY_PLUS_DB));
@@ -379,7 +379,7 @@ fn checkpoints_and_reencryption_keep_the_fingerprint() {
     assert_eq!(compare::compare_devices(&da, &db, &Ctx::silent()).unwrap().relation, Relation::Identical);
 
     // A real change does change it.
-    let mut one = OneLibrary::open_root(&b).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&b).unwrap();
     one.create_playlist("New", 0, false).unwrap();
     fs::write(b.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     assert_ne!(fp(&a), fp(&b));
@@ -445,7 +445,7 @@ fn merge_brings_history_hot_cue_bank_lists_and_my_tags() {
     let src_root = common::demo_drive(dir.path(), "Guest");
     common::add_history(&src_root, "HISTORY 2026-10-04", &[2, 1]);
     common::add_onelibrary(&src_root);
-    let one = OneLibrary::open_root(&src_root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&src_root).unwrap();
     one.connection()
         .execute_batch(
             "INSERT INTO cue (cue_id, content_id, kind, inUsec) VALUES (5, 1, 0, 2000000);
@@ -477,7 +477,7 @@ fn merge_brings_history_hot_cue_bank_lists_and_my_tags() {
     assert_eq!(titles_in(&pdb), ["Demo Track 2", "Demo Track 1"]);
     assert_eq!(titles_in(&plus), titles_in(&pdb));
 
-    let one = OneLibrary::open(&dst).unwrap();
+    let one = dst.library_plus().unwrap();
     let conn = one.connection();
     let new_id = plus.tracks.iter().find(|t| t.title == "Demo Track 1").unwrap().id;
     let (cue, content): (i64, i64) = conn
@@ -561,18 +561,18 @@ fn a_drives_schema_is_not_trusted() {
 /// an implementation independent of locallibrary's, using SQLCipher 4's defaults as rekordbox does:
 /// `cargo test -p locallibrary-core --test it remake_sqlcipher_fixtures -- --ignored`.
 ///
-/// - `empty.db`: src/onelibrary/schema.sql only (what locallibrary creates new databases from).
+/// - `empty.db`: loclib-rekordbox-db's src/onelibrary/schema.sql only (what locallibrary creates new databases from).
 /// - `wal.db` and `wal.db-wal`: wal.sql, one track in the database file and a second one only in
 ///   the WAL (copied while the connection is open, before SQLite checkpoints on close).
 #[test]
 #[ignore = "rewrites the committed fixtures"]
 fn remake_sqlcipher_fixtures() {
     let fixtures = common::fixtures().join("onelibrary");
-    let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/onelibrary/schema.sql");
+    let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../loclib-rekordbox-db/src/onelibrary/schema.sql");
     let schema = format!(".read {}", schema.display());
     let tmp = tempfile::tempdir().unwrap();
     let run = |db: &str, statements: &[&str]| {
-        common::sqlcipher::run(&tmp.path().join(db), onelibrary::cipher::PASSPHRASE, statements)
+        common::sqlcipher::run(&tmp.path().join(db), loclib_rekordbox_db::onelibrary::cipher::PASSPHRASE, statements)
             .expect("remaking the fixtures needs the sqlcipher CLI");
     };
 

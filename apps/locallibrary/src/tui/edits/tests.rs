@@ -465,7 +465,7 @@ fn packing_the_crate_needs_a_playlist_name() {
 /// written or files deleted (said with each word after), and a cancel reaches the job only
 /// before then.
 #[hegel::test(test_cases = 300)]
-fn progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) {
+fn prop_progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const PHASES: [Phase; 9] = [
         Phase::Scan,
@@ -526,14 +526,14 @@ fn progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) 
 /// first warning; or that it was cancelled, the drive was busy or full, or what went wrong. What
 /// made a backup is what u takes back.
 #[hegel::test(test_cases = 300)]
-fn a_write_is_said_as_what_it_came_to(tc: hegel::TestCase) {
+fn prop_a_write_is_said_as_what_it_came_to(tc: hegel::TestCase) {
     // Every kind of write, each case.
     for kind in 0..12u8 {
         said_as_what_it_came_to(&tc, kind);
     }
 }
 
-/// [`a_write_is_said_as_what_it_came_to`] for one kind of write.
+/// [`prop_a_write_is_said_as_what_it_came_to`] for one kind of write.
 fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
     use hegel::generators as gs;
     use serde_json::json;
@@ -663,7 +663,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
 /// put it away writing nothing, and the arrows, j, k and the page keys scroll it, never above its
 /// top.
 #[hegel::test(test_cases = 200)]
-fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
+fn prop_a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
@@ -723,7 +723,7 @@ fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
 /// A playlist path as typed: its parts with spaces about them and a slash before it read back as
 /// the parts; a part left empty makes it no path.
 #[hegel::test(test_cases = 300)]
-fn typed_paths_read_back_as_their_parts(tc: hegel::TestCase) {
+fn prop_typed_paths_read_back_as_their_parts(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // (An empty first part would be a slash before it.)
     let mut parts: Vec<&str> = vec![tc.draw(gs::sampled_from(&["Sets", "Fri day", "日本"][..]))];
@@ -758,7 +758,7 @@ enum Asks {
 /// a name without a slash, a My Tag as Category/Tag, a rule's path, a playlist to bring back)
 /// and goes on to plan it; otherwise it says what's needed and stays open with the text as it was.
 #[hegel::test(test_cases = 200)]
-fn a_prompt_takes_only_what_it_asks_for(tc: hegel::TestCase) {
+fn prop_a_prompt_takes_only_what_it_asks_for(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
@@ -815,7 +815,7 @@ fn a_prompt_takes_only_what_it_asks_for(tc: hegel::TestCase) {
 /// name, the crate saved as `Crate` there, what to bring back from the playlist or folder selected;
 /// replaying the drive's edits is planned; an item that can't be done says why and stays.
 #[hegel::test(test_cases = 200)]
-fn the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
+fn prop_the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let l = app.loaded.as_mut().unwrap();
@@ -884,7 +884,7 @@ fn the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
 /// playlist plans adding the tracks to it, focus going back where it was; esc drops it, saying
 /// nothing was added. A job under way makes a plan wait its turn.
 #[hegel::test(test_cases = 200)]
-fn picking_a_playlist_takes_a_playlist(tc: hegel::TestCase) {
+fn prop_picking_a_playlist_takes_a_playlist(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let busy = tc.draw(gs::booleans());
@@ -950,7 +950,7 @@ fn picking_a_playlist_takes_a_playlist(tc: hegel::TestCase) {
 /// a dialog from the background waits for the one open to close; results for a job stopped since
 /// change nothing; with no drive open, the menu and undo say one's needed.
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
+fn prop_the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
     use super::super::browse::SORT_FIELDS;
     use super::super::drives::Report;
     use hegel::generators as gs;

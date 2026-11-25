@@ -574,7 +574,7 @@ fn what_players_and_rekordbox_keep_on_a_drive_stays_with_it() {
 /// What a sync would copy shows what changed in OneLibrary too: a CDJ-3000X writes only there.
 #[test]
 fn the_differences_include_onelibrarys() {
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     let dir = tempfile::tempdir().unwrap();
     let a_root = common::demo_drive(dir.path(), "A");
     common::add_onelibrary(&a_root);
@@ -582,7 +582,7 @@ fn the_differences_include_onelibrarys() {
     std::fs::create_dir(dir.path().join("B")).unwrap();
     let mut b = Device::open(dir.path().join("B")).unwrap();
     sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
-    let mut one = OneLibrary::open_root(&a_root).unwrap();
+    let mut one = onelibrary::open_root(&a_root).unwrap();
     one.create_playlist("Booth", 0, false).unwrap();
     std::fs::write(a_root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 

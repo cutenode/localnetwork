@@ -567,7 +567,7 @@ enum Restore {
     Reset,
 }
 
-/// A step of [`accounts_and_accesses_are_as_the_calls_made_them`], naming people by their place
+/// A step of [`prop_accounts_and_accesses_are_as_the_calls_made_them`], naming people by their place
 /// in [`PEOPLE`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
@@ -606,7 +606,7 @@ enum Step {
 /// `not_found` and one giving or restoring access to an account signed out is `not_signed_in`,
 /// and no answer holds a token.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
+fn prop_accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());
     let mut model = Model::default();

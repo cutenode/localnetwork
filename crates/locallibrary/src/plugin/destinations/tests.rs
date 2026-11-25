@@ -6,7 +6,7 @@ use super::*;
 /// `<plugin>:<destination>` splits at its first colon into a plugin and a destination, neither
 /// empty; anything else names none.
 #[hegel::test(test_cases = 100)]
-fn a_destination_is_named_by_its_plugin_and_its_name(tc: TestCase) {
+fn prop_a_destination_is_named_by_its_plugin_and_its_name(tc: TestCase) {
     let plugin: String = tc.draw(gs::from_regex("[a-z0-9_-]{0,6}"));
     let name: String = tc.draw(gs::from_regex("[a-z0-9:_-]{0,6}"));
     let spec = match tc.draw(gs::booleans()) {

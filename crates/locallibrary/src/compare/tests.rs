@@ -153,7 +153,7 @@ fn heuristics_without_lineage() {
 /// sides hold: an identical state is identical, and a side whose lineage holds the other's
 /// state (nothing cut off) is newer, for certain.
 #[hegel::test(test_cases = 400)]
-fn comparing_the_other_way_round_swaps_the_answer(tc: hegel::TestCase) {
+fn prop_comparing_the_other_way_round_swaps_the_answer(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let pool = ["a", "b", "c", "d", "e", "f"];
     let draw_side = |tc: &hegel::TestCase, label: &str| {
@@ -214,7 +214,7 @@ fn comparing_the_other_way_round_swaps_the_answer(tc: hegel::TestCase) {
 /// says; and a side every other signal says is newer but that holds only some of the other's
 /// tracks isn't copied over it without being asked, either way round.
 #[hegel::test(test_cases = 100)]
-fn packed_drives_and_newer_sides_with_fewer_tracks_are_not_copied_over(tc: hegel::TestCase) {
+fn prop_packed_drives_and_newer_sides_with_fewer_tracks_are_not_copied_over(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let pool = ["a", "b", "c", "d", "e", "f", "g", "h"];
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(pool.len()));

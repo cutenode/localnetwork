@@ -28,7 +28,7 @@
 <script lang="ts">
 	import { MapPin, Plus, Search } from '@lucide/svelte';
 	import { tick } from 'svelte';
-	import { Combobox } from '#lib/combobox.svelte.ts';
+	import { Combobox } from '#lib/combobox.page-only.svelte.ts';
 	import { placeKey, placeText, searchPlaces } from '#lib/places.ts';
 	import ComboboxOptions from './ComboboxOptions.svelte';
 	import FormMessage from './FormMessage.svelte';

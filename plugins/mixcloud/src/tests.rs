@@ -157,7 +157,7 @@ fn any_set(tc: &TestCase, most: usize) -> (PublishedSet, String, Vec<TracklistEn
 /// track in order, named, its time kept when it's after every time kept before it; then what
 /// Mixcloud's rules say of the tracklist. Its form has exactly these fields, numbered from 0.
 #[hegel::test(test_cases = 300)]
-fn the_show_is_within_what_mixcloud_takes(tc: TestCase) {
+fn prop_the_show_is_within_what_mixcloud_takes(tc: TestCase) {
     let (set, tags, tracklist) = any_set(&tc, 40);
     let unlisted = tc.draw(gs::booleans());
     let s = show::of(&set, &tracklist, &tags, unlisted);

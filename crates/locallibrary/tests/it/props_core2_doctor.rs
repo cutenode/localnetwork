@@ -22,7 +22,7 @@ const ORDERS: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2,
 /// whatever order they were exported in, with both reasons and nothing else in it. A file of
 /// 4 GiB or more is listed as too big for FAT32, with its track.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn copies_linked_through_another_copy_are_one_group(tc: TestCase) {
+fn prop_copies_linked_through_another_copy_are_one_group(tc: TestCase) {
     let first_big = tc.draw(gs::booleans());
     for (n, order) in ORDERS.into_iter().enumerate() {
         // Every other order with the big file, so each run sees both.
@@ -72,7 +72,7 @@ fn copies_linked_through_another_copy_are_one_group(tc: TestCase) {
 /// A folder that isn't an export, or a drive with only a OneLibrary database that can't be read,
 /// isn't checked: there's nothing to check it against.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn drives_without_a_readable_database_are_not_checked(tc: TestCase) {
+fn prop_drives_without_a_readable_database_are_not_checked(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let blank = common::blank(dir.path(), "Blank");
     fs::create_dir_all(blank.join("Contents")).unwrap();
@@ -92,7 +92,7 @@ fn drives_without_a_readable_database_are_not_checked(tc: TestCase) {
 /// Orphans planned for removal that a track uses by the time they'd be removed aren't removed:
 /// the plan is stale, and the drive is left as it was.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn orphans_a_track_came_to_use_are_not_removed(tc: TestCase) {
+fn prop_orphans_a_track_came_to_use_are_not_removed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     let strays = ["Contents/Stray/one.mp3", "Contents/Stray/two.flac", "Contents/Stray/three.wav"];
@@ -179,7 +179,7 @@ fn prop_tempo_fixes_follow_each_findings_track(tc: TestCase) {
             };
             let bpm = Edit::EditTracks {
                 tracks: locallibrary::query::TrackSelector::paths([off]),
-                fields: locallibrary::edit::TrackFields { bpm: Some(180.0), ..Default::default() },
+                fields: locallibrary::model::TrackFields { bpm: Some(180.0), ..Default::default() },
             };
             let d = Device::open_export(&root).unwrap();
             let p = edit::plan(&d, &[set, grid, bpm], &EditOptions::default(), &Ctx::silent()).unwrap();

@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
-	import { type BookingGroup, bookingsByTurn } from '#lib/bookings.ts';
+	import { type BookingGroup, bookingsByTurn } from '#lib/bookings.page-only.ts';
 	import { light } from '#lib/testing/light.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import type { BookingListThread } from '#lib/types.ts';

@@ -1,0 +1,2 @@
+# Written by tools/regen/flag-schema.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+flag.schema.json merge=regen regen=flag-schema

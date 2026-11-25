@@ -13,7 +13,8 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::compare::Side;
 use locallibrary::device::Device;
-use locallibrary::edit::{Edit, EditOptions, TrackFields};
+use locallibrary::edit::{Edit, EditOptions};
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 
@@ -44,7 +45,7 @@ fn fingerprint(root: &Path) -> String {
 }
 
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn writes_to_a_library_keep_its_clones_identical(tc: TestCase) {
+fn prop_writes_to_a_library_keep_its_clones_identical(tc: TestCase) {
     let h = home();
     let clones = [&h.main, &h.backup, &h.sd];
     let archive = common::drive_files(&h.archive);

@@ -6,7 +6,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
-	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
+	import { draftKey, hasDraft } from '#lib/form-draft.page-only.svelte.ts';
 	import { formatDateTime, requestTitle } from '#lib/format.ts';
 	import { requestStanding } from '#lib/request-standing.ts';
 	import { claimTerms } from '#lib/requests.ts';

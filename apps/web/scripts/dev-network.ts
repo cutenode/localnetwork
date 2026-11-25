@@ -106,13 +106,14 @@ const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
 
 async function main() {
 	// The PDS's better-sqlite3 is built for the Node that ran `pnpm install`, which engineStrict holds to
-	// .node-version, but nothing checks the Node a script runs on, so another one crashes deep in the PDS.
+	// .node-version's major (engines.node), but nothing checks the Node a script runs on, so another major
+	// crashes deep in the PDS.
 	const nodeVersion = readFileSync(new URL('../../../.node-version', import.meta.url), 'utf8').trim();
 	const isNodeVersion = process.versions.node.split('.')[0] === nodeVersion.split('.')[0];
 
 	if (!isNodeVersion) {
 		console.error(
-			`This repo runs on Node.js ${nodeVersion} (.node-version), not ${process.version}. Run \`fnm use\`, then try again.`
+			`This repo runs on Node.js ${nodeVersion} (.node-version), not ${process.version}. Run \`fnm use\` at the repo root, then try again.`
 		);
 		process.exit(1);
 	}

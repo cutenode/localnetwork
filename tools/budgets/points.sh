@@ -2,7 +2,7 @@
 # Lays out what CI measured on main for `tools/budgets/cli.ts creep`: <dir>/<order>-<sha>/<area>.json
 # from the <artifact> of each first-parent commit since <since> that has one, starting from the
 # newest commit before <since> that has one. Run in a clone with main's history up to HEAD. CI keeps
-# artifacts 14 days, so <since> can go back a week with room.
+# artifacts the repository's default retention, so <since> can go back a week with room.
 #   points.sh <artifact> <since> <dir>
 set -euo pipefail
 artifact=$1 since=$2 dir=$3

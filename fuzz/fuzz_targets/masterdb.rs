@@ -13,8 +13,9 @@
 use std::io::Write;
 
 use libfuzzer_sys::fuzz_target;
-use locallibrary::masterdb;
-use locallibrary::onelibrary::cipher::SQLITE_MAGIC;
+use locallibrary::tags::TagsByTrack;
+use loclib_rekordbox_db::masterdb;
+use loclib_rekordbox_db::onelibrary::cipher::SQLITE_MAGIC;
 
 fuzz_target!(|data: &[u8]| {
     if !data.starts_with(SQLITE_MAGIC) {
@@ -24,7 +25,7 @@ fuzz_target!(|data: &[u8]| {
     file.write_all(data).expect("the input written");
     let Ok(collection) = masterdb::open(file.path(), masterdb::DEFAULT_KEY) else { return };
     collection.info();
-    collection.tags_by_track();
+    TagsByTrack::from_collection(&collection.tags, &collection.library);
     for list in collection.smart_lists.values() {
         let _ = list.filter();
     }

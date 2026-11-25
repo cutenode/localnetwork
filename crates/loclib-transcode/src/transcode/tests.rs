@@ -392,7 +392,7 @@ fn a_damaged_frame_fails_the_copy() {
 /// drops from 24 to 16 bit rounds each to the nearest step, and a copy of a copy made that way
 /// is the copy again. A source under a frame at the recipe's rate is refused.
 #[hegel::test(test_cases = 30)]
-fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
+fn prop_copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let rates = vec![44_100, 48_000, 88_200, 96_000];
     // Masters come at twice and four times those too.
@@ -477,7 +477,7 @@ fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
 /// A recipe no player takes (a depth other than 16 or 24 bit, an unknown rate) is refused
 /// before anything is written, and a source with no audio has no copy.
 #[hegel::test(test_cases = 30)]
-fn recipes_no_player_takes_are_refused(tc: hegel::TestCase) {
+fn prop_recipes_no_player_takes_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let bit_depth = tc.draw(gs::integers::<u16>().max_value(40));
     let sample_rate = tc.draw(gs::sampled_from(vec![0, 44_100]));
@@ -587,7 +587,7 @@ fn copied(events: &[Event]) -> Vec<u64> {
 /// many as fit, and the rest at the end, adding up to the source's size. The copy holds every
 /// frame, and its size is its header and samples.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn long_copies_report_progress_as_they_go(tc: TestCase) {
+fn prop_long_copies_report_progress_as_they_go(tc: TestCase) {
     const MIB: u64 = 1 << 20;
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(8));
     let bits = tc.draw(gs::sampled_from(vec![24u16, 32]));
@@ -626,7 +626,7 @@ fn long_copies_report_progress_as_they_go(tc: TestCase) {
 /// A FLAC whose header leaves its length out (0, "unknown", as the format allows) copies to
 /// every container exactly as one that says it, only with its progress all at the end.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn copies_dont_need_the_length_in_the_header(tc: TestCase) {
+fn prop_copies_dont_need_the_length_in_the_header(tc: TestCase) {
     let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
     // Over a block, so the copies that are FLAC encode one as the samples come; often whole
     // blocks, so nothing is left to encode at the end.
@@ -657,7 +657,7 @@ fn copies_dont_need_the_length_in_the_header(tc: TestCase) {
 /// one it can is copied with them, and no warning.
 #[hegel::test(test_cases = 20)]
 #[hegel::explicit_test_case(name = "master.bin", frames = 1151usize, container = Container::Aiff)]
-fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
+fn prop_sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["master.wav", "master.bin", "master", "master.wav.part"]));
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
     let dir = tempfile::tempdir().unwrap();
@@ -691,7 +691,7 @@ fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
 /// can't be encoded as FLAC (WAV and AIFF take them, a pad byte keeping their chunks even), and
 /// a copy into a folder that isn't there can't be made at all.
 #[hegel::test(test_cases = 30)]
-fn copies_that_cant_be_written_say_why(tc: TestCase) {
+fn prop_copies_that_cant_be_written_say_why(tc: TestCase) {
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(12));
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
     let depth = tc.draw(gs::sampled_from(vec![16u16, 24]));
@@ -727,7 +727,7 @@ fn copies_that_cant_be_written_say_why(tc: TestCase) {
 /// out would move everything after it earlier, cues and all. Decoding it to fingerprint it
 /// skips the frame instead.
 #[hegel::test(test_cases = 20)]
-fn a_damaged_frame_anywhere_fails_the_copy(tc: TestCase) {
+fn prop_a_damaged_frame_anywhere_fails_the_copy(tc: TestCase) {
     let blocks = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let frames = 4096 * (blocks - 1) + tc.draw(gs::integers::<usize>().min_value(1).max_value(4096));
     let (mut bytes, starts) = flac_frames(&noise(frames * 2, 16), 2, 16, 44_100, false);

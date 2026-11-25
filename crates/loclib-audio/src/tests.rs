@@ -113,7 +113,7 @@ fn rate(tc: &TestCase) -> u32 {
 /// same sample for sample however it was chunked; a tone well inside both rates' bands keeps
 /// its level.
 #[hegel::test(test_cases = 40)]
-fn resampling_keeps_length_and_level(tc: TestCase) {
+fn prop_resampling_keeps_length_and_level(tc: TestCase) {
     let (from, to) = (rate(&tc), rate(&tc));
     let freq = tc.draw(gs::floats::<f64>().min_value(50.0).max_value(0.2 * from.min(to) as f64));
     let x = tone(freq, from, tc.draw(gs::floats::<f64>().min_value(0.0).max_value(0.3)));
@@ -139,7 +139,7 @@ fn resampling_keeps_length_and_level(tc: TestCase) {
 /// half-width, weighed by the table entry nearest its distance (ties away from 0), summed in
 /// order. The same rate passes the input through.
 #[hegel::test(test_cases = 40)]
-fn each_output_is_the_kernel_at_its_position(tc: TestCase) {
+fn prop_each_output_is_the_kernel_at_its_position(tc: TestCase) {
     let (from, to) = (rate(&tc), rate(&tc));
     let x: Vec<f32> = tc.draw(gs::vecs(gs::floats::<f32>().min_value(-1.0).max_value(1.0)).max_size(2000));
     let r = Resampler::new(from, to);
@@ -163,7 +163,7 @@ fn each_output_is_the_kernel_at_its_position(tc: TestCase) {
 /// to mono at it, and says how long it is; a sink that has heard enough stops the decode a
 /// packet or so later.
 #[hegel::test(test_cases = 40)]
-fn wavs_decode_to_their_samples(tc: TestCase) {
+fn prop_wavs_decode_to_their_samples(tc: TestCase) {
     let rate = rate(&tc);
     let bits = tc.draw(gs::sampled_from(vec![16u16, 24, 32]));
     let top = (1i64 << (bits - 1)) - 1;
@@ -213,7 +213,7 @@ fn wavs_decode_to_their_samples(tc: TestCase) {
 #[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1151usize, tagged = false)]
 #[hegel::explicit_test_case(channels = 1u16, bits = 24u16, frames = 2304usize, tagged = false)]
 #[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1000usize, tagged = true)]
-fn aiffs_decode_to_their_frames(tc: TestCase) {
+fn prop_aiffs_decode_to_their_frames(tc: TestCase) {
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
     let bits = tc.draw(gs::sampled_from(vec![16u16, 24]));
     let frames = tc.draw(gs::integers::<usize>().max_value(2400));
@@ -274,7 +274,7 @@ fn aiffs_decode_to_their_frames(tc: TestCase) {
 /// name or its folder. rekordbox's formats are decodable; other formats and names without an
 /// extension aren't.
 #[hegel::test(test_cases = 200)]
-fn formats_are_told_by_extension_in_any_case(tc: TestCase) {
+fn prop_formats_are_told_by_extension_in_any_case(tc: TestCase) {
     let named = [
         ("a.mp3", true),
         ("B.FLAC", true),
@@ -307,7 +307,7 @@ fn formats_are_told_by_extension_in_any_case(tc: TestCase) {
 /// A WAV damaged anywhere (bytes changed, cut short) never panics the decoder: it decodes,
 /// saying how much it decoded, or is that file's error, in either mode.
 #[hegel::test(test_cases = 60)]
-fn damaged_files_are_that_files_error(tc: TestCase) {
+fn prop_damaged_files_are_that_files_error(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
     let mut bytes = loclib_testkit::audio::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i * 7 - 3000));
     let flips = tc.draw(gs::vecs(gs::tuples!(gs::integers::<usize>(), gs::integers::<u8>())).max_size(4));
@@ -342,7 +342,7 @@ fn packets(frames: usize) -> usize {
 /// A sink's own error stops the decode at the packet it was handed and is what the decode
 /// returns, in either mode; a sink that never fails hears every packet.
 #[hegel::test(test_cases = 30)]
-fn a_sinks_error_stops_the_decode(tc: TestCase) {
+fn prop_a_sinks_error_stops_the_decode(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(6000));
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.wav");
@@ -367,7 +367,7 @@ fn a_sinks_error_stops_the_decode(tc: TestCase) {
 /// there, a parse error for a block size of 0, the decoder's crash for a rate of 0, which
 /// panics symphonia. Intact, it decodes whatever it's called: it's told by its content.
 #[hegel::test(test_cases = 60)]
-fn broken_headers_are_that_files_error(tc: TestCase) {
+fn prop_broken_headers_are_that_files_error(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(500));
     let rate = rate(&tc);
     let broken = tc.draw(gs::sampled_from(vec!["intact", "missing", "block size 0", "rate 0"]));
@@ -408,7 +408,7 @@ fn broken_headers_are_that_files_error(tc: TestCase) {
 /// with [`Error::Cancelled`], handing on nothing after; cancelled after the last check, it
 /// decodes to the end.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
+fn prop_cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(250 * 1152).max_value(520 * 1152));
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("long.wav");
@@ -437,7 +437,7 @@ fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
 /// (each padded to an even length), in an AIFF or AIFC; anything else, a file cut short before
 /// it and a file that isn't there have none.
 #[hegel::test(test_cases = 200)]
-fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
+fn prop_aiff_frames_are_found_among_any_chunks(tc: TestCase) {
     let frames = tc.draw(gs::integers::<u32>());
     let kind = tc.draw(gs::sampled_from(vec![*b"AIFF", *b"AIFC", *b"WAVE"]));
     let mut bytes = [b"FORM".as_slice(), &0u32.to_be_bytes(), &kind].concat();
@@ -468,7 +468,7 @@ fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
 #[hegel::explicit_test_case(rate = 4_294_967_291u32, frames = 32usize)]
 #[hegel::explicit_test_case(rate = 768_001u32, frames = 32usize)]
 #[hegel::explicit_test_case(rate = 767_999u32, frames = 32usize)]
-fn rates_past_the_highest_are_refused(tc: TestCase) {
+fn prop_rates_past_the_highest_are_refused(tc: TestCase) {
     let rate = tc.draw(gs::integers::<u32>().min_value(1));
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
     let dir = tempfile::tempdir().unwrap();
@@ -496,7 +496,7 @@ fn rates_past_the_highest_are_refused(tc: TestCase) {
 #[hegel::test(test_cases = 60)]
 #[hegel::explicit_test_case(from = 767_999u32, to = 11_025u32, chunk = 4096usize)]
 #[hegel::explicit_test_case(from = 1u32, to = 768_000u32, chunk = 1usize)]
-fn the_weight_cache_is_bounded_and_changes_nothing(tc: TestCase) {
+fn prop_the_weight_cache_is_bounded_and_changes_nothing(tc: TestCase) {
     let from = tc.draw(gs::integers::<u32>().min_value(1).max_value(MAX_RATE));
     let to = tc.draw(gs::integers::<u32>().min_value(8_000).max_value(MAX_RATE));
     let chunk = tc.draw(gs::integers::<usize>().min_value(1).max_value(4096));
@@ -791,7 +791,7 @@ fn prop_a_sink_or_cancelling_stops_a_decode_where_it_says(tc: TestCase) {
 
 /// A FLAC of `blocks` (16-bit mono at 44.1 kHz, every block as long, 256 samples at most), each
 /// frame verbatim with its CRCs.
-fn flac(blocks: &[Vec<i16>]) -> Vec<u8> {
+pub(crate) fn flac(blocks: &[Vec<i16>]) -> Vec<u8> {
     fn crc8(bytes: &[u8]) -> u8 {
         bytes
             .iter()

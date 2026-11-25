@@ -243,7 +243,7 @@ fn files_under(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
 /// drive or disk is named, and a drive that's a folder rather than a mounted volume has nothing
 /// to eject. None of them writes to the drive.
 #[hegel::test(test_cases = 8)]
-fn the_computers_disks_stay_out_of_reach_while_its_drives_are_hidden(tc: TestCase) {
+fn prop_the_computers_disks_stay_out_of_reach_while_its_drives_are_hidden(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let before = files_under(Path::new(&a));
@@ -285,7 +285,7 @@ fn tags_on(drive: &str) -> Value {
 /// straight from the request, is refused or not alike and leaves both with the same tags on the
 /// same tracks.
 #[hegel::test(test_cases = 8)]
-fn a_tag_edit_from_its_request_does_what_its_plan_does(tc: TestCase) {
+fn prop_a_tag_edit_from_its_request_does_what_its_plan_does(tc: TestCase) {
     let s = Sidecar::new();
     let (a, b) = (s.demo("A"), s.demo("B"));
     let tags = vec!["Genre/Deep", "Genre/Techno", "Mood/Dark", "Genre", "Nope/Never"];
@@ -315,7 +315,7 @@ fn a_tag_edit_from_its_request_does_what_its_plan_does(tc: TestCase) {
 /// free it applies by its id, once. A request applied straight away while the store is busy is
 /// refused the same way.
 #[hegel::test(test_cases = 10)]
-fn a_plan_refused_while_the_store_is_busy_applies_once_it_is_free(tc: TestCase) {
+fn prop_a_plan_refused_while_the_store_is_busy_applies_once_it_is_free(tc: TestCase) {
     let s = Sidecar::new();
     Store::open_or_init(s.store()).unwrap();
     let id = s.ok("store.gc.plan", json!({}))["plan_id"].clone();
@@ -336,7 +336,7 @@ fn a_plan_refused_while_the_store_is_busy_applies_once_it_is_free(tc: TestCase) 
 
 /// `$/test.wait` isn't there outside the sidecar's own tests, whatever it's asked to wait for.
 #[hegel::test(test_cases = 10)]
-fn the_test_method_is_never_there_outside_the_tests(tc: TestCase) {
+fn prop_the_test_method_is_never_there_outside_the_tests(tc: TestCase) {
     let s = Sidecar::new();
     let params = json!({
         "ms": tc.draw(gs::integers::<u64>().max_value(50)),
@@ -361,7 +361,7 @@ fn plan_or_request(tc: &TestCase, s: &Sidecar, op: &str, params: Value) -> Resul
 /// the request, are each copied into the folder byte for byte; with `delete` they're gone from
 /// the drive, and without it they stay.
 #[hegel::test(test_cases = 10)]
-fn recordings_are_copied_off_the_drive_as_they_were(tc: TestCase) {
+fn prop_recordings_are_copied_off_the_drive_as_they_were(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let made: Vec<(String, Vec<u8>)> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
@@ -397,7 +397,7 @@ fn contents(drive: &str) -> Value {
 /// A blank drive provisioned like A, by a plan or straight from the request, holds A's library
 /// afterwards (its tracks and playlists) and is known by the name it was given.
 #[hegel::test(test_cases = 4)]
-fn a_drive_provisioned_like_another_holds_its_library(tc: TestCase) {
+fn prop_a_drive_provisioned_like_another_holds_its_library(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     s.ok("edit.apply", json!({ "drive": a, "edits": [{ "op": "create_playlist", "path": "Friday" }] }));
@@ -416,7 +416,7 @@ fn a_drive_provisioned_like_another_holds_its_library(tc: TestCase) {
 /// Prep without ejecting, by a plan or straight from the request, runs the steps a plan says will
 /// run, in that order, and leaves the drive saved in the store.
 #[hegel::test(test_cases = 4)]
-fn prep_runs_the_steps_its_plan_says(tc: TestCase) {
+fn prop_prep_runs_the_steps_its_plan_says(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let params = json!({ "drives": [a], "eject": false, "audio": tc.draw(gs::booleans()) });
@@ -464,7 +464,7 @@ fn clicks(bpm: f64, secs: f64) -> Vec<u8> {
 /// a tempo for each annotated track whose audio it could read, and fails on the others, which have
 /// none.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
+fn prop_stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let tempos = s.dir.path().join("tempo");
@@ -502,7 +502,7 @@ fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
 
 /// A mix that isn't there is not found, however it's asked to be identified.
 #[hegel::test(test_cases = 10)]
-fn a_mix_that_is_not_there_is_not_found(tc: TestCase) {
+fn prop_a_mix_that_is_not_there_is_not_found(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let mix = s.dir.path().join(tc.draw(gs::sampled_from(vec!["mix.wav", "set.mp3", "nothing"])));
@@ -534,7 +534,7 @@ fn a_cover_that_isnt_an_image_is_refused() {
 /// bytes, as a failing flash drive leaves them) are what verifying the drive finds damaged, and
 /// repairing what it found puts each back as the store has it: the drive verifies clean again.
 #[hegel::test(test_cases = 6)]
-fn repairing_what_verify_found_puts_the_library_back(tc: TestCase) {
+fn prop_repairing_what_verify_found_puts_the_library_back(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let pulled = s.ok("pull.apply", json!({ "drive": a, "library": "Main", "new_library": true }));
@@ -583,7 +583,7 @@ fn repairing_what_verify_found_puts_the_library_back(tc: TestCase) {
 ///   exported and a set that isn't there, each applied straight from the request, is refused or
 ///   not as its plan was.
 #[hegel::test(test_cases = 6)]
-fn changes_of_every_kind_do_what_they_say(tc: TestCase) {
+fn prop_changes_of_every_kind_do_what_they_say(tc: TestCase) {
     let s = Sidecar::new();
     let (a, b) = (s.demo("A"), s.demo("B"));
     let friday = json!({ "op": "add_tracks", "playlist": "Friday", "tracks": { "ids": [1] } });

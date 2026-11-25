@@ -23,7 +23,7 @@ fn player_only_needs_changes_and_nothing_else() {
 /// added, and tracks added are not, and each is said. Sorted from both databases, a change counts
 /// once.
 #[hegel::test(test_cases = 200)]
-fn library_changes_are_sorted_as_players_make_them_or_not(tc: hegel::TestCase) {
+fn prop_library_changes_are_sorted_as_players_make_them_or_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_model::test_util::track;
     let list = |id: u32, name: &str, track_ids: Vec<u32>| crate::model::Playlist {

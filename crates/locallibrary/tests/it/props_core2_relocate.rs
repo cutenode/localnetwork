@@ -16,7 +16,7 @@ use locallibrary::relocate::{self, RelocateOptions};
 use rekordbox_pdb::NewTrack;
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_file_two_tracks_would_take_is_neithers(tc: TestCase) {
+fn prop_a_file_two_tracks_would_take_is_neithers(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let secs = tc.draw(gs::integers::<u16>().min_value(1).max_value(3));

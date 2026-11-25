@@ -115,7 +115,7 @@ fn smart_playlists_need_a_drive_and_a_filter() {
 /// how many at most, which drives), or said to be none, or that there's no store; filling them
 /// needs a drive.
 #[hegel::test(test_cases = 40)]
-fn the_tag_and_rule_commands_say_what_they_need(tc: hegel::TestCase) {
+fn prop_the_tag_and_rule_commands_say_what_they_need(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => blank(View::Library),
@@ -164,7 +164,7 @@ fn the_tag_and_rule_commands_say_what_they_need(tc: hegel::TestCase) {
     }
 }
 
-/// [`the_tag_and_rule_commands_say_what_they_need`] for one command.
+/// [`prop_the_tag_and_rule_commands_say_what_they_need`] for one command.
 fn says_what_it_needs(
     app: &mut App,
     act: Act,
@@ -231,7 +231,7 @@ fn says_what_it_needs(
 /// has it (and to give otherwise), and what's picked is what's done: given to all of them, or
 /// taken off all of them, the drive's other tracks kept as they were.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_tag_is_offered_off_just_when_every_chosen_track_has_it(tc: hegel::TestCase) {
+fn prop_a_tag_is_offered_off_just_when_every_chosen_track_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::collections::BTreeSet;
     const TAGS: [&str; 2] = ["Genre/Techno", "Situation/Peak"];

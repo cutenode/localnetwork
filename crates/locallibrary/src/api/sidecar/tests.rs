@@ -79,7 +79,7 @@ fn action(tc: &TestCase) -> Action {
 /// For a plan applied by id, which can't be sent again, those actions are dropped instead and the
 /// others kept, in order.
 #[hegel::test(test_cases = 200)]
-fn resending_actions_name_the_request_or_go_with_a_used_plan(tc: TestCase) {
+fn prop_resending_actions_name_the_request_or_go_with_a_used_plan(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(4));
     let actions: Vec<Action> = (0..n).map(|_| action(&tc)).collect();
     let method = tc.draw(gs::sampled_from(vec!["push.apply", "drive.rename"]));

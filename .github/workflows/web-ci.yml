@@ -101,7 +101,6 @@ jobs:
       # the catalog are ast-grep's no-raw-text, in repo-checks.yml.
       - run: pnpm i18n:check
       - run: pnpm check
-      - run: pnpm -w knip
       # No --with-deps, here or below: the runner has the libraries Chromium needs, and the fonts it
       # would add come from Ubuntu's mirror, which has taken long enough to cancel the job.
       - run: pnpm exec playwright install chromium
@@ -325,7 +324,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Dockerfile mistakes and practices (hadolint, a pinned image, as tools/policy.sh runs its
+      # Dockerfile mistakes and practices (hadolint, a pinned image, as `pnpm policy` runs its
       # tools); its exceptions are `# hadolint ignore=` lines in the Dockerfile, each with why.
       - name: Lint the Dockerfile
         run: |

@@ -9,7 +9,7 @@ test_fixture_passes if {
 
 test_check_not_required if {
 	broken := {"rules": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Site CI passed"}, {"context": "Rust passed"}, {"context": "Lint passed"}]}}]}
-	".github/rulesets/protect-main.json: require \"Deps passed\", then apply it with tools/ruleset.sh" in ruleset.deny with input as fixtures.with_file(".github/rulesets/protect-main.json", broken)
+	".github/rulesets/protect-main.json: require \"Deps passed\", then an admin applies it to GitHub's copy" in ruleset.deny with input as fixtures.with_file(".github/rulesets/protect-main.json", broken)
 }
 
 review_rule(parameters) := fixtures.with_file(

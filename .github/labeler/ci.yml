@@ -1,0 +1,10 @@
+"ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/actions/**"
+          - ".github/actionlint.yaml"
+          - ".github/zizmor.yml"
+          - ".github/build-setup.yml"
+          - ".github/codeql/**"
+          - ".github/rulesets/**"

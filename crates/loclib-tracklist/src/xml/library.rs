@@ -33,7 +33,9 @@ pub struct XmlLibrary {
 /// A playlist: its folder path (`Sets/2026/Warmup`, without rekordbox's `ROOT`) and its entries.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct XmlPlaylist {
+    /// Its folder path and name, `/`-separated.
     pub path: String,
+    /// Its entries, in the playlist's order.
     pub entries: Vec<XmlEntry>,
 }
 
@@ -43,10 +45,14 @@ pub struct XmlPlaylist {
 pub enum XmlEntry {
     /// `line` is the playlist's line for it, `raw` its key (`Key="5"`).
     Track {
+        /// The track's index in [`XmlLibrary::tracks`].
         index: usize,
+        /// The playlist's line for it, from 1.
         line: usize,
+        /// Its key as written (`Key="5"`).
         raw: String,
     },
+    /// A track the collection doesn't have, with what its key says of it.
     Missing(Entry),
 }
 
@@ -94,10 +100,15 @@ impl XmlLibrary {
 pub struct XmlTrack {
     /// Its title, artist, album, mix name, length (`TotalTime`), file (`Location`) and line.
     pub entry: Entry,
+    /// `Genre`, empty when the file says none.
     pub genre: String,
+    /// `Label`, the record label, empty when the file says none.
     pub label: String,
+    /// `Remixer`, empty when the file says none.
     pub remixer: String,
+    /// `Composer`, empty when the file says none.
     pub composer: String,
+    /// `Comments`, empty when the file says none.
     pub comment: String,
     /// 0 when the file says none.
     pub year: u16,
@@ -118,6 +129,7 @@ pub struct XmlTrack {
 pub struct Tempo {
     /// The beat it starts on (`Inizio`), in ms; before 0 when the grid starts before the audio.
     pub start_ms: f64,
+    /// The tempo from there (`Bpm`), in beats per minute.
     pub bpm: f64,
     /// Beats to the bar (`Metro`, `4/4`), 1-4.
     pub beats_per_bar: u8,
@@ -130,9 +142,11 @@ pub struct Tempo {
 pub struct Mark {
     /// 0 for hot cue A to 7 for H; a memory cue without one.
     pub hot_cue: Option<u8>,
+    /// Where it starts (`Start`), in ms.
     pub start_ms: u32,
     /// Where a loop ends, after it starts.
     pub end_ms: Option<u32>,
+    /// Its name, empty when it has none.
     pub name: String,
     /// `Red`, `Green` and `Blue`, when it has all three.
     pub rgb: Option<[u8; 3]>,

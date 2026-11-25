@@ -60,7 +60,7 @@ fn a_wal_claiming_pages_it_does_not_hold_is_refused() {
 /// it (a page's last frame winning), grown to the last commit's size; frames after the last
 /// commit change nothing.
 #[hegel::test(test_cases = 50)]
-fn decrypting_replays_the_committed_frames(tc: TestCase) {
+fn prop_decrypting_replays_the_committed_frames(tc: TestCase) {
     let codec = codec();
     let main = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
     let plain = plain_db(main as usize);
@@ -90,7 +90,7 @@ fn decrypting_replays_the_committed_frames(tc: TestCase) {
 /// Whatever damage a WAL takes (a byte changed or the file cut short anywhere), reading it never
 /// panics, and gives at most the transactions before the damage.
 #[hegel::test(test_cases = 100)]
-fn a_damaged_wal_keeps_the_transactions_before_the_damage(tc: TestCase) {
+fn prop_a_damaged_wal_keeps_the_transactions_before_the_damage(tc: TestCase) {
     let page = |b: u8| vec![b; 512];
     let mut wal = wal::tests::build(512, (1, 2), &[(2, 0, page(1)), (3, 3, page(2)), (2, 4, page(3))]);
     let at = tc.draw(gs::integers::<usize>().max_value(wal.len() - 1));

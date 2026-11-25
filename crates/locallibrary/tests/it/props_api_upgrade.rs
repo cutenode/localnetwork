@@ -18,7 +18,7 @@ use locallibrary::upgrade::UpgradeOptions;
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(remove_old = true, in_one_go = true)]
 #[hegel::explicit_test_case(remove_old = false, in_one_go = false)]
-fn a_lossy_track_upgrades_to_its_lossless_file(tc: TestCase) {
+fn prop_a_lossy_track_upgrades_to_its_lossless_file(tc: TestCase) {
     let remove_old = tc.draw(gs::booleans());
     let in_one_go = tc.draw(gs::booleans());
 

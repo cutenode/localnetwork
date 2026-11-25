@@ -88,7 +88,7 @@ fn my_tag_edits_on_tracks_that_are_gone_are_skipped_with_warnings() {
 #[test]
 fn a_replay_makes_edits_again_in_the_one_database_that_lost_them() {
     use locallibrary::edit::Edit;
-    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::onelibrary;
     use locallibrary::pdb;
     use locallibrary::query::TrackSelector;
     use std::path::Path;
@@ -105,7 +105,7 @@ fn a_replay_makes_edits_again_in_the_one_database_that_lost_them() {
         std::fs::write(root.join(lost), &before).unwrap();
         let has = |root: &Path| {
             let pdb = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
-            let plus = OneLibrary::open_root(root).unwrap().library().unwrap();
+            let plus = onelibrary::open_root(root).unwrap().library().unwrap();
             (pdb.find_playlist(&name).is_some(), plus.find_playlist(&name).is_some())
         };
         assert_ne!(has(&root), (true, true), "{lost} lost it");

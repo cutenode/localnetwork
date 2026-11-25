@@ -39,7 +39,7 @@ fn refresh_then_runs_a_plugins_operation() {
     assert!(e.contains(r#"--then "echo.playlist name='Late" has a quote it doesn't close"#), "{e}");
 }
 
-/// A `--then` of [`refresh_then_plans_each_operation_or_names_the_first_it_cant_read`].
+/// A `--then` of [`prop_refresh_then_plans_each_operation_or_names_the_first_it_cant_read`].
 #[derive(Debug, Clone)]
 enum Then {
     /// `echo.playlist name='NAME'`.
@@ -57,7 +57,7 @@ enum Then {
 /// fails as a usage error naming the first that can't be read; with none, it fails not finding
 /// the plugin that isn't there; else its plan makes each playlist, in the order given.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn refresh_then_plans_each_operation_or_names_the_first_it_cant_read(tc: hegel::TestCase) {
+fn prop_refresh_then_plans_each_operation_or_names_the_first_it_cant_read(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     let env = env();

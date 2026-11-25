@@ -27,6 +27,7 @@ pub(crate) const FEATURE: Feature = Feature {
 pub struct WriteExport {
     /// One of the manifest's exporters, by format.
     pub exporter: String,
+    /// What to export.
     pub source: ExportSource,
     /// Where to write, absolute: a file, or a folder for an exporter that writes one.
     pub output: PathBuf,
@@ -36,6 +37,7 @@ pub struct WriteExport {
     /// Answer the files it would write, writing nothing: the host asks before overwriting any.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dry_run: bool,
+    /// The drive and the set being exported, each when there's one, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -113,7 +115,10 @@ impl Hook for WriteExport {
 /// Run with `export/write`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Exporter {
+    /// The format it writes, which requests name it by (`exporter`): lowercase letters, digits,
+    /// `-` and `_`, starting with a letter, 64 characters at most, and no other exporter's.
     pub format: String,
+    /// What hosts show it as.
     pub title: String,
     /// The file it writes ends in this: lowercase letters and digits, without the dot (`nml`).
     /// Either this or `folder`.
@@ -150,7 +155,9 @@ impl Exporter {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ExportSources {
+    /// One source (`"set"`).
     One(ExportFrom),
+    /// A list of them, each once (`["drive", "set"]`).
     Several(Vec<ExportFrom>),
 }
 

@@ -17,7 +17,7 @@ const NIGHTS: [&str; 3] = ["Friday", "Saturday", "Sunday"];
 /// so as its JSON does (or there's nothing to do when the folder is as it was); restored, the
 /// folder holds the snapshot's playlists and the ones made since.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn restoring_a_folder_leaves_what_was_made_since(tc: TestCase) {
+fn prop_restoring_a_folder_leaves_what_was_made_since(tc: TestCase) {
     let fx = Env::from_template();
     let before: Vec<&str> = tc.draw(gs::subsequences(NIGHTS.to_vec()).min_size(1));
     for night in &before {

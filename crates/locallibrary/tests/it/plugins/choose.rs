@@ -150,7 +150,7 @@ fn questions_asked_together_are_answered_in_one_run() {
 /// (now and then one asked before): the host passes them on exactly when each is about a param
 /// of its own, and planned once with an answer to each, the playlist is named as answered.
 #[hegel::test(test_cases = 15)]
-fn any_questions_passed_on_together_are_planned_with_every_answer(tc: TestCase) {
+fn prop_any_questions_passed_on_together_are_planned_with_every_answer(tc: TestCase) {
     let f = Fixture::asking();
     let mut params: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "c", "name"])).max_size(3));
     let at = tc.draw(gs::integers::<usize>().max_value(params.len()));
@@ -179,7 +179,7 @@ fn any_questions_passed_on_together_are_planned_with_every_answer(tc: TestCase) 
 /// host passes it on exactly when the operation could be planned again with each of its answers,
 /// and planned with any of them, the plan is the operation's with that param.
 #[hegel::test(test_cases = 15)]
-fn any_question_passed_on_is_one_its_answers_plan(tc: TestCase) {
+fn prop_any_question_passed_on_is_one_its_answers_plan(tc: TestCase) {
     let f = Fixture::asking();
     let param = tc.draw(gs::sampled_from(vec!["name", "other"]));
     let n = tc.draw(gs::integers::<usize>().max_value(3));

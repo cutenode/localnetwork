@@ -4,11 +4,12 @@ use std::path::{Path, PathBuf};
 use std::sync::PoisonError;
 use std::time::{Duration, Instant, SystemTime};
 
-use locallibrary::masterdb::{self, CloudFolders};
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
+use locallibrary::tags::TagsByTrack;
 use locallibrary::watch::VolumeWatcher;
 use locallibrary::{Ctx, Device, Store, paths};
 use locallibrary::{api, collection_export};
+use loclib_rekordbox_db::masterdb::{self, CloudFolders};
 use ratatui::widgets::TableState;
 
 use crate::tui::browse::{self, Category, NodeId, Problems, SavedNode};
@@ -216,7 +217,7 @@ impl App {
             let read = || -> Result<Box<Loaded>, locallibrary::Error> {
                 let c = masterdb::open(&db, &masterdb::resolve_key(None))?;
                 let library = c.library_from_root(&CloudFolders::this_computer());
-                let tags = c.tags_by_track_in(&library);
+                let tags = TagsByTrack::from_collection(&c.tags, &library);
                 let mut l = Loaded::prepare(Device::open(&root)?, library);
                 l.my_tags = MyTags::Read(std::sync::Arc::new(tags));
                 l.collection = Some(db);

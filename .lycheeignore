@@ -1,0 +1,6 @@
+# Sites that answer lychee with 403 Forbidden though the page is there: Zendesk help centres and
+# npm's package pages turn away clients that aren't browsers. Check these by hand.
+^https://help\.mixcloud\.com/
+^https://help\.soundcloud\.com/
+^https://support\.launchdarkly\.com/
+^https://(www\.)?npmjs\.com/package/

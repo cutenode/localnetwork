@@ -145,7 +145,7 @@ use hegel::generators as gs;
 /// track when it's the only one that matches, else it goes in as typed, saying how many
 /// matched; with no library to look in, as typed.
 #[hegel::test(test_cases = 300)]
-fn inserts_are_the_library_track_or_as_typed(tc: TestCase) {
+fn prop_inserts_are_the_library_track_or_as_typed(tc: TestCase) {
     const NAMES: &[(&str, &str)] =
         &[("Floorplan", "Never Grow Old"), ("Floorplan", "Tell You No Lie"), ("Someone", "Dubplate"), ("", "ID")];
     let lib = Library {
@@ -189,7 +189,7 @@ fn inserts_are_the_library_track_or_as_typed(tc: TestCase) {
 /// what the refusal says, and nothing is looked up. An edit that goes through leaves as many
 /// tracks as were there, less those dropped, plus those inserted.
 #[hegel::test(test_cases = 300)]
-fn edits_go_through_when_every_position_is_a_track(tc: TestCase) {
+fn prop_edits_go_through_when_every_position_is_a_track(tc: TestCase) {
     let len = tc.draw(gs::integers::<usize>().max_value(5));
     let at = || gs::integers::<usize>().max_value(len + 2);
     let c = Changes {

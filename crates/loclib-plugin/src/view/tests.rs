@@ -140,7 +140,7 @@ fn view(tc: &TestCase, depth: u8) -> View {
 /// `views` feature exactly when it's (or holds) one of the kinds that came with it or a typed
 /// column.
 #[hegel::test(test_cases = 200)]
-fn views_read_back_and_say_what_they_need(tc: TestCase) {
+fn prop_views_read_back_and_say_what_they_need(tc: TestCase) {
     let v = view(&tc, 2);
     let json = round_trip(&v);
     let schema = serde_json::to_value(schemars::schema_for!(View)).unwrap();

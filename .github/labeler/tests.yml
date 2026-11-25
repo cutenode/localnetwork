@@ -1,0 +1,15 @@
+# Only when every file a pull request changes is one.
+"tests":
+  - changed-files:
+      - any-glob-to-all-files:
+          - "**/{test,tests,__snapshots__}/**"
+          - "**/tests.rs"
+          - "**/*.{test,e2e}.ts"
+          - "**/{vitest,vitest.stryker,playwright}.config.ts"
+          - "**/stryker*.{mjs,ts}"
+          - "apps/web/src/lib/server/testing/**"
+          - "apps/web/{lighthouse/**,scripts/lighthouse*.ts,scripts/lib/lighthouse.ts}"
+          - "apps/locallibrary/bombadil/**"
+          - "fuzz/**"
+          - ".config/nextest.toml"
+          - ".cargo/mutants.toml"

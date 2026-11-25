@@ -3,9 +3,10 @@ name: locallibrary scheduled
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
 # combination, formatting and ejecting disk images, Bombadil, mutation testing, fuzzing, the Hegel
-# property tests on fresh inputs and a release build of every target. A week that changed none of
-# what they test skips them (see the changes job). Also a weekly RustSec check, which catches
-# advisories published against Cargo.lock between pushes, so it runs every week.
+# property tests on fresh inputs, a release build of every target and a publish dry run of the
+# loclib crates. A week that changed none of what they test skips them (see the changes job). Also
+# a weekly RustSec check, which catches advisories published against Cargo.lock between pushes, so
+# it runs every week.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -30,8 +31,8 @@ jobs:
   # suites run again each week until one passes. Started by hand, everything runs, as it does when
   # none of the workflow's last 100 runs passed and there's nothing to compare with.
   # The paths are ci.yml's locallibrary ones, plus what only these suites read: the fuzz targets,
-  # the script the Hegel job runs, dist's configuration and installer for the release build, and
-  # .node-version for Bombadil's specifications.
+  # dist's configuration and installer for the release build, and .node-version for Bombadil's
+  # specifications.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -79,8 +80,9 @@ jobs:
               - '.config/nextest.toml'
               - '.node-version'
               - 'lexicons/**'
-              - 'tools/hegel-coverage.sh'
+              - 'about.{toml,hbs}'
               - '.github/actions/install-dist/**'
+              - '.github/actions/notices/**'
               - '.github/workflows/locallibrary-scheduled.yml'
               - '!**/*.md'
             readmes:
@@ -395,20 +397,20 @@ jobs:
       HEGEL_DERANDOMIZE: "false"
       HEGEL_DATABASE: ${{ github.workspace }}/.hegel
       HEGEL_STOP_ON_FIRST_FAILURE: "false"
-      # nextest's `ci` profile, as the features job has it: a pass that hangs fails on its own,
-      # and the shard goes on to the next instead of sitting there until the job's timeout.
-      NEXTEST_PROFILE: ci
+      # nextest's `hegel` profile (.config/nextest.toml), which picks the Hegel tests over the
+      # `ci` profile the features job has: a pass that hangs fails on its own, and the shard goes
+      # on to the next instead of sitting there until the job's timeout.
+      NEXTEST_PROFILE: hegel
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # As locallibrary-ci-os.yml's Linux shards have them, and rg, which tools/hegel-coverage.sh
-      # picks the tests with.
+      # As locallibrary-ci-os.yml's Linux shards have them.
       - uses: ./.github/actions/apt-packages
         with:
-          packages: libasound2-dev sqlcipher ripgrep
+          packages: libasound2-dev sqlcipher
       - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
@@ -419,12 +421,7 @@ jobs:
           path: .hegel
           key: hegel-${{ matrix.shard }}-${{ github.run_id }}
           restore-keys: hegel-${{ matrix.shard }}-
-      # The script prints the filtersets that pick the Hegel tests one per line, each its own
-      # `--filterset` here: one naming every test would outgrow Linux's 128 KiB cap on an argument.
-      - run: |
-          printed=$(tools/hegel-coverage.sh --print-filter)
-          mapfile -t filtersets <<<"$printed"
-          cargo nextest run --workspace --locked --no-fail-fast --partition "$SHARD" --stress-duration 40m "${filtersets[@]/#/--filterset=}"
+      - run: cargo nextest run --workspace --locked --no-fail-fast --partition "$SHARD" --stress-duration 40m
       - if: ${{ !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -478,6 +475,8 @@ jobs:
       # own configuration, with no input from a pull request (this workflow doesn't run on them).
       - if: matrix.packages_install
         run: ${{ matrix.packages_install }} # zizmor: ignore[template-injection]
+      # The archives include the notices, as locallibrary-release.yml's do.
+      - uses: ./.github/actions/notices
       # dist only signs the macOS binaries when the CODESIGN_* variables are set, which they
       # aren't here.
       - id: dist
@@ -486,8 +485,13 @@ jobs:
           DIST_ARGS: ${{ matrix.dist_args }}
           MANIFEST: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
         run: |
+          # dist's own message ends a failure as an error, so the run's summary says what failed, not
+          # only dist's exit code. Its output still shows as it runs.
           # shellcheck disable=SC2086 # the arguments are words
-          dist build --print=linkage --output-format=json $DIST_ARGS > dist-manifest.json
+          if ! dist build --print=linkage --output-format=json $DIST_ARGS 2>&1 >dist-manifest.json | tee dist.log; then
+            sed -n 's/^ *× *//p' dist.log | sed 's/^/::error title=dist build::/'
+            exit 1
+          fi
           cp dist-manifest.json "$MANIFEST"
           {
             echo "paths<<EOF"
@@ -505,7 +509,9 @@ jobs:
         run: |
           mkdir -p target/budgets
           # The size of the one file of these that exists: the binary, then the archive dist made
-          # (.tar.xz, or .zip on Windows), not the .sha256 beside it. None or two fails the step.
+          # (.tar.xz, or .zip on Windows), not the .sha256 beside it. None or two fails the step. The
+          # binary is named for the runner's OS: Git Bash's `-f locallibrary` is true for
+          # locallibrary.exe too.
           size() {
             local found=() file
             for file; do [ -f "$file" ] && found+=("$file"); done
@@ -515,12 +521,14 @@ jobs:
             fi
             wc -c < "${found[0]}"
           }
-          binary=$(size "target/$TARGET/dist/locallibrary" "target/$TARGET/dist/locallibrary.exe")
+          exe=
+          [ "$RUNNER_OS" = Windows ] && exe=.exe
+          binary=$(size "target/$TARGET/dist/locallibrary$exe")
           archive=$(size "target/distrib/locallibrary-$TARGET.tar.xz" "target/distrib/locallibrary-$TARGET.zip")
           jq -n --argjson binary "$binary" --argjson archive "$archive" \
             '{"locallibrary": $binary, "archive": $archive}' > "target/budgets/size-$TARGET.json"
           # No run measures these targets between weekly ones, so there's no base: the table is a record.
-          node tools/budgets/cli.ts check "$TARGET" target/no-base target/budgets /dev/null | tee -a "$GITHUB_STEP_SUMMARY"
+          node tools/budgets/cli.ts check "$TARGET" target/no-base target/budgets | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: artifacts-build-local-${{ join(matrix.targets, '_') }}
@@ -555,11 +563,28 @@ jobs:
           merge-multiple: true
       - run: dist build --artifacts=global
 
+  # `cargo publish --dry-run` over every crate that isn't `publish = false` (`--workspace` skips
+  # those): each packaged and built from its .crate alone, as crates.io would get it. Pull requests
+  # that change a manifest only package them (`node tools/crates-io/cli.ts package` in
+  # locallibrary-ci.yml's lint job), since this builds them all. A version crates.io already has is a
+  # warning in a dry run, not a failure. None of the crates needs a system package to build.
+  publish-dry-run:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo publish --workspace --dry-run --locked
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
   # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
   report:
     needs:
-      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global]
+      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global, publish-dry-run]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read

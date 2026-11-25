@@ -14,7 +14,7 @@ use lofty::tag::TagType;
 /// refused, naming the container, and anything up to that is written with its sizes, a pad
 /// byte after audio of an odd length included.
 #[hegel::test(test_cases = 100)]
-fn pcm_files_stop_at_4_gib(tc: hegel::TestCase) {
+fn prop_pcm_files_stop_at_4_gib(tc: hegel::TestCase) {
     let container = tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav]));
     let (header, name) = if container == Container::Aiff { (54u64, "AIFF") } else { (44, "WAV") };
     let limit = u64::from(u32::MAX) - header;

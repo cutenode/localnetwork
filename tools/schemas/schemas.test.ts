@@ -12,7 +12,7 @@ const repo = resolve(import.meta.dirname, '../..');
 
 const read = (path: string) => readFileSync(join(repo, path), 'utf8');
 
-// Tracked files and new ones not yet added, as tools/policy.sh lists them.
+// Tracked files and new ones not yet added, as tools/policy/inputs.ts lists them.
 const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '*.json'], {
 	cwd: repo,
 	encoding: 'utf8'

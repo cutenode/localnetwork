@@ -99,7 +99,7 @@ fn same_disk_needs_a_serial() {
 /// A serial number tells a disk apart unless it's one many controllers report for every unit:
 /// too short, only zeros and Fs, or the counting placeholder; spacing around it doesn't matter.
 #[hegel::test(test_cases = 300)]
-fn placeholder_serials_tell_no_disk_apart(tc: hegel::TestCase) {
+fn prop_placeholder_serials_tell_no_disk_apart(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let placeholder = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => "0".repeat(tc.draw(gs::integers::<usize>().max_value(20))),
@@ -126,7 +126,7 @@ fn placeholder_serials_tell_no_disk_apart(tc: hegel::TestCase) {
 /// written, with the label a name makes (11 characters at most, upper case) quoted for
 /// PowerShell. A path below a drive's root names no volume.
 #[hegel::test(test_cases = 200)]
-fn windows_labels_a_drive_by_its_letter(tc: hegel::TestCase) {
+fn prop_windows_labels_a_drive_by_its_letter(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let letter = tc.draw(gs::sampled_from(('a'..='z').chain('A'..='Z').collect::<Vec<char>>()));
     let sep = tc.draw(gs::sampled_from(vec!["", "\\", "/", "\\\\"]));
@@ -149,7 +149,7 @@ fn windows_labels_a_drive_by_its_letter(tc: hegel::TestCase) {
 /// before anything changes, and so is a rename that would set it. Renamed without its label, the
 /// drive takes the name trimmed; an empty name is refused either way.
 #[hegel::test(test_cases = 30)]
-fn under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
+fn prop_under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open(dir.path()).unwrap();
@@ -177,16 +177,16 @@ fn under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// A drive's hardware is what the system says of the disk under it: the disk's model, serial
 /// number and size, and the UUID of the volume mounted at the drive's root. A folder the system
 /// knows no disk for has none.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6)]
-fn a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) {
+fn prop_a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     for dir in ["USB", "folder"] {
         std::fs::create_dir(fake.dir().join(dir)).unwrap();
     }
@@ -203,9 +203,9 @@ fn a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) 
 /// it noted, or where the system can't tell, it isn't.
 #[cfg(unix)]
 #[hegel::test(test_cases = 8)]
-fn a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
+fn prop_a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     std::fs::create_dir(fake.dir().join("USB")).unwrap();
     let mut d = Device::open(fake.dir().join("USB")).unwrap();
     d.adopt(Some("USB")).unwrap();
@@ -236,9 +236,9 @@ fn a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
 /// what the system said when it can't.
 #[cfg(target_os = "macos")]
 #[hegel::test(test_cases = 10)]
-fn relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
+fn prop_relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
+    let mut fake = FakeTools::new();
     let root = fake.dir().join("USB");
     let name: String = tc.draw(gs::text().alphabet("ab Zé:*.").max_size(16));
     let label = volume_label(&name);
@@ -255,4 +255,18 @@ fn relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
         Err(e) => panic!("{e}"),
     }
     assert_eq!(fake.calls().len(), 1);
+}
+
+/// Linux has no tool to relabel a mounted FAT or exFAT volume, so relabelling one is refused with
+/// what to run instead, whatever the name.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[hegel::test(test_cases = 20)]
+fn prop_linux_refuses_to_relabel_a_volume(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let name: String = tc.draw(gs::text().alphabet("ab Zé:*.").max_size(16));
+    match set_volume_label(dir.path(), &name) {
+        Err(Error::Invalid(m)) => assert!(m.starts_with("changing the volume label isn't supported on Linux"), "{m}"),
+        other => panic!("{other:?}"),
+    }
 }

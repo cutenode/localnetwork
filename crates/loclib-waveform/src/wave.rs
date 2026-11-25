@@ -16,7 +16,14 @@ pub enum Wave<'a> {
     Layers(&'a Waveform),
     /// Lows, mids and highs: rekordbox's 3Band, `columns_per_sec` being a scrolling one's rate and
     /// `gain` ([`band_gain`]) what they're turned up by.
-    Bands { bands: &'a Bands, columns_per_sec: Option<f64>, gain: f32 },
+    Bands {
+        /// The analysis's bands, a column each.
+        bands: &'a Bands,
+        /// Columns per second of audio; `None` for a preview, whose columns span the whole track.
+        columns_per_sec: Option<f64>,
+        /// What the bands' heights are multiplied by.
+        gain: f32,
+    },
 }
 
 /// What turns `bands` up until the tallest reaches the top of the waveform: as stored each is drawn
@@ -39,6 +46,7 @@ impl Wave<'_> {
         }
     }
 
+    /// Whether it has no columns.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

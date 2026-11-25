@@ -58,7 +58,7 @@ fn picked<'a>(names: &[&'a str], query: &str) -> Result<&'a str, usize> {
 /// A query picks the played track (or the preference entry) it spells, else the only one with it
 /// in; one in none or several is refused, saying how many and, for tracks, listing up to 8 of them.
 #[hegel::test(test_cases = 200)]
-fn a_query_picks_the_one_entry_it_names(tc: TestCase) {
+fn prop_a_query_picks_the_one_entry_it_names(tc: TestCase) {
     let names: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(&NAMES[..])).max_size(12));
     let query = tc.draw(gs::sampled_from(&["glue", "BICEP - GLUE", "bicep", " - ", "ünïcödé", "id", "nothing"][..]));
     let played: Vec<PlayedTrack> = names
@@ -102,7 +102,7 @@ fn a_query_picks_the_one_entry_it_names(tc: TestCase) {
 /// A sparkline has a block per value (a space where there's none) scaled from the lowest block to
 /// the highest, the middle one when they're all the same; with no values known it's empty.
 #[hegel::test(test_cases = 200)]
-fn a_sparkline_has_a_block_per_value(tc: TestCase) {
+fn prop_a_sparkline_has_a_block_per_value(tc: TestCase) {
     let values: Vec<Option<f64>> =
         tc.draw(gs::vecs(gs::optional(gs::integers::<i32>().min_value(-50).max_value(50).map(f64::from))).max_size(10));
     let s: Vec<char> = spark(&values).chars().collect();

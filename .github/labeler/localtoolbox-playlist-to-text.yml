@@ -1,0 +1,5 @@
+"localtoolbox: playlist to text":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/src/tools/soundcloud-playlist-to-text/**"
+          - "apps/localtoolbox/test/**/playlist-to-text.*"

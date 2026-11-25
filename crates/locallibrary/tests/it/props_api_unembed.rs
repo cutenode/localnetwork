@@ -27,7 +27,7 @@ enum Since {
 /// files their bytes from before the art and leaves the others as they were left.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(since = vec![Since::Untouched, Since::Rewritten, Since::Removed])]
-fn embedded_art_comes_out_of_the_files_left_alone(tc: TestCase) {
+fn prop_embedded_art_comes_out_of_the_files_left_alone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let image = dir.path().join("cover.png");

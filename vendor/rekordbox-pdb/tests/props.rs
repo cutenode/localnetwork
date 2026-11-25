@@ -3,30 +3,14 @@
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
 use rekordbox_pdb::pdb::TRACK_STRING_NAMES;
-use rekordbox_pdb::{Database, ExtDatabase, ExtEditor, NewTrack, PdbEditor, PdbError, file_type_code};
+use rekordbox_pdb::{Database, ExtDatabase, ExtEditor, NewTrack, PdbEditor, PdbError};
 
 const ONE_SONG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/one-song-export.pdb");
-
-/// A file's format code comes from its last extension in any case, and is 0 for an extension
-/// rekordbox doesn't list or a name without one.
-#[hegel::test(test_cases = 300)]
-fn file_type_codes_follow_the_last_extension(tc: TestCase) {
-    let codes = [("mp3", 1), ("m4a", 4), ("mp4", 4), ("aac", 4), ("flac", 5), ("wav", 0x0b), ("aiff", 0x0c), ("aif", 0x0c)];
-    let (ext, code) = tc.draw(gs::sampled_from(codes.to_vec()));
-    let upper: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(ext.len()).max_size(ext.len()));
-    let spelled: String =
-        ext.chars().zip(upper).map(|(c, u)| if u { c.to_ascii_uppercase() } else { c }).collect();
-    let stem = tc.draw(gs::text().max_size(12));
-    assert_eq!(file_type_code(&format!("{stem}.{spelled}")), code);
-    assert_eq!(file_type_code(&format!("{stem}.{spelled}.part")), 0);
-    let bare = tc.draw(gs::text().max_size(12).filter(|s: &String| !s.contains('.')));
-    assert_eq!(file_type_code(&bare), 0);
-}
 
 /// A track added with any text in its string fields reads back through the named accessors
 /// (and the same strings by position), and setting one string by name changes only that one.
 #[hegel::test(test_cases = 100)]
-fn track_strings_read_back_by_name(tc: TestCase) {
+fn prop_track_strings_read_back_by_name(tc: TestCase) {
     let text = || gs::text().max_size(20).exclude_characters("\0");
     let t = NewTrack {
         title: tc.draw(text()),
@@ -70,7 +54,7 @@ fn track_strings_read_back_by_name(tc: TestCase) {
 
 /// Every refusal says what was refused, naming the value it was given.
 #[hegel::test(test_cases = 100)]
-fn errors_name_what_they_refused(tc: TestCase) {
+fn prop_errors_name_what_they_refused(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>());
     let name = tc.draw(gs::text().max_size(10));
     let errors = [
@@ -146,7 +130,7 @@ fn raw_name(tc: &TestCase) -> String {
 /// one while others go; when the one it finds is removed it finds another, and only once they're
 /// all gone does it add a row.
 #[hegel::test(test_cases = 100)]
-fn lookups_fall_back_to_another_row_of_the_same_name(tc: TestCase) {
+fn prop_lookups_fall_back_to_another_row_of_the_same_name(tc: TestCase) {
     use rekordbox_pdb::TableType as T;
     let tables = [T::Genres, T::Labels, T::Keys, T::Albums];
     let table = tc.draw(gs::sampled_from(&tables));
@@ -213,7 +197,7 @@ fn lookups_fall_back_to_another_row_of_the_same_name(tc: TestCase) {
 /// pages past the end of the file (the file grows to hold it); otherwise the edit that needs it
 /// is refused as malformed, naming the table and the page, and the file is left as it was.
 #[hegel::test(test_cases = 100)]
-fn a_free_page_out_of_place_is_refused(tc: TestCase) {
+fn prop_a_free_page_out_of_place_is_refused(tc: TestCase) {
     let orig = std::fs::read(ONE_SONG).unwrap();
     let pages = orig.len() / PAGE;
     // History playlists (11) and genres (1) are empty in this file: the first row needs a page.
@@ -258,7 +242,7 @@ fn a_free_page_out_of_place_is_refused(tc: TestCase) {
 /// empty, in every table and every one of a track's string slots (its ISRC too); any other even
 /// kind byte is refused, naming the kind and where the string starts.
 #[hegel::test(test_cases = 150)]
-fn strings_of_an_unknown_kind_are_refused(tc: TestCase) {
+fn prop_strings_of_an_unknown_kind_are_refused(tc: TestCase) {
     use rekordbox_pdb::TableType as T;
     let mut ed = PdbEditor::from_bytes(std::fs::read(ONE_SONG).unwrap());
     // A row in every table with names of 3 or more characters, so each string takes 4 bytes or
@@ -351,7 +335,7 @@ fn strings_of_an_unknown_kind_are_refused(tc: TestCase) {
 /// An artist row with a two-byte name offset (subtype `0x64`, for a name past byte 255) reads
 /// its name from there, in any of DeviceSQL's string framings, and lookups find it by name.
 #[hegel::test(test_cases = 100)]
-fn far_artist_rows_read_their_name_from_the_two_byte_offset(tc: TestCase) {
+fn prop_far_artist_rows_read_their_name_from_the_two_byte_offset(tc: TestCase) {
     let name = raw_name(&tc);
     let id = tc.draw(gs::integers::<u32>().min_value(3).max_value(1000));
     let at = tc.draw(gs::integers::<usize>().min_value(0x0c).max_value(0x300));
@@ -374,7 +358,7 @@ fn far_artist_rows_read_their_name_from_the_two_byte_offset(tc: TestCase) {
 /// A data page whose header counts no row slots holds no rows, whatever its row directory says:
 /// only the rows on that page are gone from its table.
 #[hegel::test(test_cases = 100)]
-fn pages_that_count_no_slots_hold_no_rows(tc: TestCase) {
+fn prop_pages_that_count_no_slots_hold_no_rows(tc: TestCase) {
     use rekordbox_pdb::TableType as T;
     let orig = std::fs::read(tc.draw(gs::sampled_from(vec![ONE_SONG, BIGGER]))).unwrap();
     let before = Database::from_bytes(orig.clone()).unwrap();
@@ -398,7 +382,7 @@ fn pages_that_count_no_slots_hold_no_rows(tc: TestCase) {
 /// the file, is refused as malformed by the readers and the editors (a `PdbEditor` at its first
 /// edit); a directory of fewer tables than the file has is read. A missing file is an I/O error.
 #[hegel::test(test_cases = 200)]
-fn damaged_headers_are_refused(tc: TestCase) {
+fn prop_damaged_headers_are_refused(tc: TestCase) {
     let ext = tc.draw(gs::booleans());
     let orig = std::fs::read(if ext { ONE_SONG_EXT } else { ONE_SONG }).unwrap();
     let real_tables = u32_at(&orig, 8);
@@ -507,7 +491,7 @@ fn tag_row(name: &str, category: u32, position: u32, id: u32) -> Vec<u8> {
 /// My Tags saved to a file open again (in a reader and an editor) as the editor had them, with
 /// the same links, and the file holds what `to_bytes` gives.
 #[hegel::test(test_cases = 60)]
-fn my_tags_saved_to_a_file_read_back(tc: TestCase) {
+fn prop_my_tags_saved_to_a_file_read_back(tc: TestCase) {
     let mut ed = ExtEditor::from_file(ONE_SONG_EXT).unwrap();
     let mut links = Vec::new();
     for i in 0..tc.draw(gs::integers::<u32>().max_value(4)) {
@@ -552,7 +536,7 @@ fn my_tags_saved_to_a_file_read_back(tc: TestCase) {
 /// A file whose directory has no tag tracks table reads with no links, and linking a tag is
 /// refused as `NoTable(4)` while every other edit still saves.
 #[hegel::test(test_cases = 60)]
-fn linking_without_a_tag_tracks_table_is_refused(tc: TestCase) {
+fn prop_linking_without_a_tag_tracks_table_is_refused(tc: TestCase) {
     let mut data = std::fs::read(ONE_SONG_EXT).unwrap();
     let entry = directory_entry(&data, 4);
     put_u32(&mut data, entry, tc.draw(gs::integers::<u32>().min_value(20)));
@@ -571,7 +555,7 @@ fn linking_without_a_tag_tracks_table_is_refused(tc: TestCase) {
 /// A second category row with an id already in use stays as it is through an edit: the editor
 /// lists the id once, as the row placed first, and the file keeps both rows' names.
 #[hegel::test(test_cases = 60)]
-fn a_second_category_row_with_its_id_stays_as_it_is(tc: TestCase) {
+fn prop_a_second_category_row_with_its_id_stays_as_it_is(tc: TestCase) {
     let mut raw = PdbEditor::from_bytes(std::fs::read(ONE_SONG_EXT).unwrap());
     let id = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
     let position = tc.draw(gs::integers::<u32>().max_value(6));
@@ -599,7 +583,7 @@ fn a_second_category_row_with_its_id_stays_as_it_is(tc: TestCase) {
 /// When rewriting My Tags needs a page the file's directory has out of place, saving fails as
 /// malformed; with the directory intact the same edits save.
 #[hegel::test(test_cases = 30)]
-fn my_tags_needing_a_page_out_of_place_fail_to_save(tc: TestCase) {
+fn prop_my_tags_needing_a_page_out_of_place_fail_to_save(tc: TestCase) {
     let orig = std::fs::read(ONE_SONG_EXT).unwrap();
     let corrupt = tc.draw(gs::booleans());
     let mut data = orig.clone();
@@ -638,7 +622,7 @@ fn my_tags_needing_a_page_out_of_place_fail_to_save(tc: TestCase) {
 /// to, as is an id in use (or 0) and a category or tag that isn't there; refused edits leave the
 /// file as it was.
 #[hegel::test(test_cases = 100)]
-fn my_tags_refuse_names_and_ids_they_cant_hold(tc: TestCase) {
+fn prop_my_tags_refuse_names_and_ids_they_cant_hold(tc: TestCase) {
     let orig = std::fs::read(ONE_SONG_EXT).unwrap();
     let mut ed = ExtEditor::from_bytes(orig.clone()).unwrap();
     let ascii = tc.draw(gs::booleans());
@@ -682,7 +666,7 @@ fn my_tags_refuse_names_and_ids_they_cant_hold(tc: TestCase) {
 /// A My Tag row whose name has an unknown (even) string kind is refused, by the reader and the
 /// editor, naming the kind and where the string starts.
 #[hegel::test(test_cases = 100)]
-fn tags_named_in_an_unknown_kind_are_refused(tc: TestCase) {
+fn prop_tags_named_in_an_unknown_kind_are_refused(tc: TestCase) {
     let mut data = std::fs::read(ONE_SONG_EXT).unwrap();
     let db = ExtDatabase::from_bytes(data.clone()).unwrap();
     let locs = db.row_locations(rekordbox_pdb::ExtTableType::Tags);
@@ -702,7 +686,7 @@ fn tags_named_in_an_unknown_kind_are_refused(tc: TestCase) {
 /// or ran past the end of the file, panicked the reader slicing it. Now such a header is refused as
 /// `Malformed`, by the readers and the editors, and a length that fits reads that many bytes.
 #[hegel::test(test_cases = 200)]
-fn long_string_lengths_are_checked(tc: TestCase) {
+fn prop_long_string_lengths_are_checked(tc: TestCase) {
     use rekordbox_pdb::TableType as T;
     let ext = tc.draw(gs::booleans());
     let mut data = std::fs::read(if ext { ONE_SONG_EXT } else { ONE_SONG }).unwrap();
@@ -752,7 +736,7 @@ fn long_string_lengths_are_checked(tc: TestCase) {
 /// overwritten either read or fail as `Malformed` or `UnknownString`, never panic: the readers,
 /// `PdbEditor`'s first parse and `ExtEditor` alike.
 #[hegel::test(test_cases = 400)]
-fn damaged_files_never_panic_the_readers(tc: TestCase) {
+fn prop_damaged_files_never_panic_the_readers(tc: TestCase) {
     let ext = tc.draw(gs::booleans());
     let orig = std::fs::read(match ext {
         true => ONE_SONG_EXT,

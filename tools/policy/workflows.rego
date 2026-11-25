@@ -5,7 +5,7 @@ package workflows
 import data.lib
 
 # Gated workflows that check the pull request itself rather than its files, so they have nothing
-# to filter and no changes job: pr-issue.yml reads the description, branch and labels.
+# to filter and no changes job: pr-issue.yml reads the description and branch.
 unfiltered := {".github/workflows/pr-issue.yml"}
 
 # Jobs that never hold up the passed check: `report` posts coverage on the pull request, so a
@@ -193,6 +193,65 @@ deny contains msg if {
 	id in outside_passed
 	object.get(job, "continue-on-error", false) != true
 	msg := sprintf("%s: give job %q `continue-on-error: true`, or it fails the call when it fails", [path, id])
+}
+
+# Checks that run report-only until every open pull request passes them (.github/CONTRIBUTING.md,
+# "Adding a check"), as "<workflow path>#<job id>" to the issue that makes each one required. The
+# job, or a step in it, has `continue-on-error: true` until then.
+report_only := {}
+
+# The outside_passed jobs that can't fail, as "<workflow path>#<job id>", so a job elsewhere that
+# only shares the name isn't let off. A new tool's coverage report goes here.
+reports := {
+	".github/workflows/locallibrary-ci.yml#report",
+	".github/workflows/locallibrary-ci.yml#semver",
+	".github/workflows/localtoolbox-ci.yml#report",
+	".github/workflows/web-ci.yml#report",
+}
+
+# Any other job or step that can't fail is a check nobody is waiting on to become required.
+# Downloading an artifact a skipped job never uploaded is allowed to fail.
+deny contains msg if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some id, job in lib.file(path).jobs
+	key := sprintf("%s#%s", [path, id])
+	not key in reports
+	not key in object.keys(report_only)
+	can_fail(job)
+	msg := sprintf("%s: job %q can't fail; for a report-only check, add it to report_only in tools/policy/workflows.rego with the issue that makes it required", [path, id])
+}
+
+deny contains msg if {
+	some key in object.keys(report_only)
+	not regex.match(`^LOC-[0-9]+$`, object.get(report_only, key, ""))
+	msg := sprintf("tools/policy/workflows.rego: report_only[%q] should name the issue that makes it required, as LOC-123", [key])
+}
+
+# An entry that matches no job would let off the next job to take its place.
+deny contains msg if {
+	some key in object.keys(report_only)
+	not workflow_job(key)
+	msg := sprintf("tools/policy/workflows.rego: report_only[%q] matches no job; remove it", [key])
+}
+
+deny contains msg if {
+	some key in reports
+	not workflow_job(key)
+	msg := sprintf("tools/policy/workflows.rego: %q in reports matches no job; remove it", [key])
+}
+
+workflow_job(key) if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some id, _ in lib.file(path).jobs
+	key == sprintf("%s#%s", [path, id])
+}
+
+can_fail(job) if object.get(job, "continue-on-error", false) != false
+
+can_fail(job) if {
+	some step in object.get(job, "steps", [])
+	object.get(step, "continue-on-error", false) != false
+	not startswith(object.get(step, "uses", ""), "actions/download-artifact@")
 }
 
 # A push diffed against the commit before it drops what a cancelled or failed run never checked

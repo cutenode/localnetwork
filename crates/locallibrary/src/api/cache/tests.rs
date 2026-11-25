@@ -59,7 +59,7 @@ fn the_identifier_is_built_once_and_waiting_for_it_can_be_cancelled() {
 /// and end up with one identifier, built once after a success, or once more by one of them
 /// after a failure.
 #[hegel::test(test_cases = 10)]
-fn requests_waiting_for_the_identifier_share_one_build(tc: hegel::TestCase) {
+fn prop_requests_waiting_for_the_identifier_share_one_build(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let dir = tempfile::tempdir().unwrap();

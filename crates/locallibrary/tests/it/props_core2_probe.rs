@@ -38,7 +38,7 @@ fn mp3(n: usize, sound: usize) -> Vec<u8> {
 #[hegel::test(test_cases = 30)]
 #[hegel::explicit_test_case(n = 100usize, sound = 0usize)]
 #[hegel::explicit_test_case(n = 100usize, sound = 30usize)]
-fn mp3s_damaged_at_the_end_are_undecodable_when_damage_outweighs_sound(tc: TestCase) {
+fn prop_mp3s_damaged_at_the_end_are_undecodable_when_damage_outweighs_sound(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(20).max_value(300));
     let sound = tc.draw(gs::integers::<usize>().max_value(n));
     let dir = tempfile::tempdir().unwrap();
@@ -66,7 +66,7 @@ fn mp3s_damaged_at_the_end_are_undecodable_when_damage_outweighs_sound(tc: TestC
 /// under a name that says nothing, AIFF is read with no codec (its samples could be anything's),
 /// FLAC by its stream. A FLAC whose last part is overwritten stops before it, cut short.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn flac_and_aiff_copies_read_back_as_written(tc: TestCase) {
+fn prop_flac_and_aiff_copies_read_back_as_written(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![22_050u32, 44_100]));
     let secs = f64::from(tc.draw(gs::integers::<u32>().min_value(10).max_value(14)));
     let dir = tempfile::tempdir().unwrap();

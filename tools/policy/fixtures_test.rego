@@ -49,7 +49,7 @@ repo := [
 		"build": {"dockerfilePath": "apps/site/Dockerfile"},
 		"deploy": {"healthcheckPath": "/healthz", "multiRegionConfig": {"us-east4": {"numReplicas": 2}}},
 	}]}},
-	{"path": "apps/tool/Cargo.toml", "contents": {"package": object.union({"name": "tool"}, package_fields), "lints": {"workspace": true}}},
+	{"path": "apps/tool/Cargo.toml", "contents": {"package": object.union({"name": "tool", "publish": false}, package_fields), "lints": {"workspace": true}}},
 	{"path": "Cargo.toml", "contents": {
 		"workspace": {"members": ["apps/tool", "crates/*", "plugins/*", "vendor/pdb"]},
 		"profile": {"dev": {"package": {"sha2": {"opt-level": 3}}}},
@@ -59,14 +59,26 @@ repo := [
 	{"path": "dist-workspace.toml", "contents": {"dist": {"targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"], "include": ["target/NOTICES.md"]}}},
 	{"path": ".cargo/config.toml", "contents": {"alias": {"notices": ["about", "generate", "--output-file", "target/NOTICES.md", "about.hbs"]}}},
 	{"path": "/scratch/Cargo.lock.toml", "contents": {"package": [{"name": "sha2"}, {"name": "tool"}]}},
-	{"path": "crates/loclib-x/Cargo.toml", "contents": {"package": object.union({"name": "loclib-x", "readme": "README.md"}, package_fields), "lints": {"workspace": true}}},
+	{"path": "crates/loclib-x/Cargo.toml", "contents": {
+		"package": object.union({"name": "loclib-x", "readme": "README.md", "metadata": {"localnetwork": {"labels": ["tool: core"]}, "docs": {"rs": {"all-features": true, "rustdoc-args": ["--cfg", "docsrs"]}}}}, package_fields),
+		"lints": {"workspace": true},
+	}},
+	{"path": "/scratch/crate-roots.json", "contents": {"roots": {
+		"crates/loclib-x/Cargo.toml": {
+			"root": "crates/loclib-x/src/lib.rs",
+			"attributes": ["#![doc = include_str!(\"../README.md\")]", "#![cfg_attr(docsrs, feature(doc_cfg))]", "#![warn(missing_docs)]"],
+		},
+	}}},
 	{"path": "plugins/p/Cargo.toml", "contents": {"package": object.union({"name": "locallibrary-plugin-p", "publish": false}, package_fields), "lints": {"workspace": true}}},
-	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}}, "lints": {"workspace": true}}},
+	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}, "publish": false}, "lints": {"workspace": true}}},
 	{"path": "lefthook.yml", "contents": {
 		"lefthook": "pnpm exec lefthook",
 		"pre-commit": {"jobs": [
-			{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"},
-			{"root": "packages/kit/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "packages/kit/", "run": "pnpm exec oxlint {staged_files}"},
+			{"group": {"parallel": true, "jobs": [
+				{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"},
+				{"root": "packages/kit/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "packages/kit/", "run": "pnpm exec oxlint {staged_files}"},
+			]}},
+			{"run": "git diff HEAD --check -- {staged_files}"},
 		]},
 		"pre-push": {"jobs": [
 			{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"},
@@ -104,7 +116,7 @@ repo := [
 	{"path": ".github/labels.yml", "contents": {"name": "tool"}},
 	{"path": ".github/labels.yml", "contents": {"name": "docs"}},
 	{"path": ".github/labels.yml", "contents": {"name": "tool: core"}},
-	{"path": ".github/labeler.yml", "contents": {
+	{"path": "/scratch/labeler.json", "contents": {
 		"site": [{"changed-files": [{"any-glob-to-any-file": ["apps/site/**"]}]}],
 		"tool": [{"changed-files": [{"any-glob-to-any-file": "apps/tool/**"}]}],
 		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-all-files": "docs/**/*.txt"}]}],
@@ -136,6 +148,10 @@ repo := [
 		{"from": "crates/x/src/lib.rs", "path": "lexicons/computer/localnetwork/dj/set.json"},
 		{"from": "apps/locallibrary/src/plugins.rs", "path": "plugins/p/locallibrary-plugin.toml"},
 		{"from": "crates/x/tests/lexicons.rs", "path": "lexicons/"},
+	]}},
+	{"path": "/scratch/harden.json", "contents": {"harden": [
+		{"manager": "pnpm", "folder": ".", "report": {"checks": [{"id": "p_age", "satisfied": 1}, {"id": "p_runner", "satisfied": 0}]}},
+		{"manager": "npm", "folder": "apps/b", "report": {"checks": [{"id": "n_age", "satisfied": 1}, {"id": "n_runner", "satisfied": 0}]}},
 	]}},
 	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "apps/site/package-lock.json", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]

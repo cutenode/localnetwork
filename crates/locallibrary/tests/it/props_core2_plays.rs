@@ -9,17 +9,17 @@ use std::fs;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::plays;
 use locallibrary::progress::Ctx;
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
+fn prop_history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
     common::onelibrary_only(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = onelibrary::open_root(&root).unwrap();
     let tracks: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
     let folder = one.create_history("2026", 0, true).unwrap();
     let nested = one.create_history("HISTORY 001", folder, false).unwrap();

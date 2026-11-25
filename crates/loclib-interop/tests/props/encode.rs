@@ -9,7 +9,7 @@ use crate::common;
 /// Escaped text reads back as it was in a double- or single-quoted attribute, tabs and line
 /// breaks included, less only what XML 1.0 can't hold; nothing XML treats specially is left raw.
 #[hegel::test(test_cases = 300)]
-fn escaped_text_reads_back(tc: TestCase) {
+fn prop_escaped_text_reads_back(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(
         gs::text().max_size(40),
         gs::text().alphabet("<>&\"';#x9\t\n\r \u{0}\u{1}\u{1f}\u{7f}\u{fffd}\u{fffe}\u{ffff}é").max_size(40),

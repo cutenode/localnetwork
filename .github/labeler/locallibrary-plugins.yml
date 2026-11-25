@@ -1,0 +1,23 @@
+"locallibrary: plugins":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/**"
+          - "apps/locallibrary/**/plugin.rs"
+          - "apps/locallibrary/**/plugin.md"
+          - "apps/locallibrary/**/plugin/**"
+          - "apps/locallibrary/**/plugins.rs"
+          - "apps/locallibrary/**/plugins.md"
+          - "apps/locallibrary/**/plugins/**"
+          - "apps/locallibrary/**/plugin_cmd.rs"
+          - "apps/locallibrary/**/plugin_cmd.md"
+          - "apps/locallibrary/**/plugin_cmd/**"
+          - "crates/locallibrary/**/plugin.rs"
+          - "crates/locallibrary/**/plugin.md"
+          - "crates/locallibrary/**/plugin/**"
+          - "crates/locallibrary/**/plugins.rs"
+          - "crates/locallibrary/**/plugins.md"
+          - "crates/locallibrary/**/plugins/**"
+          - "crates/locallibrary/**/plugin_cmd.rs"
+          - "crates/locallibrary/**/plugin_cmd.md"
+          - "crates/locallibrary/**/plugin_cmd/**"
+          - "crates/locallibrary/src/bin/test-plugin/**"

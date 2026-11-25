@@ -142,7 +142,7 @@ fn options(playlist: &str, players: &[String], container: Container, decode_loss
 /// doesn't write it; a master replaced at the same path, or another container asked for, makes
 /// it again, as does a pack forgotten.
 #[hegel::test(test_cases = 4)]
-fn copies_are_made_of_exactly_what_the_players_cant_play(tc: TestCase) {
+fn prop_copies_are_made_of_exactly_what_the_players_cant_play(tc: TestCase) {
     let names: Vec<&str> = MODELS.iter().map(|m| m.name).collect();
     let chosen: Vec<String> =
         tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(3)).into_iter().map(String::from).collect();
@@ -398,7 +398,7 @@ fn not_playing_hi_res_aiff() -> Vec<&'static str> {
 /// the other master's file, so it's left as it is saying so, while an AIFF copy takes its own
 /// master's path.
 #[hegel::test(test_cases = 4)]
-fn a_copy_never_takes_another_masters_file(tc: TestCase) {
+fn prop_a_copy_never_takes_another_masters_file(tc: TestCase) {
     let chosen: Vec<String> = tc
         .draw(gs::vecs(gs::sampled_from(not_playing_hi_res_aiff())).min_size(1).max_size(2).unique(true))
         .into_iter()
@@ -433,7 +433,7 @@ fn a_copy_never_takes_another_masters_file(tc: TestCase) {
 #[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(hours = 1u16, real = true, player = "CDJ-1500X", container = Container::Flac)]
 #[hegel::explicit_test_case(hours = 8u16, real = false, player = "CDJ-2000NXS", container = Container::Aiff)]
-fn a_copy_too_big_for_its_container_is_refused_when_planned(tc: TestCase) {
+fn prop_a_copy_too_big_for_its_container_is_refused_when_planned(tc: TestCase) {
     let hours = tc.draw(gs::sampled_from(vec![1u16, 2, 3, 5, 6, 8]));
     let real = tc.draw(gs::booleans());
     let player = tc.draw(gs::sampled_from(vec!["CDJ-2000NXS", "CDJ-1500X"]));
@@ -505,7 +505,7 @@ fn needing_copies_of_wavs() -> Vec<&'static str> {
 /// them still (none is written again, and each stays as it was), however many; a pack that makes
 /// none forgets the record of them.
 #[hegel::test(test_cases = 4)]
-fn copies_are_kept_until_a_pack_wants_none(tc: TestCase) {
+fn prop_copies_are_kept_until_a_pack_wants_none(tc: TestCase) {
     let player = tc.draw(gs::sampled_from(needing_copies_of_wavs())).to_string();
     let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
     let dir = tempfile::tempdir().unwrap();

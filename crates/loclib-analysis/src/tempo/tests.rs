@@ -28,7 +28,7 @@ const FACTORS: [(TempoRelation, f64); 5] = [
 
 /// Swapping the two tempos gives the opposite relation.
 #[hegel::test(test_cases = 500)]
-fn relations_are_symmetric(tc: hegel::TestCase) {
+fn prop_relations_are_symmetric(tc: hegel::TestCase) {
     let a = tc.draw(gs::floats::<f64>().min_value(20.0).max_value(300.0));
     let b = tc.draw(gs::floats::<f64>().min_value(20.0).max_value(300.0));
     let opposite = |r| match r {
@@ -44,7 +44,7 @@ fn relations_are_symmetric(tc: hegel::TestCase) {
 /// A tempo off by one of the factors, give or take less than the tolerance, is classed as
 /// that factor.
 #[hegel::test(test_cases = 500)]
-fn factors_are_recognised(tc: hegel::TestCase) {
+fn prop_factors_are_recognised(tc: hegel::TestCase) {
     let estimate = tc.draw(gs::floats::<f64>().min_value(40.0).max_value(250.0));
     let jitter = tc.draw(gs::floats::<f64>().min_value(-0.035).max_value(0.035));
     let (relation, factor) = tc.draw(gs::sampled_from(&FACTORS));
@@ -64,7 +64,7 @@ fn a_library_prefers_tempos_it_has_many_of() {
 
 /// Asking with the two tempos swapped swaps the answer.
 #[hegel::test(test_cases = 300)]
-fn plausibility_is_antisymmetric(tc: hegel::TestCase) {
+fn prop_plausibility_is_antisymmetric(tc: hegel::TestCase) {
     let bpms = tc.draw(gs::vecs(gs::floats::<f64>().min_value(60.0).max_value(200.0)).max_size(20));
     let prior = TempoPrior::library(bpms);
     let a = tc.draw(gs::floats::<f64>().min_value(40.0).max_value(250.0));
@@ -77,7 +77,7 @@ fn plausibility_is_antisymmetric(tc: hegel::TestCase) {
 /// A tempo that isn't one (zero, negative, not a number, infinite) relates to nothing and is
 /// never plausible, whatever the library.
 #[hegel::test(test_cases = 200)]
-fn tempos_that_arent_relate_to_nothing(tc: hegel::TestCase) {
+fn prop_tempos_that_arent_relate_to_nothing(tc: hegel::TestCase) {
     let not =
         tc.draw(hegel::one_of!(gs::floats::<f64>().max_value(0.0), gs::sampled_from(vec![f64::NAN, f64::INFINITY])));
     let bpm = tc.draw(gs::floats::<f64>().min_value(20.0).max_value(300.0));

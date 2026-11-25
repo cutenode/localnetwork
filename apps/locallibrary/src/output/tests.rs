@@ -91,7 +91,7 @@ fn ascii_terminals_get_stand_ins_for_symbols_not_names() {
 /// Counts read back as the number they print: digits in groups of three from the right,
 /// and a plural only for other than one.
 #[hegel::test(test_cases = 300)]
-fn counts_read_back(tc: hegel::TestCase) {
+fn prop_counts_read_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>());
     let s = thousands(n);
@@ -107,7 +107,7 @@ fn counts_read_back(tc: hegel::TestCase) {
 /// A clock reads back as the seconds rounded to the nearest one, with minutes and seconds
 /// below 60 and hours only past an hour; a duration as the hours and minutes it covers.
 #[hegel::test(test_cases = 300)]
-fn clocks_and_durations_read_back(tc: hegel::TestCase) {
+fn prop_clocks_and_durations_read_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let secs = tc.draw(gs::floats::<f64>().min_value(-100.0).max_value(400_000.0));
     let rounded = secs.max(0.0).round() as u64;
@@ -140,7 +140,7 @@ fn clocks_and_durations_read_back(tc: hegel::TestCase) {
 /// Fitted text takes exactly the columns asked for; clipped, it's as much of the start of
 /// the text as fits beside the ellipsis.
 #[hegel::test(test_cases = 300)]
-fn fitted_text_takes_its_columns(tc: hegel::TestCase) {
+fn prop_fitted_text_takes_its_columns(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use unicode_width::UnicodeWidthStr;
     let s: String = tc.draw(gs::text().alphabet("ab é日本😹\u{301}\u{fe0f}").max_size(20));
@@ -168,7 +168,7 @@ fn fitted_text_takes_its_columns(tc: hegel::TestCase) {
 /// ASCII output has a stand-in for every symbol and leaves every other character, and an
 /// ASCII line, alone.
 #[hegel::test(test_cases = 300)]
-fn ascii_replaces_only_symbols(tc: hegel::TestCase) {
+fn prop_ascii_replaces_only_symbols(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let symbols: String = SYMBOLS.iter().map(|(c, _)| *c).collect();
     let s: String = tc.draw(gs::text().alphabet(&format!("{symbols}aé日 ")).max_size(30));
@@ -189,7 +189,7 @@ fn ascii_replaces_only_symbols(tc: hegel::TestCase) {
 /// erase only with its name typed, `--yes` or not. Each outcome's status is the one its
 /// name says.
 #[hegel::test(test_cases = 200)]
-fn changes_go_ahead_only_when_confirmed(tc: hegel::TestCase) {
+fn prop_changes_go_ahead_only_when_confirmed(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let yes = tc.draw(gs::booleans());
     // `--json` never prompts, so nothing here waits on stdin.
@@ -230,7 +230,7 @@ fn changes_go_ahead_only_when_confirmed(tc: hegel::TestCase) {
 /// latest item's file name; warnings, and questions asked with the bar out of the way, change
 /// nothing.
 #[hegel::test(test_cases = 200)]
-fn progress_bars_follow_their_events(tc: hegel::TestCase) {
+fn prop_progress_bars_follow_their_events(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let phases = [
         Phase::Scan,
@@ -303,7 +303,7 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
 /// Every outcome exits with the status `locallibrary --help` gives it, and `--json` reports it by
 /// its name.
 #[hegel::test(test_cases = 50)]
-fn every_outcome_exits_as_the_help_says(tc: hegel::TestCase) {
+fn prop_every_outcome_exits_as_the_help_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let all = [
         (Outcome::Applied, "applied", 0),

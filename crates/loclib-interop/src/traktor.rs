@@ -61,6 +61,7 @@ pub struct Location {
     pub volume: String,
     /// Every folder as `/:name`, then a final `/:`.
     pub dir: String,
+    /// The file's name.
     pub file: String,
 }
 

@@ -12,18 +12,30 @@ rekordbox ──Export──▶ USB A ──locallibrary sync──▶ USB B, US
 
 ```text
 crates/loclib-progress/     progress events and cooperative cancellation, shared by every long-running operation
-crates/loclib-model/        the library model (tracks, playlists, the differences between libraries), Camelot
-                            keys, harmonic matches, mix costs and the set planner, a track's decoded analysis,
-                            path keys
+crates/loclib-model/        the library model (tracks, playlists, the differences between libraries and
+                            between their playlists, entry by entry), Camelot keys, harmonic matches, mix
+                            costs and the set planner, a track's decoded analysis, path keys
 crates/loclib-equipment/    what each player, all-in-one system and mixer reads (databases, file systems, audio
                             formats, sample rates, bit depths), with the manual each value comes from;
                             equipment.json is the table for other languages
 crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct patterns written across a whole
                             disk, highest first, read back from the device, and how much really keeps data
+crates/loclib-drive-speed/  how long a write to a drive will take: a short timed test of its rate and its
+                            file and folder costs, kept on the drive, the sum from them, and real writes
+                            correcting the rate (core's api/drive_speed.rs reaches drives for it and words it)
+crates/loclib-format/       finding disks and formatting them: what diskutil, lsblk and PowerShell say about
+                            each disk, their erase and mkfs commands, and FAT32 written directly at any size
+                            up to 2 TiB with a chosen cluster size (Windows' own tools stop at 32 GB)
+crates/loclib-disk/         checking and repairing a drive's file system (diskutil, fsck with udisks, chkdsk)
+                            and ejecting it, with the system's own tools
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
                             exportLibrary.db and master.db are decrypted and written
+crates/loclib-rekordbox-db/ rekordbox's SQLite databases: OneLibrary (exportLibrary.db), its passphrase and the
+                            keys derived from it, kept between runs, read, edited and re-encrypted through a
+                            working copy; and the collection (master.db), decrypted from a copy and read, with
+                            its intelligent playlists' rules and (the `files` feature) what a backup of it reads
 crates/loclib-anlz/         rekordbox's analysis files (ANLZ0000.DAT, .EXT, .2EX): path rewriting, beat grid,
                             cues (read and write), waveforms, phrases, decoded into loclib-model's analysis
                             types; the writers keep every section they don't change byte for byte
@@ -37,6 +49,8 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
+crates/loclib-aup/          Audacity projects (.aup3, .aup4) read from their SQLite tables and binary XML: tags,
+                            labels, and the audible clips mixed to mono (trims, clip speed, gain, mute/solo)
 crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
                             FLAC, resampled with the timing kept to the sample, dithered, with tags
 crates/loclib-analysis/     a second opinion on a track's tempo and key (stratum-dsp), its loudness, peaks and
@@ -150,16 +164,15 @@ crates/locallibrary/src/    the library, built on the crates above
   sound/       tempo, key and loudness from the analyzers chosen for those roles: doctor's analysis
                section, how sure each key is for the set planner, the check's loudness item, and
                `analysis bench` (bench.rs, scored with loclib-analysis's benchmark, without its DSP)
-  mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
-               store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
-               interactive page, the mix's playable audio, the reports kept in the store: report.rs and
-               report.html) and the export for Local Network (export.rs)
+  mix/         which library tracks a recorded set plays, through loclib-mixid and loclib-aup: the
+               drive's tracks, the store's fingerprints (index.rs), the report (the interactive page,
+               the mix's playable audio, the reports kept in the store: report.rs and report.html) and
+               the export for Local Network (export.rs)
   atmosphere/  Atmosphere account sign-in around jacquard-oauth: browser callback, keychain storage, lock,
                the network's limits (with publish.rs and api/account.rs, api/publish.rs: only with the
                `account` feature)
   opener.rs    handing an https address to the browser, or a file to its app
   export.rs    playlists as M3U8, CSV and text
-  diff.rs      playlist differences between drives and snapshots
   check.rs     the check before a set, down to the tracks each player won't load
   probe.rs     reading audio files through symphonia: their headers, and whether their ends decode
   convert.rs   building export.pdb from OneLibrary or the reverse
@@ -170,22 +183,22 @@ crates/locallibrary/src/    the library, built on the crates above
   anlz.rs      a track's analysis files on a drive, read through loclib-anlz (which it re-exports)
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
-  onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
-               cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
-  masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
-  format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
-               writer, running the fake-capacity probe (loclib-capacity) first
+  onelibrary.rs  a drive's exportLibrary.db and its WAL: reading them, and writing an edited
+               database back (the database itself is loclib-rekordbox-db's)
+  format/      drive formatting: which layouts players read, which disks may be erased, the plan, and
+               running the fake-capacity probe (loclib-capacity) first; the disks and the work are
+               loclib-format's
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
   fleet.rs     every drive you own: registry views, roles, logbook, recognising and re-identifying drives
   scrub.rs     re-reading a drive against known-good copies, and repairing it
-  fscheck.rs   the OS's file-system check
+  fscheck.rs   the OS's file-system check of a drive, through loclib-disk
   space.rs     what uses a drive's space, growth forecasts
   tidy.rs      removing OS clutter
   recordings.rs  set recordings made on the player
   firmware.rs  staging firmware updates
   player.rs    the Device Name and colour players show, "if found" contacts
   after_set.rs telling changes players made during a set apart from exports
-  eject.rs     unmounting and powering off drives
+  eject.rs     unmounting and powering off drives, through loclib-disk
   watch/       noticing drives plugged in, unplugged and changed, by polling file metadata
   api.rs       service layer used by the CLI and RPC, with a file per area in api/ (api/drives.rs: drive management, api/undo.rs:
                undo, api/autopull.rs: `watch`, api/cache.rs and api/reads.rs: parsed libraries

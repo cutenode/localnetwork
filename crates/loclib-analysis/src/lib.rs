@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod benchmark;
 mod error;
@@ -41,12 +43,15 @@ pub const VERSION: u32 = 5;
 pub struct Want {
     /// Tempo and key.
     pub estimate: bool,
+    /// Loudness and clipping ([`Loudness`]).
     pub loudness: bool,
+    /// The 3-band waveform ([`Waveform`]).
     pub waveform: bool,
 }
 
 #[cfg(feature = "dsp")]
 impl Want {
+    /// Everything [`analyze`] measures.
     pub const ALL: Want = Want { estimate: true, loudness: true, waveform: true };
 }
 

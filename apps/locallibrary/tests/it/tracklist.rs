@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use locallibrary::Library;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 
 use crate::support::{Env, PDB, path};
 
@@ -45,7 +45,7 @@ fn a_spotify_csv_makes_a_playlist_in_both_databases() {
     let summary = planned["plan"]["summary"][0].as_str().unwrap();
     assert!(summary.ends_with(": 3 entr(ies) as Csv: 2 found, 0 ambiguous, 1 missing"), "{planned}");
     env.ok(&[&["--yes"], &import[..]].concat());
-    let plus = OneLibrary::open_root(&root).unwrap().library().unwrap();
+    let plus = onelibrary::open_root(&root).unwrap().library().unwrap();
     for l in [pdb_library(&root), plus] {
         assert_eq!(files(&l, "From Spotify"), [a.file_path.clone(), b.file_path.clone()]);
     }

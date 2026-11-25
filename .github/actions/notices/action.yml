@@ -1,0 +1,20 @@
+name: Third-party notices
+description: >-
+  Installs cargo-about, then writes THIRD-PARTY-NOTICES.md with `cargo notices` (.cargo/config.toml).
+  The release archives include the file, so every job that builds them runs this before dist, and the
+  deny job runs it to catch a licence cargo-about can't work out.
+
+runs:
+  using: composite
+  steps:
+    # cargo-about publishes no x86_64-apple-darwin binary, and install-action's fallback builds it
+    # without the `cli` feature its binary needs, installing nothing. That runner builds it here.
+    - if: runner.os != 'macOS' || runner.arch != 'X64'
+      uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      with:
+        tool: cargo-about@0.9.3
+    - if: runner.os == 'macOS' && runner.arch == 'X64'
+      shell: bash
+      run: cargo install --locked --features cli cargo-about@0.9.3
+    - shell: bash
+      run: cargo notices

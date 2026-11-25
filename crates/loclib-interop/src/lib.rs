@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod encode;
 #[cfg(feature = "engine")]
@@ -33,6 +35,7 @@ pub enum Software {
 }
 
 impl Software {
+    /// Its name as its maker writes it, for messages.
     pub fn name(self) -> &'static str {
         match self {
             Software::Traktor => "Traktor",
@@ -112,13 +115,18 @@ fn file_key(t: &Track) -> String {
 /// out.
 #[derive(Debug, Default)]
 pub struct Export {
+    /// Every file to write.
     pub files: Vec<File>,
     /// Files that must go when the export replaces what's there (a database's old WAL, which
     /// SQLite would replay into the new file).
     pub remove: Vec<PathBuf>,
+    /// Tracks written.
     pub tracks: usize,
+    /// Playlists written, folders not counted.
     pub playlists: usize,
+    /// Playlist folders written.
     pub folders: usize,
+    /// Tracks written with a beat grid.
     pub beat_grids: usize,
     /// Hot cues, memory cues and loops carried across.
     pub cues: usize,
@@ -134,21 +142,27 @@ pub struct Export {
 /// A file an export writes.
 #[derive(Debug)]
 pub struct File {
+    /// Where it goes.
     pub path: PathBuf,
     /// What it holds.
     pub what: String,
+    /// Its size once written, in bytes.
     pub bytes: u64,
+    /// How to make it.
     pub content: Content,
 }
 
 /// How a file is made.
 #[derive(Debug)]
 pub enum Content {
+    /// The file's whole content.
     Bytes(Vec<u8>),
     /// A copy of an audio file, with Serato's cue tag written into it when there's one (see
     /// `serato::write_markers`).
     TaggedCopy {
+        /// The audio file to copy.
         from: PathBuf,
+        /// The encoded `Serato Markers2` tag to write into the copy; `None` copies the audio as it is.
         markers: Option<Vec<u8>>,
     },
 }
@@ -184,11 +198,17 @@ pub enum Error {
 
     /// A file couldn't be read or written.
     #[error("{}: {source}", path.display())]
-    Io { path: PathBuf, source: std::io::Error },
+    Io {
+        /// The file's path.
+        path: PathBuf,
+        /// The underlying I/O error.
+        source: std::io::Error,
+    },
 
     /// An audio file's tags can't be read or written.
     #[error("tags: {0}")]
     Tags(String),
 }
 
+/// A `Result` whose error defaults to this crate's [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;

@@ -346,7 +346,10 @@ impl Databases {
             None => (None, None),
             Some((_, db)) => {
                 let wal = object(paths::LIBRARY_PLUS_WAL)?.map(|(_, b)| b);
-                match crate::onelibrary::OneLibrary::from_encrypted(&db, wal.as_deref()).and_then(|one| one.library()) {
+                match crate::onelibrary::OneLibrary::from_encrypted(&db, wal.as_deref())
+                    .and_then(|one| one.library())
+                    .map_err(Error::from)
+                {
                     Ok(lib) => (Some(lib), None),
                     Err(e) if pdb.is_some() => (None, Some(e)),
                     Err(e) => return Err(e),

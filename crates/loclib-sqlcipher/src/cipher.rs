@@ -21,7 +21,9 @@ use sha2::Sha512;
 
 use crate::{Error, Result};
 
+/// Bytes per page: SQLCipher 4's default, the only page size this crate reads or writes.
 pub const PAGE_SIZE: usize = 4096;
+/// Bytes of key-derivation salt at the start of an encrypted file, where a plain one has [`SQLITE_MAGIC`].
 pub const SALT_LEN: usize = 16;
 const IV_LEN: usize = 16;
 const HMAC_LEN: usize = 64;
@@ -30,6 +32,7 @@ pub const RESERVE: usize = IV_LEN + HMAC_LEN;
 const KDF_ROUNDS: u32 = 256_000;
 const HMAC_KDF_ROUNDS: u32 = 2;
 const HMAC_SALT_MASK: u8 = 0x3a;
+/// The 16 bytes a plain SQLite file starts with, `SQLite format 3` and a NUL.
 pub const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 /// The page holding SQLite's lock bytes (at 1 GiB), which SQLite never writes or reads: in a file
 /// that large it is a hole of zeros.
@@ -43,7 +46,9 @@ type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 /// authenticated with, both derived from the passphrase and the file's salt.
 #[derive(Clone, Copy)]
 pub struct Keys {
+    /// The AES-256 key the pages are encrypted with.
     pub cipher: [u8; 32],
+    /// The HMAC-SHA512 key the pages are authenticated with.
     pub hmac: [u8; 32],
 }
 

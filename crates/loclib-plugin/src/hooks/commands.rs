@@ -41,6 +41,7 @@ pub struct RunCommand {
     /// confirms.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dry_run: bool,
+    /// Where the user was when they ran it, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -76,7 +77,12 @@ impl Hook for RunCommand {
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum CommandPlanAnswer {
-    Choose { choose: Choice },
+    /// A question for the user first.
+    Choose {
+        /// What's asked, and the param the answer sets.
+        choose: Choice,
+    },
+    /// The command's plan.
     Plan(CommandPlan),
 }
 
@@ -120,6 +126,7 @@ impl<'de> Deserialize<'de> for CommandPlanAnswer {
 pub struct CommandPlan {
     /// One line on what it would do, for the confirmation.
     pub summary: String,
+    /// What the user should know before confirming, a line each.
     #[serde(default)]
     pub warnings: Vec<String>,
     /// The files it would write, as an exporter says them: each absolute, with what it holds and
@@ -131,8 +138,12 @@ pub struct CommandPlan {
 /// Run with `command/run`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Command {
+    /// What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other command's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
+    /// What it answers: `headless` for any JSON, `view` for a view to draw.
     pub mode: Mode,
     /// Where hosts offer it (see [`Where`]).
     #[serde(default = "on_a_drive", rename = "where")]
@@ -153,6 +164,7 @@ pub struct Command {
     pub cli: Option<String>,
 }
 
+/// What a command answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {

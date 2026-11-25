@@ -191,7 +191,7 @@ fn formats_out_of_range_are_problems_and_unknown_ones_are_left_open() {
 /// file system it can't read, and warned about where it can't be told; an item is fine exactly
 /// when nothing stands in the way.
 #[hegel::test(test_cases = 300)]
-fn every_player_is_checked_against_the_drives_layout(tc: hegel::TestCase) {
+fn prop_every_player_is_checked_against_the_drives_layout(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut given: Vec<String> =
         MODELS.iter().filter(|_| tc.draw(gs::weighted_booleans(0.2))).map(|m| m.name.to_string()).collect();
@@ -278,7 +278,7 @@ fn said(f: impl FnOnce(&mut dyn FnMut(&'static str, Level, String))) -> Said {
 #[hegel::explicit_test_case(scheme = Some(Scheme::Gpt), fs = Some(FsKind::Ntfs), name = "NTFS", volumes = 2usize)]
 #[hegel::explicit_test_case(scheme = Some(Scheme::Mbr), fs = Some(FsKind::Hfsplus), name = "Mac OS Extended (Case-sensitive)", volumes = 2usize)]
 #[hegel::explicit_test_case(scheme = None::<Scheme>, fs = Some(FsKind::Exfat), name = "exFAT", volumes = 0usize)]
-fn a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
+fn prop_a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let scheme = tc.draw(gs::sampled_from(vec![
         None,
@@ -298,7 +298,7 @@ fn a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
     ]));
     let name = tc.draw(gs::sampled_from(vec!["MS-DOS FAT32", "Mac OS Extended (Case-sensitive)", "exFAT", "NTFS"]));
     let volumes = tc.draw(gs::integers::<usize>().max_value(2));
-    let mut disk = crate::format::tests::sample_disk();
+    let mut disk = loclib_format::test_util::sample_disk();
     disk.scheme = scheme;
     let template = disk.volumes[0].clone();
     disk.volumes = (0..volumes)
@@ -337,7 +337,7 @@ fn a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(files = 5usize, fat32 = vec![true, true, true, true, true])]
 #[hegel::explicit_test_case(files = 2usize, fat32 = vec![true, false])]
 #[hegel::explicit_test_case(files = 0usize, fat32 = vec![false, true])]
-fn large_files_are_a_problem_only_beside_a_fat32_drive(tc: hegel::TestCase) {
+fn prop_large_files_are_a_problem_only_beside_a_fat32_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let files = tc.draw(gs::integers::<usize>().max_value(5));
     // Drive A, then the others; whether each is FAT32.
@@ -390,7 +390,7 @@ fn large_files_are_a_problem_only_beside_a_fat32_drive(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 #[hegel::explicit_test_case(kinds = Vec::<u8>::new(), checked = 7usize)]
 #[hegel::explicit_test_case(kinds = vec![0u8, 1, 2, 3, 3], checked = 5usize)]
-fn audio_problems_are_grouped_by_kind(tc: hegel::TestCase) {
+fn prop_audio_problems_are_grouped_by_kind(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let kinds: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(3)).max_size(6));
     let checked = tc.draw(gs::integers::<usize>().min_value(kinds.len()).max_value(kinds.len() + 5));
@@ -440,7 +440,7 @@ fn audio_problems_are_grouped_by_kind(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(path = "/Contents/a.m4a", bitrate = 900u32, rate = 0u32, depth = 0u16, probed = Some(Codec::Aac))]
 #[hegel::explicit_test_case(path = "/Contents/a.m4a", bitrate = 401u32, rate = 44_100u32, depth = 16u16, probed = None::<Codec>)]
 #[hegel::explicit_test_case(path = "/Contents/Music/readme", bitrate = 0u32, rate = 0u32, depth = 0u16, probed = None::<Codec>)]
-fn a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
+fn prop_a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let path = tc.draw(gs::sampled_from(vec![
         "/Contents/a.m4a",
@@ -498,7 +498,7 @@ fn a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
 /// item says it plays them all. Every model is checked on every run.
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(tracks = vec![(2usize, 44_100u32, 32u16), (4, 192_000, 24), (4, 44_100, 16), (6, 0, 0), (7, 44_100, 16)])]
-fn every_model_says_which_tracks_it_wont_load(tc: hegel::TestCase) {
+fn prop_every_model_says_which_tracks_it_wont_load(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const PATHS: [&str; 8] = ["a.mp3", "a.m4a", "a.wav", "a.aiff", "a.flac", "a.ogg", "a.m4a", "readme"];
     let tracks: Vec<(usize, u32, u16)> = tc.draw(
@@ -582,7 +582,7 @@ fn every_model_says_which_tracks_it_wont_load(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 #[hegel::explicit_test_case(words = Vec::<String>::new(), rate = 44_100u32)]
 #[hegel::explicit_test_case(words = vec!["FLAC".to_string()], rate = 96_000u32)]
-fn rates_and_lists_read_as_written(tc: hegel::TestCase) {
+fn prop_rates_and_lists_read_as_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let words: Vec<String> =
         tc.draw(gs::vecs(gs::sampled_from(vec!["FLAC".to_string(), "WAV".into(), "AIFF".into()])).max_size(4));
@@ -623,7 +623,7 @@ fn rates_and_lists_read_as_written(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(same_fp = false, overlap = 4usize, extra = 0usize)]
 #[hegel::explicit_test_case(same_fp = false, overlap = 0usize, extra = 3usize)]
 #[hegel::explicit_test_case(same_fp = false, overlap = 4usize, extra = 2usize)]
-fn a_drive_compared_with_the_first_says_how_they_differ(tc: hegel::TestCase) {
+fn prop_a_drive_compared_with_the_first_says_how_they_differ(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let same_fp = tc.draw(gs::booleans());
     // Tracks both have, and tracks only the second has.
@@ -688,7 +688,7 @@ fn a_drive_compared_with_the_first_says_how_they_differ(tc: hegel::TestCase) {
 /// a warning. Every model and every database layout is checked on every run.
 #[hegel::test(test_cases = 20)]
 #[hegel::explicit_test_case(unknown = vec!["XYZ-9".to_string()])]
-fn each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
+fn prop_each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let unknown: Vec<String> =
         tc.draw(gs::vecs(gs::sampled_from(vec!["XYZ-9".to_string(), "CDJ-1".into(), "".into()])).max_size(2));
@@ -722,17 +722,17 @@ fn each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
 }
 
 #[cfg(unix)]
-use crate::format::tests::fake_tools;
+use loclib_format::test_util::FakeTools;
 
 /// An export on a drive that is a volume of its own has its file system judged by the disk it is
 /// on, as players get on with it: FAT32 on MBR by every player, exFAT by some, nothing on a GUID
 /// partition table. A drive that is only a folder is warned it wasn't judged.
 #[cfg(unix)]
 #[hegel::test(test_cases = 8)]
-fn a_drives_file_system_is_judged_by_its_disk(tc: hegel::TestCase) {
+fn prop_a_drives_file_system_is_judged_by_its_disk(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let mut fake = fake_tools::FakeTools::new();
-    let d = Device::open(fake.demo_drive("DNA")).unwrap();
+    let mut fake = FakeTools::new();
+    let d = Device::open(crate::format::tests::demo_drive(fake.dir(), "DNA")).unwrap();
     let on_a_disk = tc.draw(gs::weighted_booleans(0.8));
     let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
     if on_a_disk {

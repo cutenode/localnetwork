@@ -25,16 +25,21 @@ use crate::protocol::{Cancel, Partial, ProgressParams, ProgressReport, method};
 pub enum Incoming {
     /// Answer it with [`Peer::respond`].
     Request(Request),
+    /// A notification, which nothing answers.
     Notification {
+        /// Its method (`event/notify`).
         method: String,
+        /// Its params: `{}` when it had none.
         params: Value,
     },
 }
 
+/// A request from the other end, for the owner to answer with [`Peer::respond`].
 #[derive(Debug)]
 pub struct Request {
     /// A string or a number.
     pub id: Value,
+    /// Its method (`command/run`).
     pub method: String,
     /// `{}` when it had none.
     pub params: Value,
@@ -93,6 +98,7 @@ pub struct Pending {
 }
 
 impl Pending {
+    /// The request's id.
     pub fn id(&self) -> u64 {
         self.id
     }

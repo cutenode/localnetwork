@@ -15,8 +15,11 @@ pub struct Overview<'a> {
     pub wave: Option<&'a Waveform>,
     /// 0-1.
     pub progress: f32,
+    /// The cues to mark, with loops shaded over their length.
     pub cues: &'a [Cue],
+    /// The track's length in milliseconds, which places the cues. At 0 no cue is drawn.
     pub duration_ms: f64,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 
@@ -31,12 +34,17 @@ impl Widget for Overview<'_> {
 /// [`Overview`] of any [`Wave`], with a second row of cue markers where they collide if `cue_rows`
 /// allows it.
 pub struct WaveOverview<'a> {
+    /// `None` (no analysis) draws a plain progress rail.
     pub wave: Option<Wave<'a>>,
     /// 0-1.
     pub progress: f32,
+    /// The cues to mark, with loops shaded over their length.
     pub cues: &'a [Cue],
+    /// The track's length in milliseconds, which places the cues. At 0 no cue is drawn.
     pub duration_ms: f64,
+    /// The most rows cue markers may take, at least 1 and leaving one for the waveform.
     pub cue_rows: u16,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 
@@ -148,12 +156,17 @@ pub(crate) fn layer_heights(p: &Palette<'_>, stack: &Stack, cells: f32) -> [f32;
 /// (bar starts brighter) and cue markers. Every column is worked out each time: [`ZoomRing`] keeps
 /// them for what's drawn many times a second.
 pub struct Detail<'a> {
+    /// The track's waveform.
     pub wave: &'a Waveform,
+    /// The playhead's position in the track, in seconds.
     pub position_secs: f64,
+    /// How much of the track the width shows, in seconds, centred on the playhead.
     pub visible_secs: f64,
     /// The beat grid; the first beat's tempo gives loops without a stored length theirs.
     pub beats: &'a [Beat],
+    /// The track's cues.
     pub cues: &'a [Cue],
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 

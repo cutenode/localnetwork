@@ -38,7 +38,7 @@ fn level(kind: u8) -> [(Role, FieldValue); 3] {
 #[hegel::explicit_test_case(kinds = vec![0u8, 0, 4, 1, 4, 2, 0, 4, 4, 4, 4, 4], far = Some(6usize))]
 #[hegel::explicit_test_case(kinds = vec![0u8, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4], far = None::<usize>)]
 #[hegel::explicit_test_case(kinds = vec![4u8; 12], far = None::<usize>)]
-fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
+fn prop_the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
     // Per track: its level's kind (as `level` takes it), 4 for none kept.
     let kinds: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(4)).min_size(12).max_size(12));
     // One analysed track much quieter than the rest.
@@ -106,7 +106,7 @@ fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(moved_on = true, copied = true)]
 #[hegel::explicit_test_case(moved_on = false, copied = false)]
-fn a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase) {
+fn prop_a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase) {
     let moved_on = tc.draw(gs::booleans());
     let copied = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();

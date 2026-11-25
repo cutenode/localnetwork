@@ -1,0 +1,11 @@
+"performance":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "benchmarks/**"
+          - "crates/*/benches/**"
+          - "tools/budgets/**"
+          - ".github/actions/release-budgets/**"
+          - ".github/actions/size-report/**"
+          - ".github/workflows/locallibrary-bench.yml"
+          - "apps/web/lighthouse/**"
+          - "apps/web/lighthouserc.cjs"

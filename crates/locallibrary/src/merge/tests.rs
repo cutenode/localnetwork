@@ -26,7 +26,7 @@ fn unique_keys_without_an_extension_are_numbered_at_the_end() {
 /// before the extension (a dot in a folder's name isn't one) that neither the library nor the
 /// drive has, ignoring case; it's taken from then on.
 #[hegel::test(test_cases = 100)]
-fn a_new_files_key_is_the_first_free_one(tc: hegel::TestCase) {
+fn prop_a_new_files_key_is_the_first_free_one(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let folder = tc.draw(gs::sampled_from(vec!["Contents/A", "Contents/A.b", "Music"]));
     let stem = tc.draw(gs::sampled_from(vec!["x", "Track 1", "Ünï (2)"]));

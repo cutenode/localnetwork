@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
+use loclib_rekordbox_db::masterdb::TagCategory;
 use rekordbox_pdb::{ExtDatabase, ExtEditor, ExtTableType};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -756,6 +757,23 @@ impl TagsByTrack {
     pub fn is_empty(&self) -> bool {
         self.by_id.is_empty() && self.by_file.is_empty()
     }
+
+    /// A rekordbox collection's My Tags (`categories`) for `library`'s tracks, whose ids they name:
+    /// the collection's own library, or the same tracks with their files somewhere else (as
+    /// [`library_from_root`](loclib_rekordbox_db::masterdb::Collection::library_from_root) names
+    /// them).
+    pub fn from_collection(categories: &[TagCategory], library: &Library) -> TagsByTrack {
+        let ids: FxHashSet<u32> = library.tracks.iter().map(|t| t.id).collect();
+        let mut out = TagsByTrack::default();
+        for c in categories {
+            for tag in &c.tags {
+                for id in tag.track_ids.iter().filter(|id| ids.contains(id)) {
+                    out.by_id.entry(*id).or_default().push(format!("{}/{}", c.name, tag.name));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Every tagged track's tags (see [`TagsByTrack`]).
@@ -1383,9 +1401,8 @@ impl DbTags {
         Ok(DbTags::new(plus_tree(one, library)?, library))
     }
 
-    /// rekordbox's collection's (see [`crate::masterdb`]), whose track ids are `library`'s. Ids
-    /// are numbered in order.
-    pub(crate) fn collection(categories: &[crate::masterdb::TagCategory], library: &Library) -> DbTags {
+    /// rekordbox's collection's, whose track ids are `library`'s. Ids are numbered in order.
+    pub(crate) fn collection(categories: &[TagCategory], library: &Library) -> DbTags {
         let keys = keys_by_id(library);
         let mut tree = Tree::default();
         let mut next: i64 = 0;

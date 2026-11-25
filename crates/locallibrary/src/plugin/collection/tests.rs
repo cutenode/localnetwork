@@ -1,9 +1,9 @@
 use serde_json::json;
 
 use super::*;
-use crate::masterdb::files::tests::{SECRET, has, library, plain, registry};
-use crate::masterdb::{DEFAULT_KEY, PATH_ENV};
 use crate::plugin::blobs::Scratch;
+use loclib_rekordbox_db::masterdb::{DEFAULT_KEY, PATH_ENV};
+use loclib_rekordbox_db::test_util::{SECRET, has, library, plain, registry};
 
 /// A process's state with one request under way, its scratch folder, and rekordbox's `master.db`
 /// (the sample library) where [`PATH_ENV`] says, outside the folder.

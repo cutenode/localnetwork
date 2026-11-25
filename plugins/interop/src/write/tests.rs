@@ -180,7 +180,7 @@ fn below(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 /// file is in place with its content and the WAL is gone, or the write fails naming what failed
 /// (or as `cancelled`, or `no_space`) and leaves the folder as it was, with no file half-written.
 #[hegel::test(test_cases = 100)]
-fn a_write_puts_every_file_in_place_or_none(tc: TestCase) {
+fn prop_a_write_puts_every_file_in_place_or_none(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (src, out) = (dir.path().join("src"), dir.path().join("out"));
     std::fs::create_dir_all(&src).unwrap();

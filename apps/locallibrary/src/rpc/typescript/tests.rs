@@ -205,7 +205,7 @@ fn balanced(t: &str) -> bool {
 /// declared under its name (quoted when it isn't an identifier), optional unless required;
 /// identifiers made of names are identifiers.
 #[hegel::test(test_cases = 400)]
-fn any_schema_becomes_a_well_formed_type(tc: hegel::TestCase) {
+fn prop_any_schema_becomes_a_well_formed_type(tc: hegel::TestCase) {
     let s = schema(&tc, 3);
     let t = ty(&s, 0);
     assert!(balanced(&t), "{t}\nfrom {s}");
@@ -234,7 +234,7 @@ fn any_schema_becomes_a_well_formed_type(tc: hegel::TestCase) {
 
 /// Declarations for any of the sidecar's methods declare each of them once among the methods, and every definition once as a type.
 #[hegel::test(test_cases = 40)]
-fn declarations_name_each_method_once(tc: hegel::TestCase) {
+fn prop_declarations_name_each_method_once(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let full = super::super::contract::contract();
     let all = full["methods"].as_array().unwrap();
@@ -284,7 +284,7 @@ fn declarations_name_each_method_once(tc: hegel::TestCase) {
 /// declarations give every method a `Methods` entry, a deprecated method says what to use instead, each notification has its entry, and the error's
 /// data is declared once, by its definition when there is one.
 #[hegel::test(test_cases = 200)]
-fn every_name_in_a_contract_is_declared(tc: hegel::TestCase) {
+fn prop_every_name_in_a_contract_is_declared(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let count = tc.draw(gs::integers::<usize>().max_value(4));
     let mut methods = Vec::new();

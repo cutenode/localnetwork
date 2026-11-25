@@ -703,7 +703,7 @@ fn name(tc: &TestCase) -> Option<String> {
 /// digits and single dashes between them, starting with a letter or digit, 5 to 80 characters),
 /// with every suffix tried, and has the set's date in it.
 #[hegel::test(test_cases = 200)]
-fn any_identifier_is_one_the_archive_takes(tc: TestCase) {
+fn prop_any_identifier_is_one_the_archive_takes(tc: TestCase) {
     let creator = name(&tc);
     let title = name(&tc);
     let date = format!(
@@ -746,7 +746,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
 /// as the description, a line each, and the subjects. A tracklist too long keeps the lines that
 /// fit, in order, and says how many more there are and why.
 #[hegel::test(test_cases = 100)]
-fn the_metadata_fits_its_headers(tc: TestCase) {
+fn prop_the_metadata_fits_its_headers(tc: TestCase) {
     let set = PublishedSet { title: name(&tc), venue: name(&tc), kind: name(&tc), ..set() };
     let creator = name(&tc);
     let tracklist = tracklist(&tc, 80);
@@ -825,7 +825,7 @@ fn put_refusals() -> Vec<(Reply, &'static str)> {
 /// failing it every time, stops it there, saying why. A dry run, an empty or missing recording, or
 /// a host with the account signed out, sends nothing up.
 #[hegel::test(test_cases = 100)]
-fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
+fn prop_any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     // 0: empty, 1: gone; else as long as it's drawn.
     let shape = tc.draw(gs::integers::<u8>().max_value(19));
     let creator = tc.draw(gs::optional(gs::just("DJ Kit")));

@@ -7,6 +7,8 @@
 
 use crate::{Manifest, hooks, method};
 
+/// An optional feature of the protocol: a family of hooks, the host's methods a plugin with it
+/// handles, and what such a plugin may send the host.
 #[derive(Debug, Clone, Copy)]
 pub struct Feature {
     /// As `hello` names it: its family of hooks (`commands`).

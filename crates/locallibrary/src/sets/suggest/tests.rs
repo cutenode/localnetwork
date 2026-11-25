@@ -111,7 +111,7 @@ fn is_one_night(group: &[&Session]) -> bool {
 /// same night and a drive taken to sets, is dated by the imported logs' times or the time its
 /// windows share, and they come newest first.
 #[hegel::test(test_cases = 150)]
-fn suggestions_group_what_goes_together_and_score_the_evidence(tc: TestCase) {
+fn prop_suggestions_group_what_goes_together_and_score_the_evidence(tc: TestCase) {
     let (heard, set_drive, store, _) = &stores()[tc.draw(gs::integers::<usize>().max_value(stores().len() - 1))];
     let sessions = some_sessions(&tc);
     let got = suggest(Some(store), &sessions, &[]).unwrap();

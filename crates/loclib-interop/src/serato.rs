@@ -230,6 +230,7 @@ pub struct Markers {
     pub cues: Vec<(u8, u32, [u8; 3], String)>,
     /// (slot 0-7, start ms, end ms, name)
     pub loops: Vec<(u8, u32, u32, String)>,
+    /// The track colour (`COLOR`), as Serato stores it: RGB.
     pub colour: [u8; 3],
     /// Memory cues (Serato has none) and cues past the eighth pad or loop slot.
     pub left_out: usize,

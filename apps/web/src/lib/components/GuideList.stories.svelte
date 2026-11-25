@@ -3,7 +3,7 @@
 	import { expect, userEvent, within } from 'storybook/test';
 	import { desktop, phone } from '#lib/testing/viewports.ts';
 	import { findTool } from '#lib/tools/index.ts';
-	import GuideList from './GuideList.svelte';
+	import GuideList from './GuideList.page-only.svelte';
 
 	// As the tool pages' load lists them: localtoolbox's real guides.
 	const guides = (findTool('localtoolbox')?.docs ?? []).map(({ slug, title }) => ({ slug, title }));

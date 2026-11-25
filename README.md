@@ -32,18 +32,23 @@ The repo root is both the pnpm workspace and the Cargo workspace, so commands ru
 
 ## Working on it
 
-The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](https://pnpm.io/installation). [fnm](https://github.com/Schniz/fnm) picks up `.node-version` for you: run `fnm install`, then `fnm use`, or set up its shell hook (`eval "$(fnm env --use-on-cd)"`) to switch on `cd`. The website's local network needs Docker (or OrbStack) running.
+The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](https://pnpm.io/installation). [fnm](https://github.com/Schniz/fnm) picks up `.node-version` for you: run `fnm install`, then `fnm use`, or set up its shell hook (`eval "$(fnm env --use-on-cd --version-file-strategy=recursive)"`) to switch on `cd`, which finds the root's `.node-version` from any folder in the repo. The website's local network needs Docker (or OrbStack) running.
 
 ```bash
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
-pnpm verify                  # each app's format, lint, type check, tests and build, the root's own (pnpm *:tools), knip over the whole repo, and the lexicons' format
+pnpm verify                  # each app's format, lint, type check, unit tests and build, the root's format, lint and type checks (pnpm *:tools, but not test:tools), knip, and the lexicons' format
+pnpm verify:rust             # what Rust CI checks: fmt, cargo-shear, clippy (for Windows too, when set up), the sidecar's commands, the doctests, docs, dist's plan and nextest
+pnpm verify:repo             # the repo's own checks: the policies, ast-grep, the tools' tests, Bombadil's types, ShellCheck, typos, taplo, goat and lychee
+pnpm verify:changed          # only the verify scripts the branch's changes call for, picked by ci.yml's filters
 pnpm atstore                 # each tool's AT Store icon, hero and screenshots, and the website's tool captures (packages/atstore)
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 
 cargo build                  # locallibrary
-cargo test --workspace --locked
+cargo nextest run --workspace --locked
 ```
+
+A `NODE_MODULE_VERSION` error means better-sqlite3 was built for another Node.js: run `fnm use` at the repo root, then `pnpm rebuild better-sqlite3`.
 
 The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, Lighthouse on every page of the website against its history, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails opens an issue, which the next one that passes closes.
 

@@ -33,7 +33,7 @@ fn clicks(rate: u32, bpm: f64, secs: f64) -> Vec<f64> {
 /// A click track at any tempo DJs play is heard at that tempo, or at half or double it (the
 /// octave errors every tempo estimator makes).
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn click_tracks_are_heard_at_their_tempo(tc: TestCase) {
+fn prop_click_tracks_are_heard_at_their_tempo(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), 44_100, &clicks(44_100, bpm, 8.0));
@@ -51,7 +51,7 @@ fn click_tracks_are_heard_at_their_tempo(tc: TestCase) {
 /// LUFS and its peak in dBFS are its level in dB, it has no loudness range and doesn't clip.
 /// Only what's asked for is measured, and the length is the file's either way.
 #[hegel::test(test_cases = 6)]
-fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
+fn prop_a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
     let level = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(0.95));
     let rate = tc.draw(gs::sampled_from(vec![44_100, 48_000]));
     let secs = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(1.5));
@@ -83,7 +83,7 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 // A last column of one sample, and a last column filled exactly.
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 2_048usize, level = 0.5f64)]
-fn files_are_analysed_for_what_is_asked(tc: TestCase) {
+fn prop_files_are_analysed_for_what_is_asked(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![8, 15, 16, 22_050, 44_100, 3_000_000]));
     // Up to a quarter of a second, and a few frames at least.
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value((rate as usize / 4).clamp(3, 4_000)));

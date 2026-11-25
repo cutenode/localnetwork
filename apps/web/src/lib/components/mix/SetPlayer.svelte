@@ -6,7 +6,7 @@
 	import { type PlayerSource, type PlayerTrack, trackAt } from '#lib/mix/source.ts';
 	import { follow, type Widget } from '#lib/mix/widgets.ts';
 	import Button from '#lib/ui/Button.svelte';
-	import MixEmbed from './MixEmbed.svelte';
+	import MixEmbed from './MixEmbed.page-only.svelte';
 
 	/**
 	 * A set's recording, following its tracklist. `load` asks where it plays (the server decides, by preference: see

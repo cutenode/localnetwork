@@ -86,7 +86,7 @@ fn packs_chosen_playlists_and_updates_incrementally() {
 /// A playlist whose folder isn't in the database (a damaged or hand-edited export can hold one)
 /// isn't packed, nor are its tracks, unless it was chosen.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_playlist_whose_folder_is_gone_is_packed_only_when_chosen(tc: hegel::TestCase) {
+fn prop_a_playlist_whose_folder_is_gone_is_packed_only_when_chosen(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let src_root = common::bigger_drive(dir.path(), "Main");
     let l = lib(&src_root);

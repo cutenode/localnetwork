@@ -36,7 +36,7 @@ fn without_colours_it_is_said_with_reverse_video_and_numbers() {
 /// Every colour has an xterm colour from the cube or the grey ramp (not the 16 the terminal
 /// redefines), and it's no further off than the nearest in the cube.
 #[hegel::test(test_cases = 300)]
-fn every_colour_has_a_near_xterm_colour(tc: hegel::TestCase) {
+fn prop_every_colour_has_a_near_xterm_colour(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let c = [0; 3].map(|_| tc.draw(gs::integers::<u8>()));
     let i = xterm256(c[0], c[1], c[2]);
@@ -60,7 +60,7 @@ fn every_colour_has_a_near_xterm_colour(tc: hegel::TestCase) {
 /// none. Then only COLORFGBG's last field counts: light grey and the bright colours (7,
 /// 9-15) are a light background, and anything else, or nothing, is dark.
 #[hegel::test(test_cases = 300)]
-fn the_mode_is_what_the_environment_asks_for(tc: hegel::TestCase) {
+fn prop_the_mode_is_what_the_environment_asks_for(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let maybe = |s: String| tc.draw(gs::booleans()).then_some(s);
     let no_color = maybe(tc.draw(gs::sampled_from(&["", "1", "0"][..])).to_string());
@@ -97,7 +97,7 @@ fn the_mode_is_what_the_environment_asks_for(tc: hegel::TestCase) {
 /// other kind (every phrase rekordbox doesn't name the same) its own; a track's colour shows as a
 /// dot in it, or without colours as its number.
 #[hegel::test(test_cases = 100)]
-fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) {
+fn prop_phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::anlz::PhraseKind;
     let kind = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(7)) {

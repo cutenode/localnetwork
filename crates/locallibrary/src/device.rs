@@ -638,7 +638,7 @@ impl Device {
         if self.has_device_library() {
             pdb::read_library(&self.path(paths::EXPORT_PDB))
         } else if self.has_library_plus() {
-            self.library_plus()?.library()
+            Ok(self.library_plus()?.library()?)
         } else {
             Err(Error::NotAnExport(self.root.clone()))
         }
@@ -646,7 +646,7 @@ impl Device {
 
     /// The OneLibrary database, decrypted for reading or editing.
     pub fn library_plus(&self) -> Result<OneLibrary> {
-        OneLibrary::open(self)
+        crate::onelibrary::open_root(&self.root)
     }
 
     /// How the two databases differ, if the drive has both. `export.pdb`'s library can be passed
@@ -663,7 +663,7 @@ impl Device {
                 &read
             }
         };
-        Some(match self.library_plus().and_then(|one| one.library()) {
+        Some(match self.library_plus().and_then(|one| Ok(one.library()?)) {
             Ok(plus) => LibraryDrift::between(pdb, &plus),
             Err(e) => LibraryDrift { error: Some(e.to_string()), ..Default::default() },
         })

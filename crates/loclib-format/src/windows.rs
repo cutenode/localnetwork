@@ -1,0 +1,322 @@
+//! Windows: the Storage cmdlets (PowerShell) partition the disk and create exFAT. FAT32 is
+//! written by [`super::fat32`], because Windows refuses to create FAT32 volumes above 32 GB.
+//! Needs an elevated (administrator) process.
+//!
+//! What's public here is for other code that drives Windows' tools: quoting a string for a
+//! PowerShell script, and a drive root's letter.
+
+use std::path::{Path, PathBuf};
+
+use base64::prelude::*;
+use loclib_equipment::FsKind;
+use loclib_progress::{Ctx, Phase};
+use serde_json::Value;
+
+use super::{Cmd, Disk, Filesystem, Scheme, Target, Volume, fat32, json};
+use crate::{Error, Result};
+
+/// The new volume gets a drive letter.
+pub(crate) const MOUNTS_AFTER_FORMAT: bool = true;
+
+const LIST_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$disks = @(Get-Disk | ForEach-Object {
+  $d = $_
+  $parts = @(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue | ForEach-Object {
+    $v = $null
+    try { $v = $_ | Get-Volume -ErrorAction Stop } catch {}
+    [pscustomobject]@{
+      Number = $_.PartitionNumber; Offset = $_.Offset; Size = $_.Size; DriveLetter = [string]$_.DriveLetter
+      Guid = [string]$_.Guid; FileSystem = [string]$v.FileSystem; Label = [string]$v.FileSystemLabel
+      AllocationUnitSize = $v.AllocationUnitSize
+    }
+  })
+  [pscustomobject]@{
+    Number = $d.Number; FriendlyName = [string]$d.FriendlyName; SerialNumber = [string]$d.SerialNumber
+    Size = $d.Size; LogicalSectorSize = $d.LogicalSectorSize; BusType = [string]$d.BusType
+    IsBoot = [bool]$d.IsBoot; IsSystem = [bool]$d.IsSystem; IsReadOnly = [bool]$d.IsReadOnly
+    PartitionStyle = [string]$d.PartitionStyle; Partitions = $parts
+  }
+})
+ConvertTo-Json -InputObject $disks -Depth 5 -Compress
+"#;
+
+/// Run a script with Windows PowerShell. `-EncodedCommand` (UTF-16LE, base64) avoids both
+/// quoting and `-Command -`'s line-by-line reading of standard input.
+pub(crate) fn powershell(script: &str) -> Cmd {
+    let script = format!("$ProgressPreference = 'SilentlyContinue'\n{script}");
+    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let encoded = BASE64_STANDARD.encode(&utf16);
+    Cmd::new(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded],
+    )
+}
+
+fn all_disks() -> Result<Vec<Disk>> {
+    parse_disks(&powershell(LIST_SCRIPT).run()?)
+}
+
+/// The disks in what [`LIST_SCRIPT`] prints.
+fn parse_disks(text: &str) -> Result<Vec<Disk>> {
+    let v: Value = serde_json::from_str(text.trim()).map_err(|e| Error::parse("Get-Disk output", e))?;
+    Ok(json::array(Some(&v)).into_iter().map(parse_disk).collect())
+}
+
+pub(crate) fn list() -> Result<Vec<Disk>> {
+    all_disks()
+}
+
+pub(crate) fn by_id(spec: &str) -> Result<Option<Disk>> {
+    let s = spec.trim_start_matches(r"\\.\");
+    let Some(n) = s.strip_prefix("PhysicalDrive").or_else(|| s.strip_prefix("PHYSICALDRIVE")) else { return Ok(None) };
+    let n: u32 = n.parse().map_err(|_| Error::invalid(format!("not a disk: {spec:?}")))?;
+    Ok(all_disks()?.into_iter().find(|d| d.id == format!("PhysicalDrive{n}")))
+}
+
+/// Windows doesn't say, so a plan goes by the drive alone.
+pub(crate) fn link_speed(_: &Disk) -> Option<u64> {
+    None
+}
+
+pub(crate) fn by_mount(path: &Path) -> Result<Disk> {
+    let letter = root_letter(path)?;
+    all_disks()?
+        .into_iter()
+        .find(|d| d.volumes.iter().any(|v| v.mount.as_deref().and_then(drive_letter) == Some(letter)))
+        .ok_or_else(|| Error::NotFound(format!("the disk holding {}", path.display())))
+}
+
+/// The letter of the drive whose root is `root` (`E:\` -> `E`), refusing any other path.
+pub fn root_letter(root: &Path) -> Result<char> {
+    drive_letter(root)
+        .ok_or_else(|| Error::invalid(format!("{} is not the root of a drive (like E:\\)", root.display())))
+}
+
+/// `E:\` -> `E` (only for drive roots).
+fn drive_letter(path: &Path) -> Option<char> {
+    let s = path.to_string_lossy();
+    let s = s.trim_start_matches(r"\\?\");
+    let mut c = s.chars();
+    let letter = c.next().filter(char::is_ascii_alphabetic)?;
+    (c.next() == Some(':') && c.all(|c| c == '\\' || c == '/')).then(|| letter.to_ascii_uppercase())
+}
+
+pub(super) fn parse_disk(d: &Value) -> Disk {
+    let number = json::u64(d, "Number").unwrap_or(u64::MAX);
+    let bus = json::str(d, "BusType");
+    let removable = matches!(bus.as_deref(), Some("USB" | "SD" | "MMC"));
+    let virtual_disk = matches!(bus.as_deref(), Some("File Backed Virtual" | "Virtual"));
+    let volumes = json::array(d.get("Partitions"))
+        .into_iter()
+        .map(|p| {
+            let letter = json::str(p, "DriveLetter").and_then(|l| l.chars().next()).filter(char::is_ascii_alphabetic);
+            let fs = json::str(p, "FileSystem");
+            Volume {
+                id: format!("{number}:{}", json::u64(p, "Number").unwrap_or(0)),
+                size: json::u64(p, "Size").unwrap_or(0),
+                filesystem: fs.as_deref().map(|f| match f {
+                    "FAT32" => FsKind::Fat32,
+                    "FAT" => FsKind::Fat16,
+                    "exFAT" => FsKind::Exfat,
+                    "NTFS" => FsKind::Ntfs,
+                    _ => FsKind::Other,
+                }),
+                filesystem_name: fs,
+                label: json::str(p, "Label"),
+                mount: letter.map(|l| PathBuf::from(format!("{l}:\\"))),
+                cluster_size: json::u64(p, "AllocationUnitSize").filter(|&n| n > 0),
+                uuid: json::str(p, "Guid"),
+            }
+        })
+        .collect();
+    Disk {
+        id: format!("PhysicalDrive{number}"),
+        device: format!(r"\\.\PhysicalDrive{number}"),
+        model: json::str(d, "FriendlyName").unwrap_or_default(),
+        serial: json::str(d, "SerialNumber"),
+        size: json::u64(d, "Size").unwrap_or(0),
+        sector_size: json::u64(d, "LogicalSectorSize").unwrap_or(512) as u32,
+        removable: removable || virtual_disk,
+        internal: !removable && !virtual_disk,
+        system: json::bool(d, "IsBoot") || json::bool(d, "IsSystem"),
+        virtual_disk,
+        read_only: json::bool(d, "IsReadOnly"),
+        bus,
+        scheme: match json::str(d, "PartitionStyle").as_deref() {
+            Some("MBR") => Some(Scheme::Mbr),
+            Some("GPT") => Some(Scheme::Gpt),
+            Some("RAW") | None => None,
+            Some(_) => Some(Scheme::Other),
+        },
+        volumes,
+    }
+}
+
+pub(crate) fn supports(fs: Filesystem) -> Result<()> {
+    if fs == Filesystem::Hfsplus {
+        return Err(Error::invalid("Windows can't create HFS+ volumes; use FAT32 or exFAT, or format on a Mac"));
+    }
+    Ok(())
+}
+
+/// `s` as a PowerShell string that takes it as it is.
+pub fn quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Repartition (one MBR partition) and create exFAT; print the new partition as JSON. For a
+/// FAT32 target the exFAT volume is a placeholder that gives the partition a drive letter
+/// without Windows offering to format a RAW volume; it is replaced right after. First, the disk
+/// under that number must still be the planned one (its size and serial) and not the system's.
+fn partition_script(disk: &Disk, t: &Target) -> String {
+    let n = disk.id.trim_start_matches("PhysicalDrive");
+    let (mbr_type, cluster) = match t.filesystem {
+        Filesystem::Fat32 => ("FAT32", String::new()),
+        _ => ("IFS", format!(" -AllocationUnitSize {}", t.cluster_size)),
+    };
+    format!(
+        r#"$ErrorActionPreference = 'Stop'
+$n = {n}
+$d = Get-Disk -Number $n
+if ($d.IsBoot -or $d.IsSystem) {{ throw 'the disk holds the running system' }}
+if ([uint64]$d.Size -ne {size} -or ([string]$d.SerialNumber).Trim().Trim([char]0) -ne {serial}) {{ throw 'this is not the disk that was planned' }}
+if ($d.IsReadOnly) {{ throw 'the disk is write-protected' }}
+if ($d.IsOffline) {{ Set-Disk -Number $n -IsOffline $false }}
+if ($d.PartitionStyle -ne 'RAW') {{ Clear-Disk -Number $n -RemoveData -RemoveOEM -Confirm:$false }}
+Initialize-Disk -Number $n -PartitionStyle MBR
+$p = New-Partition -DiskNumber $n -UseMaximumSize -MbrType {mbr_type}
+$null = Format-Volume -Partition $p -FileSystem exFAT -NewFileSystemLabel {label}{cluster} -Force -Confirm:$false
+$p = Get-Partition -DiskNumber $n -PartitionNumber $p.PartitionNumber
+if ([int]$p.DriveLetter -eq 0) {{ $p | Add-PartitionAccessPath -AssignDriveLetter; $p = Get-Partition -DiskNumber $n -PartitionNumber $p.PartitionNumber }}
+ConvertTo-Json -Compress -InputObject ([pscustomobject]@{{ DriveLetter = [string]$p.DriveLetter; Offset = $p.Offset; Size = $p.Size }})
+"#,
+        label = quote(&t.label),
+        size = disk.size,
+        serial = quote(disk.serial.as_deref().unwrap_or("")),
+    )
+}
+
+pub(crate) fn steps(disk: &Disk, t: &Target) -> Result<Vec<String>> {
+    let mut out = vec![format!(
+        "PowerShell: Clear-Disk, Initialize-Disk -PartitionStyle MBR, New-Partition -UseMaximumSize, Format-Volume -FileSystem exFAT{} on disk {}",
+        if t.filesystem == Filesystem::Exfat {
+            format!(" -AllocationUnitSize {}", t.cluster_size)
+        } else {
+            String::new()
+        },
+        disk.id.trim_start_matches("PhysicalDrive")
+    )];
+    if t.filesystem == Filesystem::Fat32 {
+        out.push(format!("write FAT32 ({} KB clusters) over the new volume", t.cluster_size / 1024));
+    }
+    Ok(out)
+}
+
+pub(crate) fn format(disk: &Disk, t: &Target, ctx: &Ctx<'_>) -> Result<Option<PathBuf>> {
+    super::require_write_access(&disk.device, "run it as an administrator")?;
+    ctx.phase_start(Phase::Format, 0, 0);
+    let out = powershell(&partition_script(disk, t)).run()?;
+    ctx.phase_end(Phase::Format);
+    let p: Value = serde_json::from_str(out.trim()).map_err(|e| Error::parse("New-Partition output", e))?;
+    let letter =
+        json::str(&p, "DriveLetter").and_then(|l| l.chars().next()).filter(char::is_ascii_alphabetic).ok_or_else(
+            || Error::External { command: "Add-PartitionAccessPath".into(), message: "no drive letter".into() },
+        )?;
+    if t.filesystem == Filesystem::Fat32 {
+        let offset = json::u64(&p, "Offset").unwrap_or(super::PARTITION_START);
+        let size = json::u64(&p, "Size").unwrap_or_else(|| disk.partition_size());
+        let layout =
+            fat32::Layout::new(size, disk.sector_size, t.cluster_size, (offset / u64::from(disk.sector_size)) as u32)?;
+        ctx.phase_start(Phase::Format, 0, layout.bytes_written());
+        write_fat32(letter, &layout, &t.label, ctx)?;
+        ctx.phase_end(Phase::Format);
+    }
+    let root = PathBuf::from(format!("{letter}:\\"));
+    // The first access mounts the new file system.
+    let _ = std::fs::read_dir(&root);
+    Ok(Some(root))
+}
+
+#[cfg(windows)]
+fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>) -> Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    let path = format!(r"\\.\{letter}:");
+    // FILE_FLAG_WRITE_THROUGH: each write reaches the disk before it returns. The volume can't be
+    // flushed once it's dismounted (that fails as "The device is not ready"), and writes to a
+    // volume handle skip the cache already, so this is all the flushing they need.
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(0x8000_0000)
+        .open(&path)
+        .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
+    // Explorer and indexers open new volumes briefly; retry the lock for a few seconds.
+    let mut tries = 0;
+    while let Err(e) = ffi::ioctl(f.as_raw_handle(), ffi::FSCTL_LOCK_VOLUME) {
+        tries += 1;
+        if tries == 40 {
+            return Err(Error::External {
+                command: format!("locking {path}"),
+                message: format!("{e} (close programs using the drive)"),
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    ffi::ioctl(f.as_raw_handle(), ffi::FSCTL_DISMOUNT_VOLUME)
+        .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
+    let volume_id = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().expect("4 bytes"));
+    fat32::write(&mut f, 0, layout, label, volume_id, ctx)?;
+    // Closing the handle unlocks the volume; Windows mounts it as FAT32 on the next access.
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn write_fat32(_: char, _: &fat32::Layout, _: &str, _: &Ctx<'_>) -> Result<()> {
+    Err(Error::invalid("raw volume access is only implemented on Windows"))
+}
+
+#[cfg(windows)]
+mod ffi {
+    use std::ffi::c_void;
+
+    pub const FSCTL_LOCK_VOLUME: u32 = 0x0009_0018;
+    pub const FSCTL_DISMOUNT_VOLUME: u32 = 0x0009_0020;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn DeviceIoControl(
+            device: *mut c_void,
+            code: u32,
+            in_buffer: *const c_void,
+            in_size: u32,
+            out_buffer: *mut c_void,
+            out_size: u32,
+            returned: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
+    }
+
+    pub fn ioctl(handle: *mut c_void, code: u32) -> std::io::Result<()> {
+        let mut returned = 0u32;
+        // SAFETY: a valid handle owned by the caller, no buffers, synchronous call.
+        let ok = unsafe {
+            DeviceIoControl(
+                handle,
+                code,
+                std::ptr::null(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut returned,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok != 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    }
+}
+
+#[cfg(test)]
+mod tests;

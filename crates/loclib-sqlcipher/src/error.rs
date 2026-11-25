@@ -16,4 +16,5 @@ pub enum Error {
     NoRandomness(getrandom::Error),
 }
 
+/// A `Result` whose error defaults to this crate's [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;

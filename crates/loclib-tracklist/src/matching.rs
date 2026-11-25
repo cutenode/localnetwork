@@ -16,6 +16,7 @@ use crate::{Entry, Format};
 pub enum MatchKind {
     /// Same file (by its trailing path components).
     Path,
+    /// Same ISRC.
     Isrc,
     /// Same normalised artist and title, durations within 2 seconds.
     ArtistTitleDuration,
@@ -29,23 +30,30 @@ pub enum MatchKind {
     Chosen,
 }
 
+/// Whether an entry was found in the library.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Status {
+    /// One track matches.
     Found {
+        /// The library track's id.
         track_id: u32,
+        /// How it was matched.
         how: MatchKind,
     },
     /// Needs a decision: several tracks fit equally well, or the only candidates are weak.
     /// Best first.
     Ambiguous {
+        /// The candidate tracks' ids.
         candidates: Vec<u32>,
     },
+    /// No track in the library fits.
     Missing,
 }
 
 impl Status {
+    /// The matched track's id, or `None` unless the entry was [found](Status::Found).
     pub fn track_id(&self) -> Option<u32> {
         match self {
             Status::Found { track_id, .. } => Some(*track_id),
@@ -54,25 +62,34 @@ impl Status {
     }
 }
 
+/// A tracklist entry and what matching found for it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Matched {
+    /// The entry as the list describes it.
     pub entry: Entry,
+    /// Whether it was found, and which track it is.
     #[serde(flatten)]
     pub status: Status,
 }
 
+/// How many of a tracklist's entries were found, need a decision, or are missing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schemars", schemars(rename = "ImportSummary"))]
 pub struct Summary {
+    /// How many entries the list has.
     pub entries: usize,
+    /// How many matched one track.
     pub found: usize,
+    /// How many need a decision between candidates.
     pub ambiguous: usize,
+    /// How many matched nothing.
     pub missing: usize,
 }
 
 impl Summary {
+    /// Counts the statuses of `matched`.
     pub fn of(matched: &[Matched]) -> Summary {
         let mut s = Summary { entries: matched.len(), ..Default::default() };
         for m in matched {
@@ -90,12 +107,16 @@ impl Summary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Report {
+    /// The format the tracklist was read as.
     pub format: Format,
+    /// The counts of `entries` by status.
     pub summary: Summary,
+    /// Every entry, in the list's order, with what matching found.
     pub entries: Vec<Matched>,
 }
 
 impl Report {
+    /// A report on `entries`, with their summary counted.
     pub fn new(format: Format, entries: Vec<Matched>) -> Report {
         Report { format, summary: Summary::of(&entries), entries }
     }
@@ -135,6 +156,7 @@ pub struct Matcher<'a> {
 }
 
 impl<'a> Matcher<'a> {
+    /// Indexes every track of `lib`.
     pub fn new(lib: &'a Library) -> Matcher<'a> {
         let n = lib.tracks.len();
         let mut m = Matcher {

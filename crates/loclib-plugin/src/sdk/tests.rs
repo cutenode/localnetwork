@@ -646,7 +646,7 @@ fn protocol(tc: &TestCase) -> String {
 /// it has, the plugin answers who it is, refuses another `hello`, describes itself with exactly
 /// the manifest it serves, and doesn't know any other method.
 #[hegel::test(test_cases = 25)]
-fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
+fn prop_hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
     let mut manifest = echo_manifest();
     manifest.id = tc.draw(gs::from_regex("[a-z][a-z0-9_-]{0,11}"));
     manifest.name = tc.draw(gs::text().min_size(1).max_size(12));
@@ -927,7 +927,7 @@ fn hook_request(tc: &TestCase, hook: usize, name: &str) -> (Value, Value) {
 /// params that read: params that don't are refused saying where, an undeclared name saying what
 /// isn't declared, and one that panics still answers. The rest answer what the plugin does.
 #[hegel::test(test_cases = 25)]
-fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
+fn prop_hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     let plugin = tc.draw(gs::sampled_from(vec!["answers", "bare", "panics"]));
     let s = match plugin {
         "answers" => greeted(answers()),
@@ -1073,7 +1073,7 @@ fn step(id: &str) -> Value {
 /// each event with the step it's in: everything but items at once, and items coalesced, so a run
 /// of them comes as one or more reports that add up to it and end with its last.
 #[hegel::test(test_cases = 25)]
-fn a_hooks_progress_reaches_the_host_in_order_before_its_answer(tc: TestCase) {
+fn prop_a_hooks_progress_reaches_the_host_in_order_before_its_answer(tc: TestCase) {
     let s = greeted(answers());
     let entry = gs::one_of(vec![
         gs::from_regex("warn:[a-z ]{0,6}").boxed(),
@@ -1136,7 +1136,7 @@ fn merged(reports: Vec<Value>) -> Vec<Value> {
 /// answers. Hooks still waiting when the host closes the plugin's input fail with `closed`, and
 /// the plugin stops once they have answered.
 #[hegel::test(test_cases = 25)]
-fn cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
+fn prop_cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
     let s = greeted(answers());
     let hooks = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let closing = tc.draw(gs::integers::<usize>().max_value(2));
@@ -1178,7 +1178,7 @@ fn cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
 /// which it may use (`accounts/ensure`, its request as the host gets it), and answers what the host
 /// does, which scopes are granted and which declined, or its error, as it is.
 #[hegel::test(test_cases = 25)]
-fn a_hook_asks_the_host_which_scopes_of_an_account_it_may_use(tc: TestCase) {
+fn prop_a_hook_asks_the_host_which_scopes_of_an_account_it_may_use(tc: TestCase) {
     let scopes: Vec<String> =
         ["read", "write", "upload"].into_iter().filter(|_| tc.draw(gs::booleans())).map(String::from).collect();
     let access = tc.draw(gs::optional(gs::sampled_from(vec!["0a1b2c3d".to_string()])));
@@ -1238,7 +1238,7 @@ fn a_hook_fetches_through_the_host_and_sends_its_rows_in_parts() {
 /// server picks: it asks the host (`atmosphere/put_record`, its request as the host gets it) and
 /// answers what the host does, the record's URI and CID, or its error, as it is.
 #[hegel::test(test_cases = 25)]
-fn a_hook_writes_a_record_through_the_host(tc: TestCase) {
+fn prop_a_hook_writes_a_record_through_the_host(tc: TestCase) {
     let rkey = tc.draw(gs::optional(gs::sampled_from(vec!["self".to_string(), "3lzy2ji4nms2z".into()])));
     let cid = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm".to_string();
     let swap = rkey.as_ref().and(tc.draw(gs::optional(gs::just(cid.clone()))));

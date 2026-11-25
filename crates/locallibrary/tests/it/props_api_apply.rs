@@ -25,7 +25,7 @@ use locallibrary::{Error, paths};
 #[hegel::explicit_test_case(library = Some("main"), new_library = false, label = Some("   "))]
 #[hegel::explicit_test_case(library = None::<&str>, new_library = false, label = Some("Friday"))]
 #[hegel::explicit_test_case(library = Some("Main"), new_library = true, label = Some(" after the gig "))]
-fn a_pull_is_labelled_unless_its_library_or_label_is_wrong(tc: TestCase) {
+fn prop_a_pull_is_labelled_unless_its_library_or_label_is_wrong(tc: TestCase) {
     let library = tc.draw(gs::optional(gs::sampled_from(vec!["Main", "main", "Radio"])));
     let new_library = tc.draw(gs::booleans());
     let label = tc.draw(gs::optional(gs::sampled_from(vec!["", "   ", "Friday", "friday", " after the gig "])));
@@ -82,7 +82,7 @@ fn a_pull_is_labelled_unless_its_library_or_label_is_wrong(tc: TestCase) {
 /// holds every track; importing settings from a drive with none is refused, and so is writing
 /// settings with no drive mounted.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn operations_applied_in_one_go_do_what_their_plans_say(tc: TestCase) {
+fn prop_operations_applied_in_one_go_do_what_their_plans_say(tc: TestCase) {
     let sample = tc.draw(gs::booleans());
     let in_one_go = tc.draw(gs::booleans());
     let replace = tc.draw(gs::booleans());

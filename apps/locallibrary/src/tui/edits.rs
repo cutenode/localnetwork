@@ -15,8 +15,9 @@ use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, EditRequest};
 use locallibrary::collection_export::{CollectionExportOptions, CollectionExportPlan};
-use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
+use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::model::TrackColor;
+use locallibrary::model::TrackFields;
 use locallibrary::op::{AnyPlanned, Planned};
 use locallibrary::plugin::{PluginCommand, PluginExport};
 use locallibrary::progress::{Event, Phase, Progress};

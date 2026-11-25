@@ -276,7 +276,7 @@ fn applied_by(method: &str, operation: &str) -> String {
 /// kept in; a plan of another operation is refused and stays; one from the other cache is refused
 /// saying what plan it is; any other id is stale.
 #[hegel::test(test_cases = 40)]
-fn plans_are_kept_and_taken_as_modelled(tc: TestCase) {
+fn prop_plans_are_kept_and_taken_as_modelled(tc: TestCase) {
     let plans = Plans::new();
     // (method that keeps or applies, operation) for each cache: the sidecar's own and plugins'.
     let theirs = [
@@ -349,7 +349,7 @@ fn plans_are_kept_and_taken_as_modelled(tc: TestCase) {
 /// method that isn't a listed read (a plan, an apply, a change, one the server answers itself, a
 /// hidden one, a name no method has) is not found: it never runs.
 #[hegel::test(test_cases = 40)]
-fn only_listed_reads_are_run_for_plugins(tc: TestCase) {
+fn prop_only_listed_reads_are_run_for_plugins(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     locallibrary::testing::volumes_on_this_thread(Some(vec![dir.path().to_path_buf()]));
     let store = dir.path().join("store");
@@ -393,7 +393,7 @@ fn only_listed_reads_are_run_for_plugins(tc: TestCase) {
 /// `plugins.import` for an import (`<plugin>.import.<format>`), `plugins.publish` for a set
 /// published (`<plugin>.publish.<destination>`) and `plugins.op` for anything else.
 #[hegel::test(test_cases = 100)]
-fn a_plan_is_applied_by_the_apply_of_its_kind(tc: TestCase) {
+fn prop_a_plan_is_applied_by_the_apply_of_its_kind(tc: TestCase) {
     let word = || gs::sampled_from(vec!["echo", "export", "import", "publish", "m3u", "playlist", "store", "gc", ""]);
     let parts = tc.draw(gs::vecs(word()).min_size(1).max_size(4));
     let operation = parts.join(".");
@@ -414,7 +414,7 @@ fn a_plan_is_applied_by_the_apply_of_its_kind(tc: TestCase) {
 /// and the drive it's about, and once the request is done the files counted for each drive and
 /// step add up to the ones there were, however they were coalesced.
 #[hegel::test(test_cases = 40)]
-fn progress_says_each_step_and_warning_where_it_was(tc: TestCase) {
+fn prop_progress_says_each_step_and_warning_where_it_was(tc: TestCase) {
     let (p, sink) = progress();
     let ctx = Ctx::new(&p, CancelToken::new());
     let ids = tc.draw(gs::subsequences(vec!["name", "library", "audio", "verify"]).min_size(1));
@@ -468,7 +468,7 @@ fn progress_says_each_step_and_warning_where_it_was(tc: TestCase) {
 /// `rpc.describe` asked about one method, by its name or an old one, describes that one, and asked
 /// about a name no method has, says there's no such method, naming it.
 #[hegel::test(test_cases = 40)]
-fn describe_answers_for_the_method_named(tc: TestCase) {
+fn prop_describe_answers_for_the_method_named(tc: TestCase) {
     let (s, sink) = server();
     let names: Vec<&str> = registry().names().into_iter().collect();
     let known = tc.draw(gs::booleans());

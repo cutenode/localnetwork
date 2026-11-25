@@ -55,7 +55,7 @@ fn plain_words(tc: &TestCase, max: usize) -> Vec<String> {
 /// Folding ignores case, accents (composed or not), apostrophes, dots, and how words are
 /// spaced or punctuated apart; "&" is "and"; and folding twice changes nothing.
 #[hegel::test(test_cases = 300)]
-fn folding_ignores_spelling(tc: TestCase) {
+fn prop_folding_ignores_spelling(tc: TestCase) {
     let words = plain_words(&tc, 5);
     let plain = words.join(" ");
     let mut messy = String::new();
@@ -87,7 +87,7 @@ fn folding_ignores_spelling(tc: TestCase) {
 /// title is the same as without it, and a remix's distinct words are its remixer and
 /// "remix". Generic versions ("Original Mix", a year's remaster) make no different recording.
 #[hegel::test(test_cases = 300)]
-fn versions_split_off_the_title(tc: TestCase) {
+fn prop_versions_split_off_the_title(tc: TestCase) {
     let title = plain_words(&tc, 3).join(" ");
     let remixer = plain_words(&tc, 1).remove(0);
     let bare = Key::new(&title, "Someone", "", None);
@@ -129,7 +129,7 @@ fn versions_split_off_the_title(tc: TestCase) {
 /// A guest is credited the same whether the title says it (in brackets, after a dash or
 /// plainly) or the artist field does: the title is the song's, the artists both.
 #[hegel::test(test_cases = 300)]
-fn featured_artists_join_the_artists(tc: TestCase) {
+fn prop_featured_artists_join_the_artists(tc: TestCase) {
     let title = plain_words(&tc, 3).join(" ");
     let (artist, guest) = (plain_words(&tc, 2).join(" "), plain_words(&tc, 2).join(" "));
     tc.assume(artist != guest);
@@ -151,7 +151,7 @@ fn featured_artists_join_the_artists(tc: TestCase) {
 /// Artist credits split into their names at every separator credit lists use, each folded
 /// and without a leading "the", once each.
 #[hegel::test(test_cases = 300)]
-fn artist_credits_split_into_names(tc: TestCase) {
+fn prop_artist_credits_split_into_names(tc: TestCase) {
     let names: Vec<String> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
         .map(|_| plain_words(&tc, 2).join(" "))
         .collect();
@@ -190,7 +190,7 @@ fn artist_credits_split_into_names(tc: TestCase) {
 /// or more), not when two are in a shorter word, never when a digit differs, and nearness
 /// doesn't depend on the order of the two.
 #[hegel::test(test_cases = 300)]
-fn near_words_allow_one_typo(tc: TestCase) {
+fn prop_near_words_allow_one_typo(tc: TestCase) {
     let w: Vec<char> = tc.draw(gs::from_regex("[a-y]{5,12}").fullmatch(true)).chars().collect();
     let changed = |at: &[usize], to: char| -> String {
         w.iter().enumerate().map(|(i, &c)| if at.contains(&i) { to } else { c }).collect()
@@ -212,7 +212,7 @@ fn near_words_allow_one_typo(tc: TestCase) {
 /// Scores stay between 0 and 1, and anything with a title and an artist scores 1 against
 /// itself.
 #[hegel::test(test_cases = 300)]
-fn scores_peak_on_identity(tc: TestCase) {
+fn prop_scores_peak_on_identity(tc: TestCase) {
     let key = |tc: &TestCase| {
         let field = || gs::text().max_size(16);
         let duration = tc.draw(gs::optional(gs::integers::<u32>().max_value(900)));
@@ -231,7 +231,7 @@ fn scores_peak_on_identity(tc: TestCase) {
 /// "accapella" are "acapella" and "remastered" is "remaster", in any case and among any other
 /// words, which stay as they are.
 #[hegel::test(test_cases = 200)]
-fn version_word_spellings_are_one_token(tc: TestCase) {
+fn prop_version_word_spellings_are_one_token(tc: TestCase) {
     let variants = [("rmx", "remix"), ("acappella", "acapella"), ("accapella", "acapella"), ("remastered", "remaster")];
     let mut words = plain_words(&tc, 4);
     let at = tc.draw(gs::integers::<usize>().max_value(words.len()));
@@ -246,7 +246,7 @@ fn version_word_spellings_are_one_token(tc: TestCase) {
 
 /// ASCII skips taking accents apart and putting them back, and folds as if it hadn't.
 #[hegel::test(test_cases = 200)]
-fn ascii_folds_as_unicode_does(tc: hegel::TestCase) {
+fn prop_ascii_folds_as_unicode_does(tc: hegel::TestCase) {
     let s = tc.draw(hegel::generators::text().alphabet("aZ9 \t.&'`-\u{e9}\u{301}\u{2019}\u{fb01}").max_size(12));
     let mut out = String::new();
     for c in normalize(&s).nfd() {

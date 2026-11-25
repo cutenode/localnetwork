@@ -310,7 +310,7 @@ fn a_collection_that_cant_be_read_says_why_and_opens_nothing() {
 /// Moving through the sources stays on a row there is, one at a time, the collection first, and
 /// selecting a row past the last changes nothing.
 #[hegel::test(test_cases = 100)]
-fn moving_through_the_sources_stays_on_them(tc: hegel::TestCase) {
+fn prop_moving_through_the_sources_stays_on_them(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Library);
     app.focus = Focus::Drives;

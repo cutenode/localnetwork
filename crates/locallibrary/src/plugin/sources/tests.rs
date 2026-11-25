@@ -27,7 +27,7 @@ fn a_read_stops_past_its_beats_and_cues() {
 /// For any pages, a read goes on while their beats and cues come to at most the limit, and
 /// stops at the first page that takes them past it.
 #[hegel::test(test_cases = 100)]
-fn any_read_stops_at_the_page_past_the_limit(tc: hegel::TestCase) {
+fn prop_any_read_stops_at_the_page_past_the_limit(tc: hegel::TestCase) {
     let limit = tc.draw(gs::integers::<usize>().max_value(200));
     let pages: Vec<Vec<(usize, usize)>> = tc.draw(
         gs::vecs(

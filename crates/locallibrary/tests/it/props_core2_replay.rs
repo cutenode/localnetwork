@@ -16,7 +16,7 @@ use rekordbox_pdb::PdbEditor;
 #[hegel::explicit_test_case(kind = 0u8, name = "Renamed Crate".to_string())]
 #[hegel::explicit_test_case(kind = 1u8, name = "Renamed Crate".to_string())]
 #[hegel::explicit_test_case(kind = 2u8, name = "Renamed Crate".to_string())]
-fn a_replayed_edit_never_lands_on_another_playlist_of_its_name(tc: TestCase) {
+fn prop_a_replayed_edit_never_lands_on_another_playlist_of_its_name(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     let pdb = root.join(paths::EXPORT_PDB);

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use locallibrary::api::{self, RelocateRequest};
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, Problem, Section};
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::relocate::RelocateOptions;
 use locallibrary::{anlz, backup, paths, pdb};
@@ -103,7 +103,7 @@ fn missing_files_are_found_on_the_drive_and_in_folders_when_one_fits() {
     let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
     let t = lib.track(moved).unwrap();
     assert_eq!(t.file_path, "/Contents/Elsewhere/MOVED.wav");
-    let plus = OneLibrary::open_root(&root).unwrap().library().unwrap();
+    let plus = onelibrary::open_root(&root).unwrap().library().unwrap();
     assert!(plus.tracks.iter().any(|p| p.file_path == "/Contents/Elsewhere/MOVED.wav"));
     for ext in ["DAT", "EXT"] {
         let bytes = fs::read(at(&root, &t.analyze_path.replace("DAT", ext))).unwrap();

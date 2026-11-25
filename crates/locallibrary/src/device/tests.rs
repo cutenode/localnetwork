@@ -130,7 +130,7 @@ fn adopt_persists_identity() {
 /// again, and the file is left as it was, fields this version doesn't know included. One at this
 /// version or an older one opens.
 #[hegel::test(test_cases = 50)]
-fn a_newer_drive_state_is_refused_and_left_alone(tc: hegel::TestCase) {
+fn prop_a_newer_drive_state_is_refused_and_left_alone(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open(dir.path()).unwrap();
@@ -161,7 +161,7 @@ fn a_newer_drive_state_is_refused_and_left_alone(tc: hegel::TestCase) {
 /// The lineage keeps each state once in a row and the newest `MAX_LINEAGE`, whether states are
 /// recorded one by one or taken over from a drive copied onto this one.
 #[hegel::test(test_cases = 100)]
-fn the_lineage_keeps_the_newest_states_once_in_a_row(tc: hegel::TestCase) {
+fn prop_the_lineage_keeps_the_newest_states_once_in_a_row(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut s = DeviceState::new("x");
     let mut model: Vec<u8> = Vec::new();
@@ -204,7 +204,7 @@ fn the_lineage_keeps_the_newest_states_once_in_a_row(tc: hegel::TestCase) {
 /// putting a backup back takes it over, and so does anything after a write that made no backup
 /// and copied nothing; anything else is refused, saying what was cut off and what finishes it.
 #[hegel::test(test_cases = 200)]
-fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
+fn prop_an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let ops = vec![
         LineageOp::Sync,
@@ -268,7 +268,7 @@ fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(len = MAX_LINEAGE + 40, same_head = true)]
 #[hegel::explicit_test_case(len = MAX_LINEAGE, same_head = false)]
 #[hegel::explicit_test_case(len = 0usize, same_head = false)]
-fn a_drive_taken_over_keeps_the_newest_states(tc: hegel::TestCase) {
+fn prop_a_drive_taken_over_keeps_the_newest_states(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let len = tc.draw(gs::integers::<usize>().max_value(2 * MAX_LINEAGE));
     let same_head = tc.draw(gs::booleans());
@@ -297,7 +297,7 @@ fn a_drive_taken_over_keeps_the_newest_states(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 20)]
 #[hegel::explicit_test_case(states = 3u8, pending = true, export = false)]
 #[hegel::explicit_test_case(states = 0u8, pending = false, export = true)]
-fn a_formatted_drive_keeps_only_its_identity(tc: hegel::TestCase) {
+fn prop_a_formatted_drive_keeps_only_its_identity(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let states = tc.draw(gs::integers::<u8>().max_value(5));
     let pending = tc.draw(gs::booleans());
@@ -350,7 +350,7 @@ fn a_formatted_drive_keeps_only_its_identity(tc: hegel::TestCase) {
 /// folders hold volumes, but aren't volumes themselves, even when one holds another.
 #[hegel::test(test_cases = 30)]
 #[hegel::explicit_test_case(names = vec!["STICK", "usb0"], user = true, twice = true)]
-fn the_test_switch_shows_only_its_own_folders(tc: hegel::TestCase) {
+fn prop_the_test_switch_shows_only_its_own_folders(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let names: Vec<&str> =
         tc.draw(gs::vecs(gs::sampled_from(vec!["STICK", "usb0", "Main", "B"])).max_size(3).unique(true));
@@ -402,7 +402,7 @@ fn the_test_switch_shows_only_its_own_folders(tc: hegel::TestCase) {
 /// A lock file this user may not open is an error naming it, not a drive no one is writing.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6)]
-fn a_lock_that_cant_be_opened_is_an_error(tc: hegel::TestCase) {
+fn prop_a_lock_that_cant_be_opened_is_an_error(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::os::unix::fs::PermissionsExt;
     let mode = tc.draw(gs::sampled_from(vec![0o000u32, 0o200]));
@@ -434,7 +434,7 @@ fn a_lock_that_cant_be_opened_is_an_error(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 30)]
 #[hegel::explicit_test_case(key = "Contents/Out/a.mp3")]
 #[hegel::explicit_test_case(key = "Contents/../../etc/passwd")]
-fn a_key_from_a_database_stays_on_the_drive(tc: hegel::TestCase) {
+fn prop_a_key_from_a_database_stays_on_the_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let key = tc.draw(gs::sampled_from(vec![
         "Contents/a.mp3",
@@ -472,7 +472,7 @@ fn a_key_from_a_database_stays_on_the_drive(tc: hegel::TestCase) {
 /// keyed (as the collection names its files) is that path, on whichever drive it's on, there or
 /// not yet. A drive's root keeps the same key on the drive.
 #[hegel::test(test_cases = 20)]
-fn from_the_computers_root_a_full_path_is_itself(tc: hegel::TestCase) {
+fn prop_from_the_computers_root_a_full_path_is_itself(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let names =
         tc.draw(gs::vecs(gs::sampled_from(vec!["Music", "Only Here.mp3", "Daft Punk", "été"])).min_size(1).max_size(4));

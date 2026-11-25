@@ -11,7 +11,7 @@ use std::path::Path;
 use locallibrary::anlz;
 use locallibrary::api::{self, CueOp, EditCues, ListCues, TrackSelector};
 use locallibrary::cue_edit::{CuePosition, CueRef, HotCue, SetCue, UpdateCue};
-use locallibrary::onelibrary::{self, OneLibrary};
+use locallibrary::onelibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Device, Error, backup, fsutil, paths};
 
@@ -222,13 +222,13 @@ fn a_track_without_an_ext_keeps_every_cue_in_its_dat() {
 
 /// Run SQL against a drive's OneLibrary database and write it back.
 fn edit_onelibrary(root: &Path, sql: &str) {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = onelibrary::open_root(root).unwrap();
     one.connection().execute_batch(sql).unwrap();
     onelibrary::write(&Device::open(root).unwrap(), &one.to_encrypted().unwrap()).unwrap();
 }
 
 fn plus_rows(root: &Path, title: &str) -> Vec<(i64, i64, i64, i64, String, i64)> {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = onelibrary::open_root(root).unwrap();
     one.connection()
         .prepare(
             "SELECT c.cue_id, c.kind, c.inUsec, c.outUsec, c.cueComment, c.colorTableIndex FROM cue c
@@ -242,7 +242,7 @@ fn plus_rows(root: &Path, title: &str) -> Vec<(i64, i64, i64, i64, String, i64)>
 }
 
 fn bank_entries(root: &Path) -> Vec<(i64, i64)> {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = onelibrary::open_root(root).unwrap();
     one.connection()
         .prepare("SELECT cue_id, sequenceNo FROM hotCueBankList_cue ORDER BY sequenceNo")
         .unwrap()
@@ -266,7 +266,7 @@ fn onelibrary_rows_follow_and_keep_their_ids() {
     assert_eq!(report.onelibrary.unwrap().added, 1);
     let rows = plus_rows(&root, "Demo Track 1");
     assert_eq!(rows, [(1, 1, 25_000, -1, "Start".to_string(), 0x24)]);
-    let frames: i64 = OneLibrary::open_root(&root)
+    let frames: i64 = onelibrary::open_root(&root)
         .unwrap()
         .connection()
         .query_row("SELECT in150FramePerSec FROM cue WHERE cue_id = 1", [], |r| r.get(0))

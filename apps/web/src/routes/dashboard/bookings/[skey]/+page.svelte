@@ -6,7 +6,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { type BookingAction, bookingActions, bookingGroup, datePassed, isBookedSide } from '#lib/bookings.ts';
+	import { type BookingAction, bookingActions, bookingGroup, datePassed, isBookedSide } from '#lib/bookings.page-only.ts';
 	import { accountLabel, formatDateTime, formatShowDate, nightLabel } from '#lib/format.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
 	import { BOOKING_STATUSES, FEE_TIERS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';

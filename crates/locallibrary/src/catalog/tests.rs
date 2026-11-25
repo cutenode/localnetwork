@@ -21,7 +21,7 @@ enum Kept {
 /// store's is as new or newer, and kept, though both changed, otherwise. Only what's added or
 /// moved is recorded, at the other's latest.
 #[hegel::test(test_cases = 30)]
-fn a_library_follows_the_other_store_only_forwards(tc: TestCase) {
+fn prop_a_library_follows_the_other_store_only_forwards(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let library = Uuid::from_u128(7);

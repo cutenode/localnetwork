@@ -1,0 +1,8 @@
+"web":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/**"
+          - "packages/tokens/**"
+          - "flags/**"
+          - "docs/link-matrix.md"
+          - "docs/link-matrix/**"

@@ -35,7 +35,7 @@ fn register(store: &Store, d: &Device) {
 }
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn drives_stand_where_their_state_is_in_the_library_history(tc: TestCase) {
+fn prop_drives_stand_where_their_state_is_in_the_library_history(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let a = common::bigger_drive(dir.path(), "A");
@@ -101,7 +101,7 @@ fn drives_stand_where_their_state_is_in_the_library_history(tc: TestCase) {
 /// Renaming takes a name, and changes no volume label while the machine's drives are hidden;
 /// a name makes a volume label FAT holds (11 characters at most, upper case, never none).
 #[hegel::test(test_cases = 100)]
-fn names_and_labels(tc: TestCase) {
+fn prop_names_and_labels(tc: TestCase) {
     let name = tc.draw(gs::text().max_size(20));
     let label = fleet::volume_label(&name);
     assert!(!label.is_empty() && label.chars().count() <= 11, "{label:?} for {name:?}");
@@ -122,7 +122,7 @@ fn names_and_labels(tc: TestCase) {
 /// its own is refused, with the way to give it another; a drive with no export is recognised as
 /// nothing the store holds.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn identities_go_back_only_where_they_belong(tc: TestCase) {
+fn prop_identities_go_back_only_where_they_belong(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let a = common::bigger_drive(dir.path(), "A");
@@ -156,7 +156,7 @@ fn identities_go_back_only_where_they_belong(tc: TestCase) {
 /// role, retiring, forgetting it by name), or passes it by (the logbook's notes); either way the
 /// registry is as it was. A drive with no identity of its own can't be given a new one.
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
-fn changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
+fn prop_changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     // Now and then the registry holds another drive, which nothing here may touch.

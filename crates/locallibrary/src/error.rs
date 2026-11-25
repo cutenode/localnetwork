@@ -433,6 +433,33 @@ impl<T> IoContext<T> for io::Result<T> {
     }
 }
 
+// The player module reads and writes OneLibrary's `property` table through rusqlite itself.
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Error::OneLibrary(e.to_string())
+    }
+}
+
+impl From<loclib_rekordbox_db::Error> for Error {
+    fn from(e: loclib_rekordbox_db::Error) -> Self {
+        use loclib_rekordbox_db::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::WrongKey(_) => Error::invalid(e.to_string())
+                .because(Reason::WrongKey)
+                .with("env", loclib_rekordbox_db::masterdb::KEY_ENV)
+                .action(Action::retry(serde_json::json!({ "key": null }), "Give the key")),
+            E::Changing(_) => Error::Conflict(e.to_string()),
+            E::OneLibrary(message) => Error::OneLibrary(message),
+            E::NotFound(message) => Error::NotFound(message),
+            E::Exists(message) => Error::conflict(Reason::Exists, message),
+            // Invalid, and a variant a newer loclib-rekordbox-db adds, keep their message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 impl From<rekordbox_pdb::PdbError> for Error {
     fn from(e: rekordbox_pdb::PdbError) -> Self {
         Error::Pdb(e.to_string())
@@ -459,6 +486,25 @@ impl From<loclib_equipment::UnknownModels> for Error {
     fn from(e: loclib_equipment::UnknownModels) -> Self {
         let known: Vec<&str> = loclib_equipment::MODELS.iter().map(|m| m.name).collect();
         Error::invalid(format!("not a model locallibrary knows: {} (it knows {})", e.0.join(", "), known.join(", ")))
+    }
+}
+
+impl From<loclib_model::diff::NoSuchPlaylist> for Error {
+    fn from(e: loclib_model::diff::NoSuchPlaylist) -> Self {
+        // NotFound's own message starts "not found: ".
+        Error::NotFound(format!("playlist {:?} on either side", e.0))
+    }
+}
+
+impl From<loclib_drive_speed::Error> for Error {
+    fn from(e: loclib_drive_speed::Error) -> Self {
+        use loclib_drive_speed::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            // What the drive's own writes failed with (`impl Drive for Device`), as they gave it.
+            E::Drive(e) => e.downcast::<Error>().unwrap_or_else(|e| Error::invalid(e.to_string())),
+            E::Cancelled(_) => Error::Cancelled,
+        }
     }
 }
 
@@ -494,6 +540,16 @@ impl From<loclib_audio::Error> for Error {
     }
 }
 
+impl From<loclib_aup::Error> for Error {
+    fn from(e: loclib_aup::Error) -> Self {
+        use loclib_aup::Error as E;
+        match e {
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::Cancelled(_) => Error::Cancelled,
+        }
+    }
+}
+
 impl From<loclib_analysis::Error> for Error {
     fn from(e: loclib_analysis::Error) -> Self {
         use loclib_analysis::Error as E;
@@ -525,6 +581,22 @@ impl From<loclib_transcode::Error> for Error {
             E::Invalid(message) => Error::Invalid(message),
             E::Cancelled(_) => Error::Cancelled,
             // A variant a newer loclib-transcode adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<loclib_format::Error> for Error {
+    fn from(e: loclib_format::Error) -> Self {
+        use loclib_format::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::NotFound(what) => Error::NotFound(what),
+            E::External { command, message } => Error::External { command, message },
+            E::Permission(message) => Error::Permission(message),
+            E::Cancelled(_) => Error::Cancelled,
+            // Invalid, and a variant a newer loclib-format adds, keep their message.
             other => Error::Invalid(other.to_string()),
         }
     }

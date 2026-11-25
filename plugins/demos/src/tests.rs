@@ -183,7 +183,7 @@ fn prop_without_a_drive_it_knows_nothing_is_found_or_removed(tc: TestCase) {
 /// For any library, `clean` deletes exactly the files of the demo tracks no other track shares,
 /// each once, and the check names exactly those tracks; every other track's file is left out.
 #[hegel::test(test_cases = 100)]
-fn clean_deletes_exactly_the_demo_tracks_files(tc: TestCase) {
+fn prop_clean_deletes_exactly_the_demo_tracks_files(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(12));
     let names = || {
         gs::sampled_from(vec![

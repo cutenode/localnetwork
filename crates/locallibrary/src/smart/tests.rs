@@ -81,3 +81,48 @@ fn an_export_keeps_its_own_rules_for_its_drive() {
         ]
     );
 }
+
+/// Where a filter can say an intelligent playlist, it matches exactly the tracks the playlist's
+/// rules do, and it's a rule `smart add` takes.
+#[hegel::test(test_cases = 400)]
+fn prop_a_filter_matches_what_the_rules_match(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_rekordbox_db::masterdb::smartlist::SmartList;
+    use loclib_rekordbox_db::test_util::{KINDS, draw_condition, draw_track};
+
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
+    let tracks: Vec<crate::model::Track> = (1..=n).map(|i| draw_track(&tc, i)).collect();
+    let mut tags = crate::tags::TagsByTrack::default();
+    for t in &tracks {
+        let carried: Vec<&str> = tc.draw(gs::subsequences(&["Genre/Deep", "Situation/Peak", "genre/DEEP"]));
+        tags.by_id.insert(t.id, carried.into_iter().map(String::from).collect());
+    }
+    let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    // Of one property now and then, which a filter can say as alternatives when any one matches.
+    let one: Option<(usize, &str)> = tc.draw(gs::booleans()).then(|| {
+        let kind = tc.draw(gs::integers::<usize>().max_value(KINDS.len() - 1));
+        (kind, tc.draw(gs::sampled_from(KINDS[kind].0.to_vec())))
+    });
+    let conditions = (0..count)
+        .map(|_| match one {
+            Some((kind, property)) => draw_condition(&tc, kind, Some(property)),
+            None => draw_condition(&tc, tc.draw(gs::integers::<usize>().max_value(KINDS.len() - 1)), None),
+        })
+        .collect();
+    let list = SmartList { any: tc.draw(gs::booleans()), conditions };
+    let Ok(filter) = list.filter() else { return };
+    let parsed = crate::query::Filter::parse(&filter).unwrap_or_else(|e| panic!("{filter}: {e}"));
+    let rule =
+        SmartPlaylist { path: "Smart".into(), filter: filter.clone(), sort: None, limit: None, drives: Vec::new() };
+    rule.validate(&Default::default()).unwrap();
+    let library = crate::model::Library { tracks, ..Default::default() };
+    let ctx = crate::query::QueryContext::new(&library).with_tags(&tags);
+    for t in &library.tracks {
+        let own = tags.of(t);
+        assert_eq!(
+            parsed.matches(t, &ctx),
+            list.matches(t, own, chrono::NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()),
+            "{filter} on {t:?} with {own:?}"
+        );
+    }
+}

@@ -42,7 +42,7 @@ enum Kind {
 /// reporting the optional ones that couldn't, or, when a file it needs can't be made, a path is
 /// unsafe, it's stopped, or it fails just before its swap, leaves the drive exactly as it was.
 #[hegel::test(test_cases = 25)]
-fn a_commit_writes_everything_or_leaves_the_drive_as_it_was(tc: hegel::TestCase) {
+fn prop_a_commit_writes_everything_or_leaves_the_drive_as_it_was(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("drive");
     let src = dir.path().join("src.mp3");
@@ -199,7 +199,7 @@ fn a_commit_writes_everything_or_leaves_the_drive_as_it_was(tc: hegel::TestCase)
 /// plan, for one made from any others: whatever the databases hold, and with the change in any
 /// of them.
 #[hegel::test(test_cases = 40)]
-fn a_plan_is_applied_only_to_the_databases_it_was_made_from(tc: hegel::TestCase) {
+fn prop_a_plan_is_applied_only_to_the_databases_it_was_made_from(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let device = Device::open(dir.path()).unwrap();
     for key in paths::DATABASE_FILES {
@@ -228,7 +228,7 @@ fn a_plan_is_applied_only_to_the_databases_it_was_made_from(tc: hegel::TestCase)
 /// then failed would take the state for one that was never there, and delete it.
 #[cfg(unix)]
 #[hegel::test(test_cases = 5)]
-fn a_commit_leaves_a_state_it_cant_read_alone(tc: hegel::TestCase) {
+fn prop_a_commit_leaves_a_state_it_cant_read_alone(tc: hegel::TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("drive");
@@ -266,7 +266,7 @@ fn a_commit_leaves_a_state_it_cant_read_alone(tc: hegel::TestCase) {
 /// A swap makes its steps in order, and one that can't be made (a file put where a folder with
 /// something in it is) stops it there: what came before is made, what comes after isn't.
 #[hegel::test(test_cases = 40)]
-fn a_swap_makes_its_steps_in_order_up_to_one_that_fails(tc: hegel::TestCase) {
+fn prop_a_swap_makes_its_steps_in_order_up_to_one_that_fails(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let blocked = tc.draw(gs::optional(gs::integers::<usize>().max_value(n - 1)));
@@ -314,7 +314,7 @@ fn a_swap_makes_its_steps_in_order_up_to_one_that_fails(tc: hegel::TestCase) {
 /// A folder can't be deleted as a file: a commit that names one to delete fails once its files
 /// are swapped in, and they're in place.
 #[hegel::test(test_cases = 10)]
-fn a_commit_deleting_a_folder_fails_with_its_files_in_place(tc: hegel::TestCase) {
+fn prop_a_commit_deleting_a_folder_fails_with_its_files_in_place(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Contents/adir/inside")).unwrap();
     let bytes = tc.draw(gs::binary().max_size(16));

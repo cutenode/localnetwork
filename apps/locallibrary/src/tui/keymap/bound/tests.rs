@@ -43,7 +43,7 @@ fn what_isnt_a_key_is_refused() {
 /// For any character, ctrl- and a letter, or function key, it reads as that key, and is bound
 /// exactly when the player uses it nowhere: then pressing it is what it's bound to.
 #[hegel::test(test_cases = 200)]
-fn any_key_is_bound_unless_the_player_uses_it(tc: hegel::TestCase) {
+fn prop_any_key_is_bound_unless_the_player_uses_it(tc: hegel::TestCase) {
     let (spec, press) = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => {
             let c = tc.draw(gs::sampled_from((' '..='~').filter(|c| *c != ' ').chain(['é', 'ß']).collect::<Vec<_>>()));

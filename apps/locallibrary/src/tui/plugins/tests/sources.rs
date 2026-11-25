@@ -109,7 +109,7 @@ enum Granted {
 /// confirmation names the source and the folders read, a no writes nothing, and a yes builds the
 /// drive from the music folder.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_drive_is_built_from_a_source_once_confirmed(tc: TestCase) {
+fn prop_a_drive_is_built_from_a_source_once_confirmed(tc: TestCase) {
     static CASES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let (dir, music) = sourcing_once();
     let n = CASES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

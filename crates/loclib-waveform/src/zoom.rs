@@ -23,16 +23,22 @@ const LIFT: f32 = 1.12;
 
 /// What a [`ZoomRing`] draws.
 pub struct Zoom<'a> {
+    /// The track's waveform.
     pub wave: Wave<'a>,
+    /// The playhead's position in the track, in seconds.
     pub position_secs: f64,
+    /// How much of the track the width shows, in seconds, centred on the playhead.
     pub visible_secs: f64,
+    /// The beat grid, drawn as ticks on the ruler.
     pub beats: &'a [Beat],
+    /// The track's cues.
     pub cues: &'a [Cue],
     /// Rows of cue markers over the ruler, for when they collide. At 0 they're on the ruler.
     pub cue_rows: u16,
     /// Number the bars along the ruler, and carry each bar's line down through the waveform where
     /// it's empty, so the grid can be read against the beats it measures.
     pub bar_numbers: bool,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 

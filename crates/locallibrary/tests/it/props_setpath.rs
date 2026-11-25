@@ -10,7 +10,8 @@ use std::fs;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, AudioFile, Edit, EditOptions};
+use locallibrary::edit::{self, Edit, EditOptions};
+use locallibrary::model::AudioFile;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, anlz, backup, paths, pdb};
@@ -24,7 +25,7 @@ fn entries(lib: &Library) -> Vec<(String, Vec<u32>)> {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
+fn prop_a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
     let plus = tc.draw(gs::booleans());

@@ -1,0 +1,4 @@
+"locallibrary: tracklists":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "fuzz/fuzz_targets/tracklist.rs"

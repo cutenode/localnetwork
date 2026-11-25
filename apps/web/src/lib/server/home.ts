@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { bookingGroup, isBookedSide } from '#lib/bookings.ts';
+import { bookingGroup, isBookedSide } from '#lib/bookings.page-only.ts';
 import { formatDate, nightLabel, pluralize, requestTitle, timeAgo, accountLabel } from '#lib/format.ts';
 import type { NeedsRow, NightRow } from '#lib/home.ts';
 import type { BookingThreadView, PlannerShowView, ProjectView, RequestView, Viewer } from '#lib/types.ts';

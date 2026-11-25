@@ -3,8 +3,8 @@ use hegel::generators::{self as gs, Generator};
 
 use super::*;
 use crate::Error;
-use crate::edit::TrackFields;
 use crate::harmony::Camelot;
+use crate::model::TrackFields;
 
 /// A cue as a file might have it: a hot cue (`A` to `H`, or a slot that isn't one) or a memory
 /// cue, somewhere in its first ten seconds, so some are near each other.
@@ -23,7 +23,7 @@ fn cue_at(start_ms: u32) -> ImportedCue {
 /// first in the file's order the cue edit takes. One in a slot that isn't one, or that the edit
 /// refuses, is left out saying why, and takes no slot or place. Every other is left out quietly.
 #[hegel::test(test_cases = 200)]
-fn only_cues_a_track_has_nothing_for_are_added(tc: TestCase) {
+fn prop_only_cues_a_track_has_nothing_for_are_added(tc: TestCase) {
     let slots = gs::optional(gs::integers::<u8>().max_value(HotCue::COUNT - 1).map(HotCue));
     let has: Vec<(Option<HotCue>, u32)> =
         tc.draw(gs::vecs(gs::tuples!(slots, gs::integers::<u32>().max_value(10_000))).max_size(4));
@@ -78,7 +78,7 @@ fn only_cues_a_track_has_nothing_for_are_added(tc: TestCase) {
 /// it, when asked), never one it has in another notation, a key as rekordbox names it and a BPM
 /// to hundredths, within what a track can have.
 #[hegel::test(test_cases = 200)]
-fn a_key_and_a_bpm_are_written_only_where_a_track_has_none(tc: TestCase) {
+fn prop_a_key_and_a_bpm_are_written_only_where_a_track_has_none(tc: TestCase) {
     let codes: Vec<String> = (1..=12).flat_map(|n| [format!("{n}A"), format!("{n}B")]).collect();
     let keys = || gs::optional(gs::sampled_from(codes.clone()));
     let (has_key, key) = (tc.draw(keys()), tc.draw(keys()));

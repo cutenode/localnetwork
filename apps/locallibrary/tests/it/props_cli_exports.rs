@@ -28,7 +28,7 @@ fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
 /// there with its tracks (one line each, as text), and printed, the run names each; and the
 /// flags only plugins' formats take are refused.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn playlists_are_written_as_reported(tc: TestCase) {
+fn prop_playlists_are_written_as_reported(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
     let mut args: Vec<String> = vec!["export".into(), drive.into()];
@@ -135,7 +135,7 @@ fn drive_files(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
 /// tagged copy at no more), the drive is only read, and again it asks before overwriting unless
 /// replacing.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn other_dj_software_gets_the_files_planned(tc: TestCase) {
+fn prop_other_dj_software_gets_the_files_planned(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
     let root = fx.volumes.join(drive);
@@ -239,7 +239,7 @@ fn other_dj_software_gets_the_files_planned(tc: TestCase) {
 /// does, what drive A lacks against it is printed as listed, and exporting it to a folder plans
 /// (and printed, shows) the copies it then makes.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_collection_prints_what_its_json_says(tc: TestCase) {
+fn prop_the_collection_prints_what_its_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let db = fx.home("master.db");
     let music = fx.home("Music");
@@ -424,7 +424,7 @@ fn the_collection_prints_what_its_json_says(tc: TestCase) {
 /// analyzer's scores and outcomes as its JSON does (the analysis has none to give: the drive's
 /// placeholder audio doesn't decode).
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_benchmark_prints_its_scores(tc: TestCase) {
+fn prop_the_benchmark_prints_its_scores(tc: TestCase) {
     use locallibrary::Device;
     use locallibrary::harmony::Camelot;
 

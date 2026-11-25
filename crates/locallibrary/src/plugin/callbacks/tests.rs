@@ -487,7 +487,7 @@ fn as_the_spec_says(
 /// listed, only when granted, only with the params listed for each (none naming a file, server or
 /// secret), drives found by the host and never by path, lists and pages no bigger than their caps.
 #[hegel::test(test_cases = 200)]
-fn a_plugin_calls_only_what_the_spec_lets_it(tc: TestCase) {
+fn prop_a_plugin_calls_only_what_the_spec_lets_it(tc: TestCase) {
     let capabilities: Vec<String> = Capability::NAMED.iter().map(Capability::to_string).collect();
     let granted_ones: Vec<&str> =
         capabilities.iter().map(String::as_str).filter(|_| tc.draw(gs::integers::<u8>().max_value(3)) > 0).collect();
@@ -660,7 +660,7 @@ fn text_with_paths(tc: &TestCase) -> (String, String) {
 /// actions a front end offers, and each path under a root here said from there, in the message
 /// and in every field however deep.
 #[hegel::test(test_cases = 200)]
-fn a_reads_error_reaches_a_plugin_without_actions_or_roots(tc: TestCase) {
+fn prop_a_reads_error_reaches_a_plugin_without_actions_or_roots(tc: TestCase) {
     let (text, said) = text_with_paths(&tc);
     let (detail, detail_said) = text_with_paths(&tc);
     let kind = tc.draw(gs::integers::<u8>().max_value(4));
@@ -743,7 +743,7 @@ const AT_ONCE: Duration = Duration::from_secs(2);
 /// fails is answered without its actions or the path here, one that panics is answered too, and
 /// once every call is answered the whole quota is free again.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
+fn prop_a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let quota = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let held = tc.draw(gs::integers::<usize>().max_value(7));
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "a b.txt", "x"]));

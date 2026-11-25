@@ -598,7 +598,7 @@ fn imported(
 /// a playlist it hasn't, an answer for an entry it hasn't and a missing drive are refused, saying
 /// why.
 #[hegel::test(test_cases = 100)]
-fn any_tracklist_imports_what_loclib_tracklist_matches_once_each_question_is_answered(tc: TestCase) {
+fn prop_any_tracklist_imports_what_loclib_tracklist_matches_once_each_question_is_answered(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
     // Two artists, so namesakes (and with them lists with several entries to ask about in a
     // round) come up often.

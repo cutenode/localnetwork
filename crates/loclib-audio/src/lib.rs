@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 use std::f64::consts::PI;
 use std::fs::File;
@@ -20,10 +22,13 @@ use loclib_model::audio::Format;
 use loclib_progress::{Cancelled, Ctx};
 
 mod error;
+mod flac;
 mod mp4;
 
 pub use error::{Error, Result};
-pub use mp4::vet_container;
+
+/// How far symphonia's probe looks for a format's marker (`Probe::PROBE_SEARCH_LIMIT`).
+const PROBE_LIMIT: u64 = 1 << 20;
 
 /// What a decoder that panicked on a file is reported as.
 pub const CRASHED: &str = "the decoder crashed on it";
@@ -36,7 +41,11 @@ pub const MAX_RATE: u32 = 768_000;
 /// Native format of a decoded file.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SourceFormat {
+    /// Samples per second per channel, in Hz: the last decoded packet's, or the header's when
+    /// nothing was decoded (0 when it gives none).
     pub sample_rate: u32,
+    /// The channel count: the last decoded packet's, or the header's when nothing was decoded (0
+    /// when it gives none).
     pub channels: u16,
     /// Seconds of audio decoded.
     pub duration_secs: f64,
@@ -44,11 +53,11 @@ pub struct SourceFormat {
 
 /// Open `path` and read its first audio track's format, refusing one no decoder can play.
 /// symphonia can panic in here on a malformed header: [`decode`] catches that, other callers
-/// catch it themselves. An MP4 that would have it ask for more memory than the file could fill,
-/// an abort nothing can catch, is refused before it reads it ([`vet_container`]).
+/// catch it themselves. An MP4 or FLAC that would have it ask for more memory than the file could
+/// fill, an abort nothing can catch, is refused before it reads it ([`vet_container`]).
 pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
     let mut file = File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?;
-    mp4::vet_file(&mut file, path)?;
+    vet_file(&mut file, path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -69,6 +78,22 @@ pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
         return Err(Error::parse(path, "its header says 0 Hz, over 768 kHz or no channels"));
     }
     Ok((probed.format, track))
+}
+
+/// Refuse `path` when symphonia would ask for more memory than the file could fill, an abort
+/// nothing can catch: an MP4 whose atoms claim more than the file holds (a sample table whose
+/// count wouldn't fit in it, a sample larger than the file, or an atom inside another running past
+/// it or the file's end), or a FLAC whose picture or Vorbis comment claims more than its metadata
+/// block holds. Anything else is left for the decoder to make sense of. So is what isn't a regular
+/// file (a FIFO): what this read of it took would be gone when the decoder opened it again.
+pub fn vet_container(path: &Path) -> Result<()> {
+    vet_file(&mut File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?, path)
+}
+
+/// [`vet_container`] for the file `path` is open as, which is left at its start.
+fn vet_file(file: &mut File, path: &Path) -> Result<()> {
+    mp4::vet_file(file, path)?;
+    flac::vet_file(file, path)
 }
 
 /// What decoding does with a packet the decoder can't make sense of.
@@ -290,6 +315,11 @@ pub struct Resampler {
 }
 
 impl Resampler {
+    /// A resampler from `from` Hz to `to` Hz. Equal rates pass the input through untouched.
+    ///
+    /// # Panics
+    ///
+    /// When either rate is 0.
     pub fn new(from: u32, to: u32) -> Resampler {
         assert!(from > 0 && to > 0, "resampling from {from} Hz to {to} Hz");
         let ratio = from as f64 / to as f64;
@@ -328,6 +358,8 @@ impl Resampler {
         }
     }
 
+    /// Add `input`, the next stretch of the signal, and hand `sink` the outputs it completes. An
+    /// output whose kernel reaches past the input so far waits for the next push or [`finish`](Resampler::finish).
     pub fn push(&mut self, input: &[f32], sink: &mut dyn FnMut(&[f32])) {
         if self.passthrough {
             sink(input);
@@ -337,6 +369,8 @@ impl Resampler {
         self.drain(false, sink);
     }
 
+    /// Hand `sink` the outputs still waiting, the input taken to end here. Call it once, after the
+    /// last [`push`](Resampler::push).
     pub fn finish(&mut self, sink: &mut dyn FnMut(&[f32])) {
         if self.passthrough {
             return;

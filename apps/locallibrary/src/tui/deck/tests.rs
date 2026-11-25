@@ -306,7 +306,7 @@ fn a_late_listing_of_the_outputs_is_dropped() {
 /// Playback reaching a loop rekordbox marks active goes round it, wherever it is in the track and
 /// however the output's reads fall; a loop that isn't active is played through to the next track.
 #[hegel::test(test_cases = 30)]
-fn playback_reaching_an_active_loop_goes_round_it(tc: hegel::TestCase) {
+fn prop_playback_reaching_an_active_loop_goes_round_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let start = tc.draw(gs::integers::<u32>().min_value(20).max_value(300));
     let end = start + tc.draw(gs::integers::<u32>().min_value(60).max_value(150));
@@ -615,7 +615,7 @@ fn odd_grid(tc: &hegel::TestCase) -> Vec<locallibrary::anlz::Beat> {
 /// the track, the deck draws at any size, and nothing panics, on the UI thread or the audio
 /// thread.
 #[hegel::test(test_cases = 100)]
-fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
+fn prop_quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
     use super::super::ui::screen;
     use hegel::generators as gs;
     // Two seconds each.
@@ -664,7 +664,7 @@ fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
 /// A time's place on any grid (before it, along it, past it) and that place's time agree, and
 /// later times are further along.
 #[hegel::test(test_cases = 300)]
-fn places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
+fn prop_places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
     let g = any_grid(&tc);
     let (a, b) = (any_ms(&tc, &g), any_ms(&tc, &g));
     let (ia, ib) = (beat_index(&g, a).unwrap(), beat_index(&g, b).unwrap());
@@ -678,7 +678,7 @@ fn places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
 /// A beat jump moves the playhead along the grid by the beats asked: keeping its place in the
 /// beat while playing, onto a beat when paused, and by the beat it's in with quantize off.
 #[hegel::test(test_cases = 300)]
-fn beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
+fn prop_beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let ms = any_ms(&tc, &g);
@@ -696,7 +696,7 @@ fn beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
 /// playhead is from its nearest beat; otherwise on the cue. Marks ahead are the first to land
 /// past the playhead; back, the last to land well before it, or the start.
 #[hegel::test(test_cases = 300)]
-fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
+fn prop_cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let (ms, cue) = (any_ms(&tc, &g), any_ms(&tc, &g).max(0.0));
@@ -729,7 +729,7 @@ fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
 /// A loop made on the grid is as many beats long as asked, from the beat the playhead is in
 /// (or the playhead itself with quantize off), never from before the track starts.
 #[hegel::test(test_cases = 300)]
-fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
+fn prop_loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let ms = any_ms(&tc, &g).max(0.0);
@@ -757,7 +757,7 @@ fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
 /// bounds, or say there's no loop; and the outputs listed take the arrows and enter, playing on
 /// through the one picked.
 #[hegel::test(test_cases = 200)]
-fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
+fn prop_the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
     use super::super::keymap::Act;
     use hegel::generators as gs;
     let beats = if tc.draw(gs::booleans()) { grid(0, 120.0, 400) } else { Vec::new() };
@@ -919,7 +919,7 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
 /// the beginning; a hot cue pressed while paused jumps there and plays; a phrase jump past the
 /// last phrase says there's none; an output that won't open says why, and nothing changes.
 #[hegel::test(test_cases = 100)]
-fn cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
+fn prop_cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
     use super::super::keymap::Act;
     use hegel::generators as gs;
     let memory: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(60_000)).max_size(3));

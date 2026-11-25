@@ -28,7 +28,9 @@ pub(crate) const FEATURE: Feature = Feature {
 pub struct AnalyzeTrack {
     /// One of the manifest's analyzers.
     pub analyzer: String,
+    /// The track to work the values out for.
     pub track: Track,
+    /// The track's drive (none for an audio file on no drive), and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -54,6 +56,8 @@ pub struct Track {
 /// declares (see [`crate::FieldType`]).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Analysis {
+    /// Values by field name, each a field the analyzer declares, of its type. A field left out
+    /// wasn't worked out.
     pub fields: IndexMap<String, FieldValue>,
 }
 
@@ -69,11 +73,16 @@ impl Hook for AnalyzeTrack {
 /// Run with `track/analyze`; its fields become columns.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Analyzer {
+    /// What `track/analyze` names it by: lowercase letters, digits, `-` and `_`, starting with a
+    /// letter, 64 characters at most, and no other analyzer's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
     /// Its own version: the host keeps its values by it, so a new one works them out again. Bump
     /// it whenever the values would change.
     pub version: String,
+    /// Its fields by name (named as it is), with the type of each: the columns it fills, a field at
+    /// least, and none that another analyzer has.
     pub fields: IndexMap<String, FieldType>,
     /// Which of its fields has each role it answers (`bpm = "bpm"`): what the host reads for
     /// that role (see [`Role`]).
@@ -95,6 +104,8 @@ pub struct FieldDisplay {
     /// A number's decimal places, 0 to 6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub precision: Option<u8>,
+    /// What its values are, for hosts to show them as such: `key` for a string field, the others
+    /// for a number or an integer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<FieldFormat>,
     /// How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is.
@@ -248,6 +259,7 @@ pub enum Role {
 }
 
 impl Role {
+    /// Every role.
     pub const ALL: [Role; 13] = [
         Role::Key,
         Role::Bpm,
@@ -305,16 +317,22 @@ impl FromStr for Role {
     }
 }
 
+/// A field's type, as the manifest declares it: what its values are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum FieldType {
+    /// A number, finite; an integer is one too.
     #[serde(rename = "number")]
     Number,
+    /// A whole number.
     #[serde(rename = "integer")]
     Integer,
+    /// A string.
     #[serde(rename = "string")]
     String,
+    /// True or false.
     #[serde(rename = "boolean")]
     Boolean,
+    /// A list of strings.
     #[serde(rename = "string[]")]
     Strings,
     /// A beat grid (feature `analysis`, see [`crate::Output`]).
@@ -357,11 +375,17 @@ impl FieldType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum FieldValue {
+    /// A whole number.
     Integer(i64),
+    /// A number, finite.
     Number(f64),
+    /// True or false.
     Boolean(bool),
+    /// A string.
     String(String),
+    /// A list of strings.
     Strings(Vec<String>),
+    /// Worked out, with nothing to show.
     Null,
     /// A beat grid, phrases or a waveform (feature `analysis`), as JSON: what [`crate::Output`]
     /// reads. Made with [`FieldValue::beats`], [`FieldValue::phrases`] and

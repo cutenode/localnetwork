@@ -448,7 +448,7 @@ const REFUSALS: [(u16, &str, &str); 4] = [
 // Each case runs both stand-ins, a tenth of a second on macOS (a shell and the programs it runs
 // for each): 50 keep it well inside the plugin tests' minute and a half under coverage.
 #[hegel::test(test_cases = 50)]
-fn any_publish_arrives_whole_or_stops_saying_why(tc: TestCase) {
+fn prop_any_publish_arrives_whole_or_stops_saying_why(tc: TestCase) {
     use std::sync::{LazyLock, Mutex, PoisonError};
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(6 * upload::CHUNK));
     let chunks: Vec<Option<youtube::Reply>> =

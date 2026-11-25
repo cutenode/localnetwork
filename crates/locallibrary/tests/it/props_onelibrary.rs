@@ -12,10 +12,11 @@ use std::sync::OnceLock;
 
 use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, PrintableGenerator, TestCase};
-use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
-use locallibrary::onelibrary::{self, CueRow, OneLibrary, wal};
+use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::{paths, pdb};
 use loclib_model::test_util::tracks_like;
+use loclib_rekordbox_db::onelibrary::cipher::{self, Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
+use loclib_rekordbox_db::onelibrary::{CueRow, wal};
 
 fn fixture(name: &str) -> &'static [u8] {
     static FILES: OnceLock<IndexMap<&'static str, Vec<u8>>> = OnceLock::new();
@@ -57,7 +58,7 @@ fn page_image(tc: &TestCase, size: usize) -> Vec<u8> {
 /// A page encrypts and decrypts back to itself, but for the 80 reserved bytes (IV and HMAC) and,
 /// on page 1, the salt (which comes back as SQLite's magic). Encrypting twice uses fresh IVs.
 #[hegel::test]
-fn pages_decrypt_to_what_was_encrypted(tc: TestCase) {
+fn prop_pages_decrypt_to_what_was_encrypted(tc: TestCase) {
     let pgno = tc.draw(hegel::one_of!(gs::integers::<u32>().min_value(1).max_value(4), gs::integers::<u32>()));
     let plain = page_image(&tc, PAGE_SIZE);
     let enc = codec().encrypt_page(pgno, &plain).unwrap();
@@ -74,7 +75,7 @@ fn pages_decrypt_to_what_was_encrypted(tc: TestCase) {
 /// Changing any authenticated byte of an encrypted page (everything but page 1's salt: data,
 /// IV and HMAC), or decrypting it as another page, is detected.
 #[hegel::test]
-fn tampered_pages_are_refused(tc: TestCase) {
+fn prop_tampered_pages_are_refused(tc: TestCase) {
     let pgno = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
     let plain = page_image(&tc, PAGE_SIZE);
     let mut enc = codec().encrypt_page(pgno, &plain).unwrap();
@@ -92,7 +93,7 @@ fn tampered_pages_are_refused(tc: TestCase) {
 /// A plain database of SQLCipher's layout encrypts and decrypts back (but for the reserved
 /// bytes); one without room for the cipher, or not whole pages, is refused.
 #[hegel::test(test_cases = 50)]
-fn databases_round_trip_through_the_cipher(tc: TestCase) {
+fn prop_databases_round_trip_through_the_cipher(tc: TestCase) {
     let pages = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let mut plain: Vec<u8> = (0..pages).flat_map(|_| page_image(&tc, PAGE_SIZE)).collect();
     plain[..16].copy_from_slice(SQLITE_MAGIC);
@@ -118,7 +119,7 @@ fn databases_round_trip_through_the_cipher(tc: TestCase) {
 /// that isn't a whole number of pages. A file of whole pages decrypts to zeros where SQLite
 /// won't read, whatever they hold.
 #[hegel::test]
-fn only_whole_pages_are_ciphered(tc: TestCase) {
+fn prop_only_whole_pages_are_ciphered(tc: TestCase) {
     let len = tc.draw(gs::integers::<usize>().max_value(3 * PAGE_SIZE));
     let bytes = vec![tc.draw(gs::integers::<u8>()); len];
     let pgno = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
@@ -220,7 +221,7 @@ fn frames(tc: &TestCase, page_size: usize, max_pgno: u32) -> Vec<Frame> {
 /// The committed part of a WAL is the last image of each page up to the last commit, in either
 /// checksum byte order.
 #[hegel::test]
-fn wal_replays_up_to_the_last_commit(tc: TestCase) {
+fn prop_wal_replays_up_to_the_last_commit(tc: TestCase) {
     let page_size = tc.draw(gs::sampled_from(vec![512usize, 1024, 4096]));
     let big_endian = tc.draw(gs::booleans());
     let salts = (tc.draw(gs::integers::<u32>()), tc.draw(gs::integers::<u32>()));
@@ -234,7 +235,7 @@ fn wal_replays_up_to_the_last_commit(tc: TestCase) {
 /// A frame whose checksum, salts or page number is wrong ends the log there, and so does the
 /// end of the file (a torn last frame is ignored).
 #[hegel::test]
-fn a_broken_frame_ends_the_log(tc: TestCase) {
+fn prop_a_broken_frame_ends_the_log(tc: TestCase) {
     let page_size = 512;
     let salts = (tc.draw(gs::integers::<u32>()), tc.draw(gs::integers::<u32>()));
     let frames = frames(&tc, page_size, 6);
@@ -264,7 +265,7 @@ fn a_broken_frame_ends_the_log(tc: TestCase) {
 
 /// Arbitrary bytes, and real or built WALs with damage, never make the reader panic.
 #[hegel::test(test_cases = 300)]
-fn wal_reader_survives_any_bytes(tc: TestCase) {
+fn prop_wal_reader_survives_any_bytes(tc: TestCase) {
     let page_size = tc.draw(gs::sampled_from(vec![512usize, 4096]));
     let source = tc.draw(gs::integers::<u8>().max_value(2));
     let mut wal = match source {
@@ -293,13 +294,13 @@ fn wal_reader_survives_any_bytes(tc: TestCase) {
     }
 }
 
-/// `onelibrary::decrypt` lays the committed WAL pages (encrypted like the main file's) over the
+/// `loclib_rekordbox_db::onelibrary::decrypt` lays the committed WAL pages (encrypted like the main file's) over the
 /// decrypted database, grown or truncated to the last commit's size; a commit claiming more pages
 /// than the file and the WAL's pages past it hold (and the lock-byte page SQLite skips) is
 /// refused rather than allocated. A committed frame of zeros fails authentication like any other
 /// damaged page.
 #[hegel::test(test_cases = 50)]
-fn wal_frames_are_laid_over_the_database(tc: TestCase) {
+fn prop_wal_frames_are_laid_over_the_database(tc: TestCase) {
     let db = fixture("empty.db");
     let plain = empty_plain();
     let n = (plain.len() / PAGE_SIZE) as u32;
@@ -324,7 +325,7 @@ fn wal_frames_are_laid_over_the_database(tc: TestCase) {
     }
     let salts = (tc.draw(gs::integers::<u32>()), tc.draw(gs::integers::<u32>()));
     let wal = build_wal(tc.draw(gs::booleans()), PAGE_SIZE, salts, &encrypted);
-    let result = onelibrary::decrypt(db, Some(&wal));
+    let result = loclib_rekordbox_db::onelibrary::decrypt(db, Some(&wal));
     let Some((pages, db_pages)) = committed_model(&encrypted) else {
         assert_eq!(result.unwrap().1, plain);
         return;
@@ -352,7 +353,7 @@ fn wal_frames_are_laid_over_the_database(tc: TestCase) {
 /// header of another layout, a WAL of another page size, or a WAL whose last commit puts such a
 /// first page in place.
 #[hegel::test(test_cases = 40)]
-fn what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
+fn prop_what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
     let db = fixture("empty.db");
     let mut header = empty_plain()[..PAGE_SIZE].to_vec();
     match tc.draw(gs::booleans()) {
@@ -373,18 +374,18 @@ fn what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
         }
     };
     let wal = wal.as_deref();
-    assert!(onelibrary::decrypt(&bytes, wal).is_err());
+    assert!(loclib_rekordbox_db::onelibrary::decrypt(&bytes, wal).is_err());
     assert!(onelibrary::content_hash(&bytes, wal).is_err());
     assert!(OneLibrary::from_encrypted(&bytes, wal).is_err());
 }
 
-/// Shrunk counterexample of `wal_frames_are_laid_over_the_database`: a commit frame claiming
+/// Shrunk counterexample of `prop_wal_frames_are_laid_over_the_database`: a commit frame claiming
 /// 2^32 - 1 pages made `decrypt` try to allocate 16 TiB (an abort, not an error).
 #[test]
 fn a_wal_claiming_a_huge_database_is_refused() {
     let page = codec().encrypt_page(2, &empty_plain()[PAGE_SIZE..2 * PAGE_SIZE]).unwrap();
     let wal = build_wal(false, PAGE_SIZE, (1, 2), &[(2, u32::MAX, page)]);
-    assert!(onelibrary::decrypt(fixture("empty.db"), Some(&wal)).is_err());
+    assert!(loclib_rekordbox_db::onelibrary::decrypt(fixture("empty.db"), Some(&wal)).is_err());
 }
 
 /// The key is public, so anyone can write a valid frame: one numbered 100,000 with a commit of as
@@ -393,19 +394,23 @@ fn a_wal_claiming_a_huge_database_is_refused() {
 fn a_wal_claiming_pages_it_does_not_hold_is_refused() {
     let page = codec().encrypt_page(100_000, &[7; PAGE_SIZE]).unwrap();
     let wal = build_wal(false, PAGE_SIZE, (1, 2), &[(100_000, 100_000, page)]);
-    let err = onelibrary::decrypt(fixture("empty.db"), Some(&wal)).map(|_| ()).unwrap_err().to_string();
+    let err =
+        loclib_rekordbox_db::onelibrary::decrypt(fixture("empty.db"), Some(&wal)).map(|_| ()).unwrap_err().to_string();
     assert!(err.contains("says the database has 100000 pages"), "{err}");
     // A database a page longer than its main file holds the page in its WAL.
     let n = (empty_plain().len() / PAGE_SIZE) as u32;
     let page = codec().encrypt_page(n + 1, &[7; PAGE_SIZE]).unwrap();
     let wal = build_wal(false, PAGE_SIZE, (1, 2), &[(n + 1, n + 1, page)]);
-    assert_eq!(onelibrary::decrypt(fixture("empty.db"), Some(&wal)).unwrap().1.len(), (n as usize + 1) * PAGE_SIZE);
+    assert_eq!(
+        loclib_rekordbox_db::onelibrary::decrypt(fixture("empty.db"), Some(&wal)).unwrap().1.len(),
+        (n as usize + 1) * PAGE_SIZE
+    );
 }
 
 /// The real WAL fixture (four transactions, made by the sqlcipher CLI) cut short anywhere opens
 /// as of its last complete transaction; with a byte changed it opens or fails cleanly.
 #[hegel::test(test_cases = 40)]
-fn real_wal_damage_is_survived(tc: TestCase) {
+fn prop_real_wal_damage_is_survived(tc: TestCase) {
     let (db, full) = (fixture("wal.db"), fixture("wal.db-wal"));
     let mut wal = full.to_vec();
     let cut = tc.draw(gs::booleans());
@@ -417,14 +422,14 @@ fn real_wal_damage_is_survived(tc: TestCase) {
         let commit_at = |i: usize| WAL_HEADER + i * frame + 4;
         let last_commit = (0..complete).rfind(|&i| full[commit_at(i)..commit_at(i) + 4] != [0; 4]);
         let expect = match last_commit {
-            Some(i) => onelibrary::decrypt(db, Some(&full[..WAL_HEADER + (i + 1) * frame])),
-            None => onelibrary::decrypt(db, None),
+            Some(i) => loclib_rekordbox_db::onelibrary::decrypt(db, Some(&full[..WAL_HEADER + (i + 1) * frame])),
+            None => loclib_rekordbox_db::onelibrary::decrypt(db, None),
         };
-        assert_eq!(onelibrary::decrypt(db, Some(&wal)).unwrap().1, expect.unwrap().1);
+        assert_eq!(loclib_rekordbox_db::onelibrary::decrypt(db, Some(&wal)).unwrap().1, expect.unwrap().1);
     } else {
         let at = tc.draw(gs::integers::<usize>().max_value(wal.len() - 1));
         wal[at] ^= tc.draw(gs::integers::<u8>().min_value(1));
-        let _ = onelibrary::decrypt(db, Some(&wal));
+        let _ = loclib_rekordbox_db::onelibrary::decrypt(db, Some(&wal));
     }
 }
 
@@ -673,7 +678,7 @@ impl CueTable {
 }
 
 #[hegel::test(test_cases = 30)]
-fn cue_rows_follow_edits(tc: TestCase) {
+fn prop_cue_rows_follow_edits(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(demo_library(), None).unwrap();
     let ids: Vec<u32> = one
         .connection()
@@ -693,7 +698,7 @@ fn cue_rows_follow_edits(tc: TestCase) {
     hegel::stateful::machine(CueTable { one, track, other, other_rows }).steps(15).run(tc);
 }
 
-/// Shrunk counterexample of `cue_rows_follow_edits`: a cue at a position past about 6e16 µs
+/// Shrunk counterexample of `prop_cue_rows_follow_edits`: a cue at a position past about 6e16 µs
 /// overflowed working out its 1/150 s frame number (a panic in debug builds).
 #[test]
 fn extreme_positions_are_stored() {
@@ -815,7 +820,7 @@ impl Built {
 /// tracks removes them from every list (keeping the rest in order) and takes exactly as many
 /// lookup rows with them as `unused_lookup_rows` said.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn built_libraries_read_back(tc: TestCase) {
+fn prop_built_libraries_read_back(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let defaults = one.content_defaults().unwrap();
     let mut model = Built::default();
@@ -834,7 +839,11 @@ fn built_libraries_read_back(tc: TestCase) {
                     id
                 });
                 let mut t = tc.draw(any_track(made, artwork));
-                let rec = onelibrary::ContentRecord::from_track(&t, !t.analyze_path.is_empty(), &defaults);
+                let rec = loclib_rekordbox_db::onelibrary::ContentRecord::from_track(
+                    &t,
+                    !t.analyze_path.is_empty(),
+                    &defaults,
+                );
                 t.id = one.add_track(&rec, &t.file_path, &t.analyze_path, image).unwrap();
                 t.artwork_id = image;
                 // The album artist is the album's: without an album there is none.
@@ -906,13 +915,19 @@ fn built_libraries_read_back(tc: TestCase) {
                     let t = &mut model.tracks[id];
                     (t.artwork_id, t.artwork_path) = (Some(image), Some(path.clone()));
                 }
-                assert!(matches!(one.set_track_image(&[u32::MAX], image), Err(locallibrary::Error::NotFound(_))));
+                assert!(matches!(
+                    one.set_track_image(&[u32::MAX], image),
+                    Err(loclib_rekordbox_db::Error::NotFound(_))
+                ));
             }
             9 => {
-                let tree = tc.draw(gs::sampled_from(&[onelibrary::Tree::Playlist, onelibrary::Tree::History]));
+                let tree = tc.draw(gs::sampled_from(&[
+                    loclib_rekordbox_db::onelibrary::Tree::Playlist,
+                    loclib_rekordbox_db::onelibrary::Tree::History,
+                ]));
                 let known: Vec<u32> = match tree {
-                    onelibrary::Tree::Playlist => model.playlists.keys().copied().collect(),
-                    onelibrary::Tree::History => model.history.keys().copied().collect(),
+                    loclib_rekordbox_db::onelibrary::Tree::Playlist => model.playlists.keys().copied().collect(),
+                    loclib_rekordbox_db::onelibrary::Tree::History => model.history.keys().copied().collect(),
                 };
                 let id = tc.draw(hegel::one_of!(
                     gs::sampled_from(if known.is_empty() { vec![1] } else { known.clone() }),
@@ -920,15 +935,17 @@ fn built_libraries_read_back(tc: TestCase) {
                 ));
                 let name = tc.draw(field());
                 match one.rename_node(tree, id, &name) {
-                    Ok(()) if tree == onelibrary::Tree::Playlist => model.playlists[&id].1 = name,
+                    Ok(()) if tree == loclib_rekordbox_db::onelibrary::Tree::Playlist => model.playlists[&id].1 = name,
                     Ok(()) => model.history[&id].0 = name,
-                    Err(e) => assert!(!known.contains(&id) && matches!(e, locallibrary::Error::NotFound(_)), "{e}"),
+                    Err(e) => {
+                        assert!(!known.contains(&id) && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}")
+                    }
                 }
                 let missing = u32::MAX;
                 for e in
                     [one.place_node(tree, missing, 0, 0).unwrap_err(), one.remove_nodes(tree, &[missing]).unwrap_err()]
                 {
-                    assert!(matches!(e, locallibrary::Error::NotFound(_)), "{e}");
+                    assert!(matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}");
                 }
             }
             10 if !ids.is_empty() => {
@@ -936,7 +953,7 @@ fn built_libraries_read_back(tc: TestCase) {
                 let id = tc.draw(gs::sampled_from(ids));
                 made += 1;
                 let path = format!("/Contents/moved/{made}.{}", tc.draw(gs::sampled_from(vec!["flac", "m4a", "wav"])));
-                let file = tc.draw(gs::booleans()).then(|| locallibrary::edit::AudioFile {
+                let file = tc.draw(gs::booleans()).then(|| locallibrary::model::AudioFile {
                     size: tc.draw(gs::integers::<u64>().max_value(1 << 40)),
                     sample_rate: tc.draw(gs::sampled_from(vec![44_100u32, 96_000])),
                     bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
@@ -953,7 +970,7 @@ fn built_libraries_read_back(tc: TestCase) {
                 }
                 assert!(matches!(
                     one.set_track_path(u32::MAX, "/x.mp3", None, 0),
-                    Err(locallibrary::Error::NotFound(_))
+                    Err(loclib_rekordbox_db::Error::NotFound(_))
                 ));
             }
             _ => {
@@ -989,7 +1006,7 @@ fn tag_names(rows: &TagRows, links: &[(i64, i64)], track: i64) -> Vec<(String, S
 /// can't be made is refused with its reason. A copied track keeps its tags by name, its album
 /// and its cues.
 #[hegel::test(test_cases = 25)]
-fn my_tags_follow_edits(tc: TestCase) {
+fn prop_my_tags_follow_edits(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let defaults = one.content_defaults().unwrap();
     let mut tracks = Vec::new();
@@ -1000,8 +1017,13 @@ fn my_tags_follow_edits(tc: TestCase) {
             ..loclib_model::test_util::track(0, "A", "T", &format!("/Contents/{n}.mp3"))
         };
         tracks.push(
-            one.add_track(&onelibrary::ContentRecord::from_track(&t, false, &defaults), &t.file_path, "", None)
-                .unwrap(),
+            one.add_track(
+                &loclib_rekordbox_db::onelibrary::ContentRecord::from_track(&t, false, &defaults),
+                &t.file_path,
+                "",
+                None,
+            )
+            .unwrap(),
         );
     }
     let mut rows = TagRows::new();
@@ -1022,12 +1044,14 @@ fn my_tags_follow_edits(tc: TestCase) {
                 let n = name(&tc);
                 let got = one.add_my_tag(id, parent, &n, category);
                 if rows.contains_key(&id) {
-                    assert_eq!(got.unwrap_err().code(), "conflict");
+                    assert!(matches!(got, Err(loclib_rekordbox_db::Error::Exists(_))), "{got:?}");
                     continue;
                 }
                 match (category, rows.get(&parent)) {
-                    (false, None) => assert_eq!(got.unwrap_err().code(), "not_found"),
-                    (false, Some(p)) if !p.2 => assert_eq!(got.unwrap_err().code(), "invalid"),
+                    (false, None) => assert!(matches!(got, Err(loclib_rekordbox_db::Error::NotFound(_))), "{got:?}"),
+                    (false, Some(p)) if !p.2 => {
+                        assert!(matches!(got, Err(loclib_rekordbox_db::Error::Invalid(_))), "{got:?}")
+                    }
                     _ => {
                         got.unwrap();
                         let siblings = rows.values().filter(|r| r.0 == parent).map(|r| r.3).max();
@@ -1041,13 +1065,13 @@ fn my_tags_follow_edits(tc: TestCase) {
                 let (id, n) = (any_id(&tc), name(&tc));
                 match one.rename_my_tag(id, &n) {
                     Ok(()) => rows[&id].1 = n,
-                    Err(e) => assert!(!rows.contains_key(&id) && e.code() == "not_found"),
+                    Err(e) => assert!(!rows.contains_key(&id) && matches!(e, loclib_rekordbox_db::Error::NotFound(_))),
                 }
             }
             3 => {
                 let id = any_id(&tc);
                 let Some(&(parent, _, category, seq)) = rows.get(&id) else {
-                    assert_eq!(one.remove_my_tag(id).unwrap_err().code(), "not_found");
+                    assert!(matches!(one.remove_my_tag(id), Err(loclib_rekordbox_db::Error::NotFound(_))));
                     continue;
                 };
                 one.remove_my_tag(id).unwrap();
@@ -1072,8 +1096,8 @@ fn my_tags_follow_edits(tc: TestCase) {
                         }
                         assert_eq!(added, links.len() - before);
                     }
-                    (Err(e), None) => assert_eq!(e.code(), "not_found"),
-                    (Err(e), Some(_)) => assert_eq!(e.code(), "invalid"),
+                    (Err(e), None) => assert!(matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}"),
+                    (Err(e), Some(_)) => assert!(matches!(e, loclib_rekordbox_db::Error::Invalid(_)), "{e}"),
                     (got, row) => panic!("linking {tag} ({row:?}): {got:?}"),
                 }
             }
@@ -1155,7 +1179,7 @@ fn my_tags_follow_edits(tc: TestCase) {
 /// drive's folder as written, and a database rekordbox wouldn't have written (no `content`
 /// table, a view or a trigger) is refused when opened.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn content_hashes_name_the_library(tc: TestCase) {
+fn prop_content_hashes_name_the_library(tc: TestCase) {
     let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let (a, b) = (one.to_encrypted().unwrap(), one.to_encrypted().unwrap());
     assert_ne!(a, b);
@@ -1172,7 +1196,14 @@ fn content_hashes_name_the_library(tc: TestCase) {
     let t = loclib_model::test_util::track(0, &tc.draw(field()), &tc.draw(field()), "/Contents/a.mp3");
     let mut edited = OneLibrary::from_encrypted(&one.to_encrypted().unwrap(), None).unwrap();
     let defaults = edited.content_defaults().unwrap();
-    edited.add_track(&onelibrary::ContentRecord::from_track(&t, false, &defaults), &t.file_path, "", None).unwrap();
+    edited
+        .add_track(
+            &loclib_rekordbox_db::onelibrary::ContentRecord::from_track(&t, false, &defaults),
+            &t.file_path,
+            "",
+            None,
+        )
+        .unwrap();
     let bytes = edited.to_encrypted().unwrap();
     let after = onelibrary::content_hashes(&bytes, None).unwrap();
     assert!(after.0 != hashes.0 && after.1 != renamed.1);
@@ -1182,7 +1213,7 @@ fn content_hashes_name_the_library(tc: TestCase) {
     std::fs::create_dir_all(db.parent().unwrap()).unwrap();
     std::fs::write(&db, &bytes).unwrap();
     assert_eq!(onelibrary::read_files(dir.path()).unwrap(), (bytes.clone(), None));
-    assert_eq!(OneLibrary::open_root(dir.path()).unwrap().library().unwrap(), edited.library().unwrap());
+    assert_eq!(locallibrary::onelibrary::open_root(dir.path()).unwrap().library().unwrap(), edited.library().unwrap());
 
     let sql = tc.draw(gs::sampled_from(vec![
         ("DROP TABLE content", "no content table"),

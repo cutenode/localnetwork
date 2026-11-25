@@ -1,7 +1,10 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod analysis;
 pub mod audio;
+pub mod diff;
 pub mod finding;
 pub mod harmony;
 pub mod model;

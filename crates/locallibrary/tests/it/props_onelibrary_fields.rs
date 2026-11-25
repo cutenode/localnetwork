@@ -8,10 +8,11 @@ use indexmap::{IndexMap, IndexSet};
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::edit::TrackFields;
 use locallibrary::model::TrackColor;
-use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
+use locallibrary::model::TrackFields;
+use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::{Error, Track, paths};
+use loclib_rekordbox_db::onelibrary::{ContentRecord, CueRow, Tree};
 
 use crate::props_onelibrary::{any_track, field, new_library};
 
@@ -161,7 +162,7 @@ fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
 /// goes with the album). An edit naming a track that isn't there, or a colour that isn't one,
 /// is refused before anything changes.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn edited_track_details_read_back(tc: TestCase) {
+fn prop_edited_track_details_read_back(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let (mut one, mut model) = with_tracks(&tc, count);
     assert!(orphans(&one).is_empty());
@@ -174,8 +175,8 @@ fn edited_track_details_read_back(tc: TestCase) {
             ids.insert(0, u32::MAX);
         }
         match (one.set_track_fields(&ids, &f), colour) {
-            (Err(e), Some(None)) => assert_eq!(e.code(), "invalid", "{e}"),
-            (Err(e), _) if missing => assert!(matches!(e, Error::NotFound(_)), "{e}"),
+            (Err(e), Some(None)) => assert!(matches!(e, loclib_rekordbox_db::Error::Invalid(_)), "{e}"),
+            (Err(e), _) if missing => assert!(matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}"),
             (Ok(()), colour) if !missing && colour != Some(None) => {
                 for id in &ids {
                     applied(&mut model[id], &f, colour.flatten());
@@ -202,7 +203,7 @@ fn probes(nodes: &Nodes, names: &[&str]) -> IndexSet<(u32, String)> {
 /// it's removed. Moving, renaming or removing a node that isn't there is refused, and a removal
 /// naming one removes none.
 #[hegel::test(test_cases = 60)]
-fn nodes_are_found_by_parent_and_name(tc: TestCase) {
+fn prop_nodes_are_found_by_parent_and_name(tc: TestCase) {
     const NAMES: [&str; 4] = ["Set", "Warm up", "", "Ünï"];
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     let tree = tc.draw(gs::sampled_from(&[Tree::Playlist, Tree::History]));
@@ -225,7 +226,9 @@ fn nodes_are_found_by_parent_and_name(tc: TestCase) {
                 let (id, n) = (pick(&tc), name(&tc));
                 match one.rename_node(tree, id, &n) {
                     Ok(()) => nodes[&id].1 = n,
-                    Err(e) => assert!(!nodes.contains_key(&id) && matches!(e, Error::NotFound(_)), "{e}"),
+                    Err(e) => {
+                        assert!(!nodes.contains_key(&id) && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}")
+                    }
                 }
             }
             3 => {
@@ -233,7 +236,9 @@ fn nodes_are_found_by_parent_and_name(tc: TestCase) {
                 let seq = tc.draw(gs::integers::<u32>().max_value(20));
                 match one.place_node(tree, id, parent, seq) {
                     Ok(()) => nodes[&id].0 = parent,
-                    Err(e) => assert!(!nodes.contains_key(&id) && matches!(e, Error::NotFound(_)), "{e}"),
+                    Err(e) => {
+                        assert!(!nodes.contains_key(&id) && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}")
+                    }
                 }
             }
             _ => {
@@ -248,7 +253,7 @@ fn nodes_are_found_by_parent_and_name(tc: TestCase) {
                 }
                 match one.remove_nodes(tree, &gone) {
                     Ok(()) => nodes.retain(|id, _| !gone.contains(id)),
-                    Err(e) => assert!(missing && matches!(e, Error::NotFound(_)), "{e}"),
+                    Err(e) => assert!(missing && matches!(e, loclib_rekordbox_db::Error::NotFound(_)), "{e}"),
                 }
             }
         }
@@ -311,7 +316,7 @@ fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
 /// the target has are reused, the rest made once, so the target ends up with exactly the tag
 /// names of both and no name twice.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn tracks_copied_between_databases_keep_details_cues_and_tags(tc: TestCase) {
+fn prop_tracks_copied_between_databases_keep_details_cues_and_tags(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let (mut src, tracks) = with_tracks(&tc, count);
     let mut next = 0;
@@ -366,7 +371,7 @@ fn quoted(name: &str) -> String {
 /// and nothing changes; a table whose columns name neither doesn't stand in the way. Keeping
 /// every cue removes nothing, so it is never refused.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
+fn prop_removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
     let (mut one, tracks) = with_tracks(&tc, 2);
     let ids: Vec<u32> = tracks.keys().copied().collect();
     let rows = [CueRow { in_usec: 1_000, ..Default::default() }, CueRow { in_usec: 2_000, ..Default::default() }];
@@ -383,10 +388,10 @@ fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
     let points = columns.iter().any(|c| c.contains("content_id") || c.contains("cue_id"));
 
     let (lib, cues) = (one.library().unwrap(), one.cue_rows(ids[0]).unwrap());
-    let refused = |r: locallibrary::Result<()>| match r {
+    let refused = |r: loclib_rekordbox_db::Result<()>| match r {
         Ok(()) => false,
         Err(e) => {
-            assert!(e.code() == "onelibrary" && e.to_string().contains(&table), "{e}");
+            assert!(matches!(e, loclib_rekordbox_db::Error::OneLibrary(_)) && e.to_string().contains(&table), "{e}");
             true
         }
     };
@@ -407,7 +412,7 @@ fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
 /// away (here a folder in its place) stops the write before the database is replaced, and
 /// reading the drive reports it.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
+fn prop_written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // As the drive sees itself (temporary folders can sit behind a symlink).
     let root = locallibrary::device::dunce_canonicalize(dir.path()).join("drive");
@@ -439,7 +444,7 @@ fn written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
         (_, _, got) => panic!("{wal_kind}: {got:?}"),
     }
     if onelibrary::read_files(&root).is_err() {
-        assert!(OneLibrary::open_root(&root).is_err());
+        assert!(locallibrary::onelibrary::open_root(&root).is_err());
     }
 
     let new = crate::props_onelibrary_crafted::rich_library();
@@ -448,7 +453,7 @@ fn written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
             assert_ne!(wal_kind, 2);
             assert_eq!(onelibrary::read_files(&root).unwrap(), (new.to_vec(), None));
             assert!(!shm.exists());
-            assert_eq!(OneLibrary::open(&device).unwrap().library().unwrap().tracks.len(), 3);
+            assert_eq!(device.library_plus().unwrap().library().unwrap().tracks.len(), 3);
         }
         Err(e) => {
             assert!(wal_kind == 2 && matches!(&e, Error::Io { path, .. } if *path == wal), "{e}");

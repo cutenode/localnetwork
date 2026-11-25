@@ -28,6 +28,7 @@ pub(crate) const FEATURE: Feature = Feature {
 pub struct RunCheck {
     /// One of the manifest's checks run `when = "check"`.
     pub check: String,
+    /// The drive to check, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -43,6 +44,7 @@ pub struct PlanCheck {
     /// Each an `Edit` as the sidecar's `edit.plan` takes them, tracks named by file, as the drive
     /// records it.
     pub edits: Vec<Value>,
+    /// The drive the plan is for, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -50,14 +52,17 @@ pub struct PlanCheck {
 /// What `check/run` and `plan/check` answer: what the check found (nothing, when all is well).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Findings {
+    /// What it found, none when all is well.
     pub findings: Vec<CheckFinding>,
 }
 
 /// A finding (its `check` is the host's to name: `<plugin>.<check>`), and what fixes it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CheckFinding {
+    /// The finding itself, its fields alongside `fix`.
     #[serde(flatten)]
     pub finding: Finding,
+    /// What fixes it, when the plugin has an operation that does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<Fix>,
 }
@@ -66,7 +71,9 @@ pub struct CheckFinding {
 /// confirmed as any.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fix {
+    /// One of the manifest's operations.
     pub operation: String,
+    /// What the operation's `params` schema describes.
     #[serde(default)]
     pub params: Value,
 }
@@ -94,7 +101,10 @@ impl Hook for PlanCheck {
 /// before a plan is applied: as its `when` says.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Check {
+    /// What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other check's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
     /// It runs unless the user turns it off; otherwise, once they turn it on.
     #[serde(default = "on")]

@@ -9,10 +9,11 @@ use serde::Deserialize;
 
 use super::Plugins;
 use crate::api;
-use crate::edit::{self, Edit, EditOptions, EditPlan, TrackFields};
+use crate::edit::{self, Edit, EditOptions, EditPlan};
 use crate::fields::{Analyzer, FieldStore};
 use crate::harmony::Camelot;
 use crate::model::Track;
+use crate::model::TrackFields;
 use crate::op::{Planned, Touched};
 use crate::progress::Ctx;
 use crate::query::TrackSelector;

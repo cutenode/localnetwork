@@ -1,5 +1,5 @@
 import type { Selectable } from 'kysely';
-import type { BookingRole } from '#lib/bookings.ts';
+import type { BookingRole } from '#lib/bookings.page-only.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 

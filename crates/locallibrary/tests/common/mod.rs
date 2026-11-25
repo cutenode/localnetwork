@@ -4,10 +4,9 @@
 #[path = "../support/files.rs"]
 mod files;
 pub mod media;
-#[path = "../support/sqlcipher.rs"]
-pub mod sqlcipher;
 
 pub use files::{Template, copy_dir};
+pub use loclib_testkit::sqlcipher;
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -22,10 +21,11 @@ use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
-use locallibrary::onelibrary::{ContentRecord, OneLibrary, cipher};
+use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress};
 use locallibrary::store::Store;
 use locallibrary::{Library, backup, edit, paths, pdb, sound};
+use loclib_rekordbox_db::onelibrary::{ContentRecord, cipher};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 /// The analyzer the tests' role values are kept for: one answering every role doctor reads, each
@@ -452,12 +452,12 @@ pub fn onelibrary_only(root: &Path) {
 
 /// The library in a drive's OneLibrary database.
 pub fn plus_library(root: &Path) -> Library {
-    OneLibrary::open_root(root).unwrap().library().unwrap()
+    locallibrary::onelibrary::open_root(root).unwrap().library().unwrap()
 }
 
 /// Has the `sqlcipher` CLI read the drive's OneLibrary database and its WAL: SQLCipher accepts
 /// every page, SQLite finds the database intact, and it holds the tracks locallibrary reads from
-/// it. Skipped without the CLI (see support/sqlcipher.rs).
+/// it. Skipped without the CLI (see loclib-testkit's `sqlcipher`).
 pub fn sqlcipher_reads(root: &Path) {
     // A copy: SQLite folds the WAL into the database when it closes it.
     let dir = tempfile::tempdir().unwrap();

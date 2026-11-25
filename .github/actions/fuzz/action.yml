@@ -33,7 +33,9 @@ runs:
         fallback: cargo-install
     # An artifact lasts 90 days, where the Actions cache evicts what nothing read for a week, and
     # the weekly run is skipped on weeks nothing it tests changed. The newest one from main, so a
-    # branch's hand-started run can't swap in its own.
+    # branch's hand-started run can't swap in its own. The corpus only saves the targets time, so a
+    # download GitHub refuses (a 503 once the account's artifact egress is over its limit) leaves
+    # them to start from their seeds instead of failing the job.
     - shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -42,7 +44,8 @@ runs:
         run=$(gh api "repos/$GH_REPO/actions/artifacts?name=fuzz-corpus&per_page=100" \
           --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")][0].workflow_run.id // empty')
         if [ -n "$run" ]; then
-          gh run download "$run" --name fuzz-corpus --dir fuzz/corpus
+          gh run download "$run" --name fuzz-corpus --dir fuzz/corpus ||
+            echo "::warning::Couldn't download run $run's fuzz corpus: the targets start from their seeds."
         else
           echo "No kept corpus: the targets start from their seeds."
         fi

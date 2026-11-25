@@ -10,9 +10,10 @@ use std::time::Duration;
 
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
-use locallibrary::drive_speed::WriteEstimate;
+use locallibrary::api;
 use locallibrary::op::Planned;
 use locallibrary::progress::{Event, Phase, Progress};
+use loclib_drive_speed::WriteEstimate;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy)]
@@ -677,7 +678,7 @@ impl Drawing {
 
 /// How long a write will take, as its plan says.
 pub fn estimate(estimate: &Option<WriteEstimate>) {
-    for line in estimate.iter().flat_map(WriteEstimate::lines) {
+    for line in estimate.iter().flat_map(api::estimate_lines) {
         say!("  {}", dim(line));
     }
 }

@@ -11,7 +11,6 @@ use locallibrary::api;
 use locallibrary::artwork;
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift, LineageOp};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{anlz, backup, paths, pdb};
 
@@ -132,7 +131,7 @@ fn a_converted_onelibrary_has_the_analysis_files_cues() {
     let plan = convert::plan(&d, &opts(Target::OneLibrary, false), &Ctx::silent()).unwrap();
     let report = convert::apply(&plan, &mut d, &opts(Target::OneLibrary, false), &Ctx::silent()).unwrap();
     assert_eq!(report.cues, 3);
-    let one = OneLibrary::open(&d).unwrap();
+    let one = d.library_plus().unwrap();
     let content = one.library().unwrap().tracks.iter().find(|p| p.file_path == t.file_path).unwrap().id;
     let mut rows: Vec<_> = one
         .cue_rows(content)
@@ -182,7 +181,7 @@ fn a_convert_that_fails_leaves_the_drive_unchanged() {
     let mut d = Device::open_export(&root).unwrap();
     let plan = convert::plan(&d, &opts(Target::DeviceLibrary, false), &Ctx::silent()).unwrap();
     assert_eq!(plan.artwork, 1);
-    let one = OneLibrary::open(&d).unwrap();
+    let one = d.library_plus().unwrap();
     let long = "x".repeat(5000);
     one.connection().execute("UPDATE content SET djComment = ?1 WHERE content_id = 12", [&long]).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
@@ -202,7 +201,7 @@ fn a_name_too_long_for_export_pdb_is_refused_when_planning() {
     let root = drive(dir.path(), "A");
     common::onelibrary_only(&root);
     let d = Device::open_export(&root).unwrap();
-    let mut one = OneLibrary::open(&d).unwrap();
+    let mut one = d.library_plus().unwrap();
     let folder = one.create_playlist("Sets", 0, true).unwrap();
     one.create_playlist(&"é".repeat(2500), folder, false).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
@@ -220,7 +219,7 @@ fn replacing_onelibrary_fixes_drift_and_keeps_its_rows() {
     assert!(d.info().drift.unwrap().is_empty());
 
     // OneLibrary drifts: a track goes missing, and every row carries a value export.pdb can't hold.
-    let mut one = OneLibrary::open(&d).unwrap();
+    let mut one = d.library_plus().unwrap();
     one.connection().execute("UPDATE content SET masterDbId = 777", []).unwrap();
     let lost = one.library().unwrap().tracks[0].clone();
     one.remove_tracks(&[lost.id]).unwrap();
@@ -233,7 +232,7 @@ fn replacing_onelibrary_fixes_drift_and_keeps_its_rows() {
     assert!(plan.replaces);
     convert::apply(&plan, &mut d, &opts(Target::OneLibrary, true), &Ctx::silent()).unwrap();
     assert!(d.info().drift.unwrap().is_empty());
-    let one = OneLibrary::open(&d).unwrap();
+    let one = d.library_plus().unwrap();
     let kept: i64 =
         one.connection().query_row("SELECT count(*) FROM content WHERE masterDbId = 777", [], |r| r.get(0)).unwrap();
     assert_eq!(kept, 11, "rows OneLibrary had are kept whole; the missing one is rebuilt");

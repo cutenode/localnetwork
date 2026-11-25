@@ -2,7 +2,8 @@
 //! (checked October 2026):
 //!
 //! * **File systems.** Every CDJ/XDJ/OPUS/OMNIS reads FAT16, FAT32 and HFS+. exFAT only on
-//!   newer units (rekordbox 6.6.2+, some needing a firmware update; see [`EXFAT`]). NTFS is
+//!   newer units (rekordbox 6.6.2+, some needing a firmware update; see
+//!   [`loclib_equipment::exfat_list`]). NTFS is
 //!   explicitly unsupported; APFS isn't listed anywhere. The DJM-V10 and DJM-A9 use USB for
 //!   settings and firmware and need FAT32 on MBR.
 //! * **Partitions.** "Does not support the GUID Partition Map" (CDJ-3000, CDJ-3000X,
@@ -21,43 +22,13 @@
 //!
 //! Hence the default: one MBR partition from 1 MiB, FAT32, Windows' default cluster size.
 
+use loclib_equipment::{MBR_MAX, exfat_list, no_exfat_list};
 use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::{Disk, Filesystem, FsKind, Scheme};
 
 pub const DEFAULT_FILESYSTEM: Filesystem = Filesystem::Fat32;
-
-/// The largest disk an MBR partition table can fully address (2 TiB with 512-byte sectors).
-pub const MBR_MAX: u64 = 1 << 41;
-
-/// Equipment that reads exFAT, with the firmware it needs (rekordbox FAQ "Which DJ equipment
-/// supports exFAT", rekordbox 6.6.2 release notes).
-pub const EXFAT: &[&str] = &[
-    "CDJ-3000 (firmware 1.20+)",
-    "CDJ-3000X",
-    "CDJ-1500X",
-    "OPUS-QUAD",
-    "OMNIS-DUO",
-    "XDJ-AZ",
-    "XDJ-AN",
-    "XDJ-XZ (firmware 1.23+)",
-    "XDJ-RX3 (firmware 1.11+)",
-];
-
-/// Equipment that doesn't read exFAT.
-pub const NO_EXFAT: &[&str] = &[
-    "CDJ-2000NXS2",
-    "CDJ-2000NXS",
-    "CDJ-900NXS",
-    "CDJ-2000",
-    "CDJ-900",
-    "XDJ-1000MK2",
-    "XDJ-700",
-    "XDJ-RX2",
-    "XDJ-RR",
-    "DJM-V10/DJM-A9 (settings, firmware)",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -100,8 +71,8 @@ pub fn assess(scheme: Option<Scheme>, fs: Option<FsKind>, size: u64) -> Compatib
         Some(FsKind::Fat16) => Compatibility::new(Verdict::AllPlayers, "every player")
             .note("DJM-V10/DJM-A9 settings and firmware need FAT32"),
         Some(FsKind::Exfat) => {
-            let mut c = Compatibility::new(Verdict::SomePlayers, format!("exFAT: only {}", EXFAT.join(", ")));
-            c.unsupported = NO_EXFAT.iter().map(|s| s.to_string()).collect();
+            let mut c = Compatibility::new(Verdict::SomePlayers, format!("exFAT: only {}", exfat_list().join(", ")));
+            c.unsupported = no_exfat_list();
             c.note("exFAT needs rekordbox 6.6.2 or later to export")
                 .note("exFAT drives can't update player firmware (except on the CDJ-3000X)")
         }

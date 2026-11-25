@@ -79,7 +79,7 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
 /// source gone, a cue that isn't there, one track's edit on several) with a warning. A replay
 /// that makes nothing says it made no changes.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
+fn prop_replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let replayed = common::demo_drive(dir.path(), "Replayed");
     let model = common::demo_drive(dir.path(), "Model");
@@ -159,7 +159,7 @@ fn replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
 #[hegel::explicit_test_case(scenario = 1u8)]
 #[hegel::explicit_test_case(scenario = 2u8)]
 #[hegel::explicit_test_case(scenario = 3u8)]
-fn a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
+fn prop_a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
     let scenario = tc.draw(gs::integers::<u8>().max_value(3));
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -221,7 +221,7 @@ fn a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
 #[hegel::explicit_test_case(step = 0u8, playlist = false)]
 #[hegel::explicit_test_case(step = 1u8, playlist = false)]
 #[hegel::explicit_test_case(step = 2u8, playlist = true)]
-fn a_replay_that_fails_stops_saying_how_far_it_got(tc: TestCase) {
+fn prop_a_replay_that_fails_stops_saying_how_far_it_got(tc: TestCase) {
     let step = tc.draw(gs::integers::<u8>().max_value(2));
     let playlist = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();

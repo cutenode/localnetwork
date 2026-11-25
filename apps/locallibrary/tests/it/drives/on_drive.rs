@@ -12,7 +12,7 @@ use crate::support::{Env, line, path};
 /// each one copied before is already there, so it isn't copied again and the run says why (in
 /// text as in `--json`) and exits as a partial change does; the new ones are copied.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn recordings_copied_off_again_are_already_there(tc: TestCase) {
+fn prop_recordings_copied_off_again_are_already_there(tc: TestCase) {
     let env = Env::new();
     let main = env.drive("Main");
     let to = env.outside("Recordings");
@@ -55,7 +55,7 @@ fn recordings_copied_off_again_are_already_there(tc: TestCase) {
 /// the file and the playlist asked for, and a dry run writes nothing; written, the file holds the
 /// details and the drive has the playlist exactly when asked.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn contact_details_are_written_as_asked(tc: TestCase) {
+fn prop_contact_details_are_written_as_asked(tc: TestCase) {
     let env = Env::new();
     let main = env.drive("Main");
     let contact = tc.draw(gs::sampled_from(&["sam@example.com", "+44 7700 900123", "DJ Sam"][..]));

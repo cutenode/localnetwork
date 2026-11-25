@@ -14,7 +14,7 @@ use crate::common;
 /// it was in. Every node's id is distinct, and the tracks are the library's and those the lists
 /// play, in the order of the library they were cut from. With no history, nothing changes.
 #[hegel::test(test_cases = 200)]
-fn history_lists_join_as_playlists(tc: TestCase) {
+fn prop_history_lists_join_as_playlists(tc: TestCase) {
     let all = common::library(&tc, 8);
     let history = common::playlists(&tc, &all.tracks);
     let tracks = all.tracks.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();

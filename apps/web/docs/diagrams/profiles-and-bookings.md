@@ -228,4 +228,4 @@ stateDiagram-v2
   cancelled --> [*]
 ```
 
-Source: [`src/lib/bookings.ts`](../../src/lib/bookings.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts)
+Source: [`src/lib/bookings.page-only.ts`](../../src/lib/bookings.page-only.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts)

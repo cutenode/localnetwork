@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Capability } from '#lib/capabilities.ts';
-	import { draftKey } from '#lib/form-draft.svelte.ts';
+	import { draftKey } from '#lib/form-draft.page-only.svelte.ts';
 	import { hotkeys, hotkeyTarget } from '#lib/hotkeys.svelte.ts';
 	import EditBar from './EditBar.svelte';
 	import { editUrl } from './edit-url.ts';

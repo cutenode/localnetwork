@@ -5,7 +5,7 @@
 	import { listedEvent } from '#lib/testing/listed-events.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import type { ProjectView, ShowView } from '#lib/types.ts';
-	import FollowButton from './FollowButton.svelte';
+	import FollowButton from './FollowButton.page-only.svelte';
 	import ShowForm from './ShowForm.svelte';
 	import ShowList from './ShowList.svelte';
 	import SignInAgain from './SignInAgain.svelte';

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { BookingRole } from '#lib/bookings.ts';
+import type { BookingRole } from '#lib/bookings.page-only.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { ADMIN, DJ, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';

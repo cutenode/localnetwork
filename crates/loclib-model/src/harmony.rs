@@ -10,7 +10,9 @@ use crate::model::{Library, Track};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct Camelot {
+    /// Its number round the wheel, 1-12.
     pub number: u8,
+    /// Whether it's major (`B`); minor (`A`) otherwise.
     pub major: bool,
 }
 
@@ -20,8 +22,10 @@ const NOTES: [&str; 12] = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A",
 const MINOR_OFFSET: u32 = 4;
 const MAJOR_OFFSET: u32 = 7;
 
+/// How a key mixes into another, best first: the order [`suggestions`] sorts by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Relation {
+    /// The same key.
     Same,
     /// One step round the wheel.
     Adjacent,
@@ -32,6 +36,7 @@ pub enum Relation {
 }
 
 impl Relation {
+    /// A short label for it: `same key`, `±1`, `relative` or `energy boost`.
     pub fn describe(self) -> &'static str {
         match self {
             Relation::Same => "same key",
@@ -215,10 +220,16 @@ pub fn tempo_gap(a: f64, b: f64) -> f64 {
     [b / a, 2.0 * b / a, b / (2.0 * a)].into_iter().map(|r| (r - 1.0).abs()).fold(f64::INFINITY, f64::min)
 }
 
+/// A track that mixes into another, from [`suggestions`].
 pub struct Suggestion {
+    /// The track that mixes in.
     pub track: Track,
+    /// Its key.
     pub key: Camelot,
+    /// How its key mixes into the other track's.
     pub relation: Relation,
+    /// How far its tempo is from the other track's, allowing for half and double time, as
+    /// [`tempo_gap()`] works it out: 0.02 is 2%.
     pub tempo_gap: f64,
 }
 

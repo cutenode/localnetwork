@@ -5,7 +5,7 @@ use hegel::generators as gs;
 use loclib_progress::Ctx;
 
 use super::*;
-use crate::{Damaged, decode, decode_native, open};
+use crate::{Damaged, decode, decode_native, open, vet_container};
 use loclib_testkit::audio::{be, m4a, mp4_atom, mp4_empty_tables, mp4_full};
 
 /// Every way of reading `path` (opening it, decoding it at its rate and to mono), as the error
@@ -49,7 +49,7 @@ const SIZED: [(&[u8; 4], usize); 5] = [(b"stsz", 4), (b"stco", 4), (b"co64", 8),
 #[hegel::test(test_cases = 200)]
 #[hegel::explicit_test_case(table = 0usize, count = u32::MAX, held = 0usize, constant_size = false, junk = 0usize)]
 #[hegel::explicit_test_case(table = 1usize, count = 1_000_000u32, held = 3usize, constant_size = false, junk = 5usize)]
-fn sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase) {
+fn prop_sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase) {
     let table = tc.draw(gs::integers::<usize>().max_value(SIZED.len() - 1));
     let (kind, entry) = SIZED[table];
     let count = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
@@ -91,7 +91,7 @@ fn sample_tables_claiming_more_than_the_file_holds_are_refused(tc: TestCase) {
 #[hegel::explicit_test_case(frame = 0xfffa_1000u32)]
 #[hegel::explicit_test_case(frame = ALAC_FRAME + 1)]
 #[hegel::explicit_test_case(frame = ALAC_FRAME)]
-fn alac_frames_longer_than_any_encoder_writes_are_refused(tc: TestCase) {
+fn prop_alac_frames_longer_than_any_encoder_writes_are_refused(tc: TestCase) {
     let frame = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(2 * ALAC_FRAME), gs::integers::<u32>()));
     let mut file = m4a(8_000, &mp4_empty_tables(), &[]);
     // The frame length follows the setup's header, version and flags.
@@ -126,7 +126,7 @@ fn alac_frames_longer_than_any_encoder_writes_are_refused(tc: TestCase) {
 #[hegel::explicit_test_case(version = 3u16, before = 0u8, broken_entry = false, frame = u32::MAX)]
 #[hegel::explicit_test_case(version = 0u16, before = 2u8, broken_entry = false, frame = u32::MAX)]
 #[hegel::explicit_test_case(version = 0u16, before = 0u8, broken_entry = true, frame = u32::MAX)]
-fn alac_frames_are_found_in_any_entry_symphonia_reads(tc: TestCase) {
+fn prop_alac_frames_are_found_in_any_entry_symphonia_reads(tc: TestCase) {
     let version = tc.draw(gs::integers::<u16>().max_value(3));
     let before = tc.draw(gs::integers::<u8>().max_value(2));
     let broken_entry = tc.draw(gs::booleans());
@@ -184,7 +184,7 @@ const SIZES: [&str; 5] = ["stsz", "stsz entry", "trex", "tfhd", "trun"];
 #[hegel::test(test_cases = 200)]
 #[hegel::explicit_test_case(place = 0usize, size = u32::MAX, tfhd_fields = 0u32, trun_fields = 0u32)]
 #[hegel::explicit_test_case(place = 4usize, size = 1_000_000u32, tfhd_fields = 0xbu32, trun_fields = 0xd05u32)]
-fn samples_larger_than_the_file_are_refused(tc: TestCase) {
+fn prop_samples_larger_than_the_file_are_refused(tc: TestCase) {
     let place = tc.draw(gs::integers::<usize>().max_value(SIZES.len() - 1));
     let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
     let tfhd_fields = tc.draw(gs::integers::<u32>().max_value(0xf));
@@ -292,7 +292,7 @@ impl Seek for Failing {
 /// A read or seek failing anywhere in an M4A's atoms is that error: the file is never passed, or
 /// refused for what the reads before it found.
 #[hegel::test(test_cases = 200)]
-fn a_read_failing_partway_through_the_tables_is_its_error(tc: TestCase) {
+fn prop_a_read_failing_partway_through_the_tables_is_its_error(tc: TestCase) {
     let place = tc.draw(gs::integers::<usize>().max_value(SIZES.len() - 1));
     let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>()));
     let tfhd_fields = tc.draw(gs::integers::<u32>().max_value(0xf));
@@ -328,7 +328,7 @@ fn a_run_claiming_more_samples_than_it_holds_is_refused() {
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(extra = u32::MAX, nested = true)]
 #[hegel::explicit_test_case(extra = 1_000_000u32, nested = false)]
-fn atoms_running_past_what_holds_them_are_refused(tc: TestCase) {
+fn prop_atoms_running_past_what_holds_them_are_refused(tc: TestCase) {
     let extra =
         tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(64), gs::integers::<u32>().max_value(u32::MAX - 64)));
     let nested = tc.draw(gs::booleans());
@@ -368,7 +368,7 @@ fn atoms_running_past_what_holds_them_are_refused(tc: TestCase) {
 
 /// Anything that isn't an MP4 is left alone, as is a file too short to say.
 #[hegel::test(test_cases = 100)]
-fn other_files_are_left_to_the_decoder(tc: TestCase) {
+fn prop_other_files_are_left_to_the_decoder(tc: TestCase) {
     let bytes: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(64));
     let name = tc.draw(gs::sampled_from(vec!["x.wav", "x.mp3", "x.bin"]));
     let dir = tempfile::tempdir().unwrap();

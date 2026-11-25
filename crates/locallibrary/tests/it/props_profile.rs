@@ -67,7 +67,7 @@ fn artist() -> impl hegel::PrintableGenerator<String> {
 #[hegel::test(test_cases = 1000)]
 #[hegel::explicit_test_case(a = "A; B".to_string())]
 #[hegel::explicit_test_case(a = "A (feat. B)".to_string())]
-fn hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
+fn prop_hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
     let a = tc.draw(artist());
     for credit in locallibrary::model::artist_credits(&a) {
         let prefs = ProfilePrefs { hidden_artists: vec![credit.clone()], ..Default::default() };
@@ -78,7 +78,7 @@ fn hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
 
 /// Credits are trimmed, non-empty and distinct.
 #[hegel::test(test_cases = 500)]
-fn credits_are_distinct_names(tc: TestCase) {
+fn prop_credits_are_distinct_names(tc: TestCase) {
     let a = tc.draw(artist());
     let credits = locallibrary::model::artist_credits(&a);
     let distinct: BTreeSet<String> = credits.iter().map(|c| normalize(c)).collect();
@@ -129,7 +129,7 @@ fn report(tracks: &[(String, String)], top_artists: &[String]) -> ProfileReport 
 /// The published document never names a hidden track, or a track or artist credit naming a
 /// hidden artist, even when the track is pinned.
 #[hegel::test(test_cases = 300)]
-fn the_document_never_names_what_is_hidden(tc: TestCase) {
+fn prop_the_document_never_names_what_is_hidden(tc: TestCase) {
     let tracks: Vec<(String, String)> = tc.draw(
         gs::vecs(gs::tuples!(artist(), gs::sampled_from(vec!["Glue", "Saku", "Apricots"]).map(String::from)))
             .max_size(6),
@@ -167,7 +167,7 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
 /// Whatever the sections and rounding, a document built on sessions never counts them: no sets
 /// section, no count in the headline, and no trait the sets section backs.
 #[hegel::test(test_cases = 300)]
-fn sessions_are_never_counted_in_public(tc: TestCase) {
+fn prop_sessions_are_never_counted_in_public(tc: TestCase) {
     let mut r = report(&[], &[]);
     r.basis = Basis::Sessions;
     r.sets = SetsSection { count: tc.draw(gs::integers::<usize>().max_value(5000)), ..Default::default() };
@@ -237,7 +237,7 @@ fn update() -> impl hegel::PrintableGenerator<PrefsUpdate> {
 
 /// However the preferences got there, a hidden track is never also pinned.
 #[hegel::test(test_cases = 500)]
-fn a_hidden_track_is_never_pinned(tc: TestCase) {
+fn prop_a_hidden_track_is_never_pinned(tc: TestCase) {
     let updates = tc.draw(gs::vecs(update()).max_size(5));
     let mut prefs = ProfilePrefs::default();
     for u in &updates {
@@ -263,7 +263,7 @@ fn pinning_a_hidden_track_is_refused() {
 /// Hiding something and then unhiding it (a track, an artist), or pinning and unpinning a
 /// track, leaves the preferences as they were; a reset gives the defaults.
 #[hegel::test(test_cases = 500)]
-fn changes_undo(tc: TestCase) {
+fn prop_changes_undo(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
     for u in tc.draw(gs::vecs(update()).max_size(3)) {
         let _ = prefs.apply(&u);
@@ -305,7 +305,7 @@ fn changes_undo(tc: TestCase) {
 /// Including one that can't be published is refused and changes nothing; published sections are
 /// only ever publishable ones.
 #[hegel::test(test_cases = 300)]
-fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
+fn prop_include_and_exclude_edit_the_published_sections(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
     for u in tc.draw(gs::vecs(update()).max_size(2)) {
         let _ = prefs.apply(&u);
@@ -332,7 +332,7 @@ fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
 
 /// Every section reads back from its name, upper-cased or with dashes.
 #[hegel::test(test_cases = 100)]
-fn sections_read_back_from_their_names(tc: TestCase) {
+fn prop_sections_read_back_from_their_names(tc: TestCase) {
     let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
     assert_eq!(Section::parse(s.name()), Some(s));
     assert_eq!(Section::parse(&format!(" {} ", s.name().to_uppercase().replace('_', "-"))), Some(s));
@@ -347,7 +347,7 @@ fn sections_read_back_from_their_names(tc: TestCase) {
 /// nothing.
 #[hegel::test(test_cases = 500)]
 #[hegel::explicit_test_case(raw = "ßA".to_string())]
-fn genres_are_distinct_and_stable(tc: TestCase) {
+fn prop_genres_are_distinct_and_stable(tc: TestCase) {
     let raw = tc.draw(hegel::one_of!(
         gs::text().max_size(20),
         gs::vecs(gs::sampled_from(vec![
@@ -417,7 +417,7 @@ fn declare(store: &Store, lib: &FxHashMap<u32, Track>, sets: &[Vec<u32>]) {
 /// repeat) and every track played. The view's document is `profile::document` of its report,
 /// and `profile_document` gives the same.
 #[hegel::test(test_cases = 3)]
-fn a_drives_profile_counts_what_its_sessions_and_sets_hold(tc: TestCase) {
+fn prop_a_drives_profile_counts_what_its_sessions_and_sets_hold(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let lib: FxHashMap<u32, Track> =
@@ -575,7 +575,7 @@ fn a_drives_profile_counts_what_its_sessions_and_sets_hold(tc: TestCase) {
 /// whether the drive still has them or rekordbox took them off; the drive's tracks and the
 /// store's snapshot of them are one collection, and naming the library reads the same.
 #[hegel::test(test_cases = 2)]
-fn archived_and_mounted_sessions_count_once_each(tc: TestCase) {
+fn prop_archived_and_mounted_sessions_count_once_each(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let ids: Vec<u32> = (1..=12).collect();
@@ -630,7 +630,7 @@ fn archived_and_mounted_sessions_count_once_each(tc: TestCase) {
 /// A day reads back from each of its forms: `2026-09-30` is that day, `2026-09` its month's
 /// first day to last, `2026` its year's; anything else, or a year before 1901, is refused.
 #[hegel::test(test_cases = 300)]
-fn days_read_back_from_their_forms(tc: TestCase) {
+fn prop_days_read_back_from_their_forms(tc: TestCase) {
     let year = tc.draw(gs::integers::<i32>().min_value(1850).max_value(2200));
     let month = tc.draw(gs::integers::<u32>().min_value(1).max_value(12));
     let day = tc.draw(gs::integers::<u32>().min_value(1).max_value(31));
@@ -661,7 +661,7 @@ fn days_read_back_from_their_forms(tc: TestCase) {
 /// A request's range must run forwards: a start after the end is refused, naming both, before
 /// anything is read; one that runs forwards (or names one end) is taken.
 #[hegel::test(test_cases = 40)]
-fn a_range_must_run_forwards(tc: TestCase) {
+fn prop_a_range_must_run_forwards(tc: TestCase) {
     let day = || gs::integers::<i64>().min_value(0).max_value(3000);
     let (a, b) = (tc.draw(day()), tc.draw(day()));
     let at = |n: i64| (NaiveDate::from_ymd_opt(2020, 1, 1).unwrap() + chrono::Duration::days(n)).to_string();
@@ -680,7 +680,7 @@ fn a_range_must_run_forwards(tc: TestCase) {
 /// Preferences changed through the API are saved whole: what an update returns is what loads
 /// back, and is what applying the update directly gives; an update that fails saves nothing.
 #[hegel::test(test_cases = 10)]
-fn saved_preferences_load_back(tc: TestCase) {
+fn prop_saved_preferences_load_back(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut model = ProfilePrefs::default();
@@ -717,7 +717,7 @@ fn saved_preferences_load_back(tc: TestCase) {
 /// and their shape are titled as sessions. Only sets and what describes the collection can be
 /// published, and of those, artists and the collection's size are opt-in.
 #[hegel::test(test_cases = 50)]
-fn every_section_says_what_it_reveals(tc: TestCase) {
+fn prop_every_section_says_what_it_reveals(tc: TestCase) {
     let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
     assert!(!s.title().is_empty() && !s.reveals().is_empty());
     assert_eq!(s.title_in(Basis::Plays), s.title());
@@ -740,7 +740,7 @@ fn every_section_says_what_it_reveals(tc: TestCase) {
 /// store's registry knows once it knows any, else all of them. A drive named must hold an
 /// export, and with no drive and no store (or a store with no library) there's nothing to read.
 #[hegel::test(test_cases = 4)]
-fn the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
+fn prop_the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let volumes = common::isolate(dir.path(), None);
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -789,7 +789,7 @@ fn the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
 /// back what was never set (a hidden track or artist, an alias) are each refused: blanks as
 /// invalid, the rest as not found. Whatever was there before stays.
 #[hegel::test(test_cases = 300)]
-fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
+fn prop_blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
     for u in tc.draw(gs::vecs(update()).max_size(3)) {
         let before = prefs.clone();
@@ -837,7 +837,7 @@ fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
 /// the text; every other genre reads as it does without aliases, words that aren't genres stay
 /// out, and no genre is named twice.
 #[hegel::test(test_cases = 300)]
-fn the_djs_own_genre_spellings_win(tc: TestCase) {
+fn prop_the_djs_own_genre_spellings_win(tc: TestCase) {
     let parts: Vec<&str> = tc.draw(
         gs::vecs(gs::sampled_from(vec![
             "deep house",
@@ -886,13 +886,13 @@ fn the_djs_own_genre_spellings_win(tc: TestCase) {
 /// whatever cues the DJ set in hot cue slots A to C or as memory cues: the share of tracks with
 /// a hot cue, a memory cue and a loop, and hot cues per track among those with any.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn cue_statistics_count_the_cues_the_analysis_files_hold(tc: TestCase) {
+fn prop_cue_statistics_count_the_cues_the_analysis_files_hold(tc: TestCase) {
     cue_statistics_after_cue_edits(&tc, 2);
 }
 
 /// The same for hot cues in slots D to H, which a `.EXT` file holds alone.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn cue_statistics_count_hot_cues_past_c(tc: TestCase) {
+fn prop_cue_statistics_count_hot_cues_past_c(tc: TestCase) {
     cue_statistics_after_cue_edits(&tc, 7);
 }
 

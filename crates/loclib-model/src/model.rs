@@ -8,11 +8,18 @@ use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfkc_quick};
 
 use crate::tokens::{Rgb, track_colors};
 
+mod track_edit;
+
+pub use track_edit::{AudioFile, TrackFields};
+
 /// A rekordbox library as seen on a device export.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Library {
+    /// Every track, in the order the export lists them.
     pub tracks: Vec<Track>,
+    /// The playlists and folders, each pointing to its folder by `parent_id`:
+    /// [`Library::display_order`] puts them in the order they're shown.
     pub playlists: Vec<Playlist>,
     /// Number of history playlists (players record what was played).
     pub history_playlists: usize,
@@ -22,44 +29,73 @@ pub struct Library {
     pub history: Vec<Playlist>,
 }
 
+/// A track: its tags as rekordbox keeps them, and where its files are on the drive. A text tag it
+/// doesn't have is empty, a number it doesn't have 0.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Track {
     /// Row id inside this export. Only meaningful within one export.
     pub id: u32,
+    /// The title.
     pub title: String,
+    /// The artist, as one credit (`A feat. B`): [`artist_credits`] splits it.
     pub artist: String,
+    /// The album's title.
     pub album: String,
+    /// The album's artist.
     pub album_artist: String,
+    /// The genre.
     pub genre: String,
+    /// The record label.
     pub label: String,
+    /// The musical key, in whichever notation rekordbox shows (`8A`, `Am`, `1m`):
+    /// [`crate::harmony::Camelot::parse`] reads any of them.
     pub key: String,
+    /// The remixer.
     pub remixer: String,
+    /// The original's artist, for a remix or a cover.
     pub original_artist: String,
+    /// The composer.
     pub composer: String,
+    /// The comment tag.
     pub comment: String,
+    /// The mix's name (`Extended Mix`).
     pub mix_name: String,
+    /// The ISRC as tagged, which may have hyphens: [`isrc()`] tidies it.
     pub isrc: String,
     /// Beats per minute (as analysed).
     pub bpm: f64,
+    /// Length, in whole seconds.
     pub duration_secs: u32,
+    /// The release year.
     pub year: u16,
+    /// Its number on its album.
     pub track_number: u32,
+    /// Its album's disc number.
     pub disc_number: u16,
     /// 0-5 stars.
     pub rating: u8,
+    /// Its track colour, `None` when it has none.
     pub color: Option<TrackColor>,
+    /// How many times it's been played, as rekordbox counts them.
     pub play_count: u16,
+    /// Bitrate, in kbps.
     pub bitrate: u32,
+    /// Sample rate, in Hz.
     pub sample_rate: u32,
+    /// Bits per sample (16, 24).
     pub sample_depth: u16,
+    /// The audio file's size, in bytes.
     pub file_size: u64,
     /// Absolute device path of the audio file, e.g. `/Contents/Artist/Album/Track.mp3`.
     pub file_path: String,
     /// Device path of the primary analysis file (`.DAT`); `.EXT`/`.2EX` sit next to it.
     pub analyze_path: String,
+    /// When it was added to the library, `YYYY-MM-DD`.
     pub date_added: String,
+    /// When it was released, `YYYY-MM-DD`.
     pub release_date: String,
+    /// Row id of its artwork inside this export, `None` when it has none.
     pub artwork_id: Option<u32>,
     /// Device path of the artwork thumbnail, if any.
     pub artwork_path: Option<String>,
@@ -84,17 +120,27 @@ impl Track {
 #[cfg_attr(any(test, feature = "test-util"), derive(hegel::DefaultGenerator))]
 #[serde(rename_all = "snake_case")]
 pub enum TrackColor {
+    /// Pink, rekordbox's colour 1.
     Pink,
+    /// Red, rekordbox's colour 2.
     Red,
+    /// Orange, rekordbox's colour 3.
     Orange,
+    /// Yellow, rekordbox's colour 4.
     Yellow,
+    /// Green, rekordbox's colour 5.
     Green,
+    /// Aqua, rekordbox's colour 6.
     Aqua,
+    /// Blue, rekordbox's colour 7.
     Blue,
+    /// Purple, rekordbox's colour 8.
     Purple,
 }
 
 impl TrackColor {
+    /// The colour rekordbox numbers `id`, 1 (pink) to 8 (purple); `None` for any other (0 is no
+    /// colour).
     pub fn from_id(id: u8) -> Option<Self> {
         Some(match id {
             1 => Self::Pink,
@@ -109,8 +155,40 @@ impl TrackColor {
         })
     }
 
+    /// rekordbox's number for it, 1 (pink) to 8 (purple).
     pub fn id(self) -> u8 {
         self as u8 + 1
+    }
+
+    /// A colour by name (`aqua`, `cyan`...), or none (`none`, `no`, `-`); `None` for a word that's
+    /// neither. Letter case doesn't matter.
+    pub fn named(s: &str) -> Option<Option<Self>> {
+        Some(match s.to_ascii_lowercase().as_str() {
+            "none" | "no" | "-" => None,
+            "pink" => Some(Self::Pink),
+            "red" => Some(Self::Red),
+            "orange" => Some(Self::Orange),
+            "yellow" => Some(Self::Yellow),
+            "green" => Some(Self::Green),
+            "aqua" | "cyan" => Some(Self::Aqua),
+            "blue" => Some(Self::Blue),
+            "purple" | "violet" => Some(Self::Purple),
+            _ => return None,
+        })
+    }
+
+    /// A colour by name ([`TrackColor::named`]) or rekordbox's number (1-8, 0 for none), or why `s`
+    /// is neither.
+    pub fn parse(s: &str) -> Result<Option<Self>, String> {
+        if let Ok(n) = s.trim().parse::<u8>() {
+            return match n {
+                0 => Ok(None),
+                n => Self::from_id(n).map(Some).ok_or_else(|| format!("no colour number {n}")),
+            };
+        }
+        Self::named(s).ok_or_else(|| {
+            format!("unknown colour {s:?} (pink, red, orange, yellow, green, aqua, blue, purple or none)")
+        })
     }
 
     /// Roughly how rekordbox's players show it.
@@ -128,14 +206,19 @@ impl TrackColor {
     }
 }
 
+/// A playlist, or a folder of them: a node of the playlist tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Playlist {
+    /// Row id inside this export. Only meaningful within one export.
     pub id: u32,
     /// `None` for top-level nodes.
     pub parent_id: Option<u32>,
+    /// Its name, as the tree shows it.
     pub name: String,
+    /// Whether it's a folder, holding other nodes instead of tracks.
     pub is_folder: bool,
+    /// Its place among the nodes in its folder: lowest first, then by id.
     pub sort_order: u32,
     /// Track ids in playlist order (empty for folders).
     pub track_ids: Vec<u32>,
@@ -147,19 +230,29 @@ pub struct Playlist {
 /// playlists with one name in a folder, and a `/` in a name.
 pub type PlaylistKey<'a> = Vec<(&'a str, bool, usize)>;
 
+/// What a library holds, counted: [`Library::summary`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LibrarySummary {
+    /// Tracks.
     pub tracks: usize,
+    /// Playlists, not counting folders.
     pub playlists: usize,
+    /// Folders.
     pub folders: usize,
+    /// Different artist tags, compared exactly: `A feat. B` is one of its own, and a blank one
+    /// counts too.
     pub artists: usize,
+    /// The audio files' sizes added up, in bytes.
     pub audio_bytes: u64,
+    /// The tracks' lengths added up, in seconds.
     pub total_duration_secs: u64,
+    /// Tracks without artwork.
     pub tracks_without_artwork: usize,
 }
 
 impl Library {
+    /// What the library holds, counted.
     pub fn summary(&self) -> LibrarySummary {
         let mut artists: Vec<&str> = self.tracks.iter().map(|t| t.artist.as_str()).collect();
         artists.sort_unstable();
@@ -175,6 +268,7 @@ impl Library {
         }
     }
 
+    /// The track with row id `id` (the first, if two share it).
     pub fn track(&self, id: u32) -> Option<&Track> {
         self.tracks.iter().find(|t| t.id == id)
     }
@@ -194,6 +288,7 @@ impl Library {
         move |id| by_id.get(&id).copied()
     }
 
+    /// The playlist or folder with row id `id` (the first, if two share it).
     pub fn playlist(&self, id: u32) -> Option<&Playlist> {
         self.playlists.iter().find(|p| p.id == id)
     }
@@ -468,6 +563,19 @@ pub fn pick<S: AsRef<str>, T>(items: impl IntoIterator<Item = (S, T)>, query: &s
     if one_path { loose.into_iter().next().map(|(_, x)| x) } else { None }
 }
 
+/// A date (prefix) as a sortable number: `2026-09-30` -> 20260930, `2026-09` -> 20260901 (with
+/// `end`, the last day it can mean: `2026-09` -> 20260931, `2026` -> 20261231). `None` for
+/// anything else.
+pub fn date_value(s: &str, end: bool) -> Option<f64> {
+    let parts: Vec<&str> = s.trim().split(['-', '/']).collect();
+    let y: u32 = parts.first()?.parse().ok()?;
+    let m: u32 = parts.get(1).map_or(Some(if end { 12 } else { 1 }), |m| m.parse().ok())?;
+    let d: u32 = parts.get(2).map_or(Some(if end { 31 } else { 1 }), |d| d.parse().ok())?;
+    (parts.len() <= 3 && (1000..=9999).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d))
+        // Lazily: out-of-range parts (`999999`) would overflow before the checks reject them.
+        .then(|| (y * 10_000 + m * 100 + d) as f64)
+}
+
 /// Lower-case, NFKC, whitespace-collapsed form for fuzzy comparisons.
 pub fn normalize(s: &str) -> String {
     // Most tags are NFKC already, which being ASCII says at once and a quick check tells without
@@ -552,10 +660,15 @@ pub fn isrc(tag: &str) -> Option<String> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LibraryDiff {
+    /// Tracks only the newer export has.
     pub added_tracks: Vec<TrackRef>,
+    /// Tracks only the older export has.
     pub removed_tracks: Vec<TrackRef>,
+    /// Tracks both have, whose details differ.
     pub changed_tracks: Vec<TrackChange>,
+    /// Paths of the playlists and folders only the newer export has (folders end in `/`).
     pub added_playlists: Vec<String>,
+    /// Paths of the playlists and folders only the older export has (folders end in `/`).
     pub removed_playlists: Vec<String>,
     /// Playlists whose contents or order differ.
     pub changed_playlists: Vec<String>,
@@ -565,16 +678,22 @@ crate::labelled_tuple! {
     /// A tempo range: `[low, high]` in BPM.
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct BpmRange {
+        /// The slowest tempo, in BPM.
         pub low: f64,
+        /// The fastest tempo, in BPM.
         pub high: f64,
     }
 }
 
+/// A track a diff names.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TrackRef {
+    /// Row id inside its export.
     pub id: u32,
+    /// "Artist - Title", for display.
     pub name: String,
+    /// Absolute device path of its audio file.
     pub file_path: String,
 }
 
@@ -584,22 +703,31 @@ impl From<&Track> for TrackRef {
     }
 }
 
+/// A track whose details differ between two exports.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TrackChange {
+    /// The track, as the newer export has it.
     pub track: TrackRef,
+    /// The details that differ.
     pub fields: Vec<FieldChange>,
 }
 
+/// One of a track's details that differs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FieldChange {
+    /// Which detail: `title`, `artist`, `album`, `genre`, `key`, `label`, `comment`, `bpm`,
+    /// `rating`, `color`, `file_size` or `artwork` (whether it has any).
     pub field: String,
+    /// Its value before, as text.
     pub old: String,
+    /// Its value after, as text.
     pub new: String,
 }
 
 impl LibraryDiff {
+    /// Whether nothing differs.
     pub fn is_empty(&self) -> bool {
         self.added_tracks.is_empty()
             && self.removed_tracks.is_empty()

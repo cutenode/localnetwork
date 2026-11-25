@@ -213,7 +213,7 @@ fn number(e: &El, name: &str) -> f64 {
 /// album, details, tempo and key as the module docs say Traktor reads them; track rows sharing a
 /// file, in any case, are one entry, counted in a warning.
 #[hegel::test(test_cases = 200)]
-fn entries_read_back(tc: TestCase) {
+fn prop_entries_read_back(tc: TestCase) {
     let lib = common::library(&tc, 6);
     let (root, volume) = root(&tc);
     let src = Source { library: &lib, root, analysis: None };
@@ -273,7 +273,7 @@ fn entries_read_back(tc: TestCase) {
 /// each playlist lists the files of its tracks in order (repeats kept, missing tracks left out, a
 /// file named by its entry's location in any case), and a playlist's `UUID` follows its path.
 #[hegel::test(test_cases = 200)]
-fn playlists_read_back(tc: TestCase) {
+fn prop_playlists_read_back(tc: TestCase) {
     let lib = common::library(&tc, 4);
     let (root, volume) = root(&tc);
     let src = Source { library: &lib, root, analysis: None };
@@ -338,7 +338,7 @@ fn same_tree(
 /// that beat's tempo, then its cues in order: hot cues on their pads, memory cues on none, loops
 /// as long as they are; hot cues past the eighth pad, and tempo changes, are counted in warnings.
 #[hegel::test(test_cases = 200)]
-fn cues_and_grids_read_back(tc: TestCase) {
+fn prop_cues_and_grids_read_back(tc: TestCase) {
     let lib = common::library(&tc, 4);
     let analysis = common::analysis(&tc, &lib);
     let load = common::loader(&analysis);
@@ -399,7 +399,7 @@ fn cues_and_grids_read_back(tc: TestCase) {
 /// An export reports one scan item per track row, in order, between the phase's start and end;
 /// cancelled, it stops with [`Error::Cancelled`] before the first track.
 #[hegel::test(test_cases = 40)]
-fn progress_and_cancelling(tc: TestCase) {
+fn prop_progress_and_cancelling(tc: TestCase) {
     let lib = common::library(&tc, 4);
     let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: None };
     let events = Mutex::new(Vec::new());

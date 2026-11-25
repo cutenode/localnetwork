@@ -322,7 +322,9 @@ fn the_stories_are_what_the_player_draws() {
     holds(&manifest, &(json + "\n"), RERUN);
     made.insert(manifest);
 
-    let stale: Vec<_> = files_in(root).into_iter().filter(|p| !made.contains(p)).collect();
+    // The folder's .gitattributes is tools/regen's, not a story's.
+    let regen = root.join(".gitattributes");
+    let stale: Vec<_> = files_in(root).into_iter().filter(|p| !made.contains(p) && *p != regen).collect();
     if blessing() {
         stale.iter().for_each(|p| std::fs::remove_file(p).unwrap());
         return;

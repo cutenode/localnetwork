@@ -1,0 +1,13 @@
+"security":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/SECURITY.md"
+          - ".github/zizmor.yml"
+          - ".github/codeql/**"
+          - ".github/workflows/codeql.yml"
+          - ".github/workflows/scorecard.yml"
+          - ".github/workflows/dependency-review.yml"
+          - ".github/workflows/npm-advisories.yml"
+          - "deny.toml"
+          - "osv-scanner.toml"
+          - "fuzz/osv-scanner.toml"

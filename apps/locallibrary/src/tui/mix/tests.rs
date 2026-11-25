@@ -154,7 +154,7 @@ fn writing_needs_the_drive_it_was_matched_against() {
 /// back up once they fit again: drawn short, then tall, the first row and the one selected
 /// show.
 #[hegel::test(test_cases = 50)]
-fn the_lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
+fn prop_the_lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(10));
     let sel = tc.draw(gs::integers::<usize>().max_value(n - 1));
@@ -859,7 +859,7 @@ fn lanes_show_in_reverse_video_without_colours() {
 /// among the recent ones until it's forgotten. A folder with none isn't kept, and a path
 /// that isn't a recording says why and changes nothing.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCase) {
+fn prop_recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let drive = dir.path().join("drive");
@@ -938,7 +938,7 @@ fn recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCase) {
 /// drive's tracks fingerprinted out of how many, and the share listened to (by bytes, else by
 /// items), never past all of it.
 #[hegel::test(test_cases = 300)]
-fn identifying_says_how_far_it_has_got(tc: hegel::TestCase) {
+fn prop_identifying_says_how_far_it_has_got(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (tx, _rx) = std::sync::mpsc::channel();
     let mut t = MixTab::new(tx);
@@ -958,7 +958,7 @@ fn identifying_says_how_far_it_has_got(tc: hegel::TestCase) {
     }
 }
 
-/// [`identifying_says_how_far_it_has_got`] at `phase`, with `items` and `bytes` done.
+/// [`prop_identifying_says_how_far_it_has_got`] at `phase`, with `items` and `bytes` done.
 fn says_how_far(t: &mut MixTab, phase: Option<Phase>, items: (u64, u64), bytes: (u64, u64)) {
     identifying(t, phase, items, bytes);
     let said = t.status().unwrap();
@@ -992,7 +992,7 @@ fn says_how_far(t: &mut MixTab, phase: Option<Phase>, items: (u64, u64), bytes: 
 // Only a Unix shell escapes with backslashes: on Windows they're the path's own.
 #[cfg(unix)]
 #[hegel::test(test_cases = 300)]
-fn a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
+fn prop_a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let parts: Vec<&str> = tc.draw(
         gs::vecs(gs::sampled_from(&["Sets", "Sunday Warm-up", "it's", "a\\b", "日本"][..])).min_size(1).max_size(3),
@@ -1017,7 +1017,7 @@ fn a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
 /// start); space plays from the selected track, enter on a track from it, and a click on the
 /// timeline from there; z zooms in two, four, eight times and back.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
+fn prop_the_set_plays_through_its_tracks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir, _out) = playing_app();
     let starts: Vec<f64> = app.mix.report().unwrap().plays.iter().map(|p| p.start).collect();
@@ -1106,7 +1106,7 @@ fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
 /// the store can't be opened, its profile choices can't be read or the file can't be written,
 /// which it says instead.
 #[hegel::test(test_cases = 60, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
+fn prop_a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
     let report = tc.draw(gs::booleans());
@@ -1184,7 +1184,7 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
 /// whether its key is known; with its waveform, cues and phrases from the drive, and the set's
 /// cover beside the title.
 #[hegel::test(test_cases = 60)]
-fn a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
+fn prop_a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut t = tab();
     let i = 1;
@@ -1296,7 +1296,7 @@ fn a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
 /// recording (a second opens it) or a track; del forgets a recording opened on its own, not the
 /// drive's.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
+fn prop_the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
     let set = wav_at(&dir.path().join("Sunday Warm-up.wav"));
@@ -1421,7 +1421,7 @@ fn the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
 /// paused plays it on, enter on nothing asks for a path, and esc, o and space do the app's when
 /// there's nothing of the Mixes view's to do; with no drive open the view says one's needed.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
+fn prop_the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let drive = dir.path().join("DNA");

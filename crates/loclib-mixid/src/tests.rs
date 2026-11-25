@@ -48,7 +48,7 @@ use hegel::generators as gs;
 /// memory: the same peaks as a library track and as a recording (with its levels and frames
 /// as the analyzer counts them), and as long. A file that isn't there is that file's error.
 #[hegel::test(test_cases = 8)]
-fn files_are_heard_as_their_samples(tc: hegel::TestCase) {
+fn prop_files_are_heard_as_their_samples(tc: hegel::TestCase) {
     let secs = tc.draw(gs::floats::<f64>().min_value(0.2).max_value(3.0));
     let pcm: Vec<i32> =
         synth(secs, tc.draw(gs::integers::<u32>().min_value(1))).iter().map(|s| (s * 12_000.0) as i32).collect();

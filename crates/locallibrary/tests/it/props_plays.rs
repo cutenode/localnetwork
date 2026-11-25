@@ -12,8 +12,9 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, PlayStatsRequest};
 use locallibrary::device::Device;
-use locallibrary::edit::{Edit, TrackFields};
+use locallibrary::edit::Edit;
 use locallibrary::export::{self, Format, Locator, PathStyle};
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::store::Store;
@@ -31,7 +32,7 @@ fn set_plays(root: &Path, file: &str, n: u16) {
 }
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn plays_are_counted_and_compared_with_a_snapshot(tc: TestCase) {
+fn prop_plays_are_counted_and_compared_with_a_snapshot(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
@@ -93,7 +94,7 @@ fn plays_are_counted_and_compared_with_a_snapshot(tc: TestCase) {
 /// A playlist (or folder, whole or one file per playlist) exports its tracks in order, in each
 /// format; the M3U and the CSV read back as those tracks.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn exported_lists_hold_their_selection(tc: TestCase) {
+fn prop_exported_lists_hold_their_selection(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "A");
     let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();

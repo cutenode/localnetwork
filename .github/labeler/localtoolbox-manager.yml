@@ -1,0 +1,5 @@
+"localtoolbox: manager":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/src/tools/manager/**"
+          - "apps/localtoolbox/test/**/manager.*"

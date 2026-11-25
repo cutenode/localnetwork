@@ -10,6 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// A question for the user, with the items to choose from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 // Named apart from the sidecar's own `Choice`s in its contract.
 #[schemars(rename = "PluginChoice")]
@@ -21,6 +22,7 @@ pub struct Choice {
     /// Any of the items may be chosen, none too: the param is set to a list of their values.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub multi: bool,
+    /// What may be chosen, in the order shown.
     pub items: Vec<ChoiceItem>,
     /// Questions asked after this one before the hook runs again, each about a param of its own
     /// (and asking none of its own). A host that doesn't know them asks this one alone, so a hook
@@ -29,9 +31,12 @@ pub struct Choice {
     pub more: Vec<Choice>,
 }
 
+/// One of a question's items.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ChoiceItem {
+    /// What the user sees for it, in a line.
     pub label: String,
+    /// More about it, shown beside the label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     /// What the param is set to when it's chosen (with `multi`, what its list has).

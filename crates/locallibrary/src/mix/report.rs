@@ -93,7 +93,7 @@ pub fn playable_audio(mix: &Path) -> Option<PathBuf> {
 /// longest name it shares (four characters at least). `None` for a recording, which is its own
 /// audio.
 pub fn project_audio(project: &Path) -> Option<PathBuf> {
-    if !super::aup::is_project(project) {
+    if !loclib_aup::is_project(project) {
         return None;
     }
     let stem = project.file_stem()?.to_string_lossy().to_lowercase();

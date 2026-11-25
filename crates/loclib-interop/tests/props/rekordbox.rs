@@ -108,7 +108,7 @@ fn assert_tree(lib: &Library, parent: Option<u32>, node: &El, playlists: &mut us
 /// `POSITION_MARK` per cue (a loop with its end, a hot cue with its pad and colour). The playlist
 /// tree comes back as the library has it, and the export counts what went in.
 #[hegel::test(test_cases = 200)]
-fn the_library_reads_back(tc: TestCase) {
+fn prop_the_library_reads_back(tc: TestCase) {
     let lib = common::library(&tc, 6);
     let analysis = common::analysis(&tc, &lib);
     let load = common::loader(&analysis);
@@ -195,7 +195,7 @@ fn the_library_reads_back(tc: TestCase) {
 /// An export reports one scan item per track row, in order, between the phase's start and end;
 /// cancelled, it stops with [`Error::Cancelled`] before the first track.
 #[hegel::test(test_cases = 40)]
-fn progress_and_cancelling(tc: TestCase) {
+fn prop_progress_and_cancelling(tc: TestCase) {
     let lib = common::library(&tc, 4);
     let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: None };
     let events = Mutex::new(Vec::new());

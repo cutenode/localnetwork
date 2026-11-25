@@ -197,7 +197,7 @@ fn the_store_says_what_it_holds() {
 /// store it copied: in the copy, the plan says once that the next copy to it refuses unless
 /// forced; in the store copied, it never does.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_change_planned_in_a_copy_says_its_a_copy(tc: hegel::TestCase) {
+fn prop_a_change_planned_in_a_copy_says_its_a_copy(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();
     env.pulled("Main");

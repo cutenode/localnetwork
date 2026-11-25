@@ -1,0 +1,10 @@
+"localtoolbox: downloads":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/src/tools/third-party-downloads/**"
+          - "apps/localtoolbox/src/lib/downloaded.*"
+          - "apps/localtoolbox/src/lib/downloader.*"
+          - "apps/localtoolbox/downloaded-store.ts"
+          - "apps/localtoolbox/test/**/third-party-downloads.*"
+          - "apps/localtoolbox/test/**/downloaded.*"
+          - "apps/localtoolbox/test/**/downloaded-store.*"

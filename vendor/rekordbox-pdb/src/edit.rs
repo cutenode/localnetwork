@@ -12,6 +12,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use loclib_model::audio::file_type_code;
+
 use crate::pdb::{Database, TableType, Track, TRACK_STRING_NAMES};
 use crate::{
     align4, decode_isrc, decode_string, encode_isrc, encode_string, read_header, u16le, u32le, PdbError, Result,
@@ -56,21 +58,6 @@ const TRACK_STRINGS: usize = 0x88;
 /// per table there (`export.pdb` has 20 tables), and a table whose free page was inside the file
 /// gets one past the end once `allocate_page` uses it. (locallibrary patch.)
 const MAX_PAGES_PAST_END: usize = 64;
-
-/// rekordbox's format code for an audio file, by its extension: the track row's `file_type`
-/// (OneLibrary's `content.fileType` uses the same codes). 0 for an extension rekordbox doesn't
-/// list. (locallibrary patch.)
-pub fn file_type_code(path: &str) -> u16 {
-    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-    match ext.as_deref() {
-        Some("mp3") => 0x01,
-        Some("m4a" | "mp4" | "aac") => 0x04,
-        Some("flac") => 0x05,
-        Some("wav") => 0x0b,
-        Some("aiff" | "aif") => 0x0c,
-        _ => 0,
-    }
-}
 
 fn check_range(field: &str, value: u64, size: usize) -> Result<()> {
     if value >= 1u64 << (8 * size) {

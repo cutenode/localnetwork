@@ -1,4 +1,4 @@
-//! Writing rekordbox's collection (`master.db` on this computer, see [`crate::masterdb`]) to a
+//! Writing rekordbox's collection (`master.db` on this computer, see [`loclib_rekordbox_db::masterdb`]) to a
 //! drive or a folder, as rekordbox's Export does, so a library can be had from this computer
 //! without a drive rekordbox exported to. A folder written this way is a drive like any other:
 //! `pull` saves it in the store, and `library push` writes it to any drive. A plugin's library
@@ -8,7 +8,7 @@
 //!
 //! The export holds every track (or those of the chosen playlists), the playlists and folders,
 //! cues and My Tags. An intelligent playlist holds the tracks its rules match (see
-//! [`crate::masterdb::smartlist`]); one a filter can say gets a smart rule for the target too
+//! [`loclib_rekordbox_db::masterdb::smartlist`]); one a filter can say gets a smart rule for the target too
 //! ([`crate::smart`], kept in the store), which `smart apply` keeps up to date, and the plan says
 //! which are only their tracks as they are now. One whose rules can't be read stays behind. Audio goes in
 //! `Contents/<artist>/<album>/`, and each track's analysis files (`.DAT`, `.EXT`, `.2EX`) are
@@ -18,7 +18,7 @@
 //! databases.
 //!
 //! Tracks Cloud Library Sync keeps in Dropbox or Google Drive are read from the service's folder
-//! (see [`crate::masterdb::CloudFolders`]). An online-only file downloads when it's read, a few
+//! (see [`loclib_rekordbox_db::masterdb::CloudFolders`]). An online-only file downloads when it's read, a few
 //! at a time ahead of the copy; the plan says how many there are, and how big. Analysis or artwork
 //! that hasn't finished syncing is
 //! copied as it is, with a warning, and a track whose audio isn't on this computer is left out.
@@ -50,7 +50,6 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::hash::Hash;
 use crate::library_write::{self, FileCopy, Planned, Source, Written};
-use crate::masterdb::{CloudFolders, Collection, SmartList, TagCategory};
 use crate::model::{Library, Track};
 use crate::pack::Unsaved;
 use crate::paths;
@@ -58,8 +57,9 @@ use crate::progress::{Ctx, Event, Phase};
 use crate::smart::SmartPlaylist;
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
-use crate::tags::DbTags;
+use crate::tags::{DbTags, TagsByTrack};
 use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge, workers};
+use loclib_rekordbox_db::masterdb::{CloudFolders, Collection, SmartList, TagCategory};
 
 const RECORD_FILE: &str = "collection.json";
 
@@ -561,7 +561,7 @@ fn fill_smart(
     warnings: &mut Vec<String>,
 ) -> (FxHashMap<u32, Vec<u32>>, Vec<SmartPlaylist>) {
     let lib = &from.library;
-    let tags = crate::masterdb::tags_by_track(&from.tags, lib);
+    let tags = TagsByTrack::from_collection(&from.tags, lib);
     let (mut filled, mut rules, mut plain, mut left_out) = (FxHashMap::default(), Vec::new(), Vec::new(), Vec::new());
     for &id in from.smart_playlists.iter().filter(|id| keep.contains(id)) {
         let path = lib.playlist_path(id);

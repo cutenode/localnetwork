@@ -6,9 +6,10 @@ use std::sync::OnceLock;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use locallibrary::edit::{AudioFile, TrackFields};
-use locallibrary::onelibrary::cipher::{self, PAGE_SIZE};
-use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
+use locallibrary::model::{AudioFile, TrackFields};
+use locallibrary::onelibrary::{self, OneLibrary};
+use loclib_rekordbox_db::onelibrary::cipher::{self, PAGE_SIZE};
+use loclib_rekordbox_db::onelibrary::{ContentRecord, CueRow, Tree};
 use rusqlite::types::Value;
 
 use crate::props_onelibrary::new_library;
@@ -149,7 +150,7 @@ fn write(one: &mut OneLibrary, op: usize) -> locallibrary::Result<String> {
             one.add_my_tag(90, 0, "Era", true)?;
             one.add_my_tag(91, 90, "Nineties", false)?;
             // Not a category: refused whatever the schema.
-            let under_a_tag = one.add_my_tag(92, 91, "Late", false).map_err(|e| e.code());
+            let under_a_tag = one.add_my_tag(92, 91, "Late", false).map_err(|e| locallibrary::Error::from(e).code());
             one.rename_my_tag(91, "90s")?;
             let linked = one.link_my_tag(91, &[1, 2, 3])?;
             let unlinked = (one.unlink_my_tag(91, &[1])?, one.unlink_my_tags_of(&[2])?);
@@ -228,7 +229,7 @@ const NAMED: [(&str, Option<&str>); 13] = [
 #[hegel::explicit_test_case(named = vec![1usize, 2, 6, 11], extra = 0usize)]
 #[hegel::explicit_test_case(named = vec![7usize, 8, 3, 12], extra = 0usize)]
 #[hegel::explicit_test_case(named = vec![9usize], extra = 0usize)]
-fn a_schema_lacking_what_is_needed_is_reported(tc: TestCase) {
+fn prop_a_schema_lacking_what_is_needed_is_reported(tc: TestCase) {
     let mut one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let named: Vec<usize> =
         tc.draw(gs::vecs(gs::integers::<usize>().max_value(NAMED.len() - 1)).unique(true).max_size(4));
@@ -285,7 +286,7 @@ fn a_schema_lacking_what_is_needed_is_reported(tc: TestCase) {
 /// `bytes` with the root page of `table`'s b-tree (or the schema table's) damaged in one of
 /// three ways, re-encrypted with the file's own salt.
 fn damaged(bytes: &[u8], table: &str, kind: u8) -> Vec<u8> {
-    let (codec, mut plain) = onelibrary::decrypt(bytes, None).unwrap();
+    let (codec, mut plain) = loclib_rekordbox_db::onelibrary::decrypt(bytes, None).unwrap();
     let one = OneLibrary::from_encrypted(bytes, None).unwrap();
     let root: u32 = one
         .connection()
@@ -313,14 +314,14 @@ fn tables(one: &OneLibrary) -> Vec<String> {
 /// differs from the intact database's and survives re-encryption, while opening it is refused
 /// as damaged (or malformed, when the damage is in the schema table).
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn damaged_databases_hash_but_never_open(tc: TestCase) {
+fn prop_damaged_databases_hash_but_never_open(tc: TestCase) {
     let intact = rich_library();
     let one = OneLibrary::from_encrypted(intact, None).unwrap();
     let table = tc.draw(gs::sampled_from(tables(&one)));
     let bad = damaged(intact, &table, tc.draw(gs::integers::<u8>().max_value(2)));
     let hashes = onelibrary::content_hashes(&bad, None).unwrap();
     assert_ne!(hashes, onelibrary::content_hashes(intact, None).unwrap());
-    let (codec, plain) = onelibrary::decrypt(&bad, None).unwrap();
+    let (codec, plain) = loclib_rekordbox_db::onelibrary::decrypt(&bad, None).unwrap();
     assert_eq!(onelibrary::content_hashes(&codec.encrypt(&plain).unwrap(), None).unwrap(), hashes);
     // Damage SQLite meets reading the schema is its own error rather than a check's finding.
     let err = OneLibrary::from_encrypted(&bad, None).unwrap_err().to_string();
@@ -331,7 +332,7 @@ fn damaged_databases_hash_but_never_open(tc: TestCase) {
 /// change counter bumped so SQLite rereads the file) is never encrypted: the check before saving
 /// finds it. An undamaged copy saves.
 #[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_damaged_working_copy_is_never_saved(tc: TestCase) {
+fn prop_a_damaged_working_copy_is_never_saved(tc: TestCase) {
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let path = one.connection().path().unwrap().to_string();
     let shown = format!("{one:?}");
@@ -355,7 +356,7 @@ fn a_damaged_working_copy_is_never_saved(tc: TestCase) {
             assert!(!damage, "a damaged {table} was saved");
             assert_eq!(OneLibrary::from_encrypted(&bytes, None).unwrap().library().unwrap().tracks.len(), 3);
         }
-        Err(e) => assert!(damage && e.code() == "onelibrary", "{e}"),
+        Err(e) => assert!(damage && matches!(e, loclib_rekordbox_db::Error::OneLibrary(_)), "{e}"),
     }
 }
 
@@ -364,14 +365,14 @@ fn a_damaged_working_copy_is_never_saved(tc: TestCase) {
 /// are, so renaming the drive changes the hash. Re-encrypting never does, with the table or
 /// without it.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
+fn prop_a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     // Without the table every page is hashed as it is, and still not its IVs.
     let none = tc.draw(gs::weighted_booleans(0.2));
     if none {
         one.connection().execute_batch("DROP TABLE property").unwrap();
         let bytes = one.to_encrypted().unwrap();
-        let (codec, plain) = onelibrary::decrypt(&bytes, None).unwrap();
+        let (codec, plain) = loclib_rekordbox_db::onelibrary::decrypt(&bytes, None).unwrap();
         let again = codec.encrypt(&plain).unwrap();
         assert_eq!(
             onelibrary::content_hashes(&again, None).unwrap(),
@@ -396,7 +397,7 @@ fn a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     let after = one.to_encrypted().unwrap();
     let hash = |b: &[u8]| onelibrary::content_hash(b, None).unwrap();
     assert_eq!(hash(&before) == hash(&after), !many, "{rows} rows");
-    let (codec, plain) = onelibrary::decrypt(&after, None).unwrap();
+    let (codec, plain) = loclib_rekordbox_db::onelibrary::decrypt(&after, None).unwrap();
     assert_eq!(hash(&codec.encrypt(&plain).unwrap()), hash(&after));
     assert!(cipher::for_file(&after).is_ok());
 }
@@ -405,13 +406,13 @@ fn a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
 /// another row, lies past that (or below 0) is refused with an error naming it, not wrapped
 /// round. A reference that isn't positive (artwork, a parent) means there is none.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn ids_players_cant_number_are_refused(tc: TestCase) {
+fn prop_ids_players_cant_number_are_refused(tc: TestCase) {
     let id = tc.draw(hegel::one_of!(
         gs::integers::<i64>().max_value(-1),
         gs::integers::<i64>().min_value(i64::from(u32::MAX) + 1)
     ));
     // (statements setting `{id}`, whether a negative one means none, and the reader to try)
-    type Reader = fn(&OneLibrary) -> locallibrary::Result<String>;
+    type Reader = fn(&OneLibrary) -> loclib_rekordbox_db::Result<String>;
     let library: Reader = |one| one.library().map(|l| format!("{l:?}"));
     let images: Reader = |one| one.images_used_outside_tracks().map(|i| format!("{i:?}"));
     let banks: Reader = |one| one.hot_cue_bank_lists().map(|b| format!("{b:?}"));
@@ -478,7 +479,7 @@ fn loose_text(tc: &TestCase) -> (Value, String) {
 /// numbers stored as reals, padded text or anything else read as the number they hold (0 for
 /// none), and text stored as numbers reads as their digits.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn loosely_typed_values_read_as_their_columns_type(tc: TestCase) {
+fn prop_loosely_typed_values_read_as_their_columns_type(tc: TestCase) {
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let numbers = [("bpmx100", 30_000), ("length", 4_000), ("trackNo", 99), ("rating", 5), ("djPlayCount", 900)];
     let texts = ["title", "djComment", "isrc"];

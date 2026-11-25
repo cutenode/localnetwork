@@ -91,7 +91,7 @@ fn entry(artist: &str, title: &str) -> Entry {
 /// ("Original Mix", "Radio Edit") or a guest credited, is that track: by artist, title and
 /// duration when its length is within two seconds, otherwise by artist and title.
 #[hegel::test(test_cases = 150)]
-fn named_tracks_are_found(tc: TestCase) {
+fn prop_named_tracks_are_found(tc: TestCase) {
     let lib = library(&tc, 1, 30);
     let matcher = Matcher::new(&lib);
     let t = &tc.draw(gs::sampled_from(&lib.tracks));
@@ -110,7 +110,7 @@ fn named_tracks_are_found(tc: TestCase) {
 /// Of several files of one artist's title, lengths at least five seconds apart, an entry whose
 /// length is within two seconds of one of them is that one, by artist, title and duration.
 #[hegel::test(test_cases = 100)]
-fn lengths_tell_copies_of_a_track_apart(tc: TestCase) {
+fn prop_lengths_tell_copies_of_a_track_apart(tc: TestCase) {
     let (artist, title) = (words(&tc, ARTIST_WORDS, 2), words(&tc, TITLE_WORDS, 3));
     let gaps: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().min_value(5).max_value(90)).min_size(2).max_size(4));
     let mut secs = 60;
@@ -137,7 +137,7 @@ fn lengths_tell_copies_of_a_track_apart(tc: TestCase) {
 /// length picks one, or the entry is ambiguous between exactly those it can't tell apart, in
 /// library order.
 #[hegel::test(test_cases = 150)]
-fn titles_alone_find_the_tracks_with_that_title(tc: TestCase) {
+fn prop_titles_alone_find_the_tracks_with_that_title(tc: TestCase) {
     let lib = library(&tc, 1, 30);
     let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let off = tc.draw(gs::optional(gs::integers::<i64>().min_value(-5).max_value(5)));
@@ -168,7 +168,7 @@ const GENERIC_VERSIONS: &[(&str, &[&str])] = &[
 /// the entry names is found; a version the library lacks leaves the choice open, unless
 /// there's only one.
 #[hegel::test(test_cases = 150)]
-fn generic_versions_pick_their_own(tc: TestCase) {
+fn prop_generic_versions_pick_their_own(tc: TestCase) {
     let (artist, title) = (words(&tc, ARTIST_WORDS, 2), words(&tc, TITLE_WORDS, 2));
     let spelt = |tc: &TestCase, k: usize| tc.draw(gs::sampled_from(GENERIC_VERSIONS[k].1.to_vec()));
     let have: Vec<usize> = tc.draw(
@@ -196,7 +196,7 @@ fn generic_versions_pick_their_own(tc: TestCase) {
 
 /// A one-letter typo in the title still finds the track, as a fuzzy match.
 #[hegel::test(test_cases = 150)]
-fn typos_still_find_the_track(tc: TestCase) {
+fn prop_typos_still_find_the_track(tc: TestCase) {
     let lib = library(&tc, 1, 30);
     let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let e = entry(&respelled(&tc, &t.artist), &typo(&tc, &t.title));
@@ -207,7 +207,7 @@ fn typos_still_find_the_track(tc: TestCase) {
 /// path. By the file name alone, an entry with nothing else to go on is whichever tracks have
 /// that name.
 #[hegel::test(test_cases = 150)]
-fn files_are_found_by_their_path(tc: TestCase) {
+fn prop_files_are_found_by_their_path(tc: TestCase) {
     let lib = library(&tc, 1, 30);
     let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let matcher = Matcher::new(&lib);
@@ -271,7 +271,7 @@ fn prop_files_elsewhere_are_found_by_name_and_words(tc: TestCase) {
 /// An ISRC finds its track however it's written (case, dashes, spaces), whatever the entry's
 /// artist and title say.
 #[hegel::test(test_cases = 100)]
-fn isrcs_find_their_track(tc: TestCase) {
+fn prop_isrcs_find_their_track(tc: TestCase) {
     let lib = library(&tc, 1, 30);
     let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let isrc = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -299,7 +299,7 @@ fn versioned(tc: &TestCase, title: &str, remixer: Option<&str>) -> (String, Opti
 /// never finds the original or another remixer's, and the version asked for is found when the
 /// library has it.
 #[hegel::test(test_cases = 200)]
-fn versions_are_never_confused(tc: TestCase) {
+fn prop_versions_are_never_confused(tc: TestCase) {
     let remixers = || gs::optional(gs::sampled_from(ARTIST_WORDS.to_vec()));
     let artist = words(&tc, ARTIST_WORDS, 1);
     let title = words(&tc, TITLE_WORDS, 2);
@@ -359,7 +359,7 @@ fn unordered(mut s: Status) -> Status {
 
 /// What an entry is found as doesn't depend on the order of the library's tracks.
 #[hegel::test(test_cases = 150)]
-fn matches_ignore_library_order(tc: TestCase) {
+fn prop_matches_ignore_library_order(tc: TestCase) {
     let mut lib = library(&tc, 0, 10);
     // Copies of a track (another folder, another length) make ties to break.
     let copies: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(9)).max_size(3));
@@ -386,7 +386,7 @@ fn matches_ignore_library_order(tc: TestCase) {
 
 /// An empty library finds nothing, and its report says every entry is missing.
 #[hegel::test(test_cases = 100)]
-fn empty_libraries_find_nothing(tc: TestCase) {
+fn prop_empty_libraries_find_nothing(tc: TestCase) {
     let lib = Library::default();
     let field = || gs::text().max_size(12);
     let entries: Vec<Entry> = tc
@@ -418,7 +418,7 @@ fn empty_libraries_find_nothing(tc: TestCase) {
 /// A report counts exactly what it lists, the found entries name tracks of the library, and it
 /// survives a JSON round trip unchanged.
 #[hegel::test(test_cases = 100)]
-fn reports_count_what_they_list(tc: TestCase) {
+fn prop_reports_count_what_they_list(tc: TestCase) {
     let lib = library(&tc, 0, 10);
     let entries: Vec<Entry> =
         (0..tc.draw(gs::integers::<usize>().max_value(8))).map(|_| entry_for(&tc, &lib)).collect();

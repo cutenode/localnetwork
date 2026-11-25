@@ -1,17 +1,77 @@
-//! What a drive's speed is, and what a plan says from it (see [`crate::drive_speed`]).
+//! What a drive's speed is, and what a plan says from it (see [`loclib_drive_speed`]), which
+//! measures a [`Device`] through the drive writes everything else here goes through.
 
-use std::path::Path;
+mod words;
+
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::Utc;
+use loclib_drive_speed::{self as drive_speed, Drive, DriveNow, DriveSpeed, Stale, Work, WriteEstimate};
 use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::{DriveRef, registry, resolve_one_drive};
-use crate::device::Device;
-use crate::drive_speed::{self, DriveNow, DriveSpeed, Stale, Work, WriteEstimate};
+use crate::device::{Device, DriveLock};
 use crate::progress::Ctx;
-use crate::{Result, device, fleet, format, fsutil, op};
+use crate::{Result, device, fleet, format, fsutil, library_write, op};
+
+pub use words::estimate_lines;
+
+/// A drive as a test times it: written the way every other write here writes. Its errors are
+/// core's own, carried in an [`io::Error`] for [`crate::Error`]'s `From` to give back.
+impl Drive for Device {
+    type Lock = DriveLock;
+
+    fn root(&self) -> &Path {
+        Device::root(self)
+    }
+
+    fn state_dir(&self) -> PathBuf {
+        Device::state_dir(self)
+    }
+
+    fn name(&self) -> String {
+        Device::name(self)
+    }
+
+    fn lock(&self) -> io::Result<DriveLock> {
+        Device::lock(self).map_err(io::Error::other)
+    }
+
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fsutil::read(path)
+    }
+
+    fn write_atomic(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        fsutil::write_atomic(path, bytes).map_err(io::Error::other)
+    }
+
+    fn small_files(
+        &self,
+        count: usize,
+        path: &(dyn Fn(usize) -> Option<PathBuf> + Sync),
+        bytes: &[u8],
+    ) -> io::Result<Vec<PathBuf>> {
+        let items: Vec<usize> = (0..count).collect();
+        let (made, failed) = library_write::copy_each(
+            &items,
+            |_| bytes.len() as u64,
+            |&i| {
+                let Some(path) = path(i) else { return Ok(None) };
+                fsutil::write_for_drive(&path, bytes)?;
+                Ok(Some(path))
+            },
+        );
+        if let Some(e) = failed {
+            return Err(io::Error::other(e));
+        }
+        let written: Vec<PathBuf> = made.into_iter().flatten().collect();
+        fsutil::flush(&written).map_err(io::Error::other)?;
+        Ok(written)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DriveSpeedReport {
@@ -78,12 +138,15 @@ pub(crate) fn write_estimate(drive: &Device, work: Work, ctx: &Ctx<'_>) -> Resul
     if !external {
         return Ok(None);
     }
-    drive_speed::estimate(drive, work, &now(drive, link_bps), op::measuring_allowed(), ctx)
+    Ok(drive_speed::estimate(drive, work, &now(drive, link_bps), op::measuring_allowed(), ctx)?)
 }
 
 /// A write of `estimate`'s work to the drive at `root` took `elapsed` (see [`drive_speed::learn`]).
 pub(crate) fn learn_write(root: &Path, estimate: &WriteEstimate, elapsed: Duration, ctx: &Ctx<'_>) {
     let Ok(device) = Device::open(root) else { return };
     let link_bps = estimate.speed.as_ref().and_then(|s| s.link_bps);
-    drive_speed::learn(root, estimate, elapsed, &now(&device, link_bps), ctx);
+    drive_speed::learn(&device, estimate, elapsed, &now(&device, link_bps), ctx);
 }
+
+#[cfg(test)]
+mod tests;

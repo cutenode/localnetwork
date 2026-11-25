@@ -7,7 +7,7 @@ use locallibrary::api::{DriveSettingsView, ListedDrive, StoreInfo, TrackDetails,
 use locallibrary::compare::{Comparison, Favors, Relation, Suggestion};
 use locallibrary::convert::{ConvertPlan, ConvertReport, Target};
 use locallibrary::device::DeviceInfo;
-use locallibrary::format::{Compatibility, DiskView, FormatPlan, FormatReport, Scheme, Verdict, Volume};
+use locallibrary::format::{self, Compatibility, DiskView, FormatPlan, FormatReport, Scheme, Verdict, Volume};
 use locallibrary::harmony::Camelot;
 use locallibrary::local_time;
 use locallibrary::merge::{MergePlan, MergeReport};
@@ -1011,7 +1011,7 @@ pub fn disks(list: &[DiskView]) {
     }
     for d in list {
         let bus = d.disk.bus.clone().map(|b| format!("{b}, ")).unwrap_or_default();
-        say!("{}  {}", style(d.disk.describe()).bold(), dim(format!("{bus}{}", scheme_name(d.disk.scheme))));
+        say!("{}  {}", style(format::describe(&d.disk)).bold(), dim(format!("{bus}{}", scheme_name(d.disk.scheme))));
         for v in &d.disk.volumes {
             say!("  {}", volume_line(v));
         }
@@ -1023,7 +1023,7 @@ pub fn disks(list: &[DiskView]) {
 }
 
 pub fn format_plan(p: &FormatPlan) {
-    heading(&format!("Format {}", p.disk.describe()));
+    heading(&format!("Format {}", format::describe(&p.disk)));
     if p.erases.is_empty() {
         say!("  erases   {}", dim("nothing (no volumes)"));
     }

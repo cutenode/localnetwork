@@ -96,7 +96,7 @@ enum Naming {
 /// access with it) or `scope`, naming the type and the account plugin, and nothing is sent. No
 /// token gets out.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
+fn prop_a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
     let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
     let mut needs = some(&tc);
@@ -179,7 +179,7 @@ fn sorted<S: AsRef<str>>(scopes: &[S]) -> Vec<&str> {
 /// the access remembers them until a sign-in for it grants them; and a sign-in again that comes
 /// back as another person keeps that account but gives echo no access to it.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugin_is_given_only_what_the_service_granted(tc: TestCase) {
+fn prop_a_plugin_is_given_only_what_the_service_granted(tc: TestCase) {
     let mut needs = some(&tc);
     if needs.is_empty() {
         needs.push(tc.draw(gs::sampled_from(SCOPES.to_vec())));
@@ -238,7 +238,7 @@ fn a_plugin_is_given_only_what_the_service_granted(tc: TestCase) {
     }
 }
 
-/// A step of [`the_default_access_answers_the_type_alone`], naming accounts by their place in
+/// A step of [`prop_the_default_access_answers_the_type_alone`], naming accounts by their place in
 /// [`SUBJECTS`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
@@ -255,7 +255,7 @@ const SUBJECTS: [&str; 3] = ["a", "b", "c"];
 /// left and none otherwise, and taking away one it hasn't is refused; `{account:mock}` gets the
 /// default's token, or fails as `access` when there's none.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_default_access_answers_the_type_alone(tc: TestCase) {
+fn prop_the_default_access_answers_the_type_alone(tc: TestCase) {
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
     for subject in SUBJECTS {
         // Each gets the next token: `at-1` for the first.
@@ -382,7 +382,7 @@ fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
 /// and what's asked for besides; the refresh token it had is kept when the service answers none;
 /// and one lost that no plugin had access to can't be signed in to again.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
+fn prop_signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
     let m = mock_for(30, "/userinfo", "", &asking(&["read"], &["write", "peek"]));
     m.state.lock().unwrap().unscoped = true;
     let first = some(&tc);
@@ -470,7 +470,7 @@ fn actions_come_from_the_manifest_whatever_the_plugin_says() {
 }
 
 /// How a request echo makes through its access to the account `a` fails, in
-/// [`a_request_an_access_cant_serve_fails_as_the_host_passes_it_on`].
+/// [`prop_a_request_an_access_cant_serve_fails_as_the_host_passes_it_on`].
 #[derive(Debug, Clone, Copy)]
 enum Failing {
     /// Echo has no access to it.
@@ -509,7 +509,7 @@ const GONE: &str = "gone-accounts";
 /// an `access` or `scope` failure on, whatever type it says, is an `account` error (not signed in,
 /// no access, a missing scope) offering what its manifest and the store resolve it with.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
+fn prop_a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
     use Failing::*;
     let all =
         [NoAccess, SignedOut, SessionEnded, Refused, Unavailable, Uninstalled, Missing, Uncovered, Ungranted, Unasked];
@@ -600,7 +600,7 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
 }
 
 /// What the mock service answers a request echo makes through its access, in
-/// [`a_refused_token_is_refreshed_once_then_given_up`].
+/// [`prop_a_refused_token_is_refreshed_once_then_given_up`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Reply {
     /// 401, saying nothing more.
@@ -655,7 +655,7 @@ impl Reply {
     }
 }
 
-/// How the account's token refreshes in [`a_refused_token_is_refreshed_once_then_given_up`].
+/// How the account's token refreshes in [`prop_a_refused_token_is_refreshed_once_then_given_up`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Refreshing {
     Refreshes,
@@ -678,7 +678,7 @@ enum Refreshing {
 /// service named (else what those ask); anything else, and any answer once the token was
 /// dropped, is passed on. No request is sent more than twice, and no token gets out.
 #[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
+fn prop_a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
     let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
     let m = mock_for(3600, "/userinfo", &place, &asking(&["read"], &["write"]));

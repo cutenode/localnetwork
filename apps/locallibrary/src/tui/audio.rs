@@ -606,7 +606,7 @@ const LONG_MP3: u64 = 40_000_000;
 /// Open `path` to play, on the worker and guarded ([`probe::guarded`]): symphonia's probe can
 /// panic on a bad file (a WAV saying 0 Hz), and so can rodio asked for the channels or rate of a
 /// stream that has none, which playing it would ask on the UI thread. A panic while decoding as
-/// it plays is caught on the audio thread, in [`Looper`]'s `next`. An MP4 that would make
+/// it plays is caught on the audio thread, in [`Looper`]'s `next`. An MP4 or FLAC that would make
 /// symphonia abort is refused before it gets there ([`probe::vet_container`]).
 pub fn open_file(path: &Path) -> Result<OpenedFile> {
     probe::vet_container(path)?;

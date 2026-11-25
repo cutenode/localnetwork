@@ -70,7 +70,7 @@ fn relative_and_parallel_keys() {
 /// Relative and parallel are each their own inverse; the relative key shares the number, the
 /// parallel one the tonic, and neither keeps the mode.
 #[hegel::test(test_cases = 100)]
-fn relative_and_parallel_are_involutions(tc: hegel::TestCase) {
+fn prop_relative_and_parallel_are_involutions(tc: hegel::TestCase) {
     let k = tc.draw(keys());
     assert_eq!(k.relative().relative(), k);
     assert_eq!(k.parallel().parallel(), k);
@@ -94,7 +94,7 @@ fn keys_serialise_as_codes() {
 /// it is the less a clash weighs, down to an unknown key's cost or what its relative or
 /// parallel pairing would cost.
 #[hegel::test(test_cases = 300)]
-fn unsure_keys_cost_less(tc: hegel::TestCase) {
+fn prop_unsure_keys_cost_less(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (a, b) = (tc.draw(keys()), tc.draw(keys()));
     let sure = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
@@ -219,7 +219,7 @@ fn tidy_by_retotalling(order: &mut [usize], step: impl Fn(usize, usize) -> f64) 
 /// Tidying from a table with running totals makes the same reversals as re-totalling the
 /// whole order for each, whatever the costs (a step and its reverse can differ).
 #[hegel::test(test_cases = 300)]
-fn tidying_matches_retotalling(tc: hegel::TestCase) {
+fn prop_tidying_matches_retotalling(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
     let cost: Vec<f64> =
@@ -295,7 +295,7 @@ fn typed(tc: &hegel::TestCase, s: &str) -> String {
 /// any note name, sharp or flat (`#`, `♯`, `b`, `♭`) and quality (`m`, `min`, `minor`,
 /// `maj`, `major` or none, spaced or not, in any case) is the key on that note's pitch.
 #[hegel::test(test_cases = 500)]
-fn keys_parse_from_open_key_and_any_spelling_of_a_note(tc: hegel::TestCase) {
+fn prop_keys_parse_from_open_key_and_any_spelling_of_a_note(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let k = tc.draw(keys());
     let open = format!("{}{}", (k.number + 4) % 12 + 1, if k.major { 'd' } else { 'm' });
@@ -317,7 +317,7 @@ fn keys_parse_from_open_key_and_any_spelling_of_a_note(tc: hegel::TestCase) {
 /// Keys serialise as their code and read back from it or any other notation; text that
 /// isn't a key is refused, naming it.
 #[hegel::test(test_cases = 300)]
-fn keys_serialise_as_their_code(tc: hegel::TestCase) {
+fn prop_keys_serialise_as_their_code(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let k = tc.draw(keys());
     assert_eq!(serde_json::to_value(k).unwrap(), k.code());
@@ -342,7 +342,7 @@ fn keys_serialise_as_their_code(tc: hegel::TestCase) {
 /// energy boost 2, a clash 6, an unknown key 3) plus a point per 2% of tempo apart (3 when a
 /// tempo isn't usable); whatever the inputs, NaN included, the cost is never negative or NaN.
 #[hegel::test(test_cases = 500)]
-fn mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
+fn prop_mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (a, b) = (tc.draw(gs::optional(keys())), tc.draw(gs::optional(keys())));
     let bpm = || {
@@ -385,7 +385,7 @@ fn mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
 /// and `tempo_gap` give them; same key first, then neighbours, closest tempo first within
 /// each. A limit keeps the best ones, and every track that qualifies is offered without one.
 #[hegel::test(test_cases = 300)]
-fn suggestions_are_compatible_and_best_first(tc: hegel::TestCase) {
+fn prop_suggestions_are_compatible_and_best_first(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().max_value(10));
@@ -444,7 +444,7 @@ fn suggestions_are_compatible_and_best_first(tc: hegel::TestCase) {
 /// A cancelled operation stops ordering any set with a track in it, whatever the key
 /// confidences; an empty set has nothing to order either way.
 #[hegel::test(test_cases = 100)]
-fn cancelled_orderings_stop(tc: hegel::TestCase) {
+fn prop_cancelled_orderings_stop(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (tracks, energy) = made_up_set(tc.draw(gs::integers::<u32>().max_value(6)));
     let refs: Vec<&Track> = tracks.iter().collect();
@@ -477,7 +477,7 @@ fn cancelled_orderings_stop(tc: hegel::TestCase) {
 /// holds every track once, and each next track is one of the cheapest to mix in ([`mix_cost`])
 /// from the last of those still left (the energy is level, so only keys and tempos count).
 #[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn sets_too_long_to_tidy_keep_the_greedy_order(tc: hegel::TestCase) {
+fn prop_sets_too_long_to_tidy_keep_the_greedy_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>().min_value(TIDY_LIMIT + 1).max_value(TIDY_LIMIT + 40)) as u32;
     // Keys and tempos from a drawn seed (xorshift): drawing 2,000 of each would be slow, and a

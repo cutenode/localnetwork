@@ -1,7 +1,7 @@
 import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { sql } from 'kysely';
-import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
+import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.page-only.ts';
 import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';

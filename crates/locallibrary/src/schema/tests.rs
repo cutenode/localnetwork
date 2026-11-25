@@ -84,7 +84,7 @@ fn drawn(
 /// A schema's shape is the one it was built with, references followed; one behind more than 16
 /// references in a row is taken for a loop.
 #[hegel::test(test_cases = 300)]
-fn a_schemas_shape_is_what_it_was_built_as(tc: hegel::TestCase) {
+fn prop_a_schemas_shape_is_what_it_was_built_as(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut g = schemars::SchemaGenerator::default();
     let mut defs = serde_json::Map::new();

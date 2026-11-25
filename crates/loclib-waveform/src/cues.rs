@@ -10,8 +10,11 @@ use crate::{Palette, Rgb};
 /// A cue's marker in a row of markers.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Marker<'a> {
+    /// The cue it marks.
     pub cue: &'a Cue,
+    /// Its column: where `place_markers`'s `x_of` put the cue, or the next free one after it.
     pub x: i64,
+    /// Its row, 0 being the first.
     pub row: u16,
 }
 
@@ -106,11 +109,15 @@ pub(crate) fn put_labels(p: &Palette<'_>, buf: &mut Buffer, area: Rect, y: u16, 
 /// as diamonds, loops as bars over their length, and (given two rows) their names underneath.
 /// Made to go under a spectrum or scope.
 pub struct CueLane<'a> {
+    /// The track's cues.
     pub cues: &'a [Cue],
+    /// The playhead's position in the track, in seconds.
     pub position_secs: f64,
+    /// How much of the track the width shows, in seconds, centred on the playhead.
     pub visible_secs: f64,
     /// For a loop's length in beats, when rekordbox didn't store it.
     pub bpm: f64,
+    /// The colours to draw in.
     pub palette: Palette<'a>,
 }
 

@@ -148,7 +148,7 @@ fn a_flag_turned_off_is_off_for_the_account_it_targets() {
 /// `check` and `all` read the clock themselves: on a fresh answer, signed out, they say what the
 /// answer's public gates say and ask nobody.
 #[hegel::test(test_cases = 50)]
-fn a_check_now_reads_a_fresh_answer(tc: TestCase) {
+fn prop_a_check_now_reads_a_fresh_answer(tc: TestCase) {
     let w = world();
     let gates = Gates {
         enabled: tc.draw(gs::booleans()),
@@ -499,7 +499,7 @@ impl Website {
 #[hegel::explicit_test_case(age = Some(120i64), attempted = 5i64, said_of = Some(DID), was = (true, 0u32, false), now_is = (false, 0u32, false), session = Session::Ended, public = Website::Failing, with_token = Website::Lists, busy = true)]
 #[hegel::explicit_test_case(age = Some(30000i64), attempted = 5i64, said_of = Some(DID), was = (true, 0u32, false), now_is = (false, 0u32, false), session = Session::WithoutScope, public = Website::Failing, with_token = Website::Lists, busy = false)]
 #[hegel::explicit_test_case(age = Some(120i64), attempted = 120i64, said_of = Some(DID), was = (false, 0u32, true), now_is = (false, 0u32, false), session = Session::WithScope, public = Website::Lists, with_token = Website::Failing, busy = false)]
-fn a_check_ends_as_the_cache_and_the_servers_say(tc: TestCase) {
+fn prop_a_check_ends_as_the_cache_and_the_servers_say(tc: TestCase) {
     static PDS: OnceLock<MockPds> = OnceLock::new();
     let pds = PDS.get_or_init(MockPds::start);
     crate::testing::directory_on_this_thread(Some(pds.url.clone()));

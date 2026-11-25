@@ -44,7 +44,7 @@ fn files_of(lib: &Library, ids: &FxHashSet<u32>) -> usize {
 }
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
+fn prop_the_check_names_exactly_the_faults_put_in(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (a, _) = drawn::drive(&tc, dir.path(), "A");
@@ -210,7 +210,7 @@ fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
 
 /// A folder with no export is one problem, and it stops there.
 #[hegel::test(test_cases = 10)]
-fn a_drive_without_an_export_is_one_problem(tc: TestCase) {
+fn prop_a_drive_without_an_export_is_one_problem(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "Empty");
     if tc.draw(gs::booleans()) {
@@ -230,7 +230,7 @@ fn a_drive_without_an_export_is_one_problem(tc: TestCase) {
 /// Without models given, each drive is checked against those remembered for its library, else
 /// the default ones; a drive packed from the first is up to date until the first changes.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn remembered_players_and_packs_are_checked_against(tc: TestCase) {
+fn prop_remembered_players_and_packs_are_checked_against(tc: TestCase) {
     use locallibrary::check::PlayersFrom;
     use locallibrary::equipment::Remembered;
     use locallibrary::pack::{self, PackOptions};

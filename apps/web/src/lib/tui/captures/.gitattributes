@@ -1,0 +1,3 @@
+# Written by tools/regen/tui-captures.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+* merge=regen regen=tui-captures
+.gitattributes -merge -regen

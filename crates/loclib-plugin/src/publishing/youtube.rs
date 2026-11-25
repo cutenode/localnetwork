@@ -23,6 +23,7 @@ pub struct Description {
     pub tracks: usize,
     /// How many of its lines are chapters.
     pub chapters: usize,
+    /// What was cut or left out, a line each.
     pub notes: Vec<String>,
 }
 

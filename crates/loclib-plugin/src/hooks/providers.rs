@@ -27,7 +27,9 @@ pub struct ProvideCandidates {
     pub provider: String,
     /// Its kind, as the manifest declares it.
     pub kind: ProviderKind,
+    /// The tracks to find it for.
     pub tracks: Vec<TrackTags>,
+    /// The tracks' drive and their ids, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -35,15 +37,21 @@ pub struct ProvideCandidates {
 /// A track as a provider looks it up: by its tags, each left out when it has none.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TrackTags {
+    /// The track's id, which a candidate names it by.
     pub id: u32,
+    /// Its artist.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub artist: String,
+    /// Its title.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
+    /// The album it's on.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub album: String,
+    /// The album's artist.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub album_artist: String,
+    /// Its ISRC.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub isrc: String,
     /// In seconds.
@@ -59,7 +67,9 @@ fn is_zero(n: &u32) -> bool {
 /// none), and why it found nothing for some, in a line each.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Candidates {
+    /// What it found, any number for each track.
     pub candidates: Vec<Candidate>,
+    /// Why it found nothing for some tracks, a line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -80,6 +90,7 @@ pub struct Candidate {
     /// The image, a file in the request's scratch folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artwork: Option<Blob>,
+    /// The tags it has for the track.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<TrackMetadata>,
 }
@@ -87,19 +98,25 @@ pub struct Candidate {
 /// The tags a metadata provider has for a track: each it doesn't have left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct TrackMetadata {
+    /// The track's title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Its artist.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
+    /// The album it's on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
+    /// The year it came out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub year: Option<u16>,
+    /// Its genre.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub genre: Option<String>,
     /// The record label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Its ISRC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub isrc: Option<String>,
 }
@@ -123,8 +140,12 @@ impl Hook for ProvideCandidates {
 /// takes `library:read`, and needs no capability to plan an edit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Provider {
+    /// What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other provider's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
+    /// What it finds: `artwork` or `metadata`.
     pub kind: ProviderKind,
 }
 

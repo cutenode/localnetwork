@@ -15,7 +15,6 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::merge::{self, MatchMode, MergeOptions, PlaylistMode};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, Playlist, backup, paths, pdb};
 use rekordbox_pdb::{NewTrack, PdbEditor};
@@ -39,7 +38,7 @@ fn shape(lib: &Library) -> (BTreeSet<String>, Vec<(String, Vec<String>)>) {
 /// A cue on the first track of `root`'s OneLibrary, in a hot cue bank list (inside a folder, or
 /// one that's missing).
 fn bank_list(root: &Path, in_folder: bool) {
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     let first = one.library().unwrap().tracks[0].id;
     one.connection()
         .execute("INSERT INTO cue (cue_id, content_id, kind, inUsec) VALUES (900, ?1, 0, 2000000)", [first])
@@ -54,7 +53,7 @@ fn bank_list(root: &Path, in_folder: bool) {
 }
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(tc: TestCase) {
+fn prop_merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
     let main = common::bigger_drive(&root, "Main");
@@ -112,7 +111,7 @@ fn merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(tc: T
         }
     }
     // A bank list comes when its cue's track does, with the merge folder above it.
-    let lists = OneLibrary::open_root(&main).unwrap().hot_cue_bank_lists().unwrap();
+    let lists = locallibrary::onelibrary::open_root(&main).unwrap().hot_cue_bank_lists().unwrap();
     let banks: Vec<&Playlist> = lists.iter().filter(|l| l.name == "Bank").collect();
     assert_eq!(banks.len(), report.hot_cue_bank_lists_added);
     let first_is_new = plan.new_tracks.iter().any(|t| t.source_id == src.library().unwrap().tracks[0].id);
@@ -139,7 +138,7 @@ enum Defect {
 }
 
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCase) {
+fn prop_exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
     // The twelve-track export's analysis paths are outside PIONEER/ (so none is found), and drawn
@@ -226,7 +225,7 @@ fn exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCa
 /// with no export (pointing at sync), a playlist or history list name the target's export.pdb
 /// can't hold, a merge folder name it can't hold, or a playlist the source doesn't have.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_merge_the_target_cant_take_is_refused_when_planning(tc: TestCase) {
+fn prop_a_merge_the_target_cant_take_is_refused_when_planning(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
     let long = |n: usize| "x".repeat(4000 + n);

@@ -28,12 +28,12 @@ use crate::anlz::{self, Bands, CuePoint, DEFAULT_HOT_CUE_RGB};
 use crate::collection_export::{self, Checked, Collected, CollectionExportOptions, CollectionExportPlan};
 use crate::device::without_verbatim_prefix;
 use crate::harmony::Camelot;
-use crate::masterdb::{TagCategory, TagEntry};
 use crate::model::{Library, Playlist, Track};
 use crate::op::Planned;
 use crate::progress::{Ctx, Phase};
 use crate::store::Store;
 use crate::{Error, Result, api, cue_edit, probe};
+use loclib_rekordbox_db::masterdb::{TagCategory, TagEntry};
 
 /// Building a drive from a plugin's library source.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

@@ -199,7 +199,7 @@ fn a_secret_setting_is_read_from_stdin_and_never_shown() {
 /// whether one that's set is still set can't be known (its file damaged), it's shown as unknown,
 /// saying why.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_secret_reads_back_as_last_set_and_is_never_shown(tc: hegel::TestCase) {
+fn prop_a_secret_reads_back_as_last_set_and_is_never_shown(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = with_a_secret();
     let file = env.store.join("secrets/plugins/echo.json");
@@ -630,7 +630,7 @@ fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
 /// having no artwork and names `art auto` and `art fetch`, or says every track's artwork is there;
 /// and it exits with problems when a track lacks its artwork or a check found a problem.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn check_and_doctor_name_the_tracks_whose_artwork_is_gone(tc: hegel::TestCase) {
+fn prop_check_and_doctor_name_the_tracks_whose_artwork_is_gone(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = env();
     let usb = env.volumes.join("USB");

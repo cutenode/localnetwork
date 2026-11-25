@@ -165,7 +165,7 @@ pub fn profile_report(
     };
     let collection = match req.no_collection || !req.drives.is_empty() || !req.libraries.is_empty() {
         true => None,
-        false => crate::masterdb::default_path().filter(|p| p.is_file()),
+        false => loclib_rekordbox_db::masterdb::default_path().filter(|p| p.is_file()),
     };
     if drives.is_empty() && store.is_none() && collection.is_none() {
         return Err(Error::NotFound(

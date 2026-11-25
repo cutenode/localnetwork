@@ -7,9 +7,9 @@
 use std::path::Path;
 
 use libfuzzer_sys::fuzz_target;
-use locallibrary::mix::aup::Project;
-use locallibrary::mix::fingerprint::RATE;
-use locallibrary::progress::Ctx;
+use loclib_aup::Project;
+use loclib_mixid::fingerprint::RATE;
+use loclib_progress::Ctx;
 
 /// The most samples a project is mixed down for, at its rate or at `RATE`: a few chunks of
 /// the mix, so a project that says it's hours long doesn't stall the run.
@@ -30,7 +30,7 @@ fuzz_target!(|data: &[u8]| {
     let Ok(project) = Project::from_document(Path::new("fuzz.aup3"), &[], data) else { return };
     let duration = project.duration_secs();
     assert!(duration >= 0.0, "{duration} s");
-    if duration * project.rate.max(f64::from(RATE)) > SAMPLES {
+    if duration * project.rate().max(f64::from(RATE)) > SAMPLES {
         return;
     }
 

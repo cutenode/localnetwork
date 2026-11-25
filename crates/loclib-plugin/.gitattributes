@@ -1,0 +1,2 @@
+# Written by tools/regen/plugin-manifest-schema.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+manifest.schema.json merge=regen regen=plugin-manifest-schema

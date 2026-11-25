@@ -194,7 +194,7 @@ fn a_secrets_file_that_cant_be_moved_stays_the_plugins_secrets() {
 /// nothing else in the file is lost.
 #[cfg(unix)]
 #[hegel::test(test_cases = 40)]
-fn a_change_to_a_file_that_cant_be_read_loses_nothing(tc: TestCase) {
+fn prop_a_change_to_a_file_that_cant_be_read_loses_nothing(tc: TestCase) {
     type Change<'a> = Box<dyn Fn() -> crate::Result<()> + 'a>;
     let (plugins, _dir, store) = host(Storage::File);
     let slot = plugins.slot("keeper").unwrap();
@@ -249,7 +249,7 @@ fn a_change_to_a_file_that_cant_be_read_loses_nothing(tc: TestCase) {
 /// failing says how to do without it; the secret is never among the settings, and the other
 /// setting is as it was.
 #[hegel::test(test_cases = 60)]
-fn a_secret_is_what_the_last_change_made_it(tc: TestCase) {
+fn prop_a_secret_is_what_the_last_change_made_it(tc: TestCase) {
     crate::keychain::tests::mock_keychain();
     let storage = tc.draw(gs::sampled_from(vec![Storage::File, Storage::Keychain]));
     let (plugins, _dir, store) = host(storage);

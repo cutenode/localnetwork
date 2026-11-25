@@ -92,7 +92,7 @@ fn signals_quit_the_running_player() {
 /// Signals in any order, as the player runs and stops: while it runs each is the player's, which
 /// quits as q does once it looks; before and after, they're the CLI handler's.
 #[hegel::test(test_cases = 200)]
-fn signals_go_to_the_player_only_while_it_runs(tc: hegel::TestCase) {
+fn prop_signals_go_to_the_player_only_while_it_runs(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::blank(dir.path().join("store"), None);

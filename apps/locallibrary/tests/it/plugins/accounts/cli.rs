@@ -239,7 +239,7 @@ fn a_keys_account_is_signed_in_from_stdin_listed_and_never_shown() {
     name = "me".to_string(),
     given = 3usize
 )]
-fn keys_piped_sign_in_only_when_each_will_do(tc: TestCase) {
+fn prop_keys_piped_sign_in_only_when_each_will_do(tc: TestCase) {
     let m = Mock::keyed();
     // Around the shortest a key may be, with a space inside it or at its ends or not.
     let spaced = |k: String, space: u8| match space {
@@ -279,7 +279,7 @@ fn keys_piped_sign_in_only_when_each_will_do(tc: TestCase) {
     }
 }
 
-/// A step of [`an_account_reads_back_the_same_wherever_its_asked`], naming people by their place
+/// A step of [`prop_an_account_reads_back_the_same_wherever_its_asked`], naming people by their place
 /// in [`PEOPLE`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
@@ -311,7 +311,7 @@ enum Step {
 /// restoring access to an account signed out says to sign in to it first, and one naming no
 /// account is refused; and nothing printed or answered holds a token.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
+fn prop_an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());
     let mut model = Model::default();
@@ -510,7 +510,7 @@ fn an_access_to_an_account_signed_out_isnt_given_more() {
     assert_eq!(shape(&serde_json::from_str(&listed).unwrap()), model.listed());
 }
 
-/// Where [`a_destination_without_access_asks_only_where_it_can`] uses echo's destination.
+/// Where [`prop_a_destination_without_access_asks_only_where_it_can`] uses echo's destination.
 #[derive(Debug, Clone, Copy)]
 enum Using {
     /// [`COPY`] with `--json`.
@@ -530,7 +530,7 @@ enum Using {
 /// for echo and one making each account its default, whose hints are commands that run; once one
 /// has, the destination is used.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_destination_without_access_asks_only_where_it_can(tc: TestCase) {
+fn prop_a_destination_without_access_asks_only_where_it_can(tc: TestCase) {
     let m = Mock::new();
     locallibrary::Store::open_or_init(&m.env.store).unwrap();
     let signed_in = tc.draw(gs::integers::<usize>().max_value(2));
@@ -664,7 +664,7 @@ fn a_destination_warns_of_an_account_signing_itself_out_soon() {
 }
 
 /// What keeps echo from using the mock account it has access to, in
-/// [`a_destination_asks_once_about_what_keeps_its_account_from_use`].
+/// [`prop_a_destination_asks_once_about_what_keeps_its_account_from_use`].
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy)]
 enum Keeping {
@@ -699,7 +699,7 @@ enum Keeping {
 #[hegel::explicit_test_case(subject = "a", keeping = Keeping::Expiring, yes = false)]
 #[hegel::explicit_test_case(subject = "a", keeping = Keeping::SigningOutSoon, yes = true)]
 #[hegel::explicit_test_case(subject = "a", keeping = Keeping::SigningOutSoon, yes = false)]
-fn a_destination_asks_once_about_what_keeps_its_account_from_use(tc: TestCase) {
+fn prop_a_destination_asks_once_about_what_keeps_its_account_from_use(tc: TestCase) {
     let m = Mock::new();
     let subject = tc.draw(gs::sampled_from(PEOPLE.to_vec()));
     let keeping = tc.draw(gs::sampled_from(vec![
@@ -767,7 +767,7 @@ fn a_destination_asks_once_about_what_keeps_its_account_from_use(tc: TestCase) {
     assert!(!m.leaked(&said), "a token was printed: {said}");
 }
 
-/// Where [`a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal`] runs echo's `ensure`.
+/// Where [`prop_a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal`] runs echo's `ensure`.
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy)]
 enum Asked {
@@ -786,7 +786,7 @@ enum Asked {
 /// offering to give echo `write` or sign in again allowing it.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal(tc: TestCase) {
+fn prop_a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal(tc: TestCase) {
     let m = Mock::new();
     let granted = tc.draw(gs::booleans());
     let grants =
@@ -863,7 +863,7 @@ fn providing(two: bool, revokes: bool) -> (Mock, Vec<&'static str>) {
     (m, if two { vec![WITH, TOO] } else { vec![WITH] })
 }
 
-/// How [`every_account_command_says_in_words_what_it_answers_as_json`] names an account.
+/// How [`prop_every_account_command_says_in_words_what_it_answers_as_json`] names an account.
 #[derive(Debug, Clone, Copy)]
 enum Naming {
     Subject,
@@ -874,7 +874,7 @@ enum Naming {
 }
 
 /// How long the mock service's tokens last in
-/// [`every_account_command_says_in_words_what_it_answers_as_json`].
+/// [`prop_every_account_command_says_in_words_what_it_answers_as_json`].
 #[derive(Debug, Clone, Copy)]
 enum Lasting {
     /// An hour, then they're refreshed.
@@ -887,7 +887,7 @@ enum Lasting {
     Ever,
 }
 
-/// An account signed in to in [`every_account_command_says_in_words_what_it_answers_as_json`]:
+/// An account signed in to in [`prop_every_account_command_says_in_words_what_it_answers_as_json`]:
 /// its subject, what it's shown as and the account plugin it was signed in through.
 #[derive(Debug, Clone)]
 struct Kept {
@@ -998,7 +998,7 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
     instead = false,
     grants_write = false
 )]
-fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
+fn prop_every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
     let two = tc.draw(gs::booleans());
     let revokes = tc.draw(gs::booleans());
     let unscoped = tc.draw(gs::booleans());
@@ -1237,7 +1237,7 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
 /// account picked, or the one signed in to, becomes echo's default, and the destination is used.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_destination_asks_for_any_account_in_a_terminal(tc: TestCase) {
+fn prop_a_destination_asks_for_any_account_in_a_terminal(tc: TestCase) {
     let two = tc.draw(gs::booleans());
     let (m, providers) = providing(two, true);
     locallibrary::Store::open_or_init(&m.env.store).unwrap();

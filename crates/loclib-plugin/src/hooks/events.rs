@@ -50,6 +50,7 @@ pub enum EventName {
 }
 
 impl EventName {
+    /// Every event.
     pub const ALL: [EventName; 7] = [
         EventName::DriveMounted,
         EventName::DriveUnmounted,
@@ -92,6 +93,7 @@ impl EventName {
 /// many wait.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EventNotify {
+    /// What happened.
     pub event: EventName,
     /// The drive it's about, by id or name (never a path).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,7 +130,9 @@ pub const MAX_SUGGESTED_TRACKS: usize = 4096;
 /// know `action`, leaves it out and tells the line alone.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HostNotify {
+    /// The line for the user.
     pub message: String,
+    /// One of the plugin's operations for the user to review, with its params.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation: Option<Suggested>,
     /// A [`HostAction`], as `{name, params}`: kept as it's sent until the host checks it, so one it
@@ -184,7 +188,9 @@ impl HostNotify {
 /// What a plugin suggests (`host/notify`): an operation's or an action's name, and its params.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Suggested {
+    /// The operation's name, or the action's (`art.fetch`).
     pub name: String,
+    /// Its params, when it takes any: an object, 64 KiB at most as JSON.
     #[serde(default)]
     pub params: Value,
 }
@@ -194,7 +200,9 @@ pub struct Suggested {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Suggestion {
+    /// One of the plugin's operations.
     Operation(Suggested),
+    /// One of the host's actions.
     Action(HostAction),
 }
 
@@ -401,6 +409,7 @@ impl HostAction {
 /// `[[contributes.events]]`: what the plugin is told of (`event/notify`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Listener {
+    /// The events, none listened for twice, each needing its capability.
     pub on: Vec<EventName>,
 }
 

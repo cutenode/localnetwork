@@ -2,8 +2,15 @@ import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../../scripts/seed-data.ts';
 import { djProfileSchema, djSetSchema } from '#lib/dj-schema.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 
-/** A row of docs/link-matrix.md: the page type it's listed under, what it links to, and where main stands. */
+/** A row of a page type's table in docs/link-matrix/: the page type, what it links to, and where main stands. */
 export type MatrixRow = { pageType: string; linksTo: string; onMain: string };
+
+/** Each page type's file in docs/link-matrix/, by its name without `.md`, which is its check module's name too. */
+export const matrixDocs: Record<string, string> = Object.fromEntries(
+	Object.entries(
+		import.meta.glob<string>('../../../../../docs/link-matrix/*.md', { query: '?raw', import: 'default', eager: true })
+	).map(([path, markdown]) => [path.slice(path.lastIndexOf('/') + 1, -'.md'.length), markdown])
+);
 
 /**
  * A link a visitor finds by its accessible name. `within` names the region it's in, and `reveal` is text in that
@@ -21,7 +28,7 @@ export type LinkChecks = {
 	links: Record<string, ExpectedLink[]>;
 };
 
-/** Every row of the matrix's tables that have Links to and On main columns, under the `##` heading above each. */
+/** Every row of a page type's tables that have Links to and On main columns, under the file's `#` heading. */
 export function matrixRows(markdown: string): MatrixRow[] {
 	const rows: MatrixRow[] = [];
 	let pageType = '';
@@ -30,7 +37,7 @@ export function matrixRows(markdown: string): MatrixRow[] {
 	for (const raw of markdown.split('\n')) {
 		const line = raw.trim();
 
-		if (line.startsWith('## ')) pageType = line.slice(3);
+		if (line.startsWith('# ')) pageType = line.slice(2);
 
 		if (!line.startsWith('|')) {
 			header = null;

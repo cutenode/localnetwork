@@ -27,18 +27,14 @@ export function filterPaths(filter: string): string[] {
 	return paths;
 }
 
-/** Whether any of `files` is one `paths` select: it matches a glob and none of the `!` ones, as with `some-with-excludes`. */
-export function selects(paths: string[], files: string[]): boolean {
+/** The first of `files` that `paths` select: it matches a glob and none of the `!` ones, as with `some-with-excludes`. */
+export function selected(paths: string[], files: string[]): string | undefined {
 	const glob = (patterns: string[]) => picomatch(patterns, { dot: true });
 	const include = glob(paths.filter((path) => !path.startsWith('!')));
 	const exclude = glob(paths.flatMap((path) => (path.startsWith('!') ? [path.slice(1)] : [])));
 
-	return files.some((file) => include(file) && !exclude(file));
+	return files.find((file) => include(file) && !exclude(file));
 }
-
-// How far back `baseline` looks: each CI run keeps its artifacts 14 days, and main rarely goes this
-// many commits without one that changes what a budget measures.
-const DEPTH = 20;
 
 const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 
@@ -48,17 +44,38 @@ const gh = (...args: string[]) => execFileSync('gh', args, { encoding: 'utf8', s
 // commit, which holds its base branch as it was then, so its artifact isn't its head's numbers.
 const MEASURES_ITS_COMMIT = new Set(['push', 'merge_group']);
 
-/** Downloads `artifact` from a push or merge queue run of `sha` into `dir`: whether one had it. */
-function downloaded(sha: string, artifact: string, dir: string): boolean {
-	const listed = gh('run', 'list', '--workflow', 'ci.yml', '--commit', sha, '--json', 'databaseId,event');
-	// SAFETY: `gh run list --json databaseId,event` prints an array of objects with those two fields.
-	const runs = JSON.parse(listed) as { databaseId: number; event: string }[];
+/** The runs that kept an unexpired `artifact`, newest first, by the commit each was of: one listing, not a request per commit. */
+function runsByCommit(artifact: string): Map<string, number[]> {
+	const listed = gh(
+		'api',
+		'--paginate',
+		'--slurp',
+		`repos/{owner}/{repo}/actions/artifacts?name=${artifact}&per_page=100`
+	);
 
-	return runs.some(({ databaseId, event }) => {
+	// SAFETY: `--slurp` gives the listing's pages as an array, each with GitHub's `artifacts` array.
+	const pages = JSON.parse(listed) as {
+		artifacts: { expired: boolean; workflow_run: { id: number; head_sha: string } }[];
+	}[];
+
+	const runs = new Map<string, number[]>();
+
+	for (const { expired, workflow_run: from } of pages.flatMap((page) => page.artifacts)) {
+		if (!expired) runs.set(from.head_sha, [...(runs.get(from.head_sha) ?? []), from.id]);
+	}
+
+	return runs;
+}
+
+/** Downloads `artifact` from the first of `runs` that's a push or merge queue run into `dir`: whether one had it. */
+function downloaded(runs: number[], artifact: string, dir: string): boolean {
+	return runs.some((id) => {
+		const event = gh('api', `repos/{owner}/{repo}/actions/runs/${id}`, '--jq', '.event').trim();
+
 		if (!MEASURES_ITS_COMMIT.has(event)) return false;
 
 		try {
-			gh('run', 'download', String(databaseId), '--name', artifact, '--dir', dir);
+			gh('run', 'download', String(id), '--name', artifact, '--dir', dir);
 
 			return true;
 		} catch {
@@ -67,16 +84,18 @@ function downloaded(sha: string, artifact: string, dir: string): boolean {
 	});
 }
 
+// Back from `sha` along main's first parents, each commit with the files it changed, until one changed
+// what the job measures: that one's numbers are still `sha`'s, the ones before it aren't. Looking costs
+// nothing per commit, so it goes as far as the checkout's history does.
 function baseline(sha: string, filter: string, artifact: string, dir: string): Outcome {
 	const paths = filterPaths(filter);
-	const commits = git('rev-list', '--first-parent', `--max-count=${DEPTH}`, sha).split('\n');
+	const runs = runsByCommit(artifact);
+	const commits = git('log', '--first-parent', '--format=%x00%H', '--name-only', sha).split('\0').slice(1);
 
-	for (const commit of commits) {
-		const changed = git('diff', '--name-only', commit, sha).split('\n');
+	for (const [commit = '', ...changed] of commits.map((lines) => lines.trim().split('\n'))) {
+		if (downloaded(runs.get(commit) ?? [], artifact, dir)) return { lines: ['found=true', `from=${commit}`], ok: true };
 
-		if (selects(paths, changed)) break;
-
-		if (downloaded(commit, artifact, dir)) return { lines: ['found=true', `from=${commit}`], ok: true };
+		if (selected(paths, changed) !== undefined) break;
 	}
 
 	return { lines: ['found=false'], ok: true };

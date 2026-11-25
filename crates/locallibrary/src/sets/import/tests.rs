@@ -69,7 +69,7 @@ use hegel::generators as gs;
 /// A Java date written in UTC, GMT or a GMT offset reads back as the moment written; with a
 /// zone abbreviation, as that time on this computer; with the wrong weekday, not at all.
 #[hegel::test(test_cases = 300)]
-fn java_dates_read_back_the_moment_written(tc: TestCase) {
+fn prop_java_dates_read_back_the_moment_written(tc: TestCase) {
     let secs = tc.draw(gs::integers::<i64>().min_value(946_684_800).max_value(2_208_988_800));
     let t = DateTime::from_timestamp(secs, 0).unwrap();
     let minutes = tc.draw(gs::integers::<i32>().min_value(-48).max_value(56)) * 15;
@@ -96,7 +96,7 @@ fn java_dates_read_back_the_moment_written(tc: TestCase) {
 /// with their artist and title (ignoring case and spacing) or kept as the log has them; a row
 /// whose start isn't a time is refused by its line, and the same plays are the same log.
 #[hegel::test(test_cases = 300)]
-fn logs_are_read_as_their_plays(tc: TestCase) {
+fn prop_logs_are_read_as_their_plays(tc: TestCase) {
     const SONGS: &[(&str, &str)] =
         &[("Never Grow Old", "Floorplan"), ("never  grow old", "FLOORPLAN"), ("ID", ""), ("B, \"C\"", "A")];
     let lib = Library {

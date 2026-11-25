@@ -4,12 +4,13 @@
 // of the lines it changes instead (.github/actions/patch-coverage, tools/coverage/patch.json).
 //
 //   node tools/coverage/cli.ts report <coverage.json>   warns of a crate under its floor, or with none
-//   node tools/coverage/cli.ts ratchet <coverage.json>  raises each floor to just under the run's
+//   node tools/coverage/cli.ts ratchet <coverage.json>  raises the floors of the crates the run measured to
+//                                                       just under its numbers, and keeps the rest
 //
 // <coverage.json> is cargo-llvm-cov's JSON summary (`cargo coverage --json --summary-only`), which
 // locallibrary-ci.yml's coverage job writes. A crate is the folder of its manifest: apps/<name>,
 // crates/<name>, plugins/<name> or vendor/<name>. Floors are in tools/coverage/floors.json.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 export const METRICS = ['lines', 'functions', 'regions'] as const;
 
@@ -68,7 +69,7 @@ export function byCrate(report: Report): Map<string, Percents> {
 	);
 }
 
-/** What's wrong with `measured` against `floors`: a crate under one, or one with no floor. */
+/** What's wrong with `measured` against `floors`: a crate under one, one with no floor, or a floor for a crate that's gone. */
 export function problems(measured: Map<string, Percents>, floors: Floors['floors']): string[] {
 	const found: string[] = [];
 
@@ -87,25 +88,35 @@ export function problems(measured: Map<string, Percents>, floors: Floors['floors
 		}
 	}
 
+	// A report of some crates leaves the others' floors as they are, as the ratchet does: only a crate
+	// that's gone from the workspace should lose its floor.
 	for (const crate of Object.keys(floors)) {
-		if (!measured.has(crate)) found.push(`${crate}: has a floor but no coverage; remove it from ${FLOORS}`);
+		const gone = !measured.has(crate) && !existsSync(`${crate}/Cargo.toml`);
+
+		if (gone) found.push(`${crate}: has a floor but no Cargo.toml; remove it from ${FLOORS}`);
 	}
 
 	return found;
 }
 
-/** `floors` with each one raised to just under what was measured, and one for each new crate: never lowered. */
+/**
+ * `floors` with each measured crate's raised to just under what was measured, and one for each new
+ * crate: never lowered. A report of some crates (`cargo llvm-cov nextest -p <crate>`) leaves the
+ * others' floors as they were.
+ */
 export function ratcheted(measured: Map<string, Percents>, floors: Floors['floors']): Floors['floors'] {
 	const under = (value: number) => Math.max(0, Math.floor((value - MARGIN) * 10) / 10);
 
-	const entries = [...measured].map(([crate, percents]): [string, Percents] => {
+	const raisedFloors = [...measured].map(([crate, percents]): [string, Percents] => {
 		const floor = floors[crate];
 		const raised = (metric: Metric) => Math.max(floor?.[metric] ?? 0, under(percents[metric]));
 
 		return [crate, { lines: raised('lines'), functions: raised('functions'), regions: raised('regions') }];
 	});
 
-	return Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b)));
+	const merged = { ...floors, ...Object.fromEntries(raisedFloors) };
+
+	return Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 // SAFETY: the report is cargo-llvm-cov's own JSON export, and floors.json follows floors.schema.json

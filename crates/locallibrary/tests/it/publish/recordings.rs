@@ -241,7 +241,7 @@ fn an_upload_that_cant_go_says_why() {
 /// can only be looked at.
 #[cfg(unix)]
 #[hegel::test(test_cases = 25)]
-fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
+fn prop_an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
     use super::{PLYR_TRACK, PLYR_TRACK_CID};
     use hegel::generators as gs;
     use locallibrary::op::bytes;

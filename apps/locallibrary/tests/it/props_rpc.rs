@@ -181,7 +181,7 @@ enum Sent {
 /// with an error and no id; a notification never. Progress is about a request it was sent, and
 /// it exits cleanly once its input closes.
 #[hegel::test(test_cases = 8)]
-fn every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
+fn prop_every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
     let fx = Env::from_template();
     let methods: Vec<&'static Value> =
         contract()["methods"].as_array().unwrap().iter().filter(|m| !excluded(m["name"].as_str().unwrap())).collect();
@@ -342,7 +342,7 @@ const STEADY_READS: &[&str] = &[
 /// The same read, asked twice of the same drives and store (at once, on different workers),
 /// gets the same answer, and changes no file.
 #[hegel::test(test_cases = 6)]
-fn the_same_read_gets_the_same_answer(tc: TestCase) {
+fn prop_the_same_read_gets_the_same_answer(tc: TestCase) {
     let fx = Env::from_template();
     let before = fx.files();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(6));
@@ -385,7 +385,7 @@ struct StoreModel {
 /// through the sidecar in any order (and plans applied by id, once), agree with a model after
 /// every step.
 #[hegel::test(test_cases = 6)]
-fn store_edits_agree_with_a_model(tc: TestCase) {
+fn prop_store_edits_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     let mut rpc = Rpc::start(fx.command());
     let mut model = StoreModel { library: "A".into(), ..Default::default() };
@@ -568,7 +568,7 @@ impl Session {
 /// says whether there was one to cancel and that one answers `cancelled`, and `shutdown` with
 /// `cancel` answers every one left before the sidecar exits cleanly.
 #[hegel::test(test_cases = 6)]
-fn requests_in_flight_agree_with_a_model(tc: TestCase) {
+fn prop_requests_in_flight_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     let mut s = Session::start(&fx);
     let mut running: Vec<Value> = Vec::new();
@@ -644,7 +644,7 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
 /// error saying so, however many workers it has, and nothing is answered.
 #[cfg(unix)]
 #[hegel::test(test_cases = 3)]
-fn input_that_cannot_be_read_ends_the_sidecar_with_an_error(tc: TestCase) {
+fn prop_input_that_cannot_be_read_ends_the_sidecar_with_an_error(tc: TestCase) {
     let fx = Env::from_template();
     let workers = tc.draw(gs::integers::<u32>().min_value(1).max_value(4)).to_string();
     let folder = std::fs::File::open(&fx.volumes).unwrap();
@@ -658,7 +658,7 @@ fn input_that_cannot_be_read_ends_the_sidecar_with_an_error(tc: TestCase) {
 /// Requests that each need the store, sent at once to a sidecar that has none yet, all find it:
 /// whichever makes it, the others open the same one.
 #[hegel::test(test_cases = 10)]
-fn requests_making_the_store_at_once_all_find_it(tc: TestCase) {
+fn prop_requests_making_the_store_at_once_all_find_it(tc: TestCase) {
     let fx = Env::new();
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
     let lines: Vec<Vec<u8>> = (0..n)

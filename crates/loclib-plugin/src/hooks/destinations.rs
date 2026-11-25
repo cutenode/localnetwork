@@ -39,8 +39,12 @@ pub(crate) const FEATURE: Feature = Feature {
 /// publishes sets at (`set`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Destination {
+    /// What requests name it by (`destination`): lowercase letters, digits, `-` and `_`, starting
+    /// with a letter, 64 characters at most, and no other destination's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
+    /// What it keeps: `store` or `set`.
     pub kind: DestinationKind,
 }
 
@@ -80,6 +84,7 @@ pub struct HasBlobs {
     pub destination: String,
     /// BLAKE3 hashes, in hex: a thousand at most.
     pub hashes: Vec<String>,
+    /// The plugin's settings, and the request's scratch folder.
     #[serde(default)]
     pub context: Context,
 }
@@ -87,6 +92,7 @@ pub struct HasBlobs {
 /// What `blobs/has` answers: those of the hashes asked about it doesn't have.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Missing {
+    /// The hashes asked about that it doesn't have.
     pub missing: Vec<String>,
 }
 
@@ -94,9 +100,13 @@ pub struct Missing {
 /// content's BLAKE3 hash is `hash`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PutBlob {
+    /// One of the manifest's store destinations.
     pub destination: String,
+    /// The file's BLAKE3 hash, in hex.
     pub hash: String,
+    /// The stored file, absolute: read it, never change it.
     pub path: PathBuf,
+    /// The plugin's settings, and the request's scratch folder.
     #[serde(default)]
     pub context: Context,
 }
@@ -109,8 +119,11 @@ pub struct Kept {}
 /// hashes it and refuses one that isn't what was asked for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct GetBlob {
+    /// One of the manifest's store destinations.
     pub destination: String,
+    /// The BLAKE3 hash, in hex, of the file wanted.
     pub hash: String,
+    /// The plugin's settings, and the request's scratch folder.
     #[serde(default)]
     pub context: Context,
 }
@@ -119,6 +132,7 @@ pub struct GetBlob {
 /// `not_found`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Got {
+    /// The file, in the request's scratch folder.
     pub blob: Blob,
 }
 
@@ -126,9 +140,13 @@ pub struct Got {
 /// replacing the one of that name. Its content is a file in the request's scratch folder.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PutManifest {
+    /// One of the manifest's store destinations.
     pub destination: String,
+    /// The record's name (`libraries.json`, `snapshots/<id>.json`).
     pub name: String,
+    /// Its content, a file in the request's scratch folder.
     pub blob: Blob,
+    /// The plugin's settings, and the request's scratch folder.
     #[serde(default)]
     pub context: Context,
 }
@@ -136,8 +154,11 @@ pub struct PutManifest {
 /// `manifest/get`: the record of that name, written to the request's scratch folder.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct GetManifest {
+    /// One of the manifest's store destinations.
     pub destination: String,
+    /// The record's name (`libraries.json`, `snapshots/<id>.json`).
     pub name: String,
+    /// The plugin's settings, and the request's scratch folder.
     #[serde(default)]
     pub context: Context,
 }
@@ -146,6 +167,7 @@ pub struct GetManifest {
 /// of that name.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct GotManifest {
+    /// The record, a file in the request's scratch folder, or none when it has none of that name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blob: Option<Blob>,
 }
@@ -156,14 +178,17 @@ pub struct GotManifest {
 pub struct PublishSet {
     /// One of the manifest's set destinations.
     pub destination: String,
+    /// The set's details.
     pub set: PublishedSet,
     /// The set's recording on this computer (absolute): read it, never change it. Publishing (not
     /// a dry run), `net/fetch` sends it, or parts of it, as its `body_blob` or a form's `file`.
     pub recording: PathBuf,
     /// In play order.
     pub tracklist: Vec<TracklistEntry>,
+    /// Whether to say what would happen and do nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dry_run: bool,
+    /// The plugin's settings, and the request's scratch folder.
     #[serde(default)]
     pub context: Context,
 }
@@ -171,16 +196,20 @@ pub struct PublishSet {
 /// A set as it's published: its details, never the DJ's notes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PublishedSet {
+    /// Its id, which `sets.get` reads it by.
     pub id: String,
     /// The day it was played, `2026-10-03`.
     pub date: String,
+    /// Its title, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// `club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets) or the DJ's own word.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// Where it was played, when it's known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub venue: Option<String>,
+    /// The city it was played in, when it's known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
     /// ISO 3166, `GB`.
@@ -192,8 +221,10 @@ pub struct PublishedSet {
 /// publishes it without naming it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TracklistEntry {
+    /// The track's artist.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
+    /// The track's title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// The release it's from, when it's known. None from a host older than it.
@@ -211,6 +242,7 @@ pub struct TracklistEntry {
 /// where it would be), and what the user should know, in a line each.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Published {
+    /// Where the set can be heard.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// What `url` is, as the set's published record names its link: `plyr.fm`, `Mixcloud`. 64
@@ -221,6 +253,7 @@ pub struct Published {
     /// plyr.fm track, `fm.plyr.track`): the set's published record points to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<StrongRef>,
+    /// What the user should know, a line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }

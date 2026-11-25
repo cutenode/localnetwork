@@ -53,7 +53,7 @@ const SET: [(&str, [&str; 2]); 3] =
 /// it imports them, saying how many, so there each is the file's unless it was kept; with
 /// nothing to add or replace, it says so and changes nothing.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_settings_file_imports_as_its_plan_shows(tc: TestCase) {
+fn prop_a_settings_file_imports_as_its_plan_shows(tc: TestCase) {
     let (here, there) = (Env::new(), Env::new());
     let draw = || -> Vec<Option<&str>> {
         SET.iter().map(|(_, values)| tc.draw(gs::optional(gs::sampled_from(values.to_vec())))).collect()

@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use hegel::TestCase;
 use hegel::generators as gs;
@@ -8,7 +9,7 @@ use loclib_plugin::method;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::tests::{kind, start, write};
+use crate::tests::{Session, kind, start, write};
 use crate::xml_import::tests::collection_with;
 
 /// The track a cursor's page starts at (`i:len:mtime_ns`).
@@ -45,11 +46,12 @@ fn pages(file: &str, scratch: Option<&Path>) -> (Vec<LibraryPage>, Vec<Option<St
 
 /// The library/read request's answer for `options` and `cursor`.
 fn asked(options: Value, cursor: Option<&str>) -> Result<LibraryPage, RpcError> {
-    let s = start(Library::default());
+    // One session for every request: stopping one waits out the SDK's progress flusher, and
+    // `prop_what_cant_be_read_is_refused` asks for each of its refusals in every case. No refusal
+    // depends on an earlier request.
+    static SESSION: LazyLock<Mutex<Session>> = LazyLock::new(|| Mutex::new(start(Library::default())));
     let req = json!({ "source": "rekordbox-xml", "options": options, "roots": ["/"], "cursor": cursor });
-    let page = s.host.request(method::READ_LIBRARY, &req);
-    s.stop();
-    page
+    SESSION.lock().unwrap_or_else(PoisonError::into_inner).host.request(method::READ_LIBRARY, &req)
 }
 
 /// A collection reads as its tracks, each its audio file with its tags, key, tempo, cues (a
@@ -250,7 +252,7 @@ fn sizes() -> impl hegel::PrintableGenerator<usize> {
 /// with a file once, in order, each grid in order and before the track's end, and the
 /// playlists once; every page holds at most PER_PAGE tracks (and [`pages`] checks the cursors only go up).
 #[hegel::test(test_cases = 50)]
-fn any_collection_pages_through_each_track_once(tc: TestCase) {
+fn prop_any_collection_pages_through_each_track_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut tracks = Vec::new();
     // Each track with a file: its file and its length in ms (0 for none).

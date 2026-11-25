@@ -11,7 +11,7 @@ use crate::support::{Env, PDB, copy_dir, fixtures, line, path};
 /// it holds. A blank name for a drive is refused. With the store gone, `drive groups` still puts
 /// both drives under their library, unnamed.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_drive_left_behind_says_by_how_much(tc: TestCase) {
+fn prop_a_drive_left_behind_says_by_how_much(tc: TestCase) {
     let env = Env::new();
     let main = env.pulled("Main");
     let backup = env.blank("Backup");

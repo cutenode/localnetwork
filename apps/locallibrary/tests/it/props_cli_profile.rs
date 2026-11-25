@@ -78,7 +78,7 @@ fn headings(out: &str) -> Vec<(String, bool)> {
 /// and basis say, and its numbers, headline, sets and signature tracks are the JSON's; and the
 /// document printed, as JSON and written to a file is the same one.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_printed_report_says_what_the_json_does(tc: TestCase) {
+fn prop_the_printed_report_says_what_the_json_does(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
     let ids: Vec<u32> = (1..=12).collect();
@@ -333,7 +333,7 @@ const NAMES: [&str; 5] = ["Floorplan - Never Grow Old", "floorplan -  never grow
 /// and afterwards `profile prefs` (as JSON, and as printed) and `profile sections` hold what the
 /// model does.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn profile_choices_agree_with_a_model(tc: TestCase) {
+fn prop_profile_choices_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     let mut m = Prefs::default();
     let names: Vec<&str> = SECTIONS.iter().map(|(s, _)| *s).collect();
@@ -494,7 +494,7 @@ fn profile_choices_agree_with_a_model(tc: TestCase) {
 /// names, from the sessions on the drive: refused when none or several do, and when one does, the
 /// pin is that track's full name.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_word_picks_the_one_played_track_it_names(tc: TestCase) {
+fn prop_a_word_picks_the_one_played_track_it_names(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
     let ids: Vec<u32> = (1..=12).collect();
@@ -555,7 +555,7 @@ fn a_word_picks_the_one_played_track_it_names(tc: TestCase) {
 /// (marked when it's not to be named), the moves played again and again, and the tracks opened and
 /// closed with, as the JSON says.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_signature_section_says_what_its_json_does(tc: TestCase) {
+fn prop_the_signature_section_says_what_its_json_does(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
     let ids: Vec<u32> = (1..=12).collect();
@@ -654,7 +654,7 @@ fn the_signature_section_says_what_its_json_does(tc: TestCase) {
 /// closing tempo, how many sessions it's averaged over, how the sessions run, and the range of
 /// its curve when it has one.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_summary_and_shape_say_what_the_json_does(tc: TestCase) {
+fn prop_the_summary_and_shape_say_what_the_json_does(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
     let ids: Vec<u32> = (1..=12).collect();
@@ -697,7 +697,7 @@ fn the_summary_and_shape_say_what_the_json_does(tc: TestCase) {
 /// (the pin by its whole name, the alias it forgot), and `profile prefs` prints what's left, with
 /// the headline when there is one.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn choices_taken_back_say_so(tc: TestCase) {
+fn prop_choices_taken_back_say_so(tc: TestCase) {
     let fx = Env::from_template();
     let pins: Vec<&str> =
         tc.draw(gs::subsequences(vec!["Floorplan - Never Grow Old", "Bootleg", "Ünïcödé"]).min_size(1));
@@ -741,7 +741,7 @@ fn choices_taken_back_say_so(tc: TestCase) {
 /// it's only there), how many tracks, its opening and closing tempo when both are known, how much
 /// of it was mixed in key when that's known, and the start of its id.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn profile_sets_lists_the_sets_its_json_has(tc: TestCase) {
+fn prop_profile_sets_lists_the_sets_its_json_has(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
     let ids: Vec<u32> = (1..=12).collect();

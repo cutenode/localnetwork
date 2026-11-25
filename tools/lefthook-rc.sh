@@ -8,3 +8,7 @@ if command -v fnm > /dev/null 2>&1 &&
 	PATH="$node_bin:$PATH"
 	export PATH
 fi
+# The merge driver for the files a test writes in full (merge=regen in the .gitattributes beside them,
+# tools/regen/regen.ts). It's in the repository's config, so every worktree has it once any hook has run.
+driver='node tools/regen/cli.ts driver %P'
+[ "$(git config --get merge.regen.driver)" = "$driver" ] || git config merge.regen.driver "$driver"

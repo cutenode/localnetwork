@@ -2,7 +2,7 @@
 
 ## What and why
 
-<!-- What this changes and the problem it solves. "Fixes #123" or "Fixes LOC-123" closes the issue when it merges, and "Part of LOC-123" links it. With no issue, add the no-issue label. -->
+<!-- What this changes and the problem it solves. "Fixes #123" or "Fixes LOC-123" closes the issue when it merges, and "Part of LOC-123" links it without closing it. The PR issue check needs one of them. -->
 
 ## How it was tested
 
@@ -10,7 +10,7 @@
 
 ## Screenshots
 
-<!-- For UI changes: before and after, at phone and wide widths, in light and dark if it matters. Delete this section otherwise. -->
+<!-- For UI changes: before and after, at 390 and 1280 px wide, in light and dark. Delete this section otherwise. -->
 
 ## New app or plugin
 
@@ -25,6 +25,6 @@
 
 - [ ] Tests cover the change
 - [ ] For the website: Storybook stories cover any new UI states
-- [ ] For locallibrary: `apps/locallibrary/changes/<branch>.md` has a changelog line, if people using it will notice
+- [ ] For locallibrary: `apps/locallibrary/changes/<branch without bnb/>.md` has a changelog line, if people using it will notice
 - [ ] The READMEs, `docs/` and `--help` still say what the code does (`apps/locallibrary/docs/rpc/` too, for a sidecar change)
 - [ ] Mermaid diagrams whose `Source:` files changed still match the code (or the body says why with a `diagrams-checked:` line)

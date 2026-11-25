@@ -1,8 +1,8 @@
 name: locallibrary cache
 
 # locallibrary-ci.yml's other-os job, nightly on main, so the macOS and Windows caches it restores
-# stay warm: only main saves caches, and ci.yml runs other-os for merge queue groups and labelled
-# pull requests, never for a push to main. It's the same job, so what fails here would fail a
+# stay warm: only main saves caches, and ci.yml runs other-os for merge queue groups and pull
+# requests, never for a push to main. It's the same job, so what fails here would fail a
 # merge queue group too. The apt packages every workflow installs are warmed here too, and the
 # run fails when the repository's caches near GitHub's 10 GB, past which it drops the least
 # recently used.
@@ -84,9 +84,11 @@ jobs:
       budgets: false
       dist: false
       other-os: true
+      macos: true
       semver: false
       commands: false
       fuzz: false
+      crates: false
 
   # Each set of apt packages a workflow installs (.github/actions/apt-packages), restored or saved
   # on main every night. A pull request reads main's caches but can't see another pull request's,

@@ -60,7 +60,7 @@ fn messy_line() -> impl hegel::PrintableGenerator<String> {
 #[hegel::test(test_cases = 500)]
 #[hegel::explicit_test_case(bytes = "a\u{a0}b".as_bytes().to_vec(), hint = None::<&str>)]
 #[hegel::explicit_test_case(bytes = "x\u{3000}1:23".as_bytes().to_vec(), hint = Some("x.txt"))]
-fn parse_never_panics_on_bytes(tc: TestCase) {
+fn prop_parse_never_panics_on_bytes(tc: TestCase) {
     let bytes = tc.draw(hegel::one_of!(
         gs::binary().max_size(200),
         gs::vecs(messy_line()).max_size(6).map(|l| l.join("\n").into_bytes()),
@@ -138,7 +138,7 @@ fn encoded(tc: &TestCase, lines: &[String]) -> Vec<u8> {
 /// lines, whatever the numbering, cue times, bullets, separators, comments and headings around
 /// them.
 #[hegel::test(test_cases = 300)]
-fn plain_lists_read_back(tc: TestCase) {
+fn prop_plain_lists_read_back(tc: TestCase) {
     let tracks: Vec<(String, String)> =
         tc.draw(gs::vecs(gs::tuples2(plain_name(), plain_name())).min_size(1).max_size(8));
     let style = tc.draw(gs::integers::<u8>().max_value(8));
@@ -221,7 +221,7 @@ fn plain_lists_read_back(tc: TestCase) {
 /// lines are audio file paths: then the list is an M3U, and either way each path line keeps
 /// its path.
 #[hegel::test(test_cases = 200)]
-fn plain_lists_and_path_lists_are_told_apart(tc: TestCase) {
+fn prop_plain_lists_and_path_lists_are_told_apart(tc: TestCase) {
     let name = || gs::from_regex("[A-Za-z][A-Za-z0-9é&' ]{0,10}[A-Za-z0-9]").fullmatch(true);
     let lines: Vec<(bool, String)> = tc.draw(
         gs::vecs(hegel::one_of!(
@@ -267,7 +267,7 @@ fn prop_a_hash_without_a_number_is_part_of_the_line(tc: TestCase) {
 /// A line whose dash has nothing after it ("Title–", an unspaced en or em dash at the end) has
 /// no artist to split off: it's all title, dash and all.
 #[hegel::test(test_cases = 100)]
-fn a_dash_with_nothing_after_it_is_part_of_the_title(tc: TestCase) {
+fn prop_a_dash_with_nothing_after_it_is_part_of_the_title(tc: TestCase) {
     let names: Vec<String> = tc.draw(gs::vecs(plain_name()).min_size(1).max_size(5));
     let lines: Vec<String> =
         names.iter().map(|n| format!("{n}{}", tc.draw(gs::sampled_from(vec!['\u{2013}', '\u{2014}'])))).collect();
@@ -280,7 +280,7 @@ fn a_dash_with_nothing_after_it_is_part_of_the_title(tc: TestCase) {
 /// An `#EXTINF` with only a length (no comma, so no display name) gives its file's entry that
 /// length, and the file name its artist and title.
 #[hegel::test(test_cases = 100)]
-fn extinf_lengths_without_a_name_keep_the_file_name(tc: TestCase) {
+fn prop_extinf_lengths_without_a_name_keep_the_file_name(tc: TestCase) {
     let (artist, title) = (tc.draw(plain_name()), tc.draw(plain_name()));
     let secs = tc.draw(gs::integers::<u32>().min_value(1).max_value(36_000));
     let file = format!("/Music/{artist} - {title}.mp3");
@@ -322,7 +322,7 @@ fn location(tc: &TestCase, dirs: &[String], file: &str) -> (String, String) {
 /// and title from its `#EXTINF` (or, without one, its file name), its length, and the album
 /// and album artist of `#EXTALB` and `#EXTART`. It's detected as M3U.
 #[hegel::test(test_cases = 300)]
-fn m3u_playlists_read_back(tc: TestCase) {
+fn prop_m3u_playlists_read_back(tc: TestCase) {
     let tracks: Vec<(String, String)> =
         tc.draw(gs::vecs(gs::tuples2(plain_name(), plain_name())).min_size(1).max_size(6));
     let header = tc.draw(gs::booleans());
@@ -434,7 +434,7 @@ const CP1252_HIGH: &[(char, u8)] = &[
 /// without a BOM, UTF-16 either way round with a BOM or (when it's ASCII) without one, and
 /// Windows-1252 when the bytes aren't UTF-8.
 #[hegel::test(test_cases = 400)]
-fn text_survives_every_encoding(tc: TestCase) {
+fn prop_text_survives_every_encoding(tc: TestCase) {
     let lf = |s: &str| s.replace("\r\n", "\n").replace('\r', "\n");
     // A leading U+FEFF is a BOM, and NULs make UTF-8 look like UTF-16.
     let s: String =

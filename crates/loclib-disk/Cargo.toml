@@ -1,0 +1,29 @@
+[package]
+name = "loclib-disk"
+description = "Check, repair and eject USB drives and SD cards with the operating system's own tools: diskutil on macOS, fsck and udisks on Linux, chkdsk and Explorer on Windows"
+readme = "README.md"
+keywords = ["fsck", "eject", "usb", "disk", "filesystem"]
+categories = ["filesystem", "hardware-support"]
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.localnetwork]
+labels = ["locallibrary: drives"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+loclib-format.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-format = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

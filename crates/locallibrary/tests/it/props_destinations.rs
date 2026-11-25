@@ -175,7 +175,7 @@ fn sound(store: &Store) -> bool {
 /// copy finishes it. Brought back into an empty store, it's the store as it was: its libraries'
 /// latest snapshots, every stored file, its labels and its other records.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_copy_stopped_anywhere_reaches_only_whole_snapshots_and_comes_back_whole(tc: TestCase) {
+fn prop_a_copy_stopped_anywhere_reaches_only_whole_snapshots_and_comes_back_whole(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(2)));
     std::fs::write(store.root().join("atmosphere-session.json"), b"{\"session\": \"never leaves\"}").unwrap();
@@ -205,7 +205,7 @@ fn a_copy_stopped_anywhere_reaches_only_whole_snapshots_and_comes_back_whole(tc:
 /// back fails, and the store has only files that hash to their names, and no library whose
 /// snapshot lists a file it lacks. Answered whole, it all comes back.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn what_comes_back_damaged_never_goes_into_the_store(tc: TestCase) {
+fn prop_what_comes_back_damaged_never_goes_into_the_store(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), 1);
     let mut memory = Memory::default();
@@ -234,7 +234,7 @@ fn what_comes_back_damaged_never_goes_into_the_store(tc: TestCase) {
 /// what it had. Fetching brings those it offers into the store, each checked: one answered
 /// damaged fails the fetch and stays out.
 #[hegel::test(test_cases = 50)]
-fn a_destination_offers_what_it_has_and_only_that_comes_in(tc: TestCase) {
+fn prop_a_destination_offers_what_it_has_and_only_that_comes_in(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut memory = Memory::default();
@@ -308,7 +308,7 @@ fn a_destination_offers_what_it_has_and_only_that_comes_in(tc: TestCase) {
 /// records come back rewritten: a snapshot's that isn't the snapshot it's named after, or a
 /// `libraries.json` that isn't one, is refused, and nothing goes in.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_copy_leaves_out_what_the_store_lost_and_what_comes_back_is_checked(tc: TestCase) {
+fn prop_a_copy_leaves_out_what_the_store_lost_and_what_comes_back_is_checked(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(3)));
     let snapshots: Vec<(Hash, FxHashSet<Hash>)> = store
@@ -404,7 +404,7 @@ fn ancestry(stores: &[&Store], id: Hash) -> FxHashSet<Hash> {
 /// own when both have changed, with the copy's beside it. A dry run says the same and changes
 /// nothing.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_store_restored_again_moves_on_only_to_what_descends_from_its_own(tc: TestCase) {
+fn prop_a_store_restored_again_moves_on_only_to_what_descends_from_its_own(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), 1);
     let root = dir.path().join("Main");

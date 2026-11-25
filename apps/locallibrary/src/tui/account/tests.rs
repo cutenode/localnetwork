@@ -194,7 +194,7 @@ fn signing_out_reports_back() {
 /// much of its end as fits; esc puts it away; a sign-in under way goes from finding the
 /// server to the browser and stops at esc or when it's done, saying how it went.
 #[hegel::test(test_cases = 100)]
-fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
+fn prop_the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use unicode_width::UnicodeWidthStr;
     let (mut app, _dir) = blank(View::Profile);
@@ -275,7 +275,7 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
 /// again soon after signs out (only once: a second L while it does waits), L long after asks
 /// again; a tab clicked while a handle is typed puts it away.
 #[hegel::test(test_cases = 100)]
-fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
+fn prop_the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = blank(View::Profile);
     let days = tc.draw(gs::sampled_from(&[-400i64, -1, 1, 3, 200][..]));
@@ -329,7 +329,7 @@ fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
 /// A handle is typed as its keys say (enter on nothing typed only asks for one), and while the
 /// browser is waited on the bar says where, and how to get there if it didn't open.
 #[hegel::test(test_cases = 60)]
-fn a_handle_is_typed_as_its_keys_say(tc: hegel::TestCase) {
+fn prop_a_handle_is_typed_as_its_keys_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
 
     let (mut app, _dir) = blank(View::Profile);

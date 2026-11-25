@@ -252,7 +252,7 @@ fn lengths() -> Vec<f64> {
 /// a whole number of beats long at its tempo (to the millisecond) comes back with that length,
 /// any other with a length cue edits take within 1% of it, or none, counted in a warning.
 #[hegel::test(test_cases = 50)]
-fn any_collections_loops_come_back_in_beats_or_counted(tc: TestCase) {
+fn prop_any_collections_loops_come_back_in_beats_or_counted(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut tracks = Vec::new();
     // Each track's cues as written: the hot cue, the start and, for a loop, its length in beats
