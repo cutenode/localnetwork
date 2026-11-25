@@ -42,6 +42,8 @@ pub enum Scope {
     Goto,
     /// What follows `q`: the queue.
     Queue,
+    /// What follows `del` in player mode: the hot cue to delete.
+    DeleteCue,
     Prepare,
     Drives,
     Snapshots,
@@ -121,8 +123,14 @@ pub enum Act {
     GoTo,
     // The deck
     Pads,
-    /// The hot cue of the digit pressed.
+    /// The hot cue of the digit pressed: jump to it, or set it where it's empty.
     HotCue,
+    /// `del` in player mode: the digit that follows deletes that hot cue.
+    DeleteCueChord,
+    /// Delete the hot cue of the digit pressed.
+    DeleteHotCue,
+    /// Set a hot cue where the playhead is, on the first empty pad.
+    SetHotCue,
     /// So many beats back (negative) or forward.
     BeatJump(i8),
     Quantize,
@@ -562,8 +570,13 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Visuals),
     tip(S::Deck, "f", "back", 7),
     tip(S::Deck, "?", "keys", 3),
-    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
+    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode, or with the pads on: hot cue A … H (jumps there and plays); an empty one is set where the playhead is, on the beat with quantize on", G::Deck),
     tip(S::Pads, "1-8", "hot cue", 9),
+    key(S::Deck, &[K::Code(C::Delete), K::Code(C::Backspace)], "del 1 … 8", A::DeleteCueChord, "", "delete hot cue A … H", G::Deck),
+    // -----------------------------------------------------------------------------------------
+    // After del, in player mode
+    // -----------------------------------------------------------------------------------------
+    key(S::DeleteCue, &[K::Digits('1', '8')], "1 … 8", A::DeleteHotCue, "", "hot cue A … H", G::Deck),
     // -----------------------------------------------------------------------------------------
     // After g
     // -----------------------------------------------------------------------------------------
@@ -638,6 +651,10 @@ pub static KEYMAP: &[Binding] = &[
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
     key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", PULL, G::Commands),
+    key(S::Global, &[], "cue", A::SetHotCue, "set a hot cue here", "a hot cue where the playhead is, on the first empty pad", G::Commands)
+        .words("hot cue, pad, mark"),
+    key(S::Global, &[], "del cue", A::DeleteCueChord, "delete a hot cue…", "then 1 … 8: the hot cue to delete", G::Commands)
+        .words("hot cue, remove, clear"),
     key(S::Global, &[], "check", A::Check, "check the drive for problems", CHECK, G::Commands),
     key(S::Global, &[], "set prep", A::SetPrep, "check all the library's drives", "check the drive and the other mounted drives of its library together, for a set", G::Commands),
     key(S::Global, &[], "sync", A::SyncGroup, "sync the library's drives", SYNC, G::Commands),
@@ -870,8 +887,11 @@ pub fn help_rows(app: &App, query: &str) -> Vec<HelpRow> {
             2
         }
     };
-    let wanted =
-        |s: Scope| focused.contains(&s) || own.contains(&s) || matches!(s, Scope::Pads | Scope::Goto | Scope::Queue);
+    let wanted = |s: Scope| {
+        focused.contains(&s)
+            || own.contains(&s)
+            || matches!(s, Scope::Pads | Scope::Goto | Scope::Queue | Scope::DeleteCue)
+    };
     let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| in_help(b) && wanted(b.scope)).collect();
     // The crate's own keys under its heading, after marking and adding to it.
     rows.sort_by_key(|b| (rank(b.scope), b.group as u8, b.scope == Scope::Crate));
@@ -902,6 +922,7 @@ pub fn runs(act: Act) -> bool {
             | Act::QueueChord
             | Act::PaneKey
             | Act::HotCue
+            | Act::DeleteHotCue
             | Act::Move(_)
             | Act::Page(_)
             | Act::End(_)
@@ -929,8 +950,9 @@ pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     // The crate's own keys under its heading, after marking and adding to it.
     let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| own.contains(&b.scope) && in_help(b)).collect();
     rows.sort_by_key(|b| (b.group as u8, b.scope == Scope::Crate));
-    let everywhere =
-        |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto | Scope::Queue) && in_help(b);
+    let everywhere = |b: &&Binding| {
+        matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto | Scope::Queue | Scope::DeleteCue) && in_help(b)
+    };
     let global = KEYMAP.iter().filter(everywhere);
     let mut global: Vec<&'static Binding> = global.collect();
     global.sort_by_key(|b| b.group as u8);

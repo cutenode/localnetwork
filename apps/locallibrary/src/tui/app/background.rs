@@ -221,6 +221,7 @@ impl App {
             self.handle_msg(msg);
         }
         self.show_waiting();
+        self.next_cue_save();
         if !self.volumes_in_flight && self.last_volume_poll.elapsed() > Duration::from_secs(1) {
             self.last_volume_poll = Instant::now();
             self.volumes_in_flight = true;

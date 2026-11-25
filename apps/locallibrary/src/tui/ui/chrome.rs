@@ -13,6 +13,7 @@ use crate::output::bytes;
 use crate::tui::app::{App, Focus, Level, UNDO_HINT, View, typed_tail};
 use crate::tui::edits::Modal;
 use crate::tui::first_run::intro_line;
+use crate::tui::keymap::Scope;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 use crate::tui::{icons, keymap};
 
@@ -226,7 +227,11 @@ fn busy(app: &App) -> Vec<Span<'static>> {
 fn mode(app: &App) -> &'static str {
     let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
     if app.chord.is_some() {
-        if app.chord_queue { "QUEUE" } else { "GO TO" }
+        match app.chord_scope {
+            Scope::Queue => "QUEUE",
+            Scope::DeleteCue => "DELETE CUE",
+            _ => "GO TO",
+        }
     } else if app.searching {
         "SEARCH"
     } else if typing {

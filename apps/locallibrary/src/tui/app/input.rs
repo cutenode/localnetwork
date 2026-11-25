@@ -112,10 +112,10 @@ impl App {
             return;
         }
         if self.chord.take().is_some() {
-            // Whatever follows `g` (or `q`) ends it: what it names, or nothing.
-            let scope = if std::mem::take(&mut self.chord_queue) { keymap::Scope::Queue } else { keymap::Scope::Goto };
+            // Whatever follows `g` (or `q`, or `del`) ends it: what it names, or nothing.
+            let scope = std::mem::replace(&mut self.chord_scope, keymap::Scope::Goto);
             let goes =
-                (keymap::lookup(&[scope], &key)).filter(|_| scope == keymap::Scope::Queue || !self.picking_view(&key));
+                (keymap::lookup(&[scope], &key)).filter(|_| scope != keymap::Scope::Goto || !self.picking_view(&key));
             if let Some(b) = goes {
                 self.perform(b.act, Some(key));
             }
@@ -266,8 +266,9 @@ impl App {
                     self.jump_to_pane(d);
                 }
             }
-            Act::Goto => (self.chord, self.chord_queue) = (Some(Instant::now()), false),
-            Act::QueueChord => (self.chord, self.chord_queue) = (Some(Instant::now()), true),
+            Act::Goto => (self.chord, self.chord_scope) = (Some(Instant::now()), keymap::Scope::Goto),
+            Act::QueueChord => (self.chord, self.chord_scope) = (Some(Instant::now()), keymap::Scope::Queue),
+            Act::DeleteCueChord => deck::delete_chord(self),
             Act::QueueNext => self.queue_picked(true),
             Act::Fill => {
                 self.fill = !self.fill;
@@ -332,6 +333,12 @@ impl App {
                     deck::hot_cue(self, d as u8 - 1);
                 }
             }
+            Act::DeleteHotCue => {
+                if let Some(d) = digit {
+                    deck::delete_hot_cue(self, d as u8 - 1);
+                }
+            }
+            Act::SetHotCue => deck::set_next_hot_cue(self),
             Act::BeatJump(beats) => deck::beat_jump(self, beats as f64),
             Act::Quantize => deck::toggle_quantize(self),
             Act::Single => deck::toggle_single(self),

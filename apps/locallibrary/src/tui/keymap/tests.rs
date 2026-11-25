@@ -244,7 +244,7 @@ fn reached(act: Act) -> Reached {
     use Reached::*;
     match act {
         Act::None => LeftOut("a row that only explains"),
-        Act::PaneKey | Act::HotCue => LeftOut("takes the digit pressed"),
+        Act::PaneKey | Act::HotCue | Act::DeleteHotCue => LeftOut("takes the digit pressed"),
         Act::Goto | Act::QueueChord => LeftOut("waits for the key after it"),
         Act::Palette | Act::Actions | Act::PaneActions => LeftOut("opens a list from the view's own key"),
         Act::Move(_) | Act::Page(_) | Act::End(_) | Act::Focus(_) | Act::Activate | Act::Escape => {
@@ -351,7 +351,9 @@ fn reached(act: Act) -> Reached {
         | Act::MixOpen
         | Act::MixZoom
         | Act::MixExport
-        | Act::MixReport => Named,
+        | Act::MixReport
+        | Act::SetHotCue
+        | Act::DeleteCueChord => Named,
     }
 }
 

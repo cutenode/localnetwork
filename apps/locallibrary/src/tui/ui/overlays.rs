@@ -28,12 +28,17 @@ pub(in crate::tui) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) 
     Rect { x, y, width: w, height: h }
 }
 
-/// After `g` (or `q`) and a pause, what can follow, in the corner over the deck.
+/// After `g` (or `q`, or `del` in player mode) and a pause, what can follow, in the corner over
+/// the deck.
 pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     if app.chord.is_none_or(|at| at.elapsed() < CHORD_HINT) {
         return;
     }
-    let (scope, heading) = if app.chord_queue { (Scope::Queue, "Queue") } else { (Scope::Goto, "Go to") };
+    let (scope, heading) = match app.chord_scope {
+        Scope::Queue => (Scope::Queue, "Queue"),
+        Scope::DeleteCue => (Scope::DeleteCue, "Delete cue"),
+        _ => (Scope::Goto, "Go to"),
+    };
     let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == scope))
         .map(|b| {
             let about = if b.name.is_empty() { b.help } else { b.name.trim_start_matches("go to ") };

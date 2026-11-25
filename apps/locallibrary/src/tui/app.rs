@@ -237,6 +237,9 @@ pub struct App {
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
+    /// Hot cues set or deleted from the pads, waiting to be written, and the one being written.
+    pub(super) cue_saves: VecDeque<super::cue_saves::CueSave>,
+    pub(super) cue_saving: Option<super::cue_saves::CueSave>,
     /// Every mounted drive's status, role, logbook and copies (the Drives view).
     pub status: Option<Result<Vec<api::FleetDrive>, String>>,
     pub status_loading: bool,
@@ -309,10 +312,11 @@ pub struct App {
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
-    /// `g` (or `q`) was pressed at this time and waits for what follows (see `keymap`).
+    /// `g` (or `q`, or `del` in player mode) was pressed at this time and waits for what follows
+    /// (see `keymap`).
     pub chord: Option<Instant>,
-    /// The chord waiting is `q`'s, the queue's, rather than `g`'s.
-    pub chord_queue: bool,
+    /// Whose keys follow the chord waiting: `Goto`, `Queue` or `DeleteCue`.
+    pub chord_scope: keymap::Scope,
     /// The terminal says it draws sixels.
     pub sixel: bool,
     /// What's been read of cover art.
@@ -506,6 +510,8 @@ impl App {
             plugin_keys: Vec::new(),
             job: None,
             last_backup: None,
+            cue_saves: VecDeque::new(),
+            cue_saving: None,
             status: None,
             status_loading: false,
             fleet_libraries: Vec::new(),
@@ -547,7 +553,7 @@ impl App {
             deck_secs: 8.0,
             flash: None,
             chord: None,
-            chord_queue: false,
+            chord_scope: keymap::Scope::Goto,
             sixel: false,
             covers: Default::default(),
             played_tracks: FxHashSet::default(),

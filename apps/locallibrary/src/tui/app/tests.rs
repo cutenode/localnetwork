@@ -3990,7 +3990,7 @@ fn a_tracks_playlists_keep_their_names_whole() {
 fn q_and_a_letter_works_the_queue() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, "q");
-    assert!(app.chord.is_some() && app.chord_queue && !app.quit);
+    assert!(app.chord.is_some() && app.chord_scope == keymap::Scope::Queue && !app.quit);
     app.chord = Some(Instant::now() - CHORD_HINT);
     let s = super::super::ui::screen(&mut app, 120, 40);
     for said in ["Queue", "q n", "play next", "q a", "q q", " QUEUE "] {
