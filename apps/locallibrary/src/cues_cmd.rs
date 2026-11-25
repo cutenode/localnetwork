@@ -105,14 +105,18 @@ locallibrary cues set Home --track 12 --memory --beat 129"
         dry_run: bool,
     },
     /// Place cues from each track's beat grid and phrases, in a style you pick (asked when not given)
-    #[command(after_help = "Styles:\n  \
+    #[command(
+        long_about = "Place cues from each track's beat grid and phrases, in a style you pick (asked when not given).\n\n\
+Styles:\n  \
 rekordbox     hot cues A-H where each phrase starts, named after it\n  \
 intro-chorus  A (green) on the intro, H/G/F (pink) on the first three choruses\n  \
 first-cue     a memory cue on the first downbeat only\n\n\
 Every style puts a memory cue named 1.1Bars on the first downbeat, as rekordbox does. Cues already\n\
 in a slot the style uses are kept unless --overwrite.\n\n\
 Examples:\n  locallibrary cues auto Home --playlist \"New\" --style rekordbox\n  \
-locallibrary cues auto Home --track 12")]
+locallibrary cues auto Home --track 12",
+        after_help = crate::FILTER_HELP
+    )]
     Auto {
         #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
