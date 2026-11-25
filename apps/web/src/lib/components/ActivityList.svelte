@@ -13,7 +13,7 @@
 	let { entries = [], loading = false }: { entries?: Entry[]; loading?: boolean } = $props();
 </script>
 
-<ol class="card m-0 list-none divide-y divide-line overflow-hidden p-0" aria-busy={loading || undefined}>
+<ol class="card divide-y divide-line overflow-hidden" aria-busy={loading || undefined}>
 	{#if loading}
 		{#each { length: 6 }, row (row)}
 			<li class="flex items-center gap-3 px-4 py-3 sm:gap-4 sm:px-5 sm:py-3.5">
@@ -34,15 +34,15 @@
 					</span>
 					<span class="flex shrink-0 items-center gap-1 text-label text-fg-muted">Details<ChevronDown class="size-3.5 transition-transform motion-reduce:transition-none group-open:rotate-180" aria-hidden="true" /></span>
 				</summary>
-				<dl class="m-0 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 bg-raised px-4 pt-1 pb-4 text-label sm:px-5">
+				<dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 bg-raised px-4 pt-1 pb-4 text-label sm:px-5">
 					<dt class="text-fg-subtle">When</dt>
-					<dd class="m-0 text-fg-soft">{formatDateTime(entry.createdAt)}</dd>
+					<dd class="text-fg-soft">{formatDateTime(entry.createdAt)}</dd>
 					<dt class="text-fg-subtle">Action</dt>
-					<dd class="m-0 font-mono break-all text-fg-soft">{entry.action}</dd>
+					<dd class="font-mono break-all text-fg-soft">{entry.action}</dd>
 					<dt class="text-fg-subtle">Your copy</dt>
-					<dd class="m-0 text-fg-soft">{AUDIT_COPY_LABEL[entry.actorStatus]}</dd>
+					<dd class="text-fg-soft">{AUDIT_COPY_LABEL[entry.actorStatus]}</dd>
 					<dt class="text-fg-subtle">Site copy</dt>
-					<dd class="m-0 text-fg-soft">{AUDIT_COPY_LABEL[entry.rootStatus]}</dd>
+					<dd class="text-fg-soft">{AUDIT_COPY_LABEL[entry.rootStatus]}</dd>
 				</dl>
 			</details>
 		</li>

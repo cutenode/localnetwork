@@ -24,13 +24,13 @@
 					<label class="label">Picture <input type="file" name="avatar" accept="image/*" /></label>
 					<label class="label"><input type="checkbox" class="checkbox" name="removeAvatar" />Remove</label>
 				{/if}
-				<h1 class="m-0 text-display font-semibold"><InlineText class="text-display" name="name" label="Name" required value={view.value('name', saved.name)} error={view.error('name')} readonly={view.busy} /></h1>
-				<p class="m-0 text-emphasis text-fg-soft"><InlineText class="text-emphasis" name="tagline" label="Tagline" placeholder="A line about the act" value={view.value('tagline', saved.tagline)} error={view.error('tagline')} readonly={view.busy} /></p>
+				<h1 class="text-display"><InlineText class="text-display" name="name" label="Name" required value={view.value('name', saved.name)} error={view.error('name')} readonly={view.busy} /></h1>
+				<p class="text-emphasis font-normal text-fg-soft"><InlineText class="text-emphasis font-normal" name="tagline" label="Tagline" placeholder="A line about the act" value={view.value('tagline', saved.tagline)} error={view.error('tagline')} readonly={view.busy} /></p>
 				<AddSlot label="Add links" hint="Where to hear them and book them" />
 			{:else}
-				<h1 class="m-0 text-display font-semibold">{saved.name}</h1>
-				<p class="m-0 text-emphasis text-fg-soft">{saved.tagline}</p>
-				{#if !view.visitor && edit.role}<p class="m-0 notice notice-info">Bookings and press kits are in its dashboard.</p>{/if}
+				<h1 class="text-display">{saved.name}</h1>
+				<p class="text-emphasis font-normal text-fg-soft">{saved.tagline}</p>
+				{#if !view.visitor && edit.role}<p class="notice notice-info">Bookings and press kits are in its dashboard.</p>{/if}
 			{/if}
 		</article>
 	{/snippet}

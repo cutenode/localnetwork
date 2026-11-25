@@ -28,7 +28,7 @@
 	} = $props();
 </script>
 
-<ul {id} role="listbox" aria-label={label} hidden={!combobox.open} class="absolute inset-x-0 top-full m-0 mt-1 max-h-64 list-none overflow-auto rounded-lg border border-line-strong bg-raised p-1 text-small {extra}">
+<ul {id} role="listbox" aria-label={label} hidden={!combobox.open} class="absolute inset-x-0 top-full mt-1 max-h-64 overflow-auto rounded-lg border border-line-strong bg-raised p-1 text-small {extra}">
 	{#each combobox.items as item, i (key(item))}
 		<!-- The input keeps focus and handles the keys (aria-activedescendant), so the options only take the pointer. -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->

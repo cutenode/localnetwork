@@ -28,7 +28,7 @@
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-		<h1 class="m-0 text-heading font-semibold">Inbox</h1>
+		<h1 class="text-heading">Inbox</h1>
 		{#if data.unread > 0}
 			<form method="POST" action="?/readAll" use:enhance>
 				<button type="submit" class="btn-secondary btn-sm">Mark all read</button>
@@ -38,7 +38,7 @@
 
 	<div class="flex flex-col gap-3">
 		{#if paused}
-			<p class="m-0 flex items-baseline gap-2 text-small text-fg-muted">
+			<p class="flex items-baseline gap-2 text-small text-fg-muted">
 				<span class="size-2 shrink-0 translate-y-[-0.0625rem] rounded-full bg-warning" aria-hidden="true"></span>
 				<span>{paused} <a class="link" href={SETTINGS}>Notification settings</a></span>
 			</p>
@@ -54,10 +54,10 @@
 				<EmptyState title="Nothing new" body="Booking inquiries, messages and status changes show up here." />
 			{/if}
 		{:catch}
-			<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Your inbox didn't load.<a class="btn-secondary btn-sm" href="/dashboard/inbox" data-sveltekit-reload>Try again</a></p>
+			<p class="notice notice-info flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Your inbox didn't load.<a class="btn-secondary btn-sm" href="/dashboard/inbox" data-sveltekit-reload>Try again</a></p>
 		{/await}
 
-		<p class="m-0 text-small text-fg-muted">
+		<p class="text-small text-fg-muted">
 			{#if alsoSent}{alsoSent} <a class="link" href={SETTINGS}>Change where these go</a>{:else}<a class="link" href={SETTINGS}>Get these by email or Bluesky DM</a>{/if}
 		</p>
 	</div>

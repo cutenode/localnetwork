@@ -36,9 +36,9 @@
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">{firstRun.value && !count ? 'Set up your page' : statusLine(count)}</h1>
+		<h1 class="text-heading">{firstRun.value && !count ? 'Set up your page' : statusLine(count)}</h1>
 		<!-- Always a line, so the lists below stay put when it arrives. -->
-		<p class="m-0 min-h-lh text-body text-fg-muted">
+		<p class="min-h-lh text-body text-fg-muted">
 			{#if firstRun.value && !count}
 				This goes away when you're done.
 			{:else}
@@ -57,33 +57,33 @@
 	{#if onboarding.value}<OnboardingChecklist data={onboarding.value} flags={data.flags} />{/if}
 
 	{#if !data.viewer?.spacesCapable}
-		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and review requests for you (<a href="/dashboard/account/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
+		<p class="notice notice-info">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and review requests for you (<a href="/dashboard/account/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
 	{/if}
 
 	{#if !needs && count}
 		<section aria-labelledby="needs" class="flex flex-col gap-3">
-			<h2 id="needs" class="m-0 text-emphasis font-semibold">Needs you</h2>
+			<h2 id="needs" class="text-emphasis">Needs you</h2>
 			<div role="status" aria-label="Loading what needs you"><NeedsList loading={Math.min(count, NEEDS_SHOWN)} /></div>
 		</section>
 	{:else if needs?.length}
 		<section aria-labelledby="needs" class="flex flex-col gap-3">
-			<h2 id="needs" class="m-0 text-emphasis font-semibold">Needs you</h2>
+			<h2 id="needs" class="text-emphasis">Needs you</h2>
 			<NeedsList rows={needs.slice(0, NEEDS_SHOWN)} />
-			{#if needs.length > NEEDS_SHOWN}<p class="m-0 text-small text-fg-muted"><a class="link" href="/dashboard/bookings">{needs.length - NEEDS_SHOWN} more</a></p>{/if}
+			{#if needs.length > NEEDS_SHOWN}<p class="text-small text-fg-muted"><a class="link" href="/dashboard/bookings">{needs.length - NEEDS_SHOWN} more</a></p>{/if}
 		</section>
 	{/if}
 
 	{#await data.nights}
 		<section aria-labelledby="next" class="flex flex-col gap-3">
-			<h2 id="next" class="m-0 text-emphasis font-semibold">Next up</h2>
+			<h2 id="next" class="text-emphasis">Next up</h2>
 			<div role="status" aria-label="Loading your nights"><NightList loading /></div>
 		</section>
 	{:then { nights, more, failed }}
 		{#if nights.length}
 			<section aria-labelledby="next" class="flex flex-col gap-3">
-				<h2 id="next" class="m-0 text-emphasis font-semibold">Next up</h2>
+				<h2 id="next" class="text-emphasis">Next up</h2>
 				<NightList {nights} />
-				{#if more}<p class="m-0 text-small text-fg-muted">And {pluralize(more, 'more night')} after that.</p>{/if}
+				{#if more}<p class="text-small text-fg-muted">And {pluralize(more, 'more night')} after that.</p>{/if}
 			</section>
 		{/if}
 		{#if failed}<NightsFailed href="/dashboard" />{/if}
@@ -91,15 +91,15 @@
 		<NightsFailed href="/dashboard" />
 	{/await}
 
-	{#if summary.value?.others}<p class="m-0 text-small text-fg-muted">{summary.value.others}</p>{/if}
+	{#if summary.value?.others}<p class="text-small text-fg-muted">{summary.value.others}</p>{/if}
 
 	{#if firstRun.value && !count}
-		<p class="m-0 text-small text-fg-muted">Bookings, shows and anything else show up here when they need you.</p>
+		<p class="text-small text-fg-muted">Bookings, shows and anything else show up here when they need you.</p>
 	{:else if summary.value && !summary.value.hasBookings && !count}
 		{#await data.projects then projects}
 			{@const [act] = projects ?? []}
 			{#if act}
-				<p class="m-0 text-small text-fg-muted">All quiet. A good time to freshen up <a class="link" href="/dashboard/projects/{act.slug}">{act.profile.name}</a>.</p>
+				<p class="text-small text-fg-muted">All quiet. A good time to freshen up <a class="link" href="/dashboard/projects/{act.slug}">{act.profile.name}</a>.</p>
 			{:else if !firstRun.value}
 				<EmptyState title="Nothing here yet" body="Bookings show up here as soon as someone writes.">
 					<div class="flex flex-wrap justify-center gap-2"><a class="btn-primary" href="/djs">Find DJs</a><a class="btn-secondary" href="/dashboard/projects/new">List a project</a></div>

@@ -53,22 +53,22 @@
 		}));
 </script>
 
-<ol class="m-0 flex list-none flex-col gap-2.5 p-0">
+<ol class="flex flex-col gap-2.5">
 	{#each shown as set, n (set.uri)}
 		{@const isOpen = open === set.uri}
 		<li class="card flex flex-col gap-3 p-4">
 			<div class="flex items-start gap-4">
 				<DateBlock date={set.date} />
 				<div class="flex min-w-0 flex-1 flex-col gap-1">
-					<p class="m-0 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-						{#if link}<a class="entity-link text-emphasis font-semibold text-fg" href={setHref(set.uri, handle)}>{name(set)}</a>{:else}<span class="text-emphasis font-semibold">{name(set)}</span>{/if}
+					<p class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+						{#if link}<a class="entity-link text-emphasis text-fg" href={setHref(set.uri, handle)}>{name(set)}</a>{:else}<span class="text-emphasis">{name(set)}</span>{/if}
 						{#if set.kind}<Tag variant="mono">{labelFor(SET_KINDS, set.kind)}</Tag>{/if}
 					</p>
-					<p class="m-0 text-small text-fg-muted">
+					<p class="text-small text-fg-muted">
 						{[setPlace(set), set.playedWith?.length && `with ${set.playedWith.map((partner) => partner.name).join(', ')}`, `${set.tracks.length} ${set.tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}
 					</p>
 					{#if set.links?.length}
-						<p class="m-0 flex flex-wrap gap-x-4 text-small">
+						<p class="flex flex-wrap gap-x-4 text-small">
 							{#each set.links as link (link.uri)}<a class="link inline-flex items-center gap-1" href={webHref(link.uri)} rel="noopener noreferrer nofollow" target="_blank">{link.name ?? 'Listen'}<ExternalLink class="size-3" /></a>{/each}
 						</p>
 					{/if}
@@ -79,7 +79,7 @@
 						aria-label={isOpen ? `Close the player for ${name(set)}` : `Play ${name(set)}`}
 						aria-expanded={isOpen}
 						aria-controls="set-player-{n}"
-						class="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full bg-fg text-fg-inverse transition-opacity hover:opacity-85 print:hidden"
+						class="btn-play print:hidden"
 						onclick={() => {
 							open = isOpen ? null : set.uri;
 							current = -1;
@@ -103,7 +103,7 @@
 					}}
 				>
 					<summary class="cursor-pointer text-small text-fg-muted marker:text-fg-subtle hover:text-fg">Tracklist</summary>
-					<ol class="m-0 mt-2 list-none p-0">
+					<ol class="mt-2">
 						{#each set.tracks as track, i (i)}
 							{@const artists = track.unidentified ? [] : trackArtists(track)}
 							{@const isCurrent = isOpen && current === i}

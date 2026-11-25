@@ -55,7 +55,7 @@
 		{onkeydown}
 		rows="1"
 		data-inline-field
-		class="m-0 block w-full resize-none overflow-hidden rounded-xs border-0 bg-transparent p-0 field-sizing-content {className}"
+		class="block w-full resize-none overflow-hidden rounded-xs border-0 bg-transparent p-0 field-sizing-content {className}"
 		aria-invalid={error ? 'true' : undefined}
 		aria-describedby={error ? `${id}-error` : undefined}
 	></textarea>

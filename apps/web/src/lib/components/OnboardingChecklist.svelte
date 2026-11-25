@@ -16,20 +16,20 @@
 {#if items}
 	<section aria-labelledby="onboarding" class="card flex flex-col gap-5 p-5 sm:p-6">
 		<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-			<h2 id="onboarding" class="m-0 text-emphasis font-semibold">Your checklist</h2>
-			<p class="m-0 text-small text-fg-muted">{items.filter(({ isDone }) => isDone).length} of {items.length} done</p>
+			<h2 id="onboarding" class="text-emphasis">Your checklist</h2>
+			<p class="text-small text-fg-muted">{items.filter(({ isDone }) => isDone).length} of {items.length} done</p>
 		</div>
-		<ol class="m-0 flex list-none flex-col gap-4 p-0">
+		<ol class="flex flex-col gap-4">
 			{#each items as step (step.id)}
 				<li class="flex items-start gap-3">
 					{#if step.isDone}
 						<CircleCheck class="mt-0.5 size-5 shrink-0 text-good" role="img" aria-label="Done" />
-						<p class="m-0 text-fg-muted">{step.title}</p>
+						<p class="text-fg-muted">{step.title}</p>
 					{:else}
 						<Circle class="mt-0.5 size-5 shrink-0 text-fg-subtle" aria-hidden="true" />
 						<div class="flex min-w-0 flex-1 flex-col gap-0.5">
-							<p class="m-0 flex flex-wrap items-center gap-2"><a class="link font-medium" href={step.href}>{step.title}</a>{#if step.isNew}<Tag variant="mono">new</Tag>{/if}</p>
-							<p class="m-0 text-small text-fg-muted">{step.gets}</p>
+							<p class="flex flex-wrap items-center gap-2"><a class="link font-medium" href={step.href}>{step.title}</a>{#if step.isNew}<Tag variant="mono">new</Tag>{/if}</p>
+							<p class="text-small text-fg-muted">{step.gets}</p>
 							{#if step.Form}<div class="mt-3"><step.Form {data} /></div>{/if}
 						</div>
 					{/if}

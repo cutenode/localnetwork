@@ -19,5 +19,5 @@
 		{#snippet actions()}<Button href="/">Back to home</Button><Button variant="secondary" href="/djs">Find DJs</Button>{/snippet}
 	</SectionHeader>
 	<!-- A reference is for reporting a fault, so a missing or refused page doesn't show one. -->
-	{#if page.error?.requestId && page.status >= 500}<p class="m-0 font-mono text-caption text-fg-subtle">Reference: {page.error.requestId}</p>{/if}
+	{#if page.error?.requestId && page.status >= 500}<p class="font-mono text-caption text-fg-subtle">Reference: {page.error.requestId}</p>{/if}
 </div>

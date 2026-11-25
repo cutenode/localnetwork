@@ -15,7 +15,7 @@
 </script>
 
 <section aria-labelledby="artists-title" class="flex min-w-0 flex-col gap-3">
-	<h2 id="artists-title" class="m-0 text-heading font-semibold">{q ? `Artists matching “${q}”` : 'Most supported'}</h2>
+	<h2 id="artists-title" class="text-heading">{q ? `Artists matching “${q}”` : 'Most supported'}</h2>
 	<!--
 		How many artists match isn't known until the search answers, so the results keep at least the placeholder's room
 		(an invisible copy of it in the same grid cell): fewer results than it shows leave what's below where it was.
@@ -35,7 +35,7 @@
 						<EmptyState title="No plays yet" body="Artists show up here once our DJs publish their sets." />
 					{/if}
 				{:else}
-					<ul class="card m-0 flex list-none flex-col divide-y divide-line p-0">
+					<ul class="card flex flex-col divide-y divide-line">
 						{#each result as artist (artist.mbid ?? artist.name)}
 							<li class="flex items-baseline gap-3 px-4 py-3">
 								<span class="flex min-w-0 flex-1 items-baseline gap-1">

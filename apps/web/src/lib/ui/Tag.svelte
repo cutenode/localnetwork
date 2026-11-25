@@ -14,12 +14,11 @@
 		children
 	}: { href?: string; pressed?: boolean; onclick?: MouseEventHandler<HTMLButtonElement>; variant?: 'outline' | 'mono'; children: Snippet } = $props();
 
+	// The chip and chip-toggle classes live in theme.css, so a plain link or checkbox label matches.
 	const classes = $derived([
-		'inline-flex items-center gap-1.5 rounded-full border no-underline transition-colors',
-		variant === 'mono' ? 'px-2 py-px font-mono text-caption text-fg-muted' : 'px-2.5 py-0.5 text-label',
-		pressed ? 'border-fg bg-fg font-semibold text-fg-inverse' : 'border-line-strong text-fg',
-		(href || pressed !== undefined) && !pressed && 'hover:border-fg-subtle',
-		pressed !== undefined && 'min-h-9 px-3'
+		pressed === undefined ? 'chip' : 'chip-toggle',
+		href && 'transition-colors hover:border-fg-subtle',
+		variant === 'mono' && 'px-2 py-px font-mono text-caption text-fg-muted'
 	]);
 </script>
 

@@ -11,7 +11,7 @@
 	let { rows = [], loading = 0 }: { rows?: InboxSubjectView[]; loading?: number } = $props();
 </script>
 
-<ol class={['card m-0 list-none divide-y divide-line overflow-hidden p-0', !loading && 'list-in']} aria-busy={loading > 0 || undefined}>
+<ol class={['card divide-y divide-line overflow-hidden', !loading && 'list-in']} aria-busy={loading > 0 || undefined}>
 	{#each { length: loading }, row (row)}
 		<li class="flex items-center gap-3 px-4 py-3 sm:gap-4 sm:px-5 sm:py-3.5">
 			<span class="size-8 shrink-0 rounded-[9px] bg-well motion-safe:animate-pulse"></span>
@@ -31,7 +31,7 @@
 					</span>
 					<span class="flex shrink-0 items-center gap-2 pt-0.5">
 						{#if row.unread}<span class="size-2 rounded-full bg-link" aria-hidden="true"></span><span class="sr-only">Unread</span>{/if}
-						<time class="text-caption text-fg-muted tabular-nums" datetime={row.occurredAt} title={formatDateTime(row.occurredAt)}>{timeAgo(row.occurredAt, undefined, 'narrow')}</time>
+						<time class="font-mono text-caption text-fg-muted" datetime={row.occurredAt} title={formatDateTime(row.occurredAt)}>{timeAgo(row.occurredAt, undefined, 'narrow')}</time>
 					</span>
 				</button>
 			</form>

@@ -116,8 +116,8 @@
 		<a href="/dashboard/bookings" class="inline-flex min-h-6 items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" aria-hidden="true" />Bookings</a>
 		<div class="flex flex-col gap-1">
 			<div class="flex min-w-0 flex-col gap-1">
-				<h1 class="m-0 text-heading font-semibold">{thread.title ?? 'Booking inquiry'}</h1>
-				<p class="m-0 min-h-lh text-body text-fg-muted">
+				<h1 class="text-heading">{thread.title ?? 'Booking inquiry'}</h1>
+				<p class="min-h-lh text-body text-fg-muted">
 					{#if isBookedSide(role)}
 						{#if thread.project || act.value === undefined}{@render actName('', true)} and{/if}
 						<Handle account={thread.promoter} class="text-fg-muted" />
@@ -128,9 +128,9 @@
 				</p>
 			</div>
 			{#if group === 'reply'}
-				<p class="m-0 text-small font-semibold text-warning">Your turn</p>
+				<p class="text-small font-semibold text-warning">Your turn</p>
 			{:else if group === 'active'}
-				<p class="m-0 text-small text-fg-muted">
+				<p class="text-small text-fg-muted">
 					Waiting on
 					{#if isBookedSide(role)}{accountLabel(thread.promoter)}{:else}{@render actName('the act')}{/if}
 				</p>
@@ -145,24 +145,24 @@
 		<aside aria-label="Terms and status" class="flex flex-col gap-3 lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:self-start">
 			<Card as="section" padding="none" class="overflow-hidden">
 				<div class="flex flex-col gap-4 p-5">
-					<h2 class="m-0 text-emphasis font-semibold">Show details</h2>
+					<h2 class="text-emphasis">Show details</h2>
 					{#if details.length}
-						<dl class="m-0 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-1">
+						<dl class="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-1">
 							{#each details as [label, value] (label)}
 								<div class="flex min-w-0 flex-col gap-0.5">
 									<dt class="text-caption text-fg-subtle">{label}</dt>
-									<dd class="m-0 text-small text-fg">{value}</dd>
+									<dd class="text-small text-fg">{value}</dd>
 								</div>
 							{/each}
 						</dl>
 					{:else}
-						<p class="m-0 text-small text-fg-muted">No details yet.</p>
+						<p class="text-small text-fg-muted">No details yet.</p>
 					{/if}
 					{#if show?.genres?.length}
 						<div class="flex flex-wrap gap-1.5">{#each show.genres as genre (genre)}<Tag>{genre}</Tag>{/each}</div>
 					{/if}
 					{#if data.links.plannerShow || announcedHref}
-						<p class="m-0 flex flex-wrap gap-x-4 gap-y-1 text-small">
+						<p class="flex flex-wrap gap-x-4 gap-y-1 text-small">
 							{#if data.links.plannerShow}<a class="link inline-flex items-center gap-1.5" href="/dashboard/planner/shows/{data.links.plannerShow}"><NotebookPen class="size-4" aria-hidden="true" />In your planner</a>{/if}
 							{#if announcedHref}<a class="link inline-flex items-center gap-1.5" href={announcedHref}><CalendarCheck class="size-4" aria-hidden="true" />Announced show</a>{/if}
 						</p>
@@ -170,7 +170,7 @@
 				</div>
 				<div class="flex flex-col gap-3 border-t border-line bg-sunken p-5">
 					<div class="flex flex-wrap items-center gap-2">
-						<h2 bind:this={statusHeading} tabindex="-1" class="m-0 text-small font-medium text-fg-soft outline-none">Status</h2>
+						<h2 bind:this={statusHeading} tabindex="-1" class="text-small font-medium text-fg-soft outline-none">Status</h2>
 						<StatusPill status={withdrawn ? 'withdrawn' : thread.status} />
 						{#if !ended && datePassed(thread)}<StatusPill status="date_passed" />{/if}
 						<p role="status" class="sr-only">{announced}</p>
@@ -181,7 +181,7 @@
 						{:else if act.value === undefined}
 							<span class={['h-9', ghost]}></span>
 						{:else}
-							<p class="m-0 text-small text-fg-muted">Try again in a moment to announce this show.</p>
+							<p class="text-small text-fg-muted">Try again in a moment to announce this show.</p>
 						{/if}
 					{/if}
 					{#if actions.length}
@@ -214,7 +214,7 @@
 							{#if pending?.settles}
 								<input name="note" class="input" placeholder="Note for the thread (optional)" aria-label="Note" maxlength="500" />
 								<!-- The question takes focus from the button that went, so it's read out and the next tab lands on the choice. -->
-								<p tabindex="-1" class="m-0 text-small text-fg outline-none" {@attach (element) => element.focus()}>{pending.settles.ask}</p>
+								<p tabindex="-1" class="text-small text-fg outline-none" {@attach (element) => element.focus()}>{pending.settles.ask}</p>
 								<div class="flex flex-wrap gap-2 lg:flex-col">
 									<button name="status" value={pending.status} class={[pending.status === 'confirmed' ? 'btn-primary' : 'btn-danger', 'btn-sm']} disabled={submitting}>{pending.label}</button>
 									<button
@@ -240,16 +240,16 @@
 							{/if}
 						</form>
 					{/if}
-					{#if sent === 'status' && formError}<p role="alert" class="notice notice-error m-0">{formError}</p>{/if}
+					{#if sent === 'status' && formError}<p role="alert" class="notice notice-error">{formError}</p>{/if}
 				</div>
 			</Card>
-			<p class="m-0 px-1 text-caption text-fg-subtle">Only the promoter and the act or DJ they asked can read this.</p>
+			<p class="px-1 text-caption text-fg-subtle">Only the promoter and the act or DJ they asked can read this.</p>
 		</aside>
 
 		<section aria-labelledby="conversation" class="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">
-			<h2 id="conversation" class="m-0 text-emphasis font-semibold lg:sr-only">Conversation</h2>
+			<h2 id="conversation" class="text-emphasis lg:sr-only">Conversation</h2>
 			{#if data.events.length}
-				<ol class="m-0 flex list-none flex-col gap-4 p-0">
+				<ol class="flex flex-col gap-4">
 					{#each data.events as event (event.uri)}
 						{@const mine = event.author.did === me}
 						{#if event.kind === 'status'}
@@ -259,18 +259,18 @@
 							</li>
 						{:else}
 							<li class={['flex flex-col gap-1', mine ? 'items-end' : 'items-start']}>
-								<p class="m-0 flex gap-1.5 px-1 text-caption text-fg-subtle">{#if !mine}{@render author(event)}<span aria-hidden="true">·</span>{/if}<span>{formatDateTime(event.createdAt)}</span></p>
+								<p class="flex gap-1.5 px-1 text-caption text-fg-subtle">{#if !mine}{@render author(event)}<span aria-hidden="true">·</span>{/if}<span>{formatDateTime(event.createdAt)}</span></p>
 								<div class={['max-w-[85%] rounded-2xl px-4 py-2.5 sm:max-w-[75%]', mine ? 'rounded-br-sm bg-link-wash' : 'rounded-bl-sm border border-line bg-surface']}>
-									<p class="m-0 whitespace-pre-line text-fg">{event.text}</p>
+									<p class="whitespace-pre-line text-fg">{event.text}</p>
 								</div>
 							</li>
 						{/if}
 					{/each}
 				</ol>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">No messages yet.</p>
+				<p class="text-small text-fg-muted">No messages yet.</p>
 			{/if}
-			{#if sent === 'message' && formError}<p role="alert" class="notice notice-error m-0">{formError}</p>{/if}
+			{#if sent === 'message' && formError}<p role="alert" class="notice notice-error">{formError}</p>{/if}
 			<form
 				method="POST"
 				action="?/message"

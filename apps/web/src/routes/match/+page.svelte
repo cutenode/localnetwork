@@ -47,7 +47,7 @@
 	<div class="grid items-start gap-6 lg:grid-cols-[22rem_minmax(0,1fr)] lg:gap-10">
 		<form method="GET" class="card flex flex-col gap-4 p-5 lg:sticky lg:top-20">
 			<input type="hidden" name="go" value="1" />
-			<h2 class="m-0 text-emphasis font-semibold">Your show</h2>
+			<h2 class="text-emphasis">Your show</h2>
 			<div>
 				<label class="label" for="title">Show name <span class="font-normal text-fg-subtle">(optional)</span></label>
 				<input id="title" name="title" class="input" bind:value={fields.title} maxlength="120" />
@@ -92,7 +92,7 @@
 					</select>
 				</div>
 			</div>
-			<fieldset class="m-0 border-0 p-0">
+			<fieldset class="border-0 p-0">
 				<legend class="label">Booth setup</legend>
 				<div class="flex flex-wrap gap-1.5">
 					{#each FORMATS as option (option.value)}
@@ -118,11 +118,11 @@
 				{#if data.viewer?.spacesCapable}
 					<form method="POST" action="?{page.url.searchParams}&/saveShow" class="card flex flex-wrap items-center justify-between gap-3 px-5 py-4" use:enhance>
 						{#each selected as uri (uri)}<input type="hidden" name="project" value={uri} />{/each}
-						<p class="m-0 text-small text-fg-soft">{selected.length ? `${selected.length} selected for the lineup.` : 'Tick DJs to start a lineup in your private planner.'}</p>
+						<p class="text-small text-fg-soft">{selected.length ? `${selected.length} selected for the lineup.` : 'Tick DJs to start a lineup in your private planner.'}</p>
 						<button class="btn-primary btn-sm" disabled={selected.length === 0}>Save show to planner</button>
 					</form>
 				{/if}
-				<ol class="m-0 flex list-none flex-col gap-3 p-0">
+				<ol class="flex flex-col gap-3">
 					{#each data.results as result, index (result.candidate.uri)}
 						{@const project = result.candidate}
 						<Card as="li" radius="2xl" class="flex flex-col gap-4 max-sm:p-4">
@@ -132,21 +132,21 @@
 										<span class="w-5 shrink-0 font-mono text-caption text-fg-subtle">{index + 1}</span>
 										<Avatar src={project.avatarUrl} name={project.profile.name} />
 										<div class="min-w-0 flex-1">
-											<a class="text-emphasis font-semibold text-fg no-underline hover:underline" href="/projects/{project.slug}">{project.profile.name}</a>
-											<p class="m-0 text-label text-fg-muted">{[kindLabel(project.profile.kind), placeLabel(project.profile), feeSummary(project.profile)].filter(Boolean).join(' · ')}</p>
+											<a class="text-emphasis text-fg no-underline hover:underline" href="/projects/{project.slug}">{project.profile.name}</a>
+											<p class="text-label text-fg-muted">{[kindLabel(project.profile.kind), placeLabel(project.profile), feeSummary(project.profile)].filter(Boolean).join(' · ')}</p>
 										</div>
 									</div>
-									<ul class="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-small text-fg-soft">
+									<ul class="flex flex-wrap gap-x-4 gap-y-1 text-small text-fg-soft">
 										{#each result.reasons as reason (reason)}<li class="inline-flex items-center gap-1.5"><CircleCheck class="size-3.5 text-good" />{reason}</li>{/each}
 										{#each result.warnings as warning (warning)}<li class="inline-flex items-center gap-1.5"><CircleAlert class="size-3.5 text-warning" />{warning}</li>{/each}
 									</ul>
 								</div>
 								<div class="flex min-w-0 flex-[1_1_15rem] flex-col gap-2.5">
 									<ScoreBar score={result.score} />
-									<dl class="m-0 grid grid-cols-[3.75rem_minmax(0,1fr)_3.75rem_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 font-mono text-caption text-fg-subtle">
+									<dl class="grid grid-cols-[3.75rem_minmax(0,1fr)_3.75rem_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 font-mono text-caption text-fg-subtle">
 										{#each factors as [factor, label] (factor)}
 											<dt>{label}</dt>
-											<dd class="m-0 h-1.5 overflow-hidden rounded-full bg-line"><span class="sr-only">{result.breakdown[factor]} of 100</span><span aria-hidden="true" class="block h-full rounded-full bg-track-aqua" style:width="{result.breakdown[factor]}%"></span></dd>
+											<dd class="h-1.5 overflow-hidden rounded-full bg-line"><span class="sr-only">{result.breakdown[factor]} of 100</span><span aria-hidden="true" class="block h-full rounded-full bg-track-aqua" style:width="{result.breakdown[factor]}%"></span></dd>
 										{/each}
 									</dl>
 								</div>

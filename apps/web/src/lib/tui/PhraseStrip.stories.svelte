@@ -4,7 +4,7 @@
 	import TuiStory from './TuiStory.svelte';
 
 	/** rekordbox's phrases across the whole track, the played part dimmed. */
-	const { Story } = defineMeta({ title: 'Terminal/PhraseStrip', component: TuiStory });
+	const { Story } = defineMeta({ title: 'Terminal/Phrase strip', component: TuiStory });
 </script>
 
 <Story name="In the intro" args={{ id: 'phrase-strip/intro' }} play={drawn('Intro', 'Bridge', 'Outro')} />

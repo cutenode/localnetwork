@@ -8,6 +8,6 @@
 <svelte:head><title>Your data · Local Network</title></svelte:head>
 
 <div class="flex max-w-3xl flex-col gap-6 sm:gap-8">
-	<h1 class="m-0 text-heading font-semibold">Your data</h1>
+	<h1 class="text-heading">Your data</h1>
 	<HeldRecordList records={data.records} {form} retry="/dashboard/account/data/{data.kind}" />
 </div>

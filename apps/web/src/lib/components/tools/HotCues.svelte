@@ -127,8 +127,8 @@
 
 <section aria-labelledby="{id}-title" class="@container flex flex-col gap-6 sm:gap-8">
 	<div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-		<h2 id="{id}-title" class="m-0 section-title">What {tool} does</h2>
-		<p class="m-0 text-small text-fg-muted"><span class="sm:hidden">Tap a cue.</span><span class="max-sm:hidden">Pick a cue, or press its letter or number.</span></p>
+		<h2 id="{id}-title" class="section-title">What {tool} does</h2>
+		<p class="text-small text-fg-muted"><span class="sm:hidden">Tap a cue.</span><span class="max-sm:hidden">Pick a cue, or press its letter or number.</span></p>
 	</div>
 	<div class="flex flex-col gap-1.5">
 		<div role="tablist" aria-labelledby="{id}-title" class="relative hidden h-8 @min-[52rem]:block">
@@ -185,9 +185,9 @@
 		<div class="grid">
 			{#each cues as item, i (item.name)}
 				<div class={['col-start-1 row-start-1 flex flex-col gap-3', selected !== i && 'invisible']}>
-					<p class={['m-0 font-mono text-small', style.label]}>Hot cue {LETTERS[i]}</p>
-					<h3 class="m-0 text-title font-semibold">{item.name}</h3>
-					<p class="m-0 text-lede text-pretty text-fg-soft">{item.line}.</p>
+					<p class={['font-mono text-small', style.label]}>Hot cue {LETTERS[i]}</p>
+					<h3 class="text-title">{item.name}</h3>
+					<p class="text-lede text-pretty text-fg-soft">{item.line}.</p>
 				</div>
 			{/each}
 		</div>

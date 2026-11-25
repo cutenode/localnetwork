@@ -17,4 +17,4 @@
 	}
 </script>
 
-<button type="button" class="grid size-11 shrink-0 place-items-center rounded-lg text-fg-muted hover:bg-raised hover:text-fg" aria-label={label} onclick={remove}><Trash2 class="size-4" /></button>
+<button type="button" class="btn-icon" aria-label={label} onclick={remove}><Trash2 class="size-4" /></button>

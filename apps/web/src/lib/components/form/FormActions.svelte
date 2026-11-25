@@ -147,11 +147,11 @@
 <div {@attach track} data-form-actions class="sticky bottom-0 flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-line bg-canvas py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
 	<div bind:this={status} tabindex="-1" class="min-w-0 flex-1 basis-48 text-small outline-none">
 		{#if error}
-			<p role="alert" class="m-0 flex items-start gap-2 text-fg"><CircleAlert aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-critical" />{error}</p>
+			<p role="alert" class="flex items-start gap-2 text-fg"><CircleAlert aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-critical" />{error}</p>
 		{:else if form?.success && !dirty}
-			<p role="status" class="m-0 flex items-start gap-2 text-fg-soft"><CircleCheck aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-good" />{form.success}</p>
+			<p role="status" class="flex items-start gap-2 text-fg-soft"><CircleCheck aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-good" />{form.success}</p>
 		{:else if dirty}
-			<p class="m-0 flex items-center gap-2 text-fg-muted"><span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-fg-muted"></span>{kept ? 'Kept in this browser' : 'Unsaved changes'}</p>
+			<p class="flex items-center gap-2 text-fg-muted"><span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-fg-muted"></span>{kept ? 'Kept in this browser' : 'Unsaved changes'}</p>
 		{/if}
 	</div>
 	<div class="flex flex-wrap justify-end gap-2 max-sm:w-full max-sm:[&>*]:flex-1">{@render children()}</div>

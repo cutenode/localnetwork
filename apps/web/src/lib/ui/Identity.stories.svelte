@@ -9,7 +9,7 @@
 </script>
 
 <Story name="Monograms" asChild>
-	<ul class="m-0 grid max-w-160 list-none grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3 p-0">
+	<ul class="grid max-w-160 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
 		{#each names as name (name)}<li class="flex items-center gap-3"><Monogram {name} /><span class="text-small">{name}</span></li>{/each}
 	</ul>
 </Story>

@@ -24,7 +24,7 @@
 
 	<div class="grid grid-cols-2 gap-3 xl:grid-cols-4">
 		{#each tiles as tile (tile.label)}
-			<Card href={tile.href} padding="sm"><Eyebrow>{tile.label}</Eyebrow><p class="mt-2 font-mono text-heading text-fg">{tile.value}</p></Card>
+			<Card href={tile.href} padding="sm"><Eyebrow>{tile.label}</Eyebrow><p class="mt-2 font-mono text-heading font-normal text-fg">{tile.value}</p></Card>
 		{/each}
 	</div>
 

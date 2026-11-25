@@ -8,7 +8,7 @@
 <!-- min-w-0: a fieldset is otherwise as wide as its widest content, which can outgrow a phone. -->
 <fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
 	<!-- Floated, a legend leaves the fieldset's border alone and lays out like the other flex items. -->
-	<legend class="eyebrow float-left -mb-3.5 text-fg-subtle">{title}</legend>
+	<legend class="section-title float-left -mb-3.5">{title}</legend>
 	<p class="text-small text-fg-muted">{description}</p>
 	{@render children()}
 </fieldset>

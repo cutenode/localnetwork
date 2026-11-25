@@ -25,7 +25,7 @@
 <div class="flex flex-col gap-6">
 	{#if can.edit}
 		<section aria-labelledby="{id}-events" class="card flex flex-col gap-4 p-5 sm:p-6">
-			<h2 id="{id}-events" class="m-0 text-emphasis font-semibold">Events that name this venue</h2>
+			<h2 id="{id}-events" class="text-emphasis">Events that name this venue</h2>
 			<form method="POST" action="?/approval" use:enhance class="flex flex-col gap-4">
 				<fieldset class="flex flex-col gap-3">
 					<legend class="sr-only">How events show</legend>
@@ -47,11 +47,11 @@
 	{#if can.block}
 		<section aria-labelledby="{id}-blocked" class="card flex flex-col gap-4 p-5 sm:p-6">
 			<div class="flex flex-col gap-1">
-				<h2 id="{id}-blocked" class="m-0 text-emphasis font-semibold">Blocked</h2>
-				<p class="m-0 text-small text-fg-muted">Their events here stay waiting for the venue, and their links to it and inquiries naming it don't show. Nobody's told.</p>
+				<h2 id="{id}-blocked" class="text-emphasis">Blocked</h2>
+				<p class="text-small text-fg-muted">Their events here stay waiting for the venue, and their links to it and inquiries naming it don't show. Nobody's told.</p>
 			</div>
 			{#if blocks.length}
-				<ul class="m-0 list-none divide-y divide-line p-0">
+				<ul class="divide-y divide-line">
 					{#each blocks as block (block.rkey)}
 						<li class="flex items-center justify-between gap-3 py-2.5">
 							<span class="min-w-0">
@@ -66,7 +66,7 @@
 					{/each}
 				</ul>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">Nobody's blocked.</p>
+				<p class="text-small text-fg-muted">Nobody's blocked.</p>
 			{/if}
 			<form method="POST" action="?/block" use:enhance class="grid gap-3 border-t border-line pt-4 sm:grid-cols-[9rem_minmax(0,1fr)_auto] sm:items-end">
 				<div>

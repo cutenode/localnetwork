@@ -32,8 +32,8 @@
 	<FormMessage {form} />
 
 	<Card as="section" padding="none">
-		<h2 class="m-0 border-b border-line px-5 py-4 text-emphasis font-semibold">Review requests to be listed</h2>
-		<ul class="m-0 list-none divide-y divide-line p-0">
+		<h2 class="border-b border-line px-5 py-4 text-emphasis">Review requests to be listed</h2>
+		<ul class="divide-y divide-line">
 			{#each data.requests as request (request.uri)}
 				<li class="flex items-center justify-between gap-3 px-5 py-3.5">
 					<a class="text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">Asked {timeAgo(request.createdAt)}</a>

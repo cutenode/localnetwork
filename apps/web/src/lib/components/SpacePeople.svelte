@@ -83,7 +83,7 @@
 	{:then waiting}
 		{#if waiting}
 			<div class="card flex flex-col gap-3 p-5">
-				<h2 class="text-emphasis font-semibold">Waiting</h2>
+				<h2 class="text-emphasis">Waiting</h2>
 				<p class="text-small text-fg-muted">{waiting.links === 1 ? '1 invite link works' : `${waiting.links} invite links work`}.</p>
 				{#each waiting.invites as invite (invite.did)}
 					<p class="text-small">Invited <Handle account={invite} /> as {roleLabel(invite.role).toLowerCase()}{#if invite.expiresAt}, until {formatDate(invite.expiresAt)}{/if}</p>

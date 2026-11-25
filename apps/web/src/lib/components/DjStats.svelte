@@ -60,17 +60,17 @@
 <div class="flex flex-col gap-6">
 	{#if profile.headline || profile.tags?.length}
 		<div class="flex flex-col gap-3">
-			{#if profile.headline}<p class="m-0 text-lede text-fg-soft">{profile.headline}</p>{/if}
+			{#if profile.headline}<p class="text-lede text-fg-soft">{profile.headline}</p>{/if}
 			{#if profile.tags?.length}<div class="flex flex-wrap gap-1.5">{#each profile.tags as tag (tag.name)}<Tag>{tag.name}</Tag>{/each}</div>{/if}
 		</div>
 	{/if}
 
-	<dl class="m-0 flex flex-wrap gap-px overflow-hidden rounded-xl border border-line bg-line">
+	<dl class="flex flex-wrap gap-px overflow-hidden rounded-xl border border-line bg-line">
 		{#if profile.tempo && tempoBar}
 			<div class="flex flex-[2_1_17rem] flex-col gap-2 bg-surface p-4">
-				<dt class="eyebrow text-fg-subtle">Tempo</dt>
-				<dd class="m-0 flex flex-col gap-2">
-					<span class="font-mono text-heading">{profile.tempo.low}–{profile.tempo.high} <span class="text-small text-fg-muted">BPM</span></span>
+				<dt class="section-title">Tempo</dt>
+				<dd class="flex flex-col gap-2">
+					<span class="font-mono text-heading font-normal">{profile.tempo.low}–{profile.tempo.high} <span class="text-small text-fg-muted">BPM</span></span>
 					<span aria-hidden="true" class="relative h-1.5 rounded-full bg-line">
 						<span class="absolute inset-y-0 rounded-full bg-band-low" style:left="{tempoBar.left}%" style:width="{tempoBar.width}%"></span>
 						<span class="absolute -inset-y-1 w-0.5 rounded-full bg-playhead" style:left="{tempoBar.median}%"></span>
@@ -81,16 +81,16 @@
 		{/if}
 		{#if profile.sets}
 			<div class="flex flex-[1_1_9rem] flex-col gap-1 bg-surface p-4">
-				<dt class="eyebrow text-fg-subtle">Sets on file</dt>
-				<dd class="m-0 font-mono text-heading">{countLabel(profile.sets.total) ?? '–'}</dd>
-				<dd class="m-0 text-label text-fg-muted">{[profile.sets.since && `since ${profile.sets.since}`, profile.sets.medianTracks && `about ${profile.sets.medianTracks} tracks each`].filter(Boolean).join(', ')}</dd>
+				<dt class="section-title">Sets on file</dt>
+				<dd class="font-mono text-heading font-normal">{countLabel(profile.sets.total) ?? '–'}</dd>
+				<dd class="text-label text-fg-muted">{[profile.sets.since && `since ${profile.sets.since}`, profile.sets.medianTracks && `about ${profile.sets.medianTracks} tracks each`].filter(Boolean).join(', ')}</dd>
 			</div>
 		{/if}
 		{#if profile.era?.medianYear}
 			<div class="flex flex-[1_1_9rem] flex-col gap-1 bg-surface p-4">
-				<dt class="eyebrow text-fg-subtle">Era</dt>
-				<dd class="m-0 font-mono text-heading">{profile.era.medianYear}</dd>
-				<dd class="m-0 text-label text-fg-muted">Half the plays came out by then{#if profile.era.recent !== undefined}; {profile.era.recent}% are from the last two years{/if}</dd>
+				<dt class="section-title">Era</dt>
+				<dd class="font-mono text-heading font-normal">{profile.era.medianYear}</dd>
+				<dd class="text-label text-fg-muted">Half the plays came out by then{#if profile.era.recent !== undefined}; {profile.era.recent}% are from the last two years{/if}</dd>
 			</div>
 		{/if}
 	</dl>
@@ -99,13 +99,13 @@
 		<div class="grid gap-6 sm:grid-cols-2">
 			{#if mixing.length}
 				<section aria-label="How they mix" class="flex flex-col gap-3">
-					<h3 class="m-0 eyebrow text-fg-subtle">How they mix</h3>
-					<dl class="m-0 flex flex-col gap-2.5">
+					<h3 class="section-title">How they mix</h3>
+					<dl class="flex flex-col gap-2.5">
 						{#each mixing as row (row.label)}
 							<div title={row.hint} class="grid grid-cols-[7rem_minmax(0,1fr)_2.5rem] items-center gap-3 text-small">
 								<dt class="text-fg-soft">{row.label}</dt>
-								<dd class="m-0 h-1.5 overflow-hidden rounded-full bg-line"><span class="block h-full rounded-full bg-track-aqua" style:width="{row.value}%"></span></dd>
-								<dd class="m-0 text-right font-mono text-label">{row.value}%</dd>
+								<dd class="h-1.5 overflow-hidden rounded-full bg-line"><span class="block h-full rounded-full bg-track-aqua" style:width="{row.value}%"></span></dd>
+								<dd class="text-right font-mono text-label">{row.value}%</dd>
 							</div>
 						{/each}
 					</dl>
@@ -113,9 +113,9 @@
 			{/if}
 			{#if profile.keys?.top?.length}
 				<section aria-label="Keys" class="flex flex-col gap-3">
-					<h3 class="m-0 eyebrow text-fg-subtle">Keys played most</h3>
-					<p class="m-0 flex flex-wrap gap-1.5">{#each profile.keys.top as key (key.key)}<span class="rounded-xs bg-raised px-2 py-0.5 font-mono text-label">{key.key}</span>{/each}</p>
-					{#if profile.keys.minor !== undefined}<p class="m-0 text-label text-fg-muted">{profile.keys.minor}% of plays in minor keys</p>{/if}
+					<h3 class="section-title">Keys played most</h3>
+					<p class="flex flex-wrap gap-1.5">{#each profile.keys.top as key (key.key)}<span class="rounded-xs bg-raised px-2 py-0.5 font-mono text-label">{key.key}</span>{/each}</p>
+					{#if profile.keys.minor !== undefined}<p class="text-label text-fg-muted">{profile.keys.minor}% of plays in minor keys</p>{/if}
 				</section>
 			{/if}
 		</div>
@@ -125,16 +125,16 @@
 		<div class="grid gap-6 sm:grid-cols-2">
 			{#if energy.length}
 				<section aria-label="Energy" class="flex flex-col gap-3">
-					<h3 class="m-0 eyebrow text-fg-subtle">Energy</h3>
+					<h3 class="section-title">Energy</h3>
 					<div aria-hidden="true" class="flex h-2 gap-0.5 overflow-hidden rounded-full">{#each energy as part (part.label)}<span class={part.tone} style:flex-grow={part.share}></span>{/each}</div>
-					<p class="m-0 flex flex-wrap gap-x-4 text-label text-fg-muted">{#each energy as part (part.label)}<span>{part.label} {percentOf(part.share)}</span>{/each}</p>
+					<p class="flex flex-wrap gap-x-4 text-label text-fg-muted">{#each energy as part (part.label)}<span>{part.label} {percentOf(part.share)}</span>{/each}</p>
 				</section>
 			{/if}
 			{#if arc.length}
 				<section aria-label="Set shape" class="flex flex-col gap-3">
-					<h3 class="m-0 eyebrow text-fg-subtle">Set shape</h3>
-					<p class="m-0 text-small text-fg-soft">How the last quarter of a set goes:</p>
-					<p class="m-0 flex flex-wrap gap-x-4 text-label text-fg-muted">{#each arc as part (part.label)}<span>{part.label} {percentOf(part.share)}</span>{/each}</p>
+					<h3 class="section-title">Set shape</h3>
+					<p class="text-small text-fg-soft">How the last quarter of a set goes:</p>
+					<p class="flex flex-wrap gap-x-4 text-label text-fg-muted">{#each arc as part (part.label)}<span>{part.label} {percentOf(part.share)}</span>{/each}</p>
 				</section>
 			{/if}
 		</div>
@@ -144,8 +144,8 @@
 		<div class="grid gap-6 sm:grid-cols-3">
 			{#each lists as list (list.title)}
 				<section aria-label="{list.title} played most" class="flex flex-col gap-2.5">
-					<h3 class="m-0 eyebrow text-fg-subtle">{list.title}</h3>
-					<ol class="m-0 flex list-none flex-col gap-2 p-0">
+					<h3 class="section-title">{list.title}</h3>
+					<ol class="flex flex-col gap-2">
 						{#each list.items as item (item.name)}
 							<li class="flex flex-col gap-1">
 								<span class="flex justify-between gap-3 text-small"><span class="min-w-0 truncate">{item.name}</span><span class="font-mono text-label text-fg-muted">{item.share}%</span></span>
@@ -160,8 +160,8 @@
 
 	{#if profile.signature?.length}
 		<section aria-label="Signature tracks" class="flex flex-col gap-2.5">
-			<h3 class="m-0 eyebrow text-fg-subtle">Signature tracks</h3>
-			<ol class="m-0 list-none p-0">
+			<h3 class="section-title">Signature tracks</h3>
+			<ol>
 				{#each profile.signature.slice(0, 8) as track, i (i)}
 					<li class="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-3 border-t border-line py-2 text-small">
 						<span class="min-w-0"><span class="font-semibold">{track.unidentified ? 'Unreleased' : (track.title ?? 'Untitled')}</span>{#if track.artist}{" "}<span class="text-fg-muted">{track.artist}</span>{/if}</span>
@@ -173,7 +173,7 @@
 		</section>
 	{/if}
 
-	<p class="m-0 text-caption text-fg-subtle">
+	<p class="text-caption text-fg-subtle">
 		From <a class="link" href="/tools/locallibrary">locallibrary</a>{profile.precision === 'rounded' ? ', rounded' : ''}, updated {formatDate(profile.generatedAt)}.
 	</p>
 </div>

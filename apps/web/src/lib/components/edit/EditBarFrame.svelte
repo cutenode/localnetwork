@@ -70,17 +70,17 @@
 {/snippet}
 
 <main class="container-page flex flex-col gap-4 py-8">
-	{#if status === 'draft' && phase !== 'visitor'}<p class="m-0 notice notice-info">This is a draft. Only its people can see it.</p>{/if}
+	{#if status === 'draft' && phase !== 'visitor'}<p class="notice notice-info">This is a draft. Only its people can see it.</p>{/if}
 	{#if phase === 'edit'}
-		<h1 class="m-0 text-display font-semibold"><InlineText class="text-display" name="name" label="Name" required placeholder="Act name" value={empty ? '' : 'Halflight'} error={refused} readonly={activity === 'saving'} /></h1>
-		<p class="m-0 text-emphasis text-fg-soft"><InlineText class="text-emphasis" name="tagline" label="Tagline" placeholder="A line about the act" value={empty ? '' : dirty ? 'Deep, patient house, mostly records' : 'Deep, patient house for small rooms'} readonly={activity === 'saving'} /></p>
+		<h1 class="text-display"><InlineText class="text-display" name="name" label="Name" required placeholder="Act name" value={empty ? '' : 'Halflight'} error={refused} readonly={activity === 'saving'} /></h1>
+		<p class="text-emphasis font-normal text-fg-soft"><InlineText class="text-emphasis font-normal" name="tagline" label="Tagline" placeholder="A line about the act" value={empty ? '' : dirty ? 'Deep, patient house, mostly records' : 'Deep, patient house for small rooms'} readonly={activity === 'saving'} /></p>
 		<InlineText name="bio" label="About" multiline placeholder="Who they are and how they play" value={empty ? '' : 'Halflight is Neon and Sam, playing back to back since a basement party in 2019.'} readonly={activity === 'saving'} class="text-body text-fg-soft" />
 		<AddSlot label="Add links" hint="Where to hear them and book them" />
 	{:else}
-		<h1 class="m-0 text-display font-semibold">Halflight</h1>
-		<p class="m-0 text-emphasis text-fg-soft">Deep, patient house for small rooms</p>
-		<p class="m-0 text-body text-fg-soft">Halflight is Neon and Sam, playing back to back since a basement party in 2019.</p>
-		{#if phase === 'view'}<p class="m-0 notice notice-info">Bookings and press kits are in its dashboard.</p>{/if}
+		<h1 class="text-display">Halflight</h1>
+		<p class="text-emphasis font-normal text-fg-soft">Deep, patient house for small rooms</p>
+		<p class="text-body text-fg-soft">Halflight is Neon and Sam, playing back to back since a basement party in 2019.</p>
+		{#if phase === 'view'}<p class="notice notice-info">Bookings and press kits are in its dashboard.</p>{/if}
 	{/if}
 </main>
 

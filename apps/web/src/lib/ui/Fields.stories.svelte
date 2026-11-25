@@ -2,7 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { FEE_TIERS } from '#lib/taxonomy/options.ts';
 	import Button from './Button.svelte';
-	import Field, { control } from './Field.svelte';
+	import Field from './Field.svelte';
 	import TextField from './TextField.svelte';
 
 	const { Story } = defineMeta({ title: 'Primitives/Fields', component: TextField, tags: ['autodocs'] });
@@ -25,7 +25,7 @@
 	<div class="max-w-90">
 		<Field id="tier" label="Fee tier" hint="Tiers are public and used for budget matching.">
 			{#snippet children({ describedby, invalid })}
-				<select id="tier" class={control} aria-describedby={describedby} aria-invalid={invalid || undefined}>
+				<select id="tier" class="input" aria-describedby={describedby} aria-invalid={invalid || undefined}>
 					{#each FEE_TIERS as tier (tier.value)}<option value={tier.value}>{tier.label}</option>{/each}
 				</select>
 			{/snippet}
@@ -37,7 +37,7 @@
 	<div class="max-w-90">
 		<Field id="lookingFor" label="Looking for" error="Keep it under 5,000 characters.">
 			{#snippet children({ describedby, invalid })}
-				<textarea id="lookingFor" class={[control, 'min-h-24 py-2.5']} aria-describedby={describedby} aria-invalid={invalid || undefined}>Warm-up slots at queer parties, daytime outdoor events</textarea>
+				<textarea id="lookingFor" class="input min-h-24 py-2.5" aria-describedby={describedby} aria-invalid={invalid || undefined}>Warm-up slots at queer parties, daytime outdoor events</textarea>
 			{/snippet}
 		</Field>
 	</div>

@@ -23,7 +23,7 @@
 <div class="flex flex-col gap-6">
 	<div>
 		<a href="/admin/audit" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Audit log</a>
-		<h1 class="mt-3 text-heading font-semibold sm:text-title">{e.summary}</h1>
+		<h1 class="mt-3 text-heading sm:text-title">{e.summary}</h1>
 		<p class="mt-2 text-small text-fg-muted"><span class="font-mono">#{e.seq}</span> · {formatDateTime(e.createdAt)} · <Handle account={data.actor} />{e.actorRole ? ` (${roleLabel(e.actorRole).toLowerCase()})` : ''} · via {e.via}</p>
 	</div>
 
@@ -64,7 +64,7 @@
 		</div>
 		<aside class="flex flex-col gap-6">
 			<Card as="section" class="flex flex-col gap-3 text-small">
-				<h2 class="flex items-center gap-2 text-emphasis font-semibold">
+				<h2 class="flex items-center gap-2 text-emphasis">
 					{#if data.hashValid}<ShieldCheck class="size-5 text-good" />{:else}<ShieldX class="size-5 text-critical" />{/if}Hash chain
 				</h2>
 				<p class={data.hashValid ? 'text-fg-soft' : 'text-critical'}>{data.hashValid ? "This entry's hash matches its content." : "This entry's content does not match its hash."}</p>
@@ -73,7 +73,7 @@
 			</Card>
 			{#each deliveries as copy (copy.title)}
 				<Card as="section" class="flex flex-col gap-3 text-small">
-					<div class="flex items-center justify-between gap-3"><h2 class="text-emphasis font-semibold">{copy.title}</h2><StatusPill status={copy.status} /></div>
+					<div class="flex items-center justify-between gap-3"><h2 class="text-emphasis">{copy.title}</h2><StatusPill status={copy.status} /></div>
 					{#if copy.uri}<p class="mono text-fg-subtle">{copy.uri}</p>{/if}
 					{#if copy.error}<p class="text-critical">{copy.error} ({copy.attempts} attempts)</p>{/if}
 				</Card>

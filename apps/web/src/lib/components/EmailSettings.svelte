@@ -61,23 +61,23 @@
 	<div class="flex items-start gap-3.5">
 		<span class="grid size-9 shrink-0 place-items-center rounded-md bg-well text-fg-muted"><Mail class="size-4" aria-hidden="true" /></span>
 		<div class="flex min-w-0 flex-col gap-0.5">
-			<h2 id="{id}-heading" class="m-0 text-emphasis font-semibold">Email</h2>
-			<p class="m-0 text-small break-words text-fg-muted">{status}</p>
+			<h2 id="{id}-heading" class="text-emphasis">Email</h2>
+			<p class="text-small break-words text-fg-muted">{status}</p>
 		</div>
 	</div>
 	<FormMessage {form} />
-	{#if returned === 'limited' && !form}<p class="notice m-0">We can't send a confirmation link to that address right now. Try again tomorrow.</p>{/if}
+	{#if returned === 'limited' && !form}<p class="notice">We can't send a confirmation link to that address right now. Try again tomorrow.</p>{/if}
 	{#if !available}
 		<!-- The status line says so; the inbox itself still gets everything, as the page says. Turning it off deletes the address. -->
 		{#if channel}<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-secondary btn-sm">Turn off email</button></form>{/if}
 	{:else if !channel}
-		{#if returned === 'declined'}<p class="notice m-0">You didn't allow sharing your email address, so email is still off.</p>{/if}
+		{#if returned === 'declined'}<p class="notice">You didn't allow sharing your email address, so email is still off.</p>{/if}
 		<form method="POST" action="?/emailOn" class="flex flex-col items-start gap-2">
 			<button type="submit" class="btn-primary">Turn on email</button>
-			<p class="m-0 text-caption text-fg-subtle">Your account's host asks you before sharing your address with us.</p>
+			<p class="text-caption text-fg-subtle">Your account's host asks you before sharing your address with us.</p>
 		</form>
 	{:else if paused}
-		<p class="notice m-0">{paused}</p>
+		<p class="notice">{paused}</p>
 		<div class="flex flex-wrap gap-3">
 			<form method="POST" action="?/emailOn"><button type="submit" class="btn-secondary btn-sm">{channel.pausedReason === 'email_unverified' ? 'Send a new link' : 'Check again'}</button></form>
 			<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off email</button></form>

@@ -8,7 +8,7 @@
 </script>
 
 <form method="POST" {action} class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-	<p class="m-0 text-small text-fg-muted">{confirming ? warning : note}</p>
+	<p class="text-small text-fg-muted">{confirming ? warning : note}</p>
 	<div class="flex shrink-0 flex-wrap gap-2">
 		{#if confirming}
 			<button type="button" class="btn-ghost btn-sm" onclick={() => (confirming = false)}>Keep it</button>

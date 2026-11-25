@@ -21,17 +21,17 @@
 </script>
 
 <div class="flex flex-col gap-5">
-	{#if basics?.bio}<p class="m-0 max-w-[65ch] whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
+	{#if basics?.bio}<p class="max-w-[65ch] whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
 	{#if performer?.lookingFor}
 		<div class="flex flex-col gap-1">
-			<h3 class="m-0 eyebrow text-fg-subtle">Looking for</h3>
-			<p class="m-0 max-w-[65ch] whitespace-pre-line text-small text-fg-muted">{performer.lookingFor}</p>
+			<h3 class="section-title">Looking for</h3>
+			<p class="max-w-[65ch] whitespace-pre-line text-small text-fg-muted">{performer.lookingFor}</p>
 		</div>
 	{/if}
 	{#if performer?.highlights?.length}
 		<div class="flex flex-col gap-2">
-			<h3 class="m-0 eyebrow text-fg-subtle">Highlights</h3>
-			<ul class="m-0 flex list-none flex-col gap-2 p-0">
+			<h3 class="section-title">Highlights</h3>
+			<ul class="flex flex-col gap-2">
 				{#each performer.highlights as highlight, index (index)}<li class="border-l-2 border-line-strong pl-3 text-fg-soft">{highlight}</li>{/each}
 			</ul>
 		</div>

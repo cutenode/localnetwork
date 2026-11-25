@@ -16,8 +16,8 @@
 
 <dialog bind:this={dialog} aria-labelledby="leave-title" oncancel={(event) => { event.preventDefault(); onstay(); }} class="m-auto w-[min(34rem,calc(100vw-2rem))] max-w-none rounded-xl border border-line-strong bg-surface p-0 text-fg backdrop:bg-canvas/80">
 	<div class="flex flex-col gap-2 p-5">
-		<h2 id="leave-title" class="m-0 text-emphasis font-semibold">Leave without saving?</h2>
-		<p class="m-0 text-small text-fg-soft">Your changes to {name} aren't saved yet. They stay in this browser if you leave, but nobody else sees them.</p>
+		<h2 id="leave-title" class="text-emphasis">Leave without saving?</h2>
+		<p class="text-small text-fg-soft">Your changes to {name} aren't saved yet. They stay in this browser if you leave, but nobody else sees them.</p>
 	</div>
 	<div class="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3 max-sm:[&>*]:flex-1">
 		<button type="button" class="btn-ghost btn-sm" onclick={ondiscard}>Discard and leave</button>

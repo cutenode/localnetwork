@@ -140,13 +140,13 @@
 		<h2 id="preview-title" class="sr-only">A project page</h2>
 		<div class="flex flex-wrap">
 			<div class="flex min-w-0 flex-[1_1_20rem] flex-col gap-4 border-line p-5 sm:border-r sm:p-7">
-				<div class="flex items-center gap-3.5"><Monogram name="Neon Tide" size="xl" /><div><p class="m-0 text-heading font-semibold">Neon Tide</p><p class="m-0 text-small text-fg-muted">Solo DJ · Berlin, DE · since 2014</p></div></div>
-				<p class="m-0 text-fg-soft">Rolling, hypnotic techno for late rooms.</p>
+				<div class="flex items-center gap-3.5"><Monogram name="Neon Tide" size="xl" /><div><p class="text-heading">Neon Tide</p><p class="text-small text-fg-muted">Solo DJ · Berlin, DE · since 2014</p></div></div>
+				<p class="text-fg-soft">Rolling, hypnotic techno for late rooms.</p>
 				<div class="flex flex-wrap gap-1.5 max-sm:hidden"><Tag>techno</Tag><Tag>dub techno</Tag><Tag>hypnotic techno</Tag></div>
-				<dl class="m-0 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-small max-sm:hidden">
-					<dt class="text-fg-subtle">Fee</dt><dd class="m-0 font-mono text-label">€600–1,500</dd>
-					<dt class="text-fg-subtle">Rooms</dt><dd class="m-0 font-mono text-label">150–1,500 cap</dd>
-					<dt class="text-fg-subtle">Next</dt><dd class="m-0">Tidal Hours, Fri 16 Oct, Halle Nord</dd>
+				<dl class="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-small max-sm:hidden">
+					<dt class="text-fg-subtle">Fee</dt><dd class="font-mono text-label">€600–1,500</dd>
+					<dt class="text-fg-subtle">Rooms</dt><dd class="font-mono text-label">150–1,500 cap</dd>
+					<dt class="text-fg-subtle">Next</dt><dd>Tidal Hours, Fri 16 Oct, Halle Nord</dd>
 				</dl>
 				<div class="mt-auto flex gap-2 max-sm:hidden"><Button size="sm" href="/dashboard/bookings/new?project=neon-tide">Send inquiry</Button><Button size="sm" variant="secondary">Save</Button></div>
 			</div>
@@ -168,9 +168,9 @@
 				<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6 sm:py-4.5">
 					<div class="flex items-center gap-3.5">
 						<button type="button" aria-label="Play {mix.mix.title}" class="grid size-10 place-items-center rounded-full bg-fg text-fg-inverse"><svg aria-hidden="true" viewBox="0 0 12 14" class="ml-0.5 size-3.5 fill-current"><path d="M0 0l12 7-12 7z" /></svg></button>
-						<div><p class="m-0 font-semibold">{mix.mix.title}</p><p class="m-0 text-label text-fg-muted">Saffron Social · Berlin</p></div>
+						<div><p class="font-semibold">{mix.mix.title}</p><p class="text-label text-fg-muted">Saffron Social · Berlin</p></div>
 					</div>
-					<p class="m-0 flex gap-5 font-mono text-caption text-fg-muted"><span>{clock(duration)}</span><span>124–128 BPM</span><span>8A → 3B</span></p>
+					<p class="flex gap-5 font-mono text-caption text-fg-muted"><span>{clock(duration)}</span><span>124–128 BPM</span><span>8A → 3B</span></p>
 				</div>
 				<div class="flex flex-col gap-3 p-4 sm:p-6">
 					<div aria-hidden="true" class="flex h-2.5 gap-0.75">{#each phrases as phrase, i (i)}<span class="rounded-[2px]" style:flex-grow={phrase.grow} style:background-color={phrase.color}></span>{/each}</div>
@@ -180,7 +180,7 @@
 				<div class="flex flex-wrap border-t border-line">
 					<div class="min-w-0 flex-[2_1_30rem] border-line px-4 py-5 sm:border-r sm:px-6">
 						<Eyebrow>Tracklist</Eyebrow>
-						<ol class="m-0 mt-2.5 list-none p-0">
+						<ol class="mt-2.5">
 							{#each plays as play (play.title)}
 								<li class="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-baseline gap-3 border-t border-well py-2 text-small sm:grid-cols-[3.25rem_minmax(0,1fr)_3.5rem_2.75rem]">
 									<span class="font-mono text-caption text-fg-subtle">{play.at}</span>
@@ -193,17 +193,17 @@
 					</div>
 					<div class="min-w-0 flex-[1_1_16rem] border-line px-4 py-5 max-sm:border-t sm:border-r sm:px-6">
 						<Eyebrow>Key moves</Eyebrow>
-						<ol aria-label="Keys in order" class="m-0 mt-2.5 flex list-none flex-wrap items-center gap-1.5 p-0 sm:hidden">{#each plays as play, i (play.title)}<li class="flex items-center gap-1.5">{#if i}<span aria-hidden="true" class="text-fg-subtle">→</span>{/if}<span class="rounded-xs px-1.5 font-mono text-caption" style:background-color={play.swatch.background} style:color={play.swatch.ink}>{play.key}</span></li>{/each}</ol>
+						<ol aria-label="Keys in order" class="mt-2.5 flex flex-wrap items-center gap-1.5 sm:hidden">{#each plays as play, i (play.title)}<li class="flex items-center gap-1.5">{#if i}<span aria-hidden="true" class="text-fg-subtle">→</span>{/if}<span class="rounded-xs px-1.5 font-mono text-caption" style:background-color={play.swatch.background} style:color={play.swatch.ink}>{play.key}</span></li>{/each}</ol>
 						<div role="img" aria-label="Camelot wheel: 8A, 9A, 10A, then 3B" class="relative mx-auto mt-2.5 aspect-square w-55 max-w-full max-sm:hidden">
 							{#each wheel as key (key.label)}
-								<span aria-hidden="true" class={['absolute -mt-3.75 -ml-3.75 grid size-7.5 place-items-center rounded-full font-mono text-[10px]', !key.color && 'bg-well text-fg-subtle']} style:left={key.x} style:top={key.y} style:background-color={key.color?.background} style:color={key.color?.ink}>{key.label}</span>
+								<span aria-hidden="true" class={['absolute -mt-3.75 -ml-3.75 grid size-7.5 place-items-center rounded-full font-mono text-micro', !key.color && 'bg-well text-fg-subtle']} style:left={key.x} style:top={key.y} style:background-color={key.color?.background} style:color={key.color?.ink}>{key.label}</span>
 							{/each}
 						</div>
 					</div>
 					<div class="min-w-0 flex-[1_1_16rem] border-line px-4 py-5 max-sm:border-t sm:px-6">
 						<Eyebrow>Tempo</Eyebrow>
 						<div aria-hidden="true" class="mt-2.5 flex h-24 items-end gap-0.5 border-b border-line-strong sm:h-37.5">{#each tempo as h, i (i)}<span class="flex-1 border-t-2 border-band-high bg-line-strong" style:height={h}></span>{/each}</div>
-						<p class="m-0 mt-1.5 flex justify-between font-mono text-caption text-fg-subtle"><span>124</span><span>126</span><span>128 BPM</span></p>
+						<p class="mt-1.5 flex justify-between font-mono text-caption text-fg-subtle"><span>124</span><span>126</span><span>128 BPM</span></p>
 					</div>
 				</div>
 			</Card>
@@ -222,19 +222,19 @@
 			</div>
 			<div class="flex min-w-0 flex-[1_1_34rem] flex-col gap-3">
 				<div class="flex flex-wrap items-center justify-between gap-2.5">
-					<h3 class="m-0 text-body font-semibold">Next 7 days</h3>
+					<h3 class="text-body font-semibold">Next 7 days</h3>
 					<a href="/shows" class="text-small font-semibold text-link no-underline">All shows →</a>
 				</div>
-				<ol class="m-0 flex list-none flex-col gap-2.5 p-0">
+				<ol class="flex flex-col gap-2.5">
 					{#each shows as show (show.record.name)}
 						<Card as="li" padding="sm" class="flex items-start gap-x-4 sm:flex-wrap sm:items-center sm:gap-x-5 sm:gap-y-3">
 							<DateBlock date={show.record.startsAt.slice(0, 10)} />
 							<div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-2">
 								<div>
-									<p class="m-0 text-lede font-semibold">{show.record.name}</p>
-									<p class="m-0 text-small text-fg-muted">{show.record.venue}, {show.record.location.city} · {hours(show.record)}</p>
+									<p class="text-lede font-semibold">{show.record.name}</p>
+									<p class="text-small text-fg-muted">{show.record.venue}, {show.record.location.city} · {hours(show.record)}</p>
 								</div>
-								<p class="m-0 flex items-center gap-2.5 text-small"><Monogram name={show.name} size="sm" /><a href="/projects/{show.slug}" class="no-underline">{show.name}</a></p>
+								<p class="flex items-center gap-2.5 text-small"><Monogram name={show.name} size="sm" /><a href="/projects/{show.slug}" class="no-underline">{show.name}</a></p>
 								<a href="/dashboard/bookings/new?project={show.slug}" class="text-small font-semibold text-link no-underline sm:hidden">Book {show.name} →</a>
 							</div>
 							<Button size="sm" variant="secondary" href="/dashboard/bookings/new?project={show.slug}" class="ml-auto max-sm:hidden">Book {show.name}</Button>
@@ -254,20 +254,20 @@
 			<div class="flex flex-wrap gap-4">
 				<Card padding="lg" radius="2xl" class="flex min-w-0 flex-[1_1_20rem] flex-col gap-3 max-sm:p-4">
 					<Eyebrow>Your show</Eyebrow>
-					<dl class="m-0 flex flex-col gap-2 max-sm:flex-row max-sm:flex-wrap">
+					<dl class="flex flex-col gap-2 max-sm:flex-row max-sm:flex-wrap">
 						{#each [['Date', 'Sat 17 Oct'], ['Venue', 'Kreuzberg, Berlin'], ['Sound', 'disco, house'], ['Room', '300 cap'], ['Budget', 'Established'], ['Slot', 'Peak time'], ['Setup', 'Vinyl']] as [term, value] (term)}
-							<div class="flex justify-between gap-3 rounded-md bg-well px-3 py-2.5 text-small max-sm:rounded-full max-sm:py-1.5"><dt class="text-fg-muted max-sm:sr-only">{term}</dt><dd class="m-0 font-medium">{value}</dd></div>
+							<div class="flex justify-between gap-3 rounded-md bg-well px-3 py-2.5 text-small max-sm:rounded-full max-sm:py-1.5"><dt class="text-fg-muted max-sm:sr-only">{term}</dt><dd class="font-medium">{value}</dd></div>
 						{/each}
 					</dl>
 					<Button href="/match">Match DJs</Button>
 				</Card>
-				<ol class="m-0 flex min-w-0 flex-[2_1_34rem] list-none flex-col gap-3 p-0">
+				<ol class="flex min-w-0 flex-[2_1_34rem] flex-col gap-3">
 					{#each matches as match (match.name)}
 						<Card as="li" padding="md" radius="2xl" class="flex flex-wrap items-center gap-x-7 gap-y-3 max-sm:p-4">
-							<div class="flex min-w-0 flex-[1_1_14rem] items-center gap-3"><Monogram name={match.name} /><div><a href="/projects/{match.slug}" class="text-emphasis font-semibold no-underline">{match.name}</a><p class="m-0 text-label text-fg-muted">{match.why}</p></div></div>
-							<p class="m-0 flex w-full items-center gap-2.5 font-mono text-caption text-fg-subtle sm:hidden"><span class="h-1.5 flex-1 overflow-hidden rounded-full bg-line"><span class="block h-full bg-track-aqua" style:width="{fit(match.bars)}%"></span></span>{fit(match.bars)} fit</p>
-							<dl class="m-0 grid min-w-0 flex-[1_1_17rem] grid-cols-[3.75rem_minmax(0,1fr)_3.75rem_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 font-mono text-caption text-fg-subtle max-sm:hidden">
-								{#each factors as [factor], i (factor)}<dt>{factor}</dt><dd class="m-0 h-1.5 overflow-hidden rounded-full bg-line"><span class="sr-only">{match.bars[i]} of 100</span><span aria-hidden="true" class="block h-full bg-track-aqua" style:width="{match.bars[i]}%"></span></dd>{/each}
+							<div class="flex min-w-0 flex-[1_1_14rem] items-center gap-3"><Monogram name={match.name} /><div><a href="/projects/{match.slug}" class="text-emphasis no-underline">{match.name}</a><p class="text-label text-fg-muted">{match.why}</p></div></div>
+							<p class="flex w-full items-center gap-2.5 font-mono text-caption text-fg-subtle sm:hidden"><span class="h-1.5 flex-1 overflow-hidden rounded-full bg-line"><span class="block h-full bg-track-aqua" style:width="{fit(match.bars)}%"></span></span>{fit(match.bars)} fit</p>
+							<dl class="grid min-w-0 flex-[1_1_17rem] grid-cols-[3.75rem_minmax(0,1fr)_3.75rem_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 font-mono text-caption text-fg-subtle max-sm:hidden">
+								{#each factors as [factor], i (factor)}<dt>{factor}</dt><dd class="h-1.5 overflow-hidden rounded-full bg-line"><span class="sr-only">{match.bars[i]} of 100</span><span aria-hidden="true" class="block h-full bg-track-aqua" style:width="{match.bars[i]}%"></span></dd>{/each}
 							</dl>
 						</Card>
 					{/each}
@@ -285,17 +285,17 @@
 			<div class="flex flex-wrap gap-4">
 				<Card padding="none" radius="2xl" class="flex min-w-0 flex-[1_1_26rem] flex-col overflow-hidden">
 					<div class="flex flex-col gap-2 p-5 sm:p-6">
-						<h3 class="m-0 flex items-baseline gap-2.5 text-heading font-semibold">{locallibrary.name} <span class="font-mono text-caption font-normal text-fg-subtle">{locallibrary.kind}</span></h3>
-						<p class="m-0 text-fg-muted">{locallibrary.tagline}</p>
+						<h3 class="flex items-baseline gap-2.5 text-heading">{locallibrary.name} <span class="font-mono text-caption font-normal text-fg-subtle">{locallibrary.kind}</span></h3>
+						<p class="text-fg-muted">{locallibrary.tagline}</p>
 					</div>
 					<div class="mt-auto border-t border-line"><CodeBlock framed={false} language="shell" code={session} /></div>
 				</Card>
 				<Card padding="none" radius="2xl" class="flex min-w-0 flex-[1_1_26rem] flex-col overflow-hidden">
 					<div class="flex flex-col gap-2 p-5 sm:p-6">
-						<h3 class="m-0 flex items-baseline gap-2.5 text-heading font-semibold">{localtoolbox.name} <span class="font-mono text-caption font-normal text-fg-subtle">{localtoolbox.kind}</span></h3>
-						<p class="m-0 text-fg-muted">{localtoolbox.tagline}</p>
+						<h3 class="flex items-baseline gap-2.5 text-heading">{localtoolbox.name} <span class="font-mono text-caption font-normal text-fg-subtle">{localtoolbox.kind}</span></h3>
+						<p class="text-fg-muted">{localtoolbox.tagline}</p>
 					</div>
-					<ol class="m-0 mt-auto list-none border-t border-line bg-canvas px-6 pt-2 pb-4">
+					<ol class="mt-auto border-t border-line bg-canvas px-6 pt-2 pb-4">
 						{#each queue as item (item.title)}
 							<li class="flex items-center gap-3 border-b border-well py-2 text-small"><span class="min-w-0 flex-auto"><b class="font-semibold">{item.title}</b> <span class="text-fg-muted">{item.artist}</span></span><span class="font-mono text-caption {item.tone}">{item.status}</span></li>
 						{/each}

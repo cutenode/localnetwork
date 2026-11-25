@@ -25,7 +25,7 @@
 </script>
 
 {#if facts.length}
-	<ul class="m-0 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-small text-fg-muted">
+	<ul class="flex flex-wrap gap-x-3 gap-y-0.5 text-small text-fg-muted">
 		{#each facts as fact (fact)}<li>{fact}</li>{/each}
 	</ul>
 {/if}

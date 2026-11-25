@@ -6,7 +6,7 @@
 	const overview = sampleReport.plays[0].track.overview!;
 
 	const { Story } = defineMeta({
-		title: 'Data/Waveform',
+		title: 'Primitives/Waveform',
 		component: Waveform,
 		tags: ['autodocs'],
 		argTypes: { align: { control: 'inline-radio', options: ['center', 'bottom'] }, playhead: { control: { type: 'range', min: 0, max: 1, step: 0.01 } } },

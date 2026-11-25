@@ -17,7 +17,7 @@
 
 {#snippet content()}
 	{#if following}<UserCheck class="size-4" />Following{:else}<UserPlus class="size-4" />Follow{/if}
-	<span class="min-w-[3ch] text-left font-mono text-fg-muted tabular-nums">
+	<span class="min-w-[3ch] text-left font-mono text-fg-muted">
 		{#if follow}{follow.followers.toLocaleString('en')}{' '}<span class="sr-only">{follow.followers === 1 ? 'follower' : 'followers'}</span>{:else if follow === undefined}<span class="inline-block h-3 w-[2ch] animate-pulse rounded-sm bg-raised align-middle"></span>{/if}
 	</span>
 {/snippet}

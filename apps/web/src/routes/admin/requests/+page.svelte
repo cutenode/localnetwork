@@ -22,8 +22,6 @@
 		{ value: 'update', label: 'Changes' },
 		{ value: 'list', label: 'Listings' }
 	] as const;
-
-	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 </script>
 
 <svelte:head><title>Review requests · Staff</title></svelte:head>
@@ -36,7 +34,7 @@
 		<nav aria-label="Status" class="flex flex-wrap gap-2">
 			{#each tabs as tab (tab.value)}
 				{@const active = data.status === tab.value}
-				<a href="?status={tab.value}{data.kind ? `&kind=${data.kind}` : ''}" aria-current={active ? 'page' : undefined} class={chip(active)}>
+				<a href="?status={tab.value}{data.kind ? `&kind=${data.kind}` : ''}" aria-current={active ? 'page' : undefined} class="chip-toggle">
 					{tab.label}{#if tab.value !== 'all'}<span class="font-mono {active ? '' : 'text-fg-subtle'}">{data.counts[tab.value]}</span>{/if}
 				</a>
 			{/each}
@@ -44,7 +42,7 @@
 		<nav aria-label="Kind" class="flex flex-wrap gap-2">
 			{#each kinds as kind (kind.value)}
 				{@const active = data.kind === kind.value}
-				<a href="?status={data.status}{kind.value ? `&kind=${kind.value}` : ''}" aria-current={active ? 'page' : undefined} class={chip(active)}>{kind.label}</a>
+				<a href="?status={data.status}{kind.value ? `&kind=${kind.value}` : ''}" aria-current={active ? 'page' : undefined} class="chip-toggle">{kind.label}</a>
 			{/each}
 		</nav>
 	</div>

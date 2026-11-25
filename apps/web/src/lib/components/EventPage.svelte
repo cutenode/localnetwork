@@ -116,26 +116,26 @@
 
 <EditMode {...edit} form={answered ? null : edit.form} {name} {labels} {missing}>
 	{#snippet children(view)}
-		{#if edit.status === 'draft' && !view.visitor}<div class="container-page pt-6"><p class="m-0 notice notice-info">This is a draft. Only the party's people can see it.</p></div>{/if}
+		{#if edit.status === 'draft' && !view.visitor}<div class="container-page pt-6"><p class="notice notice-info">This is a draft. Only the party's people can see it.</p></div>{/if}
 		<div class="border-b border-line">
 			<div class="container-page flex flex-col gap-5 py-10 sm:flex-row sm:items-end sm:py-14">
 				<div class="flex min-w-0 flex-1 flex-col gap-2">
-					<p class="m-0 text-small"><a class="entity-link text-fg-soft" href={party.href}>{party.name}</a></p>
-					<h1 class={['m-0 text-title font-semibold', isCancelled && !view.editing && 'text-fg-muted line-through']}>
-						{#if view.editing}<InlineText name="name" label="Name" required placeholder="Event name" value={view.value('name', event?.name ?? '')} error={view.error('name')} readonly={view.busy} class="text-title font-semibold" />{:else}{event?.name}{/if}
+					<p class="text-small"><a class="entity-link text-fg-soft" href={party.href}>{party.name}</a></p>
+					<h1 class={['text-title', isCancelled && !view.editing && 'text-fg-muted line-through']}>
+						{#if view.editing}<InlineText name="name" label="Name" required placeholder="Event name" value={view.value('name', event?.name ?? '')} error={view.error('name')} readonly={view.busy} class="text-title" />{:else}{event?.name}{/if}
 					</h1>
 					{#if event && !view.editing}
 						{#if event.startsAt}
-							<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
+							<p class="flex flex-wrap gap-x-1.5 text-small text-fg-muted">
 								<time datetime={event.startsAt}>{formatShowDate(asShowDate(event.startsAt))}</time>
 								<span aria-hidden="true">·</span><span class="font-mono">{showHours({ startsAt: event.startsAt, endsAt: event.endsAt })}</span>
 								{#if !event.venue}<span aria-hidden="true">·</span><span>{clock}</span>{/if}
 							</p>
 						{/if}
 						{#if event.venue}
-							<p class="m-0 inline-flex items-center gap-1.5 text-small text-fg-muted"><MapPin aria-hidden="true" class="size-4" /><span><a class="entity-link" href={spacePagePath('venue', event.venue.skey, event.venue.name)}>{event.venue.name}</a>, {event.venue.locality ?? event.venue.country}</span></p>
+							<p class="inline-flex items-center gap-1.5 text-small text-fg-muted"><MapPin aria-hidden="true" class="size-4" /><span><a class="entity-link" href={spacePagePath('venue', event.venue.skey, event.venue.name)}>{event.venue.name}</a>, {event.venue.locality ?? event.venue.country}</span></p>
 						{/if}
-						<p class="m-0 flex flex-wrap gap-2">
+						<p class="flex flex-wrap gap-2">
 							{#if isCancelled}
 								<span class="pill bg-raised text-critical">Cancelled</span>
 							{:else}
@@ -162,14 +162,14 @@
 				{#if view.editing}
 					<InlineText name="description" label="About" multiline placeholder="What the night is about" value={view.value('description', event?.description ?? '')} error={view.error('description')} readonly={view.busy} class="text-body text-fg-soft" />
 					<section aria-labelledby="{id}-where" class="card flex flex-col gap-3 p-5">
-						<h2 id="{id}-where" class="m-0 eyebrow text-fg-subtle">Where</h2>
+						<h2 id="{id}-where" class="section-title">Where</h2>
 						<VenuePicker id="{id}-venue" bind:value={venue} />
 					</section>
 					<section aria-labelledby="{id}-when" class="card flex flex-col gap-3 p-5">
-						<h2 id="{id}-when" class="m-0 eyebrow text-fg-subtle">When</h2>
+						<h2 id="{id}-when" class="section-title">When</h2>
 						{#if view.choice}
 							<div class="notice notice-info flex flex-col gap-3">
-								<p class="m-0">{view.choice.question}</p>
+								<p>{view.choice.question}</p>
 								<!-- A publish that was asked this publishes once it's answered. -->
 								{#if view.value('publish', '') === 'on'}<input type="hidden" name="publish" value="on" />{/if}
 								<div class="flex flex-wrap gap-2">
@@ -193,15 +193,15 @@
 						<p class="m-0 hint">{venue ? "On the venue's clock. " : ''}An end before the start is the next morning.</p>
 					</section>
 					<section aria-labelledby="{id}-lineup" class="card flex flex-col gap-3 p-5">
-						<h2 id="{id}-lineup" class="m-0 eyebrow text-fg-subtle">Lineup</h2>
+						<h2 id="{id}-lineup" class="section-title">Lineup</h2>
 						<LineupFields saved={event?.lineup} error={view.error('performer')} readonly={view.busy} />
 					</section>
 					<section aria-labelledby="{id}-tickets" class="card flex flex-col gap-3 p-5">
-						<h2 id="{id}-tickets" class="m-0 eyebrow text-fg-subtle">Tickets</h2>
+						<h2 id="{id}-tickets" class="section-title">Tickets</h2>
 						<input type="url" name="tickets" class="input" maxlength="2000" placeholder="https://" aria-label="Ticket link" value={view.value('tickets', event?.tickets ?? '')} readonly={view.busy} />
 					</section>
 					<section aria-labelledby="{id}-audience" class="card flex flex-col gap-3 p-5">
-						<h2 id="{id}-audience" class="m-0 eyebrow text-fg-subtle">Who can see it</h2>
+						<h2 id="{id}-audience" class="section-title">Who can see it</h2>
 						<fieldset class="flex flex-col gap-3">
 							<legend class="sr-only">Who can see it</legend>
 							{#each AUDIENCES as option (option.value)}
@@ -216,11 +216,11 @@
 						</fieldset>
 					</section>
 				{:else if event}
-					{#if event.description}<p class="m-0 text-body whitespace-pre-line text-fg-soft">{event.description}</p>{/if}
+					{#if event.description}<p class="text-body whitespace-pre-line text-fg-soft">{event.description}</p>{/if}
 					{#if event.lineup.length}
 						<section aria-labelledby="{id}-lineup" class="flex flex-col gap-3">
-							<h2 id="{id}-lineup" class="m-0 eyebrow text-fg-subtle">Lineup</h2>
-							<ul class="m-0 flex list-none flex-col divide-y divide-line p-0">
+							<h2 id="{id}-lineup" class="section-title">Lineup</h2>
+							<ul class="flex flex-col divide-y divide-line">
 								{#each event.lineup as entry, index (index)}
 									<li class="flex items-baseline justify-between gap-3 py-2.5">
 										{#if entry.href}<a class="link text-emphasis font-medium" href={entry.href}>{entry.name}</a>{:else}<span class="text-emphasis font-medium">{entry.name}</span>{/if}
@@ -237,7 +237,7 @@
 				<aside class="flex min-w-0 flex-[1_1_18rem] flex-col gap-6">
 					{#if link}
 						<section aria-labelledby="{id}-link" class="card flex flex-col gap-3 p-5">
-							<h2 id="{id}-link" class="m-0 eyebrow text-fg-subtle">Private link</h2>
+							<h2 id="{id}-link" class="section-title">Private link</h2>
 							<input class="input font-mono text-small" readonly value={link} aria-label="Private link" onfocus={(focused) => focused.currentTarget.select()} />
 							<p class="m-0 hint">Anyone with this link can open it.</p>
 							<div class="flex flex-wrap gap-2">

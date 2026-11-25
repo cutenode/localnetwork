@@ -46,7 +46,6 @@
 
 	const sections = resolved(() => data.sections, undefined);
 
-	const chip = 'chip min-h-9 px-3 transition-colors hover:border-fg-subtle aria-[current=page]:border-fg aria-[current=page]:bg-fg aria-[current=page]:font-semibold aria-[current=page]:text-fg-inverse';
 
 	const ghost = 'rounded-md bg-well motion-safe:animate-pulse';
 </script>
@@ -54,12 +53,12 @@
 <svelte:head><title>Bookings · Local Network</title></svelte:head>
 
 {#snippet heading(value: string, label: string, count: number)}
-	<h2 id="group-{value}" class="m-0 flex items-baseline gap-2 text-emphasis font-semibold">{label}<span class="font-mono text-caption font-normal text-fg-subtle">{count}</span></h2>
+	<h2 id="group-{value}" class="flex items-baseline gap-2 text-emphasis">{label}<span class="font-mono text-caption font-normal text-fg-subtle">{count}</span></h2>
 {/snippet}
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-		<h1 class="m-0 text-heading font-semibold">Bookings</h1>
+		<h1 class="text-heading">Bookings</h1>
 		{#if data.threads.length}<a class="btn-secondary btn-sm" href="/djs">New inquiry</a>{/if}
 	</header>
 
@@ -90,13 +89,13 @@
 				</div>
 			{:else if acts.length > 1}
 				<nav aria-label="Filter by act" class="flex flex-wrap gap-2">
-					<a href="/dashboard/bookings" aria-current={filter ? undefined : 'page'} class={chip}>All</a>
-					{#each acts as [slug, name] (slug)}<a href="/dashboard/bookings?project={slug}" aria-current={filter === slug ? 'page' : undefined} class={chip}>{name}</a>{/each}
+					<a href="/dashboard/bookings" aria-current={filter ? undefined : 'page'} class="chip-toggle">All</a>
+					{#each acts as [slug, name] (slug)}<a href="/dashboard/bookings?project={slug}" aria-current={filter === slug ? 'page' : undefined} class="chip-toggle">{name}</a>{/each}
 				</nav>
 			{/if}
 
 			{#if names.value === null}
-				<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Act names didn't load{filter ? ', so this shows every booking' : ''}.<a class="btn-secondary btn-sm" href={filter ? `/dashboard/bookings?project=${filter}` : '/dashboard/bookings'} data-sveltekit-reload>Try again</a></p>
+				<p class="notice notice-info flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Act names didn't load{filter ? ', so this shows every booking' : ''}.<a class="btn-secondary btn-sm" href={filter ? `/dashboard/bookings?project=${filter}` : '/dashboard/bookings'} data-sveltekit-reload>Try again</a></p>
 			{/if}
 
 			{#if filter && actsPending}

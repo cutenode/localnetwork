@@ -45,12 +45,12 @@
 			<Avatar src={project.avatarUrl} name={profile.name} size="xl" />
 			<div class="flex min-w-0 flex-1 flex-col gap-2">
 				<div class="flex flex-wrap items-center gap-2.5">
-					<h1 class="m-0 text-title font-semibold">{profile.name}</h1>
+					<h1 class="text-title">{profile.name}</h1>
 					{#if project.status !== 'active'}<StatusPill status={project.status} />{/if}
 					{#if !claimed}<span class="pill bg-raised text-fg-muted">Unclaimed</span>{/if}
 				</div>
-				{#if profile.tagline}<p class="m-0 text-lede text-fg-soft sm:text-intro">{profile.tagline}</p>{/if}
-				<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
+				{#if profile.tagline}<p class="text-lede text-fg-soft sm:text-intro">{profile.tagline}</p>{/if}
+				<p class="flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
 					<span class="inline-flex items-center gap-1.5"><MapPin class="size-4" />{placeLabel(profile)}</span>
 					<span class="inline-flex items-center gap-1.5"><Users class="size-4" />{kindLabel(profile.kind)}</span>
 					{#if profile.pronouns}<span>{profile.pronouns}</span>{/if}
@@ -59,7 +59,7 @@
 			</div>
 		</div>
 		{#if profile.genres.length}
-			<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Sound">
+			<ul class="flex flex-wrap gap-1.5" aria-label="Sound">
 				{#each profile.genres as genre, index (index)}<li><Tag href="/djs?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
@@ -89,8 +89,8 @@
 {#if form || data.pendingClaim || data.pendingUpdate}
 	<div class="container-page mt-6 flex flex-col gap-3">
 		{#if form?.reauth && form.error && viewer}<SignInAgain did={viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
-		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/dashboard/account/requests/{data.pendingClaim.rkey}">View review request</a></p>{/if}
-		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/dashboard/account/requests/{data.pendingUpdate.rkey}">View review request</a></p>{/if}
+		{#if data.pendingClaim}<p class="notice">Your claim is waiting for a moderator. <a class="link" href="/dashboard/account/requests/{data.pendingClaim.rkey}">View review request</a></p>{/if}
+		{#if data.pendingUpdate}<p class="notice">Your proposed changes are waiting for review. <a class="link" href="/dashboard/account/requests/{data.pendingUpdate.rkey}">View review request</a></p>{/if}
 	</div>
 {/if}
 
@@ -98,19 +98,19 @@
 	<div class="flex min-w-0 flex-[999_1_34rem] flex-col gap-10">
 		{#if profile.bio || profile.lookingFor}
 			<section aria-labelledby="about" class="flex flex-col gap-3">
-				<h2 id="about" class="m-0 text-heading font-semibold">About</h2>
-				{#if profile.bio}<p class="m-0 max-w-[65ch] whitespace-pre-line text-fg-soft">{profile.bio}</p>{/if}
+				<h2 id="about" class="text-heading">About</h2>
+				{#if profile.bio}<p class="max-w-[65ch] whitespace-pre-line text-fg-soft">{profile.bio}</p>{/if}
 				{#if profile.lookingFor}
 					<div class="flex flex-col gap-1">
-						<h3 class="m-0 eyebrow text-fg-subtle">Looking for</h3>
-						<p class="m-0 max-w-[65ch] whitespace-pre-line text-small text-fg-muted">{profile.lookingFor}</p>
+						<h3 class="section-title">Looking for</h3>
+						<p class="max-w-[65ch] whitespace-pre-line text-small text-fg-muted">{profile.lookingFor}</p>
 					</div>
 				{/if}
 			</section>
 		{/if}
 
 		<section id="shows" aria-labelledby="shows-title" class="flex scroll-mt-20 flex-col gap-4">
-			<h2 id="shows-title" class="m-0 text-heading font-semibold">Upcoming shows</h2>
+			<h2 id="shows-title" class="text-heading">Upcoming shows</h2>
 			{#await data.shows}
 				<ShowList shows={undefined} rows={project.counts?.upcomingShows || 1} project={project.uri} empty={{ title: '' }} />
 			{:then shows}
@@ -120,7 +120,7 @@
 
 		{#if profile.mixes?.length}
 			<section aria-labelledby="mixes" class="flex flex-col gap-4">
-				<h2 id="mixes" class="m-0 text-heading font-semibold">Mixes</h2>
+				<h2 id="mixes" class="text-heading">Mixes</h2>
 				<MixList mixes={profile.mixes} sets={data.sets} tracklistHref={(index) => `/projects/${project.slug}/mixes/${index + 1}`} />
 			</section>
 		{/if}
@@ -138,7 +138,7 @@
 				{#if account.profile}
 					<section aria-labelledby="stats-{account.did}" class="flex flex-col gap-4">
 						<div class="flex flex-wrap items-baseline justify-between gap-2">
-							<h2 id="stats-{account.did}" class="m-0 text-heading font-semibold">How they play</h2>
+							<h2 id="stats-{account.did}" class="text-heading">How they play</h2>
 							{#if accounts.length > 1 && account.handle}<Handle {account} class="text-small text-fg-muted" />{/if}
 						</div>
 						<DjStats profile={account.profile} />
@@ -146,7 +146,7 @@
 				{/if}
 				{#if account.sets.length}
 					<section aria-labelledby="sets-{account.did}" class="flex flex-col gap-4">
-						<h2 id="sets-{account.did}" class="m-0 text-heading font-semibold">Recent sets</h2>
+						<h2 id="sets-{account.did}" class="text-heading">Recent sets</h2>
 						<DjSets sets={account.sets} handle={account.handle} />
 					</section>
 				{/if}
@@ -155,28 +155,28 @@
 
 		{#if profile.highlights?.length}
 			<section aria-labelledby="highlights" class="flex flex-col gap-3">
-				<h2 id="highlights" class="m-0 text-heading font-semibold">Highlights</h2>
-				<ul class="m-0 flex list-none flex-col gap-2 p-0">
+				<h2 id="highlights" class="text-heading">Highlights</h2>
+				<ul class="flex flex-col gap-2">
 					{#each profile.highlights as highlight, index (index)}<li class="border-l-2 border-line-strong pl-3 text-fg-soft">{highlight}</li>{/each}
 				</ul>
 			</section>
 		{/if}
 
 		<section aria-labelledby="booking" class="card flex flex-col gap-3 p-5">
-			<h2 id="booking" class="m-0 inline-flex items-center gap-2 text-emphasis font-semibold"><Lock class="size-4" />Booking details</h2>
+			<h2 id="booking" class="inline-flex items-center gap-2 text-emphasis"><Lock class="size-4" />Booking details</h2>
 			<BookingDetails details={data.details} {claimed} kitsHref="/projects/{project.slug}/press-kits" />
 		</section>
 	</div>
 
 	<aside class="flex min-w-0 flex-[1_1_18rem] flex-col gap-6">
 		<section aria-labelledby="glance" class="card flex flex-col gap-4 p-5">
-			<h2 id="glance" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
+			<h2 id="glance" class="section-title">At a glance</h2>
 			<PerformerFacts performer={profile} />
 		</section>
 		{#if profile.links?.length}
 			<section aria-labelledby="links" class="card flex flex-col gap-3 p-5">
-				<h2 id="links" class="m-0 eyebrow text-fg-subtle">Links</h2>
-				<ul class="m-0 flex list-none flex-col gap-2 p-0 text-small">
+				<h2 id="links" class="section-title">Links</h2>
+				<ul class="flex flex-col gap-2 text-small">
 					{#each profile.links as link, index (index)}
 						<li><a class="link inline-flex items-center gap-1.5" href={webHref(link.url)} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 opacity-70" /></a></li>
 					{/each}
@@ -184,20 +184,20 @@
 			</section>
 		{/if}
 		<section aria-labelledby="managers" class="card flex flex-col gap-3 p-5 text-small">
-			<h2 id="managers" class="m-0 eyebrow text-fg-subtle">Managed by</h2>
+			<h2 id="managers" class="section-title">Managed by</h2>
 			{#if data.managers.length}
-				<ul class="m-0 flex list-none flex-col gap-1.5 p-0">{#each data.managers as manager (manager.did)}<li><Handle account={manager} /></li>{/each}</ul>
+				<ul class="flex flex-col gap-1.5">{#each data.managers as manager (manager.did)}<li><Handle account={manager} /></li>{/each}</ul>
 			{:else}
-				<p class="m-0 text-fg-muted">Nobody yet. Listed by Local Network staff.{#if viewer && project.status !== 'archived'}{' '}<a class="link" href="/dashboard/claim/{project.slug}">Is this you?</a>{/if}</p>
+				<p class="text-fg-muted">Nobody yet. Listed by Local Network staff.{#if viewer && project.status !== 'archived'}{' '}<a class="link" href="/dashboard/claim/{project.slug}">Is this you?</a>{/if}</p>
 			{/if}
 		</section>
 		<div class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
-			<p class="m-0">Updated {formatDate(project.updatedAt)}</p>
+			<p>Updated {formatDate(project.updatedAt)}</p>
 			<details>
 				<summary class="cursor-pointer marker:text-fg-subtle hover:text-fg">Technical details</summary>
-				<dl class="m-0 mt-1.5 flex flex-col gap-1">
-					<div class="flex gap-1.5"><dt>Revision</dt><dd class="m-0">{project.revision}</dd></div>
-					<div><dt class="sr-only">Record</dt><dd class="m-0 font-mono break-all">{project.uri}</dd></div>
+				<dl class="mt-1.5 flex flex-col gap-1">
+					<div class="flex gap-1.5"><dt>Revision</dt><dd>{project.revision}</dd></div>
+					<div><dt class="sr-only">Record</dt><dd class="font-mono break-all">{project.uri}</dd></div>
 				</dl>
 			</details>
 		</div>

@@ -4,7 +4,7 @@
 	import { phone } from '#lib/testing/viewports.ts';
 	import InboxList from './InboxList.svelte';
 
-	const { Story } = defineMeta({ title: 'Dashboard/Inbox', component: InboxList, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Dashboard/Inbox list', component: InboxList, tags: ['autodocs'] });
 </script>
 
 <Story name="Unread and read" args={{ rows: inboxRows }} />

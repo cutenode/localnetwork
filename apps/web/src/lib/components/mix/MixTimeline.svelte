@@ -52,7 +52,7 @@
 
 <div class="flex flex-col gap-3">
 	<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-		<ul class="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-label text-fg-muted" aria-label="Waveform colours">
+		<ul class="flex flex-wrap gap-x-4 gap-y-1 text-label text-fg-muted" aria-label="Waveform colours">
 			{#each [['Lows', colors.bands.low], ['Mids', colors.bands.mid], ['Highs', colors.bands.high]] as [name, colour] (name)}
 				<li class="flex items-center gap-1.5"><span class="size-2.5 rounded-[2px]" style:background-color={colour}></span>{name}</li>
 			{/each}
@@ -131,5 +131,5 @@
 			{/if}
 		</div>
 	</div>
-	<p class="m-0 min-h-5 truncate text-label text-fg-muted" aria-live="polite">{#if hoverText}{hoverText}{:else}<span class="max-sm:hidden">Point at the mix to see what’s playing. Pick a track to find it in the tracklist.</span><span class="sm:hidden">Tap a track to find it in the tracklist.</span>{/if}</p>
+	<p class="min-h-5 truncate text-label text-fg-muted" aria-live="polite">{#if hoverText}{hoverText}{:else}<span class="max-sm:hidden">Point at the mix to see what’s playing. Pick a track to find it in the tracklist.</span><span class="sm:hidden">Tap a track to find it in the tracklist.</span>{/if}</p>
 </div>

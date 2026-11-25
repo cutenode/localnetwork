@@ -11,8 +11,8 @@
 
 <div class="flex max-w-3xl flex-col gap-6 sm:gap-8">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">Review requests</h1>
-		<p class="m-0 text-body text-fg-muted">What you've asked staff for, and where each one stands.</p>
+		<h1 class="text-heading">Review requests</h1>
+		<p class="text-body text-fg-muted">What you've asked staff for, and where each one stands.</p>
 	</header>
 	{#await data.requests}
 		<div role="status" aria-label="Loading your review requests"><RequestList loading /></div>

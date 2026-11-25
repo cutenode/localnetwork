@@ -15,12 +15,12 @@
 
 <form method="POST" class="card flex flex-col gap-5 p-5 sm:p-7">
 	<div class="flex flex-col gap-2">
-		<h1 class="m-0 text-heading font-semibold">Where should it live?</h1>
-		<p class="m-0 text-fg-muted">Your account lives with a host you choose. You'll make it on their page, then come straight back.</p>
+		<h1 class="text-heading">Where should it live?</h1>
+		<p class="text-fg-muted">Your account lives with a host you choose. You'll make it on their page, then come straight back.</p>
 	</div>
 	<FormMessage {form} />
 	<input type="hidden" name="next" value={data.next} />
-	<ul class="m-0 flex list-none flex-col gap-2 p-0" aria-label="Hosts">
+	<ul class="flex flex-col gap-2" aria-label="Hosts">
 		{#each data.hosts as host, i (host.service)}
 			<li>
 				<button name="service" value={host.service} class={['flex w-full cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors', i === 0 ? 'border-fg-subtle bg-raised hover:border-fg' : 'border-line-strong bg-well hover:border-fg-subtle']}>

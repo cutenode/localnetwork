@@ -88,12 +88,12 @@
 
 	<div class="flex flex-col gap-3">
 		<!-- Each tool over its stretch of the track, as wide as its share of the cues, and the way to its page. -->
-		<ul class="m-0 grid list-none gap-x-1.5 p-0" style:grid-template-columns={tools.map(({ cues }) => `${cues.length}fr`).join(' ')}>
+		<ul class="grid gap-x-1.5" style:grid-template-columns={tools.map(({ cues }) => `${cues.length}fr`).join(' ')}>
 			{#each tools as tool, t (tool.id)}
 				<!-- Its name and kind describe each of its cues. -->
 				<li id="{id}-tool-{t}" class="flex min-w-0 flex-col">
 					<span aria-hidden="true" class={['mb-3 h-0.5', TONES[t % TONES.length].bg]}></span>
-					<a href="/tools/{tool.id}" class="inline-flex items-center gap-1.5 self-start text-emphasis font-semibold text-fg no-underline hover:underline">
+					<a href="/tools/{tool.id}" class="inline-flex items-center gap-1.5 self-start text-emphasis text-fg no-underline hover:underline">
 						{tool.name}
 						<ArrowRight aria-hidden="true" class="size-4 text-fg-muted" />
 					</a>
@@ -163,16 +163,16 @@
 			<div class="grid">
 				{#each items as { cue, tool, tone, n }, k (k)}
 					<div class={['flex flex-col gap-3 [grid-area:1/1]', selected !== k && 'invisible']} aria-hidden={selected !== k}>
-						<h3 class="m-0 flex items-center gap-3 text-title font-semibold">
+						<h3 class="flex items-center gap-3 text-title">
 							<span aria-hidden="true" class={['grid size-8 shrink-0 place-items-center rounded-sm font-mono text-body font-semibold text-fg-inverse', tone.bg]}>{LETTERS[n]}</span>
 							{cue.name}
 						</h3>
-						<p class="m-0 text-lede text-fg-soft">{cue.line}.</p>
+						<p class="text-lede text-fg-soft">{cue.line}.</p>
 						<a href="/tools/{tool.id}" class="link self-start text-body">See what {tool.name} does</a>
 					</div>
 				{/each}
 			</div>
-			<p class="m-0 hidden text-small text-fg-muted lg:block">Pick a cue, or press its letter.</p>
+			<p class="hidden text-small text-fg-muted lg:block">Pick a cue, or press its letter.</p>
 		</div>
 		<Screen captures={items.map(({ cue }) => cue.capture)} {selected} />
 	</div>

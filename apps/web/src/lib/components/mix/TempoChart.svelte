@@ -110,11 +110,11 @@
 			{#each times as t, k (t)}<span class={['absolute top-0', k && '-translate-x-1/2']} style:left={pct(x(t) / W)}>{clock(t)}</span>{/each}
 		</div>
 	</div>
-	<ul class="m-0 mt-3 flex list-none flex-wrap gap-x-4 p-0 text-label text-fg-muted">
+	<ul class="mt-3 flex flex-wrap gap-x-4 text-label text-fg-muted">
 		<li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-band-high"></span>BPM as played</li>
 		<li class="flex items-center gap-1.5"><svg aria-hidden="true" viewBox="0 0 16 2" class="h-0.5 w-4"><line x1="0" x2="16" y1="1" y2="1" class="stroke-fg-subtle" stroke-width="2" stroke-dasharray="4 3" /></svg>BPM as recorded</li>
 	</ul>
-	<p class="m-0 mt-1 min-h-10 text-label text-fg-muted" aria-live="polite">
+	<p class="mt-1 min-h-10 text-label text-fg-muted" aria-live="polite">
 		{#if shown}
 			{shown.i + 1}. {shown.play.track.title}: <span class="font-mono text-fg">{shownBpm}</span>, recorded at {shown.recorded.toFixed(1)} ({playSpeed(shown.play)})
 		{:else}
@@ -122,5 +122,5 @@
 		{/if}
 	</p>
 {:else}
-	<p class="m-0 text-label text-fg-muted">The library has no BPMs for these tracks.</p>
+	<p class="text-label text-fg-muted">The library has no BPMs for these tracks.</p>
 {/if}

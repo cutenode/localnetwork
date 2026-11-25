@@ -35,8 +35,8 @@
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-col gap-1">
-		<h1 class="m-0 text-heading font-semibold">Calendar</h1>
-		<p class="m-0 text-body text-fg-muted">Every night you're part of, for the year ahead.</p>
+		<h1 class="text-heading">Calendar</h1>
+		<p class="text-body text-fg-muted">Every night you're part of, for the year ahead.</p>
 	</header>
 
 	{#await data.nights}
@@ -53,7 +53,7 @@
 		{#if failed}<NightsFailed href="/dashboard/calendar" />{/if}
 		{#each byMonth(nights) as [month, rows], at (month)}
 			<section aria-labelledby="month-{at}" class="flex flex-col gap-3">
-				<h2 id="month-{at}" class="m-0 text-emphasis font-semibold">{month}</h2>
+				<h2 id="month-{at}" class="text-emphasis">{month}</h2>
 				<NightList nights={rows} />
 			</section>
 		{:else}

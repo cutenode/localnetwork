@@ -56,8 +56,8 @@
 <section aria-labelledby="{id}-heading" class="flex flex-col gap-3">
 	<!-- The save says so beside the heading, so nothing below moves when it does. -->
 	<div class="flex items-baseline justify-between gap-4">
-		<h2 id="{id}-heading" class="m-0 text-emphasis font-semibold">What goes where</h2>
-		<p class="m-0 text-small text-fg-muted" role="status">{saved}</p>
+		<h2 id="{id}-heading" class="text-emphasis">What goes where</h2>
+		<p class="text-small text-fg-muted" role="status">{saved}</p>
 	</div>
 	<div class="card overflow-hidden p-0">
 		<table class="w-full border-collapse text-left">

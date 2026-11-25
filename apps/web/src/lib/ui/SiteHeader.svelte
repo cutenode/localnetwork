@@ -66,7 +66,7 @@
 <svelte:window {onkeydown} {onpointerdown} />
 
 {#snippet badge(count: number | undefined)}
-	{#if count}<span class="ml-auto rounded-full bg-fg px-1.5 font-mono text-caption font-semibold text-fg-inverse">{count}</span>{/if}
+	{#if count}<span class="badge ml-auto">{count}</span>{/if}
 {/snippet}
 
 {#snippet dot()}
@@ -85,7 +85,7 @@
 
 <header class="border-b border-line bg-canvas print:hidden">
 	<div class="container-page flex min-h-16 items-center gap-x-8">
-		<a href="/" class="flex shrink-0 items-center gap-2.5 text-emphasis font-semibold whitespace-nowrap text-fg no-underline">
+		<a href="/" class="flex shrink-0 items-center gap-2.5 text-emphasis whitespace-nowrap text-fg no-underline">
 			<Mark />
 			Local Network
 		</a>
@@ -104,7 +104,7 @@
 						aria-expanded={accountOpen}
 						aria-controls="{id}-account"
 						onclick={() => (accountOpen = !accountOpen)}
-						class="relative grid size-11 place-items-center rounded-lg hover:bg-raised"
+						class="btn-icon relative"
 					>
 						<!-- Named in words, since the monogram's letters alone don't say what it opens. -->
 						<span class="sr-only">{['Account', account.handle, account.alert].filter(Boolean).join(', ')}</span>
@@ -113,7 +113,7 @@
 					</button>
 					{#if accountOpen}
 						<div id="{id}-account" class="absolute top-full right-0 z-30 mt-1.5 flex w-60 flex-col gap-0.5 rounded-xl border border-line-strong bg-raised p-1.5">
-							<p class="m-0 truncate border-b border-line px-3 pt-1.5 pb-2.5 mb-1 text-small font-medium text-fg">{account.handle}</p>
+							<p class="truncate border-b border-line px-3 pt-1.5 pb-2.5 mb-1 text-small font-medium text-fg">{account.handle}</p>
 							{@render accountItems(account, 'flex min-h-10 items-center gap-2.5 rounded-md px-3 text-small text-fg-muted no-underline transition-colors hover:bg-well hover:text-fg aria-[current=page]:text-fg')}
 						</div>
 					{/if}
@@ -126,7 +126,7 @@
 				aria-controls="{id}-menu"
 				aria-label={open ? 'Close menu' : ['Menu', account?.alert].filter(Boolean).join(', ')}
 				onclick={() => (open = !open)}
-				class="relative -mr-2 grid size-11 place-items-center rounded-md text-fg hover:bg-raised md:hidden"
+				class="btn-icon relative -mr-2 text-fg md:hidden"
 			>
 				{#if open}<X size={20} />{:else}<Menu size={20} />{/if}
 				{#if account?.alert && !open}{@render dot()}{/if}
@@ -144,7 +144,7 @@
 			</div>
 			{#if account}
 				<div class="mt-2 flex flex-col divide-y divide-line border-t border-line-strong pt-4">
-					<p class="m-0 truncate pb-3 text-small text-fg-muted">{account.handle}</p>
+					<p class="truncate pb-3 text-small text-fg-muted">{account.handle}</p>
 					{@render accountItems(account, rowClass)}
 				</div>
 			{/if}

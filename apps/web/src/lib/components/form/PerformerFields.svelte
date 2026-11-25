@@ -213,8 +213,8 @@
 					<input type="file" name="mixTracklist" accept=".json,application/json" class="max-w-full text-small" aria-label="Tracklist for {mix.title || 'this mix'}" />
 				</div>
 				{#if sets}
-					<div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-base">
-						<label class="muted" for="mix-set-{mix.key}">Set (optional):</label>
+					<div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-body">
+						<label class="text-fg-muted" for="mix-set-{mix.key}">Set (optional):</label>
 						<select id="mix-set-{mix.key}" class="input min-w-0 grow basis-56 truncate pr-10" name="mixSet" onchange={(event) => pickSet(mix, event.currentTarget.value)}>
 							<option value="" selected={!mix.set}>None</option>
 							{#each setChoices(mix.set) as choice (choice.value)}<option value={choice.value} selected={mix.set && choice.value === setValue(mix.set)}>{choice.label}</option>{/each}

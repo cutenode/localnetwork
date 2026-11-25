@@ -49,8 +49,8 @@
 	<div class="card flex flex-col items-start gap-4 p-5 sm:p-6">
 		<CircleCheck aria-hidden="true" class="size-6 text-good" />
 		<div role="status" class="flex flex-col gap-1.5">
-			<h2 class="m-0 text-emphasis font-semibold">Thanks, it's posted</h2>
-			<p class="m-0 text-small text-fg-muted">Follow replies on userinput.app.</p>
+			<h2 class="text-emphasis">Thanks, it's posted</h2>
+			<p class="text-small text-fg-muted">Follow replies on userinput.app.</p>
 		</div>
 		<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
 			<a class="btn-primary" href={step.url}>View your report</a>
@@ -62,8 +62,8 @@
 	<form method="POST" action={action('allow')} class="card flex flex-col gap-4 p-5 sm:p-6" onsubmit={() => (sending = true)}>
 		<FormMessage form={error ? { error } : null} />
 		<div class="flex flex-col gap-1.5">
-			<h2 class="m-0 text-emphasis font-semibold">Approve posting first</h2>
-			<p class="m-0 text-small text-fg-muted">Your account's server asks once. Local Network can only add new posts to userinput.app, nothing else.</p>
+			<h2 class="text-emphasis">Approve posting first</h2>
+			<p class="text-small text-fg-muted">Your account's server asks once. Local Network can only add new posts to userinput.app, nothing else.</p>
 		</div>
 		<div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
 			<a class="btn-ghost" href={github}>Use GitHub instead</a>

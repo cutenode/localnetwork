@@ -56,7 +56,7 @@
 </script>
 
 {#if order.length}
-	<ol aria-label="Keys in order" class="m-0 flex list-none flex-wrap items-center gap-1.5 p-0 sm:hidden">
+	<ol aria-label="Keys in order" class="flex flex-wrap items-center gap-1.5 sm:hidden">
 		{#each order as step, k (step.i)}
 			{@const tile = onColour(playColor(step.i))}
 			<li class="flex items-center gap-1.5">
@@ -66,7 +66,7 @@
 		{/each}
 	</ol>
 {:else}
-	<p class="m-0 text-label text-fg-muted sm:hidden">The library has no keys for these tracks.</p>
+	<p class="text-label text-fg-muted sm:hidden">The library has no keys for these tracks.</p>
 {/if}
 
 <div class="max-sm:hidden">
@@ -114,11 +114,11 @@
 			</g>
 		{/each}
 	</svg>
-	<ul class="m-0 mt-3 flex list-none flex-wrap justify-center gap-x-4 p-0 text-label text-fg-muted">
+	<ul class="mt-3 flex flex-wrap justify-center gap-x-4 text-label text-fg-muted">
 		<li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-fg-muted"></span>Harmonic move</li>
 		<li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-critical"></span>Clash</li>
 	</ul>
-	<p class="m-0 mt-1 min-h-10 text-center text-label text-fg-muted" aria-live="polite">
+	<p class="mt-1 min-h-10 text-center text-label text-fg-muted" aria-live="polite">
 		{#if focus}
 			<span class="font-mono text-fg">{focus}</span>: {focusPlays.map((i) => `${i + 1}. ${report.plays[i].track.title}`).join(', ')}
 		{:else if used.size}

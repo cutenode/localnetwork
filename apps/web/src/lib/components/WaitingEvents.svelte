@@ -23,9 +23,9 @@
 </script>
 
 <section aria-labelledby="{id}-heading" class="card flex flex-col gap-4 p-5 sm:p-6">
-	<h2 id="{id}-heading" class="m-0 text-emphasis font-semibold">Waiting for the venue</h2>
+	<h2 id="{id}-heading" class="text-emphasis">Waiting for the venue</h2>
 	{#if waiting.length}
-		<ul class="m-0 list-none divide-y divide-line p-0">
+		<ul class="divide-y divide-line">
 			{#each waiting as event (event.uri)}
 				<li class="flex flex-wrap items-center justify-between gap-3 py-3">
 					<span class="min-w-0">
@@ -40,6 +40,6 @@
 			{/each}
 		</ul>
 	{:else}
-		<p class="m-0 text-small text-fg-muted">Nothing waiting. Events naming this venue show here until you approve them.</p>
+		<p class="text-small text-fg-muted">Nothing waiting. Events naming this venue show here until you approve them.</p>
 	{/if}
 </section>

@@ -3,7 +3,7 @@
 	import { phone } from '#lib/testing/viewports.ts';
 	import DiffTable from './DiffTable.svelte';
 
-	const { Story } = defineMeta({ title: 'Requests/Changes table', component: DiffTable, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Patterns/Changes table', component: DiffTable, tags: ['autodocs'] });
 
 	const changes = [
 		{ field: 'profile.location.city', before: 'Leeds', after: 'York' },

@@ -41,7 +41,7 @@
 		<SignInAgain did={data.viewer.did} next={page.url.pathname} error={reauth} />
 	{:else if page.url.searchParams.has('saved') && !form}
 		<FormMessage form={{ success: 'Saved. Your profile shows the changes now.' }} />
-		{#if page.url.searchParams.has('promoting')}<p class="m-0 text-small text-fg-muted">Your dashboard has a Promoter section now, starting with <a class="link" href="/dashboard/promoter">Book DJs</a>.</p>{/if}
+		{#if page.url.searchParams.has('promoting')}<p class="text-small text-fg-muted">Your dashboard has a Promoter section now, starting with <a class="link" href="/dashboard/promoter">Book DJs</a>.</p>{/if}
 	{:else if page.url.searchParams.has('created') && !form}
 		<FormMessage form={{ success: 'Your profile is up. Add more here whenever you like.' }} />
 	{:else if !form?.values}
@@ -51,13 +51,13 @@
 
 	{#if data.profile && data.sectionsOn.performer}
 		<section aria-labelledby="listing" class="card flex flex-col gap-3 p-5 sm:p-6">
-			<h2 id="listing" class="m-0 text-emphasis font-semibold">Find DJs</h2>
+			<h2 id="listing" class="text-emphasis">Find DJs</h2>
 			{#if data.listing}
-				<p class="m-0 text-small text-fg-muted">Staff list you in Find DJs, so promoters searching there find you.</p>
+				<p class="text-small text-fg-muted">Staff list you in Find DJs, so promoters searching there find you.</p>
 			{:else if data.listRequest}
-				<p class="m-0 text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/account/requests/{data.listRequest.rkey}">See your review request</a></p>
+				<p class="text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/account/requests/{data.listRequest.rkey}">See your review request</a></p>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">Ask staff to list you, so promoters searching Find DJs find you. They look at your profile as it is when they review.</p>
+				<p class="text-small text-fg-muted">Ask staff to list you, so promoters searching Find DJs find you. They look at your profile as it is when they review.</p>
 				<form method="POST" action="?/requestListing" class="flex flex-col gap-3" use:enhance>
 					<div>
 						<label class="label" for="listing-message">Note to staff <span class="font-normal text-fg-subtle">(optional)</span></label>
@@ -99,14 +99,14 @@
 				<input id="section-performer" type="checkbox" class="checkbox mt-0.5" name="section" value="performer" aria-describedby="section-performer-hint" bind:checked={performer} />
 				<div class="flex flex-col gap-0.5">
 					<label class="text-fg" for="section-performer">I play out as a DJ</label>
-					<p id="section-performer-hint" class="m-0 text-small text-fg-muted">Your sound, sets, fees and mixes, for promoters looking to book.</p>
+					<p id="section-performer-hint" class="text-small text-fg-muted">Your sound, sets, fees and mixes, for promoters looking to book.</p>
 				</div>
 			</div>
 			<div class="flex items-start gap-3">
 				<input id="section-promoter" type="checkbox" class="checkbox mt-0.5" name="section" value="promoter" aria-describedby="section-promoter-hint" bind:checked={promoter} />
 				<div class="flex flex-col gap-0.5">
 					<label class="text-fg" for="section-promoter">I put on shows</label>
-					<p id="section-promoter-hint" class="m-0 text-small text-fg-muted">The cities you book in, and a Promoter section on your dashboard.</p>
+					<p id="section-promoter-hint" class="text-small text-fg-muted">The cities you book in, and a Promoter section on your dashboard.</p>
 				</div>
 			</div>
 		</FormSection>
@@ -118,7 +118,7 @@
 					<input id="takes-inquiries" type="checkbox" class="checkbox mt-0.5" name="takesInquiries" aria-describedby="takes-inquiries-hint" checked={values.takesInquiries === true} />
 					<div class="flex flex-col gap-0.5">
 						<label class="text-fg" for="takes-inquiries">Take inquiries</label>
-						<p id="takes-inquiries-hint" class="m-0 text-small text-fg-muted">Your profile gets a Send inquiry button once staff list you in Find DJs.</p>
+						<p id="takes-inquiries-hint" class="text-small text-fg-muted">Your profile gets a Send inquiry button once staff list you in Find DJs.</p>
 					</div>
 				</div>
 			</FormSection>

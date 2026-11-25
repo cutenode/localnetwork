@@ -8,5 +8,5 @@
 	<div class="h-1.5 w-20 overflow-hidden rounded-full bg-line" aria-hidden="true">
 		<div class="h-full rounded-full bg-track-aqua" style:width="{width}%"></div>
 	</div>
-	<span class="font-mono text-small text-fg tabular-nums">{score}</span>
+	<span class="font-mono text-small text-fg">{score}</span>
 </div>

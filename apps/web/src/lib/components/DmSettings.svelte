@@ -47,8 +47,8 @@
 {#snippet blocked(state: DmAvailability)}
 	{@const reason = BLOCKED[state]?.(root)}
 	{#if reason}
-		<div class="notice m-0 flex flex-col items-start gap-2.5">
-			<p class="m-0">{reason}</p>
+		<div class="notice flex flex-col items-start gap-2.5">
+			<p>{reason}</p>
 			{#if state === 'unavailable'}
 				<button type="button" class="btn-secondary btn-sm" onclick={() => invalidateAll()}>Try again</button>
 			{:else}
@@ -62,17 +62,17 @@
 	<div class="flex items-start gap-3.5">
 		<span class="grid size-9 shrink-0 place-items-center rounded-md bg-well text-fg-muted"><MessageCircle class="size-4" aria-hidden="true" /></span>
 		<div class="flex min-w-0 flex-col gap-0.5">
-			<h2 id="{id}-heading" class="m-0 text-emphasis font-semibold">Bluesky DMs</h2>
-			<p class="m-0 text-small break-words text-fg-muted">{status}</p>
+			<h2 id="{id}-heading" class="text-emphasis">Bluesky DMs</h2>
+			<p class="text-small break-words text-fg-muted">{status}</p>
 		</div>
 	</div>
 	<FormMessage {form} />
 	{#if available && availability}
 		{#await availability}
-			<p class="m-0 flex min-h-5 items-center" aria-busy="true"><span class="h-3.5 w-2/3 animate-pulse rounded-sm bg-raised" aria-hidden="true"></span><span class="sr-only">Checking Bluesky chat</span></p>
+			<p class="flex min-h-5 items-center" aria-busy="true"><span class="h-3.5 w-2/3 animate-pulse rounded-sm bg-raised" aria-hidden="true"></span><span class="sr-only">Checking Bluesky chat</span></p>
 		{:then state}
 			{#if state === 'ok'}
-				<p class="m-0 flex min-h-5 items-center text-small text-fg-muted">Bluesky chat can deliver DMs from @{root} to you.</p>
+				<p class="flex min-h-5 items-center text-small text-fg-muted">Bluesky chat can deliver DMs from @{root} to you.</p>
 			{:else}
 				{@render blocked(state)}
 			{/if}

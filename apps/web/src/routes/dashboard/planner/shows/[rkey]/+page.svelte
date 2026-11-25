@@ -56,12 +56,12 @@
 	<a href="/dashboard/planner" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Planner</a>
 	<header class="flex flex-col gap-3">
 		<Eyebrow>{data.isNew ? 'New show' : 'Show'}</Eyebrow>
-		<h1 class="m-0 text-title font-semibold">{data.isNew ? 'Plan a show' : details?.title}</h1>
+		<h1 class="text-title">{data.isNew ? 'Plan a show' : details?.title}</h1>
 	</header>
 	<form method="POST" class="flex flex-col gap-6">
 		<FormMessage {form} />
 		<Card as="section" class="flex flex-col gap-4 sm:p-6">
-			<h2 class="m-0 text-emphasis font-semibold">Details</h2>
+			<h2 class="text-emphasis">Details</h2>
 			<div><label class="label" for="title">Show name</label><input id="title" name="title" class="input" required maxlength="120" bind:value={fields.title} /></div>
 			<div class="grid gap-4 sm:grid-cols-3">
 				<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" bind:value={fields.date} /></div>
@@ -76,9 +76,9 @@
 			<div><label class="label" for="notes">Notes</label><textarea id="notes" name="notes" class="input min-h-24 py-2.5" maxlength="2000" bind:value={fields.notes}></textarea></div>
 		</Card>
 		<Card as="section" class="flex flex-col gap-4 sm:p-6">
-			<h2 class="m-0 text-emphasis font-semibold">Lineup</h2>
+			<h2 class="text-emphasis">Lineup</h2>
 			{#if lineup.length}
-				<ol class="m-0 flex list-none flex-col gap-2 p-0">
+				<ol class="flex flex-col gap-2">
 					{#each lineup as slot, index (slot.project)}
 						{@const performer = performers[slot.project]}
 						{@const name = performer?.name ?? 'No longer listed'}
@@ -104,7 +104,7 @@
 					{/each}
 				</ol>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">Add DJs from your saved list.</p>
+				<p class="text-small text-fg-muted">Add DJs from your saved list.</p>
 			{/if}
 			{#if addable.length}
 				<div class="flex gap-2">

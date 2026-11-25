@@ -13,7 +13,7 @@
 	}: { mixes: (EpkMix & { onRequest?: boolean })[]; tracklistHref?: (url: string) => string | null } = $props();
 </script>
 
-<ol class="m-0 flex list-none flex-col p-0">
+<ol class="flex flex-col">
 	{#each mixes as mix (mix.url)}
 		{@const tracklist = tracklistHref?.(mix.url)}
 		<li class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line py-3 last:border-b">

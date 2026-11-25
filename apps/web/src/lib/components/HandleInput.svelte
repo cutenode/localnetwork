@@ -51,7 +51,7 @@
 			spellcheck="false"
 			required
 		/>
-		<ul id={listId} role="listbox" aria-label="Accounts" hidden={!accounts.open} class="absolute inset-x-0 top-full z-20 m-0 mt-1 list-none rounded-lg border border-line-strong bg-raised p-1">
+		<ul id={listId} role="listbox" aria-label="Accounts" hidden={!accounts.open} class="absolute inset-x-0 top-full z-20 mt-1 rounded-lg border border-line-strong bg-raised p-1">
 			{#each accounts.items as actor, i (actor.did)}
 				<!-- The input keeps focus and handles the keys (aria-activedescendant), so the options only take the pointer. -->
 				<!-- svelte-ignore a11y_click_events_have_key_events -->

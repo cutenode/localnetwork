@@ -21,15 +21,15 @@
 	<header class="flex items-center gap-4">
 		<Avatar src={data.project.avatarUrl} name={name} size="lg" />
 		<div class="flex min-w-0 flex-col gap-1">
-			<p class="m-0 eyebrow text-fg-subtle">Press kit · {name}</p>
-			<h1 class="m-0 text-title font-semibold break-words">{record.title}</h1>
-			{#if record.headline}<p class="m-0 text-small text-fg-soft">{record.headline}</p>{/if}
+			<p class="section-title">Press kit · {name}</p>
+			<h1 class="text-title break-words">{record.title}</h1>
+			{#if record.headline}<p class="text-small text-fg-soft">{record.headline}</p>{/if}
 		</div>
 	</header>
 	{#if data.access.kind === 'granted'}
 		<section aria-labelledby="epk-access" class="card flex flex-col gap-3 p-5">
-			<h2 id="epk-access" class="m-0 text-emphasis font-semibold">You can see all of it</h2>
-			<p class="m-0"><a class="btn-primary btn-sm" href={kit}>Open the press kit</a></p>
+			<h2 id="epk-access" class="text-emphasis">You can see all of it</h2>
+			<p><a class="btn-primary btn-sm" href={kit}>Open the press kit</a></p>
 		</section>
 	{:else}
 		<EpkAccessCard access={data.access} {name} error={form?.error} />

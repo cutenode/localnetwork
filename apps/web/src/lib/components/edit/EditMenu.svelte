@@ -66,7 +66,7 @@
 	{/if}
 	{#if isOwner}
 		<div class="flex flex-col px-4 py-3">
-			<h2 class="m-0 mb-1 eyebrow text-fg-muted">{name}</h2>
+			<h2 class="mb-1 eyebrow text-fg-muted">{name}</h2>
 			{#snippet standingBody()}<span class="text-fg">{standing[status]}</span>{/snippet}
 			{@render row('Shows to', standingBody)}
 			{#if people.length}
@@ -95,7 +95,7 @@
 	{#if isStaff}
 		<div class={['staff flex flex-col px-4 py-3', isOwner && 'border-t']}>
 			<div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3">
-				<h2 class="m-0 flex items-center gap-1.5 eyebrow text-fg"><ShieldCheck aria-hidden="true" class="size-3.5 text-warning" />Staff</h2>
+				<h2 class="flex items-center gap-1.5 eyebrow text-fg"><ShieldCheck aria-hidden="true" class="size-3.5 text-warning" />Staff</h2>
 				<span class="text-caption text-fg-muted">Everything here is logged as staff</span>
 			</div>
 			{#if edit && !isOwner}

@@ -17,7 +17,6 @@
 		{ label: 'Following', href: '/shows?view=following', following: true }
 	]);
 
-	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 
 	const heading = $derived(
 		data.following
@@ -89,9 +88,9 @@
 
 		<section aria-labelledby="results-title" class="flex min-w-0 flex-col gap-5">
 			<nav aria-label="Which shows" class="flex flex-wrap gap-2">
-				{#each tabs as tab (tab.href)}<a href={tab.href} aria-current={data.following === tab.following ? 'page' : undefined} class={chip(data.following === tab.following)}>{tab.label}</a>{/each}
+				{#each tabs as tab (tab.href)}<a href={tab.href} aria-current={data.following === tab.following ? 'page' : undefined} class="chip-toggle">{tab.label}</a>{/each}
 			</nav>
-			<h2 id="results-title" class="m-0 text-body font-semibold">{heading}</h2>
+			<h2 id="results-title" class="text-body font-semibold">{heading}</h2>
 			{#await data.shows}
 				<ShowList shows={undefined} rows={3} {empty} />
 			{:then result}
