@@ -579,10 +579,7 @@ export class AuditLog {
 			if (!isRootCopy && !isActorCopy) return;
 			const expected = AuditLog.toRecord(entry, isRootCopy);
 
-			const matches =
-				canonicalJson({ ...expected, $type: undefined }) === canonicalJson({ ...input.value, $type: undefined });
-
-			if (!matches) {
+			if (comparable(expected) !== comparable(input.value)) {
 				// A copy that differs from the chained entry (edited after the fact) is flagged even if it was verified before.
 				this.deps.logger.warn('audit copy does not match the local entry', { id: entry.id, uri: input.uri });
 				await db
@@ -684,6 +681,15 @@ export function entryContent(entry: AuditEntryRow) {
 		via: entry.via,
 		createdAt: entry.createdAt
 	};
+}
+
+const EMPTY = new Set(['""', '[]', '{}']);
+
+/** A copy's record as it's compared: without its type, and without empty fields, which `toRecord` leaves out. */
+function comparable(record: JsonObject): string {
+	const kept = Object.entries(record).filter(([key, value]) => key !== '$type' && !EMPTY.has(JSON.stringify(value)));
+
+	return canonicalJson(Object.fromEntries(kept));
 }
 
 function errorMessage(cause: unknown): string {

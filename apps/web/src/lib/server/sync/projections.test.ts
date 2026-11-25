@@ -497,6 +497,51 @@ describe('createProjections', () => {
 		});
 	});
 
+	it.each([
+		['details', {}],
+		['changes', []],
+		['actorRole', ''],
+		['subject', ''],
+		['subjectKind', ''],
+		['reason', '']
+	])("keeps the root's audit copy verified on a replay when its %s is empty", async (field, empty) => {
+		const copy = {
+			actor: ALICE,
+			action: 'auth.login',
+			summary: 'in',
+			outcome: 'success',
+			via: 'web',
+			chain: { seq: 1000, prev: 'f'.repeat(64), hash: 'a'.repeat(64) },
+			createdAt: new Date().toISOString(),
+			[field]: empty
+		};
+
+		const rkey = '3l4abcxyz2k2a';
+		await upsert(t.spaces.audit, ROOT, COLLECTION.auditEntry, rkey, copy);
+		expect(await t.audit.get(rkey)).toMatchObject({ rootStatus: 'verified' });
+		await upsert(t.spaces.audit, ROOT, COLLECTION.auditEntry, rkey, copy);
+		expect(await t.audit.get(rkey)).toMatchObject({ rootStatus: 'verified', rootError: null });
+	});
+
+	it.each([
+		['edited', { summary: 'out' }],
+		['given a field', { reason: 'late' }],
+		['left without a field', { details: undefined }],
+		['left with a field emptied', { details: {} }]
+	])("flags the root's audit copy when it's %s", async (_, edit) => {
+		const entry = await t.audit.record(
+			{ actor: ALICE, action: 'auth.login', summary: 'in', details: { door: 'east' } },
+			{ awaitDelivery: true }
+		);
+
+		const copy = t.net.spaceRecordsIn(t.spaces.audit, ROOT).find(({ uri }) => uri.endsWith(entry.id))!;
+		await upsert(t.spaces.audit, ROOT, COLLECTION.auditEntry, entry.id, { ...copy.value, ...edit });
+		expect(await t.audit.get(entry.id)).toMatchObject({
+			rootStatus: 'failed',
+			rootError: 'Root copy in the repo does not match this entry'
+		});
+	});
+
 	it('ignores records of these collections outside the spaces they belong in', async () => {
 		const now = new Date().toISOString();
 		const p1 = 'at://did:plc:root/computer.localnetwork.project/p1';
