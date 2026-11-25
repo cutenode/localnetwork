@@ -861,6 +861,13 @@ export type CueChange =
       from: string;
       shift_ms: number;
     };
+  }
+  /**
+   * Recorded as the style, not the cues, so a replay places them on the grid and phrases the
+   * track has then.
+   */
+  | {
+    auto: AutoCues;
   };
 
 /**
@@ -913,6 +920,35 @@ export type CueRef =
   }
   /** Every cue. */
   | "all";
+
+/** What `cues auto` does to the tracks it's given. */
+export type AutoCues = {
+  style: CueStyle;
+  /**
+   * Replace cues already in the slots the style uses (a hot cue's letter, a memory cue on the
+   * same beat). Without it they're kept and the style's cue there is left out.
+   */
+  overwrite?: boolean;
+};
+
+/**
+ * Where a style puts cues. Every style puts a memory cue on the first downbeat, named as
+ * rekordbox names its own (`1.1Bars`).
+ */
+export type CueStyle =
+  /** Only the memory cue on the first downbeat, as rekordbox's first cue does. */
+  | "first-cue"
+  /**
+   * Hot cues A-H on where each new phrase starts (a run of the same kind is one), named after
+   * the phrase: hot cues from phrase analysis as rekordbox offers them, not yet checked against
+   * tracks rekordbox gave its own.
+   */
+  | "rekordbox"
+  /**
+   * Hot cue A in green on the first downbeat and hot cues H, G and F in pink on the first three
+   * choruses (H the earliest).
+   */
+  | "intro-chorus";
 
 /** The image an artwork edit gives tracks (see [`crate::edit::Edit::SetArtwork`]). */
 export type ImageSource =
@@ -1230,7 +1266,7 @@ export type EditCues = {
  * What to do to the selected tracks' cues, tagged by `op`:
  * `{"op": "set", "hot_cue": "B", "at": {"ms": 62500}, "loop_beats": 8, "name": "Drop", "color": "red"}`,
  * `{"op": "update", "cue": {"hot": "B"}, "name": "Drop"}`, `{"op": "delete", "cue": "all"}`,
- * `{"op": "copy", "from": {"ids": [12]}}`.
+ * `{"op": "copy", "from": {"ids": [12]}}`, `{"op": "auto", "style": "rekordbox"}`.
  */
 export type CueOp =
   | (SetCue & {
@@ -1247,7 +1283,11 @@ export type CueOp =
   | {
     op: "copy";
     from: TrackSelector;
-  };
+  }
+  /** Place the cues a style puts on each track, from its own beat grid and phrases. */
+  | (AutoCues & {
+    op: "auto";
+  });
 
 export type PlaylistRestoreRequest = {
   drive: string;

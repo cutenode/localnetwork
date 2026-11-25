@@ -10,7 +10,7 @@ use std::path::Path;
 
 use locallibrary::anlz;
 use locallibrary::api::{self, CueOp, EditCues, ListCues, TrackSelector};
-use locallibrary::cue_edit::{CuePosition, CueRef, HotCue, SetCue, UpdateCue};
+use locallibrary::cue_edit::{AutoCues, CuePosition, CueRef, CueStyle, HotCue, SetCue, UpdateCue};
 use locallibrary::onelibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Device, Error, backup, fsutil, paths};
@@ -367,4 +367,78 @@ fn needs_analysis_files() {
         tracks: TrackSelector { ids: vec![t.id], ..Default::default() },
     });
     assert!(!listed.unwrap()[0].warnings.is_empty());
+}
+
+/// Give track 1 of the demo drive phrases: intro, chorus, up, chorus, outro, 16 beats each.
+fn with_phrases(root: &Path) {
+    use anlz::{Mood, Phrase, PhraseKind, SongStructure};
+    let ext = root.join("PIONEER/USBANLZ/P016/0000875E/ANLZ0000.EXT");
+    let kinds = [PhraseKind::Intro, PhraseKind::Chorus, PhraseKind::Up, PhraseKind::Chorus, PhraseKind::Outro];
+    let phrases = kinds
+        .iter()
+        .enumerate()
+        .map(|(i, kind)| Phrase {
+            kind: *kind,
+            start_beat: 1 + 16 * i as u16,
+            end_beat: 17 + 16 * i as u16,
+            fill_beat: None,
+        })
+        .collect();
+    let s = SongStructure { mood: Mood::High, phrases };
+    fs::write(&ext, anlz::write_song_structure(&fs::read(&ext).unwrap(), Some(&s)).unwrap()).unwrap();
+}
+
+fn auto(style: CueStyle, overwrite: bool) -> CueOp {
+    CueOp::Auto(AutoCues { style, overwrite })
+}
+
+#[test]
+fn auto_places_cues_from_the_phrases_and_keeps_cues_already_there() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    with_phrases(&root);
+    apply(&root, &[1], CueOp::Set(SetCue { name: Some("Mine".into()), ..set(Some('B'), CuePosition::Beat(5)) }));
+
+    apply(&root, &[1], auto(CueStyle::Rekordbox, false));
+    let shown = |root: &Path| -> Vec<(Option<String>, Option<u32>, String)> {
+        listed(root, 1).into_iter().map(|c| (c.hot_cue, c.beat, c.name)).collect()
+    };
+    let s = |x: &str| x.to_string();
+    assert_eq!(
+        shown(&root),
+        [
+            (None, Some(1), s("1.1Bars")),
+            (Some(s("A")), Some(1), s("Intro")),
+            // B was taken, so the style's B (the first chorus) is left out.
+            (Some(s("B")), Some(5), s("Mine")),
+            (Some(s("C")), Some(33), s("Up")),
+            (Some(s("D")), Some(49), s("Chorus")),
+            (Some(s("E")), Some(65), s("Outro")),
+        ]
+    );
+    // Again, it changes nothing.
+    assert!(api::cues_plan(&edit(&root, &[1], auto(CueStyle::Rekordbox, false)), &Ctx::silent()).unwrap().is_noop());
+
+    // --overwrite takes B too, with the style's name and colour.
+    apply(&root, &[1], auto(CueStyle::Rekordbox, true));
+    let b = listed(&root, 1).into_iter().find(|c| c.hot_cue.as_deref() == Some("B")).unwrap();
+    assert_eq!((b.beat, b.name.as_str(), b.color), (Some(17), "Chorus", None));
+}
+
+#[test]
+fn auto_passes_over_tracks_it_cant_place_cues_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let lib = Device::open(&root).unwrap().library().unwrap();
+    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let plan = api::cues_plan(&edit(&root, &ids, auto(CueStyle::IntroChorus, false)), &Ctx::silent()).unwrap();
+    // Each track with a grid gets its first cue and A, and H, G, F only on choruses it has.
+    assert!(!plan.tracks.is_empty());
+    for t in &plan.tracks {
+        let hot: Vec<_> = t.after.iter().filter_map(|c| c.hot_cue.clone()).collect();
+        assert_eq!(hot.first().map(String::as_str), Some("A"), "{}", t.track.name);
+        assert!(hot[1..].iter().all(|h| ["F", "G", "H"].contains(&h.as_str())), "{}: {hot:?}", t.track.name);
+        assert!(t.after.iter().any(|c| c.hot_cue.is_none() && c.name == "1.1Bars"), "{}", t.track.name);
+    }
+    assert!(plan.tracks.len() + plan.warnings.len() <= ids.len(), "{:?}", plan.warnings);
 }
