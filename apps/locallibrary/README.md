@@ -483,7 +483,7 @@ flowchart TD
     hub --> playlist["playlist<br/>ls, new, rename, move, delete, add, remove, reorder, sort, dedupe, order, fill, unfiled, import"]
     hub --> track["track<br/>set, rm, replace, dedupe, relocate, upgrade, show, fetch, matches"]
     hub --> tags["tags<br/>list, add, untag, rename, delete"]
-    hub --> cues["cues<br/>list, set, rename, colour, rm, copy"]
+    hub --> cues["cues<br/>list, set, rename, colour, rm, copy, auto"]
     hub --> art["art<br/>missing, set, auto, embed, unembed, fetch, get"]
     hub --> edits["edits<br/>list, replay, clear"]
     hub --> smart["smart<br/>list, add, rm, apply"]

@@ -1,5 +1,6 @@
 //! `locallibrary cues`: list and edit a track's hot cues, memory cues and loops.
 
+use std::io::{BufRead, IsTerminal, Write};
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
@@ -7,10 +8,11 @@ use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::api::{self, CueOp, EditCues, ListCues, TrackSelector};
 use locallibrary::cue_edit::{
-    CueInfo, CuePlan, CuePosition, CueRef, CueReport, HotCue, SetCue, TrackCues, UpdateCue, clock,
+    AutoCues, CueInfo, CuePlan, CuePosition, CueRef, CueReport, CueStyle, HotCue, SetCue, TrackCues, UpdateCue, clock,
 };
 use locallibrary::progress::Ctx;
 
+use crate::SelectArgs;
 use crate::output::{Outcome, Output, dim, heading, ok, warn};
 
 #[derive(Args)]
@@ -98,6 +100,34 @@ locallibrary cues set Home --track 12 --memory --beat 129"
         track: TrackArgs,
         #[command(flatten)]
         which: Which,
+        /// Show the plan without changing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Place cues from each track's beat grid and phrases, in a style you pick (asked when not given)
+    #[command(
+        long_about = "Place cues from each track's beat grid and phrases, in a style you pick (asked when not given).\n\n\
+Styles:\n  \
+rekordbox     hot cues A-H where each phrase starts, named after it\n  \
+intro-chorus  A (green) on the intro, H/G/F (pink) on the first three choruses\n  \
+first-cue     a memory cue on the first downbeat only\n\n\
+Every style puts a memory cue named 1.1Bars on the first downbeat, as rekordbox does. Cues already\n\
+in a slot the style uses are kept unless --overwrite.\n\n\
+Examples:\n  locallibrary cues auto Home --playlist \"New\" --style rekordbox\n  \
+locallibrary cues auto Home --track 12",
+        after_help = crate::FILTER_HELP
+    )]
+    Auto {
+        #[arg(help = crate::LIBRARY_HELP)]
+        drive: String,
+        #[command(flatten)]
+        select: SelectArgs,
+        /// rekordbox, intro-chorus or first-cue (asked when not given)
+        #[arg(long, value_parser = |s: &str| s.parse::<CueStyle>())]
+        style: Option<CueStyle>,
+        /// Replace cues already in the slots the style uses
+        #[arg(long)]
+        overwrite: bool,
         /// Show the plan without changing anything
         #[arg(long)]
         dry_run: bool,
@@ -258,6 +288,14 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         CuesCommand::Rm { drive, track, which, dry_run } => {
             (EditCues { drive, tracks: track.selector(), edit: CueOp::Delete { cue: which.get() } }, dry_run)
         }
+        CuesCommand::Auto { drive, select, style, overwrite, dry_run } => {
+            let style = match style {
+                Some(s) => s,
+                None => pick_style(out, &mut std::io::stdin().lock())?,
+            };
+            let auto = AutoCues { style, overwrite };
+            (EditCues { drive, tracks: select.selector(), edit: CueOp::Auto(auto) }, dry_run)
+        }
         CuesCommand::Copy { drive, from, to, dry_run } => {
             let from = TrackSelector { ids: vec![from], ..Default::default() };
             let tracks = TrackSelector { ids: to, ..Default::default() };
@@ -284,6 +322,39 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     }
     let report = plan.apply(None, ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || render_report(&report, &req.drive)))
+}
+
+/// Ask which style to place cues in, in a terminal; elsewhere (`--json`, a pipe) say to pass one.
+fn pick_style(out: Output, input: &mut impl BufRead) -> Result<CueStyle> {
+    let names: Vec<&str> = CueStyle::ALL.iter().map(|s| s.name()).collect();
+    if out.json || !std::io::stdin().is_terminal() {
+        bail!("pick a style with --style ({})", names.join(", "));
+    }
+    ask_style(input)
+}
+
+fn ask_style(input: &mut impl BufRead) -> Result<CueStyle> {
+    eprintln!("{} Which cues?", style("?").cyan().bold());
+    for (i, s) in CueStyle::ALL.iter().enumerate() {
+        eprintln!("  {}  {:<13} {}", style(i + 1).bold(), s.name(), dim(s.about()));
+    }
+    eprint!("  [1] ");
+    let _ = std::io::stderr().flush();
+    let mut line = String::new();
+    input.read_line(&mut line)?;
+    choice(&line).map_err(|e| anyhow::anyhow!(e))
+}
+
+/// A line answering [`ask_style`]: blank for the first, a number, or a style's name.
+fn choice(line: &str) -> std::result::Result<CueStyle, String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(CueStyle::ALL[0]);
+    }
+    match line.parse::<usize>() {
+        Ok(n) => CueStyle::ALL.get(n.wrapping_sub(1)).copied().ok_or_else(|| format!("no style {n}")),
+        Err(_) => line.parse(),
+    }
 }
 
 /// `B  1:02.500  beat 134  loop 8 beats to 1:06.250  "Drop"  #e62828`

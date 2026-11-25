@@ -143,6 +143,7 @@ crates/locallibrary/src/    the library, built on the crates above
   import.rs    loclib-tracklist, re-exported
   tags.rs      My Tags in exportExt.pdb and OneLibrary
   cue_edit.rs  hot cues, memory cues and loops in analysis files and OneLibrary's cue table
+  cue_edit/auto.rs  where `cues auto`'s styles put cues, from a track's beat grid and phrases
   doctor.rs    duplicates (by file, name, metadata, audio and sound), missing and orphaned files, drift
   relocate.rs  finding missing tracks' audio on the drive and in folders, used only when one file fits
   upgrade.rs   pointing lossy tracks at lossless files of their recording, found by sound, cues and

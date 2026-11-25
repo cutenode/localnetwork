@@ -34,6 +34,9 @@ use loclib_rekordbox_db::onelibrary::{CueRow, CueRowChanges};
 /// How far (ms) a memory cue may be from the position given to find it.
 pub(crate) const FIND_TOLERANCE_MS: u32 = 100;
 
+pub mod auto;
+pub use auto::{AutoCues, CueStyle};
+
 /// A hot cue slot, A-H (written as its letter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "String", into = "String")]
@@ -152,6 +155,8 @@ pub enum CueEdit {
         from: u32,
         shift_ms: i32,
     },
+    /// Put the cues a style places from each track's own beat grid and phrases ([`auto`]).
+    Auto(AutoCues),
 }
 
 /// A cue edit as the drive's journal records it (see [`crate::edit::journal`]): a copy's source
@@ -172,6 +177,9 @@ pub enum CueChange {
         from: String,
         shift_ms: i32,
     },
+    /// Recorded as the style, not the cues, so a replay places them on the grid and phrases the
+    /// track has then.
+    Auto(AutoCues),
 }
 
 impl CueChange {
@@ -184,6 +192,7 @@ impl CueChange {
             CueEdit::Delete(r) => CueChange::Delete(r.clone()),
             CueEdit::Copy { from } => CueChange::Copy { from: file(*from) },
             CueEdit::Carry { from, shift_ms } => CueChange::Carry { from: file(*from), shift_ms: *shift_ms },
+            CueEdit::Auto(a) => CueChange::Auto(*a),
         }
     }
 
@@ -201,6 +210,7 @@ impl CueChange {
             CueChange::Carry { from, shift_ms } => {
                 format!("carry the cues of {from} onto {tracks} track(s) without any, {shift_ms:+} ms")
             }
+            CueChange::Auto(a) => format!("place {} cues on {tracks} track(s)", a.style.name()),
         }
     }
 }
@@ -752,6 +762,25 @@ fn edited(t: &Track, loaded: &Loaded, edit: &CueEdit, source: Option<&Loaded>) -
                 !gone.contains(&(i - 1))
             });
         }
+        CueEdit::Auto(a) => {
+            let phrases = loaded.ext_bytes.as_deref().and_then(|b| anlz::song_structure(b).ok().flatten());
+            for s in auto::place(a.style, &loaded.beats, phrases.as_ref()) {
+                let (ms, _) = resolve(s.at, false, &loaded.beats)?;
+                let taken = drafts.iter().any(|d| match s.hot_cue {
+                    Some(h) => d.cue.hot_cue == Some(h.0),
+                    None => d.cue.hot_cue.is_none() && d.cue.start_ms.abs_diff(ms) <= FIND_TOLERANCE_MS,
+                });
+                if taken && !a.overwrite {
+                    continue;
+                }
+                if taken && s.hot_cue.is_none() {
+                    // `set` replaces a memory cue only at exactly its position.
+                    drafts.retain(|d| d.cue.hot_cue.is_some() || d.cue.start_ms.abs_diff(ms) > FIND_TOLERANCE_MS);
+                }
+                let fresh = SetCue { color: s.color.clone().or_else(|| taken.then(|| "none".into())), ..s };
+                set(&mut drafts, t, &loaded.beats, &fresh)?;
+            }
+        }
         CueEdit::Carry { .. } if !loaded.cues.is_empty() => {}
         CueEdit::Copy { .. } | CueEdit::Carry { .. } => {
             let source = source.expect("copy has a source");
@@ -909,7 +938,8 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
     if track_ids.is_empty() {
         return Err(Error::invalid("no tracks selected"));
     }
-    let one_track = !matches!(edit, CueEdit::Copy { .. } | CueEdit::Carry { .. } | CueEdit::Delete(CueRef::All));
+    let one_track =
+        !matches!(edit, CueEdit::Copy { .. } | CueEdit::Carry { .. } | CueEdit::Delete(CueRef::All) | CueEdit::Auto(_));
     if one_track && track_ids.len() > 1 {
         return Err(Error::invalid(format!("{} tracks selected; pick one", track_ids.len())));
     }
@@ -943,7 +973,19 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
         if source.as_ref().is_some_and(|(s, _, _)| s.id == t.id) {
             continue;
         }
-        let loaded = load(device, t)?;
+        let loaded = match load(device, t) {
+            Ok(l) => l,
+            // Placing cues on many tracks passes over those that can't hold any.
+            Err(e) if matches!(edit, CueEdit::Auto(_)) => {
+                warnings.push(e.to_string());
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        if matches!(edit, CueEdit::Auto(_)) && loaded.beats.is_empty() {
+            warnings.push(format!("{} has no beat grid, so no cues were placed on it", t.display_name()));
+            continue;
+        }
         let drafts = edited(t, &loaded, edit, source.as_ref().map(|(_, l, _)| l))?;
         let after: Vec<CuePoint> = drafts.iter().map(|d| d.cue.clone()).collect();
         if same_cues(&loaded.cues, &after, true) {
@@ -1106,6 +1148,7 @@ pub(crate) fn replay(
         CueChange::SetMany(cues) => CueEdit::SetMany(cues.clone()),
         CueChange::Update(u) => CueEdit::Update(u.clone()),
         CueChange::Delete(r) => CueEdit::Delete(r.clone()),
+        CueChange::Auto(a) => CueEdit::Auto(*a),
         CueChange::Copy { from } | CueChange::Carry { from, .. } => match (id(from), change) {
             (Some(from), CueChange::Carry { shift_ms, .. }) => CueEdit::Carry { from, shift_ms: *shift_ms },
             (Some(from), _) => CueEdit::Copy { from },

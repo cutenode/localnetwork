@@ -8033,6 +8033,19 @@
             "carry"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "auto": {
+              "$ref": "#/$defs/AutoCues"
+            }
+          },
+          "required": [
+            "auto"
+          ],
+          "additionalProperties": false,
+          "description": "Recorded as the style, not the cues, so a replay places them on the grid and phrases the\ntrack has then."
         }
       ],
       "description": "A cue edit as the drive's journal records it (see [`crate::edit::journal`]): a copy's source\nby its audio file (a device path), like the tracks edited, so a replay on a later export, where\nids differ, finds them."
@@ -8183,6 +8196,42 @@
         }
       ],
       "description": "Which existing cues an edit is about."
+    },
+    "AutoCues": {
+      "type": "object",
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/CueStyle"
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Replace cues already in the slots the style uses (a hot cue's letter, a memory cue on the\nsame beat). Without it they're kept and the style's cue there is left out."
+        }
+      },
+      "required": [
+        "style"
+      ],
+      "description": "What `cues auto` does to the tracks it's given."
+    },
+    "CueStyle": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "first-cue",
+          "description": "Only the memory cue on the first downbeat, as rekordbox's first cue does."
+        },
+        {
+          "type": "string",
+          "const": "rekordbox",
+          "description": "Hot cues A-H on where each new phrase starts (a run of the same kind is one), named after\nthe phrase: hot cues from phrase analysis as rekordbox offers them, not yet checked against\ntracks rekordbox gave its own."
+        },
+        {
+          "type": "string",
+          "const": "intro-chorus",
+          "description": "Hot cue A in green on the first downbeat and hot cues H, G and F in pink on the first three\nchoruses (H the earliest)."
+        }
+      ],
+      "description": "Where a style puts cues. Every style puts a memory cue on the first downbeat, named as\nrekordbox names its own (`1.1Bars`)."
     },
     "ImageSource": {
       "oneOf": [
@@ -9079,9 +9128,23 @@
             "from"
           ],
           "description": "Replace the selected tracks' cues with a copy of one other track's."
+        },
+        {
+          "$ref": "#/$defs/AutoCues",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "auto"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "description": "Place the cues a style puts on each track, from its own beat grid and phrases."
         }
       ],
-      "description": "What to do to the selected tracks' cues, tagged by `op`:\n`{\"op\": \"set\", \"hot_cue\": \"B\", \"at\": {\"ms\": 62500}, \"loop_beats\": 8, \"name\": \"Drop\", \"color\": \"red\"}`,\n`{\"op\": \"update\", \"cue\": {\"hot\": \"B\"}, \"name\": \"Drop\"}`, `{\"op\": \"delete\", \"cue\": \"all\"}`,\n`{\"op\": \"copy\", \"from\": {\"ids\": [12]}}`."
+      "description": "What to do to the selected tracks' cues, tagged by `op`:\n`{\"op\": \"set\", \"hot_cue\": \"B\", \"at\": {\"ms\": 62500}, \"loop_beats\": 8, \"name\": \"Drop\", \"color\": \"red\"}`,\n`{\"op\": \"update\", \"cue\": {\"hot\": \"B\"}, \"name\": \"Drop\"}`, `{\"op\": \"delete\", \"cue\": \"all\"}`,\n`{\"op\": \"copy\", \"from\": {\"ids\": [12]}}`, `{\"op\": \"auto\", \"style\": \"rekordbox\"}`."
     },
     "PlaylistRestoreRequest": {
       "type": "object",
