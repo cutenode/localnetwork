@@ -443,7 +443,7 @@ fn prop_only_real_rates_are_taken(tc: TestCase) {
     let path = project(dir.path(), "project", Some(&x), &[(1, FLOAT, floats(&[0.5, 0.5]))]);
     let taken = if rate > 0.0 { rate } else { 44_100.0 };
     match Project::open(&path) {
-        Ok(p) => assert!(RATES.contains(&taken) && p.rate == taken, "{rate}: {}", p.rate),
+        Ok(p) => assert!(RATES.contains(&taken) && p.rate() == taken, "{rate}: {}", p.rate()),
         Err(e) => assert!(!RATES.contains(&taken) && e.to_string().contains("sample rate of"), "{rate}: {e}"),
     }
 }

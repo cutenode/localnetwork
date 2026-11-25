@@ -666,10 +666,12 @@ enum Before {
     Damaged,
 }
 
-/// A plan's estimate uses what's stored when it holds, tests the drive only with leave to and when
-/// it doesn't, says when it did, and a plan that isn't applied leaves a drive that had no
-/// `.locallibrary/` as it found it.
+/// A plan's estimate uses what's stored when it holds, tests the drive only with leave to, when
+/// it doesn't, and when the write is big enough for a test to tell anything (a write of many small
+/// files can matter with too few bytes for one), says when it did, and a plan that isn't applied
+/// leaves a drive that had no `.locallibrary/` as it found it.
 #[hegel::test(test_cases = 12)]
+#[hegel::explicit_test_case(before = Before::Stale, may_measure = true, cancelled = false, big = false, small = MIN_TEST_BYTES - 1, applied = false)]
 fn prop_an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
     let (dir, device) = drive();
     let state = dir.path().join(STATE_DIR);
@@ -697,15 +699,18 @@ fn prop_an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
     let progress = NoProgress;
     let ctx = Ctx::new(&progress, cancel);
     let must_test = before != Before::Fresh;
-    let made = match estimate(&device, work(64 << 20, 300, 3), &now(), may_measure, &ctx) {
+    let big = tc.draw(gs::booleans());
+    let small = tc.draw(gs::integers::<u64>().max_value(MIN_TEST_BYTES - 1));
+    let bytes = if big { 64 << 20 } else { small };
+    let made = match estimate(&device, work(bytes, 300, 3), &now(), may_measure, &ctx) {
         Err(Error::Cancelled(_)) => {
-            assert!(cancelled && may_measure && must_test);
+            assert!(cancelled && may_measure && must_test && big);
             assert_eq!(state.exists(), used, "a cancelled test leaves the drive as it was");
             return;
         }
         made => made.unwrap().unwrap(),
     };
-    let tested = may_measure && must_test;
+    let tested = may_measure && must_test && big;
     assert_eq!(made.ran_test, tested);
     match (tested, before) {
         (true, _) => assert_eq!(made.speed.as_ref().map(|s| s.measured_by), Some(MeasuredBy::Test)),
@@ -713,8 +718,8 @@ fn prop_an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
         (false, _) => assert_eq!(made.speed, None),
     }
     assert_eq!(made.stale.is_some(), !tested && before == Before::Stale);
-    if !may_measure {
-        assert_eq!(state.exists(), used, "without leave to test, nothing is written");
+    if !tested {
+        assert_eq!(state.exists(), used, "without a test, nothing is written");
     }
     let applied = tc.draw(gs::booleans());
     if applied {
