@@ -2401,6 +2401,18 @@ fn dragging_the_zoomed_waveform_scrubs() {
     app.pending_seek = None;
     mouse(&mut app, drag, (mid + 20, y));
     assert_eq!(app.pending_seek, None);
+
+    // A release that went unseen (let go of outside the window): the next press ends the drag
+    // where it was last seen. The wheel meanwhile leaves it be.
+    mouse(&mut app, LEFT, (mid, y));
+    mouse(&mut app, drag, (mid + 2, y));
+    mouse(&mut app, MouseEventKind::ScrollDown, (mid + 2, y));
+    app.pending_seek = None;
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Right), (mid, y));
+    assert!((at(&app) - (20.0 - 2.0 * per_col)).abs() < 1e-6, "{}", at(&app));
+    app.pending_seek = None;
+    mouse(&mut app, drag, (mid + 9, y));
+    assert_eq!(app.pending_seek, None, "and it's over");
 }
 
 /// With quantize on, a drag along the zoomed waveform lets go of the playhead on the nearest beat.

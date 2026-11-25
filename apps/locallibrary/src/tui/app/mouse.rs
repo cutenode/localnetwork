@@ -352,9 +352,6 @@ impl App {
 
     /// The zoomed waveform pressed at `column`: a drag from here scrubs.
     fn hold_zoom(&mut self, column: u16) {
-        if self.now.is_none() {
-            return;
-        }
         let secs_per_col = self.deck_secs / f64::from(self.areas.zoom.width.max(1));
         let from = self.position();
         self.zoom_drag = Some(ZoomDrag { column, at: column, from, secs_per_col, moved: false, held: false });
