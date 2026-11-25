@@ -29,6 +29,8 @@ sequenceDiagram
     L->>D: What's published here now?
     L->>L: Plan the exact record,<br/>checked against its Lexicon
     opt The account can't write it yet
+        L->>L: Is publishing open?<br/>(the permission set's DNS record)
+        Note over L: Not yet: stops, saying so,<br/>before asking to sign in
         L->>S: Sign in again, allowing it
         L->>L: Plan again, for<br/>whoever approved
     end
@@ -37,7 +39,7 @@ sequenceDiagram
     S-->>L: at:// URI and CID
 ```
 
-Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`src/publish_cmd.rs`](../../src/publish_cmd.rs)
+Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/atmosphere/publishing.rs`](../../../../crates/locallibrary/src/atmosphere/publishing.rs), [`src/publish_cmd.rs`](../../src/publish_cmd.rs)
 
 ## What each command publishes
 
