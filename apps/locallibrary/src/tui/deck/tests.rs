@@ -183,7 +183,7 @@ fn loops_from_the_grid() {
     assert_eq!(auto_loop(&[], 1225.0, 4.0, true), None);
     assert_eq!(auto_loop(&g, 0.0, 4.0, true), Some((100.0, 2100.0)));
     // A grid that marks no bars: from the beat the playhead is in, never before the first.
-    let unbarred: Vec<Beat> = g.iter().map(|b| Beat { beat_number: 0, ..b.clone() }).collect();
+    let unbarred: Vec<Beat> = g.iter().map(|b| Beat { beat_number: 0, ..*b }).collect();
     assert_eq!(auto_loop(&unbarred, 1225.0, 4.0, true), Some((1100.0, 3100.0)));
     assert_eq!(auto_loop(&unbarred, 0.0, 4.0, true), Some((100.0, 2100.0)));
     assert_eq!((beats_label(4.0), beats_label(0.5), beats_label(0.25)), ("4".into(), "1/2".into(), "1/4".into()));

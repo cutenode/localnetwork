@@ -532,7 +532,7 @@ Deck:
 | `<  >` | one bar (4 beats) back / forward |
 | `{  }` | 8 bars (32 beats, a phrase) back / forward |
 | `Z` | quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one |
-| `l` | loop: the saved loop the playhead is in, else a bar of 4 beats from the nearest downbeat; again to exit |
+| `l` | loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit |
 | `(  )` | halve / double the loop |
 |  | A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it. |
 | `S` | autoplay off (single play): stop after each track, the next one ready for space; again to play on |
