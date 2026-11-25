@@ -680,7 +680,7 @@ jobs:
           # branch than main. The code scanning rule holds a pull request or a merge queue group until
           # its commit has a result in every category main has: #347, which changed no Rust and got
           # no Rust analysis, couldn't join the queue ("Code scanning is still expecting 1 result
-          # from CodeQL"). Pull requests' alerts are compared with main's, so main's pushes analyse
+          # from CodeQL"). Pull requests' alerts are compared with main's, so main's pushes have
           # every language too.
           codeql=false
           if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then codeql=true; fi
