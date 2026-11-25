@@ -4,10 +4,12 @@
 # commands and a frame of the player run under cachegrind, which counts them exactly, on the
 # 3,886-track fixture. Builds first, which is a no-op when nothing changed since the last run. Run
 # from the root of the checkout to measure; a build into another checkout's target sets
-# CARGO_TARGET_DIR.
-#   measure-release.sh <measured-dir>
+# CARGO_TARGET_DIR. `cli` measures the dist build alone and `frames` the frame test alone, each one
+# release build, so CI runs them side by side; with neither it measures both.
+#   measure-release.sh <measured-dir> [cli|frames]
 set -euo pipefail
 measured=$1
+part=${2:-}
 target=${CARGO_TARGET_DIR:-target}
 mkdir -p "$measured"
 # The CLI's package, by its manifest: a base measured in a checkout of its own with this script may
@@ -15,6 +17,7 @@ mkdir -p "$measured"
 cli=$(cargo metadata --no-deps --format-version 1 --locked |
   jq -r '.packages[] | select(.manifest_path | endswith("/apps/locallibrary/Cargo.toml")) | .name')
 
+if [ "$part" != frames ]; then
 # By name, whatever the version, so a new crate shows and a version bump doesn't. Without colour:
 # CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
 cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p "$cli" --prefix none |
@@ -72,7 +75,9 @@ instructions() {
   echo "check $(instructions check LARGE LARGE2)"
   echo "doctor $(instructions doctor LARGE)"
 } | jq -Rn '[inputs | split(" ") | {(.[0]): (.[1] | tonumber)}] | add' > "$measured/cli.json"
+fi
 
+[ "$part" != cli ] || exit 0
 # A frame of the player, in the release profile, as dist's test binary would take a second fat LTO
 # link. Unstripped, for frame-instructions.sh to find the frame by its name: the symbols aren't loaded
 # when it runs, so it runs the same instructions.

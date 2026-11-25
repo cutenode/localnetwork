@@ -422,12 +422,24 @@ jobs:
   # that commit, or of the nearest one before it that changed nothing these measure: a group's head
   # becomes main, so the queue's runs measure main. Only when no run did is the base built here too.
   # Changes to tests alone are caught by locallibrary-bench.yml's weekly run of the same.
+  # Its two release builds, dist's for the CLI and the release profile's for the frame test, run as
+  # two jobs side by side, each with its own areas (benchmarks/budgets/, `job`) and artifact.
   release-budgets:
     if: inputs.release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: cli
+            job: release
+            artifact: release-budgets
+          - part: frames
+            job: release-frames
+            artifact: release-budgets-frames
+    name: release-budgets (${{ matrix.part }})
     runs-on: ubuntu-latest
-    # Two release builds, dist's for the CLI and the release profile's for the frame test, and the
-    # base's two when no run measured it.
-    timeout-minutes: 90
+    # One release build, and the base's when no run measured it.
+    timeout-minutes: 60
     permissions:
       contents: read
       # The base's measurements, from its run's artifact.
@@ -460,6 +472,7 @@ jobs:
       - uses: ./.github/actions/release-budgets
         with:
           out: ${{ github.workspace }}/target/budgets
+          part: ${{ matrix.part }}
       # A merge queue group's base, how many pull requests it adds to it, and their commits' Budget-Raise
       # trailers and bodies, or a pull request's base, trailers and body.
       - id: base
@@ -488,7 +501,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           BASE: ${{ steps.base.outputs.sha }}
-        run: node tools/budgets/cli.ts baseline "$BASE" locallibrary_release release-budgets target/budgets-base >> "$GITHUB_OUTPUT"
+          ARTIFACT: ${{ matrix.artifact }}
+        run: node tools/budgets/cli.ts baseline "$BASE" locallibrary_release "$ARTIFACT" target/budgets-base >> "$GITHUB_OUTPUT"
       - if: steps.baseline.outputs.found != 'true'
         env:
           BASE: ${{ steps.base.outputs.sha }}
@@ -502,17 +516,19 @@ jobs:
         with:
           root: ${{ runner.temp }}/base
           out: ${{ github.workspace }}/target/budgets-base
+          part: ${{ matrix.part }}
       # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
       - shell: bash
         env:
           ENTRIES: ${{ steps.base.outputs.entries }}
-        run: node tools/budgets/cli.ts check release target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
+          JOB: ${{ matrix.job }}
+        run: node tools/budgets/cli.ts check "$JOB" target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
       # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
       # The repository's default retention, as the budgets job's.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-budgets
+          name: ${{ matrix.artifact }}
           path: target/budgets
           if-no-files-found: ignore
 
