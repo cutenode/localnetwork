@@ -14,8 +14,8 @@
 //! 12% sat half a beat off them. rekordbox started bars on the first beat for 78%: none of the
 //! guesses tried at where a bar starts did better.
 
+use loclib_mixid::fingerprint::forward_fft;
 use loclib_model::analysis::Beat;
-use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
 use serde::{Deserialize, Serialize};
 
@@ -93,7 +93,8 @@ struct Flux {
 }
 
 fn flux(mono: &[f32]) -> Flux {
-    let fft = FftPlanner::<f32>::new().plan_fft_forward(WINDOW);
+    // loclib-mixid's planner, not one of our own (see `forward_fft`).
+    let fft = forward_fft(WINDOW);
     let hann: Vec<f32> =
         (0..WINDOW).map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / WINDOW as f32).cos()).collect();
     let frames = (mono.len() - WINDOW) / HOP + 1;
