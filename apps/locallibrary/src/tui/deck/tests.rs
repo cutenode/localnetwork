@@ -199,7 +199,9 @@ fn loop_keys() {
     press(&mut app, ")");
     press(&mut app, ")");
     assert_eq!(looped(&app), Some((0, 4000, true)));
-    assert!(app.drawn_cues().iter().any(|c| c.end_ms == Some(4000) && c.comment == "loop ↻8"));
+    assert!(
+        app.drawn_cues().iter().any(|c| c.end_ms == Some(4000) && c.comment == "loop" && c.loop_beats == Some((8, 1)))
+    );
     let s = super::super::ui::screen(&mut app, 120, 50);
     assert!(s.contains("LOOP 8"), "{s}");
     // Exited: playback carries on; l again (still in it) loops it again.

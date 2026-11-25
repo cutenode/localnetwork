@@ -11,7 +11,6 @@ use ratatui::widgets::ListState;
 
 use super::app::{App, Level, Msg, View};
 use super::audio::{Audio, Listed};
-use super::icons;
 use super::keys::{KeyPalette, Notation};
 use super::theme;
 
@@ -404,18 +403,19 @@ impl App {
         if let Some(l) = self.deck.looped.filter(|l| l.on)
             && !cues.iter().any(|c| c.start_ms == l.start as u32 && c.end_ms == Some(l.end as u32))
         {
-            let label = self
-                .loop_playing()
-                .and_then(|(_, b)| b)
-                .map(|b| format!("loop {}{}", icons::REPEAT.get(), beats_label(b)));
+            // Its length in beats is the marker's to add, as it does for a saved loop's.
+            let beats = self.loop_playing().and_then(|(_, b)| b).map(|b| match b >= 0.9 {
+                true => (b.round() as u16, 1),
+                false => (1, (1.0 / b.max(0.01)).round() as u16),
+            });
             cues.push(Cue {
                 hot_cue: None,
                 start_ms: l.start as u32,
                 end_ms: Some(l.end as u32),
-                comment: label.unwrap_or_else(|| "loop".into()),
+                comment: "loop".into(),
                 color: None,
                 color_id: 0,
-                loop_beats: None,
+                loop_beats: beats,
                 active_loop: false,
             });
         }
