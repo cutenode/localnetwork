@@ -251,6 +251,19 @@ A change too big for one review can be a stack: pull requests that each build on
 - Bring changes up the stack by merging each branch into the one above, not by rebasing or force-pushing.
 - When the bottom pull request merges, let GitHub retarget the next one to `main`, and don't delete the merged branch yourself, which closes the pull requests on top of it.
 
+### Merging main
+
+Main renamed a few things a branch from before them may still use: every `#[hegel::test]` function is named `prop_*` (the `hegel-test-name` rule in `tools/ast-grep/` refuses a commit otherwise, the merge's included), the web modules only some pages load have `.page-only` in their file names, and the web README's Features bullets moved into `apps/web/docs/features/`. Merge main into such a branch without committing, and run the tool before you commit:
+
+```bash
+git merge --no-commit origin/main
+pnpm merge:main
+```
+
+It takes this branch's side of each conflict where main's side only renamed, then renames this branch's code the same way: its hegel tests with the calls, `use` lines and docs that name them, and its paths to the page-only modules. When the README conflicts because this branch edited a Features bullet, it moves that edit into the bullet's file in `apps/web/docs/features/` and takes main's Features section; a bullet it can't place (`tools/merge-main/sections.ts`) leaves the README to you. It stages what it changed, lists the files still unmerged, and never commits. Running it again changes nothing.
+
+The labeler's config moved too, from `.github/labeler.yml` to a file per label in [labeler/](labeler/) and each crate's and plugin's `labels` in its `Cargo.toml` (`tools/labeler/`). The tool leaves that one to you: if this branch changed `.github/labeler.yml`, the merge stops on it, so move each rule it added into its label's file (or its crate's `Cargo.toml`), then `git rm .github/labeler.yml`.
+
 ## Issues and planning
 
 Open issues here on GitHub, with the issue forms. Each one is synced both ways with the Localnetwork team (`LOC`) in [Linear](https://linear.app/localnetwork/team/LOC), where they're triaged and planned: title, description, status, assignee, labels, priority, sub-issues and comments, so an issue can be worked on from either side. Comments left in Linear outside the synced thread stay in Linear.
