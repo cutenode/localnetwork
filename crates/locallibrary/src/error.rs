@@ -453,9 +453,8 @@ impl From<loclib_rekordbox_db::Error> for Error {
             E::Changing(_) => Error::Conflict(e.to_string()),
             E::OneLibrary(message) => Error::OneLibrary(message),
             E::NotFound(message) => Error::NotFound(message),
-            E::Invalid(message) => Error::Invalid(message),
             E::Exists(message) => Error::conflict(Reason::Exists, message),
-            // A variant a newer loclib-rekordbox-db adds keeps its message.
+            // Invalid, and a variant a newer loclib-rekordbox-db adds, keep their message.
             other => Error::Invalid(other.to_string()),
         }
     }
@@ -596,13 +595,12 @@ impl From<loclib_format::Error> for Error {
         use loclib_format::Error as E;
         match e {
             E::Io { path, source } => Error::Io { path, source },
-            E::Invalid(message) => Error::Invalid(message),
             E::Parse { path, message } => Error::Parse { path, message },
             E::NotFound(what) => Error::NotFound(what),
             E::External { command, message } => Error::External { command, message },
             E::Permission(message) => Error::Permission(message),
             E::Cancelled(_) => Error::Cancelled,
-            // A variant a newer loclib-format adds keeps its message.
+            // Invalid, and a variant a newer loclib-format adds, keep their message.
             other => Error::Invalid(other.to_string()),
         }
     }

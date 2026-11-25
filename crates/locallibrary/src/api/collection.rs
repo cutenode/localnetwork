@@ -137,10 +137,10 @@ fn diff_drive(
         };
         match matcher.find(&entry) {
             Status::Found { track_id, how } if how != MatchKind::Title && how != MatchKind::Fuzzy => {
-                if let Some(d) = drive_track(track_id) {
-                    t.file_path = d.file_path.clone();
-                    if how == MatchKind::Path { by_file += 1 } else { by_details += 1 }
-                }
+                // The matcher finds only the drive's own tracks.
+                let Some(d) = drive_track(track_id) else { continue };
+                t.file_path = d.file_path.clone();
+                if how == MatchKind::Path { by_file += 1 } else { by_details += 1 }
             }
             Status::Missing => {}
             _ => uncertain.push(TrackRef::from(&*t)),

@@ -348,3 +348,53 @@ fn rekordbox_database_errors_say_what_would_resolve_them() {
     let io = Error::from(E::Io { path: "a".into(), source: std::io::ErrorKind::NotFound.into() });
     assert!(matches!(io, Error::Io { .. }));
 }
+
+/// What loclib-format's errors become: each keeps its kind and its words (a tool's command and
+/// message, a path), and a stop is `cancelled`.
+#[hegel::test(test_cases = 100)]
+fn prop_format_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_format::Error as F;
+    let message = tc.draw(gs::sampled_from(vec!["Resource busy", "no such disk", "mkfs.vfat: bad label"])).to_string();
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/dev/sdb", "lsblk output"])));
+    let (e, code): (Error, &str) = match tc.draw(gs::integers::<u8>().max_value(6)) {
+        0 => (F::Io { path: path.clone(), source: io::Error::other(message.clone()) }.into(), "io"),
+        1 => (F::Invalid(message.clone()).into(), "invalid"),
+        2 => (F::Parse { path: path.clone(), message: message.clone() }.into(), "parse"),
+        3 => (F::NotFound(message.clone()).into(), "not_found"),
+        4 => (F::External { command: "diskutil eject disk4".into(), message: message.clone() }.into(), "external"),
+        5 => (F::Permission(message.clone()).into(), "permission"),
+        _ => (F::Cancelled(loclib_progress::Cancelled).into(), "cancelled"),
+    };
+    assert_eq!(e.code(), code, "{e:?}");
+    match &e {
+        Error::Io { path: p, .. } | Error::Parse { path: p, .. } => assert_eq!(p, &path),
+        Error::External { command, message: m } => {
+            assert_eq!((command.as_str(), m), ("diskutil eject disk4", &message))
+        }
+        Error::Cancelled => {}
+        _ => assert!(e.to_string().contains(&message), "{e}"),
+    }
+}
+
+/// What loclib-drive-speed's errors become: an I/O error keeps its path, a stop is `cancelled`,
+/// and what a drive's own write failed with comes back as that error, or, when it wasn't one of
+/// core's, as its words.
+#[hegel::test(test_cases = 50)]
+fn prop_drive_speed_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_drive_speed::Error as D;
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/Volumes/DNA/.locallibrary/speed.json", "/media/x"])));
+    let (e, code): (Error, &str) = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => (D::Io { path: path.clone(), source: io::Error::other("unplugged") }.into(), "io"),
+        1 => (D::Drive(io::Error::other(Error::Locked(path.clone()))).into(), "locked"),
+        2 => (D::Drive(io::Error::other("the drive went away")).into(), "invalid"),
+        _ => (D::Cancelled(loclib_progress::Cancelled).into(), "cancelled"),
+    };
+    assert_eq!(e.code(), code, "{e:?}");
+    match &e {
+        Error::Io { path: p, .. } | Error::Locked(p) => assert_eq!(p, &path),
+        Error::Invalid(m) => assert_eq!(m, "the drive went away"),
+        _ => {}
+    }
+}

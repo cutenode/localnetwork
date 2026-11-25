@@ -19,11 +19,12 @@ pub use loclib_rekordbox_db::onelibrary::OneLibrary;
 /// user alone, so later runs skip deriving them. Builds with debug assertions keep none, so tests
 /// leave the cache of whoever runs them alone.
 pub fn keep_keys() {
-    if cfg!(debug_assertions) {
-        return;
+    #[cfg(not(debug_assertions))]
+    {
+        let folder =
+            directories::ProjectDirs::from("", "", "locallibrary").map(|d| d.cache_dir().join("onelibrary-keys"));
+        loclib_rekordbox_db::onelibrary::cipher::keep_keys_in(folder);
     }
-    let folder = directories::ProjectDirs::from("", "", "locallibrary").map(|d| d.cache_dir().join("onelibrary-keys"));
-    loclib_rekordbox_db::onelibrary::cipher::keep_keys_in(folder);
 }
 
 /// Identity of the library a database (and WAL) holds, unchanged by a checkpoint, re-encryption or

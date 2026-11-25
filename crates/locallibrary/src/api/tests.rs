@@ -671,3 +671,26 @@ fn prop_settings_are_imported_from_rekordbox_on_this_computer(tc: hegel::TestCas
     assert_eq!(profile.base.len(), planned.plan.changes.len());
     assert!(settings_import_plan(&store, &ImportSettings::default()).unwrap().noop, "imported already");
 }
+
+/// A format plan, through the API, says first that it erases the whole disk, named by its model,
+/// identifier and size, then each step that does it, and that it's destructive. (Linux asks lsblk
+/// what's mounted on the disk, here nothing.)
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn prop_a_format_plan_says_first_what_it_erases(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = FakeTools::new();
+    let disk = loclib_format::Disk {
+        model: tc.draw(gs::sampled_from(vec!["", "SanDisk Extreme"])).into(),
+        size: tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 40)),
+        ..loclib_format::test_util::sample_disk()
+    };
+    fake.lsblk(Some(&disk.device), &serde_json::json!({ "blockdevices": [] }));
+    let dir = tempfile::tempdir().unwrap();
+    let req = FormatRequest { drive: disk.id.clone(), options: FormatOptions::default() };
+    let planned = plan_format(&dir.path().join("store"), disk.clone(), &req, &Ctx::silent()).unwrap();
+    assert!(planned.destructive);
+    let (first, steps) = planned.summary.split_first().unwrap();
+    assert_eq!(first, &format!("erase {} (everything on it)", format::describe(&disk)));
+    assert_eq!(steps, planned.plan.steps);
+}

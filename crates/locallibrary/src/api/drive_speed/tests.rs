@@ -174,3 +174,54 @@ fn a_drives_small_files_are_the_ones_named() {
     assert!(made.iter().all(|p| std::fs::read(p).unwrap() == b"data"));
     assert!(!dir.path().join("1.DAT").exists());
 }
+
+/// Keeps a test's warnings.
+#[derive(Default)]
+struct Warnings(std::sync::Mutex<Vec<String>>);
+
+impl crate::progress::Progress for Warnings {
+    fn on_event(&self, event: &crate::progress::Event) {
+        if let crate::progress::Event::Warning { message } = event {
+            self.0.lock().unwrap().push(message.clone());
+        }
+    }
+}
+
+/// A drive that can't be tested still gets an estimate from what's known, and the warning names
+/// the drive by its own name.
+#[hegel::test(test_cases = 10)]
+fn prop_a_drive_that_cant_be_tested_is_named_in_the_warning(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let name = tc.draw(gs::sampled_from(vec!["DNA", "Club Stick", "Ünï"]));
+    let mut device = Device::open(dir.path()).unwrap();
+    device.adopt(Some(name)).unwrap();
+    // Its lock can't be taken: the state folder is a file now.
+    let state = dir.path().join(paths::STATE_DIR);
+    std::fs::remove_dir_all(&state).unwrap();
+    std::fs::write(&state, b"a file, not a folder").unwrap();
+    let warnings = Warnings::default();
+    let ctx = Ctx::new(&warnings, Default::default());
+    let facts = DriveNow { at: Utc::now(), logged_bytes: None, capacity: None, link_bps: None };
+    let made = drive_speed::estimate(&device, work(GB, 300, 3), &facts, true, &ctx).unwrap().unwrap();
+    assert_eq!(made.speed, None);
+    let said = warnings.0.lock().unwrap().clone();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].starts_with(&format!("couldn't measure {name}'s speed: ")), "{said:?}");
+}
+
+/// A test's small files that can't all be made fail with what the drive's write said, as core's
+/// own error: a file whose folder is a file fails, and so the whole batch does.
+#[hegel::test(test_cases = 20)]
+fn prop_a_small_file_that_cant_be_made_fails_the_batch(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let device = Device::open(dir.path()).unwrap();
+    let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+    let blocked = tc.draw(gs::integers::<usize>().max_value(count - 1));
+    std::fs::write(dir.path().join("FILE"), b"").unwrap();
+    let path = |i: usize| {
+        let folder = if i == blocked { dir.path().join("FILE") } else { dir.path().to_path_buf() };
+        Some(folder.join(format!("{i}.DAT")))
+    };
+    let err = Error::from(drive_speed::Error::Drive(device.small_files(count, &path, b"data").unwrap_err()));
+    assert!(matches!(&err, Error::Io { path, .. } if path.starts_with(dir.path().join("FILE"))), "{err:?}");
+}

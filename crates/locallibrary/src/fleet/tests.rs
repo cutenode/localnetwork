@@ -256,3 +256,17 @@ fn prop_relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
     }
     assert_eq!(fake.calls().len(), 1);
 }
+
+/// Linux has no tool to relabel a mounted FAT or exFAT volume, so relabelling one is refused with
+/// what to run instead, whatever the name.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[hegel::test(test_cases = 20)]
+fn prop_linux_refuses_to_relabel_a_volume(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let name: String = tc.draw(gs::text().alphabet("ab Zé:*.").max_size(16));
+    match set_volume_label(dir.path(), &name) {
+        Err(Error::Invalid(m)) => assert!(m.starts_with("changing the volume label isn't supported on Linux"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+}
