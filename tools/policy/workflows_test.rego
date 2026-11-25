@@ -387,3 +387,27 @@ test_install_with_versions if {
 		not contains(msg, "tools.yml")
 	}
 }
+
+apt(packages) := {"runs": {"using": "composite", "steps": [{"uses": "./.github/actions/apt-packages", "with": {"packages": packages}}]}}
+
+test_apt_packages_from_an_expression if {
+	repo := fixtures.with_file(".github/actions/build/action.yml", apt("${{ inputs.packages }}"))
+	".github/actions/build/action.yml: name the apt packages \"${{ inputs.packages }}\" stands for; locallibrary-cache.yml can't warm an expression" in workflows.deny with input as repo
+}
+
+test_apt_packages_from_an_expression_in_a_workflow if {
+	wf := {"true": ["workflow_dispatch"], "jobs": {"build": {"steps": apt("${{ matrix.packages }}").runs.steps}}}
+	repo := fixtures.with_file(".github/workflows/build.yml", wf)
+	".github/workflows/build.yml: name the apt packages \"${{ matrix.packages }}\" stands for; locallibrary-cache.yml can't warm an expression" in workflows.deny with input as repo
+	warmer := workflows.deny with input as fixtures.with_file(".github/workflows/locallibrary-cache.yml", wf)
+	every msg in warmer {
+		not contains(msg, "locallibrary-cache.yml: name the apt packages")
+	}
+}
+
+test_apt_packages_named if {
+	denied := workflows.deny with input as fixtures.with_file(".github/actions/build/action.yml", apt("libasound2-dev valgrind"))
+	every msg in denied {
+		not contains(msg, "build/action.yml")
+	}
+}

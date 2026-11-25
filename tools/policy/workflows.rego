@@ -456,3 +456,27 @@ deny contains msg if {
 	not regex.match(`@[0-9]+\.[0-9]+\.[0-9]+$`, tool)
 	msg := sprintf("%s: job %q installs %s with no exact version; name one, as %s@1.2.3", [path, id, tool, tool])
 }
+
+# The steps that install apt packages, in a workflow's jobs or a composite action's.
+apt_steps contains {"path": path, "step": step} if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some job in lib.file(path).jobs
+	some step in object.get(job, "steps", [])
+	step.uses == "./.github/actions/apt-packages"
+}
+
+apt_steps contains {"path": path, "step": step} if {
+	some path in lib.paths(".github/actions/*/action.yml")
+	some step in object.get(object.get(lib.file(path), "runs", {}), "steps", [])
+	step.uses == "./.github/actions/apt-packages"
+}
+
+# locallibrary-cache.yml warms each set of apt packages by reading the steps' `packages`, so each is
+# the list itself: it would ask apt for an expression as a package of that name. Its own apt job
+# takes the set from its matrix, and leaves expressions out of what it reads.
+deny contains msg if {
+	some s in apt_steps
+	s.path != ".github/workflows/locallibrary-cache.yml"
+	contains(s.step["with"].packages, "${{")
+	msg := sprintf("%s: name the apt packages %q stands for; locallibrary-cache.yml can't warm an expression", [s.path, s.step["with"].packages])
+}

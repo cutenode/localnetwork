@@ -86,7 +86,7 @@ jobs:
         run: |
           since=$(date -u -d '7 days ago' +%FT%TZ)
           status=0
-          for pair in release-budgets:release budgets:pull-request web-budgets:web; do
+          for pair in release-budgets:release release-budgets-frames:release-frames budgets:pull-request web-budgets:web; do
             artifact=${pair%%:*} job=${pair#*:}
             tools/budgets/points.sh "$artifact" "$since" "$RUNNER_TEMP/$artifact"
             { echo "## $job budgets since $since"; echo; } >> "$GITHUB_STEP_SUMMARY"
