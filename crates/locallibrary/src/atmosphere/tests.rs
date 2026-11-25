@@ -37,10 +37,9 @@ fn an_unresolved_permission_set_says_publishing_isnt_open() {
 fn begin_login_refuses_publishing_while_it_isnt_open() {
     let dir = tempfile::tempdir().unwrap();
     let options = LoginOptions { scopes: publish_scopes(), storage: Storage::File, ..LoginOptions::default() };
-    // SAFETY: tests that set LOCALLIBRARY_PERMISSION_SET run one at a time (this is the only one).
-    unsafe { std::env::set_var(publishing::ANSWER_ENV, "unpublished") };
+    crate::testing::publishing_on_this_thread(Some(publishing::Availability::NotOpen));
     let err = begin_login(dir.path(), "dj.example.com", &options).unwrap_err();
-    unsafe { std::env::remove_var(publishing::ANSWER_ENV) };
+    crate::testing::publishing_on_this_thread(None);
     assert_eq!(err.to_string(), publishing::NOT_OPEN);
 }
 

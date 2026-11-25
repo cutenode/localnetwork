@@ -13,7 +13,7 @@
 //! then explained the same way ([`refused`]).
 //!
 //! `LOCALLIBRARY_PERMISSION_SET` set to `published` or `unpublished` answers instead of DNS, for
-//! tests and for trying either state. With `LOCALLIBRARY_TEST_OFFLINE` set and no answer given, DNS
+//! tests and for trying either state; `testing::publishing_on_this_thread` answers for one thread. With `LOCALLIBRARY_TEST_OFFLINE` set and no answer given, DNS
 //! isn't asked and it isn't known.
 
 use std::time::Duration;
@@ -61,9 +61,18 @@ pub fn lexicon_dns_name(nsid: &str) -> String {
     format!("_lexicon.{}", authority.join("."))
 }
 
+thread_local! {
+    /// [`availability`]'s answer for one thread (`testing::publishing_on_this_thread`), so a test
+    /// neither asks real DNS nor sets the variable for every test in its process.
+    pub(crate) static THREAD_ANSWER: std::cell::Cell<Option<Availability>> = const { std::cell::Cell::new(None) };
+}
+
 /// Whether publishing is open now. Asks DNS (for at most a few seconds), so call it outside async
 /// code, and only when about to ask for publishing.
 pub fn availability() -> Availability {
+    if let Some(answer) = THREAD_ANSWER.get() {
+        return answer;
+    }
     match std::env::var(ANSWER_ENV).as_deref().map(str::trim) {
         Ok("published") => return Availability::Open,
         Ok("unpublished") => return Availability::NotOpen,

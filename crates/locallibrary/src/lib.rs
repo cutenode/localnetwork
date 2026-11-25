@@ -192,6 +192,14 @@ pub mod testing {
         crate::device::THREAD_VOLUMES.with(|v| *v.borrow_mut() = folders);
     }
 
+    #[cfg(feature = "account")]
+    /// Whether publishing is open, answered for this thread (`None`: ask, as
+    /// [`crate::atmosphere::publishing::availability`] does), so a sign-in test doesn't depend on
+    /// the real DNS record.
+    pub fn publishing_on_this_thread(answer: Option<crate::atmosphere::publishing::Availability>) {
+        crate::atmosphere::publishing::THREAD_ANSWER.with(|a| a.set(answer));
+    }
+
     /// Readers on this thread find the analyzers' fields with roles in `offered` (`None`: what
     /// [`crate::fields::roles::set_offered`] said), as `set_offered` would have them for the
     /// whole process, which it can only do once.
