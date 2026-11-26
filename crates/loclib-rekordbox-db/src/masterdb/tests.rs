@@ -1031,10 +1031,40 @@ fn prop_keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     assert_eq!(resolve_key(Some(&key)), want);
     assert_eq!(resolve_key(None), fallback);
     #[cfg(target_os = "macos")]
-    if std::env::var_os(PATH_ENV).is_none_or(|p| p.is_empty()) {
+    {
         let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer/rekordbox/master.db"));
-        assert_eq!(default_path(), moved(settings_path().as_deref(), agent_options_path().as_deref()).or(home));
+        assert_eq!(rekordbox_path(), moved(settings_path().as_deref(), agent_options_path().as_deref()).or(home));
     }
+    if std::env::var_os(PATH_ENV).is_none_or(|p| p.is_empty()) {
+        assert_eq!(default_path(), None, "a test never falls back to rekordbox's own");
+    }
+}
+
+/// A test can't read rekordbox's own `master.db`, however it gets the path, unless [`PATH_ENV`]
+/// names it. Here that collection is the sample library, below a made-up home.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_test_reads_rekordboxs_own_collection_only_when_it_names_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let own = dir.path().join("Library/Pioneer/rekordbox/master.db");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(&own, sample().encrypted(DEFAULT_KEY)).unwrap();
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe {
+        std::env::remove_var(PATH_ENV);
+        std::env::set_var("HOME", dir.path());
+    }
+    assert_eq!(rekordbox_path().as_deref(), Some(own.as_path()));
+    assert_eq!(default_path(), None);
+    let refused = std::panic::catch_unwind(|| open(&own, DEFAULT_KEY)).unwrap_err();
+    let message = refused.downcast_ref::<String>().unwrap();
+    assert!(message.contains("rekordbox's own collection"), "{message}");
+    let other = dir.path().join("elsewhere/master.db");
+    std::fs::create_dir(other.parent().unwrap()).unwrap();
+    std::fs::copy(&own, &other).unwrap();
+    assert_eq!(open(&other, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
+    unsafe { std::env::set_var(PATH_ENV, &own) };
+    assert_eq!(open(&own, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
 }
 
 /// Every table the collection is read from has to read: one that can't (a view of a table that's

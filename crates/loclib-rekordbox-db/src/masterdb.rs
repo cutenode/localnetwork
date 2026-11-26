@@ -72,16 +72,39 @@ pub const KEY_ENV: &str = "LOCALLIBRARY_MASTERDB_KEY";
 /// Environment variable with the path of the `master.db` to read instead of rekordbox's.
 pub const PATH_ENV: &str = "LOCALLIBRARY_MASTERDB";
 
-/// Where rekordbox keeps `master.db` on this computer: [`PATH_ENV`] when set, else where
-/// rekordbox's own settings say once the library was moved (`masterDbDirectory` in
-/// `rekordbox3.settings`, else `db-path` in its agent's `options.json`), otherwise
-/// `~/Library/Pioneer/rekordbox/master.db` on macOS and `%APPDATA%\Pioneer\rekordbox\master.db`
-/// on Windows. `None` elsewhere (rekordbox runs on neither).
+/// The `master.db` to read when none is given: [`PATH_ENV`] when set, else rekordbox's own
+/// ([`rekordbox_path`]). A debug build, which every test is, never falls back to rekordbox's own:
+/// a test reads (and writes) only the collection it names, never that of whoever runs it.
 pub fn default_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
     }
+    match cfg!(debug_assertions) {
+        true => None,
+        false => rekordbox_path(),
+    }
+}
+
+/// Where rekordbox keeps `master.db` on this computer: where its own settings say once the
+/// library was moved (`masterDbDirectory` in `rekordbox3.settings`, else `db-path` in its agent's
+/// `options.json`), otherwise `~/Library/Pioneer/rekordbox/master.db` on macOS and
+/// `%APPDATA%\Pioneer\rekordbox\master.db` on Windows. `None` elsewhere (rekordbox runs on
+/// neither).
+fn rekordbox_path() -> Option<PathBuf> {
     moved(settings_path().as_deref(), agent_options_path().as_deref()).or_else(platform_path)
+}
+
+/// In a debug build (every test's), whether `path` is rekordbox's own `master.db` without
+/// [`PATH_ENV`] naming it: nothing then reads it, so a test that reaches it, by whatever way,
+/// fails instead.
+fn unnamed_rekordbox_db(path: &Path) -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+    let same =
+        |a: &Path, b: &Path| std::fs::canonicalize(a).ok().is_some_and(|a| std::fs::canonicalize(b).ok() == Some(a));
+    let named = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()).is_some_and(|p| same(path, Path::new(&p)));
+    !named && rekordbox_path().is_some_and(|own| same(path, &own))
 }
 
 #[cfg(target_os = "macos")]
@@ -354,6 +377,11 @@ enum Copy {
 /// Copy `path` (and its WAL) into `dir` and decrypt it there, replaying the WAL's committed
 /// transactions, so SQLite reads the result on its own.
 fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
+    assert!(
+        !unnamed_rekordbox_db(path),
+        "{} is rekordbox's own collection: a debug build reads it only when {PATH_ENV} names it",
+        path.display()
+    );
     // Copies first: rekordbox may be writing, and nothing here holds its files open for long.
     let enc = dir.join("master.db.enc");
     let wal = snapshot(path, &enc, |from, to| std::fs::copy(from, to))?;
