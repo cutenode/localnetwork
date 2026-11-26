@@ -243,3 +243,138 @@ fn only_the_latest_backups_are_kept() {
     // The one just made is among them.
     assert!(names.iter().any(|n| !n.starts_with("master.2020")));
 }
+
+/// The track's cues as the collection reads them, every track: what a property compares.
+type Shown = Vec<(u32, Vec<(Option<u8>, u32, Option<u32>, String, Option<[u8; 3]>)>)>;
+
+fn shown(cues: &indexmap::IndexMap<u32, Vec<loclib_model::analysis::Cue>>) -> Shown {
+    let mut out: Shown = cues
+        .iter()
+        .map(|(id, l)| {
+            let mut l: Vec<_> =
+                l.iter().map(|c| (c.hot_cue, c.start_ms, c.end_ms, c.comment.clone(), c.color)).collect();
+            l.sort();
+            (*id, l)
+        })
+        .filter(|(_, l)| !l.is_empty())
+        .collect();
+    out.sort();
+    out
+}
+
+impl Lib {
+    /// The collection's cues with what's waiting over them: what the player shows.
+    fn shown(&self) -> Shown {
+        let mut c = masterdb::open(&self.db, DEFAULT_KEY).unwrap();
+        let waiting = staged(&self.store, &self.db).unwrap();
+        let edits = waiting.iter().filter_map(|s| match &s.change {
+            Change::Cues(e) => Some(e),
+            Change::Undo { .. } => None,
+        });
+        crate::cue_edit::collection::overlay(&mut c.cues, &c.content_ids, edits);
+        shown(&c.cues)
+    }
+}
+
+/// Any run of cue edits of the collection, some made while rekordbox runs: none changes master.db
+/// while it runs, `localUpdateCount` only rises, what's written once rekordbox quits is what the
+/// player showed meanwhile, and undoing every edit puts every cue back as it was.
+/// Each case writes a few encrypted copies, so they're few.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_collection_cue_edits_land_as_shown_and_undo_puts_them_back(tc: hegel::TestCase) {
+    use crate::cue_edit::{AutoCues, CueRef, CueStyle, UpdateCue};
+    use hegel::generators as gs;
+
+    let lib = Lib::new(&writable());
+    let original = lib.shown();
+    let mut count = UPDATE_COUNT;
+    let mut rose = |w: &CollectionWrite| {
+        if let Some((was, now)) = w.count {
+            assert!(was >= count && now > was, "localUpdateCount went {count} then {was} -> {now}");
+            count = now;
+        }
+    };
+    let steps = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
+    for _ in 0..steps {
+        let running = tc.draw(gs::booleans());
+        RUNNING.with(|r| r.store(running, Ordering::Relaxed));
+        let before = std::fs::read(&lib.db).unwrap();
+        let hot = HotCue(tc.draw(gs::integers::<u8>().max_value(7)));
+        let ms = tc.draw(gs::sampled_from(vec![0u32, 500, 1000, 2500, 4000]));
+        let set = |hot_cue| SetCue {
+            hot_cue,
+            at: CuePosition::Ms(ms),
+            snap: false,
+            loop_beats: None,
+            name: None,
+            color: None,
+        };
+        let op = match tc.draw(gs::integers::<u8>().max_value(8)) {
+            0 => Some(CueOp::Set(set(Some(hot)))),
+            1 => Some(CueOp::Set(set(None))),
+            2 => Some(CueOp::Update(UpdateCue { cue: CueRef::Hot(hot), name: Some("Named".into()), color: None })),
+            3 => {
+                let colour = tc.draw(gs::sampled_from(vec!["red", "aqua", "none"]));
+                Some(CueOp::Update(UpdateCue { cue: CueRef::Hot(hot), name: None, color: Some(colour.into()) }))
+            }
+            4 => Some(CueOp::Delete { cue: if tc.draw(gs::booleans()) { CueRef::All } else { CueRef::Hot(hot) } }),
+            5 => Some(CueOp::Copy { from: TrackSelector { ids: vec![TRACK], ..Default::default() } }),
+            6 => Some(CueOp::Auto(AutoCues { style: CueStyle::Rekordbox, overwrite: false })),
+            7 => {
+                let plan = undo_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap();
+                let r = plan.apply(Some(&lib.store), &Ctx::silent()).unwrap();
+                rose(&r.write);
+                None
+            }
+            _ => {
+                let plan = apply_staged_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap();
+                rose(&plan.apply(Some(&lib.store), &Ctx::silent()).unwrap());
+                None
+            }
+        };
+        if let Some(op) = op {
+            let mut req = lib.edit(op);
+            if matches!(req.edit, CueOp::Copy { .. }) {
+                req.tracks.ids = vec![205356547];
+            }
+            // An edit that doesn't apply (no such cue) is refused when planned.
+            if let Ok(plan) = api::cues_plan(&req, &Ctx::silent()) {
+                let r = plan.apply(Some(&lib.store), &Ctx::silent()).unwrap();
+                rose(r.collection.as_ref().unwrap_or(&CollectionWrite::default()));
+            }
+        }
+        if running {
+            assert_eq!(std::fs::read(&lib.db).unwrap(), before, "master.db changed while rekordbox ran");
+        }
+    }
+
+    // rekordbox quits: what's waiting is written as it was shown.
+    RUNNING.with(|r| r.store(false, Ordering::Relaxed));
+    let undo_waits = staged(&lib.store, &lib.db).unwrap().iter().any(|s| matches!(s.change, Change::Undo { .. }));
+    let showing = lib.shown();
+    rose(&flush(&lib.store, &lib.db, DEFAULT_KEY, &Ctx::silent()).unwrap());
+    if !undo_waits {
+        assert_eq!(lib.shown(), showing);
+    }
+
+    // Every edit undone, newest first: the cues as they were.
+    for _ in 0..20 {
+        let plan = undo_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap();
+        if plan.noop {
+            break;
+        }
+        let r = plan.apply(Some(&lib.store), &Ctx::silent()).unwrap();
+        assert!(r.write.warnings.is_empty(), "{:?}", r.write.warnings);
+        rose(&r.write);
+    }
+    assert_eq!(lib.shown(), original);
+
+    // Giving every track with cues a list changes no cue, and isn't undone.
+    let plan = repair_plan(&lib.db, DEFAULT_KEY, true).unwrap();
+    if !plan.noop {
+        rose(&plan.apply(Some(&lib.store), &Ctx::silent()).unwrap());
+    }
+    assert!(repair_plan(&lib.db, DEFAULT_KEY, true).unwrap().noop);
+    assert!(undo_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap().noop);
+    assert_eq!(lib.shown(), original);
+}
