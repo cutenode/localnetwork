@@ -6,6 +6,10 @@ import { EVENT_STATUS } from '#lib/shows.ts';
 import PartyPage from './PartyPage.svelte';
 import { readFields, writeFields } from './edit/fields.ts';
 
+// The editor's code, loaded with this file. Edit mode loads it with `import()` once the editor opens, which in a test is
+// inside the test's time limit, and a busy run's first cold load of it outlasted that.
+await import('./edit/editor.ts');
+
 const party = {
 	basics: {
 		name: 'Night Shift',
