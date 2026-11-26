@@ -1,0 +1,34 @@
+name: Fuzz setup
+description: >-
+  The toolchains, cache and cargo-fuzz the fuzz targets (fuzz/) build with, for .github/actions/fuzz
+  and .github/actions/fuzz-coverage.
+
+inputs:
+  coverage:
+    description: Whether the targets are built for a coverage replay, which needs nightly's llvm-tools and keeps a cache of its own.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # The pinned toolchain for cargo-fuzz's own build, and nightly for the targets (libFuzzer's
+    # instrumentation and the sanitizer need it), with llvm-cov and llvm-profdata for a replay.
+    - shell: bash
+      env:
+        COMPONENTS: ${{ inputs.coverage == 'true' && 'rust-src,llvm-tools-preview' || 'rust-src' }}
+      run: rustup toolchain install && rustup toolchain install nightly --profile minimal --component "$COMPONENTS"
+    # One cache for the weekly run and pull requests' runs, which only main's runs save, as
+    # locallibrary-ci.yml's do. A replay's instrumented build has its own: cargo-fuzz puts it in the
+    # root's target directory (target/<host>/coverage/), where fuzzing builds in fuzz/target.
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: ${{ inputs.coverage == 'true' && 'fuzz -> ../target' || 'fuzz' }}
+        shared-key: ${{ inputs.coverage == 'true' && 'fuzz-coverage' || 'fuzz' }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    # install-action has no cargo-fuzz of its own. Its cargo-install fallback builds it from
+    # crates.io with the lockfile (rust-cache keeps the binary), where the default would have
+    # cargo-binstall download one using the job's token.
+    - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      with:
+        tool: cargo-fuzz@0.13.2
+        fallback: cargo-install

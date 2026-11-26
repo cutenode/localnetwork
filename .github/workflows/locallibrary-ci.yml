@@ -559,11 +559,39 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # A minute of every fuzz target, from the corpus the weekly run keeps (locallibrary-scheduled.yml),
-  # so a pull request that breaks a parser finds out before it merges rather than the next Monday.
-  # A crash fails the job and uploads its input.
-  fuzz:
+  # The fuzz targets the pull request reaches: each target's `// paths:` header (tools/fuzz/targets.ts)
+  # against the files its merge commit changes over the base, for fuzz and fuzz-coverage. A change to
+  # what builds or runs every target picks them all.
+  fuzz-targets:
     if: inputs.fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      targets: ${{ steps.select.outputs.targets }}
+    steps:
+      # The merge commit and the base it sits on.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      - id: select
+        run: |
+          targets=$(node tools/fuzz/cli.ts select HEAD^1)
+          echo "Fuzz targets the changes reach: ${targets:-none}"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
+  # A minute of each fuzz target the pull request reaches, from the corpus the weekly run keeps
+  # (locallibrary-scheduled.yml), so a pull request that breaks a parser finds out before it merges
+  # rather than the next Monday. A crash fails the job and uploads its input.
+  fuzz:
+    needs: fuzz-targets
+    if: needs.fuzz-targets.outputs.targets != ''
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -574,8 +602,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/fuzz-artifact
+        with:
+          name: fuzz-corpus
+          path: fuzz/corpus
       - uses: ./.github/actions/fuzz
         with:
+          targets: ${{ needs.fuzz-targets.outputs.targets }}
           seconds: 60
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -583,6 +616,56 @@ jobs:
           name: fuzz-artifacts
           path: fuzz/artifacts
           if-no-files-found: ignore
+
+  # The same targets' coverage: the weekly run's corpus replayed as it is, without fuzzing
+  # (.github/actions/fuzz-coverage), against main's last weekly numbers, so a change that leaves part
+  # of a parser out of the corpus's reach shows. A drop is a warning, never a failure. The report job
+  # puts the table on the pull request.
+  fuzz-coverage:
+    needs: fuzz-targets
+    if: needs.fuzz-targets.outputs.targets != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      # The corpus and numbers the weekly run keeps.
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      - id: corpus
+        uses: ./.github/actions/fuzz-artifact
+        with:
+          name: fuzz-corpus
+          path: fuzz/corpus
+      # The seeds alone reach less than the corpus the weekly numbers are of, so without it there's
+      # nothing to compare with.
+      - if: steps.corpus.outputs.found == 'true'
+        uses: ./.github/actions/fuzz-artifact
+        with:
+          name: fuzz-coverage
+          path: ${{ runner.temp }}/fuzz-coverage-last
+      - uses: ./.github/actions/fuzz-coverage
+        with:
+          targets: ${{ needs.fuzz-targets.outputs.targets }}
+          last: ${{ runner.temp }}/fuzz-coverage-last/coverage.json
+          out: ${{ runner.temp }}/fuzz-coverage
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-coverage-report
+          path: |
+            ${{ runner.temp }}/fuzz-coverage/coverage.md
+            ${{ runner.temp }}/fuzz-coverage/html
+          if-no-files-found: ignore
+          retention-days: 14
 
   coverage:
     needs: [test, hegel]
@@ -871,13 +954,14 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The coverage summary from the coverage job on the pull request, in one comment each push
-  # updates, when the coverage job ran. A fork's pull request gets a read-only token, so its summary
-  # stays in the run's. It can't fail the call, so a comment that can't post never holds up a merge.
+  # The coverage summaries from the coverage and fuzz-coverage jobs on the pull request, in one
+  # comment each push updates, a section each for the jobs that ran. A fork's pull request gets a
+  # read-only token, so its summaries stay in the run's. It can't fail the call, so a comment that
+  # can't post never holds up a merge.
   report:
     name: Coverage report
-    needs: coverage
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.coverage.result != 'skipped' }}
+    needs: [coverage, fuzz-coverage]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.coverage.result != 'skipped' || needs.fuzz-coverage.result != 'skipped') }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -903,3 +987,15 @@ jobs:
           marker: <!-- locallibrary-ci coverage -->
           section: coverage
           body-path: rust-coverage/coverage.md
+      # Into fuzz-coverage/, as rust-coverage above.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: fuzz-coverage-report
+          path: fuzz-coverage
+      - if: hashFiles('fuzz-coverage/coverage.md') != ''
+        uses: ./.github/actions/pr-comment
+        with:
+          marker: <!-- locallibrary-ci coverage -->
+          section: fuzz-coverage
+          body-path: fuzz-coverage/coverage.md

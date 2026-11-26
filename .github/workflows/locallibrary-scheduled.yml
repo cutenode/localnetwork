@@ -68,7 +68,9 @@ jobs:
               - 'vendor/**'
               - 'packages/tokens/**'
               - 'fuzz/**'
-              - '.github/actions/fuzz/**'
+              - '.github/actions/fuzz*/**'
+              - 'tools/fuzz/**'
+              - 'tools/mutants/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -264,14 +266,101 @@ jobs:
 
   # Mutation testing with cargo-mutants (settings in .cargo/mutants.toml): it makes small changes
   # to the code (a function returning a default, a flipped comparison) and runs the package's
-  # tests against each, to find code the tests run but don't check. Missed mutants (exit 2) and
-  # timeouts (exit 3) don't fail the job: the summary counts them, and each shard's mutants.out
-  # lists them with diffs. Any other exit (a build or baseline test failure) does.
+  # tests against each, to find code the tests run but don't check. A missed mutant (exit 2) fails
+  # the job: the summary and the report's issue list each one (see survivors), and each shard's
+  # mutants.out has their diffs. Kill it with a test, or, for an equivalent mutant (one no test can
+  # tell from the code), exclude it in .cargo/mutants.toml's exclude_re with the reason above it. A
+  # deleted field that makes no difference, which exclude_re doesn't leave out, can go from the code.
+  # Timeouts alone (exit 3) pass: a mutant that makes the tests hang has been caught by them, and
+  # a run with both fails on its missed ones. Any other exit (a build or baseline
+  # test failure) fails it too.
   # Only the code changed in the past week: all of it is about 4,800 mutants and 20 runner-hours.
+  # Then the survivors the open weekly issue lists, which a later week's changes don't reach, so it
+  # stays open until none survive (tools/mutants/survivors.ts).
   # A whole crate runs locally with `cargo mutants -p <crate>`.
-  mutants:
+  #
+  # What the shards mutate, worked out once: they each take their share of the same lists, and one run
+  # again (Re-run failed jobs) takes the share it had, whatever week it is and the issue says by then.
+  mutants-plan:
     needs: changes
     if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # The open weekly issue.
+      issues: read
+    outputs:
+      base: ${{ steps.plan.outputs.base }}
+      packages: ${{ steps.plan.outputs.packages }}
+      more: ${{ steps.plan.outputs.more }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The history, for the commit a week back and the listed survivors' commits.
+          fetch-depth: 0
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-mutants@27.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # Every workspace package but the library and the CLI (the crates below them, the plugins and
+      # rekordbox-pdb), whose tests are quick enough to run once per mutant, so a new crate or plugin
+      # is in without an edit here. The issue is found as scheduled-issue.yml finds it.
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Weekly ${{ github.workflow }} run
+        run: |
+          base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
+          [ -n "$base" ] || echo "::notice::No commit a week old to compare with"
+          packages=$(cargo metadata --no-deps --format-version 1 --locked |
+            jq -r '.packages[].name | select(. != "locallibrary-core" and . != "locallibrary") | "-p", .')
+          issue=$(gh issue list --label scheduled-failure --state open --limit 100 --json number,title \
+            | jq --arg title "$TITLE" 'first(.[] | select(.title == "\($title) failed" or .title == "\($title) warned") | .number) // empty')
+          : > "$RUNNER_TEMP/listed.txt"
+          more=
+          if [ -n "$issue" ]; then
+            gh api "repos/$GH_REPO/issues/$issue" > "$RUNNER_TEMP/issue.json"
+            gh api --paginate --slurp "repos/$GH_REPO/issues/$issue/comments?per_page=100" > "$RUNNER_TEMP/comments.json"
+            mapfile -t args <<< "$packages"
+            cargo mutants --list --colors never "${args[@]}" > "$RUNNER_TEMP/names.txt"
+            node tools/mutants/cli.ts again "$RUNNER_TEMP"/{issue.json,comments.json,names.txt} > "$RUNNER_TEMP/listed.txt"
+            more=$(node tools/mutants/cli.ts more "$RUNNER_TEMP"/{issue.json,comments.json})
+          fi
+          delimiter=$(openssl rand -hex 16)
+          {
+            echo "base=$base"
+            printf 'packages<<%s\n%s\n%s\n' "$delimiter" "$packages" "$delimiter"
+            printf 'more<<%s\n%s\n%s\n' "$delimiter" "$more" "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+      # In a file: Linux takes 128 KiB in an environment variable, which a few long lists pass.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: listed-survivors
+          path: ${{ runner.temp }}/listed.txt
+
+  # Survivors cut from a list too long for an issue, which nothing makes again. Failing keeps every
+  # later run from counting as the last that passed, and so from skipping the week and closing the
+  # issue, until someone has closed it by hand.
+  survivors-cut:
+    needs: mutants-plan
+    if: needs.mutants-plan.outputs.more != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          MORE: ${{ needs.mutants-plan.outputs.more }}
+        run: |
+          echo "$MORE"
+          exit 1
+
+  mutants:
+    needs: mutants-plan
     strategy:
       fail-fast: false
       matrix:
@@ -293,12 +382,16 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148,cargo-mutants@27.1.0
-      # Every workspace package but the library and the CLI (the crates below them, the plugins and
-      # rekordbox-pdb), whose tests are quick enough to run once per mutant, so a new crate or plugin
-      # is in without an edit here. `--in-place` mutates this checkout rather than a copy of it. A
-      # step timeout, inside the job's, still leaves the partial results to report and upload.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: listed-survivors
+          path: ${{ runner.temp }}
+      # `--in-place` mutates this checkout rather than a copy of it. A step timeout, inside the job's,
+      # still leaves the partial results to report and upload.
       - timeout-minutes: 90
         env:
+          BASE: ${{ needs.mutants-plan.outputs.base }}
+          PACKAGES: ${{ needs.mutants-plan.outputs.packages }}
           # Each test process gets at most 2 GiB of data (prlimit as nextest's target runner), so a
           # mutant that grows an allocation without bound fails its test on an allocation error.
           # Unlimited, a mutant that made the resampler's weights millions of taps long filled the
@@ -306,30 +399,42 @@ jobs:
           # Unmutated, every test here runs within 1 GiB, and nextest runs four at a time here.
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: prlimit --data=2147483648
         run: |
-          base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
-          if [ -z "$base" ]; then
-            echo "::notice::No commit a week old to compare with"
-            exit 0
+          mapfile -t packages <<< "$PACKAGES"
+          # A mutant that timed out (3) is as good as caught, and a missed one (2) waits for the rest.
+          mutate() {
+            local status=0
+            cargo mutants --in-place --shard "$SHARD" "$@" "${packages[@]}" || status=$?
+            case $status in 0 | 2 | 3) ;; *) exit "$status" ;; esac
+          }
+          if [ -n "$BASE" ]; then
+            git diff "$BASE" HEAD > "$RUNNER_TEMP/week.diff"
+            mutate --in-diff "$RUNNER_TEMP/week.diff"
           fi
-          git diff "$base" HEAD > "$RUNNER_TEMP/week.diff"
-          list=$(set -o pipefail; cargo metadata --no-deps --format-version 1 --locked |
-            jq -r '.packages[].name | select(. != "locallibrary-core" and . != "locallibrary") | "-p", .')
-          mapfile -t packages <<< "$list"
-          status=0
-          cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" "${packages[@]}" || status=$?
-          case $status in 0 | 2 | 3) ;; *) exit "$status" ;; esac
-      - if: ${{ !cancelled() && hashFiles('mutants.out/outcomes.json') != '' }}
+          if [ -s "$RUNNER_TEMP/listed.txt" ]; then
+            mapfile -t listed < "$RUNNER_TEMP/listed.txt"
+            # With a baseline of its own: the one before ran only the packages the week changed, and
+            # tests that fail unmutated would count every mutant as caught.
+            mkdir -p mutants.out/listed
+            mutate --output mutants.out/listed "${listed[@]}"
+          fi
+          # Missed ones fail the shard whichever status cargo-mutants exited with.
+          if [ -s mutants.out/missed.txt ] || [ -s mutants.out/listed/mutants.out/missed.txt ]; then exit 2; fi
+      - if: ${{ !cancelled() && hashFiles('mutants.out/**/outcomes.json') != '' }}
         run: |
           {
             echo "## Mutants, shard $SHARD"
-            echo
-            jq -r '"\(.total_mutants) mutants: \(.caught) caught, \(.missed) missed, \(.timeout) timed out, \(.unviable) unviable"' mutants.out/outcomes.json
-            if [ -s mutants.out/missed.txt ]; then
+            for out in mutants.out mutants.out/listed/mutants.out; do
+              [ -f "$out/outcomes.json" ] || continue
               echo
-              echo '```'
-              cat mutants.out/missed.txt
-              echo '```'
-            fi
+              if [ "$out" != mutants.out ]; then printf 'Listed in the open issue, again: '; fi
+              jq -r '"\(.total_mutants) mutants: \(.caught) caught, \(.missed) missed, \(.timeout) timed out, \(.unviable) unviable"' "$out/outcomes.json"
+              if [ -s "$out/missed.txt" ]; then
+                echo
+                echo '```'
+                cat "$out/missed.txt"
+                echo '```'
+              fi
+            done
           } >> "$GITHUB_STEP_SUMMARY"
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -338,12 +443,44 @@ jobs:
           path: mutants.out
           if-no-files-found: ignore
 
+  # Every shard's missed mutants, each as `file:line:column: change`, for the report's issue, cut to
+  # what an issue holds.
+  survivors:
+    needs: mutants
+    if: ${{ !cancelled() && needs.mutants.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutants-*
+          path: mutants
+      # Empty when no shard missed one (a build or baseline test failure failed the job instead).
+      # When only one shard kept anything, it's straight in mutants/, without a folder of its own.
+      - id: list
+        run: |
+          list=$(node tools/mutants/cli.ts list mutants "$GITHUB_SHA" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          delimiter=$(openssl rand -hex 16)
+          {
+            echo "list<<$delimiter"
+            echo "$list"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
   # libFuzzer feeds the parsers of what a drive, an import or another computer hands locallibrary,
   # and PdbEditor's edits, inputs grown from the test fixtures: every target `cargo fuzz list` names
   # for five minutes, several at once (.github/actions/fuzz, see CONTRIBUTING.md). One job runs them
   # all, so the targets' shared dependencies build once. The corpus each run grows is minimized and
-  # kept as an artifact for the next one and for pull requests' smoke runs (locallibrary-ci.yml); a
-  # crash fails the job and uploads its input.
+  # kept as an artifact for the next one, for fuzz-coverage, and for pull requests' smoke runs and
+  # replays (locallibrary-ci.yml). Only a crash fails the job, and uploads its input.
   fuzz:
     needs: changes
     if: needs.changes.outputs.run == 'true'
@@ -353,18 +490,29 @@ jobs:
       # The corpus the last run kept.
       actions: read
       contents: read
+    outputs:
+      refused: ${{ steps.corpus.outputs.refused }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/fuzz-artifact
+        id: corpus
+        with:
+          name: fuzz-corpus
+          path: fuzz/corpus
+      - if: steps.corpus.outputs.refused == 'true'
+        run: echo "GitHub refused the last fuzz corpus, so this run starts from the seeds and keeps neither its corpus nor its coverage. The last one stays the newest." >> "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/fuzz
         with:
+          targets: all
           seconds: 300
       # Down to the inputs that each add coverage, so the corpus doesn't grow every week. Kept even
-      # when a target crashed, so what it found before isn't lost.
-      - if: ${{ !cancelled() }}
+      # when a target crashed, so what it found before isn't lost. Not when GitHub refused the last
+      # one: what grew from the seeds alone would take its place.
+      - if: ${{ !cancelled() && steps.corpus.outputs.refused != 'true' }}
         run: cargo fuzz list | while read -r target; do cargo +nightly fuzz cmin "$target" "fuzz/corpus/$target"; done
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && steps.corpus.outputs.refused != 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-corpus
@@ -375,6 +523,70 @@ jobs:
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts
+
+  # Each fuzz target's coverage: the corpus the fuzz job kept, replayed without fuzzing
+  # (.github/actions/fuzz-coverage), as a share of the code the target's header names
+  # (tools/fuzz/targets.ts), against main's last weekly numbers. A drop warns, in the summary and the report's issue, and
+  # never fails the job. Skipped when GitHub refused the last corpus. The numbers are kept as the
+  # fuzz-coverage artifact, which the next run and pull requests' replays compare with, and each
+  # target's HTML report as fuzz-coverage-html.
+  fuzz-coverage:
+    needs: fuzz
+    if: ${{ !cancelled() && needs.fuzz.result != 'skipped' && needs.fuzz.outputs.refused != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      # main's last numbers.
+      actions: read
+      contents: read
+    outputs:
+      drops: ${{ steps.drops.outputs.drops }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # tools/fuzz reads the targets' paths with picomatch.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fuzz-corpus
+          path: fuzz/corpus
+      - uses: ./.github/actions/fuzz-artifact
+        with:
+          name: fuzz-coverage
+          path: ${{ runner.temp }}/fuzz-coverage-last
+      - uses: ./.github/actions/fuzz-coverage
+        with:
+          targets: all
+          last: ${{ runner.temp }}/fuzz-coverage-last/coverage.json
+          out: ${{ runner.temp }}/fuzz-coverage
+      - id: drops
+        run: |
+          drops=$RUNNER_TEMP/fuzz-coverage/drops.md
+          [ -s "$drops" ] || exit 0
+          delimiter=$(openssl rand -hex 16)
+          {
+            echo "drops<<$delimiter"
+            echo "Fuzz coverage dropped since main's last weekly run (each target's report is in fuzz-coverage-html):"
+            echo
+            cat "$drops"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-coverage
+          path: ${{ runner.temp }}/fuzz-coverage/coverage.json
+          retention-days: 90
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-coverage-html
+          path: ${{ runner.temp }}/fuzz-coverage/html
+          retention-days: 14
 
   # The Hegel property tests over and over for 40 minutes a shard, each pass on fresh inputs, where
   # locallibrary-ci.yml replays the same derandomised ones every time. A run keeps going after a
@@ -576,11 +788,12 @@ jobs:
       - run: rustup toolchain install
       - run: cargo publish --workspace --dry-run --locked
 
-  # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
-  # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
+  # Weekly runs only: a failed job (survivors cut from a list too, see survivors-cut), or a drop in
+  # fuzz coverage, opens an issue, or comments on the open one, and the next run that passes without
+  # one closes it (scheduled-issue.yml). Skipped suites count as passed.
   report:
     needs:
-      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global, publish-dry-run]
+      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants-plan, survivors-cut, mutants, survivors, fuzz, fuzz-coverage, hegel, release-plan, release-build, release-global, publish-dry-run]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
@@ -588,7 +801,14 @@ jobs:
     uses: ./.github/workflows/scheduled-issue.yml
     with:
       label: locallibrary
+      findings: |-
+        ${{ needs.survivors.outputs.list }}
+
+        ${{ needs.mutants-plan.outputs.more }}
+
+        ${{ needs.fuzz-coverage.outputs.drops }}
       details: >-
-        Each job's log is on the run page. Surviving mutants are in the run's summary, one section
-        per mutants shard, with their diffs in the mutants-N artifacts. Bombadil's traces are in the
-        bombadil-OS artifacts and a fuzz crash's input in fuzz-artifacts.
+        Each job's log is on the run page. Surviving mutants are also in the run's summary, one
+        section per mutants shard, with their diffs in the mutants-N artifacts. Bombadil's traces
+        are in the bombadil-OS artifacts, a fuzz crash's input in fuzz-artifacts and each fuzz
+        target's coverage report in fuzz-coverage-html.

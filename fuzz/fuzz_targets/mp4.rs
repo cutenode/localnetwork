@@ -1,3 +1,9 @@
+// paths: fuzz/fuzz_targets/mp4.rs
+// paths: crates/locallibrary/tests/fixtures/audio/**
+// paths: crates/loclib-audio/src/**
+// paths: crates/loclib-model/src/audio.rs
+// paths: crates/locallibrary/src/{probe,pdb,error}.rs
+// paths: crates/loclib-progress/src/**
 //! MP4 and M4A audio: `vet_container`'s atom walk, symphonia opening and decoding the start of
 //! whatever it lets through, and the probe's format, health and length checks. symphonia sizes
 //! its tables from the counts a file claims, an allocation abort `catch_unwind` can't stop, which

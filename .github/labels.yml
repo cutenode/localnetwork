@@ -190,4 +190,4 @@
 # Opened and closed by .github/workflows/scheduled-issue.yml, which finds its open issue by it.
 - name: scheduled-failure
   color: "b60205"
-  description: A weekly scheduled run failed
+  description: A weekly scheduled run failed or warned
