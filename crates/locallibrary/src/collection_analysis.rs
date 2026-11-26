@@ -100,9 +100,13 @@ pub fn save(target: &Target, track_id: &str, edit: &CollectionAnalysis) -> Resul
             *file = e.read_analysis_file(track_id, ext)?;
         }
         let mut warnings = Vec::new();
+        // The collection's cues are in djmdCue, not in its analysis files: a moved grid is
+        // weighed against those.
+        let have = cues(e, track_id)?;
         if edit.analysis.beats.is_some() || edit.analysis.phrases.is_some() || bands.is_some() {
             let (changed, warned) =
-                analysis_edit::rewrite_files(&t, files.clone(), &edit.analysis, bands.as_ref()).map_err(invalid)?;
+                analysis_edit::rewrite_files(&t, files.clone(), have.clone(), &edit.analysis, bands.as_ref())
+                    .map_err(invalid)?;
             warnings = warned;
             for (ext, bytes) in changed {
                 let i = exts.iter().position(|x| *x == ext).expect("a file rewrite_files names");
@@ -129,7 +133,6 @@ pub fn save(target: &Target, track_id: &str, edit: &CollectionAnalysis) -> Resul
                     t.display_name()
                 ))));
             };
-            let have = cues(e, track_id)?;
             let placed = cue_edit::auto_placed(&t, have.clone(), dat, files[1].as_deref(), auto).map_err(invalid)?;
             let entries = |c: &[CuePoint]| {
                 let mut out: Vec<CueEntry> = c.iter().map(entry).collect();

@@ -177,3 +177,18 @@ fn a_waveform_goes_into_both_files() {
     let sizes: i64 = lib.query("SELECT sum(Size) FROM contentFile");
     assert_eq!(sizes, (lib.file("ANLZ0000.DAT").len() + lib.file("ANLZ0000.EXT").len()) as i64);
 }
+
+/// A grid moved from under the collection's own cues (in djmdCue, not the analysis files) says so.
+#[test]
+fn a_moved_grid_warns_of_the_collections_cues() {
+    let lib = Lib::new(&analysed());
+    let with = |beats: Vec<Beat>| CollectionAnalysis {
+        analysis: NewAnalysis { beats: Some(beats), ..NewAnalysis::default() },
+        ..CollectionAnalysis::default()
+    };
+    save(&lib.target, TRACK, &with(grid())).unwrap();
+    let later: Vec<Beat> = grid().into_iter().map(|b| Beat { time_ms: b.time_ms + 10, ..b }).collect();
+    let saved = save(&lib.target, TRACK, &with(later)).unwrap();
+    // The hot cue at 1 s sat on the first beat of the old grid.
+    assert!(saved.warnings.iter().any(|w| w.starts_with("1 cue(s) of")), "{:?}", saved.warnings);
+}

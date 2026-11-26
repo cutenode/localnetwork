@@ -124,6 +124,9 @@ pub(crate) fn stage(device: &Device, wave: &WaveSource) -> Result<(Hash, Option<
 struct Files {
     keys: [String; 3],
     bytes: [Option<Vec<u8>>; 3],
+    /// The track's cues, where they aren't the ones its files hold (a collection's are in
+    /// `djmdCue`): `None` reads them from the files.
+    cues: Option<Vec<CuePoint>>,
 }
 
 /// The keys of the analysis files of the track at `analyze_path` (a device path), `.DAT` first,
@@ -153,7 +156,7 @@ fn read(device: &Device, t: &Track) -> Result<Files> {
     if bytes[0].is_none() {
         return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
     }
-    Ok(Files { keys, bytes })
+    Ok(Files { keys, bytes, cues: None })
 }
 
 /// The analysis files an analysis edit of the track of the audio file `file` (a device path) may
@@ -184,7 +187,10 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         }
         if beats != grid {
             let dat = new[0].as_ref().expect("read");
-            let cues = anlz::read_cue_points(dat, new[1].as_deref())?;
+            let cues = match &files.cues {
+                Some(cues) => cues.clone(),
+                None => anlz::read_cue_points(dat, new[1].as_deref())?,
+            };
             let on = |grid: &[Beat], ms: u32| grid.iter().any(|b| b.time_ms.abs_diff(ms) <= 1);
             let moved = cues.iter().filter(|c| on(&grid, c.start_ms) && !on(&beats, c.start_ms)).count();
             if moved > 0 {
@@ -271,7 +277,7 @@ pub(crate) fn new_files(
         [anlz::write_cue_points(&dat, CueFile::Dat, cues)?, anlz::write_cue_points(&ext, CueFile::Ext, cues)?];
     // Not on a drive yet: each file by its extension.
     let keys = ["DAT", "EXT", "2EX"].map(String::from);
-    let files = Files { keys, bytes: [Some(made[0].clone()), Some(made[1].clone()), None] };
+    let files = Files { keys, bytes: [Some(made[0].clone()), Some(made[1].clone()), None], cues: None };
     let (changed, warnings) = rewrite(t, &files, a, bands)?;
     for (key, new) in changed {
         made[usize::from(key == "EXT")] = new;
@@ -288,19 +294,21 @@ pub(crate) fn new_files(
 }
 
 /// What writing `a` (its waveform `bands`) changes in analysis files holding `bytes` (`.DAT`,
-/// `.EXT` and `.2EX`, the `.DAT` there) of the track `t`, with what to warn of: each file changed,
-/// by its extension (`DAT`, `EXT`, `2EX`), with its new bytes. For files that aren't on a drive:
-/// rekordbox's collection's (see [`crate::collection_analysis`]).
+/// `.EXT` and `.2EX`, the `.DAT` there) of the track `t` whose cues are `cues`, with what to warn
+/// of: each file changed, by its extension (`DAT`, `EXT`, `2EX`), with its new bytes. For files
+/// that aren't on a drive: rekordbox's collection's (see [`crate::collection_analysis`]), whose
+/// cues are kept apart from them.
 pub(crate) fn rewrite_files(
     t: &Track,
     bytes: [Option<Vec<u8>>; 3],
+    cues: Vec<CuePoint>,
     a: &NewAnalysis,
     bands: Option<&Bands>,
 ) -> Result<(Rewritten, Vec<String>)> {
     if bytes[0].is_none() {
         return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
     }
-    rewrite(t, &Files { keys: ["DAT", "EXT", "2EX"].map(String::from), bytes }, a, bands)
+    rewrite(t, &Files { keys: ["DAT", "EXT", "2EX"].map(String::from), bytes, cues: Some(cues) }, a, bands)
 }
 
 /// The waveform `wave` gives as bands, when it's given as them (in base64): not one staged on a
