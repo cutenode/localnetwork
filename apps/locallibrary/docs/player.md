@@ -198,7 +198,13 @@ needs.
     it moves, and plays on from where it's let go of (on the nearest beat with quantize on). A
     click alone doesn't seek.
   - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
-    Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
+    Click it to seek.
+  - The playhead is where the track is heard: the output plays what it's handed a buffer and its
+    own latency later (tens of milliseconds through speakers, a few hundred through Bluetooth),
+    and the player takes that off, as the output reports it. So a loop made with quantize off, the
+    cue flashes and the beat count follow what you hear; on pause the playhead stops where the
+    sound does. Jumps that keep the beat go by what's been handed to the output, so the rhythm
+    carries on through them. Phrases run under it with rekordbox's labels, as colour alone where a label
     wouldn't fit whole.
   - Hot cues are lettered in their own colours, in a row over each waveform, with a second row where
     two would share a cell or sit side by side, and loops are a tint.
