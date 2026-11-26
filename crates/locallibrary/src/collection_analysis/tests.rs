@@ -192,3 +192,59 @@ fn a_moved_grid_warns_of_the_collections_cues() {
     // The hot cue at 1 s sat on the first beat of the old grid.
     assert!(saved.warnings.iter().any(|w| w.starts_with("1 cue(s) of")), "{:?}", saved.warnings);
 }
+
+/// What isn't in the collection, or has no analysis files there to write into, can't be saved; nor
+/// can a waveform given other than as bands.
+#[test]
+fn a_track_without_files_or_bands_cant_be_saved() {
+    let lib = Lib::new(&analysed());
+    let e = save(&lib.target, "1", &CollectionAnalysis { key: Some("Am".into()), ..Default::default() }).unwrap_err();
+    assert!(matches!(e, Error::NotFound(_)), "{e}");
+    let staged = CollectionAnalysis {
+        analysis: NewAnalysis {
+            waveform: Some(analysis_edit::WaveSource::Blob("wave.bands".into())),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let e = save(&lib.target, TRACK, &staged).unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "{e}");
+
+    // Its .DAT gone from the share folder: neither a grid nor cues placed on one.
+    std::fs::remove_file(lib.share.join("ANLZ0000.DAT")).unwrap();
+    let before = std::fs::read(&lib.target.master_db).unwrap();
+    let grid = CollectionAnalysis {
+        analysis: NewAnalysis { beats: Some(grid()), ..Default::default() },
+        ..Default::default()
+    };
+    let cues = CollectionAnalysis {
+        cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
+        ..Default::default()
+    };
+    for edit in [grid, cues] {
+        let e = save(&lib.target, TRACK, &edit).unwrap_err();
+        assert!(matches!(&e, Error::Invalid(why) if why.contains(".DAT") || why.contains("analysis files")), "{e}");
+    }
+    assert_eq!(std::fs::read(&lib.target.master_db).unwrap(), before);
+}
+
+/// A save that changes nothing says so, and undoing it changes nothing either; cues placed where
+/// the track has them already aren't written again.
+#[test]
+fn a_save_that_changes_nothing_is_empty() {
+    let lib = Lib::new(&analysed());
+    let saved = save(&lib.target, TRACK, &CollectionAnalysis::default()).unwrap();
+    assert!(saved.before.is_empty());
+    let undone = undo(&lib.target, &saved.before).unwrap();
+    assert!(undone.before.is_empty());
+
+    let cues = CollectionAnalysis {
+        analysis: NewAnalysis { beats: Some(grid()), ..NewAnalysis::default() },
+        cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
+        ..CollectionAnalysis::default()
+    };
+    let first = save(&lib.target, TRACK, &cues).unwrap();
+    assert!(!first.before.is_empty() && first.before.cues.is_some());
+    let again = save(&lib.target, TRACK, &cues).unwrap();
+    assert_eq!(again.before.cues, None);
+}
