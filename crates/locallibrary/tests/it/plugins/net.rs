@@ -3,12 +3,13 @@
 //! granted, redirects elsewhere, more than it may hold, and its secrets.
 
 use std::io::Read;
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::sync::atomic::AtomicU64;
 
 use locallibrary::keychain::Storage;
 
 use super::*;
+use crate::mock_oauth::{Connection, Listening, stops_when_dropped};
 pub(super) use crate::mock_oauth::{Got, Reply, Server, ok};
 
 fn redirect(to: String) -> Reply {
@@ -272,18 +273,35 @@ fn requests_to_a_limited_host_wait_their_turns() {
     assert_eq!(server.got().len(), 4, "the second never went");
 }
 
-/// A server on this computer that takes connections and never reads or answers them: each one as
-/// it's taken.
-fn silent() -> (String, Receiver<TcpStream>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/up", listener.local_addr().unwrap());
+/// A server on this computer, as [`silent`] starts it. Dropped, it stops.
+struct Silent {
+    url: String,
+    /// Each connection as it's taken.
+    connections: Receiver<TcpStream>,
+    listening: Listening,
+}
+
+/// A server on this computer that takes connections and never reads or answers them.
+fn silent() -> Silent {
     let (taken, connections) = mpsc::channel();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let _ = taken.send(stream.unwrap());
-        }
+    let listening = Listening::new(move |stream, _| {
+        let _ = taken.send(stream);
+        true
     });
-    (url, connections)
+    Silent { url: format!("http://{}/up", listening.addr), connections, listening }
+}
+
+#[test]
+fn a_dropped_silent_server_stops_listening() {
+    let start = || {
+        let server = silent();
+        let addr = server.listening.addr;
+        (server, addr)
+    };
+    stops_when_dropped(start, |server, addr| {
+        let _asking = TcpStream::connect(addr).unwrap();
+        server.connections.recv_timeout(Duration::from_secs(10)).expect("it's taken");
+    });
 }
 
 /// Whether the other end closes `stream` within `bound`, what it sent read meanwhile.
@@ -329,7 +347,7 @@ impl locallibrary::Progress for Sending {
 /// later. Cancelled once all its file is read, it only waits on the server then.
 #[test]
 fn a_request_a_server_holds_up_stops_once_cancelled() {
-    let (url, connections) = silent();
+    let Silent { url, connections, listening: _listening } = silent();
     let f = fixture(&talking(100.0), &[], Options::default());
     let (told, all_read) = mpsc::channel();
     let sending = Sending { bytes: AtomicU64::new(0), all: 5, told: Mutex::new(told) };
@@ -357,7 +375,7 @@ fn a_request_a_server_holds_up_stops_once_cancelled() {
 /// end isn't read until then).
 #[test]
 fn a_killed_plugins_requests_stop_with_it() {
-    let (url, connections) = silent();
+    let Silent { url, connections, listening: _listening } = silent();
     let f = fixture(&talking(100.0), &[], Options { grace: Duration::from_millis(200), ..Options::default() });
     let cancel = locallibrary::progress::CancelToken::new();
     let cancelling = cancel.clone();
@@ -982,42 +1000,59 @@ enum Then {
     Stops,
 }
 
-/// A server on this computer, as [`raw`] starts it.
+/// A server on this computer, as [`raw`] starts it. Dropped, it stops.
 struct Raw {
     url: String,
     /// Told each time it has answered.
     answered: Receiver<()>,
+    listening: Listening,
 }
 
 /// A server on this computer answering each request with `head` (its status line and headers)
 /// and `body`, then going on as `then` says.
 fn raw(head: &'static str, body: &'static [u8], then: Then) -> Raw {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
     let (told, answered) = mpsc::channel();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let mut stream = stream.unwrap();
-            let mut asked = [0; 4096];
-            let _ = stream.read(&mut asked);
-            let _ = std::io::Write::write_all(&mut stream, head.as_bytes());
-            let _ = std::io::Write::write_all(&mut stream, body);
-            let _ = told.send(());
-            match then {
-                Then::Closes => {}
-                Then::Holds => std::thread::sleep(Duration::from_secs(20)),
-                Then::Stops => return,
-            }
+    let listening = Listening::new(move |stream, stopped| {
+        let mut asked = [0; 4096];
+        if let Ok(mut c) = Connection::new(&stream, stopped) {
+            let _ = c.read(&mut asked);
+            let _ = std::io::Write::write_all(&mut c, head.as_bytes());
+            let _ = std::io::Write::write_all(&mut c, body);
         }
+        let _ = told.send(());
+        let until = Instant::now() + Duration::from_secs(20);
+        while then == Then::Holds && !stopped.load(Ordering::SeqCst) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        then != Then::Stops
     });
-    Raw { url, answered }
+    Raw { url: format!("http://{}", listening.addr), answered, listening }
 }
 
 impl Raw {
-    /// Waits until it has answered, and what asked has had time to read the head of that.
-    fn wait(self) {
+    /// Waits until it has answered, and what asked has had time to read the head of that: itself,
+    /// to go on as it was.
+    fn wait(self) -> Raw {
         self.answered.recv_timeout(Duration::from_secs(10)).expect("it's asked");
         std::thread::sleep(Duration::from_millis(100));
+        self
+    }
+}
+
+/// One that stopped by itself is closed already.
+#[test]
+fn a_dropped_raw_server_stops_listening() {
+    for then in [Then::Closes, Then::Holds, Then::Stops] {
+        let start = || {
+            let server = raw("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n", b"hi", then);
+            let addr = server.listening.addr;
+            (server, addr)
+        };
+        stops_when_dropped(start, |server, addr| {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            std::io::Write::write_all(&mut stream, b"GET /x HTTP/1.1\r\n\r\n").unwrap();
+            server.answered.recv_timeout(Duration::from_secs(10)).expect("it answers");
+        });
     }
 }
 
@@ -1095,31 +1130,32 @@ fn prop_a_fetch_that_cant_be_made_or_read_fails_saying_why_case(tc: &hegel::Test
     let f = fixture(&talking(100.0), &[], Options::default());
     let name: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
     let cut = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n";
+    let server = match fetching {
+        Fetching::Redirect => {
+            raw("HTTP/1.1 302 Found\r\nLocation: http://[\r\nContent-Length: 0\r\n\r\n", b"", Then::Closes)
+        }
+        Fetching::CutShort | Fetching::CutShortIntoBlob => raw(cut, b"short", Then::Closes),
+        Fetching::Cancelled => raw(cut, b"short", Then::Holds),
+        _ => raw(cut, b"", Then::Closes),
+    };
+    let url = server.url.clone();
     let answer = match fetching {
         Fetching::NotAFetch => f.echo_params(json!({ "call": "net/fetch", "params": { "url": 5 } })).unwrap(),
         Fetching::Contact => {
             f.plugins.set_setting("echo", &f.store, "contact", Some(json!(format!("{name}\nx")))).unwrap();
-            f.fetch(json!({ "url": raw(cut, b"", Then::Closes).url }))
+            f.fetch(json!({ "url": url }))
         }
         Fetching::FormSecret => {
             let parts = json!([{ "name": name, "value": "{secret:token}" }]);
-            f.fetch(json!({ "url": raw(cut, b"", Then::Closes).url, "method": "POST", "multipart": parts }))
+            f.fetch(json!({ "url": url, "method": "POST", "multipart": parts }))
         }
         Fetching::FormFile => {
             let parts = json!([{ "name": name, "file": f._dir.path().join(&name) }]);
-            f.fetch(json!({ "url": raw(cut, b"", Then::Closes).url, "method": "POST", "multipart": parts }))
+            f.fetch(json!({ "url": url, "method": "POST", "multipart": parts }))
         }
-        Fetching::Redirect => f.fetch(
-            json!({ "url": raw("HTTP/1.1 302 Found\r\nLocation: http://[\r\nContent-Length: 0\r\n\r\n", b"", Then::Closes).url }),
-        ),
-        Fetching::CutShort => f.fetch(json!({ "url": raw(cut, b"short", Then::Closes).url })),
-        Fetching::CutShortIntoBlob => {
-            f.fetch(json!({ "url": raw(cut, b"short", Then::Closes).url, "into_blob": name }))
-        }
-        Fetching::Cancelled => {
-            let held = raw(cut, b"short", Then::Holds);
-            f.fetch_cancelled(json!({ "url": held.url.clone() }), || held.wait())
-        }
+        Fetching::Redirect | Fetching::CutShort => f.fetch(json!({ "url": url })),
+        Fetching::CutShortIntoBlob => f.fetch(json!({ "url": url, "into_blob": name })),
+        Fetching::Cancelled => f.fetch_cancelled(json!({ "url": url }), || server.wait()),
     };
     let (kind, message) = (answer["error"]["data"]["kind"].as_str(), answer["error"]["message"].as_str());
     let message = message.unwrap_or_default();
@@ -1324,7 +1360,7 @@ fn prop_each_fetch_is_answered_as_its_rule_says_case(tc: &hegel::TestCase, askin
             f.echo_params(json!({ "fetch": fetch, "blobs": { "x": [1] } })).unwrap()
         }
         Asking::SendCancelled => {
-            let (up, connections) = silent();
+            let Silent { url: up, connections, listening: _listening } = silent();
             f.fetch_cancelled(json!({ "url": up }), move || connections.recv_timeout(Duration::from_secs(10)))
         }
         Asking::BigFile => {

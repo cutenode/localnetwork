@@ -97,10 +97,10 @@ fn exchanging(server: &str, manifest: String) -> String {
     manifest.replace(&format!("token_url = \"{server}/token\""), &format!("token_exchange = \"{server}{EXCHANGE}\""))
 }
 
-/// Where the service says `a` signed in, whatever it's asked with: for an account type whose
-/// token goes where the mock's `/userinfo` doesn't look.
-fn anyone() -> String {
-    Server::new(|_, _| json_reply(200, json!({ "sub": "a" }))).url
+/// A server saying `a` signed in, whatever it's asked with: for an account type whose token goes
+/// where the mock's `/userinfo` doesn't look.
+fn anyone() -> Server {
+    Server::new(|_, _| json_reply(200, json!({ "sub": "a" })))
 }
 
 /// [`Mock`], the account type's token going where `token` says, with a scope `there` besides,
@@ -111,8 +111,9 @@ fn reaching(token: &str, there: &[&str]) -> Mock {
     let scope =
         format!("[contributes.account_types.scopes.there]\ntitle = \"there\"\nrequests = [{}]\n", requests.join(", "));
     let whoami = anyone();
-    let manifest = move |server: &str| format!("{}\n{scope}", account_plugin(server, &whoami, token));
-    mock_with(3600, manifest, &asking(&["read", "there"], &[]), options())
+    let at = whoami.url.clone();
+    let manifest = move |server: &str| format!("{}\n{scope}", account_plugin(server, &at, token));
+    Mock { _whoami: Some(whoami), ..mock_with(3600, manifest, &asking(&["read", "there"], &[]), options()) }
 }
 
 /// A sign-in opens the type's authorize page asking for a code with PKCE, the browser coming back
@@ -439,7 +440,7 @@ fn prop_a_token_lands_exactly_where_its_account_type_says(tc: TestCase) {
         "token = { query = \"oauth_token\" }",
     ]));
     let whoami = anyone();
-    let m = mock_with(3600, |server| account_plugin(server, &whoami, token), &asking(&["read"], &[]), options());
+    let m = mock_with(3600, |server| account_plugin(server, &whoami.url, token), &asking(&["read"], &[]), options());
     m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
     let scheme = match token {
         "" => Some("Bearer"),
@@ -658,6 +659,8 @@ pub(super) struct Scripted {
     pub(super) url: String,
     root: Arc<OnceLock<PathBuf>>,
     turns: Arc<Mutex<VecDeque<Turn>>>,
+    /// Answering as long as this is kept.
+    _server: Server,
 }
 
 impl Scripted {
@@ -673,7 +676,7 @@ impl Scripted {
             }
             reply
         });
-        Scripted { url: server.url, root, turns }
+        Scripted { url: server.url.clone(), root, turns, _server: server }
     }
 
     /// It answers `reply`, damaging the store first as `damage` does.
@@ -693,20 +696,21 @@ impl Scripted {
 /// in as `a`.
 pub(super) fn trading_at(base: &str, exchanges: bool) -> Mock {
     let whoami = anyone();
+    let at = whoami.url.clone();
     let trades = match exchanges {
         true => format!("token_exchange = \"{base}{EXCHANGE}\""),
         false => format!("token_url = \"{base}/token\""),
     };
     let manifest = move |server: &str| {
-        account_plugin(server, &whoami, "").replace(&format!("token_url = \"{server}/token\""), &trades)
+        account_plugin(server, &at, "").replace(&format!("token_url = \"{server}/token\""), &trades)
     };
-    mock_with(3600, manifest, &asking(&["read"], &[]), options())
+    Mock { _whoami: Some(whoami), ..mock_with(3600, manifest, &asking(&["read"], &[]), options()) }
 }
 
 /// A server that answers every request with the head of a body it then cuts short.
-fn cut_short() -> String {
+fn cut_short() -> Server {
     let headers = vec![("Content-Type", "application/json".into()), ("Content-Length", "100".into())];
-    Server::new(move |_, _| Reply { status: 200, headers: headers.clone(), body: b"{\"access".to_vec() }).url
+    Server::new(move |_, _| Reply { status: 200, headers: headers.clone(), body: b"{\"access".to_vec() })
 }
 
 /// How the token endpoint fails in [`prop_a_token_endpoint_failing_says_why_and_keeps_nothing`].
@@ -735,9 +739,10 @@ fn prop_a_token_endpoint_failing_says_why_and_keeps_nothing(tc: TestCase) {
     let exchanges = tc.draw(gs::booleans());
     for trade in [Trade::Said, Trade::Empty, Trade::Closed, Trade::CutShort, Trade::Unsendable, Trade::Garbled] {
         let scripted = Scripted::new();
+        let short = matches!(trade, Trade::CutShort).then(cut_short);
         let base = match trade {
             Trade::Closed => format!("http://{}", TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap()),
-            Trade::CutShort => cut_short(),
+            Trade::CutShort => short.as_ref().unwrap().url.clone(),
             _ => scripted.url.clone(),
         };
         let reply = match trade {

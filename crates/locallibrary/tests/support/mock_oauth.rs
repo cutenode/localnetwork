@@ -6,9 +6,12 @@
 #![allow(dead_code)]
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use oauth2::{PkceCodeChallenge, PkceCodeVerifier};
@@ -35,57 +38,173 @@ pub fn ok(body: impl Into<Vec<u8>>) -> Reply {
     Reply { status: 200, headers: Vec::new(), body: body.into() }
 }
 
+/// A listener on this computer, whose connections `serve` takes one at a time on a thread of its
+/// own (with whether it has stopped), until it answers false. Dropped, it stops: it's closed, and a
+/// panic of its thread fails the test that dropped it.
+pub struct Listening {
+    pub addr: SocketAddr,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Listening {
+    pub fn new(mut serve: impl FnMut(TcpStream, &AtomicBool) -> bool + Send + 'static) -> Listening {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = stop.clone();
+        let thread = std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if stopped.load(Ordering::SeqCst) {
+                    break;
+                }
+                let stream = match stream {
+                    // Windows says so of a client that has gone by now.
+                    Err(e) if matches!(e.kind(), ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset) => continue,
+                    stream => stream.unwrap(),
+                };
+                if !serve(stream, &stopped) {
+                    break;
+                }
+            }
+        });
+        Listening { addr, stop, thread: Some(thread) }
+    }
+}
+
+impl Drop for Listening {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let Some(thread) = self.thread.take() else { return };
+        // Wakes the thread waiting for a connection, to see it's stopped. Once it has ended, nothing
+        // listens, which Windows takes 2 s to say. A process out of files can't connect until it has
+        // closed some.
+        let woken = (0..100).any(|_| {
+            thread.is_finished() || TcpStream::connect(self.addr).is_ok() || {
+                std::thread::sleep(Duration::from_millis(50));
+                false
+            }
+        });
+        if !woken {
+            assert!(std::thread::panicking(), "can't connect to {} to stop it", self.addr);
+            return;
+        }
+        if let Err(panic) = thread.join()
+            && !std::thread::panicking()
+        {
+            std::panic::resume_unwind(panic);
+        }
+    }
+}
+
 /// A server on this computer answering each request as `route` says (given its own address and
-/// the request), keeping what it was asked.
+/// the request), keeping what it was asked. Dropped, it stops, as [`Listening`] does: a route's
+/// assertion fails the test that dropped it.
 pub struct Server {
     /// `http://127.0.0.1:<port>`.
     pub url: String,
     got: Arc<Mutex<Vec<Got>>>,
+    listening: Listening,
 }
 
 impl Server {
     pub fn new(route: impl Fn(&str, &Got) -> Reply + Send + 'static) -> Server {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
         let got: Arc<Mutex<Vec<Got>>> = Arc::default();
-        let (base, log) = (url.clone(), got.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let mut stream = stream.unwrap();
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                let mut words = line.split(' ');
-                let (method, target) = (words.next().unwrap().to_string(), words.next().unwrap().to_string());
-                let mut headers = IndexMap::new();
-                loop {
-                    line.clear();
-                    reader.read_line(&mut line).unwrap();
-                    let Some((name, value)) = line.trim_end().split_once(": ") else { break };
-                    headers.insert(name.to_lowercase(), value.to_string());
-                }
-                let length = headers.get("content-length").map_or(0, |n| n.parse().unwrap());
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).unwrap();
-                let got = Got { method, target, headers, body: String::from_utf8_lossy(&body).into() };
-                log.lock().unwrap().push(got.clone());
-                let Reply { status, headers, body } = route(&base, &got);
-                // A reply giving its own length keeps it: one longer than its body is cut short.
-                let sized = headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
-                let length = if sized { String::new() } else { format!("Content-Length: {}\r\n", body.len()) };
-                let mut head = format!("HTTP/1.1 {status} X\r\n{length}Connection: close\r\n");
-                for (name, value) in headers {
-                    head.push_str(&format!("{name}: {value}\r\n"));
-                }
-                let _ = stream.write_all(format!("{head}\r\n").as_bytes()).and_then(|()| stream.write_all(&body));
+        let log = got.clone();
+        let listening = Listening::new(move |stream, stopped| {
+            // A client that hangs up before its request is whole, or hasn't sent it all when the
+            // server is dropped, is answered nothing.
+            let Ok(mut connection) = Connection::new(&stream, stopped) else { return true };
+            let Ok(Some(got)) = read(&mut connection) else { return true };
+            log.lock().unwrap().push(got.clone());
+            let base = format!("http://{}", stream.local_addr().unwrap());
+            let Reply { status, headers, body } = route(&base, &got);
+            // A reply giving its own length keeps it: one longer than its body is cut short.
+            let sized = headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
+            let length = if sized { String::new() } else { format!("Content-Length: {}\r\n", body.len()) };
+            let mut head = format!("HTTP/1.1 {status} X\r\n{length}Connection: close\r\n");
+            for (name, value) in headers {
+                head.push_str(&format!("{name}: {value}\r\n"));
             }
+            let _ = connection.write_all(format!("{head}\r\n").as_bytes()).and_then(|()| connection.write_all(&body));
+            true
         });
-        Server { url, got }
+        Server { url: format!("http://{}", listening.addr), got, listening }
     }
 
     pub fn got(&self) -> Vec<Got> {
         self.got.lock().unwrap().clone()
     }
+}
+
+/// A connection, read and written until the server has `stopped`: a client that's slow is waited for,
+/// and one that reads nothing for 10 s when it's written to isn't.
+pub struct Connection<'a> {
+    stream: &'a TcpStream,
+    stopped: &'a AtomicBool,
+}
+
+impl<'a> Connection<'a> {
+    pub fn new(stream: &'a TcpStream, stopped: &'a AtomicBool) -> std::io::Result<Connection<'a>> {
+        // How often it's seen whether the server has stopped.
+        stream.set_read_timeout(Some(Duration::from_millis(50)))?;
+        // Not tried again, as a read is: Windows doesn't say how much of one that timed out it sent.
+        stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+        Ok(Connection { stream, stopped })
+    }
+}
+
+impl Read for Connection<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            match self.stream.read(buf) {
+                Err(e)
+                    if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
+                        && !self.stopped.load(Ordering::SeqCst) => {}
+                read => return read,
+            }
+        }
+    }
+}
+
+impl Write for Connection<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // One that times out having sent some of it isn't an error, so the next would wait again.
+        if self.stopped.load(Ordering::SeqCst) {
+            return Err(ErrorKind::TimedOut.into());
+        }
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The request `connection` sends, or none when it hangs up before its headers end.
+fn read(connection: &mut Connection) -> std::io::Result<Option<Got>> {
+    let mut reader = BufReader::new(connection);
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    if !line.ends_with('\n') {
+        return Ok(None);
+    }
+    let mut words = line.split(' ');
+    let (method, target) = (words.next().unwrap().to_string(), words.next().unwrap().to_string());
+    let mut headers = IndexMap::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line)?;
+        if !line.ends_with('\n') {
+            return Ok(None);
+        }
+        let Some((name, value)) = line.trim_end().split_once(": ") else { break };
+        headers.insert(name.to_lowercase(), value.to_string());
+    }
+    let length = headers.get("content-length").map_or(0, |n| n.parse().unwrap());
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body)?;
+    Ok(Some(Got { method, target, headers, body: String::from_utf8_lossy(&body).into() }))
 }
 
 /// What the mock service hands out: access tokens `at-<n>` and refresh tokens `rt-<n>`, each
@@ -330,4 +449,118 @@ requests = [{{ method = "POST", url = "{server}/w/*" }}]
 "#,
         whoami = whoami.unwrap_or_default()
     )
+}
+
+/// Starts a server with `start` and drops it, over and over: it closes its listener each time, so a
+/// property starting one in each of its cases, shrinking for long, doesn't run the process out of
+/// files. Each is used as `use_it` does, then dropped, after which nothing answers at the address
+/// `start` gave with it.
+pub fn stops_when_dropped<T>(start: impl Fn() -> (T, SocketAddr), use_it: impl Fn(&T, SocketAddr)) {
+    // The files this process has open: nextest runs one test in it, where `cargo test` runs others
+    // beside it.
+    #[cfg(unix)]
+    let open = || std::env::var_os("NEXTEST").map(|_| std::fs::read_dir("/dev/fd").unwrap().count());
+    #[cfg(unix)]
+    let before = open();
+    let dropped = (0..20).map(|_| {
+        let (server, addr) = start();
+        use_it(&server, addr);
+        let dropping = Instant::now();
+        drop(server);
+        // Generous: a server sees it's stopped in 50 ms.
+        assert!(dropping.elapsed() < Duration::from_secs(10), "the drop was held up");
+        addr
+    });
+    // The last one's alone: Windows takes 2 s to say nothing listens.
+    let addr = dropped.last().unwrap();
+    #[cfg(unix)]
+    assert_eq!(open(), before, "a dropped server left files open");
+    let e = TcpStream::connect(addr).unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::ConnectionRefused, "{addr} still answers");
+}
+
+#[test]
+fn a_dropped_server_stops_listening() {
+    let start = || {
+        let server = Server::new(|_, _| ok("hi"));
+        let addr = server.listening.addr;
+        (server, addr)
+    };
+    stops_when_dropped(start, |_, addr| {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(b"GET /x HTTP/1.1\r\n\r\n").unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        assert!(answer.ends_with("\r\n\r\nhi"), "{answer}");
+    });
+}
+
+/// A client that sends part of its request and then nothing more, keeping the connection open,
+/// doesn't keep its server from stopping.
+#[test]
+fn a_half_sent_request_doesnt_hold_up_the_drop() {
+    let (told, said) = std::sync::mpsc::channel();
+    let listening = Listening::new(move |stream, stopped| {
+        told.send(None).unwrap();
+        let got = Connection::new(&stream, stopped).and_then(|mut connection| read(&mut connection));
+        told.send(Some(matches!(got, Ok(Some(_))))).unwrap();
+        true
+    });
+    let mut stream = TcpStream::connect(listening.addr).unwrap();
+    stream.write_all(b"POST /x HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc").unwrap();
+    assert_eq!(said.recv_timeout(Duration::from_secs(20)), Ok(None), "it isn't read");
+    drops_in_time(listening);
+    assert_eq!(said.recv(), Ok(Some(false)), "a half-sent request was taken");
+}
+
+/// A client that doesn't read a reply too long to send at once doesn't keep its server from stopping.
+#[test]
+fn a_reply_nobody_reads_doesnt_hold_up_the_drop() {
+    let server = Server::new(|_, _| ok(vec![0; 64 << 20]));
+    let mut stream = TcpStream::connect(server.listening.addr).unwrap();
+    stream.write_all(b"GET /x HTTP/1.1\r\n\r\n").unwrap();
+    let asked = Instant::now();
+    while server.got().is_empty() {
+        assert!(asked.elapsed() < Duration::from_secs(20), "it isn't asked");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drops_in_time(server);
+}
+
+/// A client that hangs up in the middle of its request line or headers asked nothing.
+#[test]
+fn a_request_cut_short_in_its_head_isnt_one() {
+    let server = Server::new(|_, _| ok("hi"));
+    for sent in
+        ["", "GET", "GET /x HTTP/1.1", "GET /x HTTP/1.1\r\n", "GET /x HTTP/1.1\r\nA: b", "GET /x HTTP/1.1\r\nA: b\r\n"]
+    {
+        let mut stream = TcpStream::connect(server.listening.addr).unwrap();
+        stream.write_all(sent.as_bytes()).unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut answer = Vec::new();
+        let _ = stream.read_to_end(&mut answer);
+        assert!(answer.is_empty(), "{sent:?} was answered");
+    }
+    assert!(server.got().is_empty(), "{:?}", server.got());
+}
+
+/// Drops `server`, on a thread of its own: a drop that waited forever fails the test instead.
+fn drops_in_time(server: impl Send + 'static) {
+    let (dropped, done) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        drop(server);
+        let _ = dropped.send(());
+    });
+    // Generous: a reply nobody reads is given up on after 10 s of it being stuck, 15 s in all on macOS.
+    assert!(done.recv_timeout(Duration::from_secs(30)).is_ok(), "dropping the server hung");
+}
+
+/// A route that panics fails the test once its server is dropped, saying why.
+#[test]
+#[should_panic(expected = "the route's own assertion")]
+fn a_server_s_panic_fails_the_test_that_drops_it() {
+    let server = Server::new(|_, _| panic!("the route's own assertion"));
+    let mut stream = TcpStream::connect(server.url.strip_prefix("http://").unwrap()).unwrap();
+    stream.write_all(b"GET /x HTTP/1.1\r\n\r\n").unwrap();
+    let _ = stream.read_to_string(&mut String::new());
 }

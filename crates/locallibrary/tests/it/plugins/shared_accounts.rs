@@ -38,6 +38,8 @@ pub(super) struct Mock {
     pub(super) state: Arc<Mutex<Service>>,
     pub(super) server: Server,
     pub(super) f: Fixture,
+    /// A server of its own the account plugin asks who signed in, when it has one.
+    pub(super) _whoami: Option<Server>,
 }
 
 /// [`Mock`], its tokens lasting `expires_in` seconds, the account plugin asking `whoami` (a path
@@ -79,7 +81,7 @@ pub(super) fn mock_among(
     let server = service(state.clone());
     let manifests = [vec![echo.to_string()], manifests(&server.url)].concat();
     let f = Fixture::new(move |dir| manifests.iter().map(|m| spec(dir, m, &[])).collect(), options);
-    Mock { state, server, f }
+    Mock { state, server, f, _whoami: None }
 }
 
 /// An account plugin `id` at `server` providing the account type `kind`, signed in to with keys
@@ -416,13 +418,17 @@ fn whoami_follows_redirects_within_its_origin_only() {
         assert!(asked.len() == 2 && asked.iter().all(sent), "{token}: not followed with the token");
     }
 
-    let away = |server: &str| {
+    // Kept to the end: dropped, a server stops.
+    let mut _away = None;
+    let plugin = |server: &str| {
         let to = format!("{server}/userinfo");
-        let away =
+        let there =
             Server::new(move |_, _| Reply { status: 302, headers: vec![("Location", to.clone())], body: Vec::new() });
-        account_plugin(server, &format!("{}/who", away.url), "")
+        let plugin = account_plugin(server, &format!("{}/who", there.url), "");
+        _away = Some(there);
+        plugin
     };
-    let m = mock_with(3600, away, &asking(&["read"], &["write"]), options());
+    let m = mock_with(3600, plugin, &asking(&["read"], &["write"]), options());
     let e = m.sign_in(who(json!("a"), None), None, &[]).0.unwrap_err();
     assert_eq!(
         e.to_string(),
@@ -553,11 +559,16 @@ fn prop_whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
     let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
     let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42), json!(1.5), Value::Null]));
     let email = tc.draw(gs::sampled_from(vec![None, Some("a@mock.example")]));
-    let manifest = move |server: &str| {
+    // Kept to the end: dropped, a server stops.
+    let mut _other = None;
+    let manifest = |server: &str| {
         let to = format!("{server}/userinfo");
-        let elsewhere = |reply: fn(&str, &str) -> Reply| {
+        let mut elsewhere = |reply: fn(&str, &str) -> Reply| {
             let to = to.clone();
-            Server::new(move |base, _| reply(base, &to)).url + "/who"
+            let there = Server::new(move |base, _| reply(base, &to));
+            let who = format!("{}/who", there.url);
+            _other = Some(there);
+            who
         };
         fn moved(location: String) -> Reply {
             Reply { status: 307, headers: vec![("Location", location)], body: Vec::new() }
