@@ -129,6 +129,21 @@ fn decrypted_copies_keep_temporary_data_in_memory() {
     assert_eq!(temp_store(&open_db(&plain, DEFAULT_KEY).unwrap()), 2);
 }
 
+/// What SQLite copies a database in from is zeroed behind it, a page at a time, so only SQLite's
+/// copy is ever whole.
+#[test]
+fn a_database_read_into_sqlite_is_zeroed_behind_it() {
+    let mut bytes: Vec<u8> = (0..3 * PAGE_SIZE + 5).map(|i| (i % 251) as u8 + 1).collect();
+    let want = bytes.clone();
+    let mut reader = Moving(&mut bytes);
+    let mut page = vec![0; 2 * PAGE_SIZE];
+    assert_eq!(reader.read(&mut page).unwrap(), PAGE_SIZE, "a page at a time");
+    let mut got = page[..PAGE_SIZE].to_vec();
+    reader.read_to_end(&mut got).unwrap();
+    assert_eq!(got, want);
+    assert!(bytes.iter().all(|&b| b == 0));
+}
+
 fn write(dir: &Path, bytes: &[u8]) -> PathBuf {
     let path = dir.join("master.db");
     std::fs::write(&path, bytes).unwrap();

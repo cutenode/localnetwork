@@ -39,6 +39,8 @@ tempfile.workspace = true
 thiserror.workspace = true
 # A debug line for each folder `scratch::sweep` removes.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+# Decrypted buffers are zeroed once done with.
+zeroize = "1.9"
 
 [features]
 # `JsonSchema` for what's read from master.db and what a cue edit did.

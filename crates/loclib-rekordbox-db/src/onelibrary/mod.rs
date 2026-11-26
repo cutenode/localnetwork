@@ -31,6 +31,7 @@ use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
 
 use loclib_model::model::{Library, Playlist, Track, TrackColor, untangle};
 use loclib_sqlcipher::untrusted::{damaged, distrust};
+use zeroize::Zeroizing;
 
 use crate::error::IoContext;
 use crate::{Error, Result};
@@ -77,6 +78,7 @@ pub fn content_hashes(db: &[u8], wal: Option<&[u8]>) -> Result<(blake3::Hash, bl
 /// [`content_hashes`], reading a decrypted database of up to `limit` bytes in memory.
 fn hashes_within(db: &[u8], wal: Option<&[u8]>, limit: usize) -> Result<(blake3::Hash, blake3::Hash)> {
     let (_, plain) = decrypt(db, wal)?;
+    let plain = Zeroizing::new(plain);
     let property = property_page(&plain, limit)?;
     let usable = PAGE_SIZE - cipher::RESERVE;
     let mut current = blake3::Hasher::new();
@@ -90,7 +92,7 @@ fn hashes_within(db: &[u8], wal: Option<&[u8]>, limit: usize) -> Result<(blake3:
                 current.update(canonical);
             }
             _ if pgno == 1 => {
-                let mut first = page[..usable].to_vec();
+                let mut first = Zeroizing::new(page[..usable].to_vec());
                 first[24..28].fill(0);
                 first[92..96].fill(0);
                 current.update(&first);
@@ -464,13 +466,15 @@ impl OneLibrary {
     }
 
     /// A working copy of a plain database image (header bytes 18-19 still as stored).
-    fn from_plain(codec: Codec, mut plain: Vec<u8>) -> Result<OneLibrary> {
+    fn from_plain(codec: Codec, plain: Vec<u8>) -> Result<OneLibrary> {
+        let mut plain = Zeroizing::new(plain);
         let journal = [plain[18], plain[19]];
         plain[18] = 1;
         plain[19] = 1;
         let dir = crate::scratch::folder()?;
         let path = dir.path().join("exportLibrary.db");
-        std::fs::write(&path, &plain).at(&path)?;
+        std::fs::write(&path, &*plain).at(&path)?;
+        drop(plain);
         let conn = Connection::open(&path)?;
         // SQLite's temporary tables and sorts stay in memory, not in files of their own.
         conn.execute_batch("PRAGMA temp_store = MEMORY")?;
@@ -509,11 +513,11 @@ impl OneLibrary {
         if check != "ok" {
             return Err(Error::OneLibrary(format!("integrity check failed: {check}")));
         }
-        let mut plain = std::fs::read(&self.path).at(&self.path)?;
+        let mut plain = Zeroizing::new(std::fs::read(&self.path).at(&self.path)?);
         cipher::check_plain_header(&plain)?;
         plain[18..20].copy_from_slice(&self.journal);
         let bytes = self.codec.encrypt(&plain)?;
-        let back = self.codec.decrypt(&bytes, |_| true)?;
+        let back = Zeroizing::new(self.codec.decrypt(&bytes, |_| true)?);
         let usable = PAGE_SIZE - cipher::RESERVE;
         if back.len() != plain.len()
             || back.chunks(PAGE_SIZE).zip(plain.chunks(PAGE_SIZE)).any(|(a, b)| a[..usable] != b[..usable])

@@ -57,6 +57,7 @@ use loclib_sqlcipher::untrusted::distrust;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::IoContext;
 use crate::onelibrary::{cipher, hot_cue_from_kind, wal};
@@ -327,13 +328,13 @@ pub(crate) fn open_db<'a>(path: &'a Path, key: &str) -> Result<Opened<'a>> {
 fn open_db_within<'a>(path: &'a Path, key: &str, limit: usize) -> Result<Opened<'a>> {
     crate::scratch::sweep();
     match decrypt(path, key)? {
-        Image::Decrypted(plain, _) if plain.len() <= limit => {
+        Image::Decrypted(mut plain, _) if plain.len() <= limit => {
             let mut conn = Connection::open_in_memory_with_flags(
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
             )
             .map_err(|e| Error::parse(path, e))?;
             let len = plain.len();
-            conn.deserialize_read_exact(rusqlite::MAIN_DB, plain.as_slice(), len, true)
+            conn.deserialize_read_exact(rusqlite::MAIN_DB, Moving(&mut plain), len, true)
                 .map_err(|e| Error::parse(path, e))?;
             drop(plain);
             Ok(Opened { db: checked(conn, path)?, _folder: None })
@@ -343,6 +344,21 @@ fn open_db_within<'a>(path: &'a Path, key: &str, limit: usize) -> Result<Opened<
             let (db, _) = open_image(path, image, &folder, false)?;
             Ok(Opened { db, _folder: Some(folder) })
         }
+    }
+}
+
+/// Reads its bytes out a page at a time and zeroes each once read: SQLite copies a database it
+/// deserializes into memory of its own, so only that copy is ever whole.
+struct Moving<'a>(&'a mut [u8]);
+
+impl Read for Moving<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = buf.len().min(self.0.len()).min(cipher::PAGE_SIZE);
+        let (read, rest) = std::mem::take(&mut self.0).split_at_mut(n);
+        buf[..n].copy_from_slice(read);
+        read.zeroize();
+        self.0 = rest;
+        Ok(n)
     }
 }
 
@@ -394,7 +410,7 @@ fn open_image<'a>(
     let (copy, salt, flags) = match image {
         Image::Decrypted(plain, salt) => {
             let out = folder.path().join("master.db");
-            std::fs::write(&out, plain).at(&out)?;
+            std::fs::write(&out, &*plain).at(&out)?;
             (out, Some(salt), writes)
         }
         // SQLite replays a plain copy's WAL itself, which takes write access to the copy (never
@@ -444,15 +460,16 @@ fn write_plain(dir: &Path, bytes: &[u8], wal: Option<&[u8]>) -> Result<PathBuf> 
 /// `master.db` as read into memory.
 #[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "the salt is for writing a copy"))]
 enum Image {
-    /// Decrypted, with the WAL's committed pages applied: a plain database on its own. With the
-    /// salt the original was encrypted with.
-    Decrypted(Vec<u8>, Salt),
+    /// Decrypted, with the WAL's committed pages applied: a plain database on its own, zeroed
+    /// when dropped. With the salt the original was encrypted with.
+    Decrypted(Zeroizing<Vec<u8>>, Salt),
     /// The file was plain SQLite already, with its WAL, if any.
     Plain(Vec<u8>, Option<Vec<u8>>),
 }
 
 /// `path` (and its WAL) read into memory and decrypted there, the WAL's committed transactions
-/// replayed, so SQLite reads the result on its own. Nothing is written to disk.
+/// replayed, so SQLite reads the result on its own. Nothing is written to disk, and each
+/// decrypted buffer is zeroed once done with.
 fn decrypt(path: &Path, key: &str) -> Result<Image> {
     // Read whole first: rekordbox may be writing, and nothing here holds its files open for long.
     let read = std::cell::RefCell::new(Vec::new());
@@ -462,7 +479,7 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
         *read.borrow_mut() = bytes;
         Ok(len)
     })?;
-    let mut db = read.into_inner();
+    let mut db = Zeroizing::new(read.into_inner());
     let page_size = cipher::PAGE_SIZE;
     let len = db.len() as u64;
     if len < page_size as u64 {
@@ -470,7 +487,7 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
     }
     if &db[..16] == cipher::SQLITE_MAGIC {
         // Already plain (decrypted with sqlcipher, say): use it as it is.
-        return Ok(Image::Plain(db, wal));
+        return Ok(Image::Plain(std::mem::take(&mut *db), wal));
     }
     if !len.is_multiple_of(page_size as u64) {
         return Err(Error::parse(path, format!("{len} bytes is not a whole number of 4096-byte pages")));
@@ -479,16 +496,22 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
     let codec = cipher::Codec::with_key(key.as_bytes(), salt);
     let wrong_key = || Error::WrongKey(path.to_path_buf());
     let damaged = |e: loclib_sqlcipher::Error| Error::parse(path, e);
-    let page1 = codec.decrypt_page(1, &db[..page_size]).map_err(|_| wrong_key())?;
+    let page1 = Zeroizing::new(codec.decrypt_page(1, &db[..page_size]).map_err(|_| wrong_key())?);
     cipher::check_plain_header(&page1).map_err(|_| wrong_key())?;
     let committed = wal.as_deref().map(|w| wal::committed(w, page_size)).transpose()?.flatten();
+    // Grown to its final size while it's still encrypted: growing it later would leave the
+    // decrypted pages behind in the memory it moved out of.
+    if let Some(c) = &committed {
+        let grows = (c.db_pages as usize * page_size).saturating_sub(db.len());
+        db.reserve_exact(grows);
+    }
     // Each page is decrypted in place.
     db[..page_size].copy_from_slice(&page1);
     let main_pages = (len / page_size as u64) as usize;
     for (i, page) in db.chunks_exact_mut(page_size).enumerate().skip(1) {
         let pgno = i as u32 + 1;
         if loclib_sqlcipher::reads_main_page(pgno, committed.as_ref()) {
-            let plain = codec.decrypt_page(pgno, page).map_err(damaged)?;
+            let plain = Zeroizing::new(codec.decrypt_page(pgno, page).map_err(damaged)?);
             page.copy_from_slice(&plain);
         } else {
             page.fill(0);
@@ -496,10 +519,12 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
     }
     if let Some(committed) = committed {
         let replayed = loclib_sqlcipher::wal_pages(&codec, &committed, main_pages).map_err(damaged)?;
+        let replayed: Vec<(u32, Zeroizing<Vec<u8>>)> =
+            replayed.into_iter().map(|(n, p)| (n, Zeroizing::new(p))).collect();
         db.resize(committed.db_pages as usize * page_size, 0);
-        for (pgno, plain) in replayed {
-            let at = (pgno as usize - 1) * page_size;
-            db[at..at + page_size].copy_from_slice(&plain);
+        for (pgno, plain) in &replayed {
+            let at = (*pgno as usize - 1) * page_size;
+            db[at..at + page_size].copy_from_slice(plain);
         }
     }
     // Header bytes 18-19 say WAL mode (2); the copy, without a WAL, reads with a rollback
