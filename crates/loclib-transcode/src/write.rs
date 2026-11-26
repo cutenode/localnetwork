@@ -210,11 +210,15 @@ impl Flac {
         let (channels, depth) = (usize::from(spec.channels), usize::from(spec.bit_depth));
         let mut info = StreamInfo::new(spec.sample_rate as usize, channels, depth).encoding(path)?;
         info.set_block_sizes(BLOCK, BLOCK).expect("valid block sizes");
-        let config = config::Encoder::default().into_verified().expect("the default configuration is valid");
         let mut verbatim = config::Encoder::default();
         let coding = &mut verbatim.subframe_coding;
         (coding.use_constant, coding.use_fixed, coding.use_lpc) = (false, false, false);
-        let verbatim = verbatim.into_verified().expect("verbatim coding is valid");
+        // Verified at one call, and not with `expect`, whose message would build in the Debug of a
+        // whole configuration: the release CLI has a size budget.
+        let [Ok(config), Ok(verbatim)] = [config::Encoder::default(), verbatim].map(config::Encoder::into_verified)
+        else {
+            unreachable!("the default configuration, and it without prediction, are valid");
+        };
         let block = FrameBuf::with_size(channels, BLOCK).encoding(path)?;
         let mut sink = ByteSink::new();
         sink.write_bytes_aligned(b"fLaC").expect("memory");
