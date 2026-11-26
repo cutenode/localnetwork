@@ -194,8 +194,17 @@ needs.
   track's loaded or `esc`. The layout's kept between runs.
   - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
     bar starts and bar numbers, sitting on the waveform, each bar's line carried down through it. `[` and `]` zoom it, from 1.5 to 60 seconds across.
+    Drag it left or right to scrub: the track moves under the playhead with the pointer, held while
+    it moves, and plays on from where it's let go of (on the nearest beat with quantize on). A
+    click alone doesn't seek.
   - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
-    Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
+    Click it to seek.
+  - The playhead is where the track is heard: the output plays what it's handed a buffer and its
+    own latency later (tens of milliseconds through speakers, a few hundred through Bluetooth),
+    and the player takes that off, as the output reports it. So a loop made with quantize off, the
+    cue flashes and the beat count follow what you hear; on pause the playhead stops where the
+    sound does. Jumps that keep the beat go by what's been handed to the output, so the rhythm
+    carries on through them. Phrases run under it with rekordbox's labels, as colour alone where a label
     wouldn't fit whole.
   - Hot cues are lettered in their own colours, in a row over each waveform, with a second row where
     two would share a cell or sit side by side, and loops are a tint.
@@ -247,8 +256,8 @@ needs.
   playhead was, as if they had waited for the nearest beat, so the rhythm carries on; paused,
   beat jumps land on a beat. A track without a beat grid jumps by its BPM.
 - **Loops**: `l` loops the loop the playhead is in (a saved one, or the last one exited), or makes
-  one of 4 beats from the beat it's in (from the playhead with quantize off); `l` again exits it and
-  playback carries on. `(` and `)` halve and double it along the grid, and a hot cue saved as a loop
+  a bar of 4 beats from the nearest downbeat, so it's on the bar even pressed a little early or
+  late (from the playhead with quantize off); `l` again exits it and playback carries on. `(` and `)` halve and double it along the grid, and a hot cue saved as a loop
   plays its loop. Seeking out of a loop leaves it. The loop repeats on the audio thread, to the
   sample: the first time round it's kept in memory and then replayed from there, so going round
   doesn't read the drive. The player shows `LOOP` with its length in beats, and a loop made in the
@@ -532,7 +541,7 @@ Deck:
 | `<  >` | one bar (4 beats) back / forward |
 | `{  }` | 8 bars (32 beats, a phrase) back / forward |
 | `Z` | quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one |
-| `l` | loop: the saved loop the playhead is in, else 4 beats from the beat it's in; again to exit |
+| `l` | loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit |
 | `(  )` | halve / double the loop |
 |  | A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it. |
 | `S` | autoplay off (single play): stop after each track, the next one ready for space; again to play on |
@@ -585,4 +594,5 @@ Changing the drive:
 [//]: # (End of the key tables.)
 
 Mouse: click to select (or a tab to switch views, or a pane's title to open it), double-click to play, scroll to move, click a
-column header to sort, click or drag the waveform to seek, right-click in the library for actions.
+column header to sort, click or drag the overview to seek, drag the zoomed waveform to scrub, right-click in the library for
+actions.

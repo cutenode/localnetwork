@@ -40,9 +40,11 @@ runs:
         path: ~/apt-packages
         key: ${{ steps.key.outputs.key }}
     # What a package needs is in the folder or on the image, so this asks no one. An empty folder
-    # means the image has them all.
+    # means the image has them all. --auto-deconfigure lets a set that upgrades an installed package
+    # along with its data package install in one go: alsa-lib's security update (libasound2-data
+    # "Breaks" the image's older libasound2t64) is refused without it.
     - shell: bash
       run: |
         shopt -s nullglob
         debs=(~/apt-packages/*.deb)
-        (( ${#debs[@]} == 0 )) || sudo dpkg -i "${debs[@]}"
+        (( ${#debs[@]} == 0 )) || sudo dpkg -i --auto-deconfigure "${debs[@]}"

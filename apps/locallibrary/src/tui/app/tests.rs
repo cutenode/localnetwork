@@ -2357,6 +2357,109 @@ fn the_overview_seeks_where_clicked_or_dragged() {
     assert!(app.deck.outputs.is_none());
 }
 
+/// Player mode's zoomed waveform, 20 seconds into a five-minute track at 120 BPM, drawn: its
+/// area, and the seconds a column of it stands for.
+fn zoom_at_20s(app: &mut App) -> (Rect, f64) {
+    let now = app.now.as_mut().unwrap();
+    (now.analysis.beats, now.analysis.detail) = (grid(0, 120.0, 600), Some(wave(150 * 300)));
+    (app.resume, app.deck_layout) = (Some(Duration::from_secs(20)), true);
+    super::super::ui::screen(app, 120, 40);
+    let r = app.areas.zoom;
+    assert!(r.width > 0 && r.height > 0, "{r:?}");
+    (r, app.deck_secs / f64::from(r.width))
+}
+
+/// Dragging the zoomed waveform pulls the track along under the playhead, a column for each
+/// column: right goes back, left goes on. A click alone doesn't seek.
+#[test]
+fn dragging_the_zoomed_waveform_scrubs() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    let (r, per_col) = zoom_at_20s(&mut app);
+    app.deck.quantize = false;
+    let at = |app: &App| app.pending_seek.map(|d| d.as_secs_f64()).unwrap_or(f64::NAN);
+    let (mid, y) = (r.x + r.width / 2, r.y + r.height / 2);
+    let drag = MouseEventKind::Drag(MouseButton::Left);
+    let up = MouseEventKind::Up(MouseButton::Left);
+
+    mouse(&mut app, LEFT, (mid, y));
+    mouse(&mut app, drag, (mid, y + 1));
+    mouse(&mut app, up, (mid, y + 1));
+    assert_eq!(app.pending_seek, None, "a click, or a drag up and down, doesn't seek");
+
+    mouse(&mut app, LEFT, (mid, y));
+    app.last_seek -= Duration::from_secs(1);
+    mouse(&mut app, drag, (mid + 10, y));
+    assert!((at(&app) - (20.0 - 10.0 * per_col)).abs() < 1e-6, "right: back {per_col} s a column: {}", at(&app));
+    app.last_seek -= Duration::from_secs(1);
+    // Off the waveform, the drag goes on.
+    mouse(&mut app, drag, (mid - 4, 0));
+    assert!((at(&app) - (20.0 + 4.0 * per_col)).abs() < 1e-6, "left: on: {}", at(&app));
+    mouse(&mut app, up, (mid - 6, 0));
+    assert!((at(&app) - (20.0 + 6.0 * per_col)).abs() < 1e-6, "let go of where the pointer is: {}", at(&app));
+
+    // The drag's over: dragging elsewhere doesn't scrub.
+    app.pending_seek = None;
+    mouse(&mut app, drag, (mid + 20, y));
+    assert_eq!(app.pending_seek, None);
+
+    // A release that went unseen (let go of outside the window): the next press ends the drag
+    // where it was last seen. The wheel meanwhile leaves it be.
+    mouse(&mut app, LEFT, (mid, y));
+    mouse(&mut app, drag, (mid + 2, y));
+    mouse(&mut app, MouseEventKind::ScrollDown, (mid + 2, y));
+    app.pending_seek = None;
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Right), (mid, y));
+    assert!((at(&app) - (20.0 - 2.0 * per_col)).abs() < 1e-6, "{}", at(&app));
+    app.pending_seek = None;
+    mouse(&mut app, drag, (mid + 9, y));
+    assert_eq!(app.pending_seek, None, "and it's over");
+}
+
+/// With quantize on, a drag along the zoomed waveform lets go of the playhead on the nearest beat.
+#[test]
+fn a_quantized_scrub_lands_on_a_beat() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    let (r, per_col) = zoom_at_20s(&mut app);
+    assert!(app.deck.quantize);
+    let (mid, y) = (r.x + r.width / 2, r.y + 1);
+    mouse(&mut app, LEFT, (mid, y));
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (mid + 5, y));
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (mid + 5, y));
+    let ms = app.pending_seek.unwrap().as_secs_f64() * 1000.0;
+    let scrubbed = (20.0 - 5.0 * per_col) * 1000.0;
+    let nearest = (scrubbed / 500.0).round() * 500.0;
+    assert!((scrubbed - nearest).abs() > 50.0 && nearest != 20_000.0, "a test that shows it: {scrubbed}");
+    assert!((ms - nearest).abs() < 1e-3, "on the beat at {nearest} ms: {ms}");
+}
+
+/// Playing, the track holds still while it's dragged, and plays on from where it's let go of.
+#[test]
+fn a_scrub_holds_playback_and_lets_it_go_on() {
+    let (_dir, mut app, _out) = playing_wavs(&[8000]);
+    opened(&mut app);
+    app.now.as_mut().unwrap().analysis.detail = Some(wave(150));
+    app.deck_layout = true;
+    super::super::ui::screen(&mut app, 120, 40);
+    let r = app.areas.zoom;
+    assert!(app.is_playing() && r.width > 0);
+    let (mid, y) = (r.x + r.width / 2, r.y + 1);
+    mouse(&mut app, LEFT, (mid, y));
+    assert!(app.is_playing(), "pressed, not yet dragged");
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (mid - 2, y));
+    assert!(!app.is_playing(), "held");
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (mid - 2, y));
+    assert!(app.is_playing(), "plays on");
+    let per_col = app.deck_secs / f64::from(r.width);
+    assert!((app.position().as_secs_f64() - 2.0 * per_col).abs() < 0.01, "{:?}", app.position());
+
+    // Paused, it stays paused.
+    press(&mut app, " ");
+    mouse(&mut app, LEFT, (mid, y));
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (mid + 1, y));
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (mid + 1, y));
+    assert!(!app.is_playing());
+}
+
 /// A queue of the test library's tracks on its drive, at `pos`.
 fn queued(app: &mut App, pos: usize) {
     let l = app.loaded.as_ref().unwrap();
@@ -3339,7 +3442,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
     let plugins = crate::plugins::host().unwrap();
     plugins.analyze("echo", "heard", &root.display().to_string(), None, &store, &Ctx::silent()).unwrap();
 
-    let info = track_info(&root, &t, None, &store_root);
+    let info = track_info(&root, &t, None, None, &store_root);
     let said = "grid and waveform from echo.heard, not on the drive";
     assert_eq!(info.from_plugins.as_deref(), Some(said));
     assert_eq!(info.analysis.beats, grid);
@@ -3347,7 +3450,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
     assert_eq!((detail.style, detail.columns.len()), (anlz::WaveformStyle::ThreeBand, 2));
     // Another track, which rekordbox analysed, is all the drive's.
     let other = device.library().unwrap().tracks[1].clone();
-    assert_eq!(track_info(&root, &other, None, &store_root).from_plugins, None);
+    assert_eq!(track_info(&root, &other, None, None, &store_root).from_plugins, None);
 
     let (mut app, _played) = playing(info.analysis);
     app.now.as_mut().unwrap().from_plugins = info.from_plugins;
@@ -3378,7 +3481,7 @@ fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
     assert!(playing.len() > 12, "the export's keys: {keys:?}");
     let mut shown = FxHashSet::default();
     for (id, track) in (100..).zip(playing) {
-        let info = track_info(dir.path(), &track, Some(lib.clone()), &dir.path().join("store"));
+        let info = track_info(dir.path(), &track, Some(lib.clone()), None, &dir.path().join("store"));
         app.now = Some(NowPlaying {
             id,
             key: Camelot::parse(&track.key),
@@ -3427,7 +3530,7 @@ fn the_mixes_into_panel_shows_more_than_the_playing_key() {
     let (mut app, _dir) = playing_in(lib, TrackAnalysis::default());
     let l = app.loaded.as_ref().unwrap();
     let (root, lib) = (l.root().to_path_buf(), l.library.clone());
-    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), &root.join("store"));
+    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), None, &root.join("store"));
     app.handle_msg(Msg::TrackInfo(1, Box::new(info)));
     app.deck_layout = true;
     let s = super::super::ui::screen(&mut app, 120, 40);

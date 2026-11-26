@@ -34,6 +34,8 @@ pub struct Areas {
     /// The actions menu, when open.
     pub menu: Rect,
     pub overview: Rect,
+    /// Player mode's zoomed waveform, where it's drawn: dragging along it scrubs.
+    pub zoom: Rect,
     /// Every spectrum drawn: width and whether it's mirrored (each needs its own bands).
     pub spectra: Vec<(u16, bool)>,
     pub drive_list: Rect,
@@ -53,6 +55,30 @@ pub struct Areas {
     pub loop_chip: Rect,
 }
 
+/// A drag along the zoomed waveform: where it started, and the seconds a column stands for.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ZoomDrag {
+    /// The column pressed, and the one the pointer's at now.
+    column: u16,
+    at: u16,
+    /// The playhead when it was pressed.
+    from: Duration,
+    secs_per_col: f64,
+    /// Whether it has left the column pressed: a click alone doesn't seek.
+    moved: bool,
+    /// Playing when the drag began: held still while dragging, it plays on when let go of.
+    held: bool,
+}
+
+impl ZoomDrag {
+    /// Where the playhead is with the pointer where it is: the track pulled along with it, a
+    /// column for each column, so a drag right goes back.
+    fn target(&self) -> Duration {
+        let cols = f64::from(self.at) - f64::from(self.column);
+        Duration::from_secs_f64((self.from.as_secs_f64() - cols * self.secs_per_col).max(0.0))
+    }
+}
+
 /// A row clicked: its view, its pane (none for the full-screen player's matches) and its index.
 pub(super) type ClickedRow = (View, Option<Focus>, usize);
 
@@ -63,6 +89,15 @@ impl App {
             self.intro = false;
         }
         let p = Position::new(m.column, m.row);
+        if self.zoom_drag.is_some() {
+            match m.kind {
+                MouseEventKind::Drag(MouseButton::Left) => return self.scrub(m.column),
+                MouseEventKind::Up(MouseButton::Left) => return self.let_go_of_zoom(Some(m.column)),
+                // The release went unseen (outside the window): it ends here.
+                MouseEventKind::Down(_) => self.let_go_of_zoom(None),
+                _ => {}
+            }
+        }
         if self.help {
             match m.kind {
                 MouseEventKind::ScrollUp => self.help_row = self.help_row.saturating_sub(3),
@@ -139,6 +174,8 @@ impl App {
                     self.show_drive_pane(pane);
                 } else if self.areas.overview.contains(p) {
                     self.seek_click(m.column);
+                } else if self.deck_showing() && self.areas.zoom.contains(p) {
+                    self.hold_zoom(m.column);
                 } else if self.areas.steps.contains(p) {
                     self.steps.select(Some((m.row - self.areas.steps.y) as usize));
                     self.take_step();
@@ -311,5 +348,57 @@ impl App {
         let frac = (column.saturating_sub(r.x) as f64 + 0.5) / r.width.max(1) as f64;
         let target = now.duration.mul_f64(frac.clamp(0.0, 1.0));
         self.seek_to(target);
+    }
+
+    /// The zoomed waveform pressed at `column`: a drag from here scrubs.
+    fn hold_zoom(&mut self, column: u16) {
+        let secs_per_col = self.deck_secs / f64::from(self.areas.zoom.width.max(1));
+        let from = self.position();
+        self.zoom_drag = Some(ZoomDrag { column, at: column, from, secs_per_col, moved: false, held: false });
+    }
+
+    /// The pointer dragged to `column` along the zoomed waveform: the track follows it, held
+    /// still while it moves.
+    fn scrub(&mut self, column: u16) {
+        let Some(mut d) = self.zoom_drag else { return };
+        if d.at == column {
+            return;
+        }
+        if !d.moved {
+            (d.moved, d.held) = (true, self.is_playing());
+            if d.held {
+                self.toggle_pause();
+            }
+        }
+        d.at = column;
+        self.zoom_drag = Some(d);
+        if self.last_seek.elapsed() > Duration::from_millis(60) {
+            self.seek_to(d.target());
+        }
+    }
+
+    /// The drag along the zoomed waveform let go of, at `column` (none: where it was last seen).
+    /// Moved, the playhead lands where it was let go of, quantized on the nearest beat, and plays
+    /// on if it was playing.
+    fn let_go_of_zoom(&mut self, column: Option<u16>) {
+        let Some(mut d) = self.zoom_drag.take() else { return };
+        d.at = column.unwrap_or(d.at);
+        if !d.moved && d.at == d.column {
+            return;
+        }
+        let mut target = d.target();
+        if let Some(now) = self.now.as_ref().filter(|_| self.deck.quantize) {
+            let beats = &now.analysis.beats;
+            let ms = target.as_secs_f64() * 1000.0;
+            let on_beat =
+                crate::tui::deck::beat_index(beats, ms).and_then(|i| crate::tui::deck::beat_time(beats, i.round()));
+            if let Some(ms) = on_beat {
+                target = Duration::from_secs_f64(ms.max(0.0) / 1000.0);
+            }
+        }
+        self.seek_to(target);
+        if d.held && self.audio.as_ref().is_some_and(|a| a.is_paused()) {
+            self.toggle_pause();
+        }
     }
 }

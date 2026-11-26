@@ -11,7 +11,6 @@ use ratatui::widgets::ListState;
 
 use super::app::{App, Level, Msg, View};
 use super::audio::{Audio, Listed};
-use super::icons;
 use super::keys::{KeyPalette, Notation};
 use super::theme;
 
@@ -155,6 +154,11 @@ impl App {
     /// The playhead, in milliseconds.
     pub fn position_ms(&self) -> f64 {
         self.position().as_secs_f64() * 1000.0
+    }
+
+    /// Where the track is heard, in milliseconds (see [`App::heard`]).
+    pub fn heard_ms(&self) -> f64 {
+        self.heard().as_secs_f64() * 1000.0
     }
 
     /// How a jump made now keeps to the grid.
@@ -303,15 +307,16 @@ pub(super) fn reach_active_loop(app: &mut App, prev: f64, pos: f64) {
 }
 
 /// `l`: exit the loop playing; else loop the one the playhead is in (the last one exited, or a
-/// saved loop), else make one of 4 beats from the beat the playhead is in (from the playhead
-/// itself with quantize off).
+/// saved loop), else make one of 4 beats from the nearest downbeat (from the playhead itself with
+/// quantize off).
 pub fn toggle_loop(app: &mut App) {
     let Some(now) = &app.now else { return };
     if let Some(l) = app.deck.looped.filter(|l| l.on) {
         set_loop(app, Some(Loop { on: false, ..l }));
         return;
     }
-    let pos = app.position_ms();
+    // Where it's heard: a loop made by ear starts on what was heard.
+    let pos = app.heard_ms();
     let saved = (now.analysis.cues.iter())
         .filter_map(|c| Some(Loop { start: c.start_ms as f64, end: c.end_ms? as f64, on: true }))
         .filter(|l| l.contains(pos))
@@ -364,15 +369,21 @@ pub fn auto_cue(a: &TrackAnalysis) -> Option<Duration> {
     Some(Duration::from_millis(ms as u64))
 }
 
-/// A loop `beats` long from the beat the playhead is in (`on_beat`) or the playhead itself, along
-/// the grid. `None` without a grid.
+/// A loop `beats` long along the grid, quantized (`on_beat`) from the nearest downbeat, so it
+/// sits on the bar however early or late the key was pressed (from the beat the playhead is in on
+/// a grid that marks no bars); otherwise from the playhead itself. `None` without a grid.
 pub fn auto_loop(beats: &[Beat], ms: f64, len: f64, on_beat: bool) -> Option<(f64, f64)> {
     let at = beat_index(beats, ms)?;
-    // On the beat the playhead is in, unless that one's before the track starts.
-    let at = match on_beat {
-        true if beat_time(beats, at.floor())? < 0.0 => at.ceil(),
-        true => at.floor(),
-        false => at,
+    let downbeat = (beats.iter().enumerate())
+        .filter(|(_, b)| b.beat_number == 1)
+        .map(|(i, _)| i as f64)
+        .min_by(|a, b| (a - at).abs().total_cmp(&(b - at).abs()));
+    let at = match (on_beat, downbeat) {
+        (true, Some(d)) => d,
+        // On the beat the playhead is in, unless that one's before the track starts.
+        (true, None) if beat_time(beats, at.floor())? < 0.0 => at.ceil(),
+        (true, None) => at.floor(),
+        (false, _) => at,
     };
     Some((beat_time(beats, at)?, beat_time(beats, at + len)?))
 }
@@ -404,18 +415,19 @@ impl App {
         if let Some(l) = self.deck.looped.filter(|l| l.on)
             && !cues.iter().any(|c| c.start_ms == l.start as u32 && c.end_ms == Some(l.end as u32))
         {
-            let label = self
-                .loop_playing()
-                .and_then(|(_, b)| b)
-                .map(|b| format!("loop {}{}", icons::REPEAT.get(), beats_label(b)));
+            // Its length in beats is the marker's to add, as it does for a saved loop's.
+            let beats = self.loop_playing().and_then(|(_, b)| b).map(|b| match b >= 0.9 {
+                true => (b.round() as u16, 1),
+                false => (1, (1.0 / b.max(0.01)).round() as u16),
+            });
             cues.push(Cue {
                 hot_cue: None,
                 start_ms: l.start as u32,
                 end_ms: Some(l.end as u32),
-                comment: label.unwrap_or_else(|| "loop".into()),
+                comment: "loop".into(),
                 color: None,
                 color_id: 0,
-                loop_beats: None,
+                loop_beats: beats,
                 active_loop: false,
             });
         }
