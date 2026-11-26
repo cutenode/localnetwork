@@ -18,7 +18,11 @@
 //! files go before its lock file does, so one killed while it's removed is taken at once too.
 //!
 //! A sweep only ever looks into folders this user owns (and, for these folders, private ones),
-//! so another user on a shared `/tmp` can't plant one to make it hang or remove anything.
+//! so another user on a shared `/tmp` can't plant one to make it hang or remove anything. Locks
+//! on network filesystems: where `flock` or `LockFileEx` isn't supported, making a folder fails
+//! and a sweep removes nothing; a temporary folder that several computers share over NFS with
+//! locks kept per computer (`local_lock=flock`, `nolock`) would let one computer's sweep remove a
+//! folder another is using, so it shouldn't be the temporary folder.
 
 use std::fs::{File, Metadata};
 use std::path::{Path, PathBuf};
@@ -185,6 +189,7 @@ pub(crate) fn sweep_in(root: &Path, grace: Duration) -> Vec<PathBuf> {
             false => std::fs::remove_dir_all(&path),
         };
         if gone && removed_it().is_ok() {
+            tracing::debug!(path = %path.display(), "removed a folder an ended process left decrypted copies in");
             removed.push(path);
         }
     }
