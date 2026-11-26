@@ -189,6 +189,10 @@ fn a_markers_beats_end_just_before_the_next() {
     let before = entry(None, Some(130.0), vec![grid(0.0, Some(1.4)), grid((3.0 * step).next_up(), Some(120.0))]);
     let beats = before.beats().unwrap();
     assert_eq!(beats[3..5], [beat(4, 1.4, 128_571), beat(2, 120.0, 129_071)]);
+    // At 90 BPM from 333 ms in, the second beat is at 999.67 ms, before the end of a one-second
+    // track, but would be kept at 1000.
+    let to_end = entry(None, Some(1.0), vec![grid(333.0, Some(90.0))]);
+    assert_eq!(to_end.beats().unwrap(), [beat(1, 90.0, 333)]);
 }
 
 /// Numbers out of what a track or a grid holds are left out as they're read: a tempo, a length,
