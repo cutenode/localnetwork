@@ -112,6 +112,23 @@ fn a_master_db_too_big_for_memory_is_read_from_a_private_folder() {
     assert!(from_file.conn.execute_batch("CREATE TABLE notes (body TEXT)").is_err(), "read only");
 }
 
+/// Every connection to a decrypted copy keeps SQLite's temporary tables and sorts in memory
+/// (2), never in files of their own: in memory, from a file, a copy and a plain `master.db`.
+#[test]
+fn decrypted_copies_keep_temporary_data_in_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let encrypted = write(dir.path(), &sample().encrypted(DEFAULT_KEY));
+    let temp_store = |db: &Db| db.conn.query_row("PRAGMA temp_store", [], |r| r.get::<_, i64>(0)).unwrap();
+    assert_eq!(temp_store(&open_db(&encrypted, DEFAULT_KEY).unwrap()), 2);
+    assert_eq!(temp_store(&open_db_within(&encrypted, DEFAULT_KEY, 0).unwrap()), 2);
+    let folder = crate::scratch::folder().unwrap();
+    assert_eq!(temp_store(&open_copy(&encrypted, DEFAULT_KEY, &folder, true).unwrap().0), 2);
+    let plain = dir.path().join("plain");
+    std::fs::create_dir(&plain).unwrap();
+    let plain = write(&plain, &sample().plain());
+    assert_eq!(temp_store(&open_db(&plain, DEFAULT_KEY).unwrap()), 2);
+}
+
 fn write(dir: &Path, bytes: &[u8]) -> PathBuf {
     let path = dir.join("master.db");
     std::fs::write(&path, bytes).unwrap();

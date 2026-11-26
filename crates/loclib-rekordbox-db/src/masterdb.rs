@@ -409,7 +409,10 @@ fn open_image<'a>(
 }
 
 /// `conn`, the copy of `path`, once SQLite finds nothing amiss and it has a `djmdContent` table.
+/// Its temporary tables and sorts are kept in memory: SQLite would otherwise spill rows of the
+/// decrypted copy to temporary files.
 fn checked(conn: Connection, path: &Path) -> Result<Db<'_>> {
+    conn.execute_batch("PRAGMA temp_store = MEMORY").map_err(|e| Error::parse(path, e))?;
     // Anything that can write rekordbox's folder could have written this, and any path can be
     // given. Reads run only SELECTs, which fire no trigger. The one write, taking the cloud
     // agent's sign-in out of a copy (`files::export`), refuses a file with a trigger first. Views

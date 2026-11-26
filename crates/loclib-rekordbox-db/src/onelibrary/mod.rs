@@ -442,6 +442,8 @@ impl OneLibrary {
         let path = dir.path().join("exportLibrary.db");
         std::fs::write(&path, &plain).at(&path)?;
         let conn = Connection::open(&path)?;
+        // SQLite's temporary tables and sorts stay in memory, not in files of their own.
+        conn.execute_batch("PRAGMA temp_store = MEMORY")?;
         // The schema comes from the drive. Anyone can write this file (its key is public), and
         // rekordbox makes no views or triggers.
         if let Some(why) = distrust(&conn, &["view", "trigger"], "rekordbox")?.or(damaged(&conn)?) {

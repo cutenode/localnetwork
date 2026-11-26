@@ -68,6 +68,15 @@ fn a_damaged_b_tree_is_refused_before_anything_reads_it() {
     assert!(err.contains("SQLite finds it damaged"), "{err}");
 }
 
+/// A working copy keeps SQLite's temporary tables and sorts in memory (2), never in files of
+/// its own.
+#[test]
+fn decrypted_copies_keep_temporary_data_in_memory() {
+    let temp_store = |c: &Connection| c.query_row("PRAGMA temp_store", [], |r| r.get::<_, i64>(0)).unwrap();
+    let one = OneLibrary::create().unwrap();
+    assert_eq!(temp_store(one.connection()), 2);
+}
+
 #[test]
 fn file_types() {
     assert_eq!(file_type("/Contents/a/b.MP3"), 1);
