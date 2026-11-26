@@ -96,6 +96,22 @@ fn killed_read() {
     }
 }
 
+/// A decrypted `master.db` more than SQLite takes into memory is read from a file in a private
+/// folder instead, read only, and reads as it does in memory.
+#[test]
+fn a_master_db_too_big_for_memory_is_read_from_a_private_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &sample().encrypted(DEFAULT_KEY));
+    let len = std::fs::metadata(&path).unwrap().len() as usize;
+    let in_memory = open_db_within(&path, DEFAULT_KEY, len).unwrap();
+    assert!(in_memory._folder.is_none());
+    let from_file = open_db_within(&path, DEFAULT_KEY, len - 1).unwrap();
+    let folder = from_file._folder.as_ref().expect("read from a file");
+    assert!(folder.path().join("master.db").is_file());
+    assert_eq!(from_file.collection().unwrap().library, in_memory.collection().unwrap().library);
+    assert!(from_file.conn.execute_batch("CREATE TABLE notes (body TEXT)").is_err(), "read only");
+}
+
 fn write(dir: &Path, bytes: &[u8]) -> PathBuf {
     let path = dir.join("master.db");
     std::fs::write(&path, bytes).unwrap();

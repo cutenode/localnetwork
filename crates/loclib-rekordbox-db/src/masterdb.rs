@@ -306,18 +306,28 @@ pub struct CollectionInfo {
 /// Read a `master.db` (and its `-wal`, if any). `key` is the SQLCipher passphrase (see
 /// [`resolve_key`]); a plain, already decrypted SQLite file is read as it is.
 ///
-/// The decrypted copy is kept in memory, so nothing is left on disk however the process ends.
-/// Only a plain `master.db` with a WAL goes through a file, in a [`crate::scratch::Folder`], as
-/// SQLite replays a plain WAL itself.
+/// The decrypted copy is kept in memory, so nothing here writes it to disk. Two kinds go through a
+/// file in a [`crate::scratch::Folder`] instead: a plain `master.db` (already plain on disk), as
+/// SQLite replays a plain WAL itself, and a decrypted one of 2 GiB or more, more than SQLite takes
+/// into memory.
 pub fn open(path: &Path, key: &str) -> Result<Collection> {
     open_db(path, key)?.collection()
 }
 
-/// [`open`]'s database: in memory, or in a private folder for a plain one with a WAL.
+/// The most SQLite takes into memory at once (`SQLITE_MAX_ALLOCATION_SIZE`, which the bundled
+/// SQLite can't raise): a decrypted `master.db` any bigger is read from a file instead.
+const IN_MEMORY_LIMIT: usize = 2_147_483_391;
+
+/// [`open`]'s database: in memory, or in a private folder for a plain one or one too big.
 pub(crate) fn open_db<'a>(path: &'a Path, key: &str) -> Result<Opened<'a>> {
+    open_db_within(path, key, IN_MEMORY_LIMIT)
+}
+
+/// [`open_db`], reading a decrypted database of up to `limit` bytes in memory.
+fn open_db_within<'a>(path: &'a Path, key: &str, limit: usize) -> Result<Opened<'a>> {
     crate::scratch::sweep();
     match decrypt(path, key)? {
-        Image::Decrypted(plain, _) => {
+        Image::Decrypted(plain, _) if plain.len() <= limit => {
             let mut conn = Connection::open_in_memory_with_flags(
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
             )
@@ -328,14 +338,10 @@ pub(crate) fn open_db<'a>(path: &'a Path, key: &str) -> Result<Opened<'a>> {
             drop(plain);
             Ok(Opened { db: checked(conn, path)?, _folder: None })
         }
-        Image::Plain(bytes, wal) => {
+        image => {
             let folder = crate::scratch::folder()?;
-            let copy = write_plain(folder.path(), &bytes, wal.as_deref())?;
-            drop(bytes);
-            let conn =
-                Connection::open_with_flags(&copy, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-                    .map_err(|e| Error::parse(path, e))?;
-            Ok(Opened { db: checked(conn, path)?, _folder: Some(folder) })
+            let (db, _) = open_image(path, image, &folder, false)?;
+            Ok(Opened { db, _folder: Some(folder) })
         }
     }
 }
@@ -374,8 +380,18 @@ pub(crate) fn open_copy<'a>(
     folder: &crate::scratch::Folder,
     write: bool,
 ) -> Result<(Db<'a>, Option<Salt>)> {
+    open_image(path, decrypt(path, key)?, folder, write)
+}
+
+/// [`open_copy`] of `image`, `path` as read.
+fn open_image<'a>(
+    path: &'a Path,
+    image: Image,
+    folder: &crate::scratch::Folder,
+    write: bool,
+) -> Result<(Db<'a>, Option<Salt>)> {
     let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
-    let (copy, salt, flags) = match decrypt(path, key)? {
+    let (copy, salt, flags) = match image {
         Image::Decrypted(plain, salt) => {
             let out = folder.path().join("master.db");
             std::fs::write(&out, plain).at(&out)?;
