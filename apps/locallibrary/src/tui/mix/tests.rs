@@ -858,7 +858,7 @@ fn lanes_show_in_reverse_video_without_colours() {
 /// forgotten, newest folder first; one opened on its own, once identified against the drive,
 /// among the recent ones until it's forgotten. A folder with none isn't kept, and a path
 /// that isn't a recording says why and changes nothing.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
@@ -1016,7 +1016,7 @@ fn prop_a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
 /// the last), p back to the start of this one, or, near its start, the one before (or the set's
 /// start); space plays from the selected track, enter on a track from it, and a click on the
 /// timeline from there; z zooms in two, four, eight times and back.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_the_set_plays_through_its_tracks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir, _out) = playing_app();
@@ -1105,7 +1105,7 @@ fn prop_the_set_plays_through_its_tracks(tc: hegel::TestCase) {
 /// its root: without that drive it says why; with it, the data is written into the store, unless
 /// the store can't be opened, its profile choices can't be read or the file can't be written,
 /// which it says instead.
-#[hegel::test(test_cases = 60, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 60)]
 fn prop_a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
@@ -1295,7 +1295,7 @@ fn prop_a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
 /// queue instead, o finds the selected track's drive (or says it's another); a click picks a
 /// recording (a second opens it) or a track; del forgets a recording opened on its own, not the
 /// drive's.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
@@ -1420,7 +1420,7 @@ fn prop_the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
 /// marked; tab goes to the set's tracks only when there's a set with some; space with the set
 /// paused plays it on, enter on nothing asks for a path, and esc, o and space do the app's when
 /// there's nothing of the Mixes view's to do; with no drive open the view says one's needed.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();

@@ -7,8 +7,8 @@ use crate::{common, drawn};
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::model::AudioFile;
@@ -24,7 +24,7 @@ fn entries(lib: &Library) -> Vec<(String, Vec<u32>)> {
     v
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");

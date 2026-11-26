@@ -1,0 +1,3 @@
+401
+Basic dGVzdA==, @ realm=1, Newauth realm="apps", type=1, title="Login to \"apps\""
+

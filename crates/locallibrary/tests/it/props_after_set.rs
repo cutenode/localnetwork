@@ -8,8 +8,8 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::after_set;
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
@@ -66,7 +66,7 @@ fn change(tc: &TestCase, root: &Path, side: &str, others: bool) -> Done {
     done
 }
 
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_only_a_drive_changed_the_way_players_do_is_back_from_a_set(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -118,7 +118,7 @@ fn prop_only_a_drive_changed_the_way_players_do_is_back_from_a_set(tc: TestCase)
 /// With OneLibrary beside export.pdb, one export's changes to both are counted once, and a
 /// OneLibrary that appeared, went or can't be read is a change no player makes; what a drive's
 /// players changed reads as one line counting each kind.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_both_databases_count_once_and_say_what_players_did(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -167,7 +167,7 @@ fn prop_both_databases_count_once_and_say_what_players_did(tc: TestCase) {
 /// drive's database or files can't be read, or the store lost the files or the record of the
 /// state they had in common, or its list of libraries can't be read, the resolve fails.
 #[cfg(unix)]
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(fault = 0u8, left_first = true)]
 #[hegel::explicit_test_case(fault = 1u8, left_first = false)]
 #[hegel::explicit_test_case(fault = 1u8, left_first = true)]

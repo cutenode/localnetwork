@@ -6,15 +6,15 @@ use crate::common::media;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::equipment::Codec;
 use locallibrary::probe::{self, AudioProblem};
 use locallibrary::progress::Ctx;
 use locallibrary::{Library, paths};
 
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_wav_files_are_read_and_checked_as_they_are(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![22_050u32, 44_100, 48_000]));
     let bits = tc.draw(gs::sampled_from(vec![16u16, 24]));
@@ -93,7 +93,7 @@ fn prop_minutes_read_as_a_clock(tc: TestCase) {
 
 /// A drive's tracks are checked once per file: those cut short, or not audio, are found, the rest
 /// pass, and files that aren't there are left to the other checks. A cancelled check stops.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_drives_files_are_each_checked_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = crate::common::blank(dir.path(), "USB");

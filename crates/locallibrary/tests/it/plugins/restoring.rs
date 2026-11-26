@@ -224,7 +224,7 @@ fn step(tc: &TestCase) -> Step {
 /// of it is remembered (`not_found` once nothing is), and resetting it works signed out. The
 /// listing has each account signed in and each signed out with access to restore, and the
 /// settings.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_access_is_remembered_and_restored_as_the_model_says(tc: TestCase) {
     let m = two_plugins();
     let mut model = Model::default();
@@ -247,7 +247,7 @@ fn prop_access_is_remembered_and_restored_as_the_model_says(tc: TestCase) {
 /// neither), for echo, the other plugin or neither, then restoring what's left of it (all of it,
 /// any choice, or none): what's restored, what's still remembered and what each plugin has are
 /// what [`prop_access_is_remembered_and_restored_as_the_model_says`]'s model says.
-#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_signing_in_again_restores_as_it_says_else_as_set(tc: TestCase) {
     let m = two_plugins();
     let settings = [None, Some(false), Some(true)];
@@ -418,7 +418,7 @@ impl Model {
 /// as remembered, as they were, the other access kept and no default moved to it; the account
 /// lists signed out, giving it to echo says to sign in to it first, and signing in to it again
 /// for echo gives the access back with its id, its default again when it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_old_stores_access_to_an_account_signed_out_reads_as_remembered(tc: TestCase) {
     let gone = tc.draw(gs::integers::<usize>().max_value(1));
     let m = two_plugins();
@@ -458,7 +458,7 @@ enum Restored {
 /// another plugin's access to another account, however it's restored (signing in again saying so,
 /// or for echo, or restoring afterwards): it gets a new id, the other access keeps its own, and a
 /// request naming the new one gets the account's token.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_an_id_taken_since_is_restored_anew(tc: TestCase) {
     let losing = tc.draw(gs::sampled_from(Losing::BOTH.to_vec()));
     let how = tc.draw(gs::sampled_from(vec![Restored::SigningIn, Restored::ForEcho, Restored::Afterwards]));
@@ -490,7 +490,7 @@ fn prop_an_id_taken_since_is_restored_anew(tc: TestCase) {
 /// of it or what's chosen, says to sign in to it first and keeps it remembered; resetting it forgets
 /// it, the account no longer listed; and then, as for an account never signed in, restoring it or
 /// giving it to echo finds no such account.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_only_an_account_signed_in_is_restored_but_one_signed_out_is_reset(tc: TestCase) {
     let losing = tc.draw(gs::sampled_from(Losing::BOTH.to_vec()));
     let chosen = tc.draw(gs::sampled_from(vec![None, Some(vec![Chosen { plugin: "echo".into(), scopes: vec![] }])]));
@@ -540,7 +540,7 @@ enum Waiting {
 /// plugin that isn't installed; refuses a scope echo doesn't ask for, remembering it still; gives
 /// a scope declined before when it's chosen, declining it no more; and makes it echo's default
 /// when echo has no other access of the type.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_restoring_joins_drops_and_gives_what_is_chosen(tc: TestCase) {
     use Waiting::*;
     let losing = tc.draw(gs::sampled_from(Losing::BOTH.to_vec()));

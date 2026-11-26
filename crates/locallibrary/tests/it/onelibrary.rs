@@ -594,7 +594,7 @@ fn remake_sqlcipher_fixtures() {
 /// A OneLibrary database that can't be read is reported and left alone on a drive that has
 /// export.pdb too (its My Tags read from there), and is an error on a drive exported for
 /// OneLibrary players only.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_an_unreadable_onelibrary_fails_only_a_drive_without_export_pdb(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();

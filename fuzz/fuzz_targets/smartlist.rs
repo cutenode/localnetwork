@@ -1,3 +1,7 @@
+// paths: fuzz/fuzz_targets/smartlist.rs
+// paths: fuzz/seeds/smartlist/**
+// paths: crates/loclib-rekordbox-db/src/masterdb/smartlist.rs
+// paths: crates/loclib-model/src/model.rs
 //! Intelligent playlists' rules (`djmdPlaylist.SmartList` in `master.db`): parsing the XML, then
 //! evaluating the rules against tracks and writing them as a filter.
 

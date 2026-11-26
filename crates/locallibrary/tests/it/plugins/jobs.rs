@@ -114,7 +114,7 @@ enum Asked {
 /// or the params don't fit), with that error's kind and naming it, and nothing
 /// is written; otherwise it's one step, a plan for each, and applying it makes each in order.
 /// Skipped, none is planned.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(asked = vec![Asked::Make, Asked::Make], skip = false)]
 fn prop_a_refresh_plans_its_operations_up_front(tc: TestCase) {
     let f = Hosted::new(Fixture::echo());

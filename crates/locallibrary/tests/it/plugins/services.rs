@@ -103,7 +103,7 @@ fn shutting_down_stops_the_services() {
 
 /// For any turning on and off of a service, run each time, it runs exactly when it was last
 /// turned on.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_service_runs_exactly_when_its_turned_on(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (f, _) = service("beat", Options::default());

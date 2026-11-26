@@ -284,7 +284,7 @@ fn the_auto_pick_is_set_from_the_palette() {
 
 /// Any score typed in the providers' settings: a number of 0 or more is kept as typed (left empty,
 /// the default), anything else refused on its field with nothing kept.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_any_auto_pick_typed_is_kept_or_refused(tc: TestCase) {
     let (_root, mut app) = opened();
     let typed = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -341,7 +341,7 @@ fn to_item(app: &mut App, i: usize, mark: bool) {
 
 /// Any question, of one or several of any number of items, answered with any of them by the keys:
 /// the command runs again with exactly those values, in the question's order.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_any_question_runs_again_with_exactly_what_was_chosen(tc: TestCase) {
     let (root, mut app) = opened();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(6));
@@ -403,7 +403,7 @@ fn questions_asked_together_are_asked_in_turn_then_it_runs_once() {
 /// Any questions asked together, each of one or several of any number of items, answered with
 /// any of them by the keys: each says how far along it is, and the command runs once, with
 /// exactly the values chosen for each.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_any_questions_together_run_once_with_exactly_what_was_chosen(tc: TestCase) {
     let (root, mut app) = opened();
     let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
@@ -444,7 +444,7 @@ fn prop_any_questions_together_run_once_with_exactly_what_was_chosen(tc: TestCas
 /// Whatever the providers find for the tracks, scored anyhow: the player asks about exactly the
 /// tracks without a candidate alone sure enough, in the library's order, and plans what's
 /// chosen and picked (or says none was).
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_the_tracks_asked_about_are_those_not_picked(tc: TestCase) {
     let (root, mut app) = opened();
     let tracks = app.loaded.as_ref().unwrap().library.tracks.clone();

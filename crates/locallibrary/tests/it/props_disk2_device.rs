@@ -6,13 +6,13 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths;
 use rekordbox_pdb::PdbEditor;
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(layout = 0u8, drifted = true, damaged = 0u8)]
 #[hegel::explicit_test_case(layout = 0u8, drifted = false, damaged = 1u8)]
 #[hegel::explicit_test_case(layout = 0u8, drifted = true, damaged = 2u8)]

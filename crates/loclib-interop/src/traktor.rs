@@ -120,7 +120,7 @@ fn key_value(key: &str) -> Option<u8> {
 
 /// A `MUSICAL_KEY VALUE` as a key: [`key_value`] the other way.
 fn key_of(value: u8) -> Option<Camelot> {
-    (value < 24).then(|| Camelot::from_pitch(u32::from(value % 12), value < 12))
+    (value < 24).then(|| Camelot::from_pitch(u32::from(value), value < 12))
 }
 
 fn colour(c: TrackColor) -> u8 {

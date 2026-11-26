@@ -4,8 +4,8 @@
 
 use crate::common::{self, path};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::Error;
 use locallibrary::api;
 use locallibrary::progress::Ctx;
@@ -15,7 +15,7 @@ use locallibrary::store::Store;
 /// found; once the store keeps them, the ones named go. Rules for a drive by its name apply to
 /// it alone and are removed by path. A My Tag filter on a drive without My Tags matches no track,
 /// and negated, every one.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_edits_kept_or_refused_as_their_requests_say(tc: TestCase) {
     let which = tc.draw(gs::sampled_from(vec!["history 001", "HISTORY 002", " History 001 "]));
     let negated = tc.draw(gs::booleans());

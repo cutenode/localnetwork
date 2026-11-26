@@ -59,6 +59,9 @@ fn matches_by_path_suffix() {
     // Two "01 Intro.mp3": the folder decides...
     e.path = Some("/Music/Bicep/01 Intro.mp3".into());
     assert_eq!(status(&l, e.clone()), found(9, MatchKind::Path));
+    // A `.` in the path is no folder.
+    e.path = Some("/Music/Bicep/./01 Intro.mp3".into());
+    assert_eq!(status(&l, e.clone()), found(9, MatchKind::Path));
     // ...and without one it's ambiguous.
     e.path = Some("01 Intro.mp3".into());
     assert_eq!(status(&l, e.clone()), Status::Ambiguous { candidates: vec![8, 9] });

@@ -1,0 +1,54 @@
+name: Fuzz coverage
+description: >-
+  Replays cargo-fuzz targets' corpora without fuzzing (`cargo fuzz coverage`, over the folders each
+  fuzz-<target> alias reads), and measures each target's coverage of the code its header names
+  (tools/fuzz/targets.ts) against `last` (tools/fuzz/report.ts). Writes coverage.json, coverage.md, drops.md and each
+  target's HTML report (html/<target>/) to `out`, and the table to the run's summary. A drop is a
+  warning, never a failure. Needs Node and the root's dependencies.
+
+inputs:
+  targets:
+    description: The targets to replay, separated by spaces (tools/fuzz/cli.ts select), or `all` for every one `cargo fuzz list` names.
+    required: true
+  last:
+    description: The numbers to compare with, coverage.json from main's last weekly run; a missing file compares with nothing.
+    required: true
+  out:
+    description: The directory to write the numbers and reports to.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/fuzz-setup
+      with:
+        coverage: "true"
+    # Each target's corpus as fuzz/corpus/ has it, and the seeds its alias hands libFuzzer after
+    # that, which the weekly run's corpus leaves out. The HTML leaves out the crates the targets
+    # are built on and the standard library, as report.ts does.
+    - shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        LAST: ${{ inputs.last }}
+        OUT: ${{ inputs.out }}
+      run: |
+        if [ "$TARGETS" = all ]; then TARGETS=$(cargo fuzz list); fi
+        mapfile -t targets <<< "${TARGETS// /$'\n'}"
+        host=$(rustc +nightly -vV | sed -n 's/^host: //p')
+        llvm=$(rustc +nightly --print sysroot)/lib/rustlib/$host/bin
+        # cargo-fuzz builds a replay under the root workspace's target directory, not fuzz/'s.
+        metadata=$(cargo metadata --format-version 1 --no-deps --locked)
+        target_dir=$(jq -r .target_directory <<< "$metadata")
+        mkdir -p "$OUT/exports"
+        for target in "${targets[@]}"; do
+          list=$(node tools/fuzz/cli.ts corpora "$target")
+          mapfile -t corpora <<< "$list"
+          # A target the weekly run kept no corpus for yet replays its seeds alone.
+          mkdir -p "${corpora[@]}"
+          cargo +nightly fuzz coverage "$target" "${corpora[@]}"
+          args=(-instr-profile="fuzz/coverage/$target/coverage.profdata" "$target_dir/$host/coverage/$host/release/$target")
+          "$llvm/llvm-cov" export -summary-only "${args[@]}" > "$OUT/exports/$target.json"
+          "$llvm/llvm-cov" show -format=html -output-dir="$OUT/html/$target" -ignore-filename-regex='/(\.cargo|rustc|rustlib)/' "${args[@]}"
+        done
+        node tools/fuzz/cli.ts report "$OUT/exports" "$LAST" "$OUT"
+        cat "$OUT/coverage.md" >> "$GITHUB_STEP_SUMMARY"

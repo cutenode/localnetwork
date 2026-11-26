@@ -1,0 +1,3 @@
+403
+
+{"error":{"errors":[{"reason":"insufficientPermissions"}],"details":[{"reason":"ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}

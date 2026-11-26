@@ -1,3 +1,10 @@
+// paths: fuzz/fuzz_targets/masterdb.rs
+// paths: fuzz/seeds/masterdb/**
+// paths: fuzz/seeds/masterdb.sql
+// paths: crates/loclib-rekordbox-db/src/**
+// paths: crates/loclib-sqlcipher/src/**
+// paths: crates/loclib-model/src/{analysis,model,paths}.rs
+// paths: crates/locallibrary/src/tags.rs
 //! rekordbox's `master.db` as plain SQLite: the collection `masterdb::open` reads from it
 //! (tracks, playlist trees and intelligent playlists' rules, history, cues, My Tags, Cloud
 //! Library Sync's files) and the counts `collection info` shows. An encrypted `master.db` is

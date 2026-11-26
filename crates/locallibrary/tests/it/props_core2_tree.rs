@@ -5,13 +5,13 @@
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::paths::FileClass;
 use locallibrary::progress::Ctx;
 use locallibrary::tree::{self, ScanOptions};
 
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_scans_key_files_as_the_library_names_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("USB");

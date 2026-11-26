@@ -1,0 +1,60 @@
+name: Fuzz artifact
+description: >-
+  Downloads the newest unexpired artifact of a name from a run on this repository's main, whatever
+  the workflow: what the weekly fuzz run keeps (locallibrary-scheduled.yml), for the next weekly run
+  and pull requests' runs. `found` is false when there's none, and `refused` is true when GitHub
+  wouldn't say or send it. Needs `actions: read`.
+
+inputs:
+  name:
+    description: The artifact's name.
+    required: true
+  path:
+    description: The directory to extract it into.
+    required: true
+
+outputs:
+  found:
+    description: Whether an artifact was downloaded.
+    value: ${{ steps.download.outputs.found }}
+  refused:
+    description: Whether GitHub refused the listing or the download, so there may be one all the same.
+    value: ${{ steps.download.outputs.refused }}
+
+runs:
+  using: composite
+  steps:
+    # An artifact lasts 90 days, where the Actions cache evicts what nothing read for a week, and
+    # the weekly run is skipped on weeks nothing it tests changed. Only main's, so a branch's
+    # hand-started run can't swap in its own, and only this repository's: a pull request from a
+    # fork's own main runs with `main` as its head branch too. What it downloads only saves time or
+    # gives numbers to compare with, so a listing or download GitHub refuses (a 503 once the account's
+    # artifact egress is over its limit) is a warning, and the job goes on without it.
+    - id: download
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.path }}
+      run: |
+        if ! run=$(gh api "repos/$GH_REPO/actions/artifacts?name=$NAME&per_page=100" \
+          --jq '[.artifacts[] | select(.expired | not) | .workflow_run
+            | select(.head_branch == "main" and .head_repository_id == .repository_id)][0].id // empty'); then
+          echo "::warning::Couldn't list $NAME"
+          echo "refused=true" >> "$GITHUB_OUTPUT"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ -z "$run" ]; then
+          echo "::notice::No run on main kept $NAME"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if ! gh run download "$run" --name "$NAME" --dir "$DIR"; then
+          echo "::warning::Couldn't download $NAME from run $run"
+          echo "refused=true" >> "$GITHUB_OUTPUT"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "found=true" >> "$GITHUB_OUTPUT"

@@ -7,8 +7,8 @@ use crate::common::{self, Template, path};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use indexmap::IndexMap;
 use locallibrary::api::{self, JobPlan, StepKind};
 use locallibrary::device::Device;
@@ -50,7 +50,7 @@ fn export_again(root: &Path, export: &Template, onelibrary: bool) {
 /// drive whose only change is My Settings set since, a name with nowhere to show it, and the
 /// recorded edits unreadable with a rule-based playlist (up to date or dropped) and without, and
 /// the steps that write skipped.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(edit = true, name = Some("MAIN A"), settings = 1u8, smart = true, onelibrary = true, exported = true, unreadable = false, sync = true, skip = Vec::<StepKind>::new(), applied_by_plan = true)]
 #[hegel::explicit_test_case(edit = false, name = Some("Booth"), settings = 2u8, smart = true, onelibrary = true, exported = false, unreadable = false, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = false)]
 #[hegel::explicit_test_case(edit = true, name = Some("Booth"), settings = 0u8, smart = false, onelibrary = false, exported = true, unreadable = false, sync = true, skip = vec![StepKind::Pull, StepKind::Clean, StepKind::Sync], applied_by_plan = false)]

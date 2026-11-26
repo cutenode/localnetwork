@@ -288,9 +288,9 @@ fn prop_paths_below_a_real_folder_resolve_folded(tc: TestCase) {
     assert_eq!(relative(Path::new("a"), &below), None);
 }
 
-/// With the current folder gone (removed under the process), a relative path has nothing to be
-/// absolute from: it's folded part by part as it is, `.` being nothing and `..` taking away the
-/// part before it. A rooted path is folded the same way from its root, as it always is.
+/// With the current folder gone, a relative path has nothing to be absolute from: it's folded
+/// part by part as it is, `.` being nothing and `..` taking away the part before it. A rooted path
+/// is folded the same way from its root, as it always is.
 #[cfg(unix)]
 #[hegel::test(test_cases = 50)]
 fn prop_without_a_current_folder_relative_paths_are_folded_as_they_are(tc: TestCase) {
@@ -306,24 +306,9 @@ fn prop_without_a_current_folder_relative_paths_are_folded_as_they_are(tc: TestC
             name => want.push(name),
         }
     }
-    /// Goes back to the folder the process was in, failing assertions or not.
-    struct Back(PathBuf);
-    impl Drop for Back {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.0);
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let gone = dir.path().join("gone");
-    std::fs::create_dir(&gone).unwrap();
-    // The current folder is the process's: nextest runs each test in a process of its own, so
-    // nothing else reads it meanwhile.
-    let back = Back(std::env::current_dir().unwrap());
-    std::env::set_current_dir(&gone).unwrap();
-    std::fs::remove_dir(&gone).unwrap();
-    let got = absolute_with(&path, unknown);
-    drop(back);
-    assert_eq!(got, want, "{path:?}");
+    // What `std::path::absolute` answers once the current folder is gone. Removing the process's
+    // own would pull it from under every other test thread `cargo test` runs.
+    assert_eq!(folded(&path, Err(std::io::ErrorKind::NotFound.into()), unknown), want, "{path:?}");
     assert_eq!(absolute_with(&Path::new("/").join(&path), unknown), Path::new("/").join(&want), "{path:?}");
 }
 

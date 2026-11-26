@@ -5,8 +5,8 @@ use crate::common::{self, path};
 
 use std::path::PathBuf;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress, Scope};
@@ -34,7 +34,7 @@ fn provision(target: &std::path::Path) -> api::ProvisionRequest {
 /// from Loose, a drive with both databases in no library, with a name and colour for players, it
 /// gets Loose's library and players show the name; a file damaged before the check afterwards
 /// stops it there, failed, with everything before it done.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(name = Some("SPARE"), colour = Some(2i64), damaged = true)]
 fn prop_a_new_drive_is_set_up_from_a_drive_or_the_one_library(tc: TestCase) {
     let name = tc.draw(gs::optional(gs::sampled_from(vec!["SPARE", "B2"])));
@@ -109,7 +109,7 @@ fn prop_a_new_drive_is_set_up_from_a_drive_or_the_one_library(tc: TestCase) {
 /// (the only library's, or the one named in any case), then the My Settings profile when it holds
 /// any, the role, and a check and an eject when asked; applied, the drive holds the library with
 /// the settings and role, and an eject, which a folder can't take, stops it at the end.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(role = Some("backup"), library = Some("main"), profile = true, verify = true, eject = true)]
 fn prop_a_new_drive_gets_the_newest_snapshot_pushed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();

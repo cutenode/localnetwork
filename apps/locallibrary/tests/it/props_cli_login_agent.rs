@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, Run, path, set_mode};
@@ -90,7 +90,7 @@ fn verbs(calls: &[String]) -> Vec<String> {
 /// it on Linux), failing on the first step refused but a stop, with the file left written;
 /// uninstalling stops it and removes the file (only saying there was nothing when none was there),
 /// failing where a step is refused; and what's printed says what the JSON does.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_login_agent_runs_watch_as_asked(tc: TestCase) {
     let fx = Env::new();
     let tools = Tools::new(&fx);

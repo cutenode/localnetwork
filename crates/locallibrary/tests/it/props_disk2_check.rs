@@ -6,8 +6,8 @@ use crate::common;
 
 use rustc_hash::FxHashSet;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::Device;
 use locallibrary::fields::{FieldValue, Role};
@@ -34,7 +34,7 @@ fn level(kind: u8) -> [(Role, FieldValue); 3] {
 /// warning naming exactly the tracks over 0 dBTP, clipped, or far from the rest's level (one
 /// quiet track among at least three), else fine, counting the tracks analysed; with none
 /// analysed, or no store, there's no item. A check that's cancelled stops with nothing said.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(kinds = vec![0u8, 0, 4, 1, 4, 2, 0, 4, 4, 4, 4, 4], far = Some(6usize))]
 #[hegel::explicit_test_case(kinds = vec![0u8, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4], far = None::<usize>)]
 #[hegel::explicit_test_case(kinds = vec![4u8; 12], far = None::<usize>)]
@@ -103,7 +103,7 @@ fn prop_the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase
 /// packed from it, fine until the source changes. History lists pulled into the store stay safe
 /// after the drive moves on (every list is in some snapshot), and so they are on a copy of the
 /// drive that was never adopted.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(moved_on = true, copied = true)]
 #[hegel::explicit_test_case(moved_on = false, copied = false)]
 fn prop_a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase) {

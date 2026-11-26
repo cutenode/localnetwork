@@ -8,8 +8,8 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::Error;
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
@@ -25,7 +25,7 @@ fn copy_of(from: &Path, to: &Path) -> Device {
     Device::open_export(to).unwrap()
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_pull_the_store_cant_take_as_it_is_says_how_to_go_on(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -80,7 +80,7 @@ fn prop_a_pull_the_store_cant_take_as_it_is_says_how_to_go_on(tc: TestCase) {
 /// library, the only library's, or with several, the one named (else it asks which); none in an
 /// empty store, by a name the store doesn't have, from a library without snapshots, or for a
 /// drive linked to a library the store doesn't have.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_push_takes_the_library_it_can(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -141,7 +141,7 @@ fn prop_a_push_takes_the_library_it_can(tc: TestCase) {
 /// A sync that can't be made is refused before anything is read or written, whatever its
 /// options: a drive onto itself, from a folder with no export, or with a confirmed plan missing
 /// for a target.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_syncs_that_cant_be_made_are_refused(tc: TestCase) {
     for variant in 0..5 {
         syncs_that_cant_be_made_are_refused_with(&tc, variant);

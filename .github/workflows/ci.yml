@@ -149,6 +149,7 @@ jobs:
               - 'clippy.toml'
               - '.cargo/**'
               - '.config/nextest.toml'
+              - 'hegel.toml'
               - 'tools/budgets/**'
               - 'tools/coverage/**'
               - 'benchmarks/**'
@@ -156,7 +157,7 @@ jobs:
               - '.github/actions/pr-comment/**'
               - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
-              - '.github/actions/fuzz/**'
+              - '.github/actions/fuzz*/**'
               - '.github/actions/patch-coverage/**'
               # The budgets and coverage jobs run tools/*/cli.ts on this Node.
               - '.node-version'
@@ -218,17 +219,21 @@ jobs:
               - 'apps/locallibrary/Cargo.toml'
               - 'apps/locallibrary/tests/it/cli.rs'
               - '.github/workflows/locallibrary-ci.yml'
-            # What the fuzz targets reach (the smoke run): the targets, their seeds, dictionaries and
-            # aliases, and the code of the crates they're built on, tests left out.
+            # What the fuzz targets reach (the smoke run and the coverage replay): the targets, their
+            # seeds, dictionaries and aliases, the code and fixtures of what they're built on, tests
+            # left out, and what runs them. tools/fuzz narrows it to the targets whose `// paths:`
+            # headers a change matches, with the same files left out.
             locallibrary_fuzz:
               - 'fuzz/**'
-              - 'crates/*/src/**'
-              - 'vendor/*/src/**'
+              - 'crates/**'
+              - 'vendor/**'
+              - 'plugins/**'
               - '.cargo/config.toml'
-              - '.github/actions/fuzz/**'
+              - '.github/actions/fuzz*/**'
+              - 'tools/fuzz/**'
               - '.github/workflows/locallibrary-ci.yml'
               - '!**/{tests,testing,test_util,screens,props}.rs'
-              - '!**/tests/**'
+              - '!**/tests/**/*.rs'
               - '!**/*.md'
             # A crate's manifest, a new crate's too, and the name check: lint packages the crates and
             # checks their names on crates.io.
@@ -671,7 +676,7 @@ jobs:
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_budgets locallibrary_dist locallibrary_windows locallibrary_macos locallibrary_semver locallibrary_crates
+            locallibrary_budgets locallibrary_dist locallibrary_windows locallibrary_macos locallibrary_semver locallibrary_crates locallibrary_fuzz
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_bombadil \
             repo_checks_text repo_checks_commits repo_checks_diagrams

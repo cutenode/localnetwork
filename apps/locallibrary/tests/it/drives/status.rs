@@ -91,7 +91,7 @@ fn status_says_where_each_drive_stands() {
 /// the drive edited on its own or not: `status` says it's up to date, behind the store, has
 /// changes the store hasn't or has diverged from it; and `compare` says the two are the same,
 /// that one is newer (saying to sync them) or that both changed (saying to pick one or merge).
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_status_and_compare_say_which_side_moved(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();

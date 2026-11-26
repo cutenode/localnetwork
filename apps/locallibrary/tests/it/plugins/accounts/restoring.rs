@@ -52,7 +52,7 @@ enum Auto {
 /// said in a line; what isn't, nor reset, is said with the command that restores it (nothing's
 /// asked: there's no terminal) and listed under the account as access to restore. Setting
 /// Automatically Restore Access says so in a line.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(write = false, auto = Auto::AllOn, flag = None::<&str>, for_echo = false, json = false)]
 #[hegel::explicit_test_case(write = true, auto = Auto::OwnOff, flag = None::<&str>, for_echo = false, json = true)]
 #[hegel::explicit_test_case(write = true, auto = Auto::AllOn, flag = Some("--reset"), for_echo = false, json = false)]
@@ -153,7 +153,7 @@ fn restoring_waits_for_the_account_to_be_signed_in() {
 /// Signing out of the account echo uses by default leaves echo with no default, its access to
 /// another account staying as it was; signing in again with `--restore` makes it the default
 /// again unless echo was given another default since.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_signing_out_of_the_default_leaves_no_default(tc: TestCase) {
     let made_default = tc.draw(gs::booleans());
     let m = Mock::new();
@@ -197,7 +197,7 @@ enum Answer {
 /// besides what each needs (Choose), or nothing, forgetting it (Reset). Echo has as the answer
 /// says, nothing's left to restore, and nothing printed holds a token the service gave.
 #[cfg(unix)]
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 #[hegel::explicit_test_case(answer = Answer::Restore)]
 #[hegel::explicit_test_case(answer = Answer::Choose { echo: true, write: false })]
 #[hegel::explicit_test_case(answer = Answer::Reset)]

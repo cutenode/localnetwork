@@ -8,8 +8,8 @@ use crate::{common, drawn};
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, PlayStatsRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
@@ -31,7 +31,7 @@ fn set_plays(root: &Path, file: &str, n: u16) {
     );
 }
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_plays_are_counted_and_compared_with_a_snapshot(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -93,7 +93,7 @@ fn prop_plays_are_counted_and_compared_with_a_snapshot(tc: TestCase) {
 
 /// A playlist (or folder, whole or one file per playlist) exports its tracks in order, in each
 /// format; the M3U and the CSV read back as those tracks.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_exported_lists_hold_their_selection(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "A");

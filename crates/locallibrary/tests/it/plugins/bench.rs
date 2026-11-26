@@ -154,7 +154,7 @@ fn files_on_no_drive_are_measured_with_no_library_read() {
 
 /// For any choice of analyzer for the key and bpm roles (either plugin's, the default, or none),
 /// the drive's tracks are scored by the one chosen for each, and by none for a role turned off.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_the_chosen_analyzers_are_scored(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::heard_twice();

@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 
 use indexmap::IndexMap;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, path, play};
@@ -77,7 +77,7 @@ fn headings(out: &str) -> Vec<(String, bool)> {
 /// headings are the sections asked for, each marked as in the document as the JSON's `published`
 /// and basis say, and its numbers, headline, sets and signature tracks are the JSON's; and the
 /// document printed, as JSON and written to a file is the same one.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_the_printed_report_says_what_the_json_does(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -332,7 +332,7 @@ const NAMES: [&str; 5] = ["Floorplan - Never Grow Old", "floorplan -  never grow
 /// Choices made in any order, with `--json` or not: each succeeds or fails as the model says,
 /// and afterwards `profile prefs` (as JSON, and as printed) and `profile sections` hold what the
 /// model does.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_profile_choices_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     let mut m = Prefs::default();
@@ -493,7 +493,7 @@ fn prop_profile_choices_agree_with_a_model(tc: TestCase) {
 /// Pinning or hiding a track by a word of its name (not `--exact`) picks the one played track it
 /// names, from the sessions on the drive: refused when none or several do, and when one does, the
 /// pin is that track's full name.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_word_picks_the_one_played_track_it_names(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -554,7 +554,7 @@ fn prop_a_word_picks_the_one_played_track_it_names(tc: TestCase) {
 /// sessions it was played or that it wasn't, a line for each other track played in two or more
 /// (marked when it's not to be named), the moves played again and again, and the tracks opened and
 /// closed with, as the JSON says.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_the_signature_section_says_what_its_json_does(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -653,7 +653,7 @@ fn prop_the_signature_section_says_what_its_json_does(tc: TestCase) {
 /// the summary prints each trait the JSON finds with why, and the session shape its opening and
 /// closing tempo, how many sessions it's averaged over, how the sessions run, and the range of
 /// its curve when it has one.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_the_summary_and_shape_say_what_the_json_does(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
@@ -696,7 +696,7 @@ fn prop_the_summary_and_shape_say_what_the_json_does(tc: TestCase) {
 /// Pins, aliases and a headline made, then some taken back by name: each taken back says so
 /// (the pin by its whole name, the alias it forgot), and `profile prefs` prints what's left, with
 /// the headline when there is one.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_choices_taken_back_say_so(tc: TestCase) {
     let fx = Env::from_template();
     let pins: Vec<&str> =
@@ -740,7 +740,7 @@ fn prop_choices_taken_back_say_so(tc: TestCase) {
 /// lists, and nothing else, each saying the day it was played or archived ("on a drive" while
 /// it's only there), how many tracks, its opening and closing tempo when both are known, how much
 /// of it was mixed in key when that's known, and the start of its id.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_profile_sets_lists_the_sets_its_json_has(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");

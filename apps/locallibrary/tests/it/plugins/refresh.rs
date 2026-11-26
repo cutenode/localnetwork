@@ -56,7 +56,7 @@ enum Then {
 /// read (no PLUGIN.OPERATION, a quote left open, an option it doesn't have): a refresh's dry run
 /// fails as a usage error naming the first that can't be read; with none, it fails not finding
 /// the plugin that isn't there; else its plan makes each playlist, in the order given.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_refresh_then_plans_each_operation_or_names_the_first_it_cant_read(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;

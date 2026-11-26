@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::offsite::{self, CopyOptions};
@@ -87,7 +87,7 @@ fn holds_the_store(store: &Store, dest: &Path, opts: CopyOptions) -> offsite::Co
 /// labels, list of copies, or a snapshot's manifest), or a snapshot that lists a file without its
 /// hash, a copy fails saying which, as does listing the copies when it reads that record; put
 /// back, the copy goes through.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_copy_names_the_store_record_it_cant_read_and_goes_once_its_put_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let base = locallibrary::device::dunce_canonicalize(dir.path());
@@ -132,7 +132,7 @@ fn prop_a_copy_names_the_store_record_it_cant_read_and_goes_once_its_put_right(t
 /// that's a folder there, can't be removed (a dry run says what would be), nor a record it replaces or a half-written file it
 /// clears, and the copy says so; nor does it go while another holds the store or the copy. Put right, the copy goes, and
 /// mirroring removes what the store lacks. Into an empty folder, a copy goes as into a new one.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_copy_names_what_it_cant_read_or_remove_in_the_copy_and_goes_once_its_put_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let base = locallibrary::device::dunce_canonicalize(dir.path());
@@ -261,7 +261,7 @@ fn prop_a_copy_names_what_it_cant_read_or_remove_in_the_copy_and_goes_once_its_p
 /// A copy stopped before it starts copies no file, whether into a new folder or re-reading an
 /// up-to-date copy's files, and so does one stopped while it re-reads them; the next copy
 /// finishes, holding the store. A copy, unlike the store, warns of changes written to it.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_copy_stopped_before_its_first_file_or_while_rereading_finishes_next_time(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let base = locallibrary::device::dunce_canonicalize(dir.path());
@@ -307,7 +307,7 @@ fn prop_a_copy_stopped_before_its_first_file_or_while_rereading_finishes_next_ti
 /// snapshots (or a folder among them) or own folder, or (re-reading them) one of its stored files. Its permissions put
 /// back, the copy goes through.
 #[cfg(unix)]
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_copy_names_the_folder_it_cant_read_or_write_and_goes_once_its_put_right(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let mode = |p: &Path, m: u32| fs::set_permissions(p, fs::Permissions::from_mode(m)).unwrap();

@@ -1,3 +1,6 @@
+// paths: fuzz/fuzz_targets/pdb_edit.rs
+// paths: vendor/rekordbox-pdb/tests/data/{one-song,bigger}-export.pdb
+// paths: vendor/rekordbox-pdb/src/**
 //! `PdbEditor`'s edits on the vendored rekordbox-pdb's fixtures: a fuzzed sequence of playlist,
 //! entry, track string and history edits, each read back through `Database` after it's made. An
 //! edit that works changes what a model says it does and nothing else; one that's refused leaves

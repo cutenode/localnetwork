@@ -1,8 +1,8 @@
 //! Property tests of the store's own upkeep: what `store prune` keeps and why, and a copy of the
 //! store brought up to date, repaired and mirrored, each printed as its `--json` counts it.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, path};
@@ -21,7 +21,7 @@ fn snapshots(fx: &Env, more: usize) {
 /// each day or the newest of each week (drawn): the plan printed is its JSON's, each snapshot
 /// kept with every reason its JSON gives and each one removed marked so, or it says there's
 /// nothing to prune. Applied, it removes the snapshots its plan removes.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_prune_says_why_it_keeps_each_snapshot(tc: TestCase) {
     let fx = Env::new();
     snapshots(&fx, tc.draw(gs::integers::<usize>().max_value(2)));
@@ -76,7 +76,7 @@ fn prop_a_prune_says_why_it_keeps_each_snapshot(tc: TestCase) {
 /// verified or not and mirrored or not, printed or as JSON: the copy is repaired only when
 /// verified, loses the snapshots pruned only when mirrored, and says so as its JSON counts it.
 /// Mostly verified and printed, the case that says the most.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_copy_of_the_store_says_what_it_repaired_and_removed(tc: TestCase) {
     let fx = Env::new();
     let more = tc.draw(gs::integers::<usize>().max_value(2));

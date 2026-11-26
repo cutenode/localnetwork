@@ -1,0 +1,4 @@
+401
+DPoP algs="ES256", error="use_dpop_nonce"
+Bearer error="invalid_token", error_description="The access token \"expired\""
+

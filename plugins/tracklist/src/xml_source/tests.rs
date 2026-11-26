@@ -224,6 +224,47 @@ fn a_file_saved_between_pages_is_refused_and_the_rest_read_once() {
     s.stop();
 }
 
+/// A cursor is read in the file it's given with: another of the same size, changed at the same
+/// time, is read for itself.
+#[test]
+fn a_cursor_reads_the_file_its_given_with() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = |name: &str| {
+        let tracks: Vec<(String, String)> = (0..600)
+            .map(|id| (format!(r#"TrackID="{id}" Name="t{id}" Location="/m/{name}{id}.mp3""#), String::new()))
+            .collect();
+        write(dir.path(), &format!("{name}.xml"), &collection_with(&tracks, ""))
+    };
+    let (a, b) = (file("a"), file("b"));
+    let changed = std::fs::metadata(&a).unwrap().modified().unwrap();
+    std::fs::File::options().write(true).open(&b).unwrap().set_modified(changed).unwrap();
+    let s = start(Library::default());
+    let read = |file: &str, cursor: Option<&str>| {
+        let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "cursor": cursor });
+        s.host.request::<LibraryPage>(method::READ_LIBRARY, &req).unwrap()
+    };
+    let next = read(&a, None).next.unwrap();
+    assert_eq!(read(&b, Some(&next)).tracks[0].path, Path::new("/m/b500.mp3"));
+    s.stop();
+}
+
+/// A page ends once its tracks and their beats and cues come to 100,000: 250 tracks of 398 beats
+/// and a cue.
+#[test]
+fn a_page_ends_once_its_tracks_beats_and_cues_come_to_the_most() {
+    let dir = tempfile::tempdir().unwrap();
+    let marks = r#"<TEMPO Inizio="0" Bpm="120"/><POSITION_MARK Type="0" Start="1" Num="-1"/>"#;
+    let tracks: Vec<(String, String)> = (0..300)
+        .map(|id| (format!(r#"TrackID="{id}" Name="t{id}" TotalTime="199" Location="/m/{id}.mp3""#), marks.into()))
+        .collect();
+    let file = write(dir.path(), "rekordbox.xml", &collection_with(&tracks, ""));
+    let scratch = tempfile::tempdir().unwrap();
+    let (paged, _) = pages(&file, Some(scratch.path()));
+    let sizes: Vec<(usize, usize, usize)> =
+        paged.iter().map(|p| (p.tracks.len(), p.tracks[0].beats.len(), p.tracks[0].cues.len())).collect();
+    assert_eq!(sizes, [(250, 398, 1), (50, 398, 1)]);
+}
+
 /// A cursor this source didn't give, or options without a file, are refused; a file that isn't
 /// there fails naming it.
 #[test]

@@ -4,8 +4,8 @@
 
 use std::sync::OnceLock;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::model::{AudioFile, TrackFields};
 use locallibrary::onelibrary::{self, OneLibrary};
 use loclib_rekordbox_db::onelibrary::cipher::{self, PAGE_SIZE};
@@ -224,7 +224,7 @@ const NAMED: [(&str, Option<&str>); 13] = [
 /// it didn't need them. (Without a column, readers taking every column, and so their results,
 /// may differ.) Without the track table, the database isn't opened again. The explicit cases
 /// take away, together, parts that no step needs before another of them.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(named = vec![0usize, 4, 5, 10], extra = 0usize)]
 #[hegel::explicit_test_case(named = vec![1usize, 2, 6, 11], extra = 0usize)]
 #[hegel::explicit_test_case(named = vec![7usize, 8, 3, 12], extra = 0usize)]
@@ -313,7 +313,7 @@ fn tables(one: &OneLibrary) -> Vec<String> {
 /// A database with a damaged b-tree still has a content hash (of its pages as they are), which
 /// differs from the intact database's and survives re-encryption, while opening it is refused
 /// as damaged (or malformed, when the damage is in the schema table).
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_damaged_databases_hash_but_never_open(tc: TestCase) {
     let intact = rich_library();
     let one = OneLibrary::from_encrypted(intact, None).unwrap();
@@ -331,7 +331,7 @@ fn prop_damaged_databases_hash_but_never_open(tc: TestCase) {
 /// A working copy damaged behind SQLite's back (a b-tree claiming too many cells, and the
 /// change counter bumped so SQLite rereads the file) is never encrypted: the check before saving
 /// finds it. An undamaged copy saves.
-#[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_a_damaged_working_copy_is_never_saved(tc: TestCase) {
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let path = one.connection().path().unwrap().to_string();
@@ -364,7 +364,7 @@ fn prop_a_damaged_working_copy_is_never_saved(tc: TestCase) {
 /// whose rows it reads: spread over several pages (many rows), the table is hashed as its pages
 /// are, so renaming the drive changes the hash. Re-encrypting never does, with the table or
 /// without it.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
     // Without the table every page is hashed as it is, and still not its IVs.
@@ -405,7 +405,7 @@ fn prop_a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
 /// Ids are read as players number them, up to 2^32 - 1: a row whose id, or whose reference to
 /// another row, lies past that (or below 0) is refused with an error naming it, not wrapped
 /// round. A reference that isn't positive (artwork, a parent) means there is none.
-#[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_ids_players_cant_number_are_refused(tc: TestCase) {
     let id = tc.draw(hegel::one_of!(
         gs::integers::<i64>().max_value(-1),
@@ -478,7 +478,7 @@ fn loose_text(tc: &TestCase) -> (Value, String) {
 /// A drive's columns can hold any type (a column declared without one stores values as given):
 /// numbers stored as reals, padded text or anything else read as the number they hold (0 for
 /// none), and text stored as numbers reads as their digits.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_loosely_typed_values_read_as_their_columns_type(tc: TestCase) {
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     let numbers = [("bpmx100", 30_000), ("length", 4_000), ("trackNo", 99), ("rating", 5), ("djPlayCount", 900)];

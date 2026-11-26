@@ -184,7 +184,7 @@ fn the_watch_agent_tells_plugins_and_keeps_their_suggestions() {
 /// to review (as JSON, those with an action), and keeps those suggestions in the store, only
 /// when they're made.
 #[cfg(unix)]
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_the_watch_agent_says_what_services_tell_the_user(tc: hegel::TestCase) {
     use std::io::{BufRead, BufReader};
     use std::process::Stdio;
@@ -247,7 +247,7 @@ fn prop_the_watch_agent_says_what_services_tell_the_user(tc: hegel::TestCase) {
 /// locallibrary's) or only showing its plan: the plugin listening hears of each plan applied once,
 /// named as its operation, and what it tells the user back is in its log; a plan only shown is
 /// told of to no one.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_every_plan_applied_is_told_once_and_answered_in_the_log(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut env = Env::new();
@@ -281,7 +281,7 @@ fn prop_every_plan_applied_is_told_once_and_answered_in_the_log(tc: hegel::TestC
 
 /// For any steps turning a service on or off over the sidecar, it reads back as last set, and
 /// once it's first on, what it tells the user comes as a `plugin.notice` event of its plugin.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_service_turned_on_over_the_sidecar_reads_back_and_speaks(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut env = Env::new();

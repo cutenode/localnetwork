@@ -9,8 +9,8 @@ use crate::drawn;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::Device;
 use locallibrary::plugin::Fix;
@@ -41,7 +41,7 @@ fn big_track(root: &Path) {
     locallibrary::testing::sparse(&paths::to_fs(root, &paths::key(file)), 4 << 30).unwrap();
 }
 
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_each_fault_put_in_is_named(tc: TestCase) {
     for variant in 0..4 {
         each_fault_put_in_is_named_with(&tc, variant);
@@ -138,7 +138,7 @@ fn each_fault_put_in_is_named_with(tc: &TestCase, variant: u8) {
 /// player given that reads export.pdb holds it against the track exactly when it doesn't play
 /// that rate and depth, once, with the rate and depth read from the file. One whose file is gone
 /// isn't held to any.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_formats_a_row_leaves_out_are_read_from_the_file(tc: TestCase) {
     use locallibrary::equipment::{Codec, MODELS};
     let players: Vec<&str> = MODELS.iter().filter(|m| !m.is_mixer() && m.export_pdb.value).map(|m| m.name).collect();
@@ -172,7 +172,7 @@ fn prop_formats_a_row_leaves_out_are_read_from_the_file(tc: TestCase) {
 
 /// History lists pulled into the store count as kept while the drive is as it was then, and
 /// after it changes too, list by list: only a list added since isn't in the store.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_history_lists_pulled_before_the_drive_changed_are_kept(tc: TestCase) {
     let played = tc.draw(gs::integers::<u32>().min_value(1).max_value(12));
     for change in 0..3 {

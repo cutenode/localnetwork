@@ -457,7 +457,7 @@ const TRACK: (&str, &str) =
 /// changed since it was planned is planned again. A destination of another kind, or none, a set
 /// without its recording and a position to hide it doesn't have are refused before the plugin's
 /// asked.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let manifest =
         format!("{ECHO}\n[[contributes.settings]]\nkey = \"answer\"\ntitle = \"Answer\"\ntype = \"string\"\n");
@@ -720,7 +720,7 @@ enum Mistake {
 /// again as the account while echo has access, and echo is never asked. Publishing checks again
 /// before it's applied: a plan whose account was signed out or whose session ended since is
 /// refused, and echo isn't asked to publish.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 #[hegel::explicit_test_case(
     needs = vec!["read"],
     lasting = Lasting::TwoHours,
@@ -853,7 +853,7 @@ enum Step {
 /// or not) the libraries and stored files the store had when it was last copied, or is told
 /// there's no copy there; and copying from that store to the destination, which holds the first
 /// one's copy, is refused unless forced.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied(tc: TestCase) {
     let f = Fixture::echo();
     let spec_of = tc.draw(gs::sampled_from(vec!["echo:folder", "echo:folder", "echo:nowhere", "nope:folder"]));
@@ -976,7 +976,7 @@ fn uploading() -> Fixture {
 /// named as the plugin was given it, saying how long it is, and the bytes sent are the
 /// publishing's progress, between the plugin's start and end of the upload. Its dry run may send
 /// none of it, and once it's published, nothing may.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_set_s_recording_is_sent_in_parts_as_it_s_published(tc: TestCase) {
     use locallibrary::progress::{CancelToken, Event, Phase};
     let server = super::net::Server::new(|_, _| super::net::ok(""));

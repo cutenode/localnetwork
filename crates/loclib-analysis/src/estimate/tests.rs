@@ -42,3 +42,20 @@ fn tied_keys_are_none() {
     let e = estimate(&a_minor).unwrap();
     assert_eq!((e.key, e.key_confidence), (None, 0.0), "{e:?}");
 }
+
+/// Past 12 seconds the keys are scored a stretch at a time, and A minor's chords, with the E
+/// major whose G# only A minor has, are heard as A minor over the other keys.
+#[test]
+fn a_key_heard_over_the_others_is_named() {
+    let chord = |notes: [f32; 3]| {
+        (0..RATE as usize * 6).map(move |i| {
+            let t = i as f32 / RATE as f32;
+            notes.iter().map(|f| (std::f32::consts::TAU * f * t).sin()).sum::<f32>() / 10.0
+        })
+    };
+    let (a_minor, d_minor, e_major) = ([220.0, 261.63, 329.63], [293.66, 349.23, 440.0], [415.3, 493.88, 329.63]);
+    let progression: Vec<f32> = [a_minor, d_minor, e_major, a_minor].into_iter().flat_map(chord).collect();
+    let e = estimate(&progression).unwrap();
+    assert_eq!(e.key.map(Camelot::code).as_deref(), Some("8A"), "{e:?}");
+    assert!(e.key_confidence > 0.0, "{e:?}");
+}
