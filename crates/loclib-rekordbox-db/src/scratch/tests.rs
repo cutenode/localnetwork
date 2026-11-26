@@ -26,6 +26,14 @@ fn a_folder_is_private_and_removed_when_dropped() {
     assert_eq!(names(root.path()), Vec::<String>::new());
 }
 
+/// A folder shows where it is when debugged.
+#[test]
+fn a_folder_debugs_as_its_path() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = folder_in(root.path()).unwrap();
+    assert_eq!(format!("{folder:?}"), format!("Folder({:?})", folder.path()));
+}
+
 /// A sweep leaves folders in use (their lock held) and young ones without a lock, and removes
 /// abandoned ones (a lock nobody holds, or none and old).
 #[test]
@@ -89,4 +97,17 @@ fn a_sweep_follows_no_links() {
     std::os::unix::fs::symlink(elsewhere.path(), root.path().join(".tmpLINKED")).unwrap();
     assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
     assert_eq!(names(elsewhere.path()), [LOCK, "master.db"]);
+}
+
+/// A folder whose lock file can't be opened (someone else's, or not a file) is left as it is.
+#[cfg(unix)]
+#[test]
+fn a_sweep_leaves_a_folder_whose_lock_cant_be_opened() {
+    let root = tempfile::tempdir().unwrap();
+    let other = root.path().join(format!("{PREFIX}other"));
+    std::fs::create_dir(&other).unwrap();
+    // A link to itself can't be opened, whoever runs the test (root can open any file).
+    std::os::unix::fs::symlink(other.join(LOCK), other.join(LOCK)).unwrap();
+    assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
+    assert!(other.is_dir());
 }

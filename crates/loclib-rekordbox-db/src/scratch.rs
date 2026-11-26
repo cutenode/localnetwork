@@ -76,7 +76,7 @@ fn folder_in(root: &Path) -> Result<Folder> {
 
 /// Removes, once per process, what ended processes left in the temporary folder: [`Folder`]s
 /// nobody holds the lock of, and decrypted copies of `master.db` earlier versions left in
-/// folders of their own (see [`legacy`]). Whatever can't be read or removed is left as it is.
+/// folders of their own (`tempfile`'s `.tmp` folders holding only those files). Whatever can't be read or removed is left as it is.
 pub fn sweep() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
