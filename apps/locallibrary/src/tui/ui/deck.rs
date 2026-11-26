@@ -477,6 +477,7 @@ fn draw_zoom(f: &mut Frame, app: &mut App, area: Rect, cue_rows: u16) {
             let bar_numbers = true;
             let zoom = Zoom { wave, position_secs, visible_secs, beats, cues, cue_rows, bar_numbers, palette };
             app.waves.zoom.draw(&zoom, area, f.buffer_mut());
+            app.areas.zoom = area;
         }
         None => {
             let msg = match &app.now {
