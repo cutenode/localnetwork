@@ -90,8 +90,6 @@ pub struct Pending {
     id: u64,
     response: Receiver<Result<Value, RpcError>>,
     progress: Option<(Receiver<ProgressReport>, Receiver<Partial>)>,
-    /// Where its `progress` goes, for this side's own (see [`Pending::reporter`]).
-    reporter: Option<Sender<ProgressReport>>,
     /// Its response came: the reader drops its sender only after handing it over, so the
     /// channel alone can't say so yet.
     answered: Cell<bool>,
@@ -134,13 +132,6 @@ impl Pending {
     /// has come.
     pub fn progress(&self) -> impl Iterator<Item = ProgressReport> + '_ {
         self.progress.iter().flat_map(|(progress, _)| progress.try_iter())
-    }
-
-    /// Where progress this side makes for the request goes, among the other end's and in order
-    /// with it (see [`Pending::progress`]): the host's, as it sends a file a hook's `net/fetch`
-    /// names. None unless it was sent with [`Peer::send_request_reporting`].
-    pub fn reporter(&self) -> Option<Sender<ProgressReport>> {
-        self.reporter.clone()
     }
 
     /// [`Pending::progress`] for the view's rows (or items) the other end has sent in parts
@@ -244,13 +235,26 @@ impl Peer {
 
     /// Sends a request; [`Pending::wait`] for its response.
     pub fn send_request<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
-        self.send(method, params, None, false)
+        self.send(method, params, None, false, drop)
     }
 
     /// [`Peer::send_request`] for a hook: the other end's `progress` and `partial` about it come
     /// to its [`Pending::progress`] and [`Pending::partials`], not the owner.
     pub fn send_request_reporting<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
-        self.send(method, params, None, true)
+        self.send(method, params, None, true, drop)
+    }
+
+    /// [`Peer::send_request_reporting`], handing `report_to` where progress this side makes for the
+    /// request goes, among the other end's and in order with it (see [`Pending::progress`]): the
+    /// host's, as it sends a file a hook's `net/fetch` names. Handed over before the request goes,
+    /// since the other end may act on it at once.
+    pub fn send_request_reporting_to<P: Serialize>(
+        &self,
+        method: &str,
+        params: &P,
+        report_to: impl FnOnce(Sender<ProgressReport>),
+    ) -> Result<Pending, RpcError> {
+        self.send(method, params, None, true, report_to)
     }
 
     /// Sends a request while answering the other end's request `within` (a callback during a
@@ -263,7 +267,7 @@ impl Peer {
         method: &str,
         params: &P,
     ) -> Result<Pending, RpcError> {
-        self.send(method, params, Some(within), false)
+        self.send(method, params, Some(within), false, drop)
     }
 
     fn send<P: Serialize>(
@@ -272,6 +276,7 @@ impl Peer {
         params: &P,
         within: Option<&Value>,
         reporting: bool,
+        report_to: impl FnOnce(Sender<ProgressReport>),
     ) -> Result<Pending, RpcError> {
         let params = ok(params)?;
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
@@ -282,7 +287,9 @@ impl Peer {
                 ((progress_tx, partial_tx), (progress, partials))
             })
             .unzip();
-        let reporter = progress_tx.as_ref().map(|(progress, _)| progress.clone());
+        if let Some((progress, _)) = &progress_tx {
+            report_to(progress.clone());
+        }
         let waiter = Waiter { response: tx, within: within.cloned(), progress: progress_tx };
         lock(&self.0.waiting).as_mut().ok_or_else(RpcError::closed)?.insert(id, waiter);
         // Cancelled before it was waited for: `on_cancel` may have missed it.
@@ -297,7 +304,7 @@ impl Peer {
             self.take_waiter(id);
             return Err(e);
         }
-        Ok(Pending { peer: self.clone(), id, response, progress, reporter, answered: Cell::new(false) })
+        Ok(Pending { peer: self.clone(), id, response, progress, answered: Cell::new(false) })
     }
 
     fn take_waiter(&self, id: u64) -> Option<Waiter> {

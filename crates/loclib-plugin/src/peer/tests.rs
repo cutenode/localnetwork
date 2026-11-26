@@ -1208,18 +1208,45 @@ fn prop_what_the_other_end_tells_goes_through_the_intake(tc: TestCase) {
 fn prop_a_response_comes_once(tc: TestCase) {
     let (peer, _incoming, mut raw) = connect();
     let reporting = tc.draw(gs::booleans());
+    let mut reporter = None;
     let pending = match reporting {
-        true => peer.send_request_reporting("m", &json!({})),
+        true => peer.send_request_reporting_to("m", &json!({}), |r| reporter = Some(r)),
         false => peer.send_request("m", &json!({})),
     }
     .unwrap();
-    assert_eq!(pending.reporter().is_some(), reporting);
+    assert_eq!(reporter.is_some(), reporting);
     let req = raw.recv();
     assert!(pending.wait_timeout::<Value>(Duration::ZERO).is_none());
     let result = json_value(&tc, 2);
     raw.send(&json!({ "jsonrpc": "2.0", "id": req["id"], "result": result }).to_string());
     assert_eq!(pending.wait_timeout::<Value>(Duration::from_secs(10)), Some(Ok(result)));
     assert_eq!(pending.wait::<Value>(), Err(RpcError::closed()));
+}
+
+/// A request sent reporting to this side hands over its reporter before any of it is written: the
+/// other end may act on it (a hook's first `net/fetch` sending a lent file) before the send returns.
+#[test]
+fn a_reporter_is_handed_over_before_the_request_goes() {
+    /// An output that notes it's been written to.
+    struct Noting(Arc<std::sync::atomic::AtomicBool>, PipeWriter);
+    impl Write for Noting {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.store(true, Ordering::SeqCst);
+            self.1.write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.1.flush()
+        }
+    }
+    let (peer_in, _to_peer) = pipe().unwrap();
+    let (_from_peer, peer_out) = pipe().unwrap();
+    let written = Arc::default();
+    let (peer, _incoming) = Peer::new(peer_in, Noting(Arc::clone(&written), peer_out));
+    let mut unwritten = None;
+    let pending =
+        peer.send_request_reporting_to("m", &json!({}), |_| unwritten = Some(!written.load(Ordering::SeqCst)));
+    assert_eq!(unwritten, Some(true), "handed over, before the request was written");
+    assert!(pending.is_ok() && written.load(Ordering::SeqCst));
 }
 
 /// Params that have no JSON (a map keyed by what isn't a string) fail a request as an internal
