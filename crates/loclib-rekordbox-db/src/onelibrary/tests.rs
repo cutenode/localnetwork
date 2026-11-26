@@ -68,13 +68,39 @@ fn a_damaged_b_tree_is_refused_before_anything_reads_it() {
     assert!(err.contains("SQLite finds it damaged"), "{err}");
 }
 
-/// A working copy keeps SQLite's temporary tables and sorts in memory (2), never in files of
-/// its own.
+/// A damaged database still hashes, the same each time, as that follows from its bytes; one
+/// SQLite can't take into memory is an error rather than a hash of another kind.
+#[test]
+fn a_hash_changes_with_the_bytes_alone() {
+    let one = OneLibrary::create().unwrap();
+    let bytes = one.to_encrypted().unwrap();
+    let (codec, plain) = decrypt(&bytes, None).unwrap();
+    let broken = with_broken_table(&one.conn, &codec, plain.clone(), "property");
+    assert_eq!(content_hashes(&broken, None).unwrap(), content_hashes(&broken, None).unwrap());
+    assert_ne!(content_hashes(&broken, None).unwrap(), content_hashes(&bytes, None).unwrap());
+    // A schema SQLite can't read at all: its table claims more cells than a page holds.
+    let mut unreadable = plain.clone();
+    unreadable[103..105].copy_from_slice(&u16::MAX.to_be_bytes());
+    let unreadable = codec.encrypt(&unreadable).unwrap();
+    assert_eq!(content_hashes(&unreadable, None).unwrap(), content_hashes(&unreadable, None).unwrap());
+    let err = hashes_within(&bytes, None, plain.len() - 1).unwrap_err().to_string();
+    assert!(err.contains(&format!("{} bytes decrypted", plain.len())), "{err}");
+    assert!(hashes_within(&bytes, None, plain.len()).is_ok());
+}
+
+/// Connections to a decrypted copy keep SQLite's temporary tables and sorts in memory (2), never
+/// in files of their own, and the one read for a hash reads the database as it is.
 #[test]
 fn decrypted_copies_keep_temporary_data_in_memory() {
     let temp_store = |c: &Connection| c.query_row("PRAGMA temp_store", [], |r| r.get::<_, i64>(0)).unwrap();
     let one = OneLibrary::create().unwrap();
     assert_eq!(temp_store(one.connection()), 2);
+    let (_, plain) = decrypt(&one.to_encrypted().unwrap(), None).unwrap();
+    let conn = in_memory(&plain).unwrap();
+    assert_eq!(temp_store(&conn), 2);
+    let tables: i64 =
+        conn.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'property'", [], |r| r.get(0)).unwrap();
+    assert_eq!(tables, 1);
 }
 
 #[test]

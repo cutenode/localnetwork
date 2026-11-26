@@ -316,7 +316,7 @@ pub fn open(path: &Path, key: &str) -> Result<Collection> {
 
 /// The most SQLite takes into memory at once (`SQLITE_MAX_ALLOCATION_SIZE`, which the bundled
 /// SQLite can't raise): a decrypted `master.db` any bigger is read from a file instead.
-const IN_MEMORY_LIMIT: usize = 2_147_483_391;
+pub(crate) const IN_MEMORY_LIMIT: usize = 2_147_483_391;
 
 /// [`open`]'s database: in memory, or in a private folder for a plain one or one too big.
 pub(crate) fn open_db<'a>(path: &'a Path, key: &str) -> Result<Opened<'a>> {

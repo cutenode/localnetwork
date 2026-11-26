@@ -23,10 +23,11 @@ pub use cues::{CueRow, CueRowChanges, hot_cue_from_kind, kind_for_hot_cue};
 pub use edit::Tree;
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::io::Read;
 use std::path::PathBuf;
 
 use rusqlite::types::{Value, ValueRef};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
 
 use loclib_model::model::{Library, Playlist, Track, TrackColor, untangle};
 use loclib_sqlcipher::untrusted::{damaged, distrust};
@@ -70,8 +71,13 @@ pub fn content_hash(db: &[u8], wal: Option<&[u8]>) -> Result<blake3::Hash> {
 /// [`content_hash`] and the hash locallibrary computed before the per-drive name was left out
 /// (every decrypted page, as is). Lineage recorded before then holds the second kind.
 pub fn content_hashes(db: &[u8], wal: Option<&[u8]>) -> Result<(blake3::Hash, blake3::Hash)> {
+    hashes_within(db, wal, crate::masterdb::IN_MEMORY_LIMIT)
+}
+
+/// [`content_hashes`], reading a decrypted database of up to `limit` bytes in memory.
+fn hashes_within(db: &[u8], wal: Option<&[u8]>, limit: usize) -> Result<(blake3::Hash, blake3::Hash)> {
     let (_, plain) = decrypt(db, wal)?;
-    let property = property_page(&plain).unwrap_or(None);
+    let property = property_page(&plain, limit)?;
     let usable = PAGE_SIZE - cipher::RESERVE;
     let mut current = blake3::Hasher::new();
     let mut legacy = blake3::Hasher::new();
@@ -98,17 +104,41 @@ pub fn content_hashes(db: &[u8], wal: Option<&[u8]>) -> Result<(blake3::Hash, bl
 }
 
 /// The `property` table's page and its rows without the per-drive columns, when the table is a
-/// single page (it holds one row).
-fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
-    let mut copy = plain.to_vec();
-    copy[18] = 1;
-    copy[19] = 1;
-    // Read from memory: the decrypted pages never reach the disk.
+/// single page (it holds one row), read in memory when the database is `limit` bytes or less.
+fn property_page(plain: &[u8], limit: usize) -> Result<Option<(u32, Vec<u8>)>> {
+    if plain.len() > limit {
+        let more = format!("{} bytes decrypted, more than SQLite reads in memory ({limit})", plain.len());
+        return Err(Error::OneLibrary(more));
+    }
+    let conn = in_memory(plain)?;
+    // What SQLite finds damaged, won't trust or can't read is hashed as its pages are: that
+    // follows from the bytes alone, so a file always hashes alike. Any other error (no memory for
+    // it, say) is the caller's, as it mustn't change the hash.
+    match property_rows(&conn, plain) {
+        Err(e) if matches!(e.sqlite_error_code(), Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase)) => {
+            Ok(None)
+        }
+        found => Ok(found?),
+    }
+}
+
+/// `plain` opened in memory, read only, header bytes 18-19 saying rollback journal rather than
+/// WAL (which a database in memory can't be): the decrypted pages never reach the disk, nor
+/// SQLite's temporary files.
+fn in_memory(plain: &[u8]) -> rusqlite::Result<Connection> {
     let mut conn = Connection::open_in_memory()?;
-    conn.deserialize_read_exact(rusqlite::MAIN_DB, copy.as_slice(), copy.len(), true)?;
+    conn.execute_batch("PRAGMA temp_store = MEMORY")?;
+    let journal: &[u8] = &[1, 1];
+    let patched = (&plain[..18]).chain(journal).chain(&plain[20..]);
+    conn.deserialize_read_exact(rusqlite::MAIN_DB, patched, plain.len(), true)?;
+    Ok(conn)
+}
+
+/// [`property_page`] of `plain`, deserialized into `conn`.
+fn property_rows(conn: &Connection, plain: &[u8]) -> rusqlite::Result<Option<(u32, Vec<u8>)>> {
     // Read before `OneLibrary::open` has looked at the file: only the one table is read here.
-    if let Some(why) = distrust(&conn, &[], "rekordbox")?.or(damaged(&conn)?) {
-        return Err(Error::OneLibrary(why));
+    if distrust(conn, &[], "rekordbox")?.or(damaged(conn)?).is_some() {
+        return Ok(None);
     }
     let root: Option<u32> = conn
         .query_row("SELECT rootpage FROM sqlite_master WHERE type = 'table' AND name = 'property'", [], |r| r.get(0))
