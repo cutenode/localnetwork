@@ -22,6 +22,7 @@
           - "apps/web/src/lib/server/services/performers.*"
           - "apps/web/src/lib/server/services/performer-*.*"
           - "apps/web/src/lib/server/services/project-migration.*"
+          - "apps/web/src/lib/server/active-accounts.*"
           - "apps/web/src/lib/server/project-page.*"
           - "apps/web/src/lib/server/profile-page.*"
           - "apps/web/src/lib/server/performer-uri.*"

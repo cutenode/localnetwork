@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
+import { writtenAs } from '../atproto/spaces';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
 import type { VenueView } from './venues';
@@ -173,5 +174,16 @@ describe('venue rules and settings', () => {
 		await root.deleteRecord({ collection: COLLECTION.venueBlock, rkey: kept.rkey });
 		await t.venues.reconcileBlocks();
 		expect(await t.venues.blocks(venue.space)).toEqual([]);
+	});
+
+	it("keeps a block from the alpha, whose record names the venue's space in its old form", async () => {
+		const [, alpha] = writtenAs(venue.space);
+		const root = await t.core.root();
+		const record = { venue: alpha, subject: DJ, createdAt: '2020-01-01T00:00:00.000Z' };
+
+		await root.putRecord({ collection: COLLECTION.venueBlock, rkey: '3kdj', record });
+		await t.venues.reconcileBlocks();
+
+		expect((await t.venues.blocks(venue.space)).map(({ rkey }) => rkey)).toEqual(['3kdj']);
 	});
 });

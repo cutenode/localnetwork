@@ -1,6 +1,7 @@
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { sql } from 'kysely';
 import { z } from 'zod';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { MIX_REPORT_MAX_BYTES } from '#lib/mix/report.ts';
 import { parseMixReportText } from '#lib/mix/schema.ts';
@@ -20,12 +21,13 @@ import type {
 } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import type { RepoClient } from '../atproto/repo-client';
-import { parseSpaceRecordUri, spaceRecordUri } from '../atproto/spaces';
+import { currentSpaceUris, parseSpaceRecordUri, spaceRecordUri, writtenAs } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { unlessOffline } from '../happyview/offline';
 import type { RequestRow } from '../db/schema';
 import { AVATAR_TYPES } from '../images';
+import { detailsText, editedLangs, sectionsText, withLangs } from '../langs';
 import { diff, savedChanges } from './diff';
 import type { DjListings } from './dj-listings';
 import type { ProfileService } from './profiles';
@@ -44,6 +46,7 @@ const decisionRecord = z.object({
 	requester: z.string(),
 	outcome: z.enum(DECISION_OUTCOMES),
 	reason: z.string().optional(),
+	langs: z.array(z.string()).optional(),
 	decidedBy: z.string(),
 	project: z.string().optional(),
 	projectRevision: z.number().optional(),
@@ -189,6 +192,7 @@ export class RequestService {
 		const message = input.message?.trim();
 
 		if (message) record.message = message;
+		Object.assign(record, withLangs(requestText(record), writerLangs()));
 
 		if (!client) record.onBehalfOf = actor.did;
 		const validated = validateRecord(COLLECTION.request, record);
@@ -400,6 +404,12 @@ export class RequestService {
 			else delete next.message;
 		}
 
+		delete next.langs;
+		Object.assign(
+			next,
+			editedLangs(requestText(next), { text: requestText(current), langs: current.langs }, writerLangs())
+		);
+
 		const validated = validateRecord(COLLECTION.request, next);
 		const writer = client ?? (await this.core.root());
 
@@ -530,7 +540,8 @@ export class RequestService {
 					status: 'active',
 					createdBy: row.requesterDid,
 					details: record.details ?? undefined,
-					lastRequest: row.uri
+					lastRequest: row.uri,
+					langs: record.langs
 				});
 
 				result = { uri: project.uri, revision: project.revision, name: project.profile.name, changes };
@@ -552,7 +563,8 @@ export class RequestService {
 					status: existing.status,
 					createdBy: existing.createdBy,
 					details: record.kind === 'update' ? record.details : undefined,
-					lastRequest: row.uri
+					lastRequest: row.uri,
+					langs: record.langs
 				});
 
 				result = { uri: project.uri, revision: project.revision, name: project.profile.name, changes };
@@ -571,7 +583,7 @@ export class RequestService {
 			createdAt: decidedAt
 		};
 
-		if (reason) decision.reason = reason;
+		if (reason) Object.assign(decision, { reason, langs: writerLangs() });
 
 		if (result) {
 			decision.project = result.uri;
@@ -829,13 +841,13 @@ export class RequestService {
 			.where('spaceUri', '=', spaces.moderation)
 			.where('repoDid', '=', rootDid)
 			.where('collection', '=', COLLECTION.decision)
-			.where(sql<string>`json_extract(value, '$.request')`, '=', request)
+			.where(sql<string>`json_extract(value, '$.request')`, 'in', writtenAs(request))
 			.execute();
 
 		for (const { rkey, value } of decisions) {
 			await this.applyDecision({
 				uri: spaceRecordUri(spaces.moderation, rootDid, COLLECTION.decision, rkey),
-				value: parseJson<JsonObject>(value, {})
+				value: currentSpaceUris(parseJson<JsonObject>(value, {}))
 			});
 		}
 	}
@@ -912,7 +924,7 @@ export class RequestService {
 				.selectFrom('auditEntry')
 				.select('changes')
 				.where('action', 'in', ['project.create', 'project.update'])
-				.where(sql<string>`json_extract(details, '$.request')`, '=', request.uri)
+				.where(sql<string>`json_extract(details, '$.request')`, 'in', writtenAs(request.uri))
 				.executeTakeFirst();
 
 			const changes = parseJson<FieldChange[]>(entry?.changes ?? null, []);
@@ -1080,6 +1092,14 @@ export class RequestService {
 		});
 	}
 }
+
+/** The prose a request's requester wrote: its message, a claim's evidence, and the profile's and details' text. */
+const requestText = ({ message, claim, profile, details }: RequestRecord) => [
+	message,
+	claim?.evidence,
+	...sectionsText(profile, profile),
+	...detailsText(details)
+];
 
 /**
  * The record a request row was indexed from. `index` stores it as JSON of an object, and forgetting a deleted one only

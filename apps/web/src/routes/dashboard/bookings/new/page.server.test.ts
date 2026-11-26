@@ -172,14 +172,14 @@ it('names the planner show an inquiry started from, which the thread links back 
 	const [thread] = await f.t.bookings.threadsFor(PROMOTER);
 
 	expect(await plannerShows()).toEqual([
-		`at://${PROMOTER}/space/computer.localnetwork.space.planner/self/${PROMOTER}/computer.localnetwork.planner.show/${rkey}`
+		`at:space/${PROMOTER}/computer.localnetwork.space.planner/self/${PROMOTER}/computer.localnetwork.planner.show/${rkey}`
 	]);
 	expect((await f.t.bookings.thread(promoter, thread.space)).links.plannerShow).toBe(rkey);
 });
 
 it("names no planner show for one that isn't the sender's, whatever the form says", async () => {
 	const theirs = await f.t.planner.saveShow(await f.t.viewer(ADMIN), { details: { title: 'Not yours' }, lineup: [] });
-	const forged = `at://${ADMIN}/space/computer.localnetwork.space.planner/self/${ADMIN}/computer.localnetwork.planner.show/${theirs}`;
+	const forged = `at:space/${ADMIN}/computer.localnetwork.space.planner/self/${ADMIN}/computer.localnetwork.planner.show/${theirs}`;
 
 	for (const query of [`&show=${theirs}`, '&show=junk', ''])
 		await redirectOf(

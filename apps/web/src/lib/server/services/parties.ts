@@ -1,9 +1,11 @@
 import type { Selectable } from 'kysely';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { BasicsSection, PartyRecord, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { type Core, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
+import { editedLangs, sectionsText, withLangs } from '../langs';
 import type { PartyTable } from '../db/schema';
 import { savedChanges } from './diff';
 import { PARTY_KEY, partyRecord } from './party-index';
@@ -47,6 +49,7 @@ export class PartyService {
 
 		const record = validateRecord(COLLECTION.party, {
 			basics: avatar ? { ...input.basics, avatar } : input.basics,
+			...withLangs(sectionsText(input.basics), writerLangs()),
 			...(input.publish && { publishedAt: now }),
 			createdAt: now,
 			updatedAt: now
@@ -77,9 +80,12 @@ export class PartyService {
 			const now = nowIso();
 			const publishes = input.publish && !current.publishedAt;
 
+			const { langs, ...kept } = current;
+
 			const record = validateRecord(COLLECTION.party, {
-				...current,
+				...kept,
 				basics: avatar ? { ...input.basics, avatar } : input.basics,
+				...editedLangs(sectionsText(input.basics), { text: sectionsText(current.basics), langs }, writerLangs()),
 				...(publishes && { publishedAt: now }),
 				updatedAt: now
 			});

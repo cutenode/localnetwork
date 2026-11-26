@@ -10,12 +10,14 @@ import {
 	hueFor,
 	initials,
 	kindLabel,
+	nightLabel,
 	placeLabel,
 	pluralize,
 	requestTitle,
 	shortDid,
 	timeAgo
 } from './format';
+import { inLocale } from './testing/locale.ts';
 import { request } from './testing/requests';
 import type { ProjectProfile } from './types';
 
@@ -112,5 +114,35 @@ describe('requestTitle', () => {
 			requestTitle(request('create', { project: null, record: { kind: 'create', createdAt: '2026-10-01T00:00:00Z' } }))
 		).toBe('New project: Project');
 		expect(requestTitle(request('list', { project: null }))).toBe('Listing: @neon.test');
+	});
+});
+
+describe("formatting in the reader's locale", () => {
+	const now = Date.parse('2026-10-04T12:00:00Z');
+
+	const formatted = () => [
+		formatDate('2026-11-14T20:00:00Z', { dateStyle: 'medium', timeZone: 'UTC' }),
+		formatShowDate('2026-11-14T22:00:00.000Z', true),
+		nightLabel('2026-11-14T22:00:00.000Z'),
+		timeAgo('2026-10-04T10:00:00Z', now),
+		timeAgo('2026-10-04T10:00:00Z', now, 'narrow'),
+		feeLabel({ tier: 'established', currency: 'EUR', minAmount: 1500, maxAmount: 2500 }),
+		pluralize(1200, 'show')
+	];
+
+	it('formats as English by default', () => {
+		expect(formatted()).toEqual([
+			'Nov 14, 2026',
+			expect.stringMatching(/^Nov 14, 2026, 10:00\sPM$/),
+			'Sat 14 Nov',
+			'2 hours ago',
+			'2h ago',
+			'Established · €1,500–€2,500',
+			'1,200 shows'
+		]);
+	});
+
+	it('formats en-XA exactly as English, so the pseudo-locale only changes the words', async () => {
+		expect(await inLocale('en-XA', formatted)).toEqual(formatted());
 	});
 });

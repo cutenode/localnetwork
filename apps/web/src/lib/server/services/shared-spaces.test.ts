@@ -54,7 +54,7 @@ describe('SharedSpaces', () => {
 	it('starts a space only its people read and write, with its creator in it holding every capability of its kind', async () => {
 		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
 
-		expect(space).toMatch(/^at:\/\/did:plc:root\/space\/computer\.localnetwork\.space\.performer\//);
+		expect(space).toMatch(/^at:space\/did:plc:root\/computer\.localnetwork\.space\.performer\//);
 		expect(t.net.spaces.get(space)?.policy).toEqual(memberSpacePolicy());
 		expect(access(space)).toEqual({ [ADA]: readWrite });
 		expect(person(space, ADA)).toMatchObject({ subject: ADA, role: 'member', hidden: false, via: 'created' });
@@ -255,7 +255,7 @@ describe('SharedSpaces', () => {
 
 		await expect(t.sharedSpaces.leave(ada, t.spaces.staff)).rejects.toBeInstanceOf(NotFoundError);
 		await expect(
-			t.sharedSpaces.leave(ada, 'at://did:plc:other/space/computer.localnetwork.space.party/3k')
+			t.sharedSpaces.leave(ada, 'at:space/did:plc:other/computer.localnetwork.space.party/3k')
 		).rejects.toBeInstanceOf(NotFoundError);
 	});
 
@@ -547,6 +547,31 @@ describe('SharedSpaces', () => {
 					]
 				}
 			]);
+		});
+
+		it("names the language of the page's words, keeping the one they had through saves that leave them alone", async () => {
+			const space = await start();
+			const ada = await t.viewer(ADA);
+
+			const save = (bio?: string) =>
+				t.sharedSpaces.updatePage(ada, space, {
+					form: 'duo',
+					basics: { name: 'Crew', bio },
+					performer: {},
+					avatar: 'keep',
+					swap: page(space)!.cid
+				});
+
+			expect(page(space)?.value.langs).toBeUndefined();
+
+			await save('Two decks, one night');
+			expect(page(space)?.value.langs).toEqual(['en']);
+			// As if the bio had been written in German.
+			page(space)!.value.langs = ['de'];
+			await save('Two decks, one night');
+			expect(page(space)?.value.langs).toEqual(['de']);
+			await save();
+			expect(page(space)?.value.langs).toBeUndefined();
 		});
 
 		it('refuses to save the page for someone whose page.edit was taken away, and for a space with no act', async () => {

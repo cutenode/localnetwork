@@ -1,7 +1,7 @@
-import { AtUri, isValidAtUri, isValidDid } from '@atproto/syntax';
 import { accountLabel, profileHref } from '#lib/format.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { AccountView, ProfileView, ProjectView } from '#lib/types.ts';
+import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, NotFoundError, UserError } from '../core';
 import type { DjListing, DjListings } from './dj-listings';
 import { type ProfileService, profileUri } from './profiles';
@@ -24,10 +24,9 @@ export type BookedPerformer = {
 
 /** The DJ a profile URI (`at://<did>/computer.localnetwork.profile/self`) names, or null for any other URI. */
 export function profileDid(uri: string): string | null {
-	if (!isValidAtUri(uri)) return null;
-	const { host, collection, rkey } = new AtUri(uri);
+	const parsed = parsePublicRecordUri(uri);
 
-	return collection === COLLECTION.profile && rkey === 'self' && isValidDid(host) ? host : null;
+	return parsed?.collection === COLLECTION.profile && parsed.rkey === 'self' ? parsed.did : null;
 }
 
 /**

@@ -106,3 +106,13 @@ fn prop_a_cues_line_shows_what_it_has(tc: hegel::TestCase) {
     }];
     render_list(&list);
 }
+
+#[test]
+fn a_style_is_picked_by_number_or_name() {
+    assert_eq!(choice("\n"), Ok(CueStyle::ALL[0]));
+    assert_eq!(choice("2"), Ok(CueStyle::ALL[1]));
+    assert_eq!(choice(" intro-chorus \n"), Ok(CueStyle::IntroChorus));
+    assert!(choice("0").is_err() && choice("9").is_err() && choice("nope").is_err());
+    let mut typed = std::io::Cursor::new("first-cue\n");
+    assert_eq!(ask_style(&mut typed).unwrap(), CueStyle::FirstCue);
+}

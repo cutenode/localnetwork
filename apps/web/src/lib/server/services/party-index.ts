@@ -55,10 +55,10 @@ export function partyListingSource(db: Db): ListingSource {
 			const record = parseJson<PartyRecord | null>(row?.record, null);
 
 			if (!record?.publishedAt) return null;
-			const { basics } = record;
+			const { basics, langs } = record;
 			const fields: JsonObject = JSON.parse(JSON.stringify({ basics }));
 
-			return { name: basics.name, fields };
+			return { name: basics.name, fields, langs };
 		}
 	};
 }

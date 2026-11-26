@@ -14,5 +14,5 @@ export const answersWith = (key: string, gates: Omit<FlagAnswer, 'key'>): FlagAn
 	FLAGS.map((flag) =>
 		flag.key === key
 			? { key: flag.key, ...gates }
-			: { key: flag.key, enabled: true, everyone: false, percentage: 0, targeted: false }
+			: { key: flag.key, enabled: true, signedOut: false, everyone: false, percentage: 0, targeted: false }
 	);

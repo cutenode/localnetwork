@@ -24,7 +24,7 @@ const thread = (
 	lastAuthor: string,
 	overrides: Partial<BookingListThread> = {}
 ): BookingListThread => ({
-	space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
+	space: `at:space/did:plc:root/computer.localnetwork.space.booking/${skey}`,
 	skey,
 	status,
 	title: `Show ${skey}`,

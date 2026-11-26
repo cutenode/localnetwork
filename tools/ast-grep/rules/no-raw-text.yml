@@ -1,0 +1,28 @@
+# Text a page shows comes from the message catalog (apps/web/messages/en.json, through `m`), so a
+# translation can replace it and the en-XA pseudo-locale shows what's left. This finds words written
+# straight into a component's markup: its text, and the attributes a screen reader or a tooltip reads
+# out. It can't see a string literal inside `{...}`, which en-XA still shows. `files` lists the
+# components whose text has moved to the catalog; add each one as it moves.
+id: no-raw-text
+language: Html
+severity: error
+message: This writes words into the page instead of taking them from the message catalog.
+note: Add the words to apps/web/messages/en.json, run `node scripts/pseudo-locale.ts` in apps/web, and use the message, like `{m.footer_privacy()}`.
+files:
+  - 'apps/web/src/routes/+layout.svelte'
+rule:
+  any:
+    # A letter outside any `{...}`. An HTML entity like `&nbsp;` doesn't count. The HTML parser ends a
+    # tag at an arrow function's `>`, which puts the rest of the expression in the text (and can lose
+    # the element's own text), so a run of text that reaches a `}` is code.
+    - kind: text
+      regex: '(?:^|\})[^{}&]*\p{L}[^{}]*(?:\{|$)'
+    - kind: attribute_value
+      regex: '^[^{]*\p{L}'
+      inside:
+        kind: quoted_attribute_value
+        inside:
+          kind: attribute
+          has:
+            kind: attribute_name
+            regex: '^(aria-label|aria-description|title|alt|placeholder)$'

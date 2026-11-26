@@ -180,8 +180,20 @@ local function projects(where, args, order)
 	return rows
 end
 
--- The accounts that manage one of the root's projects (an active one, with `active`), each once: the accounts whose
--- records the directory reads beyond the root's own.
+-- The accounts the app found inactive (deactivated, taken down, suspended or deleted), as a set. HappyView keeps a
+-- deactivated account's records, so the queries that read accounts' records take an `inactive` param and leave theirs
+-- out. Each request runs in a fresh VM, so this starts empty every time.
+local inactive = {}
+
+-- Reads a query's `inactive` param into `inactive`. Call it first in handle().
+local function skipInactive(input)
+	for _, did in ipairs(input.inactive or {}) do
+		inactive[did] = true
+	end
+end
+
+-- The accounts that manage one of the root's projects (an active one, with `active`), each once, without inactive
+-- ones: the accounts whose records the directory reads beyond the root's own.
 local function managers(active)
 	local rows = query(
 		"SELECT DISTINCT m AS did FROM happyview_records, jsonb_array_elements_text(record::jsonb -> 'managers') AS m"
@@ -191,8 +203,8 @@ local function managers(active)
 		{ ROOT_DID, PROJECT }
 	)
 	local out = {}
-	for i, row in ipairs(rows) do
-		out[i] = row.did
+	for _, row in ipairs(rows) do
+		if not inactive[row.did] then out[#out + 1] = row.did end
 	end
 	return out
 end

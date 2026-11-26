@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use loclib_plugin::test_util::{FakeHost, Response, Sent};
 use loclib_plugin::{EventName, FieldType, Listener, Manifest, Output, Role, Suggestion, code, method};
 use loclib_progress::Ctx;
@@ -100,7 +100,7 @@ fn describes_one_analyzer_and_hears_of_drives_changing() {
         ["bpm", "bpm_confidence", "clipped_runs", "integrated_lufs", "key", "key_confidence", "true_peak_dbtp"];
     assert_eq!(columns, expected);
     // Drawn, and written to analysis files when asked, not columns.
-    assert_eq!(structured, [("waveform", FieldType::Waveform)]);
+    assert_eq!(structured, [("waveform", FieldType::Waveform), ("beats", FieldType::Beats)]);
     // Every role of a track's sound: doctor reads them all.
     let roles: Vec<Role> = analyzer.roles.keys().copied().collect();
     let not_heard = [Role::Identity, Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
@@ -276,7 +276,7 @@ fn the_analyzers_version_is_loclib_analysis_s() {
 /// `estimate` and `confidence`, a key finding's Camelot `estimate` and `confidence`, a loudness
 /// finding's `integrated_lufs`, `true_peak_dbtp` and `clipped_runs`), and the waveform it
 /// measured, each of the type the manifest declares: every one, null when it has nothing to show.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(seed = 7919u32, secs = 8.0f64, rate = 44_100u32, gain = 12_000.0f32)]
 #[hegel::explicit_test_case(seed = 31u32, secs = 5.0f64, rate = 11_025u32, gain = 200_000.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 3.0f64, rate = 48_000u32, gain = 0.0f32)]
@@ -308,9 +308,16 @@ fn prop_fields_are_what_doctor_reports(tc: TestCase) {
     let a = analyze(&path, Want::ALL, &Ctx::silent()).unwrap();
     let l = a.loudness.unwrap();
     // Doctor's tempo findings leave out a tempo of 0 (`TempoRelation::between` has none for it).
+    // The grid's tempo is the tempo where there's a grid, with the estimate's confidence where
+    // they agree.
     let tempo = a.estimate.as_ref().filter(|e| e.bpm > 0.0);
-    assert_eq!(number("bpm"), tempo.map(|e| f64::from(e.bpm)), "{fields:?}");
-    assert_eq!(number("bpm_confidence"), tempo.map(|e| f64::from(e.bpm_confidence)));
+    let bpm = a.grid.map(|g| g.bpm).or(tempo.map(|e| f64::from(e.bpm)));
+    assert_eq!(number("bpm"), bpm, "{fields:?}");
+    let agree = tempo.filter(|e| bpm.is_some_and(|b| (f64::from(e.bpm) / b - 1.0).abs() < 0.02));
+    assert_eq!(number("bpm_confidence"), agree.map(|e| f64::from(e.bpm_confidence)));
+    // The grid's beats, to the end.
+    let beats = a.grid.map(|g| g.beats(a.duration_secs)).filter(|b| !b.is_empty());
+    assert_eq!(fields["beats"], beats.as_deref().map_or(FieldValue::Null, FieldValue::beats));
     assert_eq!(number("key_confidence"), a.estimate.as_ref().map(|e| f64::from(e.key_confidence)));
     // Keys that tie (confidence 0) are none: two analyses of one file hear the same.
     let key = a.estimate.as_ref().and_then(|e| e.key);
@@ -533,7 +540,7 @@ fn a_click_track_has_a_waveform() {
 
 /// Any click track at a tempo DJs play, after any silence, has a waveform as long as the track,
 /// its silence empty.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(bpm = 150.0f64, lead = 2.5f64)]
 fn prop_waveforms_follow_the_audio(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
@@ -576,6 +583,7 @@ fn a_waveform_past_a_day_is_left_out() {
         version: loclib_analysis::VERSION,
         duration_secs: 86_400.0,
         estimate: None,
+        grid: None,
         loudness: None,
         waveform: Some(loclib_analysis::Waveform { columns: vec![[1, 2, 3]; columns] }),
     };

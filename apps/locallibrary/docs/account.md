@@ -43,7 +43,12 @@ writes records needs permission for each type it writes, which `account login --
   other kind. Servers
   look the set up when you sign in and every time the session is refreshed, so it has to be
   published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
-  DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
+  DNS record it checks); until it is, a sign-in that allows publishing fails. locallibrary asks
+  DNS for that record first, and while it isn't there, `account login --publish` and the publish
+  commands say publishing isn't open yet instead of opening the browser (`--dry-run` still shows
+  what would be published). When DNS can't be asked, signing in goes ahead, and a server's
+  `invalid_scope` refusal for the set is explained the same way. `LOCALLIBRARY_PERMISSION_SET=published`
+  (or `unpublished`) answers in place of DNS. It's named directly
   under `computer.localnetwork` because a set can only grant records under its own name's parent.
 - **The browser comes back to locallibrary** on a one-off `127.0.0.1` port, and only the address
   that carries this sign-in's `state` counts. When the browser runs on another computer (over
@@ -188,7 +193,9 @@ locallibrary account flags --refresh    # ask now
 Local Network turns new things on for some accounts first, with the same flags on the website and
 here. A flag is on when it's on for everyone, when it names your account or a group you're in, or
 when your DID falls inside its percentage, the sum the website does (`flags/README.md` in the repo).
-Signed out, only flags on for everyone are on. A flag staff turned off is off for everyone.
+Signed out, a flag is on only once it's on for signed-out visitors: staff turn that on last, after
+every account has it, and a kill switch has it whenever every account does, everyone or 100%. A
+flag staff turned off is off for everyone.
 
 Only a command that depends on a flag asks, and nothing else goes to the network because of them.
 The website's answer is kept in `flags.json` in the store folder for an hour, or until the next

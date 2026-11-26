@@ -15,6 +15,8 @@ through [symphonia](https://github.com/pdeljanov/Symphonia).
   they stream, so an hour-long recording never sits in memory at full rate.
 - `Resampler` is the windowed-sinc resampler behind them, for other sources (an editor's project,
   a live input) to feed themselves.
+- `lame_frame_secs` says how long the frame holding an MP3's LAME tag is: decoders skip it, but
+  rekordbox counts it as audio, so its times in such a file are that much later.
 
 ```rust,no_run
 use loclib_audio::decode;
@@ -35,8 +37,9 @@ println!("{} Hz, {} channels, {:.0} s, peak {loudest:.2}", format.sample_rate, f
 symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. `decode` and
 `decode_native` catch that, so one bad file is that file's error (`CRASHED`) rather than a crash;
 a program that wants the panic's message kept off stderr installs its own panic hook around the
-call. An MP4 claiming huge sample counts or sample sizes would make it abort the process instead,
-so `open` checks its sample tables against the file's size first (`vet_container`). A header saying more than
+call. An MP4 claiming huge sample counts or sample sizes, or a FLAC whose picture or Vorbis comment
+claims more than its metadata block holds, would make it abort the process instead, so `open` checks
+those claims against what holds them first (`vet_container`). A header saying more than
 `MAX_RATE` (768 kHz) is refused, since resampling from it would take memory in proportion to the
 rate.
 

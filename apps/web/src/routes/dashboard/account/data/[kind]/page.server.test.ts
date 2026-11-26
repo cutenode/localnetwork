@@ -81,7 +81,7 @@ it('deletes one held record', async () => {
 it("says what's wrong when the record isn't the viewer's to delete", async () => {
 	const result = await callRoute(actions.delete, {
 		...(await as(NO_SPACES, `${PAGE}?/delete`)),
-		form: { uri: 'at://did:plc:root/space/x/y/did:plc:root/computer.localnetwork.request/nope' }
+		form: { uri: 'at:space/did:plc:root/x/y/did:plc:root/computer.localnetwork.request/nope' }
 	});
 
 	expect(result).toMatchObject({ status: 404 });

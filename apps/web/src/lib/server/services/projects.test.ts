@@ -85,6 +85,35 @@ describe('ProjectService', () => {
 		expect((await t.projects.managers()).toSorted()).toEqual(managers.toSorted());
 	});
 
+	it("names the language of the words in a project's profile and private details, and none once they have none", async () => {
+		const admin = await t.viewer(ADMIN);
+
+		const details = () =>
+			t.net
+				.spaceRecordsIn(t.spaces.industry, ROOT)
+				.filter(({ uri }) => uri.includes(COLLECTION.projectDetails))
+				.map(({ value }) => value.langs);
+
+		const created = await t.projectAdmin.create({
+			actor: admin,
+			profile: { ...profile('Worded'), bio: 'Deep house on Sundays' },
+			details: { rateNotes: 'Flexible for small rooms' }
+		});
+
+		expect(created.langs).toEqual(['en']);
+		expect(details()).toEqual([['en']]);
+
+		const cleared = await t.projectAdmin.update({
+			actor: admin,
+			project: created,
+			profile: profile('Worded'),
+			details: {}
+		});
+
+		expect(cleared.langs).toBeUndefined();
+		expect(details()).toEqual([undefined]);
+	});
+
 	it('saves empty private details when told to clear them, and has none for a project never given any', async () => {
 		const { project } = await publish('Cleared', null);
 		const { project: plain } = await publish('Plain');

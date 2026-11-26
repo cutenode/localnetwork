@@ -51,6 +51,15 @@ describe('problems', () => {
 		expect(problems(rows({ binary: 1000 }, { binary: 1020 }), 2, none)).toEqual([]);
 		expect(problems(rows({ binary: 1000 }, { binary: 1021 }), 2, none)).toHaveLength(1);
 	});
+	// #759 shrank a command #762 then grew by more than its allowance: over main, as a group is
+	// measured, the two grew it by less than one's.
+	it('passes a group whose second pull request grows back what the first shrank', () => {
+		const command = (counted: Measured) => compared('cli', budget(111_031), { binary: 110_752_363 }, counted);
+
+		expect(problems(command({ binary: 110_669_104 }), 1, none)).toEqual([]);
+		expect(problems(command({ binary: 110_789_863 }), 2, none)).toEqual([]);
+		expect(problems(command({ binary: 110_752_363 + 2 * 111_031 + 1 }), 2, none)).toHaveLength(1);
+	});
 	it('allows a declared raise on top of the allowance, and asks for what it still lacks', () => {
 		const raised = new Map([['size/binary', 100]]);
 
@@ -205,6 +214,14 @@ describe('the commands', () => {
 				'size/other: measured, but has no budget'
 			);
 		});
+		it('reads no raises file when none is given', () => {
+			rmSync('raises.md');
+			write('base/size.json', { binary: 1000 });
+			write('head/size.json', { binary: 1005 });
+			expect(run(['check', 'pull-request', 'base', 'head']).ok).toBe(true);
+			write('head/size.json', { binary: 1011 });
+			expect(run(['check', 'pull-request', 'base', 'head']).ok).toBe(false);
+		});
 		it('leaves the areas of other jobs alone', () => {
 			expect(run(['check', 'weekly', 'base', 'head', 'raises.md']).ok).toBe(true);
 		});
@@ -283,7 +300,7 @@ describe('the commands', () => {
 	it.each([
 		[[]],
 		[['current', 'HEAD', 'main']],
-		[['check', 'pull-request', 'base', 'head']],
+		[['check', 'pull-request', 'base']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '0']],
 		[['check', 'pull-request', 'base', 'head', 'raises.md', '1.5']],
 		[['raises', 'HEAD']],

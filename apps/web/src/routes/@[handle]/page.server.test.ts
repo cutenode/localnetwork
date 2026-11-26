@@ -192,6 +192,39 @@ it('is a 404 for an address that names no account, and a 429 once a visitor has 
 	).rejects.toMatchObject({ status: 429 });
 });
 
+it("says an account isn't active, the same way whatever the reason, and that a deleted one was deleted", async () => {
+	const loadMara = () => callRoute(load, { app: app(), params: { handle: 'mara.test' }, url: '/@mara.test' });
+	const inactive = { status: 404, body: { title: "@mara.test isn't active" } };
+
+	t.accountStatus.set(MARA, 'deactivated');
+	await expect(loadMara()).rejects.toMatchObject(inactive);
+	await t.accountStatuses.refresh();
+
+	t.accountStatus.set(MARA, 'takendown');
+	await t.accountStatuses.refresh();
+	await expect(loadMara()).rejects.toMatchObject(inactive);
+
+	t.accountStatus.set(MARA, 'deleted');
+	await t.accountStatuses.refresh();
+	await expect(loadMara()).rejects.toMatchObject({ status: 410, body: { title: '@mara.test was deleted' } });
+});
+
+it("shows the profile again once its account is active again, and refuses to follow it while it isn't", async () => {
+	t.accountStatus.set(MARA, 'deactivated');
+	await expect(post('follow', await t.viewer(FAN))).rejects.toMatchObject({ status: 404 });
+
+	t.accountStatus.set(MARA, 'active');
+	await t.accountStatuses.refresh();
+
+	const data = await routeEvent({
+		app: app(),
+		params: { handle: 'mara.test' },
+		url: '/@mara.test'
+	}).loadData<PageServerData>(load);
+
+	expect(data).toMatchObject({ name: 'Mara Lind' });
+});
+
 /** The action `name` on `handle`'s page, as `viewer` posts it. */
 const post = (name: keyof typeof actions, viewer: Viewer | null, handle = 'mara.test') =>
 	callRoute(actions[name], { app: app(), viewer, params: { handle }, url: `/@${handle}?/${name}`, form: {} });

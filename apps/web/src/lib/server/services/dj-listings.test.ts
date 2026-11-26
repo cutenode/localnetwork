@@ -175,6 +175,15 @@ describe('asking staff to list a DJ in Find DJs', () => {
 		]);
 	});
 
+	it('names every DJ staff list, for checking whose account is still active', async () => {
+		const mod = await t.viewer(MOD);
+		await t.djListings.list(mod, DJ);
+		await t.djListings.list(mod, MOD);
+		await t.djListings.unlist(mod, MOD);
+
+		expect(await t.djListings.listed()).toEqual([DJ]);
+	});
+
 	it('has the directory read the profile again on listing, in case it missed it', async () => {
 		await saveProfile({});
 		const request = await ask();

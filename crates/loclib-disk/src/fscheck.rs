@@ -145,19 +145,16 @@ fn unmount(unmount: &Cmd, check: &Cmd, partition: Option<&str>) -> Result<()> {
     {
         return Err(needs_admin(check));
     }
-    unmount.run().map(drop).map_err(|e| match e {
-        Error::External { command, message } => {
-            let why = if message.starts_with("not found") {
-                "install udisks2, which unmounts the drive for the check"
-            } else {
-                "close any window or program using the drive, then try again"
-            };
-            Error::External {
-                command,
-                message: format!("{message} (the check needs the drive unmounted, so it didn't run: {why})"),
-            }
-        }
-        other => other,
+    unmount.run().map(drop).map_err(|mut e| {
+        // `Cmd::run` fails only with `Error::External`; anything else would pass through as it is.
+        let Error::External { message, .. } = &mut e else { return e };
+        let why = if message.starts_with("not found") {
+            "install udisks2, which unmounts the drive for the check"
+        } else {
+            "close any window or program using the drive, then try again"
+        };
+        *message = format!("{message} (the check needs the drive unmounted, so it didn't run: {why})");
+        e
     })
 }
 

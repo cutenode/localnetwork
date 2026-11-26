@@ -55,6 +55,7 @@ describe('PartyService', () => {
 		expect(page(space)?.value).toEqual({
 			$type: COLLECTION.party,
 			basics,
+			langs: ['en'],
 			publishedAt: expect.any(String),
 			createdAt: expect.any(String),
 			updatedAt: expect.any(String)
@@ -196,6 +197,7 @@ describe('PartyService', () => {
 			kind: 'party',
 			name: 'Night Shift',
 			fields: { basics },
+			langs: ['en'],
 			people: [
 				{ did: ADA, role: 'host' },
 				{ did: BO, role: 'cohost' }

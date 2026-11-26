@@ -515,3 +515,153 @@ fn prop_a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
     let kept = Device::open(&new).unwrap();
     assert_eq!((kept.state().unwrap().id, kept.name()), (identity, name.to_string()));
 }
+
+/// A capacity test that found every region keeping its data lets the format go on; one that
+/// found any failing refuses it as a fake drive, saying the disk, what it claims, how far it
+/// works and how many regions failed.
+#[hegel::test(test_cases = 100)]
+fn prop_only_a_drive_the_capacity_test_found_fake_is_refused(tc: TestCase) {
+    let disk = any_disk(&tc);
+    let regions = tc.draw(gs::integers::<usize>().max_value(1024));
+    let failed = tc.draw(gs::integers::<usize>().max_value(regions));
+    let works_up_to = if failed > 0 { tc.draw(gs::optional(gs::integers::<u64>().max_value(disk.size))) } else { None };
+    let report = capacity::ProbeReport { claimed: disk.size, regions, failed, works_up_to, aliases: Vec::new() };
+    let refused = refuse_fake(&disk, &report);
+    if failed == 0 {
+        refused.unwrap();
+        return;
+    }
+    let e = refused.unwrap_err();
+    assert_eq!((e.code(), e.reason()), ("conflict", Some(Reason::FakeCapacity)));
+    let works = crate::op::bytes(works_up_to.unwrap_or(0));
+    let said = format!(
+        "{} is fake: it reports {} but only about the first {works} keep their data ({failed} of {regions} test regions came back wrong).",
+        describe(&disk),
+        crate::op::bytes(disk.size)
+    );
+    assert!(e.to_string().starts_with(&said), "{e}");
+}
+
+/// A drive's name is never taken for a disk identifier, so nothing is asked of the system's tools
+/// for it, and a disk that's gone (unplugged since it was listed) has no link speed.
+#[hegel::test(test_cases = 20)]
+fn prop_a_drives_name_is_no_disk_and_a_gone_disk_has_no_speed(tc: TestCase) {
+    let spec = tc.draw(gs::sampled_from(vec!["Backup", "Club Stick", "DNA"]));
+    assert!(disk_by_id(spec).unwrap().is_none(), "{spec}");
+    let unplugged = tc.draw(gs::integers::<u16>());
+    let gone = Disk { id: format!("gone{unplugged}"), device: format!("/dev/gone{unplugged}"), ..any_disk(&tc) };
+    assert_eq!(link_speed(&gone), None);
+}
+
+/// Linux: applying a plan formats the disk it was made for and no other. lsblk is asked about the
+/// disk again just before the erase, and when what is on it changed since the plan (its volume
+/// relabelled or resized, another disk under its device) nothing is erased and the plan is stale.
+/// Otherwise the planned steps run, in order, and nothing is mounted after (Linux formats as root,
+/// with no desktop session to mount it for). A capacity check unmounts the volume first: when
+/// that fails, nothing is erased either. The disk's device is a file in `/dev/shm`, as lsblk names
+/// disks under `/dev/`.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[hegel::test(test_cases = 15)]
+#[hegel::explicit_test_case(size = 1u64 << 30, filesystem = Filesystem::Fat32, check_capacity = false, change = "nothing")]
+#[hegel::explicit_test_case(size = 1u64 << 30, filesystem = Filesystem::Exfat, check_capacity = true, change = "nothing")]
+fn prop_linux_formats_only_the_disk_the_plan_was_made_for(tc: TestCase) {
+    use serde_json::json;
+    let mut fake = FakeTools::new();
+    let shm = tempfile::Builder::new().prefix("locallibrary-format").tempdir_in("/dev/shm").unwrap();
+    let (dev, part) = (shm.path().join("sdb").display().to_string(), shm.path().join("sdb1").display().to_string());
+    for f in [&dev, &part] {
+        std::fs::write(f, "").unwrap();
+    }
+    let root = fake.dir().join("DNA");
+    std::fs::create_dir(&root).unwrap();
+    let size = tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 40));
+    let psize = size - (1 << 20);
+    let listing = |label: &str, psize: u64, size: u64| {
+        let volume = json!({ "name": "sdb1", "path": part, "type": "part", "size": psize, "fstype": "vfat",
+                "fsver": "FAT32", "label": label, "mountpoint": root });
+        json!({ "blockdevices": [{ "name": "sdb", "path": dev, "type": "disk", "tran": "usb", "pttype": "dos",
+                "model": "Stick", "size": size, "children": [volume] }] })
+    };
+    // The disk as lsblk describes it from the listing above.
+    let disk = Disk {
+        id: dev.clone(),
+        device: dev.clone(),
+        model: "Stick".into(),
+        serial: None,
+        size,
+        sector_size: 512,
+        bus: Some("USB".into()),
+        removable: true,
+        internal: false,
+        system: false,
+        virtual_disk: false,
+        read_only: false,
+        scheme: Some(Scheme::Mbr),
+        volumes: vec![Volume {
+            id: part.clone(),
+            size: psize,
+            filesystem: Some(FsKind::Fat32),
+            filesystem_name: Some("vfat".into()),
+            label: Some("DNA".into()),
+            mount: Some(root.clone()),
+            cluster_size: None,
+            uuid: None,
+        }],
+    };
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]));
+    let check_capacity = tc.draw(gs::weighted_booleans(0.2));
+    let opts = FormatOptions { filesystem: Some(filesystem), check_capacity, ..FormatOptions::default() };
+    // What's mounted on the disk, for the plan's steps and the format's.
+    fake.lsblk(Some(&dev), &listing("DNA", psize, size));
+    let planned = plan(disk.clone(), &opts, None, &[], &Ctx::silent()).unwrap();
+    assert_eq!(planned.keeps_name, None, "Linux mounts nothing to keep it on");
+
+    // What lsblk says just before the erase.
+    let change = tc.draw(gs::sampled_from(vec!["nothing", "label", "volume size", "disk"]));
+    let label = if change == "label" { "OTHER" } else { "DNA" };
+    let now_psize = if change == "volume size" { psize - 512 } else { psize };
+    let now_size = if change == "disk" { size + 512 } else { size };
+    fake.lsblk(None, &listing(label, now_psize, now_size));
+    let now = disk_by_id(&dev).unwrap().unwrap();
+    assert_eq!(now.identity() == disk.identity(), change == "nothing", "{change}");
+    let root_str = root.display().to_string();
+    match check_capacity {
+        true => fake.refuse("umount", &[&root_str], "umount: target is busy."),
+        false => fake.answer("umount", &[&root_str], ""),
+    }
+    let spc = (planned.cluster_size / 512).to_string();
+    let cluster = planned.cluster_size.to_string();
+    let mkfs = match filesystem {
+        Filesystem::Fat32 => Cmd::new("mkfs.vfat", &["-F", "32", "-s", &spc, "-n", &planned.label, &part]),
+        _ => Cmd::new("mkfs.exfat", &["-c", &cluster, "-L", &planned.label, &part]),
+    };
+    let sfdisk = ["--wipe", "always", "--wipe-partitions", "always", dev.as_str()];
+    let quiet: [(&str, &[&str]); 3] = [("sfdisk", &sfdisk), ("udevadm", &["settle"]), ("sync", &[])];
+    for (program, args) in quiet {
+        fake.answer(program, args, "");
+    }
+    fake.answer(&mkfs.program, &mkfs.args.iter().map(String::as_str).collect::<Vec<_>>(), "");
+
+    let applied = apply(disk, &planned.identity, &opts, None, &[], &Ctx::silent());
+    let ran: Vec<String> = fake
+        .calls()
+        .iter()
+        .filter(|c| !["lsblk", "udevadm", "sync"].contains(&c.program.as_str()))
+        .map(Cmd::display)
+        .collect();
+    let erased = ran.iter().any(|c| c.starts_with("sfdisk"));
+    if check_capacity {
+        assert!(matches!(&applied, Err(Error::External { message, .. }) if message.contains("busy")), "{applied:?}");
+        assert_eq!(ran, [format!("umount {root_str}")]);
+        return;
+    }
+    if change != "nothing" {
+        assert!(matches!(applied, Err(Error::StalePlan(_))), "{change}: {applied:?}");
+        assert!(!erased, "{change}");
+        return;
+    }
+    let report = applied.unwrap();
+    assert_eq!(ran, planned.steps);
+    assert_eq!((report.disk.as_str(), report.label.as_str()), (dev.as_str(), planned.label.as_str()));
+    assert_eq!((report.mount, report.drive_name, report.filesystem), (None, None, filesystem));
+}

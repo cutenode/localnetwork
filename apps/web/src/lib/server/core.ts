@@ -1,3 +1,4 @@
+import type { AccountStatuses } from './atproto/account-status';
 import type { RepoClient, RootRepoClient, StoredRecord } from './atproto/repo-client';
 import type { RootSpaces } from './atproto/spaces';
 import type { AuditLog } from './audit/log';
@@ -18,6 +19,8 @@ export type Core = {
 	userClient: (did: string) => Promise<RepoClient | null>;
 	audit: AuditLog;
 	accounts: AccountService;
+	/** Which accounts are active, asked of their PDS when a page needs to know (ADR 0020). */
+	accountStatuses: Pick<AccountStatuses, 'status' | 'inactive'>;
 	/** Puts an item in people's inboxes. */
 	notify: Notifier['notify'];
 	/** Notifies the syncer that a new space should be watched. */

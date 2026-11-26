@@ -22,10 +22,15 @@ use loclib_model::audio::Format;
 use loclib_progress::{Cancelled, Ctx};
 
 mod error;
+mod flac;
+mod lame;
 mod mp4;
 
 pub use error::{Error, Result};
-pub use mp4::vet_container;
+pub use lame::lame_frame_secs;
+
+/// How far symphonia's probe looks for a format's marker (`Probe::PROBE_SEARCH_LIMIT`).
+const PROBE_LIMIT: u64 = 1 << 20;
 
 /// What a decoder that panicked on a file is reported as.
 pub const CRASHED: &str = "the decoder crashed on it";
@@ -50,11 +55,11 @@ pub struct SourceFormat {
 
 /// Open `path` and read its first audio track's format, refusing one no decoder can play.
 /// symphonia can panic in here on a malformed header: [`decode`] catches that, other callers
-/// catch it themselves. An MP4 that would have it ask for more memory than the file could fill,
-/// an abort nothing can catch, is refused before it reads it ([`vet_container`]).
+/// catch it themselves. An MP4 or FLAC that would have it ask for more memory than the file could
+/// fill, an abort nothing can catch, is refused before it reads it ([`vet_container`]).
 pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
     let mut file = File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?;
-    mp4::vet_file(&mut file, path)?;
+    vet_file(&mut file, path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -75,6 +80,22 @@ pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
         return Err(Error::parse(path, "its header says 0 Hz, over 768 kHz or no channels"));
     }
     Ok((probed.format, track))
+}
+
+/// Refuse `path` when symphonia would ask for more memory than the file could fill, an abort
+/// nothing can catch: an MP4 whose atoms claim more than the file holds (a sample table whose
+/// count wouldn't fit in it, a sample larger than the file, or an atom inside another running past
+/// it or the file's end), or a FLAC whose picture or Vorbis comment claims more than its metadata
+/// block holds. Anything else is left for the decoder to make sense of. So is what isn't a regular
+/// file (a FIFO): what this read of it took would be gone when the decoder opened it again.
+pub fn vet_container(path: &Path) -> Result<()> {
+    vet_file(&mut File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?, path)
+}
+
+/// [`vet_container`] for the file `path` is open as, which is left at its start.
+fn vet_file(file: &mut File, path: &Path) -> Result<()> {
+    mp4::vet_file(file, path)?;
+    flac::vet_file(file, path)
 }
 
 /// What decoding does with a packet the decoder can't make sense of.

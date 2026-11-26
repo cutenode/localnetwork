@@ -6,6 +6,7 @@ local json = require('internal.json')
 local SOONEST = ' ORDER BY (s.record::jsonb ->> \'startsAt\')::timestamptz, s.uri COLLATE "C"'
 
 function handle(input)
+	skipInactive(input)
 	local where, args = { UPCOMING }, {}
 	local function filter(clause, values)
 		where[#where + 1] = ' AND ' .. clause

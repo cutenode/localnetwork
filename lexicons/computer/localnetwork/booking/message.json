@@ -16,6 +16,12 @@
 						"maxLength": 20000,
 						"maxGraphemes": 2000
 					},
+					"langs": {
+						"type": "array",
+						"description": "The languages the text is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"onBehalfOf": {
 						"type": "string",
 						"format": "did",

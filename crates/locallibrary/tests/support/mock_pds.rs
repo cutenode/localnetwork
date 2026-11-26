@@ -250,7 +250,8 @@ impl MockPds {
     }
 
     /// What `getFlags` lists from now on: each flag's key, `everyone` and `percentage`, those
-    /// named in `targeted` targeting a caller with a token.
+    /// named in `targeted` targeting a caller with a token. Signed-out callers get a flag with
+    /// `everyone` or 100%, as the website answers for an ops flag.
     pub fn set_flags(&self, flags: &[(&str, bool, u32)], targeted: &[&str]) {
         let mut s = self.state.lock().unwrap();
         s.flags = flags.iter().map(|(key, everyone, percentage)| (key.to_string(), *everyone, *percentage)).collect();
@@ -725,7 +726,13 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
             }
             let flag = |(key, everyone, percentage): &(String, bool, u32)| {
                 let targeted = token && s.targeted.contains(key);
-                json!({ "key": key, "everyone": everyone, "percentage": percentage, "targeted": targeted })
+                json!({
+                    "key": key,
+                    "signedOut": *everyone || *percentage == 100,
+                    "everyone": everyone,
+                    "percentage": percentage,
+                    "targeted": targeted
+                })
             };
             (200, vec![], json!({ "flags": s.flags.iter().map(flag).collect::<Vec<_>>() }))
         }

@@ -8,6 +8,7 @@ import { recordCid, type RepoWrite } from '../atproto/repo-client';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { type HappyViewClient, HappyViewError } from '../happyview/client';
+import type { BackfillFlags } from '../happyview/backfills';
 import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
 import { calendarCopy, type EventView } from './events';
 import { writeOwn } from './own-repo';
@@ -38,7 +39,9 @@ export class RsvpService {
 		private readonly directory: HappyViewClient,
 		/** The site's address, which the calendar copy links pages by, so its CID depends on it. */
 		private readonly publicUrl: string,
-		private readonly indexWaitMs = INDEX_WAIT_MS
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		/** The app's, for pauseBackfills. */
+		private readonly flags?: BackfillFlags
 	) {}
 
 	/**
@@ -131,6 +134,6 @@ export class RsvpService {
 
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
 		this.core.logger.warn('the directory has not caught up with an RSVP yet', { subject, actor });
-		await reindex(this.directory, this.core.logger, CALENDAR_RSVP, [actor]);
+		await reindex(this.directory, this.core.logger, this.flags, CALENDAR_RSVP, [actor]);
 	}
 }

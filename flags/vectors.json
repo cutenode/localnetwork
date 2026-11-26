@@ -1,5 +1,5 @@
 {
-	"$comment": "Computed answers both the website and locallibrary test themselves against. A case without `enabled` is a record that doesn't say, which counts as true. Add cases freely; changing one means the rule changed, and every account can move.",
+	"$comment": "Computed answers both the website and locallibrary test themselves against. `did` is null for a caller with no account, like a signed-out visitor. A case without `enabled` is a record that doesn't say, which counts as true. A case without `signedOut` is a flag signed-out visitors don't have. Add cases freely; changing one means the rule changed, and every account can move.",
 	"cases": [
 		{
 			"key": "parityCanary",
@@ -139,6 +139,7 @@
 		{
 			"key": "parityCanary",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -292,6 +293,7 @@
 		{
 			"key": "newPlanner",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -445,6 +447,7 @@
 		{
 			"key": "a",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -598,6 +601,7 @@
 		{
 			"key": "mixUploads2",
 			"did": null,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -697,6 +701,7 @@
 			"key": "parityCanary",
 			"did": null,
 			"enabled": true,
+			"signedOut": true,
 			"everyone": true,
 			"targeted": false,
 			"percentage": 0,
@@ -742,6 +747,97 @@
 			"percentage": 100,
 			"bucket": null,
 			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"signedOut": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 99,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"signedOut": true,
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": false,
+			"signedOut": true,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 48,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 49,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"signedOut": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
 		}
 	]
 }

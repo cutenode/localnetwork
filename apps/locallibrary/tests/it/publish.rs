@@ -96,6 +96,25 @@ fn settings_publish_and_import_from_the_command_line() {
     assert!(r.err.contains("@dj.example.com's session doesn't allow publishing yet"), "{}", r.err);
     // The plan's warning is part of the plan, on stdout with it.
     assert!(r.out.contains("this session can't publish yet"), "{}", r.out);
+
+    // Before Local Network publishes the permission set, no server can grant it: said before any
+    // sign-in, and the plan says why instead.
+    let unpublished = |args: &[&str]| {
+        let out = env.command().env("LOCALLIBRARY_PERMISSION_SET", "unpublished").args(args).output().unwrap();
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (code, out, err) = unpublished(&["--yes", "settings", "publish"]);
+    assert!(code != Some(0) && err.contains("publishing isn't open yet") && err.contains("--dry-run"), "{err}");
+    assert!(out.contains("publishing isn't open yet") && !out.contains("this session can't publish yet"), "{out}");
+    let (code, out, _) = unpublished(&["settings", "publish", "--dry-run"]);
+    assert!(code == Some(0) && out.contains("publishing isn't open yet"), "{out}");
+    let (code, _, err) = unpublished(&["account", "login", DID, "--publish", "--no-browser", "--session-file"]);
+    assert!(code != Some(0) && err.contains("publishing isn't open yet"), "{err}");
+    assert!(!err.contains("open this link"), "no sign-in is started: {err}");
 }
 
 #[test]
@@ -235,6 +254,16 @@ fn sets_publish_upload_from_the_command_line() {
     let (code, _, err) = run(&nothing, &["--yes"], &[], None);
     assert_ne!(code, 0);
     assert!(err.contains("ffmpeg, which encodes the recording (WAV)") && err.contains("https://ffmpeg.org"), "{err}");
+
+    // A session signed in without permission to publish can't upload, and the plan says why.
+    sign_in(&env.store, &pds.url, &["atproto"], json!({}));
+    let (code, out, err) = run(&bin, &[], &["--dry-run"], None);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("this session can't upload yet"), "{out}");
+    let publish = ["sets", "publish", "Friday", "--upload", "--dry-run"];
+    let r = env.command().env("LOCALLIBRARY_PERMISSION_SET", "unpublished").args(publish).output().unwrap();
+    let out = String::from_utf8(r.stdout).unwrap();
+    assert!(out.contains("publishing isn't open yet") && !out.contains("this session can't upload yet"), "{out}");
 }
 
 /// `sets publish` first runs the analyzer chosen for the MusicBrainz roles on the tracks it names

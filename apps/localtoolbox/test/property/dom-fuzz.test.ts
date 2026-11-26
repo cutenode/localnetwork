@@ -303,6 +303,16 @@ describe('the page changing under it', () => {
 			}
 		);
 
+	// A page and the clicks that mark its one track, which every run starts with: random ones can all
+	// miss.
+	const MARKED: [string, { selector: string; nth: number }[]] = [
+		playlistPage({ rows: [playlistRow({})], engagement: false }),
+		[
+			{ selector: '.sc-button-more', nth: 0 },
+			{ selector: '.sc-button-download', nth: 0 }
+		]
+	];
+
 	it('never throws on a click anywhere on the page, and marks only tracks', async () => {
 		// The content script's own listener is capture-phase and lets the click
 		// through; this one stops jsdom trying to follow the link afterwards,
@@ -329,7 +339,7 @@ describe('the page changing under it', () => {
 
 					for (const permalink of Object.keys(marked)) expect(permalink).toMatch(PERMALINK);
 				}),
-				RUNS
+				{ ...RUNS, examples: [MARKED] }
 			);
 		} finally {
 			document.removeEventListener('click', stay);

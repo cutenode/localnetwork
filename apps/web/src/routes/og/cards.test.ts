@@ -9,11 +9,13 @@ import { COLLECTION } from '#lib/nsid.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { MAX_CARD_BYTES, renderCard } from '#lib/server/og/render.ts';
+import { cards } from '#lib/server/og/serve.ts';
 import type { SupportService } from '#lib/server/services/supports.ts';
 import type { TracklistService } from '#lib/server/services/tracklists.ts';
 import { ROOT } from '#lib/server/testing/core.ts';
 import { ADMIN, DJ, pressKitServices } from '#lib/server/testing/press-kits.ts';
-import type { ProjectView, TrackPlays } from '#lib/types.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
+import type { Flags, ProjectView, TrackPlays } from '#lib/types.ts';
 import { GET as artistCard } from './artist/[mbid].png/+server.ts';
 import { GET as mixCard } from './mix/[slug]/[n]/[cid].png/+server.ts';
 import { GET as pressKitCard } from './press-kit/[slug]/[rkey]/[cid].png/+server.ts';
@@ -72,9 +74,15 @@ describe('link-preview cards', () => {
 	const get = async (
 		handler: (event: never) => Response | Promise<Response>,
 		params: Record<string, string>,
-		services: { supports?: Pick<SupportService, 'artist'>; tracklists?: Pick<TracklistService, 'published'> } = {}
+		services: { supports?: Pick<SupportService, 'artist'>; tracklists?: Pick<TracklistService, 'published'> } = {},
+		flags: Partial<Flags> = {}
 	): Promise<Outcome> => {
-		const locals = { app: { ...f.t, rootDid: ROOT, ...services }, viewer: null, log: silentLogger };
+		const locals = {
+			app: { ...f.t, rootDid: ROOT, ...services },
+			viewer: null,
+			log: silentLogger,
+			flags: { ...flagsOff, ...flags }
+		};
 
 		try {
 			// SAFETY: these routes read only params and locals, and the services are the app's own.
@@ -98,6 +106,23 @@ describe('link-preview cards', () => {
 	};
 
 	const IMMUTABLE = 'public, max-age=31536000, immutable';
+
+	it("is a 404 for a performer, a mix or a press kit once none of the project's managers is active, and a 410 once all were deleted", async () => {
+		const kit = await f.publish(DJ);
+
+		const answers = async () =>
+			[
+				await get(projectCard, { slug: project.slug, cid: project.cid }),
+				await get(mixCard, { slug: project.slug, n: '1', cid: project.cid }),
+				await get(pressKitCard, { slug: project.slug, rkey: kit.rkey, cid: kit.cid })
+			].map((outcome) => outcome.status);
+
+		await f.managersAre('deactivated', 'deleted');
+		expect(await answers()).toEqual([404, 404, 404]);
+
+		await f.managersAre('deleted', 'deleted');
+		expect(await answers()).toEqual([410, 410, 410]);
+	});
 
 	describe("a performer's", () => {
 		const params = (cid: string) => ({ slug: project.slug, cid });
@@ -297,5 +322,83 @@ describe('link-preview cards', () => {
 
 	it("the site's is kept for a day", async () => {
 		expect(await card(await get(siteCard, {}))).toBe('public, max-age=86400');
+	});
+
+	describe('while pauseOgCards is on', () => {
+		const paused = { pauseOgCards: true };
+
+		/** Where a route sent a request, and whether it kept a card at `path`: the site's card, keeping none, while paused. */
+		const answer = (outcome: Outcome, path: string) => ({
+			status: outcome.status,
+			location: outcome instanceof Response ? outcome.headers.get('location') : null,
+			kept: cards.kept(path) !== null
+		});
+
+		const SENT_TO_SITE_CARD = { status: 302, location: '/og/site.png', kept: false };
+
+		/** The project with a `tagline` no other test gives it, so no card at its CID is kept from another test. */
+		const retagged = async (tagline: string) =>
+			f.t.projectAdmin.update({
+				actor: await f.t.viewer(ADMIN),
+				project,
+				profile: { ...project.profile, tagline }
+			});
+
+		it("sends a performer's and a mix's card to the site's", async () => {
+			const current = await retagged('Paused previews');
+
+			expect(
+				answer(
+					await get(projectCard, { slug: current.slug, cid: current.cid }, {}, paused),
+					`/og/project/${current.slug}/${current.cid}.png`
+				)
+			).toEqual(SENT_TO_SITE_CARD);
+			expect(
+				answer(
+					await get(mixCard, { slug: current.slug, n: '1', cid: current.cid }, {}, paused),
+					`/og/mix/${current.slug}/1/${current.cid}.png`
+				)
+			).toEqual(SENT_TO_SITE_CARD);
+		});
+
+		it('still serves a card it kept before the pause', async () => {
+			const current = await retagged('Kept previews');
+			const params = { slug: current.slug, cid: current.cid };
+
+			await get(projectCard, params);
+
+			expect(await card(await get(projectCard, params, {}, paused))).toBe(IMMUTABLE);
+		});
+
+		it("sends a press kit's card to the site's", async () => {
+			const kit = await f.publish(DJ, { headline: 'Paused previews' });
+
+			expect(
+				answer(
+					await get(pressKitCard, { slug: project.slug, rkey: kit.rkey, cid: kit.cid }, {}, paused),
+					`/og/press-kit/${project.slug}/${kit.rkey}/${kit.cid}.png`
+				)
+			).toEqual(SENT_TO_SITE_CARD);
+		});
+
+		it("sends an artist's card to the site's without asking the directory", async () => {
+			const mbid = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
+
+			const supports = {
+				artist: async () => {
+					throw new Error('asked the directory');
+				}
+			};
+
+			expect(answer(await get(artistCard, { mbid }, { supports }, paused), `/og/artist/${mbid}.png`)).toEqual(
+				SENT_TO_SITE_CARD
+			);
+		});
+
+		it("still draws the site's card, kept for a day", async () => {
+			cards.cache.delete('/og/site.png');
+
+			expect(await card(await get(siteCard, {}, {}, paused))).toBe('public, max-age=86400');
+		});
 	});
 });

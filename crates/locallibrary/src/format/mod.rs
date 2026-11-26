@@ -362,22 +362,7 @@ pub fn apply(
     }
     ctx.check()?;
     if opts.check_capacity {
-        let report = probe_capacity(&plan.disk, ctx)?;
-        if report.is_fake() {
-            let works = report.works_up_to.unwrap_or(0);
-            return Err(Error::conflict(
-                Reason::FakeCapacity,
-                format!(
-                    "{} is fake: it reports {} but only about the first {} keep their data ({} of {} test regions came back wrong). \
-                 It wasn't formatted, and its previous contents are damaged where the test wrote. Return it.",
-                    describe(&plan.disk),
-                    crate::op::bytes(report.claimed),
-                    crate::op::bytes(works),
-                    report.failed,
-                    report.regions
-                ),
-            ));
-        }
+        refuse_fake(&plan.disk, &probe_capacity(&plan.disk, ctx)?)?;
     }
     // Once more, just before erasing: planning again (which reads the libraries on it) and the
     // capacity test take a while. The test overwrote what was on the disk, so after it only the
@@ -410,6 +395,26 @@ pub fn apply(
         mount,
         drive_name,
     })
+}
+
+/// Refuse `disk` when its capacity test (`report`) found it fake: some test regions didn't keep
+/// their data.
+fn refuse_fake(disk: &Disk, report: &capacity::ProbeReport) -> Result<()> {
+    if !report.is_fake() {
+        return Ok(());
+    }
+    Err(Error::conflict(
+        Reason::FakeCapacity,
+        format!(
+            "{} is fake: it reports {} but only about the first {} keep their data ({} of {} test regions came back wrong). \
+         It wasn't formatted, and its previous contents are damaged where the test wrote. Return it.",
+            describe(disk),
+            crate::op::bytes(report.claimed),
+            crate::op::bytes(report.works_up_to.unwrap_or(0)),
+            report.failed,
+            report.regions
+        ),
+    ))
 }
 
 /// Refuse unless `now`, the disk under the planned disk's identifier now, is the planned disk:

@@ -7,11 +7,14 @@ import { type ChannelSender, Outbox, type SendOutcome } from '#lib/server/notifi
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices, ROOT } from '#lib/server/testing/core.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
-import type { DmAvailability, NotificationChannel } from '#lib/types.ts';
+import type { DmAvailability, Flags, NotificationChannel } from '#lib/types.ts';
 import { actions, load } from './+page.server.ts';
 import type { PageServerData } from './$types';
 
 const DJ = 'did:plc:dj';
+
+/** Email and DMs rolled out to the DJ. */
+const ROLLED_OUT: Partial<Flags> = { inboxEmail: true, inboxDm: true };
 
 /** A grant that lets the app read the account's email address. */
 const WITH_EMAIL = 'atproto account:email?action=read';
@@ -83,6 +86,7 @@ beforeEach(async () => {
 		db: t.db,
 		logger: silentLogger,
 		channels,
+		flags: t.flags,
 		senders: { email: sender('email'), dm: sender('dm') }
 	});
 });
@@ -148,20 +152,22 @@ const signedIn = (scope: string) =>
 
 type ActionName = keyof typeof actions;
 
-/** Runs the settings action `name` as the DJ, with `form`, on `site` (the default app unless given). */
-const run = async (name: ActionName, form: Record<string, string | string[]> = {}, site = app()) =>
+/** Runs the settings action `name` as the DJ, with `form`, on `site` (the default app unless given), with `flags` theirs. */
+const run = async (name: ActionName, form: Record<string, string | string[]> = {}, site = app(), flags = ROLLED_OUT) =>
 	callRoute(actions[name], {
 		app: site,
 		viewer: await t.viewer(DJ),
 		url: `/dashboard/account/notifications?/${name}`,
-		form
+		form,
+		flags
 	});
 
 it('shows both channels as off and available, with the account to follow for DMs', async () => {
 	const data = await loadRoute<PageServerData>(load, {
 		app: app(),
 		viewer: await t.viewer(DJ),
-		url: '/dashboard/account/notifications'
+		url: '/dashboard/account/notifications',
+		flags: ROLLED_OUT
 	});
 
 	expect(data).toMatchObject({
@@ -175,7 +181,7 @@ it('shows both channels as off and available, with the account to follow for DMs
 
 it("says how asking for the address went, and what's off on a site without email or DMs", async () => {
 	const bare = app({
-		outbox: new Outbox({ db: t.db, logger: silentLogger, channels, senders: {} }),
+		outbox: new Outbox({ db: t.db, logger: silentLogger, channels, flags: t.flags, senders: {} }),
 		dm: null,
 		rootAccount: { handle: null }
 	});
@@ -186,7 +192,8 @@ it("says how asking for the address went, and what's off on a site without email
 	const declined = await loadRoute<PageServerData>(load, {
 		app: bare,
 		viewer,
-		url: '/dashboard/account/notifications?email=declined'
+		url: '/dashboard/account/notifications?email=declined',
+		flags: ROLLED_OUT
 	});
 
 	expect(declined.email).toMatchObject({ available: false, returned: 'declined' });
@@ -200,16 +207,97 @@ it("says how asking for the address went, and what's off on a site without email
 	const limited = await loadRoute<PageServerData>(load, {
 		app: bare,
 		viewer,
-		url: '/dashboard/account/notifications?email=limited'
+		url: '/dashboard/account/notifications?email=limited',
+		flags: ROLLED_OUT
 	});
 
 	const unknown = await loadRoute<PageServerData>(load, {
 		app: bare,
 		viewer,
-		url: '/dashboard/account/notifications?email=yes'
+		url: '/dashboard/account/notifications?email=yes',
+		flags: ROLLED_OUT
 	});
 
 	expect([limited.email.returned, unknown.email.returned]).toEqual(['limited', null]);
+});
+
+it("doesn't offer email or DMs to someone they aren't rolled out to, on a site that sends both", async () => {
+	const data = await loadRoute<PageServerData>(load, {
+		app: app(),
+		viewer: await t.viewer(DJ),
+		url: '/dashboard/account/notifications',
+		flags: { inboxDm: true }
+	});
+
+	expect(data.email.available).toBe(false);
+	expect(data.dm.available).toBe(true);
+
+	const neither = await loadRoute<PageServerData>(load, {
+		app: app(),
+		viewer: await t.viewer(DJ),
+		url: '/dashboard/account/notifications'
+	});
+
+	expect(neither.email.available).toBe(false);
+	expect(neither.dm).toMatchObject({ available: false, availability: null });
+});
+
+it("says a channel isn't on for them yet only when the site sends by it", async () => {
+	const viewer = await t.viewer(DJ);
+	const url = '/dashboard/account/notifications';
+
+	const bare = app({
+		outbox: new Outbox({ db: t.db, logger: silentLogger, channels, flags: t.flags, senders: {} }),
+		dm: null
+	});
+
+	const notRolledOut = await loadRoute<PageServerData>(load, { app: app(), viewer, url });
+	const rolledOut = await loadRoute<PageServerData>(load, { app: app(), viewer, url, flags: ROLLED_OUT });
+	const notSetUp = await loadRoute<PageServerData>(load, { app: bare, viewer, url });
+
+	expect([notRolledOut.email.notYet, notRolledOut.dm.notYet]).toEqual([true, true]);
+	expect([rolledOut.email.notYet, rolledOut.dm.notYet]).toEqual([false, false]);
+	expect([notSetUp.email.notYet, notSetUp.dm.notYet]).toEqual([false, false]);
+});
+
+it("won't turn on, save or test a channel for a post while it isn't rolled out to them, but turns it off", async () => {
+	await signedIn(WITH_EMAIL);
+	await run('emailOn');
+	await channels.enableDm(DJ, true);
+	const topics = async (channel: NotificationChannel) => (await channels.view(DJ, channel))?.topics;
+	const picked = await topics('email');
+	const emailOff = { status: 400, data: { channel: 'email', error: "Email isn't set up on this site." } };
+	const dmOff = { status: 400, data: { channel: 'dm', error: "Bluesky DMs aren't set up on this site." } };
+
+	expect(await run('emailOn', {}, app(), { inboxDm: true })).toMatchObject(emailOff);
+	expect(await run('emailTopics', {}, app(), { inboxDm: true })).toMatchObject(emailOff);
+	expect(await run('emailTest', {}, app(), { inboxDm: true })).toMatchObject(emailOff);
+	expect(links).toHaveLength(1);
+	expect(await topics('email')).toEqual(picked);
+
+	// The other channel's flag doesn't hold it back.
+	expect(await run('dmTopics', {}, app(), { inboxDm: true })).toMatchObject({
+		channel: 'dm',
+		success: expect.any(String)
+	});
+	expect(await topics('dm')).toEqual([]);
+
+	await run('dmTopics', { topic: 'bookings' });
+	expect(await run('dmTopics', {}, app(), {})).toMatchObject(dmOff);
+	expect(await run('dmTest', {}, app(), {})).toMatchObject(dmOff);
+	expect(await topics('dm')).toEqual(['bookings']);
+
+	await channels.disable(DJ, 'dm');
+
+	expect(await run('dmOn', {}, app(), {})).toMatchObject(dmOff);
+	expect(await channels.view(DJ, 'dm')).toBeNull();
+
+	// Turned on before it was rolled back, a channel can still be turned off.
+	expect(await run('emailOff', {}, app(), {})).toEqual({
+		channel: 'email',
+		success: "Email's off. We've deleted your address."
+	});
+	expect(await channels.view(DJ, 'email')).toBeNull();
 });
 
 it('sends someone signed out to sign in', async () => {

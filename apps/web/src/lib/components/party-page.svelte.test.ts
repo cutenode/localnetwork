@@ -23,7 +23,7 @@ const people = [
 
 /** One of the party's hosts, signed in, on its page, with what a story or a test stands in for the app's navigation. */
 const host = {
-	subject: { kind: 'party' as const, uri: 'at://did:plc:root/space/party' },
+	subject: { kind: 'party' as const, uri: 'at:space/did:plc:root/party' },
 	can: capabilitiesFor('party', 'host'),
 	role: 'owner' as const,
 	url: new URL('https://localnetwork.test/party/3lzparty/night-shift'),

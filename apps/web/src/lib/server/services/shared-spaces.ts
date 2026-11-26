@@ -10,6 +10,7 @@ import {
 	isWriter,
 	type SpaceKind
 } from '#lib/capabilities.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ActForm, BasicsSection, PerformerSection, SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -18,6 +19,7 @@ import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind, spaceR
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import { editedLangs, sectionsText, withLangs } from '../langs';
 import type { Upload } from '../forms/project';
 import type { ListingWriter } from './listings';
 import { ACT_TYPE, indexPerformer, PERFORMER_KEY, performerRecord } from './performer-index';
@@ -106,8 +108,8 @@ export const isExpired = (expiresAt: string | null | undefined) => !!expiresAt &
 
 export type SharedSpaceView = { uri: string; kind: SpaceKind; listed: boolean; createdBy: string; createdAt: string };
 
-/** A record in a shared space. */
-type SpaceRecordChange = { space: string; collection: string; rkey: string; value: JsonObject };
+/** A record in a shared space. A synced one has its `cid`, which `value` may no longer give (currentSpaceUris). */
+type SpaceRecordChange = { space: string; collection: string; rkey: string; value: JsonObject; cid?: string };
 
 /** What a change sees and does: the space's kind, and its people as the root's repo has them now, by DID. */
 export type LiveSpace = { space: string; kind: SpaceKind; root: RootRepoClient; people: Map<string, PersonRecord> };
@@ -259,6 +261,7 @@ export class SharedSpaces {
 
 			const record = validateRecord(COLLECTION.performer, {
 				subject: { $type: ACT_TYPE, slug, form: input.form, basics: input.basics, performer: input.performer ?? {} },
+				...withLangs(sectionsText(input.basics, input.performer), writerLangs()),
 				createdAt: now,
 				updatedAt: now
 			});
@@ -290,14 +293,18 @@ export class SharedSpaces {
 
 			const avatar = await pageAvatar(live.root, input.avatar, current.subject.basics.avatar);
 
+			const { langs, ...kept } = current;
+			const before = { text: sectionsText(current.subject.basics, current.subject.performer), langs };
+
 			const record = validateRecord(COLLECTION.performer, {
-				...current,
+				...kept,
 				subject: {
 					...current.subject,
 					form: input.form,
 					basics: avatar ? { ...input.basics, avatar } : input.basics,
 					performer: input.performer
 				},
+				...editedLangs(sectionsText(input.basics, input.performer), before, writerLangs()),
 				updatedAt: nowIso()
 			});
 
@@ -622,7 +629,7 @@ export class SharedSpaces {
 	}
 
 	/** Saves a shared space's record to the index, or returns false when it isn't one this app reads. */
-	private async save(kind: SpaceKind, { space, collection, rkey, value }: SpaceRecordChange): Promise<boolean> {
+	private async save(kind: SpaceKind, { space, collection, rkey, value, cid }: SpaceRecordChange): Promise<boolean> {
 		const { db } = this.core;
 
 		switch (collection) {
@@ -719,7 +726,7 @@ export class SharedSpaces {
 			case COLLECTION.event:
 				return (
 					kind === 'party' &&
-					indexEvent(db, space, rkey, spaceRecordUri(space, this.core.rootDid, COLLECTION.event, rkey), value)
+					indexEvent(db, space, rkey, spaceRecordUri(space, this.core.rootDid, COLLECTION.event, rkey), value, cid)
 				);
 
 			case COLLECTION.party:

@@ -13,7 +13,7 @@ const ADA = 'did:plc:ada';
 
 const BO = 'did:plc:bo';
 
-const URI = 'at://did:plc:root/space/party';
+const URI = 'at:space/did:plc:root/party';
 
 describe('pageContext', () => {
 	const someone: Viewer = { did: BO, handle: null, roles: [], isAdmin: false, isStaff: false, spacesCapable: true };

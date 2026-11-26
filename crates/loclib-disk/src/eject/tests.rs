@@ -212,3 +212,42 @@ fn prop_a_volume_is_gone_once_it_disappears(tc: hegel::TestCase) {
         assert!(start.elapsed() >= Duration::from_millis(300), "waited the whole time");
     }
 }
+
+/// Linux without udisks: the volume is unmounted with umount instead and the power left on, and
+/// when umount says the volume is busy, the error says what to do.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[hegel::test(test_cases = 10)]
+#[hegel::explicit_test_case(busy = false)]
+fn prop_without_udisks_the_volume_is_only_unmounted(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_format::test_util::FakeTools;
+    let mut fake = FakeTools::new();
+    let root = fake.dir().join("DNA");
+    let mut disk = sample_disk();
+    (disk.id, disk.device) = ("/dev/sdb".into(), "/dev/sdb".into());
+    disk.volumes[0].id = "/dev/sdb1".into();
+    disk.volumes[0].mount = Some(root.clone());
+    let cmds = linux_commands(&disk, &root).unwrap();
+    let umount = Cmd::new("umount", &[&root.to_string_lossy()]);
+    let busy = tc.draw(gs::booleans());
+    match busy {
+        true => fake.refuse("umount", &[&root.to_string_lossy()], "umount: target is busy."),
+        false => fake.answer("umount", &[&root.to_string_lossy()], ""),
+    }
+    match run(&root, &cmds) {
+        Ok(ejected) => {
+            assert!(!busy);
+            assert_eq!(ejected, Ejected { commands: vec![cmds[0].display(), umount.display()], powered_off: false });
+        }
+        Err(Error::External { command, message }) => {
+            assert!(busy);
+            assert_eq!(command, umount.display());
+            assert_eq!(
+                message,
+                "umount: target is busy. (close any window or program using the drive, then try again)"
+            );
+        }
+        Err(e) => panic!("{e}"),
+    }
+    assert_eq!(fake.calls(), [umount], "udisks isn't there, so only umount ran");
+}

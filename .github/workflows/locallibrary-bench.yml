@@ -202,8 +202,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          node tools/budgets/cli.ts baseline "$(git rev-parse HEAD)" locallibrary_release release-budgets target/budgets-base
-          node tools/budgets/cli.ts check release target/budgets-base target/budgets /dev/null | tee -a "$GITHUB_STEP_SUMMARY"
+          # CI measures the two parts in two jobs, each with its own artifact.
+          for part in release-budgets:release release-budgets-frames:release-frames; do
+            node tools/budgets/cli.ts baseline "$(git rev-parse HEAD)" locallibrary_release "${part%%:*}" target/budgets-base
+            node tools/budgets/cli.ts check "${part#*:}" target/budgets-base target/budgets | tee -a "$GITHUB_STEP_SUMMARY"
+          done
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -250,7 +253,7 @@ jobs:
       - shell: bash
         run: |
           status=0
-          for job in pull-request release; do
+          for job in pull-request release release-frames; do
             { echo "## Noise of the $job budgets over five runs"; echo; } >> "$GITHUB_STEP_SUMMARY"
             node tools/budgets/cli.ts noise "$job" target/noise/{1..5} | tee -a "$GITHUB_STEP_SUMMARY" || status=1
           done

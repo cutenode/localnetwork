@@ -10,6 +10,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { lexToJson } from '@atproto/lexicon';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { z } from 'zod';
+import { currentSpaceUris } from './spaces';
 
 export type JsonRecord = JsonObject;
 
@@ -166,7 +167,7 @@ type AgentRecord = ComAtprotoRepoGetRecord.OutputSchema['value'];
 
 const jsonRecord = z.record(z.string(), z.json());
 
-const asJson = (value: AgentRecord): JsonRecord => jsonRecord.parse(lexToJson(value));
+const asJson = (value: AgentRecord): JsonRecord => currentSpaceUris(jsonRecord.parse(lexToJson(value)));
 
 /** `writes` as the `writes` of `nsid`, the applyWrites of a public repo or of a space, which take the same shape. */
 const batch = <N extends 'com.atproto.repo.applyWrites' | 'com.atproto.space.applyWrites'>(

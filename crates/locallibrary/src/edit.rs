@@ -3308,10 +3308,11 @@ pub mod journal {
     /// and its entries can hold edits older builds don't know (`set_entries`,
     /// `delete_history_lists`, `my_tag`, `cues`); 3 adds `set_artwork`, and track details 2 would
     /// drop (`album_artist`, `bpm`, `isrc`, `release_date`); 4 adds `set_analysis` and cue edits
-    /// setting several (`set_many`); 5 adds `delete_unbacked`. Each is written only when an entry
+    /// setting several (`set_many`); 5 adds `delete_unbacked`; 6 adds cues placed from a style
+    /// (`auto`). Each is written only when an entry
     /// uses what it adds. A journal of a later version is refused rather than misread or
     /// overwritten.
-    pub const VERSION: u32 = 5;
+    pub const VERSION: u32 = 6;
 
     #[derive(Serialize)]
     struct Versioned<'a> {
@@ -3358,12 +3359,14 @@ pub mod journal {
         staged(entries).into_iter().try_for_each(|(kind, keep)| kind.prune(device, &keep))
     }
 
-    /// The version `entries` need: 5 once one leaves files out of a backup, 4 once one holds an
+    /// The version `entries` need: 6 once one places cues from a style (`cues auto`), 5 once one
+    /// leaves files out of a backup, 4 once one holds an
     /// analysis edit or a cue edit setting several, 3 once one holds an artwork edit or a track
     /// detail 3 added, else 2, so a build that reads an older one keeps editing a drive whose
     /// edits use nothing newer.
     fn version(entries: &[JournalEntry]) -> u32 {
         let needs = |e: &Edit| match e {
+            Edit::Cues { change: crate::cue_edit::CueChange::Auto(_), .. } => 6,
             Edit::DeleteUnbacked { .. } => 5,
             Edit::SetAnalysis { .. } | Edit::Cues { change: crate::cue_edit::CueChange::SetMany(_), .. } => 4,
             Edit::SetArtwork { .. } => 3,

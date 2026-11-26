@@ -44,7 +44,8 @@ fn kick_track(bpm: f64, secs: f64) -> Vec<f64> {
 fn a_kick_track_is_estimated() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(&dir, "kick.wav", RATE, &kick_track(128.0, 20.0));
-    let analysis = analyze(&path, Want { estimate: true, loudness: false, waveform: false }, &Ctx::silent()).unwrap();
+    let analysis =
+        analyze(&path, Want { estimate: true, loudness: false, waveform: false, grid: false }, &Ctx::silent()).unwrap();
     assert_eq!(analysis.version, VERSION);
     assert!((analysis.duration_secs - 20.0).abs() < 0.01, "{}", analysis.duration_secs);
     assert_eq!(analysis.loudness, None);
@@ -58,7 +59,7 @@ fn a_kick_track_is_estimated() {
 /// The waveform `signal` (at 44.1 kHz) draws.
 fn waveform_of(dir: &tempfile::TempDir, signal: &[f64]) -> Vec<[u8; 3]> {
     let path = write(dir, "drawn.wav", 44_100, signal);
-    let want = Want { estimate: false, loudness: false, waveform: true };
+    let want = Want { estimate: false, loudness: false, waveform: true, grid: false };
     analyze(&path, want, &Ctx::silent()).unwrap().waveform.unwrap().columns
 }
 
@@ -135,7 +136,8 @@ fn a_blip_keeps_its_loudness() {
 fn a_sine_measures_its_level() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(&dir, "sine.wav", 48_000, &sine(48_000, 10.0, 1_000.0, 0.1, 0.0));
-    let analysis = analyze(&path, Want { estimate: false, loudness: true, waveform: false }, &Ctx::silent()).unwrap();
+    let analysis =
+        analyze(&path, Want { estimate: false, loudness: true, waveform: false, grid: false }, &Ctx::silent()).unwrap();
     assert_eq!(analysis.estimate, None);
     let l = analysis.loudness.unwrap();
     assert!((l.integrated_lufs.unwrap() + 20.0).abs() < 0.1, "{l:?}");
@@ -151,7 +153,7 @@ fn a_sine_measures_its_level() {
 fn true_peak_finds_peaks_between_samples() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(&dir, "quarter.wav", 44_100, &sine(44_100, 5.0, 44_100.0 / 4.0, 0.5, PI / 4.0));
-    let l = analyze(&path, Want { estimate: false, loudness: true, waveform: false }, &Ctx::silent())
+    let l = analyze(&path, Want { estimate: false, loudness: true, waveform: false, grid: false }, &Ctx::silent())
         .unwrap()
         .loudness
         .unwrap();

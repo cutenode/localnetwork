@@ -19,7 +19,7 @@ import { AgentRepoClient, memberSpacePolicy, type RepoClient } from '../../src/l
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
-import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
+import { parseSpaceUri, plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
 import { flagsOff } from '../../src/lib/testing/flags.ts';
@@ -154,7 +154,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		const event = {
 			params: { id: '1', slug: 'x', rkey: 'x' },
 			url,
-			locals: { app: net.app, viewer: pat, log: silentLogger }
+			locals: { app: net.app, viewer: pat, log: silentLogger, flags: flagsOff }
 		};
 
 		for (const load of [
@@ -288,7 +288,7 @@ describe('Local Network on a real atproto spaces network', () => {
 				params: { slug },
 				url,
 				request: new Request(url, { method: 'POST', body: form }),
-				locals: { app: net.app, viewer: lee, log: silentLogger }
+				locals: { app: net.app, viewer: lee, log: silentLogger, flags: flagsOff }
 			})
 		).rejects.toMatchObject({ status: 403 });
 		expect(await net.app.requests.list({ requester: lee.did })).toEqual([]);
@@ -366,7 +366,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		const review = await adminRequest({
 			params: { rkey: request.rkey },
 			url: new URL(`http://localhost/admin/requests/${request.rkey}`),
-			locals: { app: net.app, viewer: await net.viewer('ada'), log: silentLogger }
+			locals: { app: net.app, viewer: await net.viewer('ada'), log: silentLogger, flags: flagsOff }
 		});
 
 		expect(review.avatar).toEqual({ type: 'image/svg+xml', shown: false });
@@ -448,7 +448,11 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(stored?.value).toMatchObject({ profile: { mixes: [{ title: 'Closing', set: { uri, cid } }] } });
 
 		const page = async () => {
-			const event = { params: { slug: project.slug }, locals: { app: net.app, viewer: null, log: silentLogger } };
+			const event = {
+				params: { slug: project.slug },
+				locals: { app: net.app, viewer: null, log: silentLogger, flags: flagsOff }
+			};
+
 			const data = await projectPage(event);
 
 			return data && 'sets' in data ? (await data.sets)?.get(uri) : undefined;
@@ -648,7 +652,7 @@ describe('Local Network on a real atproto spaces network', () => {
 				headers: { authorization: `Bearer ${token}` }
 			});
 
-			const response = await requestIndex({ request, locals: { app: net.app, log: silentLogger } });
+			const response = await requestIndex({ request, locals: { app: net.app, log: silentLogger, flags: flagsOff } });
 
 			return { status: response.status, body: await response.json() };
 		};
@@ -866,7 +870,7 @@ describe('Local Network on a real atproto spaces network', () => {
 			show: { title: 'Rooftop Rave', date: '2026-12-01T22:00:00.000Z', capacity: 300, budgetTier: 'emerging' },
 			message: 'Are you free on the 1st?'
 		});
-		expect(bookingSpace).toContain(`/space/${SPACE_TYPE.booking}/`);
+		expect(parseSpaceUri(bookingSpace)?.type).toBe(SPACE_TYPE.booking);
 		const root = await net.app.core.root();
 		const members = (await root.listMembers(bookingSpace)).map((member) => member.did).sort();
 		expect(members).toEqual([net.user('neon').did, net.user('pat').did, lee.did].sort());
@@ -1015,7 +1019,7 @@ describe('Local Network on a real atproto spaces network', () => {
 	it('brings someone who turns down sharing their email back to the settings, and anyone else to sign-in', async () => {
 		const callback = async (url: URL) => {
 			try {
-				await oauthCallback({ url, locals: { app: net.app, log: silentLogger } });
+				await oauthCallback({ url, locals: { app: net.app, log: silentLogger, flags: flagsOff } });
 			} catch (thrown) {
 				return isRedirect(thrown) ? thrown.location : thrown;
 			}

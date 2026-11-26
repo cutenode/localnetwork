@@ -8,10 +8,11 @@
 	"properties": {
 		"$schema": { "const": "../budget.schema.json" },
 		"job": {
-			"description": "Which job measures this area: pull-request is locallibrary-ci.yml's budgets job, release the release-budgets action, web web-ci.yml's verify job, a target's triple its release-build job in locallibrary-scheduled.yml.",
+			"description": "Which job measures this area: pull-request is locallibrary-ci.yml's budgets job, release and release-frames the release-budgets action's two parts (the dist build, the frame test), web web-ci.yml's verify job, a target's triple its release-build job in locallibrary-scheduled.yml.",
 			"enum": [
 				"pull-request",
 				"release",
+				"release-frames",
 				"web",
 				"aarch64-apple-darwin",
 				"x86_64-apple-darwin",

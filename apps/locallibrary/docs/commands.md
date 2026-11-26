@@ -156,7 +156,7 @@ its drives.
 | `locallibrary playlist ...` | Create, rename, move, delete, fill, sort, order for mixing and import playlists, see [Editing playlists and tracks](editing.md#editing-playlists-and-tracks) |
 | `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches, find their tags online (`track fetch`, see [Providers](plugins.md#providers)); `track show` prints plugins' panels after a track's details (see [Panels](plugins.md#panels)) |
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](editing.md#my-tags) |
-| `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](editing.md#cues) |
+| `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, place from the grid and phrases (`auto`), see [Cues](editing.md#cues) |
 | `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, from a file or online (`art fetch`), see [Cover art](editing.md#cover-art) |
 | `locallibrary edits [list\|replay\|clear] [<library>]` | The edits made to a library; make them again after rekordbox exports over them |
 | `locallibrary smart ...` | Rule-based playlists kept in the store and written to drives, see [Rule-based playlists](editing.md#rule-based-playlists) |

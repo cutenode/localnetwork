@@ -10,7 +10,7 @@ import { FakeSpaceHost } from '../testing/space-host';
 import { SpaceCredentialManager, XrpcResponseError } from './credentials';
 import { IdentityResolver } from './identity';
 import { RecordValidationError } from './lexicons';
-import { bookingSpace } from './spaces';
+import { writtenAs, bookingSpace } from './spaces';
 
 const SPACE = bookingSpace('did:plc:root', 'gig');
 
@@ -109,6 +109,14 @@ describe('SpaceCredentialManager', () => {
 			value: { $type: NOTE, text: 'hi' }
 		});
 		await expect(credentials.readRecord({ ...record, rkey: 'b' })).resolves.toBeNull();
+	});
+
+	it("reads a record from the alpha with its space URIs as they're written now", async () => {
+		await host.put(DJ, NOTE, 'a', { $type: NOTE, about: writtenAs(SPACE)[1] });
+
+		await expect(
+			credentials.readRecord({ space: SPACE, repo: DJ, collection: NOTE, rkey: 'a' })
+		).resolves.toMatchObject({ value: { $type: NOTE, about: SPACE } });
 	});
 
 	it('refuses a record nested deeper than 32 levels as invalid', async () => {

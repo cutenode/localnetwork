@@ -3,6 +3,7 @@
 local json = require('internal.json')
 
 function handle(input)
+	skipInactive(input)
 	local uris = input.uris
 	local where, values = atUris(uris, 's.')
 	local byUri = {}

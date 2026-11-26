@@ -6,8 +6,10 @@ use std::path::PathBuf;
 use loclib_progress::Cancelled;
 
 /// What can go wrong measuring a drive.
+///
+/// The enum is exhaustive: a new kind of error is a breaking change, which 0.x releases make with a
+/// minor version.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum Error {
     /// Reading or writing `path` failed.
     #[error("{}: {source}", path.display())]

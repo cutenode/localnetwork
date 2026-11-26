@@ -462,3 +462,27 @@ fn prop_write_access_to_a_device_that_is_gone_is_an_io_error(tc: TestCase) {
         other => panic!("{other:?}"),
     }
 }
+
+/// A disk unplugged since it was listed (its identifier names nothing now, its device is gone)
+/// has no link speed, and formatting it fails on its device with an I/O error, as any file system
+/// and cluster size would, before any tool runs.
+#[hegel::test(test_cases = 10)]
+fn prop_a_disk_that_is_gone_has_no_speed_and_cant_be_formatted(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let n = tc.draw(gs::integers::<u16>());
+    let disk = Disk {
+        id: format!("gone{n}"),
+        device: dir.path().join(format!("gone{n}")).display().to_string(),
+        bus: tc.draw(gs::sampled_from(vec![None, Some("USB".to_string())])),
+        ..sample_disk()
+    };
+    assert_eq!(link_speed(&disk), None);
+    let filesystem = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
+    let t = Target { filesystem, label: name(&tc), cluster_size: 32768, default_cluster: false };
+    // macOS opens the raw device for a cluster size of its own; Linux and Windows the disk's.
+    let device = if cfg!(target_os = "macos") { format!("/dev/r{}", disk.id) } else { disk.device.clone() };
+    match format(&disk, &t, &Ctx::silent()) {
+        Err(Error::Io { path, .. }) => assert_eq!(path, Path::new(&device)),
+        other => panic!("{other:?}"),
+    }
+}

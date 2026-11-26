@@ -5,7 +5,8 @@
 // answers what the service answered. Codes, verifiers, tokens and secrets are never logged.
 //
 // Each service has an ops flag (its pauseFlag) that stops its exchange without a deploy, say when a
-// secret leaks. The request has no account, so only "on for everyone" pauses it.
+// secret leaks. The request has no account, so it pauses once the flag is on for every account
+// (everyone, or 100%).
 //
 // It only trades codes sent back to locallibrary's listener on this computer: a redirect_uri, when
 // a grant has one, must be `http://127.0.0.1:<port>/callback` or `http://[::1]:<port>/callback`,
@@ -106,13 +107,13 @@ export type ExchangeOptions = {
 	/** Where the services' client ids and secrets are read from. */
 	env?: Record<string, string | undefined>;
 	fetch?: typeof fetch;
-	/** The request's flags, where a service's pauseFlag stops its exchange. Nothing is paused without them. */
-	flags?: Partial<Flags>;
+	/** The request's flags, where a service's pauseFlag stops its exchange. */
+	flags: Flags;
 };
 
 /** Trades a code or refresh token for tokens at the service `id` names, with Local Network's client there. */
 export async function exchangeToken(id: string, request: Request, options: ExchangeOptions): Promise<Response> {
-	const { log, env = process.env, fetch: send = fetch, flags = {} } = options;
+	const { log, env = process.env, fetch: send = fetch, flags } = options;
 	const service = Object.hasOwn(services, id) ? services[id] : undefined;
 
 	if (!service) return refuse(404, 'invalid_request', `Local Network doesn't sign in to "${id.slice(0, 64)}"`);

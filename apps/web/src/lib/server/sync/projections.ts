@@ -2,7 +2,7 @@ import type { JsonObject } from '@atproto/lex-json';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectDetails, RequestRecord } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { parseSpaceUri, sharedSpaceKind } from '../atproto/spaces';
+import { currentSpaceUris, parseSpaceUri, sharedSpaceKind } from '../atproto/spaces';
 import type { AuditLog } from '../audit/log';
 import type { Core } from '../core';
 import type { BookingRecord, BookingService } from '../services/bookings';
@@ -32,9 +32,10 @@ const SHARED_SPACE_COLLECTIONS = new Set<string>([
 /**
  * Maps records synced from spaces onto the local index. Records are checked
  * against our lexicons, and authority rules are enforced here: only the root
- * account's decisions, roles, and details count, only the press kit grants
- * of their space's authority, and in a performer's, party's or venue's space,
- * only what the root wrote, in a space under the root.
+ * account's decisions (on moderation and press kit requests), roles, and
+ * details count, only the press kit grants of their space's authority, and in
+ * a performer's, party's or venue's space, only what the root wrote, in a
+ * space under the root.
  */
 export function createProjections(deps: {
 	core: Core;
@@ -105,7 +106,9 @@ export function createProjections(deps: {
 		let value: JsonObject;
 
 		try {
-			value = validateRecord(change.collection, change.value);
+			// An audit copy is compared with its entry, whose hash covers its URIs as they were written.
+			const read = change.collection === COLLECTION.auditEntry ? change.value : currentSpaceUris(change.value);
+			value = validateRecord(change.collection, read);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
 			core.logger.warn('ignoring invalid synced record', { uri: change.uri, err: error });
@@ -212,6 +215,11 @@ export function createProjections(deps: {
 			case COLLECTION.epkRequest:
 				// indexRequest checks the space: a project's request space, or a press kit's, where requests went before.
 				await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+
+				return;
+			case COLLECTION.epkDecision:
+				if (fromRoot && type === SPACE_TYPE.epkRequests && ref?.authority === rootDid)
+					await epks.indexDecision({ space: change.space, value });
 
 				return;
 			case COLLECTION.epkGrant:

@@ -612,10 +612,8 @@ pub fn no_exfat_list() -> Vec<String> {
     let (mixers, others): (Vec<&Model>, Vec<&Model>) =
         MODELS.iter().filter(|m| m.exfat.value == Exfat::No).partition(|m| m.is_mixer());
     let mut out: Vec<String> = others.iter().map(|m| m.name.to_string()).collect();
-    if !mixers.is_empty() {
-        let names: Vec<&str> = mixers.iter().map(|m| m.name).collect();
-        out.push(format!("{} (settings, firmware)", names.join("/")));
-    }
+    let mixers: Vec<&str> = mixers.iter().map(|m| m.name).collect();
+    out.extend((!mixers.is_empty()).then(|| format!("{} (settings, firmware)", mixers.join("/"))));
     out
 }
 

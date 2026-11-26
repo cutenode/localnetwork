@@ -11,6 +11,9 @@ inputs:
   out:
     description: The absolute path of the directory to write each area's measurements to.
     required: true
+  part:
+    description: cli for the dist build's areas, frames for the frame test's, empty for both.
+    default: ''
 
 runs:
   using: composite
@@ -23,4 +26,5 @@ runs:
       working-directory: ${{ inputs.root }}
       env:
         OUT: ${{ inputs.out }}
-      run: '"$GITHUB_WORKSPACE/tools/budgets/measure-release.sh" "$OUT"'
+        PART: ${{ inputs.part }}
+      run: '"$GITHUB_WORKSPACE/tools/budgets/measure-release.sh" "$OUT" ${PART:+"$PART"}'

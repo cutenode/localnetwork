@@ -12,6 +12,12 @@
 				"properties": {
 					"name": { "type": "string", "minLength": 1, "maxLength": 1200, "maxGraphemes": 120 },
 					"description": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the description is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"startsAt": {
 						"type": "string",
 						"format": "datetime",

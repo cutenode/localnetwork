@@ -160,7 +160,7 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue reaches the directory. Acts, published parties and venues have something to list, from the root's performer, party or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and a draft party have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for everyone. HappyView keeps only the root's listings.
+How a listed act, party or venue reaches the directory. Acts, published parties and venues have something to list, from the root's performer, party or venue record in their space, and a venue is listed from the moment it's added; a DJ's own space and a draft party have nothing to show, so they're never listed. A listing points at a public page, so none is written until the `spacePages` flag is on for signed-out visitors. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD
@@ -213,9 +213,13 @@ flowchart TD
   Head --> Hook["Server hook swaps it for the<br/>marker in app.html"]
   Meta -- "a profile's picture" --> Avatar["/media/[did]/[cid]"]
   Meta -- "other pages" --> Card["/og/... PNG"]
+  Meta -- "pauseOgCards on" --> Site["/og/site.png"]
+  Card -- "an act's, mix's or press kit's,<br/>no manager active" --> Hidden["404, or 410 once<br/>every manager was deleted"]
   Card --> Cached{"Kept in memory?"}
   Cached -- "yes" --> Png["Served"]
   Cached -- "no" --> Draw["Drawn from a Svelte card, then kept,<br/>or 503 when too many are waiting"]
+  Cached -- "no, pauseOgCards on" --> Site
+  Site --> Png
   Draw --> Png
 ```
 

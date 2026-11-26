@@ -3,6 +3,7 @@ import { UserError } from '#lib/server/core.ts';
 import { cacheBriefly } from '#lib/server/http.ts';
 import { listed, mixMeta } from '#lib/server/meta.ts';
 import { projectRecords } from '#lib/server/meta-records.ts';
+import { hideInactiveProject } from '#lib/server/project-page.ts';
 import { mixRecording } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
@@ -14,8 +15,10 @@ export const load: PageServerLoad = async (event) => {
 
 	if (!project) error(404, 'No project with that name');
 	const isManager = !!viewer && project.managers.includes(viewer.did);
+	const canEdit = isManager || !!viewer?.isStaff;
 
-	if (project.status !== 'active' && !isManager && !viewer?.isStaff) error(404, 'No project with that name');
+	if (project.status !== 'active' && !canEdit) error(404, 'No project with that name');
+	await hideInactiveProject(app, project);
 
 	const n = Number(params.n);
 	const mix = Number.isInteger(n) && n >= 1 ? project.profile.mixes?.[n - 1] : undefined;
@@ -25,8 +28,9 @@ export const load: PageServerLoad = async (event) => {
 	try {
 		const report = await app.tracklists.published(mix.tracklist);
 
-		// The layout's data is in the page, and a signed-in visitor's viewer and flags are theirs alone.
-		if (project.status === 'active') cacheBriefly(event, 300);
+		// The layout's data is in the page, and a signed-in visitor's viewer and flags are theirs alone. Its managers and
+		// staff, who can change the project, get it uncached.
+		if (project.status === 'active') cacheBriefly(event, 300, canEdit ? ['page.edit'] : []);
 
 		return {
 			project: { slug: project.slug, name: project.profile.name, avatarUrl: project.avatarUrl, status: project.status },
@@ -34,7 +38,7 @@ export const load: PageServerLoad = async (event) => {
 			// Streamed, so the report shows while the directory looks up the set.
 			sets: mix.set ? app.sets.linked([mix.set]) : undefined,
 			// What the player plays, streamed too: the mix's or its linked set's recording may be asked of plyr.fm.
-			source: app.recordings.forMix(mix),
+			source: app.recordings.forMix(mix, locals.flags),
 			n,
 			report,
 			meta: await listed(locals, mixMeta(app.config.publicUrl, project, mix, n, report.plays.length), {

@@ -159,7 +159,7 @@ pnpm exec lefthook run pre-push --job 'tests localtoolbox' --force   # rerun one
 
 CI (`ci.yml`) runs a tool's checks only when its files (or the shared ones) change. It ends with a "CI passed" check, which is skipped, and so counts as passing, unless a check failed. `pr-issue.yml` reports "PR issue passed" ([Pull requests](#pull-requests)). Those two are the checks `main` requires before a merge (`.github/rulesets/protect-main.json`), along with code scanning and a code owner's approval. On a draft pull request nothing runs, and "CI passed" fails, until you mark it ready for review. If no run starts then, use "Re-run all jobs" (re-running only the failed jobs keeps the draft's result).
 
-Pull requests run on Linux, with a clippy check of the Windows code cross-compiled there, and locallibrary's Windows checks when its code changed. Its macOS checks run in the merge queue: once a pull request is approved and passing, add it to the queue, which runs them on it together with the pull requests ahead of it and merges it when they pass. A merge queue group also measures locallibrary's budgets and builds and measures its release, and runs the website's verify and Lighthouse jobs, the extension's and atstore's checks, the workflow lint, the policies, Bombadil's type check, the spelling and links, and CodeQL. The rest stays on pull requests: the Linux Rust jobs (tests, coverage, fuzzing, docs, cargo-deny), the website's integration, e2e and Docker tests, the lexicons, the commit messages, the diagrams, and dependency review. To run macOS on a pull request first, add the `all-os` label and re-run CI. A push to `main` runs only what pull requests use from it: the coverage and sizes they're compared with, the caches, and CodeQL.
+Pull requests run on Linux, with a clippy check of the Windows code cross-compiled there, and locallibrary's Windows checks when its code changed. Its macOS checks run in the merge queue: once a pull request is approved and passing, add it to the queue, which runs them on it together with the pull requests ahead of it and merges it when they pass. The queue runs the Windows checks again unless your last run passed them on the same files. A merge queue group also measures locallibrary's budgets and builds and measures its release, and runs the website's verify and Lighthouse jobs, the extension's and atstore's checks, the workflow lint, the policies, Bombadil's type check, the spelling and links, and CodeQL. The rest stays on pull requests: the Linux Rust jobs (tests, coverage, fuzzing, docs, cargo-deny), the website's integration, e2e and Docker tests, the lexicons, the commit messages, the diagrams, and dependency review. To run macOS on a pull request first, add the `all-os` label and re-run CI. A push to `main` runs only what pull requests use from it: the coverage and sizes they're compared with, the caches, and CodeQL.
 
 The slow suites run weekly in the `*-scheduled.yml` workflows, each skipping the week when nothing it tests changed since its last run that passed, and you can start them on any branch from the Actions tab. A weekly run that fails, or passes with something worth a look (a drop in fuzz coverage), opens an issue labelled `scheduled-failure`, and the next weekly run that passes with nothing to say closes it.
 
@@ -250,6 +250,19 @@ A change too big for one review can be a stack: pull requests that each build on
 - Base each pull request on the branch below it.
 - Bring changes up the stack by merging each branch into the one above, not by rebasing or force-pushing.
 - When the bottom pull request merges, let GitHub retarget the next one to `main`, and don't delete the merged branch yourself, which closes the pull requests on top of it.
+
+### Merging main
+
+Main renamed a few things a branch from before them may still use: every `#[hegel::test]` function is named `prop_*` (the `hegel-test-name` rule in `tools/ast-grep/` refuses a commit otherwise, the merge's included), the web modules only some pages load have `.page-only` in their file names, and the web README's Features bullets moved into `apps/web/docs/features/`. Merge main into such a branch without committing, and run the tool before you commit:
+
+```bash
+git merge --no-commit origin/main
+pnpm merge:main
+```
+
+It takes this branch's side of each conflict where main's side only renamed, then renames this branch's code the same way: its hegel tests with the calls, `use` lines and docs that name them, and its paths to the page-only modules. When the README conflicts because this branch edited a Features bullet, it moves that edit into the bullet's file in `apps/web/docs/features/` and takes main's Features section; a bullet it can't place (`tools/merge-main/sections.ts`) leaves the README to you. It stages what it changed, lists the files still unmerged, and never commits. Running it again changes nothing.
+
+The labeler's config moved too, from `.github/labeler.yml` to a file per label in [labeler/](labeler/) and each crate's and plugin's `labels` in its `Cargo.toml` (`tools/labeler/`). The tool leaves that one to you: if this branch changed `.github/labeler.yml`, the merge stops on it, so move each rule it added into its label's file (or its crate's `Cargo.toml`), then `git rm .github/labeler.yml`.
 
 ## Issues and planning
 

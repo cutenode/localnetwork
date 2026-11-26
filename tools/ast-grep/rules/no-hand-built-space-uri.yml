@@ -1,0 +1,22 @@
+# A space's URI and a space record's are built in one place, spaceUri and spaceRecordUri in
+# apps/web/src/lib/server/atproto/spaces.ts, so the form changes there alone when the spaces protocol
+# changes it. Hosts compare the strings exactly, and one in another form is refused.
+id: no-hand-built-space-uri
+language: TypeScript
+severity: error
+message: This builds a space URI by hand.
+note: Use spaceUri or spaceRecordUri (apps/web/src/lib/server/atproto/spaces.ts), or a helper there that names the space (bookingSpace, plannerSpace, sharedSpace, …).
+files:
+  - 'apps/web/src/**'
+  - 'apps/web/scripts/**'
+ignores:
+  # The one place.
+  - 'apps/web/src/lib/server/atproto/spaces.ts'
+  # Tests, stories and their fixtures write the URIs out, which is what they check.
+  - '**/*.test.ts'
+  - '**/*.stories.svelte'
+  - 'apps/web/src/lib/testing/**'
+  - '**/fixtures.ts'
+rule:
+  any: [{ kind: string }, { kind: template_string }]
+  regex: '^.(at:(space/|//[^/]*/space/)|\$\{SPACE_URI_PREFIX\})'

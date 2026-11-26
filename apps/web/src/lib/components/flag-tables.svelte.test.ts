@@ -15,7 +15,10 @@ afterEach(() => {
 const flag = (gates: Partial<FlagView>): FlagView => ({
 	key: 'parityCanary',
 	description: 'Gates nothing.',
+	type: 'ops',
+	showsOn: [],
 	enabled: true,
+	signedOut: false,
 	everyone: false,
 	percentage: 0,
 	groups: [],
@@ -35,9 +38,35 @@ const group = (fields: Partial<FlagGroupView>): FlagGroupView => ({
 });
 
 describe('FlagTable', () => {
-	it.each([
+	it('says signed-out visitors come next once a release flag has every account, and nothing once they have it', async () => {
+		const screen = await render(FlagTable, { flags: [flag({ type: 'release', everyone: true })] });
+
+		await expect.element(page.getByText('Signed-out visitors next').first()).toBeInTheDocument();
+
+		const others: Partial<FlagView>[] = [
+			{ type: 'release', everyone: true, signedOut: true },
+			{ type: 'ops', everyone: true },
+			{ type: 'release', percentage: 100, enabled: false }
+		];
+
+		for (const gates of others) {
+			await screen.rerender({ flags: [flag(gates)] });
+			await expect.element(page.getByText('Signed-out visitors next').first()).not.toBeInTheDocument();
+		}
+	});
+
+	it("shows a release flag's remove-by date", async () => {
+		await render(FlagTable, { flags: [flag({ type: 'release', removeBy: '2027-02-12' })] });
+
+		await expect.element(page.getByText('Remove by Feb 12, 2027').first()).toBeInTheDocument();
+	});
+
+	it.each<[string, Partial<FlagView>, string]>([
 		['off', {}, 'Off'],
-		['on for everyone, whatever else is set', { everyone: true, percentage: 20 }, 'Everyone'],
+		['on for everyone, whatever else is set', { everyone: true, signedOut: true, percentage: 20 }, 'Everyone'],
+		['every account, before signed-out visitors', { type: 'release', everyone: true }, 'Every account'],
+		['signed-out visitors on top of every account', { type: 'release', percentage: 100, signedOut: true }, 'Everyone'],
+		['every account at 100%', { type: 'release', percentage: 100 }, 'Every account'],
 		['a share of accounts', { percentage: 25 }, '25%'],
 		[
 			'one group and one account',
@@ -62,7 +91,9 @@ describe('FlagTable', () => {
 
 	it('says a flag is off for everyone, and what it keeps for when it is back on', async () => {
 		const { rerender } = await render(FlagTable, {
-			flags: [flag({ enabled: false, everyone: true, percentage: 25, groups: [{ rkey: 'a', name: 'Beta' }] })]
+			flags: [
+				flag({ enabled: false, everyone: true, signedOut: true, percentage: 25, groups: [{ rkey: 'a', name: 'Beta' }] })
+			]
 		});
 
 		await expect.element(page.getByText('Off for everyone', { exact: true }).first()).toBeInTheDocument();

@@ -427,6 +427,25 @@ describe('EventService', () => {
 		);
 	});
 
+	it("names the description's language, keeping the one it had through saves that leave it as it was", async () => {
+		const uri = await t.events.create(host, party, input({ description: 'Doors at eleven.' }));
+		expect(stored(uri).value.langs).toEqual(['en']);
+		// As if someone had written it in German.
+		stored(uri).value.langs = ['de'];
+
+		await t.events.update(host, uri, {
+			...input({ name: 'Winter Opening II', description: 'Doors at eleven.' }),
+			swap: stored(uri).cid
+		});
+		expect(stored(uri).value.langs).toEqual(['de']);
+
+		await t.events.update(host, uri, { ...input({ description: 'Doors at ten.' }), swap: stored(uri).cid });
+		expect(stored(uri).value.langs).toEqual(['en']);
+
+		await t.events.update(host, uri, { ...input(), swap: stored(uri).cid });
+		expect(stored(uri).value.langs).toBeUndefined();
+	});
+
 	it("logs a staff save with each field's before and after, but never the link token", async () => {
 		const uri = await t.events.create(host, party, input());
 

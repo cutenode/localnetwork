@@ -70,3 +70,47 @@ it('has no source for a set with nothing to play, and is a 404 for a set the dir
 	for (const rkey of ['3kmissing', '..'])
 		await expect(callRoute(GET, { app: app(), params: { did: DJ, rkey } })).rejects.toMatchObject({ status: 404 });
 });
+
+it("plays a set's links instead of its recording on the DJ's PDS while pauseRecordingStream is on", async () => {
+	const client = t.net.client(DJ);
+	const audio = await client.uploadBlob(new Uint8Array(1234), 'audio/mpeg');
+
+	await client.putRecord({
+		collection: COLLECTION.djRecording,
+		rkey: '3krec',
+		record: { $type: COLLECTION.djRecording, audio, createdAt: '2026-09-13T00:00:00Z' }
+	});
+
+	await client.putRecord({
+		collection: COLLECTION.djSet,
+		rkey: '3krecorded',
+		record: {
+			$type: COLLECTION.djSet,
+			date: '2026-09-12',
+			tracks: [],
+			recording: { uri: `at://${DJ}/${COLLECTION.djRecording}/3krec`, cid: 'bafyrec' },
+			links: [{ uri: 'https://soundcloud.com/neon/tidal-hours' }],
+			createdAt: '2026-09-13T00:00:00Z'
+		}
+	});
+
+	const play = async (pauseRecordingStream: boolean) =>
+		(
+			await callRoute(GET, { app: app(), params: { did: DJ, rkey: '3krecorded' }, flags: { pauseRecordingStream } })
+		).json();
+
+	expect(await play(false)).toMatchObject({ source: { kind: 'audio', from: 'pds' } });
+	expect(await play(true)).toMatchObject({ source: { kind: 'embed', platform: 'SoundCloud' } });
+});
+
+it("is a 404 once the DJ's account isn't active, and a 410 once it's deleted, as the set's page is", async () => {
+	const params = { did: DJ, rkey: '3kset' };
+
+	t.accountStatus.set(DJ, 'deactivated');
+	await t.accountStatuses.refresh();
+	await expect(callRoute(GET, { app: app(), params })).rejects.toMatchObject({ status: 404 });
+
+	t.accountStatus.set(DJ, 'deleted');
+	await t.accountStatuses.refresh();
+	await expect(callRoute(GET, { app: app(), params })).rejects.toMatchObject({ status: 410 });
+});

@@ -10,7 +10,9 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::analysis_edit::NewAnalysis;
 use locallibrary::anlz::Beat;
-use locallibrary::cue_edit::{self, CueChange, CueEdit, CueInfo, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
+use locallibrary::cue_edit::{
+    self, AutoCues, CueChange, CueEdit, CueInfo, CuePosition, CueRef, CueStyle, HotCue, SetCue, UpdateCue,
+};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, EditReport};
 use locallibrary::progress::Ctx;
@@ -57,7 +59,7 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
         name: None,
         color: None,
     };
-    let change = match tc.draw(gs::integers::<u8>().max_value(5)) {
+    let change = match tc.draw(gs::integers::<u8>().max_value(6)) {
         0 => CueChange::Set(set(Some(hot))),
         5 => {
             let slots = || tc.draw(gs::optional(gs::integers::<u8>().max_value(3))).map(HotCue);
@@ -68,6 +70,10 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
         1 => CueChange::Update(UpdateCue { cue: CueRef::Hot(hot), name: Some("Again".into()), color: None }),
         2 => CueChange::Delete(if tc.draw(gs::booleans()) { CueRef::Hot(hot) } else { CueRef::All }),
         3 => CueChange::Copy { from: from() },
+        6 => CueChange::Auto(AutoCues {
+            style: tc.draw(gs::sampled_from(CueStyle::ALL.to_vec())),
+            overwrite: tc.draw(gs::booleans()),
+        }),
         _ => CueChange::Carry { from: from(), shift_ms: tc.draw(gs::integers::<i32>().min_value(-500).max_value(500)) },
     };
     Edit::Cues { tracks, change }
@@ -121,6 +127,7 @@ fn prop_replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCas
             CueChange::Delete(r) => Some(CueEdit::Delete(r.clone())),
             CueChange::Copy { from } => id(from).map(|from| CueEdit::Copy { from }),
             CueChange::Carry { from, shift_ms } => id(from).map(|from| CueEdit::Carry { from, shift_ms: *shift_ms }),
+            CueChange::Auto(a) => Some(CueEdit::Auto(*a)),
         };
         let mut d = Device::open_export(&model).unwrap();
         match edit.map(|edit| cue_edit::plan(&d, &ids, &edit, &Ctx::silent())) {

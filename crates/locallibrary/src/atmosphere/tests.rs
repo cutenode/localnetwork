@@ -20,6 +20,31 @@ fn sign_in_errors_say_their_causes() {
     assert_eq!(oauth_error(e).to_string(), "signing in: I/O error: disk full", "named once");
 }
 
+/// A server that can't find the permission set says so in its own words: the DJ is told
+/// publishing isn't open yet, not the server's `invalid_scope`.
+#[test]
+fn an_unresolved_permission_set_says_publishing_isnt_open() {
+    use jacquard_oauth::request::RequestError;
+    let refusal = |description: String| {
+        let body = serde_json::json!({ "error": "invalid_scope", "error_description": description });
+        OAuthError::Request(RequestError::http_status_with_body(http::StatusCode::BAD_REQUEST, body))
+    };
+    let e = refusal(format!("Unable to resolve Lexicon schema {PUBLISH_SET}"));
+    assert_eq!(oauth_error(e).to_string(), publishing::NOT_OPEN);
+    let other = oauth_error(refusal("Unable to resolve Lexicon schema app.example.thing".into())).to_string();
+    assert!(other.starts_with("signing in: ") && other.contains("app.example.thing"), "{other}");
+}
+
+#[test]
+fn begin_login_refuses_publishing_while_it_isnt_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let options = LoginOptions { scopes: publish_scopes(), storage: Storage::File, ..LoginOptions::default() };
+    crate::testing::publishing_on_this_thread(Some(publishing::Availability::NotOpen));
+    let err = begin_login(dir.path(), "dj.example.com", &options).unwrap_err();
+    crate::testing::publishing_on_this_thread(None);
+    assert_eq!(err.to_string(), publishing::NOT_OPEN);
+}
+
 #[test]
 fn loopback_clients_carry_their_redirect_and_scopes() {
     let c = client_config(&Client::Loopback, "http://127.0.0.1:53111/callback", scopes(&[]).unwrap()).unwrap();

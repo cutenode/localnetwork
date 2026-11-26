@@ -412,6 +412,38 @@ deny contains msg if {
 	msg := sprintf("%s: add it to the %s paths filter; CodeQL's results change with it", [path, name])
 }
 
+# A merge queue group's base_sha is the entry ahead of it, so a budget measured over that holds a pull
+# request to what the entry ahead shrank, as #762's was. The caller passes main's tip instead.
+deny contains msg if {
+	some path, wf in called
+	some id, job in wf.jobs
+	some step in object.get(job, "steps", [])
+	some value in object.get(step, "env", {})
+	contains(value, "merge_group.base_sha")
+	msg := sprintf("%s: job %q reads the entry ahead of a merge queue group (base_sha); take main's tip from the workflow that calls it, as `inputs.group-base`", [path, id])
+}
+
+# The step that lets a merge queue group skip Windows (tools/queue). A group that changes what CI runs
+# never skips, so the step reads the filter that says it does, which has every workflow and action.
+windows_skips contains {"path": path, "step": step} if {
+	some path, wf in gated
+	some step in wf.jobs.changes.steps
+	contains(object.get(step, "run", ""), "tools/queue/cli.ts")
+}
+
+deny contains msg if {
+	some skip in windows_skips
+	object.get(skip.step, ["env", "WORKFLOWS_CHANGED"], "") != "${{ steps.filter.outputs.workflow_lint }}"
+	msg := sprintf("%s: give the tools/queue/cli.ts step `WORKFLOWS_CHANGED: ${{ steps.filter.outputs.workflow_lint }}`, so a group that changes a workflow runs Windows", [skip.path])
+}
+
+deny contains msg if {
+	count(windows_skips) > 0
+	some path in [".github/workflows/ci.yml", ".github/actions/last-passed/action.yml"]
+	not filtered("workflow_lint", path)
+	msg := sprintf("%s: add it to the workflow_lint paths filter; a merge queue group that changes it has to run Windows", [path])
+}
+
 # Each tool taiki-e/install-action installs names its exact version, so a run installs what the
 # last one did, and a new version comes in as a change to the workflow.
 deny contains msg if {
@@ -423,4 +455,28 @@ deny contains msg if {
 	tool := trim_space(entry)
 	not regex.match(`@[0-9]+\.[0-9]+\.[0-9]+$`, tool)
 	msg := sprintf("%s: job %q installs %s with no exact version; name one, as %s@1.2.3", [path, id, tool, tool])
+}
+
+# The steps that install apt packages, in a workflow's jobs or a composite action's.
+apt_steps contains {"path": path, "step": step} if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some job in lib.file(path).jobs
+	some step in object.get(job, "steps", [])
+	step.uses == "./.github/actions/apt-packages"
+}
+
+apt_steps contains {"path": path, "step": step} if {
+	some path in lib.paths(".github/actions/*/action.yml")
+	some step in object.get(object.get(lib.file(path), "runs", {}), "steps", [])
+	step.uses == "./.github/actions/apt-packages"
+}
+
+# locallibrary-cache.yml warms each set of apt packages by reading the steps' `packages`, so each is
+# the list itself: it would ask apt for an expression as a package of that name. Its own apt job
+# takes the set from its matrix, and leaves expressions out of what it reads.
+deny contains msg if {
+	some s in apt_steps
+	s.path != ".github/workflows/locallibrary-cache.yml"
+	contains(s.step["with"].packages, "${{")
+	msg := sprintf("%s: name the apt packages %q stands for; locallibrary-cache.yml can't warm an expression", [s.path, s.step["with"].packages])
 }

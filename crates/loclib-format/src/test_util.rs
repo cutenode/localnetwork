@@ -289,9 +289,18 @@ impl FakeTools {
                 "pttype": if mbr { "dos" } else { "gpt" }, "model": "Ultra Fit", "serial": "4C530001",
                 "size": 64_000_000_000u64, "children": [{ "name": "sdb1", "path": part, "type": "part", "fstype": fs,
                 "mountpoint": root, "uuid": "1234-ABCD" }] }] });
-        let columns = "NAME,PATH,TYPE,SIZE,RM,HOTPLUG,RO,TRAN,VENDOR,MODEL,SERIAL,FSTYPE,LABEL,UUID,MOUNTPOINT,PTTYPE,LOG-SEC,FSVER";
-        self.answer("lsblk", &["--json", "--bytes", "--output", columns], &listing.to_string());
+        self.lsblk(None, &listing);
         (part.display().to_string(), fs.into())
+    }
+
+    /// Linux's lsblk prints `listing` (its JSON) for `device`, or with `None` for every disk: what
+    /// finding a disk asks, and what a plan or a format asks of the disk it erases (what's
+    /// mounted on it).
+    pub fn lsblk(&mut self, device: Option<&str>, listing: &serde_json::Value) {
+        let columns = "NAME,PATH,TYPE,SIZE,RM,HOTPLUG,RO,TRAN,VENDOR,MODEL,SERIAL,FSTYPE,LABEL,UUID,MOUNTPOINT,PTTYPE,LOG-SEC,FSVER";
+        let mut args = vec!["--json", "--bytes", "--output", columns];
+        args.extend(device);
+        self.answer("lsblk", &args, &listing.to_string());
     }
 
     /// Every call made so far, in order, as the command lines that made them. Input is read a

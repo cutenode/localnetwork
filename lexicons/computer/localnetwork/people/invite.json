@@ -19,6 +19,12 @@
 						"description": "Set when staff made it. It works whoever is in the space. One made by someone in the space stops working once they can't add people."
 					},
 					"message": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+					"langs": {
+						"type": "array",
+						"description": "The languages the message is written in.",
+						"maxLength": 3,
+						"items": { "type": "string", "format": "language" }
+					},
 					"createdAt": { "type": "string", "format": "datetime" },
 					"expiresAt": { "type": "string", "format": "datetime" }
 				}

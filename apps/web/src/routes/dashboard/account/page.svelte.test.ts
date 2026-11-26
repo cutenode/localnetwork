@@ -6,14 +6,14 @@ import { request } from '#lib/testing/requests.ts';
 import type { PageProps } from './$types';
 import Page from './+page.svelte';
 
-const data: PageProps['data'] = { ...accountLayout, channels: [null, null], latest: [], requests: [], held: [] };
+const data: PageProps['data'] = { ...accountLayout, channels: ['off', 'off'], latest: [], requests: [], held: [] };
 
 const open = (changes: Partial<PageProps['data']> = {}) =>
 	render(Page, { params: {}, form: null, data: { ...data, ...changes } });
 
 it('links each page with where things stand there', async () => {
 	await open({
-		channels: [{ status: 'paused', pausedReason: 'email_unverified', address: null, topics: [] }, null],
+		channels: ['paused', 'off'],
 		requests: [request('create'), request('claim', { status: 'changes_requested' })],
 		held: [{ uri: 'a', kind: 'booking', title: 'Inquiry', excerpt: null, createdAt: '2026-10-30T20:00:00Z' }]
 	});
@@ -34,6 +34,12 @@ it('links each page with where things stand there', async () => {
 		.element(page.getByRole('link', { name: 'Review requests' }))
 		.toHaveAttribute('href', '/dashboard/account/requests');
 	await expect.element(page.getByText('1 needs you · 1 with staff')).toBeVisible();
+});
+
+it('says which channels are on', async () => {
+	await open({ channels: ['on', 'paused'] });
+
+	await expect.element(page.getByText('Email on · Bluesky DMs paused')).toBeVisible();
 });
 
 it('puts the latest entry in a plain sentence', async () => {

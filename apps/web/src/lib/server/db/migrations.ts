@@ -1,6 +1,7 @@
-import { type Kysely, sql } from 'kysely';
+import { type Kysely, type QueryExecutorProvider, sql } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 import { COLLECTION } from '#lib/nsid.ts';
+import { currentJson, currentSpaceUri } from '../atproto/spaces';
 import type { Database } from './schema';
 
 const statements = (...items: string[]) => items;
@@ -348,6 +349,74 @@ const epkViews = statements(
 	`CREATE INDEX epk_view_created ON epk_view (created_at)`
 );
 
+/**
+ * The columns that hold a space's or a space record's URI. Left as they are: `space_record.value` and what the audit
+ * log says (`audit_entry.subject` and `details`, `audit_copy.record`), which a CID or the entry's hash covers.
+ */
+const SPACE_URI_COLUMNS = {
+	audit_copy: ['uri'],
+	audit_entry: ['root_uri', 'actor_uri'],
+	booking_event: ['uri', 'space_uri'],
+	booking_participant: ['space_uri'],
+	booking_thread: ['space_uri'],
+	epk_draft: ['uri', 'space_uri'],
+	epk_grant: ['space_uri', 'uri', 'request_uri'],
+	epk_request: ['uri', 'space_uri'],
+	event: ['uri', 'space_uri', 'venue_space'],
+	feature_flag: ['uri'],
+	flag_group: ['uri'],
+	notification: ['dedupe_key', 'subject_uri'],
+	party: ['space_uri'],
+	pending_projection: ['space_uri'],
+	performer: ['space_uri'],
+	project_details: ['uri'],
+	request: ['uri', 'subject_uri', 'decision_uri'],
+	shared_space: ['space_uri'],
+	space_invite: ['space_uri'],
+	space_invite_link: ['space_uri'],
+	space_join_request: ['space_uri'],
+	space_person: ['space_uri', 'source'],
+	space_record: ['space_uri'],
+	space_watch: ['space_uri'],
+	staff_role: ['uri'],
+	sync_repo_retry: ['space_uri'],
+	synced_repo: ['space_uri'],
+	venue: ['space_uri'],
+	venue_approval: ['space_uri', 'event_uri'],
+	venue_block: ['venue']
+};
+
+/** The JSON columns whose records or data can hold one. */
+const SPACE_URI_JSON_COLUMNS = {
+	booking_event: ['record'],
+	epk_draft: ['record'],
+	event: ['record'],
+	notification: ['data'],
+	party: ['record'],
+	performer: ['record'],
+	request: ['record'],
+	venue: ['record']
+};
+
+const DIGEST_KEY = 'listing_digest:';
+
+/** Rewrites `column`'s values that hold a space URI as the alpha wrote it, and no others. */
+async function rewriteColumn(
+	db: QueryExecutorProvider,
+	table: string,
+	column: string,
+	rewrite: (value: string) => string
+): Promise<void> {
+	const name = sql.ref(column);
+
+	const { rows } = await sql<{ value: string }>`
+		SELECT DISTINCT ${name} AS value FROM ${sql.table(table)} WHERE ${name} LIKE '%at://did:%/space/%'
+	`.execute(db);
+
+	for (const { value } of rows)
+		await sql`UPDATE ${sql.table(table)} SET ${name} = ${rewrite(value)} WHERE ${name} = ${value}`.execute(db);
+}
+
 export const migrations = {
 	'001_init': {
 		async up(db) {
@@ -617,6 +686,39 @@ export const migrations = {
 				)
 				.execute(db);
 			await sql.raw('CREATE INDEX venue_approval_event ON venue_approval (event_uri)').execute(db);
+		}
+	},
+	// Names and avatars come from profile records through HappyView; these were only ever written null.
+	'022_account_without_profile': {
+		async up(db) {
+			await sql.raw('ALTER TABLE account DROP COLUMN display_name').execute(db);
+			await sql.raw('ALTER TABLE account DROP COLUMN avatar_url').execute(db);
+		}
+	},
+	// Signed-out visitors became a flag's own setting. Records from before it don't say, which FlagService reads.
+	'023_feature_flag_signed_out': {
+		async up(db) {
+			await sql.raw('ALTER TABLE feature_flag ADD COLUMN signed_out INTEGER').execute(db);
+		}
+	},
+	// Space URIs moved from `at://<did>/space/<type>/<key>` to `at:space/<did>/<type>/<key>`. Only touches the old form, so
+	// running it again changes nothing.
+	'024_space_uris': {
+		async up(db) {
+			// A thread's participants name it, so each is rewritten before the check of one by the other.
+			await db.transaction().execute(async (trx) => {
+				await sql`PRAGMA defer_foreign_keys = ON`.execute(trx);
+
+				for (const [table, columns] of Object.entries(SPACE_URI_COLUMNS))
+					for (const column of columns) await rewriteColumn(trx, table, column, currentSpaceUri);
+
+				for (const [table, columns] of Object.entries(SPACE_URI_JSON_COLUMNS))
+					for (const column of columns) await rewriteColumn(trx, table, column, currentJson);
+
+				await rewriteColumn(trx, 'kv', 'key', (key) =>
+					key.startsWith(DIGEST_KEY) ? DIGEST_KEY + currentSpaceUri(key.slice(DIGEST_KEY.length)) : key
+				);
+			});
 		}
 	}
 } satisfies Record<string, Migration>;

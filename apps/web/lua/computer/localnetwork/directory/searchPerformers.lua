@@ -80,6 +80,7 @@ local function before(a, b, sort)
 end
 
 function handle(input)
+	skipInactive(input)
 	local projectWhere, projectArgs = { " AND record::jsonb ->> 'status' = 'active'" }, {}
 	local profileWhere, profileArgs = {}, {}
 	local function filter(where, args, clause, values)
@@ -120,6 +121,11 @@ function handle(input)
 				.. '))',
 			djs
 		)
+	end
+	-- An inactive DJ's profile is left out, and their solo project still gives way to it, so neither shows.
+	local shown = {}
+	for _, did in ipairs(djs) do
+		if not inactive[did] then shown[#shown + 1] = did end
 	end
 	if #tiers > 0 then
 		project(inFeeTiers('record', 'profile,fees', tiers, 'profile,fee'))
@@ -164,14 +170,14 @@ function handle(input)
 	end
 
 	local fromProfiles = {}
-	if #djs > 0 then
+	if #shown > 0 then
 		local rows = query(
 			PROFILES
-				.. marks(#djs)
+				.. marks(#shown)
 				.. ')'
 				.. table.concat(profileWhere)
 				.. (order == 'name' and PROFILES_BY_NAME or PROFILES_RECENT),
-			append(append({ ROOT_DID, LISTING, DJ_PROFILE, PROFILE }, djs), profileArgs)
+			append(append({ ROOT_DID, LISTING, DJ_PROFILE, PROFILE }, shown), profileArgs)
 		)
 		for _, row in ipairs(rows) do
 			local record = json.decode(row.record)

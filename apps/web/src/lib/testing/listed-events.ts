@@ -4,7 +4,7 @@ import { EVENT_STATUS } from '#lib/shows.ts';
 /** One of Night Shift's events at Tresor as lists show it, waiting for the venue unless `overrides` say otherwise. */
 export const listedEvent = (rkey: string, overrides: Partial<ListedEvent> = {}): ListedEvent => ({
 	kind: 'event',
-	uri: `at://did:plc:root/computer.localnetwork.space.party/3lzparty/did:plc:root/computer.localnetwork.event/${rkey}`,
+	uri: `at:space/did:plc:root/computer.localnetwork.space.party/3lzparty/did:plc:root/computer.localnetwork.event/${rkey}`,
 	href: `/party/3lzparty/${rkey}/winter-opening`,
 	name: 'Winter Opening',
 	startsAt: '2026-12-05T23:00:00+01:00',

@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Logger } from '../logger';
+import { type BackfillFlags, backfillsPaused } from './backfills';
 import type { DirectoryRecord, HappyViewClient } from './client';
 import { unlessOffline } from './offline';
 
@@ -35,17 +36,19 @@ export async function awaitIndexed(served: () => Promise<boolean>, waitMs: numbe
 
 /**
  * Has HappyView re-read the accounts' records of `collection` from their PDS, in one job per 500 accounts, for a write
- * it didn't serve in time, in case Jetstream never brought it. Only with an API key. It waits up to `waitMs` for the
- * jobs to finish, which then run on in HappyView; a failure is only logged.
+ * it didn't serve in time, in case Jetstream never brought it. Only with an API key, and not while `flags` has
+ * pauseBackfills on. It waits up to `waitMs` for the jobs to finish, which then run on in HappyView; a failure is only
+ * logged.
  */
 export async function reindex(
 	directory: HappyViewClient,
 	logger: Logger,
+	flags: BackfillFlags,
 	collection: string,
 	dids: string[],
 	waitMs = 0
 ) {
-	if (!directory.admin) return;
+	if (!directory.admin || (await backfillsPaused(flags, logger, collection, dids))) return;
 
 	try {
 		const jobs = await directory.backfill(collection, dids);
@@ -66,7 +69,8 @@ export class IndexedRepo {
 	constructor(
 		private readonly directory: HappyViewClient,
 		private readonly logger: Logger,
-		private readonly indexWaitMs = INDEX_WAIT_MS
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		private readonly flags?: BackfillFlags
 	) {}
 
 	async getRecord(
@@ -162,7 +166,7 @@ export class IndexedRepo {
 
 	/** Has HappyView re-read one account's records of `collection` from its PDS, waiting up to `waitMs` (see reindex). */
 	reindex(did: string, collection: string, waitMs = 0): Promise<void> {
-		return reindex(this.directory, this.logger, collection, [did], waitMs);
+		return reindex(this.directory, this.logger, this.flags, collection, [did], waitMs);
 	}
 
 	private read<T>({ strict }: ReadOptions, query: () => Promise<T>): Promise<T | null> {

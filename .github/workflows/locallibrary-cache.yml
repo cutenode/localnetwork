@@ -83,18 +83,21 @@ jobs:
       release: false
       budgets: false
       dist: false
-      other-os: true
+      windows: true
       macos: true
       semver: false
       commands: false
       fuzz: false
       crates: false
+      group-base: ''
 
   # Each set of apt packages a workflow installs (.github/actions/apt-packages), restored or saved
   # on main every night. A pull request reads main's caches but can't see another pull request's,
   # and a push to main runs only the jobs that need libasound2-dev, so without this every other
   # set was fetched from Ubuntu's mirror by each new pull request, and failed with it. Read from the
-  # workflows, so a new set is warmed without a list to edit.
+  # workflows and actions, so a new set is warmed without a list to edit. The apt job below takes its
+  # set from the matrix, an expression, which is left out; tools/policy/workflows.rego keeps every
+  # other set a plain list.
   apt-sets:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -107,8 +110,8 @@ jobs:
       # yq is on the runner.
       - id: sets
         run: |
-          sets=$(yq -o json '[.jobs[].steps[]? | select(.uses == "./.github/actions/apt-packages") | .with.packages]' \
-            .github/workflows/*.yml | jq -sc 'add | unique')
+          sets=$(yq -o json '[(.jobs[]?.steps[]?, .runs.steps[]?) | select(.uses == "./.github/actions/apt-packages") | .with.packages]' \
+            .github/workflows/*.yml .github/actions/*/action.yml | jq -sc 'add | map(select(startswith("$") | not)) | unique')
           echo "Package sets: $sets"
           echo "sets=$sets" >> "$GITHUB_OUTPUT"
 
@@ -147,3 +150,17 @@ jobs:
             echo "::error title=Caches near the limit::$((bytes / 1048576)) MiB of caches; GitHub drops the least recently used past 10 GB. gh cache list --sort size_in_bytes shows what to trim."
             exit 1
           fi
+
+  # Nightly runs only: a failed job opens an issue, or comments on the open one, and the next run
+  # that passes closes it (scheduled-issue.yml). A skipped job counts as passed.
+  report:
+    needs: [changes, other-os, apt-sets, apt, cache-usage]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      issues: write
+    uses: ./.github/workflows/scheduled-issue.yml
+    with:
+      label: locallibrary
+      details: What each job warmed or measured is in its log on the run page.
+      cadence: Nightly

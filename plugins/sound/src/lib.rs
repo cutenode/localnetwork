@@ -1,8 +1,8 @@
 //! locallibrary's sound analysis plugin, `sound`: one analyzer, `tempo-key-loudness`, measuring a
-//! track's tempo, key, loudness and three-band waveform from its audio with loclib-analysis, for
-//! the host to keep and show as track-list columns (`sound.bpm`), to read by role (doctor's
-//! `--analyze`, the check before a set, ordering a set), and to draw (the waveform) where a drive
-//! has none. It measures nothing but the audio file it's handed. Once a drive is plugged in or its
+//! track's tempo, key, loudness, beat grid and three-band waveform from its audio with
+//! loclib-analysis, for the host to keep and show as track-list columns (`sound.bpm`), to read by
+//! role (doctor's `--analyze`, the check before a set, ordering a set), and to draw and write (the
+//! grid and waveform) where a drive has none. It measures nothing but the audio file it's handed. Once a drive is plugged in or its
 //! databases change, it reads the drive's tracks and the fields the host keeps for them, and suggests analysing
 //! those with none (see [`EventNotify::new_tracks`] for when).
 
@@ -85,12 +85,18 @@ fn answer(analysis: &loclib_analysis::Analysis, scratch: Option<&Path>) -> Resul
     let estimate = analysis.estimate.as_ref();
     // A tempo of 0 is none found (a blip too short for one).
     let tempo = estimate.filter(|e| e.bpm > 0.0);
+    // The grid's tempo is to 0.01 BPM, in the octave rekordbox would choose more often than the
+    // estimate's (see loclib-analysis's `grid`): it's the tempo, where there's a grid. The
+    // estimate's confidence goes with it only where the two agree.
+    let grid = analysis.grid.as_ref();
+    let bpm = grid.map(|g| g.bpm).or(tempo.map(|e| e.bpm.into()));
+    let agree = |e: &&loclib_analysis::Estimate| bpm.is_some_and(|b| (f64::from(e.bpm) / b - 1.0).abs() < 0.02);
     let loudness = analysis.loudness.as_ref();
     // Everything was worked out: what has nothing to show is null.
     let number = |n: Option<f64>| n.map_or(FieldValue::Null, FieldValue::Number);
     let mut fields = vec![
-        ("bpm", number(tempo.map(|e| e.bpm.into()))),
-        ("bpm_confidence", number(tempo.map(|e| e.bpm_confidence.into()))),
+        ("bpm", number(bpm)),
+        ("bpm_confidence", number(tempo.filter(agree).map(|e| e.bpm_confidence.into()))),
         ("key", estimate.and_then(|e| e.key).map_or(FieldValue::Null, |k| FieldValue::String(k.code()))),
         ("key_confidence", number(estimate.map(|e| e.key_confidence.into()))),
         ("integrated_lufs", number(loudness.and_then(|l| l.integrated_lufs))),
@@ -114,6 +120,8 @@ fn answer(analysis: &loclib_analysis::Analysis, scratch: Option<&Path>) -> Resul
         // takes more than a day's: it's left out, as not worked out, and the rest still counts.
         _ => {}
     }
+    let beats = grid.map(|g| g.beats(analysis.duration_secs)).filter(|b| !b.is_empty());
+    fields.push(("beats", beats.map_or(FieldValue::Null, |b| FieldValue::beats(&b))));
     Ok(Analysis { fields: fields.into_iter().map(|(name, v)| (name.into(), v)).collect() })
 }
 

@@ -85,3 +85,10 @@ it("answers a photo of a press kit or project that isn't there with a 404", asyn
 	await expect(get(null, '3lbnxyk5m2s2a', open)).rejects.toMatchObject({ status: 404 });
 	await expect(get(null, epk.rkey, open, { slug: 'nobody' })).rejects.toMatchObject({ status: 404 });
 });
+
+it("serves no photo once none of the project's managers is active", async () => {
+	const { epk, open } = await kitWithPhotos();
+	await f.managersAre('deactivated', 'deactivated');
+
+	await expect(get(null, epk.rkey, open)).rejects.toMatchObject({ status: 404 });
+});

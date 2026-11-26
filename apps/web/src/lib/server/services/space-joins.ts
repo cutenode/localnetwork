@@ -7,6 +7,7 @@ import {
 	LINK_FORBIDDEN,
 	type SpaceKind
 } from '#lib/capabilities.ts';
+import { writerLangs } from '#lib/locale.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { JoinRequestView, PendingInvite, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -95,7 +96,7 @@ export class SpaceJoins {
 
 			if (actingAs !== 'member') Object.assign(record, { staff: true });
 
-			if (input.message) Object.assign(record, { message: input.message });
+			if (input.message) Object.assign(record, { message: input.message, langs: writerLangs() });
 			await this.write(live, COLLECTION.invite, input.did, validateRecord(COLLECTION.invite, record));
 			await this.spaces.record(
 				actor,
@@ -255,7 +256,7 @@ export class SpaceJoins {
 			if (await this.stored(live, COLLECTION.joinRequest, viewer.did)) throw new UserError("You've already asked");
 			const record = { subject: viewer.did, hidden: input.hidden, createdAt: nowIso() };
 
-			if (input.message) Object.assign(record, { message: input.message });
+			if (input.message) Object.assign(record, { message: input.message, langs: writerLangs() });
 			await this.write(live, COLLECTION.joinRequest, viewer.did, validateRecord(COLLECTION.joinRequest, record));
 			await this.spaces.record(viewer, 'member', 'people.request', space, 'Asked to join', {
 				person: viewer.did,

@@ -1,7 +1,7 @@
 name: Scheduled failure issue
 
 # The last job of each *-scheduled.yml workflow and of locallibrary-bench.yml, on their weekly
-# runs: a run with a failed job opens an issue titled for the workflow, or comments on the one
+# runs, and of locallibrary-cache.yml, on its nightly ones: a run with a failed job opens an issue titled for the workflow, or comments on the one
 # still open, and the next run that passes closes it. Runs started by hand (on any branch) leave the issue alone. The calling job
 # grants the permissions below. A run whose jobs passed but found something worth a look
 # (`findings`, such as a drop in fuzz coverage) opens or comments on the issue too, so a warning
@@ -25,6 +25,10 @@ on:
         description: Markdown of what the run's jobs found, for the issue, before `details`; blank lines alone count as none.
         type: string
         default: ""
+      cadence:
+        description: How often the workflow runs, the first word of the issue's title.
+        type: string
+        default: Weekly
 
 permissions: {}
 
@@ -47,7 +51,7 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TITLE: Weekly ${{ github.workflow }} run
+          TITLE: ${{ inputs.cadence }} ${{ github.workflow }} run
           LABEL: ${{ inputs.label }}
           DETAILS: ${{ inputs.details }}
           FINDINGS: ${{ inputs.findings }}

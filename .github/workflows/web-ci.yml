@@ -26,6 +26,10 @@ on:
         description: Whether what the Docker image is built from changed (web_docker).
         type: boolean
         required: true
+      group-base:
+        description: The commit a merge queue group's sizes are measured over, main's tip when its run started; empty otherwise.
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -96,6 +100,10 @@ jobs:
         working-directory: .
         run: pnpm lexicons:format --check
       - run: pnpm lint
+      # The message catalogs (messages/, project.inlang): every message in each locale, with the
+      # variables and plural forms English has. Words written into a migrated component instead of
+      # the catalog are ast-grep's no-raw-text, in repo-checks.yml.
+      - run: pnpm i18n:check
       - run: pnpm check
       # No --with-deps, here or below: the runner has the libraries Chromium needs, and the fonts it
       # would add come from Ubuntu's mirror, which has taken long enough to cancel the job.
@@ -118,7 +126,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           NUMBER: ${{ github.event.pull_request.number }}
-          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_BASE: ${{ inputs.group-base }}
         run: |
           if [ "$EVENT" = merge_group ]; then base=$GROUP_BASE; else base=$(git rev-parse HEAD^1); fi
           git log --format='%(trailers:key=Budget-Raise)' "$base..HEAD" > "$RUNNER_TEMP/raises.md"

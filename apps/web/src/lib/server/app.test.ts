@@ -6,9 +6,11 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { jsonToLex } from '@atproto/lex-json';
 import { createSpaceCredential } from '@atproto/space';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { COLLECTION, DIRECTORY, VERIFICATION } from '#lib/nsid.ts';
 import { type App, createApp, getApp } from './app';
 import { rootSpacePolicies } from './bootstrap';
+import { MANAGER_COLLECTIONS } from './happyview/refresh';
 import { loadConfig } from './config';
 import { nowIso } from './db';
 import { type Logger, silentLogger } from './logger';
@@ -470,6 +472,37 @@ describe('syncDirectory', () => {
 		expect(verification).toBeDefined();
 	});
 
+	it('starts no re-reads of older records or shows while pauseBackfills is on, saying so', async () => {
+		const collections: string[] = [];
+
+		net.routes.set('POST /admin/backfill', async (request) => {
+			collections.push(z.object({ collection: z.string() }).parse(await request.json()).collection);
+
+			return Response.json({ id: 'job', status: 'running' }, { status: 201 });
+		});
+		const { logger, notes } = writtenLog('info');
+		const app = await start({ FLAG_OVERRIDES: 'pauseBackfills=on' }, logger);
+		await app.refreshRecords();
+
+		const refreshed = await app.db
+			.selectFrom('kv')
+			.select('key')
+			.where('key', 'like', 'happyview_refreshed:%')
+			.execute();
+
+		expect(refreshed).toEqual([]);
+		await vi.waitFor(() =>
+			expect(
+				notes()
+					.filter((note) => note.flag === 'pauseBackfills')
+					.map((note) => z.string().parse(note.round))
+					.toSorted((a, b) => a.localeCompare(b))
+			).toEqual(['refresh-records', 'refresh-records', 'reindex-shows'])
+		);
+		// The root's projects still, which the directory needs to list anything.
+		expect(collections).toEqual([COLLECTION.project]);
+	});
+
 	it('leaves HappyView alone without an API key', async () => {
 		const app = await start(NO_KEY);
 
@@ -575,6 +608,110 @@ describe('start', () => {
 		expect(getSpaces()).toBe(rootSpacePolicies(app.spaces).length);
 	});
 
+	describe('reconciler rounds', () => {
+		const STALE = `at://${ROOT}/${COLLECTION.listing}/gone`;
+
+		/** The root's repo has the listing of a space that's gone, which the listings round deletes. */
+		beforeEach(() => {
+			// ast-grep-ignore: no-direct-pds-read
+			net.routes.set('GET /xrpc/com.atproto.repo.listRecords', (_request, url) =>
+				Response.json({
+					records:
+						url.searchParams.get('collection') === COLLECTION.listing
+							? [{ uri: STALE, cid: 'bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm', value: {} }]
+							: []
+				})
+			);
+			net.routes.set('POST /xrpc/com.atproto.repo.deleteRecord', () => Response.json({}));
+		});
+
+		const deletes = () => net.seen.filter((call) => call.path === '/xrpc/com.atproto.repo.deleteRecord').length;
+
+		// No sync round in the hour, so only the hourly rounds reach the root's PDS.
+		const HOURLY = { ...NO_KEY, SYNC_POLL_INTERVAL_MS: '864000000' };
+
+		it('fix what drifted in the root repo each hour', async () => {
+			const app = await start(HOURLY);
+			app.start();
+
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			await vi.waitFor(() => expect(deletes()).toBe(1));
+		});
+
+		it('skip every round that writes while pauseReconcilers is on, saying so, and write nothing', async () => {
+			const { logger, notes } = writtenLog('info');
+			const app = await start({ ...HOURLY, FLAG_OVERRIDES: 'pauseReconcilers=on' }, logger);
+			app.start();
+
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			const skipped = () => notes().filter((note) => note.flag === 'pauseReconcilers');
+
+			await vi.waitFor(() =>
+				expect(new Set(skipped().map((note) => note.round))).toEqual(
+					new Set(['manager-spaces', 'staff-spaces', 'shared-spaces', 'listings', 'calendar-copies'])
+				)
+			);
+			expect(deletes()).toBe(0);
+			// Only the venue-blocks round, which reads the root's blocks into the index and writes nothing there.
+			expect(
+				net.seen
+					.filter((call) => call.host === 'pds.test' && call.path !== '/xrpc/com.atproto.server.createSession')
+					.map((call) => [call.path.split('.').at(-1), call.url.searchParams.get('collection')])
+			).toEqual([['listRecords', COLLECTION.venueBlock]]);
+			expect(notes().some((note) => note.message === 'reconciled venue blocks')).toBe(true);
+		});
+
+		it('skip the rounds that write once pauseReconcilers is saved at 100%, with no account to ask for', async () => {
+			const { logger, notes } = writtenLog('info');
+			const app = await start(HOURLY, logger);
+			await app.flags.indexFlag(`at://${ROOT}/${COLLECTION.staffFlag}/pauseReconcilers`, {
+				key: 'pauseReconcilers',
+				everyone: false,
+				percentage: 100,
+				groups: [],
+				dids: [],
+				updatedBy: ROOT,
+				updatedAt: nowIso()
+			});
+			app.start();
+
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			await vi.waitFor(() =>
+				expect(notes().filter((note) => note.flag === 'pauseReconcilers' && note.round === 'listings')).toHaveLength(1)
+			);
+			expect(deletes()).toBe(0);
+		});
+
+		it('skip the rounds a bootstrap runs while pauseReconcilers is on', async () => {
+			const { logger, notes } = writtenLog('info');
+			const app = await start({ ...NO_KEY, FLAG_OVERRIDES: 'pauseReconcilers=on' }, logger);
+			const policies = new Map(rootSpacePolicies(app.spaces).map(({ uri, policy }) => [uri, policy]));
+
+			net.routes.set('GET /xrpc/com.atproto.space.getSpace', (_request, url) => {
+				const policy = policies.get(url.searchParams.get('space')!);
+
+				return policy
+					? Response.json({ space: url.searchParams.get('space'), policy })
+					: Response.json({ error: 'NotFound' }, { status: 404 });
+			});
+			net.routes.set('GET /xrpc/com.atproto.space.listSpaces', () => Response.json({ spaces: [] }));
+
+			await app.bootstrap();
+
+			expect(
+				new Set(
+					notes()
+						.filter((note) => note.flag === 'pauseReconcilers')
+						.map((note) => note.round)
+				)
+			).toEqual(
+				new Set(['staff-spaces', 'manager-spaces', 'shared-spaces', 'listings', 'calendar-copies', 'press-kit-spaces'])
+			);
+			expect(deletes()).toBe(0);
+			expect(notes().some((note) => note.message === 'reconciled venue blocks')).toBe(true);
+		});
+	});
+
 	it("logs that it couldn't resume notification delivery when the outbox can't be read", async () => {
 		const { logger, notes } = capture();
 		const app = await start(NO_KEY, logger);
@@ -644,6 +781,140 @@ describe('backups', () => {
 			await s3.close();
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('notification delivery', () => {
+	it.each([
+		['on', 'sent', 1],
+		['off', 'skipped', 0]
+	])("goes by the app's flags: with inboxEmail %s, a due email is %s", async (flag, status, sent) => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		const emails: string[] = [];
+
+		net.routes.set('POST /emails', async (request) => {
+			emails.push(z.object({ text: z.string() }).parse(await request.json()).text);
+
+			return Response.json({ id: `email-${emails.length}` });
+		});
+
+		const app = await start({
+			...NO_KEY,
+			EMAIL_PROVIDER: 'resend',
+			RESEND_API_KEY: 're_key',
+			FLAG_OVERRIDES: `inboxEmail=${flag}`
+		});
+
+		await app.notificationChannels.onSignIn({
+			did: NEON,
+			scope: 'atproto account:email',
+			optIn: true,
+			session: async () => ({ email: 'neon@example.test', emailConfirmed: true })
+		});
+		const link = new URL(z.string().parse(emails[0].match(/https:\S+/)?.[0]));
+		expect(await app.notificationChannels.confirmEmail(link.searchParams.get('t') ?? '')).toBe('confirmed');
+
+		await app.notifications.notify({
+			kind: 'booking.message',
+			to: [NEON],
+			key: 'first',
+			subject: `at:space/${ROOT}/computer.localnetwork.booking/3mabc`,
+			data: { skey: '3mabc', title: 'first', projectName: 'Neon Tide', from: 'promoter' },
+			href: '/dashboard/bookings/3mabc',
+			at: new Date().toISOString()
+		});
+		vi.setSystemTime(Date.now() + 2 * 60_000);
+		await app.outbox.processDue();
+
+		const deliveries = await app.db.selectFrom('notificationDelivery').select('status').execute();
+		expect(deliveries.map((row) => row.status)).toEqual([status]);
+		expect(emails.length - 1).toBe(sent);
+	});
+});
+
+describe('a reinstated account', () => {
+	/** What NEON's PDS answers getRepoStatus with. */
+	let status: string;
+	/** The collections HappyView was asked to re-read NEON's records of. */
+	let reread: string[];
+	/** A collection whose re-read HappyView fails. */
+	let failing: string | undefined;
+
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		status = 'takendown';
+		reread = [];
+		failing = undefined;
+
+		net.routes.set('GET /xrpc/com.atproto.sync.getRepoStatus', () =>
+			Response.json(status === 'active' ? { active: true } : { active: false, status })
+		);
+		net.routes.set('POST /admin/backfill', async (request) => {
+			const body = z.object({ collection: z.string(), dids: z.array(z.string()) }).parse(await request.json());
+
+			if (body.dids.includes(NEON)) reread.push(body.collection);
+
+			if (body.collection === failing) return new Response('down', { status: 500 });
+
+			return Response.json({ id: 'job', status: 'running' }, { status: 201 });
+		});
+	});
+
+	/** Sees NEON taken down, then has the status asked again once it's stale and finds NEON active. */
+	const reinstate = async (app: App) => {
+		expect(await app.accountStatuses.status(NEON)).toBe('takendown');
+		status = 'active';
+		vi.setSystemTime(Date.now() + 31 * 60_000);
+		await app.accountStatuses.status(NEON);
+	};
+
+	const sorted = (collections: readonly string[]) => collections.toSorted((a, b) => a.localeCompare(b));
+
+	const warnings = (notes: () => { message: string }[]) =>
+		notes().filter((note) => note.message === "a reinstated account's records may not all be back");
+
+	it("has HappyView re-read the account's records of every manager collection", async () => {
+		const { logger, notes } = capture();
+		const app = await start({}, logger);
+
+		await reinstate(app);
+		await vi.waitFor(() => expect(sorted(reread)).toEqual(sorted(MANAGER_COLLECTIONS)));
+
+		// Joining the re-reads under way waits for them, and a turn of the event loop lets the reinstatement finish.
+		const done = await Promise.all(MANAGER_COLLECTIONS.map((collection) => app.backfills.backfill(collection, [NEON])));
+		expect(done.every(Boolean)).toBe(true);
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(warnings(notes)).toEqual([]);
+	});
+
+	it.each<[string, Record<string, string>, (app: App) => Promise<void>, readonly string[]]>([
+		[
+			"HappyView can't re-read one collection",
+			{},
+			async () => {
+				failing = COLLECTION.djSet;
+			},
+			[COLLECTION.djSet]
+		],
+		['pauseBackfills is on', { FLAG_OVERRIDES: 'pauseBackfills=on' }, async () => undefined, MANAGER_COLLECTIONS],
+		[
+			"the flags can't be read",
+			{},
+			async (app) => {
+				await app.db.schema.dropTable('flagGroup').execute();
+				// Forgets the flags read so far, so the next check reads them again.
+				await app.flags.removeFlagByUri(`at:space/${ROOT}/gone`);
+			},
+			MANAGER_COLLECTIONS
+		]
+	])('logs the collections that may not be back when %s', async (_when, env, setup, unread) => {
+		const { logger, notes } = capture();
+		const app = await start(env, logger);
+		await setup(app);
+
+		await reinstate(app);
+		await vi.waitFor(() => expect(warnings(notes)).toHaveLength(1));
+		expect(warnings(notes)[0]).toMatchObject({ did: NEON, collections: [...unread] });
 	});
 });
 

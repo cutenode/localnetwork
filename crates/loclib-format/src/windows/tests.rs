@@ -535,3 +535,10 @@ fn prop_fat32_is_laid_out_over_the_partition_printed(tc: TestCase) {
         other => panic!("{size:?}: {other:?}"),
     }
 }
+
+/// Windows doesn't say what speed a USB link came up at, so no disk has one there, whatever it is.
+#[hegel::test(test_cases = 50)]
+fn prop_windows_never_says_a_link_speed(tc: TestCase) {
+    let disk = crate::test_util::any_disk(&tc);
+    assert_eq!(link_speed(&disk), None, "{disk:?}");
+}

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import { SHOWS_ON_KINDS, type ShowsOn } from '#lib/flags/shows-on.ts';
 
 const flagFields = {
 	$schema: z.string().optional(),
@@ -8,7 +9,14 @@ const flagFields = {
 		.regex(/^[a-z][a-zA-Z0-9]*$/)
 		.max(64)
 		.describe('What code asks for: camelCase, the same as the file name.'),
-	description: z.string().min(1).max(300).describe('What the flag gates, for the staff console.')
+	description: z.string().min(1).max(300).describe('What the flag gates, for the staff console.'),
+	showsOn: z
+		.array(z.enum(SHOWS_ON_KINDS))
+		.min(1)
+		.optional()
+		.describe(
+			'The kinds of page the flag changes, or global for every page. act is a /projects page until acts move. The staff console lists them as Shows on.'
+		)
 };
 
 /** Release flags are meant to go, so they carry a date; ops flags stay and can't. */
@@ -36,7 +44,7 @@ export const flagDefinition = z
 	])
 	.describe('A feature flag the website and locallibrary share. Who it is on for is set in the staff console.');
 
-export type FlagDefinition = { key: FlagKey; description: string } & (
+export type FlagDefinition = { key: FlagKey; description: string; showsOn?: ShowsOn[] } & (
 	| { type: 'release'; removeBy: string }
 	| { type: 'ops'; removeBy?: undefined }
 );

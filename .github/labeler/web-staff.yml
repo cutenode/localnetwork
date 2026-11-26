@@ -18,6 +18,7 @@
           - "apps/web/src/lib/server/services/bug-reports.*"
           - "apps/web/src/lib/server/services/verifications.*"
           - "apps/web/src/lib/server/forms/flags.*"
+          - "apps/web/src/lib/flags/**"
           - "apps/web/src/lib/server/flags/**"
           - "flags/**"
           - "apps/web/src/lib/server/audit/**"

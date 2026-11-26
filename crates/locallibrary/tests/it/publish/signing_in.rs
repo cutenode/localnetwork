@@ -5,6 +5,7 @@
 
 use locallibrary::Error;
 use locallibrary::api::{self, AccountLoginRequest};
+use locallibrary::atmosphere::publishing::Availability;
 use locallibrary::progress::Ctx;
 
 /// Without a handle, and none signed in with before, it asks which account.
@@ -22,6 +23,8 @@ fn signing_in_asks_which_account() {
 #[test]
 fn a_server_that_isnt_there_fails_the_sign_in() {
     let dir = tempfile::tempdir().unwrap();
+    // Open, so the sign-in gets as far as the server rather than stopping at the DNS check.
+    locallibrary::testing::publishing_on_this_thread(Some(Availability::Open));
     let req = AccountLoginRequest {
         handle: Some("http://127.0.0.1:1".into()),
         dev_client: true,

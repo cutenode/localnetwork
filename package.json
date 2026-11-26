@@ -23,7 +23,8 @@
 		"verify:repo": "node tools/verify/cli.ts verify:repo",
 		"lexicons:goat": "find lexicons/computer -name '*.json' ! -path '*/space/*' ! -name permissions.json -print0 | xargs -0 go run github.com/bluesky-social/goat@v0.2.6 lex",
 		"policy": "node tools/policy/cli.ts",
-		"verify:changed": "node tools/verify/cli.ts verify:changed"
+		"verify:changed": "node tools/verify/cli.ts verify:changed",
+		"merge:main": "node tools/merge-main/cli.ts"
 	},
 	"devDependencies": {
 		"@ast-grep/cli": "^0.51.0",

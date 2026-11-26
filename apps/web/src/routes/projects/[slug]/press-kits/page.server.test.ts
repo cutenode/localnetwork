@@ -68,3 +68,9 @@ it("leaves a hidden project's list out of search, and shows it only to its manag
 	expect(data.details).toEqual({});
 	expect(page.locals).not.toHaveProperty('crawlerHead');
 });
+
+it("hides the list once none of the project's managers is active", async () => {
+	await f.managersAre('suspended', 'deleted');
+
+	await expect(pressKits(null)).rejects.toMatchObject({ status: 404, body: { title: "Neon Tide isn't active" } });
+});

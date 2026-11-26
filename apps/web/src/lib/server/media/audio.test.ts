@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as fc from 'fast-check';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { IdentityResolver } from '../atproto/identity';
 import { silentLogger } from '../logger';
 import { rebindToLoopback } from '../testing/rebind';
@@ -92,6 +93,7 @@ function ask(range: string | null, overrides: Overrides = {}) {
 		audio: async (did, cid) => (did === DJ && cid === CID ? declared : null),
 		identity: identityOf(endpoint, fetch, allowPrivateNetwork),
 		log: silentLogger,
+		flags: flagsOff,
 		...request
 	});
 }

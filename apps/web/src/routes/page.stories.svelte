@@ -152,14 +152,14 @@
 </script>
 
 {#snippet home(viewer: Viewer | null, data: typeof directory | typeof empty | typeof offline | typeof loading)}
-	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META }}
+	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META, reportsToUserinput: viewer !== null }}
 	<Layout data={layout} params={{}}>
 		<Page data={{ ...layout, social: false, geocoder: false, tools: toolCards(), ...data }} params={{}} form={null} />
 	</Layout>
 {/snippet}
 
 {#snippet social(viewer: Viewer | null, data: Social)}
-	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META }}
+	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META, reportsToUserinput: viewer !== null }}
 	<Layout data={layout} params={{}}>
 		<Page data={{ ...layout, social: true, geocoder: false, ...data }} params={{}} form={null} />
 	</Layout>

@@ -65,4 +65,11 @@ describe('EmailSettings', () => {
 		await expect.element(page.getByText('Not set up on this site.')).toBeVisible();
 		expect(page.getByRole('button').elements()).toHaveLength(0);
 	});
+
+	it("says when the site sends email but it isn't on for this account yet", async () => {
+		await render(EmailSettings, { available: false, notYet: true, channel: null });
+
+		await expect.element(page.getByText('Not on for your account yet.')).toBeVisible();
+		expect(page.getByRole('button').elements()).toHaveLength(0);
+	});
 });
