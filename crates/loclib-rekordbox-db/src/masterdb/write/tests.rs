@@ -6,7 +6,7 @@ use loclib_model::analysis::{Cue, hot_cue_palette};
 
 use super::*;
 use crate::masterdb::{DEFAULT_KEY, open};
-use crate::test_util::{Fixture, UPDATE_COUNT, codec, scratch_db, writable};
+use crate::test_util::{ANALYSIS_DIR, Fixture, UPDATE_COUNT, analysed, codec, scratch_db, writable};
 
 /// Panics should a test's write be pointed at rekordbox's own collection, or anywhere in its
 /// folders: tests write fixtures in temporary folders only.
@@ -787,4 +787,155 @@ fn a_collection_without_cue_lists_has_cues_written_without() {
     assert_eq!(written.value.content_cue, None);
     assert_eq!(written.count, (UPDATE_COUNT, UPDATE_COUNT + 1));
     assert_eq!(lib.cues(84935471).len(), 1);
+}
+
+/// [`analysed`], encrypted, with [`TRACK`]'s `.DAT` and `.EXT` in the share folder; and that
+/// folder.
+fn analysed_lib() -> (Lib, PathBuf) {
+    let lib = Lib::new(&analysed(), false);
+    let dir = lib.target.master_db.parent().unwrap().join("share").join(ANALYSIS_DIR);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("ANLZ0000.DAT"), b"dat").unwrap();
+    std::fs::write(dir.join("ANLZ0000.EXT"), b"ext").unwrap();
+    (lib, dir)
+}
+
+/// The files in `dir`, by name, with what they hold.
+fn files_in(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut out: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap())
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), std::fs::read(e.path()).unwrap_or_default()))
+        .collect();
+    out.sort();
+    out
+}
+
+fn named(files: &[(&str, &[u8])]) -> Vec<(String, Vec<u8>)> {
+    files.iter().map(|(n, b)| (n.to_string(), b.to_vec())).collect()
+}
+
+#[test]
+fn analysis_files_are_backed_up_replaced_and_listed() {
+    let (lib, dir) = analysed_lib();
+    let written = write(&lib.target, |e| {
+        assert_eq!(e.read_analysis_file(TRACK, "ext")?, Some(b"ext".to_vec()));
+        assert_eq!(e.read_analysis_file(TRACK, "2EX")?, None);
+        let ext = e.replace_analysis_file(TRACK, "EXT", b"new ext")?;
+        let dat = e.replace_analysis_file(TRACK, "DAT", b"dat")?;
+        Ok((ext, dat))
+    })
+    .unwrap();
+    let (ext, dat) = written.value;
+    // A file holding the bytes already isn't replaced.
+    assert_eq!(dat, None);
+    let ext = ext.unwrap();
+    assert_eq!(ext.path, "/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.EXT");
+    assert_eq!(ext.md5, share::md5_hex(b"ext"));
+    // The backup sits beside master.db's, holding what the file held.
+    assert_eq!(ext.backup, PathBuf::from(format!("{}.share{}", written.backup.display(), ext.path)));
+    assert_eq!(std::fs::read(&ext.backup).unwrap(), b"ext");
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"new ext")]));
+
+    // The file's row has its new hash and size, then the track is stamped, its AnalysisUpdated up
+    // by one; the counter ends at the last stamp.
+    assert_eq!(written.count, (UPDATE_COUNT, UPDATE_COUNT + 2));
+    let row = lib.query::<String>("SELECT Hash || ' ' || Size || ' ' || rb_local_usn FROM contentFile WHERE ID = 'f2'");
+    assert_eq!(row, format!("{} 7 {}", share::md5_hex(b"new ext"), UPDATE_COUNT + 1));
+    assert_eq!(lib.query::<i64>("SELECT rb_local_usn FROM contentFile WHERE ID = 'f1'"), 74001);
+    let track = format!("SELECT AnalysisUpdated || ' ' || rb_local_usn FROM djmdContent WHERE ID = '{TRACK}'");
+    assert_eq!(lib.query::<String>(&track), format!("2 {}", UPDATE_COUNT + 2));
+    // The reader doesn't take the file to be still syncing.
+    let c = open(&lib.target.master_db, DEFAULT_KEY).unwrap();
+    assert!(!c.still_syncing(&ext.path));
+
+    // Undo puts the old bytes back as a new change.
+    let undone = write(&lib.target, |e| e.restore_analysis_file(&ext)).unwrap();
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert_eq!(undone.count, (UPDATE_COUNT + 2, UPDATE_COUNT + 4));
+    assert_eq!(lib.query::<String>(&track), format!("3 {}", UPDATE_COUNT + 4));
+    let hash = lib.query::<String>("SELECT Hash FROM contentFile WHERE ID = 'f2'");
+    assert_eq!(hash, share::md5_hex(b"ext"));
+    assert_eq!(std::fs::read(&undone.value.unwrap().backup).unwrap(), b"new ext");
+}
+
+/// A write refused at the last moment leaves the files as they were, and nothing beside them or
+/// in the backups.
+#[test]
+fn a_refused_write_leaves_the_files() {
+    fn starts_later() -> Running {
+        Running { rekordbox: SHARE_CALLS.fetch_add(1, Ordering::SeqCst) > 0, agent: false }
+    }
+    static SHARE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    let (mut lib, dir) = analysed_lib();
+    lib.target.running = starts_later;
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| e.replace_analysis_file(TRACK, "EXT", b"new")).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::RekordboxRunning)), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
+}
+
+/// A file changed underneath (rekordbox analysed it again) stops the swap, and the change stays.
+#[test]
+fn a_file_changed_underneath_is_kept() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| {
+        let replaced = e.replace_analysis_file(TRACK, "EXT", b"new");
+        std::fs::write(dir.join("ANLZ0000.EXT"), b"rekordbox's").unwrap();
+        replaced
+    })
+    .unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Changed)), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"rekordbox's")]));
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
+}
+
+/// Only a track's own analysis files, that are there and listed as rekordbox lists them, are
+/// replaced.
+#[test]
+fn analysis_files_that_cant_be_replaced() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let invalid: &[(&str, &str)] = &[
+        // No analysis path: rekordbox hasn't analysed it.
+        ("205356547", "DAT"),
+        // Not a file replaced here.
+        (TRACK, "3EX"),
+        (TRACK, "../x"),
+        // Not there.
+        (TRACK, "2EX"),
+    ];
+    for (track, ext) in invalid {
+        let e = write(&lib.target, |e| e.replace_analysis_file(track, ext, b"x")).unwrap_err();
+        assert!(matches!(e, Error::Invalid(_)), "{track} {ext}: {e}");
+    }
+    let e = write(&lib.target, |e| {
+        e.replace_analysis_file(TRACK, "EXT", b"x")?;
+        e.replace_analysis_file(TRACK, "ext", b"y")
+    })
+    .unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "twice: {e}");
+    // A file without its contentFile row.
+    let e = write(&lib.target, |e| {
+        e.conn().execute("DELETE FROM contentFile WHERE ID = 'f2'", []).unwrap();
+        e.replace_analysis_file(TRACK, "EXT", b"x")
+    })
+    .unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
+    // A path out of the share folder.
+    let e = write(&lib.target, |e| {
+        let sql =
+            format!("UPDATE djmdContent SET AnalysisDataPath = '/PIONEER/USBANLZ/../../x.DAT' WHERE ID = '{TRACK}'");
+        e.conn().execute(&sql, []).unwrap();
+        e.replace_analysis_file(TRACK, "DAT", b"x")
+    })
+    .unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
 }

@@ -272,6 +272,27 @@ pub fn writable() -> Fixture {
     f
 }
 
+/// Where [`analysed`]'s track `84935471` has its analysis files, in the share folder.
+pub const ANALYSIS_DIR: &str = "PIONEER/USBANLZ/P016/0000875E";
+
+/// [`writable`] with what an analysed track has besides, as rekordbox 7 has it: `AnalysisUpdated`
+/// (1 for track `84935471`), and a `contentFile` row for that track's `.DAT` (`f1`) and `.EXT`
+/// (`f2`), whose `Hash` and `Size` are for files nobody wrote yet. The files go in
+/// [`ANALYSIS_DIR`].
+pub fn analysed() -> Fixture {
+    let f = writable();
+    f.exec(&format!(
+        "ALTER TABLE djmdContent ADD COLUMN AnalysisUpdated VARCHAR(255);
+         UPDATE djmdContent SET AnalysisUpdated = '1' WHERE ID = '84935471';
+         CREATE TABLE contentFile (ID VARCHAR(255) PRIMARY KEY, ContentID VARCHAR(255), Path VARCHAR(255),
+             Hash VARCHAR(255), Size INTEGER, rb_local_path VARCHAR(255), {STATS});
+         INSERT INTO contentFile (ID, ContentID, Path, Hash, Size, rb_local_usn) VALUES
+             ('f1', '84935471', '/{ANALYSIS_DIR}/ANLZ0000.DAT', '', 0, 74001),
+             ('f2', '84935471', '/{ANALYSIS_DIR}/ANLZ0000.EXT', '', 0, 74002);"
+    ));
+    f
+}
+
 /// The database at `path`, decrypted (a plain one as it is): every byte of every page.
 pub fn plain(path: &Path) -> Vec<u8> {
     let bytes = std::fs::read(path).unwrap();

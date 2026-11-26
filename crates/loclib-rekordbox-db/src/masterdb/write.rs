@@ -28,6 +28,11 @@
 //! looser than it could be, a write here is stricter: the whole edit is one transaction and checked
 //! before the swap, and a track's `djmdCue` rows and its `contentCue` list always agree after it.
 //!
+//! A track's analysis files in rekordbox's `share` folder are written with the same write
+//! ([`Edit::replace_analysis_file`]): each is backed up beside `master.db`'s backup, its new bytes
+//! put beside it, its `contentFile` row given the new hash and size in the same transaction, and the
+//! new files renamed in once `master.db` has been swapped in (see the `share` module).
+//!
 //! Undo moves forward: each edit answers what it replaced ([`CuesBefore`], [`TrackBefore`]), which
 //! a later write puts back as a new change, with new stamps. Restoring a backup whole would take
 //! `localUpdateCount` back, so it's only for a damaged file.
@@ -47,9 +52,11 @@ use crate::onelibrary::cipher::{self, Codec};
 use crate::{Error, Refusal, Result};
 
 mod cues;
+mod share;
 mod sync;
 
 pub use cues::{CueEntry, CuesBefore, cue_list_mismatches};
+pub use share::FileBefore;
 pub use sync::sync_on;
 
 /// The `master.db` a write goes to, and what it needs besides.
@@ -115,6 +122,8 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
         None => tempfile::tempdir().at(std::env::temp_dir())?,
     };
     let backup = Removed::new(backup(master, &target.backups, &before)?);
+    // Analysis files the edit replaces are backed up in a folder named after master.db's backup.
+    let share_backup = share::RemovedDir::new(PathBuf::from(format!("{}.share", backup.0.display())));
 
     // The backup read back is the working copy: what's edited is what was backed up.
     let (db, salt) = open_copy(&backup.0, &target.key, work.path(), true)?;
@@ -134,13 +143,16 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     let pointing_nowhere = dangling(conn).map_err(at)?;
 
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(at)?;
-    let mut e = Edit::new(&tx, &backup.0)?;
+    let share = super::share_dir(master);
+    let mut e = Edit::new(&tx, &backup.0, &share, &share_backup.0)?;
     let value = edit(&mut e)?;
     let count = e.finish()?;
     let (touched, cue_tracks) = (std::mem::take(&mut e.touched), std::mem::take(&mut e.cue_tracks));
+    let replaced = std::mem::take(&mut e.replaced);
     drop(e);
     tx.commit().map_err(at)?;
     check(conn, count, &pointing_nowhere, &touched, &cue_tracks)
+        .and_then(|()| share::check(conn, &replaced))
         .map_err(|why| Error::Refused(Refusal::Odd(format!("the edited copy {why}"))))?;
     drop(db);
 
@@ -163,9 +175,12 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     if Fingerprint::of(master)? != before {
         return Err(Error::Refused(Refusal::Changed));
     }
+    share::unchanged(&replaced)?;
     std::fs::rename(&new.0, master).at(master)?;
     new.keep();
     sync_dir(master);
+    share::swap_in(replaced)?;
+    share_backup.keep();
     Ok(Written { value, backup: backup.keep(), count })
 }
 
@@ -434,10 +449,16 @@ pub struct Edit<'c> {
     /// Tracks whose rows were changed, and those whose cue lists were.
     touched: FxHashSet<String>,
     cue_tracks: FxHashSet<String>,
+    /// rekordbox's `share` folder, and where the analysis files replaced there are backed up.
+    share: &'c Path,
+    share_backup: &'c Path,
+    /// The analysis files replaced, waiting to be renamed in, and the tracks they're of.
+    replaced: Vec<share::Replaced>,
+    analysed: Vec<String>,
 }
 
 impl<'c> Edit<'c> {
-    fn new(conn: &'c Connection, path: &'c Path) -> Result<Edit<'c>> {
+    fn new(conn: &'c Connection, path: &'c Path, share: &'c Path, share_backup: &'c Path) -> Result<Edit<'c>> {
         let sql = |e: rusqlite::Error| Error::parse(path, e);
         let Some(was) = Stamp::count(conn).map_err(sql)? else {
             let why = "its agentRegistry has no single localUpdateCount, which rekordbox counts every change with";
@@ -454,6 +475,10 @@ impl<'c> Edit<'c> {
             now,
             touched: FxHashSet::default(),
             cue_tracks: FxHashSet::default(),
+            share,
+            share_backup,
+            replaced: Vec::new(),
+            analysed: Vec::new(),
         })
     }
 
@@ -480,6 +505,7 @@ impl<'c> Edit<'c> {
     /// a stamp is raised to it). A count kept as text in `str_1` is raised there too. Answers it
     /// before and after.
     fn finish(&mut self) -> Result<(i64, i64)> {
+        self.bump_analysed()?;
         let count = self.stamp.next - 1;
         if count != self.stamp.was {
             self.conn

@@ -733,6 +733,27 @@ impl<'a> Drafts<'a> {
     }
 }
 
+/// The cues `t` has after `a` places cues on it, given the ones it has (`cues`), and its analysis
+/// files' bytes (`dat`, `ext`) for its beat grid and phrases: as `cues auto` places them on a
+/// drive's track, for tracks that aren't on one (rekordbox's collection's).
+pub(crate) fn auto_placed(
+    t: &Track,
+    cues: Vec<CuePoint>,
+    dat: &[u8],
+    ext: Option<&[u8]>,
+    a: AutoCues,
+) -> Result<Vec<CuePoint>> {
+    let loaded = Loaded {
+        dat: String::new(),
+        ext: None,
+        beats: anlz::beat_grid(dat).unwrap_or_default(),
+        dat_bytes: Vec::new(),
+        ext_bytes: ext.map(<[u8]>::to_vec),
+        cues,
+    };
+    Ok(edited(t, &loaded, &CueEdit::Auto(a), None)?.into_iter().map(|d| d.cue).collect())
+}
+
 /// The cues a track has after `edit`.
 fn edited(t: &Track, loaded: &Loaded, edit: &CueEdit, source: Option<&Loaded>) -> Result<Vec<Draft>> {
     let mut drafts: Vec<Draft> =

@@ -287,6 +287,34 @@ pub(crate) fn new_files(
     Ok((made, warnings))
 }
 
+/// What writing `a` (its waveform `bands`) changes in analysis files holding `bytes` (`.DAT`,
+/// `.EXT` and `.2EX`, the `.DAT` there) of the track `t`, with what to warn of: each file changed,
+/// by its extension (`DAT`, `EXT`, `2EX`), with its new bytes. For files that aren't on a drive:
+/// rekordbox's collection's (see [`crate::collection_analysis`]).
+pub(crate) fn rewrite_files(
+    t: &Track,
+    bytes: [Option<Vec<u8>>; 3],
+    a: &NewAnalysis,
+    bands: Option<&Bands>,
+) -> Result<(Rewritten, Vec<String>)> {
+    if bytes[0].is_none() {
+        return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
+    }
+    rewrite(t, &Files { keys: ["DAT", "EXT", "2EX"].map(String::from), bytes }, a, bands)
+}
+
+/// The waveform `wave` gives as bands, when it's given as them (in base64): not one staged on a
+/// drive, nor a plugin's blob.
+pub(crate) fn given_bands(wave: &WaveSource) -> Result<Bands> {
+    let WaveSource::Base64(text) = wave else {
+        return Err(Error::invalid("a waveform written here is given as bands, in base64"));
+    };
+    let bytes = BASE64_STANDARD.decode(text).map_err(|e| Error::invalid(format!("the waveform isn't base64: {e}")))?;
+    Bands::unpack(&bytes)
+        .filter(|b| !b.0.is_empty())
+        .ok_or_else(|| Error::invalid("a waveform is three bytes a column (lows, mids, highs), at least one column"))
+}
+
 /// The track of the audio file `file` (a device path) in `library`.
 fn track<'a>(library: &'a Library, file: &str) -> Result<&'a Track> {
     let key = paths::file_key(file);

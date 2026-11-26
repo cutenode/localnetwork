@@ -27,6 +27,7 @@ indexmap.workspace = true
 loclib-model.workspace = true
 loclib-plugin = { workspace = true, optional = true }
 loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }
+md-5 = { version = "0.10", optional = true }
 quick-xml = "0.42"
 rusqlite.workspace = true
 rustc-hash.workspace = true
@@ -43,7 +44,7 @@ schemars = ["dep:schemars", "loclib-model/schemars", "schemars/indexmap2"]
 # `masterdb::files`: rekordbox's files on this computer, as loclib-plugin's `collection:files`
 # reads describe them (where they are, whether rekordbox is running, a copy of master.db, its
 # tracks' files).
-files = ["dep:loclib-plugin", "dep:plist", "dep:sysinfo"]
+files = ["dep:loclib-plugin", "dep:md-5", "dep:plist", "dep:sysinfo"]
 # `test_util`: databases and drawn tracks for tests, in this crate and the ones built on it.
 test-util = ["dep:hegeltest"]
 
