@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use schemars::JsonSchema;
@@ -270,29 +270,24 @@ const SMALL_FILE_WRITERS: usize = 8;
 
 /// `copy` of each of `items` (`size` being what it writes): the small ones several at a time, then
 /// the others one by one, so a drive that's being written nothing else keeps each audio file in
-/// one piece for the player to read. Stops at the first error, finishing what comes before it:
-/// what it copied, and the error.
+/// one piece for the player to read. An error stops the large ones; the small ones are all still
+/// made. Gives back what it copied, and the first error in the order of `items`.
 pub(crate) fn copy_each<I: Sync, T: Send>(
     items: &[I],
     size: impl Fn(&I) -> u64,
     copy: impl Fn(&I) -> Result<T> + Sync,
 ) -> (Vec<T>, Option<Error>) {
     let (small, large): (Vec<&I>, Vec<&I>) = items.iter().partition(|i| size(i) <= SMALL_FILE);
-    // Where in the run the first failure is. Copies after it don't start, and those before it all
-    // finish, whichever thread had them: a run stopped part way keeps everything up to there.
-    let failed_at = AtomicUsize::new(usize::MAX);
-    let copy_one = |(n, item): (usize, &I)| {
-        (n < failed_at.load(Ordering::Relaxed)).then(|| {
-            copy(item).inspect_err(|_| {
-                failed_at.fetch_min(n, Ordering::Relaxed);
-            })
-        })
-    };
-    let large_from = small.len();
-    let copied = workers::each(small.into_iter().enumerate().collect(), SMALL_FILE_WRITERS, copy_one);
+    // The small copies all run, an error or not: several at once, the ones after an error that had
+    // started already would finish and the others not, so a run stopped part way would leave
+    // whichever files the quickest threads had (and plan the next run from those). A large copy
+    // after an error doesn't start.
+    let failed = AtomicBool::new(false);
+    let copy_one = |item: &I| copy(item).inspect_err(|_| failed.store(true, Ordering::Relaxed));
+    let copied = workers::each(small, SMALL_FILE_WRITERS, copy_one);
     let mut copied: Vec<_> =
-        copied.into_iter().map(|c| c.unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect();
-    copied.extend(large.into_iter().enumerate().map(|(n, item)| copy_one((large_from + n, item))));
+        copied.into_iter().map(|c| Some(c.unwrap_or_else(|panic| std::panic::resume_unwind(panic)))).collect();
+    copied.extend(large.into_iter().map(|item| (!failed.load(Ordering::Relaxed)).then(|| copy_one(item))));
     let (mut done, mut stopped) = (Vec::with_capacity(items.len()), None);
     for outcome in copied.into_iter().flatten() {
         match outcome {
