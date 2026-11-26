@@ -190,6 +190,8 @@ pub(crate) struct Flac {
     path: PathBuf,
     channels: usize,
     config: flacenc::error::Verified<config::Encoder>,
+    /// Every channel as its samples, no prediction: for a block `config` codes larger than that.
+    verbatim: flacenc::error::Verified<config::Encoder>,
     info: StreamInfo,
     /// The MD5 of the samples, which STREAMINFO carries.
     md5: flacenc::source::Context,
@@ -209,6 +211,10 @@ impl Flac {
         let mut info = StreamInfo::new(spec.sample_rate as usize, channels, depth).encoding(path)?;
         info.set_block_sizes(BLOCK, BLOCK).expect("valid block sizes");
         let config = config::Encoder::default().into_verified().expect("the default configuration is valid");
+        let mut verbatim = config::Encoder::default();
+        let coding = &mut verbatim.subframe_coding;
+        (coding.use_constant, coding.use_fixed, coding.use_lpc) = (false, false, false);
+        let verbatim = verbatim.into_verified().expect("verbatim coding is valid");
         let block = FrameBuf::with_size(channels, BLOCK).encoding(path)?;
         let mut sink = ByteSink::new();
         sink.write_bytes_aligned(b"fLaC").expect("memory");
@@ -227,6 +233,7 @@ impl Flac {
             path: path.to_path_buf(),
             channels,
             config,
+            verbatim,
             info,
             md5: flacenc::source::Context::new(depth, channels),
             block,
@@ -254,8 +261,17 @@ impl Flac {
     fn encode(&mut self) -> Result<()> {
         self.block.fill_interleaved(&self.pending).encoding(&self.path)?;
         self.md5.fill_interleaved(&self.pending).encoding(&self.path)?;
-        let frame = flacenc::encode_fixed_size_frame(&self.config, &self.block, self.frames, &self.info)
-            .encoding(&self.path)?;
+        let encode = |config: &flacenc::error::Verified<config::Encoder>| {
+            flacenc::encode_fixed_size_frame(config, &self.block, self.frames, &self.info).encoding(&self.path)
+        };
+        let mut frame = encode(&self.config)?;
+        // flacenc sizes a loud 24-bit block's Rice codes past the 28 bits its tables hold, and
+        // the cost it then compares wraps: it can pick codes a hundred times the samples' size, a
+        // frame too big for readers to find the next one, so the copy reads as damaged. No sample
+        // as it is takes 32 bits.
+        if frame.count_bits() > 32 * self.pending.len() {
+            frame = encode(&self.verbatim)?;
+        }
         self.info.update_frame_info(&frame);
         self.sink.clear();
         frame.write(&mut self.sink).expect("memory");
