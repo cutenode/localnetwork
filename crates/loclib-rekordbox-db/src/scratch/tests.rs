@@ -267,6 +267,17 @@ fn tests_make_folders_outside_the_temporary_folder() {
     assert_eq!(folder_in(&super::root()).unwrap().path().parent().unwrap(), root.path());
 }
 
+/// On Windows a folder's access list lets in the current user alone, whatever the temporary
+/// folder's lets in.
+#[cfg(windows)]
+#[test]
+fn a_folder_is_private_on_windows() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = folder_in(root.path()).unwrap();
+    assert_eq!(windows::access(folder.path()), (true, 1, true));
+    assert!(windows::owned(folder.path()));
+}
+
 /// What's in a folder goes before its lock does, when it's dropped and when a sweep removes an
 /// abandoned one: a process killed in between leaves a lock nobody holds, which the next sweep
 /// takes at once, never a folder without one that still holds a copy (kept for an hour). Here

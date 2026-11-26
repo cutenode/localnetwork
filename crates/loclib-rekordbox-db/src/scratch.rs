@@ -6,12 +6,13 @@
 //! replay, `VACUUM INTO`, a drive's database being edited) goes in a [`Folder`] instead.
 //!
 //! A folder is made in the temporary folder, named `locallibrary-decrypted-` and six random
-//! letters and digits, readable by its owner only (`0700` on Unix; on Windows the temporary
-//! folder is the user's own), and removed when the [`Folder`] is dropped. A process that's
-//! killed, crashes or calls `process::exit` never drops it, so each folder holds a file (`.lock`)
-//! its process keeps locked while it lives. The OS lets go of a lock when its process ends,
-//! however it ends, on macOS, Linux and Windows alike, so the next [`sweep`] (each process runs
-//! one before its first copy) can tell an abandoned folder from one in use without trusting
+//! letters and digits, readable by its owner only (`0700` on Unix; on Windows a protected access
+//! list that grants the current user alone, set before anything goes in it, since a `TMP` such
+//! as `C:\Temp` lets other users in), and removed when the [`Folder`] is dropped. A process
+//! that's killed, crashes or calls `process::exit` never drops it, so each folder holds a file
+//! (`.lock`) its process keeps locked while it lives. The OS lets go of a lock when its process
+//! ends, however it ends, on macOS, Linux and Windows alike, so the next [`sweep`] (each process
+//! runs one before its first copy) can tell an abandoned folder from one in use without trusting
 //! process ids, which get reused. Removing a file while it's open, the other way to have nothing
 //! left, doesn't work on Windows, and a kill while it's being written still leaves it. A folder's
 //! files go before its lock file does, so one killed while it's removed is taken at once too.
@@ -136,6 +137,8 @@ fn folder_in(root: &Path) -> Result<Folder> {
     #[cfg(unix)]
     builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
     let dir = builder.tempdir_in(root).map_err(|e| Error::Io { path: root.to_path_buf(), source: e })?;
+    #[cfg(windows)]
+    windows::private(dir.path()).at(dir.path())?;
     // Locked under another name first and only then named `.lock`: a sweep that found `.lock`
     // there but not yet locked would take the folder as abandoned and remove it while it's used.
     let making = dir.path().join(MAKING);
