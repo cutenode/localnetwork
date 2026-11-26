@@ -35,7 +35,7 @@ rekordbox leaves the file in WAL mode, often with its latest changes only in
 `exportLibrary.db-wal`, so `OneLibrary::from_encrypted` takes the WAL too and replays its committed
 transactions.
 
-A `OneLibrary` is a decrypted working copy in a temporary folder, opened with SQLite through
+A `OneLibrary` is a decrypted working copy in a private folder (`scratch`, below), opened with SQLite through
 [rusqlite](https://github.com/rusqlite/rusqlite). Its key is public, so anyone can write the
 file: one whose schema holds views or triggers (rekordbox makes neither), or that SQLite finds
 damaged, is refused before anything reads it. It reads the tracks, playlists and history lists,
@@ -71,13 +71,21 @@ rekordbox's settings say the library moved (`default_path`). The
 passphrase (`DEFAULT_KEY`); `LOCALLIBRARY_MASTERDB_KEY`, or a key passed to `open`, overrides it,
 and `LOCALLIBRARY_MASTERDB` names another file to read.
 
-Nothing here writes to rekordbox's files or opens them with SQLite. `open` copies the database and
-its WAL to a temporary folder (again, should rekordbox restart its WAL meanwhile), decrypts the
-copy there with the WAL's committed transactions replayed, and reads only that, so rekordbox can
-keep running. A `Collection` holds the library, cues by track, My Tags, the intelligent
+Nothing here writes to rekordbox's files or opens them with SQLite. `open` reads the database and
+its WAL into memory (again, should rekordbox restart its WAL meanwhile), decrypts them there with
+the WAL's committed transactions replayed, and hands SQLite that, so rekordbox can keep running and
+no decrypted copy reaches the disk. A `Collection` holds the library, cues by track, My Tags, the intelligent
 playlists' rules (`smartlist`: read, matched against tracks, and written as a filter where one
 can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`CloudFolders`,
 `Collection::audio_file`).
+
+## Decrypted copies on disk
+
+What SQLite needs as a file (an export's `VACUUM INTO`, a `OneLibrary` being edited, a plain
+`master.db` with a WAL) goes in a `scratch::Folder`: `locallibrary-decrypted-*` in the temporary
+folder, its owner's alone, removed when dropped. Its process keeps a file there locked, and the OS
+lets go of the lock however the process ends, so the first copy a later process makes sweeps away
+folders nobody holds, with the `.tmp*` folders earlier versions decrypted `master.db` into.
 
 ## Features
 

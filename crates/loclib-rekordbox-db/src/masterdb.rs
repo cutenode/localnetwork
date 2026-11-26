@@ -10,8 +10,9 @@
 //! change it, [`KEY_ENV`] (or a key passed in) overrides [`DEFAULT_KEY`].
 //!
 //! Nothing here writes to rekordbox's files or opens them with SQLite: the database and its WAL
-//! are copied to a temporary folder and decrypted there (the WAL's committed transactions
-//! replayed, as for OneLibrary), and only that plain copy is opened, read only. rekordbox may keep
+//! are read into memory and decrypted there (the WAL's committed transactions replayed, as for
+//! OneLibrary), and only that plain copy is opened, read only. What needs it as a file goes in a
+//! [`crate::scratch::Folder`]. rekordbox may keep
 //! running; a read while it saves can miss its latest changes.
 //!
 //! Tables read, with the column names pyrekordbox gives them: `djmdContent` and its `djmdArtist`,
@@ -46,7 +47,7 @@
 use indexmap::IndexMap;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use loclib_model::analysis::{Cue, hot_cue_palette};
@@ -304,27 +305,90 @@ pub struct CollectionInfo {
 
 /// Read a `master.db` (and its `-wal`, if any). `key` is the SQLCipher passphrase (see
 /// [`resolve_key`]); a plain, already decrypted SQLite file is read as it is.
+///
+/// The decrypted copy is kept in memory, so nothing is left on disk however the process ends.
+/// Only a plain `master.db` with a WAL goes through a file, in a [`crate::scratch::Folder`], as
+/// SQLite replays a plain WAL itself.
 pub fn open(path: &Path, key: &str) -> Result<Collection> {
-    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    open_copy(path, key, dir.path(), false)?.0.collection()
+    open_db(path, key)?.collection()
+}
+
+/// [`open`]'s database: in memory, or in a private folder for a plain one with a WAL.
+pub(crate) fn open_db<'a>(path: &'a Path, key: &str) -> Result<Opened<'a>> {
+    crate::scratch::sweep();
+    match decrypt(path, key)? {
+        Image::Decrypted(plain, _) => {
+            let mut conn = Connection::open_in_memory_with_flags(
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .map_err(|e| Error::parse(path, e))?;
+            let len = plain.len();
+            conn.deserialize_read_exact(rusqlite::MAIN_DB, plain.as_slice(), len, true)
+                .map_err(|e| Error::parse(path, e))?;
+            drop(plain);
+            Ok(Opened { db: checked(conn, path)?, _folder: None })
+        }
+        Image::Plain(bytes, wal) => {
+            let folder = crate::scratch::folder()?;
+            let copy = write_plain(folder.path(), &bytes, wal.as_deref())?;
+            drop(bytes);
+            let conn =
+                Connection::open_with_flags(&copy, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+                    .map_err(|e| Error::parse(path, e))?;
+            Ok(Opened { db: checked(conn, path)?, _folder: Some(folder) })
+        }
+    }
+}
+
+/// A database [`open_db`] opened, with the private folder it's in when it's a file.
+pub(crate) struct Opened<'a> {
+    pub(crate) db: Db<'a>,
+    // Dropped after `db`: the folder goes once SQLite has closed the file.
+    _folder: Option<crate::scratch::Folder>,
+}
+
+impl<'a> std::ops::Deref for Opened<'a> {
+    type Target = Db<'a>;
+    fn deref(&self) -> &Db<'a> {
+        &self.db
+    }
+}
+
+impl Opened<'_> {
+    fn collection(&self) -> Result<Collection> {
+        self.db.collection()
+    }
 }
 
 /// The salt a file is encrypted with (its first bytes).
 type Salt = [u8; cipher::SALT_LEN];
 
-/// [`decrypt_copy`] of `path` into `dir`, opened: read only unless `write` (or a plain copy's WAL
-/// is to be replayed, which SQLite does itself), and only once SQLite finds nothing amiss and it
-/// has a `djmdContent` table. With the salt it was encrypted with, unless it was plain.
+/// [`decrypt`] of `path`, written into `dir` (a [`crate::scratch::Folder`]'s, as it holds the
+/// whole library decrypted) and opened: read only unless `write` (or a plain copy's WAL is to be
+/// replayed, which SQLite does itself), and only once SQLite finds nothing amiss and it has a
+/// `djmdContent` table. With the salt it was encrypted with, unless it was plain.
+#[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "only exports and tests write a copy yet"))]
 pub(crate) fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(Db<'a>, Option<Salt>)> {
     let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
-    let (copy, salt, flags) = match decrypt_copy(path, key, dir)? {
-        Copy::Decrypted(p, salt) => (p, Some(salt), writes),
+    let (copy, salt, flags) = match decrypt(path, key)? {
+        Image::Decrypted(plain, salt) => {
+            let out = dir.join("master.db");
+            std::fs::write(&out, plain).at(&out)?;
+            (out, Some(salt), writes)
+        }
         // SQLite replays a plain copy's WAL itself, which takes write access to the copy (never
         // to the original).
-        Copy::Plain(p) => (p, None, OpenFlags::SQLITE_OPEN_READ_WRITE),
+        Image::Plain(bytes, wal) => {
+            (write_plain(dir, &bytes, wal.as_deref())?, None, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        }
     };
     let conn = Connection::open_with_flags(&copy, flags | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Error::parse(path, e))?;
+    Ok((checked(conn, path)?, salt))
+}
+
+/// `conn`, the copy of `path`, once SQLite finds nothing amiss and it has a `djmdContent` table.
+fn checked(conn: Connection, path: &Path) -> Result<Db<'_>> {
     // Anything that can write rekordbox's folder could have written this, and any path can be
     // given. Reads run only SELECTs, which fire no trigger. The one write, taking the cloud
     // agent's sign-in out of a copy (`files::export`), refuses a file with a trigger first. Views
@@ -339,80 +403,85 @@ pub(crate) fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) 
     if db.columns("djmdContent")?.is_empty() {
         return Err(Error::parse(path, "no djmdContent table; not a rekordbox collection database"));
     }
-    Ok((db, salt))
+    Ok(db)
 }
 
-/// A working copy of `master.db` in a temporary folder.
-enum Copy {
+/// A plain `master.db` (`bytes`) written into `dir`, with its WAL beside it when there is one.
+fn write_plain(dir: &Path, bytes: &[u8], wal: Option<&[u8]>) -> Result<PathBuf> {
+    let out = dir.join("master.db");
+    std::fs::write(&out, bytes).at(&out)?;
+    if let Some(w) = wal {
+        let copy = PathBuf::from(format!("{}-wal", out.display()));
+        std::fs::write(&copy, w).at(&copy)?;
+    }
+    Ok(out)
+}
+
+/// `master.db` as read into memory.
+#[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "the salt is for writing a copy"))]
+enum Image {
     /// Decrypted, with the WAL's committed pages applied: a plain database on its own. With the
     /// salt the original was encrypted with.
-    Decrypted(PathBuf, Salt),
-    /// The file was plain SQLite already; copied with its WAL, if any.
-    Plain(PathBuf),
+    Decrypted(Vec<u8>, Salt),
+    /// The file was plain SQLite already, with its WAL, if any.
+    Plain(Vec<u8>, Option<Vec<u8>>),
 }
 
-/// Copy `path` (and its WAL) into `dir` and decrypt it there, replaying the WAL's committed
-/// transactions, so SQLite reads the result on its own.
-fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
-    // Copies first: rekordbox may be writing, and nothing here holds its files open for long.
-    let enc = dir.join("master.db.enc");
-    let wal = snapshot(path, &enc, |from, to| std::fs::copy(from, to))?;
-    let out = dir.join("master.db");
-    let mut src = std::fs::File::open(&enc).at(&enc)?;
-    let mut first = [0u8; cipher::PAGE_SIZE];
-    let len = src.metadata().at(&enc)?.len();
-    if len < cipher::PAGE_SIZE as u64 {
+/// `path` (and its WAL) read into memory and decrypted there, the WAL's committed transactions
+/// replayed, so SQLite reads the result on its own. Nothing is written to disk.
+fn decrypt(path: &Path, key: &str) -> Result<Image> {
+    // Read whole first: rekordbox may be writing, and nothing here holds its files open for long.
+    let read = std::cell::RefCell::new(Vec::new());
+    let wal = snapshot(path, path, |from, _| {
+        let bytes = std::fs::read(from)?;
+        let len = bytes.len() as u64;
+        *read.borrow_mut() = bytes;
+        Ok(len)
+    })?;
+    let mut db = read.into_inner();
+    let page_size = cipher::PAGE_SIZE;
+    let len = db.len() as u64;
+    if len < page_size as u64 {
         return Err(Error::parse(path, "too short for a SQLite database"));
     }
-    src.read_exact(&mut first).at(&enc)?;
-    if &first[..16] == cipher::SQLITE_MAGIC {
-        // Already plain (decrypted with sqlcipher, say): use the copy as it is.
-        drop(src);
-        std::fs::rename(&enc, &out).at(&out)?;
-        if let Some(w) = wal {
-            let copy = PathBuf::from(format!("{}-wal", out.display()));
-            std::fs::write(&copy, w).at(&copy)?;
-        }
-        return Ok(Copy::Plain(out));
+    if &db[..16] == cipher::SQLITE_MAGIC {
+        // Already plain (decrypted with sqlcipher, say): use it as it is.
+        return Ok(Image::Plain(db, wal));
     }
-    if !len.is_multiple_of(cipher::PAGE_SIZE as u64) {
+    if !len.is_multiple_of(page_size as u64) {
         return Err(Error::parse(path, format!("{len} bytes is not a whole number of 4096-byte pages")));
     }
-    let salt: Salt = first[..cipher::SALT_LEN].try_into().expect("16 bytes");
+    let salt: Salt = db[..cipher::SALT_LEN].try_into().expect("16 bytes");
     let codec = cipher::Codec::with_key(key.as_bytes(), salt);
     let wrong_key = || Error::WrongKey(path.to_path_buf());
     let damaged = |e: loclib_sqlcipher::Error| Error::parse(path, e);
-    let page1 = codec.decrypt_page(1, &first).map_err(|_| wrong_key())?;
+    let page1 = codec.decrypt_page(1, &db[..page_size]).map_err(|_| wrong_key())?;
     cipher::check_plain_header(&page1).map_err(|_| wrong_key())?;
-    let committed = wal.as_deref().map(|w| wal::committed(w, cipher::PAGE_SIZE)).transpose()?.flatten();
-    let mut dst = std::fs::File::create(&out).at(&out)?;
-    dst.write_all(&page1).at(&out)?;
-    let mut page = vec![0u8; cipher::PAGE_SIZE];
-    for pgno in 2..=(len / cipher::PAGE_SIZE as u64) as u32 {
-        src.read_exact(&mut page).at(&enc)?;
+    let committed = wal.as_deref().map(|w| wal::committed(w, page_size)).transpose()?.flatten();
+    // Each page is decrypted in place.
+    db[..page_size].copy_from_slice(&page1);
+    let main_pages = (len / page_size as u64) as usize;
+    for (i, page) in db.chunks_exact_mut(page_size).enumerate().skip(1) {
+        let pgno = i as u32 + 1;
         if loclib_sqlcipher::reads_main_page(pgno, committed.as_ref()) {
-            dst.write_all(&codec.decrypt_page(pgno, &page).map_err(damaged)?).at(&out)?;
+            let plain = codec.decrypt_page(pgno, page).map_err(damaged)?;
+            page.copy_from_slice(&plain);
         } else {
-            dst.write_all(&[0; cipher::PAGE_SIZE]).at(&out)?;
+            page.fill(0);
         }
     }
-    drop(src);
-    std::fs::remove_file(&enc).at(&enc)?;
     if let Some(committed) = committed {
-        let main_pages = (len / cipher::PAGE_SIZE as u64) as usize;
         let replayed = loclib_sqlcipher::wal_pages(&codec, &committed, main_pages).map_err(damaged)?;
-        dst.set_len(u64::from(committed.db_pages) * cipher::PAGE_SIZE as u64).at(&out)?;
+        db.resize(committed.db_pages as usize * page_size, 0);
         for (pgno, plain) in replayed {
-            dst.seek(SeekFrom::Start((u64::from(pgno) - 1) * cipher::PAGE_SIZE as u64)).at(&out)?;
-            dst.write_all(&plain).at(&out)?;
+            let at = (pgno as usize - 1) * page_size;
+            db[at..at + page_size].copy_from_slice(&plain);
         }
     }
     // Header bytes 18-19 say WAL mode (2); the copy, without a WAL, reads with a rollback
     // journal (1).
-    dst.seek(SeekFrom::Start(18)).at(&out)?;
-    dst.write_all(&[1, 1]).at(&out)?;
-    dst.flush().at(&out)?;
-    Ok(Copy::Decrypted(out, salt))
+    db[18..20].copy_from_slice(&[1, 1]);
+    Ok(Image::Decrypted(db, salt))
 }
 
 /// Copy `path` to `to` with `copy` and read its WAL, both as of one moment. rekordbox may

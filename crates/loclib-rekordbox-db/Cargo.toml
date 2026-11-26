@@ -28,7 +28,8 @@ loclib-model.workspace = true
 loclib-plugin = { workspace = true, optional = true }
 loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }
 quick-xml = "0.42"
-rusqlite.workspace = true
+# `serialize`: a decrypted master.db is read from memory, never written to disk.
+rusqlite = { workspace = true, features = ["serialize"] }
 rustc-hash.workspace = true
 schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
 serde.workspace = true

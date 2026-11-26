@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use rusqlite::params;
 
 use super::*;
@@ -5,24 +7,92 @@ use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGI
 use crate::onelibrary::kind_for_hot_cue;
 use crate::test_util::{Fixture, STATS, TABLES, codec, sample, scratch_db, with_broken_table};
 
-/// With no temporary folder to unpack a copy into (`TMPDIR` on a drive that's gone), reading,
-/// copying and listing a `master.db` each fail naming that folder, not the database.
+/// With no temporary folder (`TMPDIR` on a drive that's gone), a `master.db` is still read and
+/// its tracks listed, as both decrypt it in memory; copying it, which needs a file, fails naming
+/// that folder, not the database.
 #[cfg(unix)]
 #[test]
-fn without_a_temporary_folder_a_master_db_cant_be_read() {
+fn without_a_temporary_folder_a_master_db_is_read_but_not_copied() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &crate::test_util::library().encrypted(DEFAULT_KEY));
     let gone = std::env::temp_dir().join("locallibrary-unplugged");
     // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
     unsafe { std::env::set_var("TMPDIR", &gone) };
-    let db = Path::new("/Users/dj/Library/Pioneer/rekordbox/master.db");
+    assert_eq!(open(&path, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
     #[cfg(feature = "files")]
-    let copied = [
-        files::export(db, DEFAULT_KEY, false, &gone.join("copy.db")).map(drop),
-        files::tracks(db, DEFAULT_KEY, 0, 10).map(drop),
-    ];
-    #[cfg(not(feature = "files"))]
-    let copied: [Result<()>; 0] = [];
-    for e in [open(db, DEFAULT_KEY).map(drop)].into_iter().chain(copied).map(|r| r.unwrap_err()) {
+    {
+        assert_eq!(files::tracks(&path, DEFAULT_KEY, 0, 10).unwrap().total, 4);
+        let e = files::export(&path, DEFAULT_KEY, false, &dir.path().join("copy.db")).unwrap_err();
         assert!(matches!(&e, Error::Io { path, .. } if *path == gone), "{e:?}");
+    }
+}
+
+/// What the child [`a_killed_read_leaves_nothing_decrypted_behind`] starts reads: the
+/// `master.db` to read, and `read` or `export`.
+const KILLED: &str = "LOCALLIBRARY_TEST_KILLED_READ";
+
+/// A read of `master.db` (and an export of it, which goes through a private folder) killed at
+/// some point while it runs leaves nothing in the temporary folder: the read decrypts in memory,
+/// and the export's folder is swept at the next start, as nobody holds its lock any more.
+#[test]
+fn a_killed_read_leaves_nothing_decrypted_behind() {
+    use std::io::BufRead;
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &crate::test_util::library().encrypted(DEFAULT_KEY));
+    let modes: &[&str] = if cfg!(feature = "files") { &["read", "export"] } else { &["read"] };
+    for (i, mode) in modes.iter().enumerate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["masterdb::tests::killed_read", "--exact", "--ignored", "--nocapture", "--test-threads=1"])
+            .env(KILLED, format!("{mode}:{}", path.display()))
+            .env("LOCALLIBRARY_MASTERDB", "no-rekordbox/master.db")
+            .envs(["TMPDIR", "TMP", "TEMP"].map(|v| (v, tmp.path())))
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        // libtest names the test on the same line first.
+        assert!(lines.any(|l| l.unwrap().ends_with("reading")), "the child never started reading");
+        // Somewhere in the middle of a read: they take a millisecond or two each.
+        std::thread::sleep(Duration::from_micros(300 + 700 * i as u64));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let left = |tmp: &Path| -> Vec<String> {
+            std::fs::read_dir(tmp).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect()
+        };
+        if *mode == "read" {
+            assert_eq!(left(tmp.path()), Vec::<String>::new(), "a read wrote to the temporary folder");
+        } else {
+            let found = left(tmp.path());
+            assert!(found.iter().all(|n| n.starts_with(crate::scratch::PREFIX)), "{found:?}");
+            crate::scratch::sweep_in(tmp.path(), Duration::from_secs(3600));
+            assert_eq!(left(tmp.path()), Vec::<String>::new(), "the sweep left something");
+        }
+    }
+}
+
+/// The child [`a_killed_read_leaves_nothing_decrypted_behind`] kills: reads until it's killed.
+#[test]
+#[ignore = "started by a_killed_read_leaves_nothing_decrypted_behind"]
+fn killed_read() {
+    let Ok(what) = std::env::var(KILLED) else { return };
+    let (mode, path) = what.split_once(':').unwrap();
+    let path = Path::new(path);
+    for n in 0.. {
+        match mode {
+            "read" => drop(open(path, DEFAULT_KEY).unwrap()),
+            #[cfg(feature = "files")]
+            _ => {
+                let into = path.with_file_name("copy.db");
+                files::export(path, DEFAULT_KEY, false, &into).unwrap();
+                std::fs::remove_file(&into).unwrap();
+            }
+            #[cfg(not(feature = "files"))]
+            _ => unreachable!(),
+        }
+        if n == 0 {
+            println!("reading");
+        }
     }
 }
 

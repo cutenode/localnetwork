@@ -103,10 +103,9 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
     let mut copy = plain.to_vec();
     copy[18] = 1;
     copy[19] = 1;
-    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    let path = dir.path().join("hash.db");
-    std::fs::write(&path, &copy).at(&path)?;
-    let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    // Read from memory: the decrypted pages never reach the disk.
+    let mut conn = Connection::open_in_memory()?;
+    conn.deserialize_read_exact(rusqlite::MAIN_DB, copy.as_slice(), copy.len(), true)?;
     // Read before `OneLibrary::open` has looked at the file: only the one table is read here.
     if let Some(why) = distrust(&conn, &[], "rekordbox")?.or(damaged(&conn)?) {
         return Err(Error::OneLibrary(why));
@@ -385,7 +384,7 @@ pub struct OneLibrary {
     /// working copy uses a rollback journal; the original mode is restored on the way out.
     journal: [u8; 2],
     path: PathBuf,
-    _dir: tempfile::TempDir,
+    _dir: crate::scratch::Folder,
     /// `content`'s row count as last set in `property`, kept by [`OneLibrary::add_track`] and
     /// [`OneLibrary::remove_tracks`], which alone write `content`: counting every row again for
     /// each track added made adding a library's tracks take quadratic time.
@@ -439,7 +438,7 @@ impl OneLibrary {
         let journal = [plain[18], plain[19]];
         plain[18] = 1;
         plain[19] = 1;
-        let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
+        let dir = crate::scratch::folder()?;
         let path = dir.path().join("exportLibrary.db");
         std::fs::write(&path, &plain).at(&path)?;
         let conn = Connection::open(&path)?;
