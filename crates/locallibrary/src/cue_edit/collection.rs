@@ -1,11 +1,11 @@
 //! Editing cues in rekordbox's collection on this computer (`master.db`), not a drive's: the same
 //! edits ([`CueEdit`]), worked out on the cues `master.db` holds and written through
-//! [`masterdb::write`] (only while rekordbox and its agent are closed, over a fresh backup). Where a
+//! [`loclib_rekordbox_db::masterdb::write`] (only while rekordbox and its agent are closed, over a fresh backup). Where a
 //! drive's cues live in analysis files, the collection's live in `djmdCue` and `contentCue`;
 //! rekordbox's analysis files in its `share` folder give only the beat grid and phrases.
 //!
 //! An edit is planned on the cues as they're read, and made again on the cues `master.db` holds
-//! when it's written ([`apply_in`]): a staged edit written after rekordbox changed the track's
+//! when it's written (`apply_in`): a staged edit written after rekordbox changed the track's
 //! other cues keeps those changes, as a drive's journal replay does.
 
 use rustc_hash::FxHashMap;
