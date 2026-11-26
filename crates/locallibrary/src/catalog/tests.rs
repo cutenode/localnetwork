@@ -314,6 +314,21 @@ fn prop_fetched_snapshots_settle_under_free_names_with_their_labels(tc: TestCase
     assert_eq!(keep, Some(if label_taken { mine.id } else { theirs.id }));
 }
 
+/// What the fuzz targets read through [`crate::testing`] is what a fetch reads.
+#[test]
+fn the_fuzz_targets_read_what_a_fetch_reads() {
+    use crate::testing::{peer_catalog, peer_snapshot, snapshot_id};
+    let snap = made(Uuid::from_u128(5), 2, Vec::new(), Vec::new());
+    let bytes = serde_json::to_vec(&snap).unwrap();
+    assert_eq!(snapshot_id(&snap), snap.id);
+    assert_eq!(peer_snapshot(&snap.id, &bytes).unwrap().id, snap.id);
+    assert!(peer_snapshot(&Hash::of(b"another"), &bytes).unwrap_err().contains("damaged"));
+    let catalog =
+        Catalog { store: Uuid::from_u128(1), libraries: Vec::new(), snapshots: Vec::new(), labels: Vec::new() };
+    assert!(peer_catalog(&serde_json::to_vec(&catalog).unwrap()));
+    assert!(!peer_catalog(b"{}"));
+}
+
 /// Moving a library that the other store has no latest for leaves its record as it was.
 #[test]
 fn moving_to_no_latest_keeps_the_library() {

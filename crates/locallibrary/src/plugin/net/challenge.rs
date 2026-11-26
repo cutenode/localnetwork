@@ -6,7 +6,7 @@ use serde_json::Value;
 
 /// A challenge: its scheme, and its auth-params (names in lowercase), in order.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Challenge {
+pub struct Challenge {
     pub scheme: String,
     pub params: Vec<(String, String)>,
 }
@@ -26,7 +26,7 @@ fn is_tchar(c: char) -> bool {
 /// The challenges a `WWW-Authenticate` header's `value` makes: each a scheme, then auth-params
 /// (`name=token` or `name="quoted string"`) separated by commas. A token68 (`Basic dGVzdA==`)
 /// isn't understood, and what can't be read is skipped.
-pub(super) fn challenges(value: &str) -> Vec<Challenge> {
+pub fn challenges(value: &str) -> Vec<Challenge> {
     let mut all: Vec<Challenge> = Vec::new();
     let mut rest = value;
     loop {
@@ -80,7 +80,7 @@ fn unquoted(quoted: &str) -> (String, &str) {
 /// says its token lacks, when that's why: a 401 or 403 whose challenge says
 /// `error="insufficient_scope"` (with them in `scope`), or a 403 whose JSON `body` says
 /// `ACCESS_TOKEN_SCOPE_INSUFFICIENT` (Google's), not just `insufficientPermissions`.
-pub(super) fn insufficient_scope(status: u16, challenges: &[Challenge], body: &[u8]) -> Option<Vec<String>> {
+pub fn insufficient_scope(status: u16, challenges: &[Challenge], body: &[u8]) -> Option<Vec<String>> {
     let said = challenges.iter().find(|c| c.param("error") == Some("insufficient_scope"));
     if let Some(c) = said.filter(|_| matches!(status, 401 | 403)) {
         return Some(c.param("scope").unwrap_or_default().split_whitespace().map(String::from).collect());

@@ -1,0 +1,5 @@
+GET /callback?code=c0de&state=st4te&iss=https%3A%2F%2Fpds.example HTTP/1.1
+Host: 127.0.0.1:53111
+User-Agent: Mozilla/5.0
+Accept: text/html
+
