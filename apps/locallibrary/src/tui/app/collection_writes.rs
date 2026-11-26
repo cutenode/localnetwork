@@ -31,6 +31,18 @@ pub struct CollectionWrites {
     pub why: Option<String>,
     /// The last failure said, so it's said once.
     said: Option<String>,
+    /// `master.db` as it was when a write was last refused for something other than rekordbox
+    /// running (Cloud Library Sync, say): it isn't tried again until the file changes, as each try
+    /// backs the whole collection up and decrypts it.
+    pub(in crate::tui) refused_at: Option<super::drives::CollectionStamp>,
+}
+
+impl CollectionWrites {
+    /// A new edit or undo was made: what's waiting is looked at again at once.
+    pub(in crate::tui) fn changed(&mut self) {
+        self.refused_at = None;
+        self.last = None;
+    }
 }
 
 /// What a look at the collection's waiting edits came to.
@@ -60,6 +72,9 @@ impl App {
         if w.in_flight || w.last.is_some_and(|at| at.elapsed() < LOOK_EVERY) || self.job.is_some() {
             return;
         }
+        if w.refused_at.is_some_and(|at| at == super::drives::CollectionStamp::of(&db)) {
+            return;
+        }
         w.last = Some(Instant::now());
         w.in_flight = true;
         let store_root = self.store_root.clone();
@@ -87,6 +102,7 @@ impl App {
                 w.waiting = write.waiting;
                 w.why = write.why.clone();
                 w.said = None;
+                w.refused_at = None;
                 if write.written > 0 {
                     let mut msg =
                         format!("wrote {} to rekordbox's collection{UNDO_HINT}", plural(write.written, "cue edit"));
@@ -101,6 +117,7 @@ impl App {
                 }
             }
             Err(e) => {
+                self.collection_writes.refused_at = Some(super::drives::CollectionStamp::of(&looked.db));
                 if self.collection_writes.said.as_deref() != Some(e.as_str()) {
                     self.toast(
                         format!("the cue edits waiting for rekordbox's collection weren't written: {e}"),

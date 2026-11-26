@@ -1516,6 +1516,7 @@ impl App {
                 let waiting = write["waiting"].as_u64().unwrap_or(0) as usize;
                 self.collection_writes.waiting = waiting;
                 self.collection_writes.why = write["why"].as_str().map(str::to_string);
+                self.collection_writes.changed();
                 let msg = match (report["dropped"].as_bool() == Some(true), write["written"].as_u64().unwrap_or(0)) {
                     (true, _) => "dropped the waiting cue edit: it was never written".to_string(),
                     (false, 0) => format!(

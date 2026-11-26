@@ -424,10 +424,18 @@ fn cue_edits_waiting_for_rekordbox_show_and_are_counted_until_written() {
     app.looked_at_collection(super::super::collection_writes::Looked { db: db.clone(), write });
     assert_eq!(app.collection_waiting().as_deref(), Some("1 cue edit waiting for rekordbox to quit"));
 
+    // Refused for something rekordbox quitting won't change (sync on, say): said, and not tried
+    // again until master.db changes.
+    let write = Err("Cloud Library Sync looks to be on".to_string());
+    app.looked_at_collection(super::super::collection_writes::Looked { db: db.clone(), write });
+    assert_eq!(app.collection_writes.refused_at, Some(super::CollectionStamp::of(&db)));
+    assert!(last_message(&app).contains("Cloud Library Sync"), "{}", last_message(&app));
+
     // Once written, it's said, and u takes it back.
     let write = Ok(CollectionWrite { written: 1, ..Default::default() });
     app.looked_at_collection(super::super::collection_writes::Looked { db, write });
     assert_eq!(app.collection_waiting(), None);
+    assert_eq!(app.collection_writes.refused_at, None);
     assert!(last_message(&app).starts_with("wrote 1 cue edit to rekordbox's collection"), "{}", last_message(&app));
     assert_eq!(app.undo_drive(), Some(collection_root()));
 }

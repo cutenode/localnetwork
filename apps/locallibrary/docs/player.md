@@ -52,7 +52,7 @@ needs.
   once; the status line says how many wait, and the player writes them when both have quit (it
   looks every few seconds, and when the collection opens). `u` takes the latest back as a new change
   (one still waiting is just dropped). Nothing is written while Cloud Library Sync is on, and the
-  player says why. Other edits, My Tags and drive actions say the collection takes only cue edits,
+  player says why, once: it tries again only after `master.db` changes. Other edits, My Tags and drive actions say the collection takes only cue edits,
   and `collection export` puts it on a drive to edit there. Intelligent playlists show empty. While it's open the player watches `master.db`
   (and its WAL): a couple of seconds after rekordbox saves, it reads the collection again and keeps
   your place, and `r` reads it again at once. A drive holding a copy of the whole collection says
