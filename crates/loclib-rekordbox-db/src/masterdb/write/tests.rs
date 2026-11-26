@@ -587,3 +587,204 @@ fn only_new_rows_pointing_nowhere_are_refused() {
     assert_eq!(lib.bytes(), before);
     assert_eq!(lib.leftovers(true), Vec::<String>::new());
 }
+
+/// This computer's collection is the one the environment names, with what finds rekordbox
+/// running.
+#[test]
+fn this_computers_collection_is_the_one_the_environment_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let master = dir.path().join("master.db");
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var(super::super::PATH_ENV, &master) };
+    let target = Target::this_computer(dir.path().join("backups")).unwrap();
+    assert_eq!(target.master_db, master);
+    assert_eq!(target.key, resolve_key(None));
+    assert_eq!((target.agent_log, target.work), (agent_log_path(), None));
+    let _ = (target.running)();
+}
+
+/// Without a folder of its own for working copies, a write uses the system's temporary folder.
+#[test]
+fn working_copies_go_in_the_systems_temporary_folder_by_default() {
+    let mut lib = Lib::new(&writable(), false);
+    lib.target.work = None;
+    write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap();
+    assert_eq!(lib.cues(84935471).len(), 1);
+}
+
+/// Only refusals that pass once rekordbox has quit are worth trying again.
+#[test]
+fn only_a_running_rekordbox_or_a_change_waits() {
+    for waits in [Refusal::RekordboxRunning, Refusal::AgentRunning, Refusal::Changed] {
+        assert!(waits.waits(), "{waits}");
+    }
+    let path = PathBuf::from("master.db-wal");
+    for not in [Refusal::Unsaved(path), Refusal::CloudSync("x".into()), Refusal::Odd("x".into())] {
+        assert!(!not.waits(), "{not}");
+    }
+}
+
+/// A collection with what rekordbox never makes, a `master.db` that isn't a file, a track without
+/// a UUID or with two cue lists: none is written, and none of it is worth waiting out.
+#[test]
+fn collections_a_write_cant_vouch_for_are_refused() {
+    let odd = |e: &Error| matches!(e, Error::Refused(r @ Refusal::Odd(_)) if !r.waits());
+    let f = writable();
+    f.exec("CREATE VIEW tracks AS SELECT ID FROM djmdContent");
+    let e = write(&Lib::new(&f, false).target, |_| Ok(())).unwrap_err();
+    assert!(odd(&e), "a view: {e}");
+
+    let mut lib = Lib::new(&writable(), false);
+    lib.target.master_db = lib.dir.path().join("work");
+    let e = write(&lib.target, |_| Ok(())).unwrap_err();
+    assert!(odd(&e), "a folder: {e}");
+
+    let f = writable();
+    f.exec(&format!("UPDATE djmdContent SET UUID = NULL WHERE ID = '{TRACK}'"));
+    let e = write(&Lib::new(&f, false).target, |e| e.set_cues(TRACK, &[])).unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "no UUID: {e}");
+
+    let f = writable();
+    f.exec(&format!(
+        "INSERT INTO contentCue (ID, ContentID, Cues, rb_cue_count) VALUES ('a', '{TRACK}', '[]', 0), ('b', '{TRACK}', '[]', 0)"
+    ));
+    let lib = Lib::new(&f, false);
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| e.set_cues(TRACK, &[])).unwrap_err();
+    assert!(odd(&e), "two lists: {e}");
+    assert_eq!(lib.bytes(), before);
+}
+
+/// A WAL beside `master.db` that can't be looked at (its name is too long) stops a write.
+#[cfg(unix)]
+#[test]
+fn a_wal_that_cant_be_looked_at_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let master = dir.path().join("m".repeat(250));
+    std::fs::write(&master, b"").unwrap();
+    let e = alone(&master).unwrap_err();
+    assert!(matches!(e, Error::Io { .. }), "{e}");
+}
+
+/// A backup is the file as it was, under a name nothing has yet, or there's none.
+#[test]
+fn a_backup_is_whole_and_new_or_isnt_made() {
+    let lib = Lib::new(&writable(), false);
+    let master = &lib.target.master_db;
+    let before = Fingerprint::of(master).unwrap();
+    let to = lib.dir.path().join("backup.db");
+    let other = Fingerprint { hash: blake3::hash(b""), ..before.clone() };
+    let e = backup_as(master, &to, &other).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Changed)), "{e}");
+    let e = unchanged(master, &other).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Changed)), "{e}");
+    std::fs::write(&to, b"older").unwrap();
+    let e = backup_as(master, &to, &before).unwrap_err();
+    assert!(matches!(e, Error::Exists(_)), "{e}");
+    assert_eq!(std::fs::read(&to).unwrap(), b"older");
+    assert!(!beside(&to, "partial").exists());
+}
+
+/// [`writable`] with an index SQLite's quick check passes and its integrity check doesn't: it says
+/// it indexes one column and holds another's values.
+fn misindexed() -> (tempfile::TempDir, PathBuf) {
+    let f = writable();
+    f.exec(
+        "CREATE INDEX by_title ON djmdContent (Title);
+         PRAGMA writable_schema = ON;
+         UPDATE sqlite_master SET sql = 'CREATE INDEX by_title ON djmdContent (FolderPath)' WHERE name = 'by_title';
+         PRAGMA writable_schema = OFF;",
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("misindexed.db");
+    std::fs::write(&path, f.plain()).unwrap();
+    (dir, path)
+}
+
+/// The file written is read back whole, with the count the edit ended at.
+#[test]
+fn the_file_written_is_read_back_whole_with_its_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.db");
+    std::fs::write(&path, writable().plain()).unwrap();
+    read_back(&path, DEFAULT_KEY, dir.path(), UPDATE_COUNT).unwrap();
+    let e = read_back(&path, DEFAULT_KEY, dir.path(), UPDATE_COUNT + 1).unwrap_err();
+    assert!(e.to_string().contains("localUpdateCount"), "{e}");
+    let (_damaged, path) = misindexed();
+    let e = read_back(&path, DEFAULT_KEY, dir.path(), UPDATE_COUNT).unwrap_err();
+    assert!(e.to_string().contains("damaged"), "{e}");
+}
+
+/// The edited copy isn't written when it's damaged, points somewhere new at nothing, counts below
+/// a stamp, lost a track it edited, or has a cue list disagreeing with its rows.
+#[test]
+fn the_edited_copy_is_checked_before_its_written() {
+    let f = writable();
+    let none = FxHashSet::default();
+    let count = (UPDATE_COUNT, UPDATE_COUNT);
+    let before = dangling(&f.conn).unwrap();
+    check(&f.conn, count, &before, &none, &none).unwrap();
+    let e = check(&f.conn, (UPDATE_COUNT, UPDATE_COUNT + 1), &before, &none, &none).unwrap_err();
+    assert!(e.contains("localUpdateCount"), "{e}");
+    let gone: FxHashSet<String> = ["gone".to_string()].into_iter().collect();
+    let e = check(&f.conn, count, &before, &gone, &none).unwrap_err();
+    assert!(e.contains("no track gone"), "{e}");
+    f.exec(&format!("INSERT INTO contentCue (ID, ContentID, Cues, rb_cue_count) VALUES ('l', '{TRACK}', '[]', 9)"));
+    let track: FxHashSet<String> = [TRACK.to_string()].into_iter().collect();
+    let e = check(&f.conn, count, &before, &none, &track).unwrap_err();
+    assert!(e.contains("contentCue disagreeing"), "{e}");
+    f.exec(
+        "PRAGMA foreign_keys = OFF;
+         CREATE TABLE pointer (ID VARCHAR(255) PRIMARY KEY, CueID VARCHAR(255) REFERENCES djmdCue (ID));
+         INSERT INTO pointer VALUES ('p', 'gone');",
+    );
+    let e = check(&f.conn, count, &before, &none, &none).unwrap_err();
+    assert!(e.contains("pointing at"), "{e}");
+
+    let (_dir, path) = misindexed();
+    let conn = scratch_db(&path);
+    let e = check(&conn, count, &before, &none, &none).unwrap_err();
+    assert!(e.contains("damaged"), "{e}");
+}
+
+/// An edit can see its time and the lists that disagree; one that stamps nothing leaves the count;
+/// a cue row put back whose id is taken gets a new one; and SQL that fails says so.
+#[test]
+fn edits_see_their_time_and_put_rows_back_under_free_ids() {
+    let lib = Lib::new(&writable(), false);
+    let looked = write(&lib.target, |e| {
+        assert_eq!(e.now().len(), "2026-11-26 07:24:06.375 +00:00".len(), "{}", e.now());
+        e.cue_list_mismatches(true)
+    })
+    .unwrap();
+    assert_eq!(looked.value, [TRACK]);
+    assert_eq!(looked.count, (UPDATE_COUNT, UPDATE_COUNT));
+
+    let first = write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap();
+    let mut twice = first.value.clone();
+    twice.rows.push(twice.rows[0].clone());
+    write(&lib.target, |e| e.restore_cues(&twice)).unwrap();
+    let ids = format!("SELECT count(DISTINCT ID) FROM djmdCue WHERE ContentID = '{TRACK}'");
+    assert_eq!(lib.query::<i64>(&ids), 4);
+
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| {
+        e.conn().execute_batch("ALTER TABLE djmdContent RENAME TO gone").unwrap();
+        e.update_track(TRACK, &[])
+    })
+    .unwrap_err();
+    assert!(e.to_string().contains("djmdContent"), "{e}");
+    assert_eq!(lib.bytes(), before);
+}
+
+/// A collection without cue lists or `CueUpdated` (rekordbox 6) has its cues written without them.
+#[test]
+fn a_collection_without_cue_lists_has_cues_written_without() {
+    let f = writable();
+    f.exec("DROP TABLE contentCue; ALTER TABLE djmdContent DROP COLUMN CueUpdated;");
+    let lib = Lib::new(&f, false);
+    let written = write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap();
+    assert_eq!(written.value.content_cue, None);
+    assert_eq!(written.count, (UPDATE_COUNT, UPDATE_COUNT + 1));
+    assert_eq!(lib.cues(84935471).len(), 1);
+}

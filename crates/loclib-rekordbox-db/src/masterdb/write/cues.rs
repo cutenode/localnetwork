@@ -308,20 +308,27 @@ impl Edit<'_> {
 
     /// A random `djmdCue` id no row has: a 32-bit number, as rekordbox's are.
     fn new_cue_id(&self) -> Result<String> {
-        loop {
+        let random = || {
             let mut bytes = [0u8; 4];
             getrandom::fill(&mut bytes).map_err(|e| Error::Invalid(e.to_string()))?;
-            let id = Value::Text(u32::from_le_bytes(bytes).max(1).to_string());
-            if !self.cue_id_taken(&id)? {
-                let Value::Text(id) = id else { unreachable!() };
-                return Ok(id);
-            }
-        }
+            Ok(u32::from_le_bytes(bytes).max(1).to_string())
+        };
+        first_free(random, |id| self.cue_id_taken(&Value::Text(id.to_string())))
     }
 
     fn cue_id_taken(&self, id: &Value) -> Result<bool> {
         let sql = "SELECT 1 FROM djmdCue WHERE ID = ?1";
         Ok(self.conn.query_row(sql, [id], |_| Ok(())).optional().map_err(|e| self.sql(e))?.is_some())
+    }
+}
+
+/// The first id `next` draws that `taken` says no row has.
+fn first_free(mut next: impl FnMut() -> Result<String>, taken: impl Fn(&str) -> Result<bool>) -> Result<String> {
+    loop {
+        let id = next()?;
+        if !taken(&id)? {
+            return Ok(id);
+        }
     }
 }
 
@@ -536,3 +543,6 @@ pub fn cue_list_mismatches(path: &Path, key: &str, create_missing: bool) -> Resu
     let (db, _) = super::super::open_copy(path, key, dir.path(), false)?;
     mismatches(&db.conn, create_missing, None)
 }
+
+#[cfg(test)]
+mod tests;

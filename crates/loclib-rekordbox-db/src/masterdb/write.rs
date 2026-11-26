@@ -128,9 +128,7 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     if let Some(why) = sync_on(conn, target.agent_log.as_deref())? {
         return Err(Error::Refused(Refusal::CloudSync(why)));
     }
-    if Fingerprint::of(master)? != before {
-        return Err(Error::Refused(Refusal::Changed));
-    }
+    unchanged(master, &before)?;
 
     // Rows already pointing nowhere (rekordbox leaves some) aren't this write's to answer for.
     let pointing_nowhere = dangling(conn).map_err(at)?;
@@ -218,27 +216,41 @@ impl Fingerprint {
     }
 }
 
+/// Refuses when `master` is no longer what `before` found.
+fn unchanged(master: &Path, before: &Fingerprint) -> Result<()> {
+    if Fingerprint::of(master)? != *before {
+        return Err(Error::Refused(Refusal::Changed));
+    }
+    Ok(())
+}
+
 /// Copies `master` (as `before` found it) into `folder` as `master.<time>.db`, answering where. The
 /// copy is made under another name and renamed once it's whole and hashes as `before` does, and
 /// `master` still does; otherwise nothing is left.
 fn backup(master: &Path, folder: &Path, before: &Fingerprint) -> Result<PathBuf> {
     std::fs::create_dir_all(folder).at(folder)?;
     let name = format!("master.{}.db", chrono::Utc::now().format("%Y-%m-%dT%H%M%S%.3fZ"));
-    let (to, partial) = (folder.join(&name), Removed::new(folder.join(format!("{name}.partial"))));
+    backup_as(master, &folder.join(name), before)
+}
+
+/// [`backup`] to the file `to`, which mustn't be there yet.
+fn backup_as(master: &Path, to: &Path, before: &Fingerprint) -> Result<PathBuf> {
+    let partial = Removed::new(beside(to, "partial"));
     let mut out = File::create_new(&partial.0).at(&partial.0)?;
     std::io::copy(&mut File::open(master).at(master)?, &mut out).at(&partial.0)?;
     out.sync_all().at(&partial.0)?;
     drop(out);
     let copy = Fingerprint::of(&partial.0)?;
-    if (copy.len, copy.hash) != (before.len, before.hash) || Fingerprint::of(master)? != *before {
+    if (copy.len, copy.hash) != (before.len, before.hash) {
         return Err(Error::Refused(Refusal::Changed));
     }
+    unchanged(master, before)?;
     if to.exists() {
         return Err(Error::Exists(format!("{} is there already", to.display())));
     }
-    std::fs::rename(&partial.0, &to).at(&to)?;
+    std::fs::rename(&partial.0, to).at(to)?;
     partial.keep();
-    Ok(to)
+    Ok(to.to_path_buf())
 }
 
 /// A file removed when this is dropped, unless [`Removed::keep`] said to keep it.
@@ -263,9 +275,9 @@ impl Drop for Removed {
     }
 }
 
-/// `master.db.<end>`, beside it.
-fn beside(master: &Path, end: &str) -> PathBuf {
-    PathBuf::from(format!("{}.{end}", master.display()))
+/// `<file>.<end>`, beside `file`.
+fn beside(file: &Path, end: &str) -> PathBuf {
+    PathBuf::from(format!("{}.{end}", file.display()))
 }
 
 /// `PRAGMA integrity_check`: `Some` says what's wrong.
@@ -315,9 +327,7 @@ fn read_back(path: &Path, key: &str, work: &Path, count: i64) -> Result<()> {
 /// Flushes the folder `file` is in, so the rename is on disk (Unix; elsewhere the rename is).
 fn sync_dir(file: &Path) {
     #[cfg(unix)]
-    if let Some(dir) = file.parent() {
-        let _ = File::open(dir).and_then(|d| d.sync_all());
-    }
+    let _ = File::open(file.parent().unwrap_or(Path::new("."))).and_then(|d| d.sync_all());
     #[cfg(not(unix))]
     let _ = file;
 }
@@ -408,11 +418,9 @@ impl Stamp {
 
 /// The tables with a column `column`.
 pub(crate) fn tables_with(conn: &Connection, column: &str) -> rusqlite::Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT m.name FROM sqlite_master m, pragma_table_info(m.name) c \
-         WHERE m.type = 'table' AND lower(c.name) = lower(?1) ORDER BY m.name",
-    )?;
-    stmt.query_map([column], |r| r.get(0))?.collect()
+    const SQL: &str = "SELECT m.name FROM sqlite_master m, pragma_table_info(m.name) c \
+                       WHERE m.type = 'table' AND lower(c.name) = lower(?1) ORDER BY m.name";
+    conn.prepare(SQL)?.query_map([column], |r| r.get(0))?.collect()
 }
 
 /// One edit of the collection, inside [`write()`]'s transaction: the changes made through it are
