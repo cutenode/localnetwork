@@ -4,6 +4,8 @@
 //! always at its end; a chip leads it when the keys mean something else (searching, typing,
 //! picking a playlist, the pads).
 
+use std::rc::Rc;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -16,7 +18,7 @@ use crate::tui::choices::Hints;
 use crate::tui::edits::Modal;
 use crate::tui::first_run::intro_line;
 use crate::tui::icons;
-use crate::tui::keymap::{self, Act, Hint, Scope};
+use crate::tui::keymap::{self, Act, Scope};
 use crate::tui::theme::{self, bold, dim, faint, fg};
 
 use super::{fit, hint_bar, spinner};
@@ -35,45 +37,28 @@ pub struct Footer {
 /// What the keys row says.
 pub enum Keys {
     /// What the keys do, each a button.
-    Hints(Vec<Hint>),
+    Hints(Rc<HintsRow>),
     /// A line being typed: what's asked, what's typed so far, and what follows it.
     Typed { asked: Vec<Span<'static>>, typed: String, after: Vec<Span<'static>> },
     /// A line of its own: the first run's, or that esc again quits.
     Said(Vec<Span<'static>>),
 }
 
+/// The keys row when it's the hints, as drawn: made once while the keys, where the player is, the
+/// hints setting, the chip, the width and how it looks stay as they are.
+pub struct HintsRow {
+    /// The row fitted to its width, the chip first when there is one.
+    line: Line<'static>,
+    /// Where each hint is on it: its column, its width, what it does.
+    at: Vec<(u16, u16, Act)>,
+}
+
 impl Footer {
     /// The footer `width` columns wide.
     pub fn of(app: &mut App, width: u16) -> Footer {
         let mode = mode(app);
-        let chip = mode.map_or(0, |m| m.width() + 3);
-        let keys = keys(app, (width as usize).saturating_sub(chip));
+        let keys = keys(app, mode, width);
         Footer { doing: doing(app), place: place(app), mode, keys }
-    }
-
-    /// The keys row's spans, and where each hint is (its column, its width, what it does).
-    fn keys_row(&self) -> (Vec<Span<'static>>, Vec<(u16, u16, Act)>) {
-        let mut spans = vec![Span::raw(" ")];
-        if let Some(m) = self.mode {
-            spans.extend([Span::styled(format!(" {m} "), theme::chip(theme::current().dim)), Span::raw(" ")]);
-        }
-        let mut at = Vec::new();
-        match &self.keys {
-            Keys::Hints(hints) => {
-                let mut x: usize = spans.iter().map(Span::width).sum();
-                for h in hints {
-                    let label = format!(" {}  ", h.label);
-                    if keymap::clicks(h.act) {
-                        at.push((x as u16, (h.keys.width() + label.trim_end().width()) as u16, h.act));
-                    }
-                    x += h.keys.width() + label.width();
-                    spans.push(Span::styled(h.keys.clone(), theme::key()));
-                    spans.push(Span::styled(label, dim()));
-                }
-            }
-            Keys::Typed { asked, .. } | Keys::Said(asked) => spans.extend(asked.iter().cloned()),
-        }
-        (spans, at)
     }
 
     /// Where the latest message goes in `area`: the status row between what's under way and where
@@ -87,11 +72,13 @@ impl Footer {
     }
 
     /// Where each hint is on the keys row of `area`, as clicks find them.
-    pub fn hint_areas(&self, area: Rect) -> Vec<(Rect, Act)> {
-        let Some(row) = area.height.checked_sub(1).map(|dy| area.y + dy) else { return Vec::new() };
-        let (_, at) = self.keys_row();
-        let inside = at.into_iter().filter(|(x, w, _)| x + w <= area.width);
-        inside.map(|(x, w, act)| (Rect::new(area.x + x, row, w, 1), act)).collect()
+    pub fn hint_areas(&self, area: Rect) -> impl Iterator<Item = (Rect, Act)> + '_ {
+        let at = match &self.keys {
+            Keys::Hints(row) if area.height > 0 => &row.at[..],
+            _ => &[],
+        };
+        let inside = at.iter().filter(move |(x, w, _)| x + w <= area.width);
+        inside.map(move |&(x, w, act)| (Rect::new(area.x + x, area.bottom() - 1, w, 1), act))
     }
 }
 
@@ -110,7 +97,12 @@ impl Widget for &Footer {
             super::spread(left, self.place.clone(), area.width).render(status, buf);
         }
         let keys = *rows.last().unwrap_or(&area);
-        let (mut spans, _) = self.keys_row();
+        let asked = match &self.keys {
+            Keys::Hints(row) => return (&row.line).render(keys, buf),
+            Keys::Typed { asked, .. } | Keys::Said(asked) => asked,
+        };
+        let mut spans = lead(self.mode);
+        spans.extend(asked.iter().cloned());
         if let Keys::Typed { typed, after, .. } = &self.keys {
             // What's typed keeps its end in view, its cursor after it, then what follows if it fits.
             let used: usize = spans.iter().map(Span::width).sum();
@@ -150,8 +142,35 @@ fn typed_keys(scopes: &[Scope], says: &[(Act, &str)]) -> Vec<Span<'static>> {
     spans
 }
 
+/// The keys row's first columns: a space, then the chip when keys mean something else.
+fn lead(mode: Option<&'static str>) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::raw(" ")];
+    if let Some(m) = mode {
+        spans.extend([Span::styled(format!(" {m} "), theme::chip(theme::current().dim)), Span::raw(" ")]);
+    }
+    spans
+}
+
+/// The hints row `width` columns wide after `mode`'s chip: each hint's keys, then what it does.
+fn hints_row(app: &App, mode: Option<&'static str>, width: u16) -> HintsRow {
+    let chip = mode.map_or(0, |m| m.width() + 3);
+    let mut spans = lead(mode);
+    let mut at = Vec::new();
+    let mut x: usize = spans.iter().map(Span::width).sum();
+    for h in keymap::hints(app, (width as usize).saturating_sub(chip)) {
+        let label = format!(" {}  ", h.label);
+        if keymap::clicks(h.act) {
+            at.push((x as u16, (h.keys.width() + label.trim_end().width()) as u16, h.act));
+        }
+        x += h.keys.width() + label.width();
+        spans.push(Span::styled(h.keys, theme::key()));
+        spans.push(Span::styled(label, dim()));
+    }
+    HintsRow { line: Line::from(fit(spans, width as usize)), at }
+}
+
 /// What the keys row says now, `width` columns wide.
-fn keys(app: &App, width: usize) -> Keys {
+fn keys(app: &App, mode: Option<&'static str>, width: u16) -> Keys {
     if let Some(Modal::Prompt(p)) = &app.modal {
         let asked = vec![Span::styled(format!("{}: ", p.label), theme::key())];
         return Keys::Typed { asked, typed: p.text.clone(), after: typed_keys(&keymap::dialogs::PROMPT, &[]) };
@@ -191,7 +210,8 @@ fn keys(app: &App, width: usize) -> Keys {
     if app.hints == Hints::Off && app.help_hint {
         return Keys::Said(vec![Span::styled("? help", faint())]);
     }
-    Keys::Hints(keymap::hints(app, width))
+    let key = (keymap::situation(app), app.hints, mode, width, theme::look());
+    Keys::Hints(keymap::effective::memo(|k| *k == key, || key, || hints_row(app, mode, width)))
 }
 
 /// After one esc with nothing open, for the second it lasts.

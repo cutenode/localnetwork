@@ -3,9 +3,12 @@
 //! these, so a changed key shows wherever keys are shown. They're kept per thread, as the theme
 //! is: the player's own thread installs them, and each test starts on the defaults.
 
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::LazyLock;
+
+use rustc_hash::FxHashMap;
 
 use locallibrary::keybinds::{Key, Keybinds};
 use loclib_plugin::Manifest;
@@ -43,11 +46,59 @@ static DEFAULTS: LazyLock<Effective> = LazyLock::new(|| Effective::build(&[]));
 
 thread_local! {
     static CURRENT: RefCell<Rc<Effective>> = RefCell::new(Rc::new(Effective::defaults()));
+    /// What's drawn from the keys in effect, the last of each kind made (see [`memo`]).
+    static MEMO: RefCell<FxHashMap<TypeId, Box<dyn Any>>> = RefCell::new(FxHashMap::default());
 }
 
-/// Use `e` from now on, on this thread.
+/// Use `e` from now on, on this thread: what was drawn from the keys before goes.
 pub fn install(e: Effective) {
     CURRENT.with(|c| *c.borrow_mut() = Rc::new(e));
+    MEMO.with(|m| m.borrow_mut().clear());
+}
+
+/// What `make` makes from the keys in effect, for the key `same` matches: made once, and the same
+/// one handed back while the keys and that key stay as they are. A frame draws the tabs, the hints
+/// and the help from the keys, and most frames draw them as the last one did, so fetching them then
+/// looks nothing up and allocates nothing. One is kept of each kind (`K` and `V`), the last made;
+/// `key` makes the key to keep only when it's made.
+pub fn memo<K: 'static, V: 'static>(
+    same: impl FnOnce(&K) -> bool,
+    key: impl FnOnce() -> K,
+    make: impl FnOnce() -> V,
+) -> Rc<V> {
+    let id = TypeId::of::<(K, V)>();
+    let kept = MEMO.with(|m| {
+        let m = m.borrow();
+        let (k, v) = m.get(&id)?.downcast_ref::<(K, Rc<V>)>()?;
+        same(k).then(|| v.clone())
+    });
+    if let Some(v) = kept {
+        return v;
+    }
+    // Made with the cache let go: making one may look another up.
+    let v = Rc::new(make());
+    let kept: Box<dyn Any> = Box::new((key(), v.clone()));
+    MEMO.with(|m| m.borrow_mut().insert(id, kept));
+    #[cfg(test)]
+    MADE.with(|n| n.set(n.get() + 1));
+    v
+}
+
+#[cfg(test)]
+thread_local! {
+    static MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times [`memo`] has made something on this thread.
+#[cfg(test)]
+pub fn made() -> usize {
+    MADE.with(std::cell::Cell::get)
+}
+
+/// Let go of what's kept drawn, so it's made anew.
+#[cfg(test)]
+pub fn forget() {
+    MEMO.with(|m| m.borrow_mut().clear());
 }
 
 /// The keys in effect on this thread.

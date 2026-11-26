@@ -1,6 +1,8 @@
 //! The top row, the same at every size: the logo, a tab for each view, what the view is about, and
 //! localnetwork's tab at the right end. Each tab shows the digit that goes there.
 
+use std::rc::Rc;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -12,7 +14,10 @@ use crate::tui::app::{App, View};
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 use crate::tui::{icons, keymap};
 
-use super::{clip, fit};
+use super::{clip, fit, lent_spans};
+
+/// A tab: the view it opens, and its number and name.
+type Tab = (View, [Span<'static>; 2]);
 
 /// The view whose tab stands apart at the right end: localnetwork, what goes out to Local Network
 /// rather than work on the music.
@@ -44,30 +49,37 @@ impl Header {
     }
 
     /// The tabs, left to right, then the aside's: each tab's spans (its number, the key that goes
-    /// there, then its name) and the view it opens.
-    fn tabs(&self, roomy: bool) -> Vec<(View, Vec<Span<'static>>)> {
-        let style = |v: View| if self.view == v { theme::chip(theme::current().info) } else { dim() };
-        let order = View::ALL.into_iter().filter(|v| *v != ASIDE).chain([ASIDE]);
-        order
-            .map(|v| {
-                let padded = roomy || self.view == v;
-                // With the pads on the digits are hot cues, so they aren't the views' then.
-                let key = if self.pads { String::new() } else { keymap::view_key(v) };
-                let (number, name) = match (padded, key.is_empty()) {
-                    (true, _) => (key, format!(" {} ", v.title())),
-                    (false, false) => (format!("{key} "), v.title().to_string()),
-                    (false, true) => (key, v.title().to_string()),
-                };
-                (v, vec![Span::styled(number, theme::key()), Span::styled(name, style(v))])
-            })
-            .collect()
+    /// there, then its name) and the view it opens. Made once while the keys, the view, the pads, the
+    /// room and how it looks stay as they are.
+    fn tabs(&self, roomy: bool) -> Rc<Vec<Tab>> {
+        let key = (self.view, self.pads, roomy, theme::look());
+        keymap::effective::memo(
+            |k| *k == key,
+            || key,
+            || {
+                let style = |v: View| if self.view == v { theme::chip(theme::current().info) } else { dim() };
+                let order = View::ALL.into_iter().filter(|v| *v != ASIDE).chain([ASIDE]);
+                order
+                    .map(|v| {
+                        let padded = roomy || self.view == v;
+                        // With the pads on the digits are hot cues, so they aren't the views' then.
+                        let key = if self.pads { String::new() } else { keymap::view_key(v) };
+                        let (number, name) = match (padded, key.is_empty()) {
+                            (true, _) => (key, format!(" {} ", v.title())),
+                            (false, false) => (format!("{key} "), v.title().to_string()),
+                            (false, true) => (key, v.title().to_string()),
+                        };
+                        (v, [Span::styled(number, theme::key()), Span::styled(name, style(v))])
+                    })
+                    .collect()
+            },
+        )
     }
 
-    /// The row's spans, and where each tab is (its view, its column, its width) for clicks.
-    fn laid_out(&self, width: u16) -> (Vec<Span<'static>>, Vec<(View, u16, u16)>) {
-        let roomy = width >= ROOMY;
-        let mut tabs = self.tabs(roomy);
-        let (aside, aside_spans) = tabs.pop().unwrap_or((ASIDE, Vec::new()));
+    /// The row's spans, with `tabs` in it, and where each is (its view, its column, its width) for
+    /// clicks.
+    fn laid_out<'a>(&self, tabs: &'a [Tab], width: u16) -> (Vec<Span<'a>>, Vec<(View, u16, u16)>) {
+        let Some(((aside, aside_spans), tabs)) = tabs.split_last() else { return Default::default() };
         let mut left = vec![Span::styled(icons::LOGO.spaced(), self.logo)];
         let mut at = Vec::new();
         let mut x: usize = left.iter().map(Span::width).sum();
@@ -81,8 +93,8 @@ impl Header {
             }
             spaced = spans.last().is_some_and(|s| s.content.ends_with(' '));
             let w: usize = spans.iter().map(Span::width).sum();
-            at.push((v, x as u16, w as u16));
-            left.extend(spans);
+            at.push((*v, x as u16, w as u16));
+            left.extend(lent_spans(spans));
             x += w;
         }
         let aside_w: usize = aside_spans.iter().map(Span::width).sum();
@@ -97,15 +109,16 @@ impl Header {
         left.push(Span::raw(" ".repeat(after)));
         let aside_x = (width as usize).saturating_sub(aside_w) as u16;
         if x + 1 + about_w + after + aside_w <= width as usize {
-            at.push((aside, aside_x, aside_w as u16));
-            left.extend(aside_spans);
+            at.push((*aside, aside_x, aside_w as u16));
+            left.extend(lent_spans(aside_spans));
         }
         (left, at)
     }
 
     /// Where each tab is in `area`, as clicks find them.
     pub fn tab_areas(&self, area: Rect) -> Vec<(View, Rect)> {
-        let (_, at) = self.laid_out(area.width);
+        let tabs = self.tabs(area.width >= ROOMY);
+        let (_, at) = self.laid_out(&tabs, area.width);
         let drawn = at.into_iter().filter(|(_, x, w)| x + w <= area.width);
         drawn.map(|(v, x, w)| (v, Rect::new(area.x + x, area.y, w, 1))).collect()
     }
@@ -116,7 +129,8 @@ impl Widget for &Header {
         if area.is_empty() {
             return;
         }
-        let (spans, _) = self.laid_out(area.width);
+        let tabs = self.tabs(area.width >= ROOMY);
+        let (spans, _) = self.laid_out(&tabs, area.width);
         Line::from(fit(spans, area.width as usize)).render(area, buf);
     }
 }

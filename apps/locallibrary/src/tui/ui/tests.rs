@@ -155,6 +155,38 @@ fn help_fits_80_columns_and_scrolls() {
     assert!(s.contains("Every command is still available"), "{s}");
 }
 
+/// The row selected in the help is drawn as selected, what it says and no further, and only that row.
+#[test]
+fn the_help_row_selected_is_drawn_so() {
+    theme::set_test_mode(Some(theme::Mode::Dark));
+    // With no track selected under it.
+    let (mut app, _dir) = blank(View::Library);
+    app.help = true;
+    let marked = |app: &mut App| {
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+        terminal.draw(|f| draw(f, app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let cell = |x: u16, y: u16| &buf[(x, y)];
+        let rows = (0..40u16).filter(|&y| (0..120).any(|x| Some(cell(x, y).bg) == theme::selected().bg));
+        rows.map(|y| {
+            let text = (0..120).filter(|&x| Some(cell(x, y).bg) == theme::selected().bg).map(|x| cell(x, y).symbol());
+            text.collect::<String>()
+        })
+        .collect::<Vec<_>>()
+    };
+    let rows = crate::tui::keymap::help_rows(&app, "");
+    for n in [0, 3] {
+        app.help_row = n;
+        let said = marked(&mut app);
+        // The keys, then what they do, wrapped under itself.
+        let keys = format!("  {:<13}", rows[n].keys);
+        assert!(said[0].starts_with(&keys), "row {n}: {said:?}");
+        let about: Vec<&str> = said.iter().map(|l| l[keys.len()..].trim_end()).collect();
+        assert_eq!(about.join(" "), rows[n].binding.help, "row {n}: {said:?}");
+    }
+    theme::set_test_mode(None);
+}
+
 #[test]
 fn draws_every_pane_and_dialog_at_any_size() {
     let (mut app, _dir) = app_with(library());

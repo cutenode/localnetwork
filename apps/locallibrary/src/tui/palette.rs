@@ -438,7 +438,8 @@ impl App {
     /// an item by its letter until `/` starts a filter; esc then clears the filter first.
     pub(super) fn on_picker_key(&mut self, mut p: Picker, key: KeyEvent) {
         // An action's letter, where nothing's being typed.
-        if let Some(act) = keymap::menu_act(p.acts(), &key).filter(|_| !p.typing())
+        if !p.typing()
+            && let Some(act) = keymap::menu_act(p.acts(), &key)
             && p.select_act(act)
         {
             return self.choose_item(p);

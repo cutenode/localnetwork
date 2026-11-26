@@ -933,6 +933,8 @@ fn every_key_a_view_draws_is_found() {
     for (place, setup) in places {
         let (mut app, _dir) = app_with(library());
         setup(&mut app);
+        // What an earlier place's frame kept would hide what this one looks up.
+        effective::forget();
         let lookups = watching(|| {
             screen(&mut app, 160, 50);
         });

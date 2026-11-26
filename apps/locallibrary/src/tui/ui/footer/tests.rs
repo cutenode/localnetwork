@@ -37,7 +37,8 @@ fn enter_then_the_actions_lead_the_keys() {
     let (mut app, _dir) = app_with(library());
     for view in View::ALL {
         app.set_view(view);
-        let Keys::Hints(hints) = Footer::of(&mut app, 200).keys else { panic!("{view:?}: no hints") };
+        assert!(matches!(Footer::of(&mut app, 200).keys, Keys::Hints(_)), "{view:?}: no hints");
+        let hints = keymap::hints(&app, 200);
         let first: Vec<&str> = hints.iter().take(2).map(|h| h.keys.as_str()).collect();
         assert_eq!(first, ["enter", "e"], "{view:?}: {hints:?}");
     }
@@ -94,7 +95,7 @@ fn prop_a_hint_is_clicked_where_it_is_drawn(tc: hegel::TestCase) {
     let width = tc.draw(gs::integers::<u16>().min_value(20).max_value(200));
     let footer = Footer::of(&mut app, width);
     let (_, keys) = rows(&mut app, width);
-    let Keys::Hints(hints) = &footer.keys else { panic!("hints") };
+    let hints = keymap::hints(&app, width as usize);
     for (r, act) in footer.hint_areas(Rect::new(0, 0, width, 2)) {
         assert_eq!(r.y, 1);
         let h = hints.iter().find(|h| h.act == act).unwrap();
@@ -110,7 +111,8 @@ fn at_80_the_keys_row_is_a_handful() {
     let (mut app, _dir) = app_with(library());
     for view in View::ALL {
         app.set_view(view);
-        let Keys::Hints(hints) = Footer::of(&mut app, 80).keys else { panic!("{view:?}: no hints") };
+        assert!(matches!(Footer::of(&mut app, 80).keys, Keys::Hints(_)), "{view:?}: no hints");
+        let hints = keymap::hints(&app, 80);
         assert!(hints.len() <= 8, "{view:?}: {} keys", hints.len());
         let (_, keys) = rows(&mut app, 80);
         assert!(keys.trim_end().ends_with(": commands  ? help"), "{view:?}: {keys:?}");

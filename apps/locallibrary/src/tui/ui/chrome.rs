@@ -47,6 +47,23 @@ pub(super) fn title_row(f: &mut Frame, title: impl Into<Line<'static>>, focused:
     f.render_widget(b.border_style(theme::border(focused)).title(title.into()), area);
 }
 
+/// A dialog's hints in `scopes` as its border writes them (see [`hint_bar`]): the last dialog's are
+/// kept while the keys and how it looks stay as they are.
+pub(super) fn dialog_bar(scopes: &[Scope]) -> std::rc::Rc<Line<'static>> {
+    let same = |k: &(Vec<Scope>, theme::Look)| k.0 == scopes && k.1 == theme::look();
+    keymap::effective::memo(same, || (scopes.to_vec(), theme::look()), || hint_bar(&keymap::dialog_hints(scopes), &[]))
+}
+
+/// `line` lent to a widget that takes a line of its own, without copying what it says.
+pub(super) fn lent<'a>(line: &'a Line<'_>) -> Line<'a> {
+    lent_spans(&line.spans).collect::<Line>().style(line.style)
+}
+
+/// `spans` lent, as [`lent`] lends a line.
+pub(super) fn lent_spans<'a>(spans: &'a [Span<'_>]) -> impl Iterator<Item = Span<'a>> {
+    spans.iter().map(|s| Span::styled(s.content.as_ref(), s.style))
+}
+
 /// Hints as a dialog's border writes them: each key in the key colour and what it does after it,
 /// ` · ` between; `says` names an act's hint otherwise here (what enter does in this dialog).
 pub(in crate::tui) fn hint_bar(hints: &[Hint], says: &[(Act, &str)]) -> Line<'static> {
@@ -106,7 +123,7 @@ pub(in crate::tui) fn clip(s: &str, max: usize) -> String {
 }
 
 /// Keep spans from the front while they fit in `max` columns, cutting the last one short.
-pub(super) fn fit(spans: Vec<Span<'static>>, max: usize) -> Vec<Span<'static>> {
+pub(super) fn fit(spans: Vec<Span<'_>>, max: usize) -> Vec<Span<'_>> {
     let mut out = Vec::new();
     let mut used = 0;
     for s in spans {
@@ -326,8 +343,9 @@ pub(super) fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let total = lines.len() as u16;
     let r = popup(area, w, total + 2, None);
+    let bar = dialog_bar(&keymap::dialogs::MESSAGES);
     let b = block(title("Messages", true), true)
-        .title_bottom(hint_bar(&keymap::dialog_hints(&keymap::dialogs::MESSAGES), &[]).right_aligned())
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = b.inner(r);
     app.log_scroll = app.log_scroll.min(total.saturating_sub(inner.height));

@@ -6,8 +6,12 @@ use super::super::conflict::{Place, clashes, places};
 use super::super::{Hint, dialogs, help_rows, hints, lookup, menu_letters, view_key};
 use super::*;
 use crate::tui::app::testing::{app_with, library};
-use crate::tui::app::{Focus, View};
+use crate::tui::app::{App, DrivePane, Focus, View};
+use crate::tui::choices::Hints;
+use crate::tui::edits::Modal;
+use crate::tui::icons::{self, IconSet};
 use crate::tui::palette::commands;
+use crate::tui::theme::{self, Mode, Tier};
 
 fn binds(pairs: &[(&str, &[&str])]) -> Keybinds {
     let mut out = Keybinds::default();
@@ -271,4 +275,108 @@ fn hot_cues_with_no_keys_are_listed_as_none() {
     crate::tui::app::testing::press(&mut app, "?hot cue");
     let s = crate::tui::ui::screen(&mut app, 160, 45).to_lowercase();
     assert!(s.contains("none") && !s.contains("by name"), "{s}");
+}
+
+/// A whole frame, its styles included.
+fn frame(app: &mut App, (w, h): (u16, u16)) -> ratatui::buffer::Buffer {
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+    terminal.draw(|f| crate::tui::ui::draw(f, app)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+/// Something open over the view, which draws keys of its own.
+const OPEN: [fn(&mut App); 6] = [
+    |_| {},
+    |app| app.help = true,
+    |app| app.show_log = true,
+    App::open_palette,
+    |app| {
+        app.open_palette();
+        let Some(Modal::Pick(p)) = &mut app.modal else { panic!("no palette") };
+        p.marks = Some(vec![false; p.items.len()]);
+    },
+    |app| app.modal = Some(Modal::Ask("Sure?".into(), Box::new(|_| {}))),
+];
+
+/// A frame drawn again makes nothing new from the keys, whatever's open; with other keys installed it makes it again.
+#[test]
+fn a_frame_drawn_again_makes_nothing_new_from_the_keys() {
+    for (n, open) in OPEN.into_iter().enumerate() {
+        let (mut app, _dir) = app_with(library());
+        open(&mut app);
+        frame(&mut app, (160, 45));
+        let made = super::made();
+        frame(&mut app, (160, 45));
+        assert_eq!(super::made(), made, "made again with {n} open");
+        install(Effective::defaults());
+        frame(&mut app, (160, 45));
+        assert!(super::made() > made, "kept past other keys with {n} open");
+    }
+}
+
+/// Whatever changes between two frames (the keys, where the player is, the size, what's open and what the help is
+/// narrowed to, the hints setting, the search's chip, the theme, its mode, the terminal's colours, the icons), a frame
+/// drawn with what's kept is the one drawn with it made anew.
+#[hegel::test(test_cases = 40)]
+fn prop_a_frame_is_the_same_kept_or_made_anew(tc: hegel::TestCase) {
+    install(Effective::defaults());
+    theme::set_test_reduced_motion(true);
+    let (mut app, _dir) = app_with(library());
+    let mut size = (160, 45);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(8)) {
+        (app.help, app.show_log, app.modal) = (false, false, None);
+        tc.draw(gs::sampled_from(OPEN.to_vec()))(&mut app);
+        // Drawn once before the change, so what's kept is what's open now, as it was.
+        frame(&mut app, size);
+        match tc.draw(gs::integers::<u8>().max_value(11)) {
+            0 => {
+                let mut binds = Keybinds::default();
+                let key: &str = tc.draw(gs::sampled_from(vec!["]", "X", "f6"]));
+                binds.keys.insert("playback.next".into(), vec![key.into()]);
+                install(Effective::new(&binds, &[]));
+            }
+            1 => install(Effective::defaults()),
+            // Not as a key goes there: that starts reads whose spinner draws the time.
+            2 => app.view = tc.draw(gs::sampled_from(View::ALL.to_vec())),
+            3 => {
+                let panes = vec![Focus::Tracks, Focus::Playlists, Focus::Details, Focus::Crate];
+                app.focus = tc.draw(gs::sampled_from(panes));
+                (app.show_details, app.show_crate) = (true, true);
+            }
+            4 => {
+                app.drive_pane =
+                    tc.draw(gs::sampled_from(vec![DrivePane::List, DrivePane::Snapshots, DrivePane::History]))
+            }
+            5 => (app.deck_layout, app.deck.pads) = (tc.draw(gs::booleans()), tc.draw(gs::booleans())),
+            6 => {
+                size = (
+                    tc.draw(gs::integers().min_value(20).max_value(200)),
+                    tc.draw(gs::integers().min_value(6).max_value(50)),
+                )
+            }
+            7 => {
+                app.help_row = tc.draw(gs::integers::<usize>().max_value(40));
+                app.help_query = tc.draw(gs::sampled_from(vec!["", "play", "zzz"])).into();
+            }
+            8 => app.hints = tc.draw(gs::sampled_from(vec![Hints::Full, Hints::Compact, Hints::Off])),
+            9 => theme::set_test_theme(tc.draw(gs::booleans()).then(|| &theme::themes().last().unwrap().theme)),
+            10 => {
+                theme::set_test_mode(Some(tc.draw(gs::sampled_from(vec![Mode::Dark, Mode::Light, Mode::Plain]))));
+                let tiers = vec![Tier::Truecolor, Tier::Colors256, Tier::Colors16];
+                theme::set_test_tier(Some(tc.draw(gs::sampled_from(tiers))));
+            }
+            _ => icons::set_test_set(Some(tc.draw(gs::sampled_from(IconSet::ALL.to_vec())))),
+        }
+        // The first settles what a draw itself moves (a list's scroll).
+        frame(&mut app, size);
+        let kept = frame(&mut app, size);
+        super::forget();
+        assert_eq!(kept, frame(&mut app, size));
+    }
+    theme::set_test_reduced_motion(false);
+    theme::set_test_theme(None);
+    theme::set_test_mode(None);
+    theme::set_test_tier(None);
+    icons::set_test_set(None);
+    install(Effective::defaults());
 }

@@ -1039,7 +1039,12 @@ pub struct Situation {
 
 /// The scopes keys are looked up in now, most specific first.
 pub fn scopes(app: &App) -> Vec<Scope> {
-    scopes_of(&Situation {
+    scopes_of(&situation(app))
+}
+
+/// What decides the scopes keys are looked up in now: what's kept drawn from the keys is kept for it.
+pub fn situation(app: &App) -> Situation {
+    Situation {
         replay: app.replay_offer.is_some(),
         deck: app.deck_showing(),
         view: app.view,
@@ -1047,7 +1052,7 @@ pub fn scopes(app: &App) -> Vec<Scope> {
         empty: app.empty(),
         pads: app.pads_on(),
         drive_pane: app.drive_pane,
-    })
+    }
 }
 
 /// The scopes keys are looked up in, in situation `s`, most specific first.

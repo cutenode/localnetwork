@@ -105,7 +105,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         false => over,
     };
     let footer = Footer::of(app, shell.footer.width);
-    app.areas.hints = footer.hint_areas(shell.footer);
+    app.areas.hints.extend(footer.hint_areas(shell.footer));
     f.render_widget(&footer, shell.footer);
     let message = footer.room(shell.status());
     match &app.modal {

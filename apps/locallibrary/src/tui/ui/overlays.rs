@@ -91,8 +91,8 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
         (None, Some(_)) => &dialogs::FILTERING,
         (None, None) => &dialogs::ACTIONS,
     };
-    let b =
-        block(title(&heading, true), true).title_bottom(hint_bar(&keymap::dialog_hints(scopes), &[]).right_aligned());
+    let bar = dialog_bar(scopes);
+    let b = block(title(&heading, true), true).title_bottom(lent(&bar).right_aligned());
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
@@ -122,9 +122,19 @@ pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
         (true, false) => &dialogs::ACTIONS,
     };
     let marks = p.marks.is_some();
-    let hints: Vec<_> = (keymap::dialog_hints(scopes).into_iter()).filter(|h| marks || h.act != Act::Mark).collect();
-    let says: &[(Act, &str)] = if marks { &[(Act::Activate, "take the marked")] } else { &[] };
-    let b = block(title(&p.title, true), true).title_bottom(hint_bar(&hints, says).right_aligned());
+    // Kept while the keys, the list's kind, the marks and how it looks stay as they are.
+    let key: (&'static [Scope], bool, theme::Look) = (scopes, marks, theme::look());
+    let bar = keymap::effective::memo(
+        |k| *k == key,
+        || key,
+        || {
+            let hints: Vec<_> =
+                (keymap::dialog_hints(scopes).into_iter()).filter(|h| marks || h.act != Act::Mark).collect();
+            let says: &[(Act, &str)] = if marks { &[(Act::Activate, "take the marked")] } else { &[] };
+            hint_bar(&hints, says)
+        },
+    );
+    let b = block(title(&p.title, true), true).title_bottom(lent(&bar).right_aligned());
     let inner = b.inner(r);
     f.render_widget(Clear, r);
     f.render_widget(b, r);
@@ -215,8 +225,9 @@ pub(super) fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let total = lines.len() as u16;
     let r_area = popup(area, w, total + 2, None);
+    let bar = dialog_bar(&dialogs::REPORT);
     let b = block(title(&r.title, true), true)
-        .title_bottom(hint_bar(&keymap::dialog_hints(&dialogs::REPORT), &[]).right_aligned())
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = b.inner(r_area);
     r.scroll = r.scroll.min(total.saturating_sub(inner.height));
@@ -347,8 +358,8 @@ pub(super) fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let r = popup(area, w, items.len() as u16 + 2, None);
     o.state.fit(r.height.saturating_sub(2) as usize, items.len());
-    let b = block(title("Output", true), true)
-        .title_bottom(hint_bar(&keymap::dialog_hints(&dialogs::OUTPUTS), &[]).right_aligned());
+    let bar = dialog_bar(&dialogs::OUTPUTS);
+    let b = block(title("Output", true), true).title_bottom(lent(&bar).right_aligned());
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
@@ -644,8 +655,9 @@ pub(super) fn draw_ask(f: &mut Frame, app: &mut App, area: Rect) {
     let lines = vec![Line::styled(question.clone(), text())];
     let h = wrapped_height(&lines, w.saturating_sub(4)) + 2;
     let r = popup(area, w, h, None);
+    let bar = dialog_bar(&dialogs::ASK);
     let b = block(title("Sure?", true), true)
-        .title_bottom(hint_bar(&keymap::dialog_hints(&dialogs::ASK), &[]).right_aligned())
+        .title_bottom(lent(&bar).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     app.areas.menu = r;
     f.render_widget(Clear, r);
@@ -689,8 +701,51 @@ fn help_footer(width: u16) -> Vec<Line<'static>> {
 pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let w = 96.min(area.width);
     let inner_w = w.saturating_sub(4);
+    let page = help_page(app, inner_w);
+    app.help_row = app.help_row.min(page.rows.len().saturating_sub(1));
+    let selected = page.rows.get(app.help_row).cloned().unwrap_or(0..0);
+    let lines = &page.lines;
+    let total = lines.len() as u16;
+    let r = popup(area, w, total + 3, None);
+    let bar = dialog_bar(&dialogs::HELP);
+    let b = block(title(&format!("Keys · {}", app.view.title()), true), true)
+        .title_bottom(lent(&bar).right_aligned())
+        .padding(ratatui::widgets::Padding::horizontal(1));
+    let inner = b.inner(r);
+    f.render_widget(Clear, r);
+    f.render_widget(b, r);
+    let [input, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
+    let label = vec![Span::styled("› ", theme::key())];
+    f.render_widget(Paragraph::new(input_line(label, &app.help_query, Vec::new(), input.width)), input);
+    // The row selected in view, and past the last one, what's under it.
+    let end = if app.help_row + 1 == page.rows.len() { lines.len() } else { selected.end };
+    let top = end.saturating_sub(list.height as usize).min(selected.start);
+    let shown = lines.iter().enumerate().skip(top).take(list.height as usize);
+    let shown = shown.map(|(n, l)| if selected.contains(&n) { lent(l).style(theme::selected()) } else { lent(l) });
+    f.render_widget(Paragraph::new(shown.collect::<Vec<_>>()), list);
+}
+
+/// The help as drawn: its lines, and each row's among them.
+struct HelpPage {
+    lines: Vec<Line<'static>>,
+    rows: Vec<std::ops::Range<usize>>,
+}
+
+/// The help as drawn for where the player is and what's typed, `inner_w` columns wide: made once
+/// while those, the keys and how it looks stay as they are.
+fn help_page(app: &App, inner_w: u16) -> std::rc::Rc<HelpPage> {
+    let situation = keymap::situation(app);
+    let same =
+        |k: &(_, String, _, _)| k.0 == situation && k.1 == app.help_query && k.2 == inner_w && k.3 == theme::look();
+    keymap::effective::memo(
+        same,
+        || (situation, app.help_query.clone(), inner_w, theme::look()),
+        || help_page_now(app, inner_w),
+    )
+}
+
+fn help_page_now(app: &App, inner_w: u16) -> HelpPage {
     let rows = keymap::help_rows(app, &app.help_query);
-    app.help_row = app.help_row.min(rows.len().saturating_sub(1));
     let narrowed = !app.help_query.is_empty();
     // The keys are here; everything else is in the palette, by name.
     let mut lines: Vec<Line<'static>> = vec![
@@ -701,8 +756,8 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         Line::raw(""),
     ];
     let mut section = "";
-    let mut selected = 0..0;
-    for (i, row) in rows.iter().enumerate() {
+    let mut at = Vec::with_capacity(rows.len());
+    for row in &rows {
         if !narrowed && row.title != section {
             section = row.title;
             if lines.len() > 2 {
@@ -712,10 +767,7 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         }
         let start = lines.len();
         lines.extend(help_row_lines(&row.keys, row.binding.help, inner_w));
-        if i == app.help_row {
-            selected = start..lines.len();
-            lines[start..].iter_mut().for_each(|l| l.style = theme::selected());
-        }
+        at.push(start..lines.len());
     }
     if rows.is_empty() {
         lines.push(Line::styled("no key has those words: enter searches the commands (:) for them", dim()));
@@ -724,19 +776,5 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         lines.push(Line::raw(""));
         lines.extend(help_footer(inner_w));
     }
-    let total = lines.len() as u16;
-    let r = popup(area, w, total + 3, None);
-    let b = block(title(&format!("Keys · {}", app.view.title()), true), true)
-        .title_bottom(hint_bar(&keymap::dialog_hints(&dialogs::HELP), &[]).right_aligned())
-        .padding(ratatui::widgets::Padding::horizontal(1));
-    let inner = b.inner(r);
-    f.render_widget(Clear, r);
-    f.render_widget(b, r);
-    let [input, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-    let label = vec![Span::styled("› ", theme::key())];
-    f.render_widget(Paragraph::new(input_line(label, &app.help_query, Vec::new(), input.width)), input);
-    // The row selected in view, and past the last one, what's under it.
-    let end = if app.help_row + 1 == rows.len() { lines.len() } else { selected.end };
-    let top = end.saturating_sub(list.height as usize).min(selected.start);
-    f.render_widget(Paragraph::new(lines).scroll((top as u16, 0)), list);
+    HelpPage { lines, rows: at }
 }

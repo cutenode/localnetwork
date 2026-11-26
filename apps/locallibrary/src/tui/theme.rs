@@ -376,6 +376,15 @@ static CURRENT: AtomicUsize = AtomicUsize::new(0);
 /// colour search there is happens here, once.
 static FITTED: [OnceLock<Vec<Theme>>; 3] = [const { OnceLock::new() }; 3];
 
+/// What a line's styles come from: the theme, its mode (dark, light, no colours) and the terminal's
+/// colours. What's kept drawn (see [`super::keymap::effective::memo`]) is drawn again when one
+/// changes. Nothing kept draws an icon, so the icons aren't part of it.
+pub type Look = (*const Theme, Mode, Tier);
+
+pub fn look() -> Look {
+    (std::ptr::from_ref(current()), mode(), tier())
+}
+
 /// The theme the player draws in, fitted to the terminal: every colour of its chrome, its waveforms
 /// and the shared ones.
 pub fn current() -> &'static Theme {
