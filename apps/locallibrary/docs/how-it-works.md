@@ -401,8 +401,11 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   duplicates keep the target's metadata and tags. A track whose details are too long for one of
   the target's `export.pdb` rows (OneLibrary has no such limit) is left out with a warning, and a
   playlist, folder or history list name that long is refused in the plan.
-- The computer-side rekordbox database (`master.db`) is only read, never written: interchange
-  with rekordbox goes through device exports and rekordbox XML. The reader follows pyrekordbox's
+- The computer-side rekordbox database (`master.db`) is only read so far, never written:
+  interchange with rekordbox goes through device exports and rekordbox XML. Writing it is coming,
+  under the rules in [ADR 0007](adr/0007-the-collection-is-written-only-over-a-fresh-backup.md):
+  only with rekordbox and its agent closed, never with Cloud Library Sync on, and only over a
+  backup taken and read back right before. The reader follows pyrekordbox's
   description of the tables and was checked against databases built to that description (with
   the `sqlcipher` CLI installed, the tests also have SQLCipher write and read them under
   rekordbox's key), not against a real rekordbox 6 or 7 collection: which column holds a hot
