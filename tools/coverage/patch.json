@@ -1,5 +1,7 @@
 {
 	"$schema": "./patch.schema.json",
 	"lines_percent": 100,
-	"exclude": []
+	"exclude": [
+		"apps/locallibrary/src/tui/audio/device.rs"
+	]
 }

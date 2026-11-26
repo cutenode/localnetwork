@@ -140,7 +140,7 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     ];
     lines.extend(about_line(now));
     // Playing or not, the phrase and the loop are the readout's, under these.
-    let pos_ms = app.position().as_secs_f64() * 1000.0;
+    let pos_ms = app.heard_ms();
 
     // What a plugin's analyzer worked out, drawn for what the drive lacks.
     if let Some(from) = &now.from_plugins {

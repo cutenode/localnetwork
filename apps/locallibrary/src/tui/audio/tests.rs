@@ -806,3 +806,38 @@ fn prop_a_file_without_audio_fails_to_open_saying_so(tc: hegel::TestCase) {
 pub fn seek_fails(audio: &Audio) {
     audio.heads.front().expect("a track playing").seek_failed.store(true, Ordering::Relaxed);
 }
+
+/// The playhead is drawn where it's heard: what the output still has to play is taken off what's
+/// been counted, except back past a jump; paused, it runs out to where the sound stops; with no
+/// output (the tests' mixer) it's the count.
+#[test]
+fn the_playhead_is_drawn_where_it_is_heard() {
+    let ms = Duration::from_millis;
+    let clock = OutputClock::default();
+    let head = Playhead::default();
+    head.rate.store(1000, Ordering::Relaxed);
+    head.frame.store(10_000, Ordering::Relaxed);
+    assert_eq!(head.heard(None), ms(10_000), "no output: the count");
+    assert_eq!(head.heard(Some(&clock)), ms(10_000), "nothing handed over yet");
+
+    // A 100 ms buffer to be heard 100 ms on: about 200 ms behind.
+    clock.handed(100, 1000, ms(100));
+    let h = head.heard(Some(&clock));
+    assert!(h >= ms(9_799) && h <= ms(9_805), "{h:?}");
+
+    // Just jumped to 10 s: it's drawn there while its sound is on the way.
+    head.floor.store(10_000, Ordering::Relaxed);
+    assert_eq!(head.heard(Some(&clock)), ms(10_000));
+
+    // Paused with nothing left to hear: where it stopped. Played on: from there.
+    head.floor.store(0, Ordering::Relaxed);
+    head.pausing(Some(Duration::ZERO));
+    assert_eq!(head.heard(Some(&clock)), ms(10_000));
+    head.pausing(None);
+    assert_eq!(head.floor.load(Ordering::Relaxed), 10_000, "playing on is a jump: never drawn before it");
+    assert_eq!(head.heard(Some(&clock)), ms(10_000));
+
+    // A seek asked for: its target, at once.
+    head.ask_seek(ms(42_000));
+    assert_eq!(head.heard(Some(&clock)), ms(42_000));
+}

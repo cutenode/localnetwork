@@ -15,13 +15,17 @@ use std::io::BufReader;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use locallibrary::probe;
 use loclib_waveform::analyzer::FFT_SIZE;
 #[cfg(feature = "playback")]
-use rodio::MixerDeviceSink;
+mod device;
+#[cfg(feature = "playback")]
+use device::open_device;
+mod output;
+pub use output::OutputClock;
 use rodio::mixer::Mixer;
 use rodio::source::SeekError;
 use rodio::{ChannelCount, Decoder, Player, Sample, SampleRate, Source};
@@ -197,6 +201,15 @@ pub struct Playhead {
     played: AtomicBool,
     /// Why it ended part-way: playing it panicked (its decoder tripping over a bad frame, say).
     broke: Mutex<Option<String>>,
+    /// Where it last jumped to, in frames (a seek, the loop going round, playing on after a
+    /// pause): what's heard is never drawn before it while the jump's sound is on its way.
+    floor: AtomicU64,
+    /// Paused at this time, `lag` behind what had been handed to the output: the sound plays on
+    /// that much longer, so what's heard reaches where the playhead stopped.
+    pause: Mutex<Option<(Instant, Duration)>>,
+    /// What [`Self::heard`] last said, and the jump it was after: the output asks for buffers a
+    /// little unevenly, and what's heard isn't drawn going back by that while it plays on.
+    shown: Mutex<(Duration, u64)>,
     /// Its last sample was played (or it was dropped).
     ended: AtomicBool,
     /// Queued but not wanted after all: it ends as soon as it starts.
@@ -221,6 +234,9 @@ impl Default for Playhead {
             started: AtomicBool::new(false),
             played: AtomicBool::new(false),
             broke: Mutex::new(None),
+            floor: AtomicU64::new(0),
+            pause: Mutex::new(None),
+            shown: Mutex::new((Duration::ZERO, 0)),
             ended: AtomicBool::new(false),
             dropped: AtomicBool::new(false),
             format: (0, 0),
@@ -244,6 +260,35 @@ impl Playhead {
                 let frame = self.frame.load(Ordering::Relaxed);
                 Duration::from_nanos((frame as u128 * 1_000_000_000 / rate as u128) as u64)
             }
+        }
+    }
+
+    /// Where the track is heard: [`Self::position`] less what the output still has to play
+    /// (`clock`; none without a device), and never before where it last jumped to.
+    pub fn heard(&self, clock: Option<&OutputClock>) -> Duration {
+        let counted = self.position();
+        let rate = self.rate.load(Ordering::Relaxed);
+        let (Some(clock), true) = (clock, self.seek.load(Ordering::Acquire) == NO_SEEK && rate > 0) else {
+            return counted;
+        };
+        let lag = match *self.pause.lock().unwrap_or_else(PoisonError::into_inner) {
+            Some((at, lag)) => lag.saturating_sub(at.elapsed()),
+            None => clock.lag(),
+        };
+        let floor_frame = self.floor.load(Ordering::Relaxed);
+        let floor = Duration::from_nanos((u128::from(floor_frame) * 1_000_000_000 / u128::from(rate)) as u64);
+        let mut shown = self.shown.lock().unwrap_or_else(PoisonError::into_inner);
+        let after = (shown.1 == floor_frame).then_some(shown.0);
+        let heard = output::steady(output::heard(counted, lag, floor), after);
+        *shown = (heard, floor_frame);
+        heard
+    }
+
+    /// Paused (`Some`: `lag` behind the output then), or playing on from where it stopped.
+    fn pausing(&self, lag: Option<Duration>) {
+        *self.pause.lock().unwrap_or_else(PoisonError::into_inner) = lag.map(|lag| (Instant::now(), lag));
+        if lag.is_none() {
+            self.floor.store(self.frame.load(Ordering::Relaxed), Ordering::Relaxed);
         }
     }
 
@@ -399,6 +444,7 @@ impl<S: Source> Looper<S> {
             if self.seek_track(to).is_ok() {
                 self.frame = to;
                 self.head.frame.store(to, Ordering::Relaxed);
+                self.head.floor.store(to, Ordering::Relaxed);
             }
         }
     }
@@ -428,6 +474,7 @@ impl<S: Source> Looper<S> {
             self.head.looping.store(false, Ordering::Relaxed);
         }
         self.head.frame.store(self.frame, Ordering::Relaxed);
+        self.head.floor.store(self.frame, Ordering::Relaxed);
     }
 
     /// Seek to `pos`, between two frames: the track (which is between two frames too, playing
@@ -460,6 +507,7 @@ impl<S: Source> Looper<S> {
         }
         self.frame = to;
         self.head.frame.store(to, Ordering::Relaxed);
+        self.head.floor.store(to, Ordering::Relaxed);
     }
 }
 
@@ -697,46 +745,6 @@ fn device_names() -> Result<Listed> {
     Ok((Vec::new(), None))
 }
 
-/// Open the output device called `name`, or the default one (failing that, as rodio does, the
-/// first other that opens). Its stream's errors are kept for the UI (see [`Audio::stream_error`]).
-#[cfg(feature = "playback")]
-fn open_device(name: Option<&str>) -> Result<Audio> {
-    use rodio::cpal::traits::{DeviceTrait, HostTrait};
-    let host = rodio::cpal::default_host();
-    let errors = StreamErrors::default();
-    let on_error = {
-        let errors = errors.clone();
-        move |e| stream_error(&errors, e)
-    };
-    let open = |d| {
-        rodio::DeviceSinkBuilder::from_device(d)
-            .and_then(|b| b.with_error_callback(on_error.clone()).open_sink_or_fallback())
-    };
-    let devices = || host.output_devices().ok().into_iter().flatten();
-    let mut sink = match name {
-        Some(name) => {
-            let device = devices()
-                .find(|d| d.description().is_ok_and(|d| d.name() == name))
-                .with_context(|| format!("no output called {name}"))?;
-            open(device).with_context(|| format!("can't open {name}"))?
-        }
-        None => {
-            let default = host.default_output_device().context("no audio output device")?;
-            match open(default) {
-                Ok(sink) => sink,
-                Err(e) => devices()
-                    .filter(|d| d.description().is_ok_and(|d| d.driver().is_some_and(|driver| driver != "null")))
-                    .find_map(|d| open(d).ok())
-                    .ok_or(e)
-                    .context("no audio output device")?,
-            }
-        }
-    };
-    sink.log_on_drop(false);
-    let mixer = sink.mixer().clone();
-    Ok(Audio { _sink: Some(sink), device: name.map(str::to_string), errors, ..Audio::with(mixer) })
-}
-
 /// Built without the `playback` feature, no output opens.
 #[cfg(not(feature = "playback"))]
 fn open_device(_: Option<&str>) -> Result<Audio> {
@@ -746,7 +754,9 @@ fn open_device(_: Option<&str>) -> Result<Audio> {
 pub struct Audio {
     /// The output device (`None` in tests, which play into a mixer they read themselves).
     #[cfg(feature = "playback")]
-    _sink: Option<MixerDeviceSink>,
+    _stream: Option<rodio::cpal::Stream>,
+    /// When what's handed to the output is heard (`None` without a device: the tests').
+    clock: Option<std::sync::Arc<OutputClock>>,
     /// The device's name, when it was picked rather than the default.
     device: Option<String>,
     /// What went wrong with its stream, last.
@@ -765,7 +775,8 @@ impl Audio {
     fn with(mixer: Mixer) -> Audio {
         Audio {
             #[cfg(feature = "playback")]
-            _sink: None,
+            _stream: None,
+            clock: None,
             device: None,
             errors: StreamErrors::default(),
             mixer,
@@ -896,8 +907,10 @@ impl Audio {
         } else {
             p.play()
         }
+        let lag = self.clock.as_deref().map_or(Duration::ZERO, OutputClock::lag);
         for h in &self.heads {
             h.paused.store(pause, Ordering::Release);
+            h.pausing(pause.then_some(lag));
         }
     }
 
@@ -908,6 +921,12 @@ impl Audio {
 
     pub fn position(&self) -> Duration {
         self.heads.front().map(|h| h.position()).unwrap_or_default()
+    }
+
+    /// Where the playing track is heard: [`Self::position`] less what the output has still to
+    /// play. What's drawn, and what's placed "here" (a loop, a cue), go by it.
+    pub fn heard(&self) -> Duration {
+        self.heads.front().map(|h| h.heard(self.clock.as_deref())).unwrap_or_default()
     }
 
     /// Seek to `pos`: asked of the audio thread, which makes it before the next frame it plays
