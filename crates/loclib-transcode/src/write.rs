@@ -214,11 +214,11 @@ impl Flac {
         let coding = &mut verbatim.subframe_coding;
         (coding.use_constant, coding.use_fixed, coding.use_lpc) = (false, false, false);
         // Verified at one call, and not with `expect`, whose message would build in the Debug of a
-        // whole configuration: the release CLI has a size budget.
-        let [Ok(config), Ok(verbatim)] = [config::Encoder::default(), verbatim].map(config::Encoder::into_verified)
-        else {
-            unreachable!("the default configuration, and it without prediction, are valid");
-        };
+        // whole configuration: the release CLI has a size budget. The default configuration, and
+        // it without prediction, are valid, so the `else` never runs; on one line, as the tests
+        // see the line run.
+        let verified = [config::Encoder::default(), verbatim].map(config::Encoder::into_verified);
+        let [Ok(config), Ok(verbatim)] = verified else { unreachable!() };
         let block = FrameBuf::with_size(channels, BLOCK).encoding(path)?;
         let mut sink = ByteSink::new();
         sink.write_bytes_aligned(b"fLaC").expect("memory");
