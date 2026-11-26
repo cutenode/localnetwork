@@ -10,14 +10,12 @@ use crate::test_util::{Fixture, STATS, TABLES, codec, sample, scratch_db, with_b
 /// With no temporary folder (`TMPDIR` on a drive that's gone), a `master.db` is still read and
 /// its tracks listed, as both decrypt it in memory; copying it, which needs a file, fails naming
 /// that folder, not the database.
-#[cfg(unix)]
 #[test]
 fn without_a_temporary_folder_a_master_db_is_read_but_not_copied() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), &crate::test_util::library().encrypted(DEFAULT_KEY));
-    let gone = std::env::temp_dir().join("locallibrary-unplugged");
-    // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
-    unsafe { std::env::set_var("TMPDIR", &gone) };
+    let gone = dir.path().join("unplugged");
+    crate::scratch::test_root(&gone);
     assert_eq!(open(&path, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
     #[cfg(feature = "files")]
     {
@@ -76,6 +74,8 @@ fn a_killed_read_leaves_nothing_decrypted_behind() {
 #[ignore = "started by a_killed_read_leaves_nothing_decrypted_behind"]
 fn killed_read() {
     let Ok(what) = std::env::var(KILLED) else { return };
+    // Its own temporary folder, the one the test looks in.
+    crate::scratch::test_root(std::env::temp_dir());
     let (mode, path) = what.split_once(':').unwrap();
     let path = Path::new(path);
     for n in 0.. {

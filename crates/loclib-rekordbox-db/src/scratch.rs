@@ -61,7 +61,37 @@ impl std::fmt::Debug for Folder {
 /// one yet.
 pub fn folder() -> Result<Folder> {
     sweep();
-    folder_in(&std::env::temp_dir())
+    folder_in(&root())
+}
+
+/// The folder [`Folder`]s are made in and [`sweep`] looks in: the temporary folder.
+#[cfg(not(any(test, feature = "test-util")))]
+fn root() -> PathBuf {
+    std::env::temp_dir()
+}
+
+/// The folder [`Folder`]s are made in and [`sweep`] looks in. Tests never sweep the real
+/// temporary folder: a thread's own when it set one ([`test_root`]), else
+/// `locallibrary-scratch-tests` in the temporary folder, one for every test process.
+#[cfg(any(test, feature = "test-util"))]
+fn root() -> PathBuf {
+    TEST_ROOT.with_borrow(Clone::clone).unwrap_or_else(|| {
+        let shared = std::env::temp_dir().join("locallibrary-scratch-tests");
+        let _ = std::fs::create_dir_all(&shared);
+        shared
+    })
+}
+
+#[cfg(any(test, feature = "test-util"))]
+thread_local! {
+    static TEST_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Makes this thread's folders in `root`, and its first [`sweep`] look there (tests only).
+#[cfg(any(test, feature = "test-util"))]
+#[doc(hidden)]
+pub fn test_root(root: impl Into<PathBuf>) {
+    TEST_ROOT.set(Some(root.into()));
 }
 
 /// A new private folder in `root`.
@@ -87,7 +117,7 @@ fn folder_in(root: &Path) -> Result<Folder> {
 pub fn sweep() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        sweep_in(&std::env::temp_dir(), GRACE);
+        sweep_in(&root(), GRACE);
     });
 }
 

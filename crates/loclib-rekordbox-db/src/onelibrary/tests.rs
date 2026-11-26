@@ -16,12 +16,10 @@ fn values_read_as_the_type_a_column_should_have() {
 
 /// With no temporary folder for its working copy (`TMPDIR` on a drive that's gone), no new
 /// database is made, and the error names that folder.
-#[cfg(unix)]
 #[test]
 fn without_a_temporary_folder_no_database_is_made() {
     let gone = std::env::temp_dir().join("locallibrary-unplugged");
-    // SAFETY: nextest runs each test in a process of its own, and nothing else runs yet.
-    unsafe { std::env::set_var("TMPDIR", &gone) };
+    crate::scratch::test_root(&gone);
     let e = OneLibrary::create().map(drop).unwrap_err();
     assert!(matches!(&e, Error::Io { path, .. } if *path == gone), "{e:?}");
 }

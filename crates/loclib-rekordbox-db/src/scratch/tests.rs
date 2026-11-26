@@ -137,3 +137,15 @@ fn a_sweep_leaves_a_folder_whose_lock_cant_be_opened() {
     assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
     assert!(other.is_dir());
 }
+
+/// Without a root of their own, tests' folders go in one folder of the temporary folder for
+/// them, never in the temporary folder itself, which their sweep would look into.
+#[test]
+fn tests_make_folders_outside_the_temporary_folder() {
+    let folder = folder().unwrap();
+    let parent = folder.path().parent().unwrap();
+    assert_eq!(parent, std::env::temp_dir().join("locallibrary-scratch-tests"));
+    let root = tempfile::tempdir().unwrap();
+    test_root(root.path());
+    assert_eq!(folder_in(&super::root()).unwrap().path().parent().unwrap(), root.path());
+}
