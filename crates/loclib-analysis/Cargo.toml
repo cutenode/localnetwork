@@ -59,3 +59,7 @@ required-features = ["dsp"]
 name = "analyze"
 harness = false
 required-features = ["dsp"]
+
+[[example]]
+name = "grid_vs_rekordbox"
+required-features = ["dsp"]
