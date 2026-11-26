@@ -336,7 +336,7 @@ pub fn press(app: &mut App, keys: &str) {
 /// A dialog, the outputs list, the help or the log is open: drawn over the screen, it covers the
 /// header and footer when it doesn't fit between them.
 pub fn overlay(app: &App) -> bool {
-    app.help || app.show_log || app.modal.is_some() || app.deck.outputs.is_some()
+    app.help || app.show_log || app.modal.is_some() || app.deck.outputs.is_some() || app.keys.is_some()
 }
 
 /// Esc, saying yes when it asks whether to stop the job under way, or to quit while something is.

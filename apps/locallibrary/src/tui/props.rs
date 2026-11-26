@@ -47,6 +47,8 @@ const KEYS: &[&str] = &[
 /// them, for what has no key of its own.
 #[rustfmt::skip]
 const COMMANDS: &[(&str, Act)] = &[
+    (":change the keys", Act::Keys), (":all keys back to their defaults", Act::KeysReset),
+    (":keys for an azerty keyboard", Act::KeysPreset(super::keymap::Preset::Azerty)),
     (":sort", Act::Sort), (":sort back", Act::SortReverse), (":ratings", Act::Ratings),
     (":my tags", Act::TagsColumn), (":mark all", Act::MarkAll), (":my tag", Act::Tag),
     (":save queue", Act::CrateSave), (":clear queue", Act::CrateClear), (":visualiser", Act::Visualiser),
@@ -620,6 +622,42 @@ const PROFILE_KEYS: &[&str] = &[
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn profile_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "5", PROFILE_KEYS, 25);
+}
+
+/// The Keys screen: opening it, narrowing it as you type, picking a row and pressing a key for it (one an action
+/// has, a capital, an f-key, one it refuses), answering a swap, the presets and putting every key back.
+#[rustfmt::skip]
+const KEYS_SCREEN_KEYS: &[&str] = &[
+    ":change the keys", ":change the keys", ":change the keys", "j", "k", "<up>", "<down>", "<pgup>", "<pgdn>",
+    "<home>", "<end>", "<tab>", "<enter>", "<enter>", "<enter>", "<esc>", "<bs>", "y", "n", "]", "i", "x", "X",
+    "l", "1", "<f5>", "<space>", "?", ":", ":all keys back to their defaults",
+    ":keys for an azerty keyboard",
+];
+
+/// However the keys are changed on the Keys screen, no key is two actions' in any place, and what's saved in
+/// `keybinds.json` is what the player uses.
+#[hegel::test(test_cases = 16, suppress_health_check = [HealthCheck::TooSlow])]
+fn keys_screen_walks_keep_the_keys_whole(tc: TestCase) {
+    // The keys in use are the process's: each case starts from the player's own, as a new player does.
+    super::keymap::effective::install(super::keymap::effective::Effective::defaults());
+    let Fixture { _dir, mut app, .. } = walk_fixture();
+    app.on_key(key_event("1"));
+    // A key changed first, so every walk has one to keep: the screen, a row, a key for it, then yes to what it says.
+    press_or_choose(&mut app, ":change the keys");
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        app.on_key(key_event("<down>"));
+    }
+    app.on_key(key_event("<enter>"));
+    app.on_key(key_event(tc.draw(gs::sampled_from(&["]", "x", "X", "l", "1", "<f5>"][..]))));
+    app.on_key(key_event("<enter>"));
+    app.on_key(key_event("y"));
+    walk(&tc, &mut app, _dir.path(), KEYS_SCREEN_KEYS, 40);
+    let clashes = super::keymap::conflict::clashes(&super::keymap::effective::current());
+    assert!(clashes.is_empty(), "{clashes:?}");
+    if !app.keybinds_unreadable {
+        let saved = locallibrary::keybinds::load(&app.store_root).unwrap();
+        assert_eq!(saved.keys, app.keybinds.keys, "what's saved is what's used");
+    }
 }
 
 /// The Mixes view's keys, its menu's letters and its commands.

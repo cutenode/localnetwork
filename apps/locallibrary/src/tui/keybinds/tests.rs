@@ -632,6 +632,78 @@ fn signing_in_when_the_directory_cant_be_reached_says_so() {
     assert!(app.modal.is_none());
 }
 
+/// Whatever keys are set here (none, or one for the next track) and whatever the account has published (none, the
+/// same, others, or the directory out of reach), signing in ends where it should: keys only here are published, keys
+/// only on the account are taken, the same keys count as published, different ones are offered to take or leave,
+/// and an unreachable directory is said with the keys here left as they were.
+#[cfg(feature = "account")]
+#[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_signing_in_settles_the_keys_here_and_the_accounts(tc: hegel::TestCase) {
+    let here: Option<&str> = tc.draw(gs::sampled_from(vec![None, Some("]"), Some("[")]));
+    let theirs: Option<&str> = tc.draw(gs::sampled_from(vec![None, Some("]"), Some("[")]));
+    let reachable = tc.draw(gs::booleans());
+    // The keys in use are the process's: each case starts from the player's own, as a new player does.
+    effective::install(Effective::defaults());
+    let pds = network();
+    let url = if reachable {
+        pds.url.clone()
+    } else {
+        format!("http://{}", std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap())
+    };
+    directory_at(&url);
+    if let Some(k) = theirs {
+        pds.put(session::DID, locallibrary::atmosphere::lexicon::KEYBINDS, "self", record(k));
+    }
+    let (mut app, _dir) = app_with(library());
+    if let Some(k) = here {
+        app.set_keybinds(binds(&[("playback.next", &[k])]));
+    }
+    // Or, signed out, imports someone's: theirs offered when they published any, else said.
+    if tc.draw(gs::booleans()) {
+        let dj = if theirs.is_some() { session::DID } else { "did:plc:nobody" };
+        press(&mut app, &format!(":import someone's keys\n{dj}\n"));
+        let reading = last_message(&app).to_string();
+        wait(&mut app, |a| last_message(a) != reading || matches!(a.modal, Some(Modal::Pick(_))));
+        let offered = matches!(app.modal, Some(Modal::Pick(_)));
+        assert_eq!(offered, reachable && theirs.is_some() && here != theirs, "{:?}", app.log.back());
+        return;
+    }
+    signs_in(&mut app, &url);
+    let next = |app: &App| kept(app).keys.get("playback.next").map(|k| k[0].clone());
+    let here = here.map(String::from);
+    if !reachable {
+        wait(&mut app, |a| a.log.iter().any(|(m, ..)| m.starts_with("your published keys couldn't be read: ")));
+        assert!(app.modal.is_none());
+        assert_eq!(next(&app), here);
+        return;
+    }
+    match (here.as_deref(), theirs) {
+        (Some(k), None) => {
+            wait(&mut app, |a| said(a, "published your keys"));
+            let (stored, _) = pds.record(session::DID, locallibrary::atmosphere::lexicon::KEYBINDS, "self").unwrap();
+            assert_eq!(stored["bindings"], json!([{ "action": "playback.next", "keys": [k] }]));
+        }
+        (None, None) => {
+            wait(&mut app, |a| a.job.is_none() && !a.publishing.running);
+            assert!(pds.record(session::DID, locallibrary::atmosphere::lexicon::KEYBINDS, "self").is_none());
+        }
+        (None, Some(t)) => {
+            wait(&mut app, |a| next(a).is_some());
+            assert_eq!(next(&app).as_deref(), Some(t), "the account's are taken");
+        }
+        (Some(k), Some(t)) if k == t => {
+            wait(&mut app, |a| a.publishing.published);
+            assert!(app.modal.is_none());
+        }
+        (Some(k), Some(t)) => {
+            wait(&mut app, |a| matches!(a.modal, Some(Modal::Pick(_))));
+            let take = tc.draw(gs::booleans());
+            press(&mut app, if take { "\ny" } else { "\u{1b}" });
+            assert_eq!(next(&app).as_deref(), Some(if take { t } else { k }));
+        }
+    }
+}
+
 /// `import someone's keys…` asks whose, reads theirs from the directory, and shows what they'd
 /// change; someone with none published is said.
 #[cfg(feature = "account")]

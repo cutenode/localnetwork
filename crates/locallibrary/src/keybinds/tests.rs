@@ -190,6 +190,69 @@ fn plugin_keys_move_to_the_keybinds_file_once() {
     assert_eq!(std::fs::read_to_string(store.root().join(KEYBINDS_FILE)).unwrap(), "{ not json");
 }
 
+/// Whatever plugins kept as `keys.<name>` and whatever `keybinds.json` has: afterwards no plugin keeps one, their
+/// other settings stay, every setting either moved as a key no other action has or is said once (a blank one sets
+/// none), and a second run finds nothing to move.
+#[hegel::test(test_cases = 50)]
+fn prop_plugin_keys_move_once_and_none_is_doubled(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut binds = Keybinds::default();
+    // As the player keeps it: no key is two actions'.
+    for n in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        let k = key(&tc).to_string();
+        if !binds.keys.values().flatten().any(|had| *had == k) {
+            binds.keys.insert(format!("plugin.p0.k{n}"), vec![k]);
+        }
+    }
+    save(store.root(), &binds).unwrap();
+    let names = ["k0", "k1", "k2", "k3"];
+    let mut settings = Vec::new();
+    for id in ["p0", "p1", "p2"].into_iter().take(tc.draw(gs::integers::<usize>().min_value(1).max_value(3))) {
+        let mut kept = serde_json::Map::new();
+        kept.insert("colour".into(), json!("red"));
+        for name in names.into_iter().take(tc.draw(gs::integers::<usize>().max_value(4))) {
+            let value = match tc.draw(gs::integers::<u8>().max_value(5)) {
+                0 => json!(" "),
+                1 => json!(5),
+                2 => json!(tc.draw(gs::text().max_size(6))),
+                _ => json!(key(&tc).to_string()),
+            };
+            kept.insert(format!("keys.{name}"), value);
+        }
+        plugin_settings(&store, id, Value::Object(kept.clone()));
+        settings.push((id, kept));
+    }
+
+    let dropped = migrate::plugin_keys(&store).unwrap();
+    let moved = load(store.root()).unwrap();
+    // A key no action can have (`ctrl-c`) stays in the file as written, and is no action's.
+    let mut keys: Vec<Key> = moved.keys.values().flatten().filter_map(|k| Key::parse(k).ok()).collect();
+    let all = keys.len();
+    keys.sort_by_key(ToString::to_string);
+    keys.dedup();
+    assert_eq!(keys.len(), all, "no key is two actions': {:?}", moved.keys);
+    let mut said = 0;
+    for (id, kept) in &settings {
+        let left = read(&store.root().join("plugins").join(id).join("settings.json"));
+        assert_eq!(left, json!({ "colour": "red" }), "{id} keeps only its other settings");
+        for (setting, value) in kept.iter().filter(|(k, _)| k.starts_with("keys.")) {
+            let action = format!("plugin.{id}.{}", &setting["keys.".len()..]);
+            let blank = value.as_str().is_some_and(|v| v.trim().is_empty());
+            let lines = dropped.iter().filter(|d| d.starts_with(&format!("{action}: "))).count();
+            let moved_here = binds.keys.get(&action).is_none()
+                && moved.keys.get(&action).is_some_and(|k| {
+                    Some(k[0].clone()) == value.as_str().and_then(|v| Key::parse(v).ok()).map(|k| k.to_string())
+                });
+            assert!(blank || moved_here || lines == 1, "{action} = {value} neither moved nor said: {dropped:?}");
+            said += lines;
+        }
+    }
+    assert_eq!(said, dropped.len(), "each line is one setting's: {dropped:?}");
+    assert_eq!(migrate::plugin_keys(&store).unwrap(), Vec::<String>::new());
+    assert_eq!(load(store.root()).unwrap().keys, moved.keys, "a second run moves nothing");
+}
+
 /// A file that can't be read stops the move before anything's written: the plugins keep their keys.
 #[test]
 fn plugin_keys_stay_when_the_file_cant_be_read() {
