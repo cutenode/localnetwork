@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use locallibrary::anlz::{self, TrackAnalysis};
+use indexmap::IndexMap;
+use locallibrary::anlz::{self, Cue, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::fields::{OverlayStore, TrackValues, roles};
 use locallibrary::query::SortField;
@@ -75,6 +76,9 @@ pub struct Loaded {
     /// rekordbox's collection, read from this `master.db`: its files are full paths from `/` (see
     /// `masterdb::Collection::library_from_root`), and it's never written.
     pub collection: Option<PathBuf>,
+    /// The collection's cues by track id, from `master.db`: rekordbox keeps them there, not in the
+    /// analysis files in its `share` folder (it writes them into a drive's only on export).
+    pub collection_cues: Option<Arc<IndexMap<u32, Vec<Cue>>>>,
 }
 
 impl Loaded {
@@ -104,6 +108,7 @@ impl Loaded {
             sets: None,
             stale: false,
             collection: None,
+            collection_cues: None,
         };
         l.rebuild_tree();
         l
@@ -368,9 +373,19 @@ pub struct TrackInfo {
     pub(in crate::tui) playlists: Vec<String>,
 }
 
-pub(super) fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>, store_root: &Path) -> TrackInfo {
+/// `cues`: the track's from rekordbox's collection (`master.db`), in place of the analysis files'.
+pub(super) fn track_info(
+    root: &Path,
+    track: &Track,
+    library: Option<Arc<Library>>,
+    cues: Option<Vec<Cue>>,
+    store_root: &Path,
+) -> TrackInfo {
     let device = Device::open(root).ok();
     let mut analysis = device.as_ref().map(|d| api::analysis_of(d, track)).unwrap_or_default();
+    if let Some(cues) = cues {
+        analysis.cues = cues;
+    }
     let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
     let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
     let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
