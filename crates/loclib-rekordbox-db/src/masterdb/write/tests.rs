@@ -240,6 +240,44 @@ fn cues_set_read_back_as_rekordbox_lays_them_out() {
 /// Undo moves forward: putting back what a write replaced is a new write with new stamps, and
 /// the cues read as they did.
 #[test]
+fn cues_left_as_they_were_keep_their_rows() {
+    let f = writable();
+    // What the entries don't model: a memory cue's colour, a loop's stored length.
+    f.exec("UPDATE djmdCue SET Color = 5 WHERE ID = 'c2'; UPDATE djmdCue SET BeatLoopSize = 8 WHERE ID = 'c3';");
+    let lib = Lib::new(&f, false);
+    let written = write(&lib.target, |e| {
+        let mut cues = e.cues(TRACK)?;
+        assert_eq!(
+            cues,
+            [
+                CueEntry { comment: "Drop".into(), color: Some(1), ..hot(0, 1000) },
+                CueEntry { start_ms: 500, ..Default::default() },
+                CueEntry { end_ms: Some(4000), comment: "Loop".into(), ..hot(1, 2000) },
+            ]
+        );
+        cues[0].start_ms = 1500;
+        e.set_cues(TRACK, &cues)
+    })
+    .unwrap();
+    assert_eq!(written.value.rows.len(), 3);
+    let (_d, conn) = lib.sql();
+    let mut stmt = conn
+        .prepare("SELECT ID, InMsec, Color, BeatLoopSize FROM djmdCue WHERE ContentID = ?1 ORDER BY rowid")
+        .unwrap();
+    let rows: Vec<(String, i64, Option<i64>, Option<i64>)> = stmt
+        .query_map([TRACK], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(rows[..2], [("c2".into(), 500, Some(5), None), ("c3".into(), 2000, None, Some(8))]);
+    assert_eq!((rows.len(), rows[2].1, rows[2].2), (3, 1500, Some(-1)));
+    assert_ne!(rows[2].0, "c1");
+    // The list names all three.
+    let count: i64 = conn.query_row("SELECT rb_cue_count FROM contentCue", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 3);
+}
+
+#[test]
 fn undo_puts_the_old_cues_back_with_new_stamps() {
     let lib = Lib::new(&writable(), false);
     let original = lib.cues(84935471);

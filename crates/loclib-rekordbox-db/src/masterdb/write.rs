@@ -50,7 +50,7 @@ mod cues;
 mod sync;
 
 pub use cues::{CueEntry, CuesBefore, cue_list_mismatches};
-pub use sync::sync_on;
+pub use sync::{sync_on, sync_on_at};
 
 /// The `master.db` a write goes to, and what it needs besides.
 #[derive(Debug, Clone)]

@@ -55,6 +55,14 @@ pub fn sync_on(conn: &Connection, agent_log: Option<&Path>) -> Result<Option<Str
     })
 }
 
+/// [`sync_on`] for the `master.db` at `path` (under `key`), read from a decrypted copy in a
+/// temporary folder removed afterwards: for saying writes are off before one is tried.
+pub fn sync_on_at(path: &Path, key: &str, agent_log: Option<&Path>) -> Result<Option<String>> {
+    let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
+    let (db, _) = super::super::open_copy(path, key, dir.path(), false)?;
+    sync_on(&db.conn, agent_log)
+}
+
 fn has_table(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
     conn.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")?.exists([name])
 }

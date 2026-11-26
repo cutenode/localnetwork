@@ -151,6 +151,11 @@ pub struct Collection {
     #[serde(skip)]
     #[cfg_attr(feature = "schemars", schemars(skip))]
     pub synced_sizes: FxHashMap<String, u64>,
+    /// Each track's `djmdContent.ID` by its id here, for a write to name it: the two
+    /// are the same number unless some `ID` isn't one.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
+    pub content_ids: FxHashMap<u32, String>,
 }
 
 /// The folders Cloud Library Sync keeps audio in on this computer: rekordbox's `rekordbox` folder
@@ -664,6 +669,7 @@ impl Db<'_> {
                 .into_iter()
                 .map(|r| (text(&r[0]).to_lowercase(), int(&r[1]).max(0) as u64))
                 .collect(),
+            content_ids: track_ids.into_iter().map(|(id, n)| (n, id)).collect(),
         })
     }
 

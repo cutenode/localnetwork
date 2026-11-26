@@ -1,8 +1,8 @@
 //! A track's cues in `master.db`, written as rekordbox 7.2.18 writes them when a hot cue is set
 //! (watched on a decrypted copy before and after, LOC-1150):
 //!
-//! * `djmdCue`: the track's old rows are deleted outright (not marked `rb_local_deleted`), and a row
-//!   is inserted for each cue with a new random `ID` (a 32-bit number, as text) and `UUID`, the
+//! * `djmdCue`: the rows of the cues edited are deleted outright (not marked `rb_local_deleted`),
+//!   and a row is inserted for each new cue with a new random `ID` (a 32-bit number, as text) and `UUID`, the
 //!   track's `ContentID` and `ContentUUID`, `InMsec`, `InFrame` = `InMsec` × 150 / 1000 (rekordbox's
 //!   frames are 1/150 s), `OutMsec` -1 and `OutFrame` 0 for a cue that isn't a loop, `Color` -1,
 //!   `ColorTableIndex` the hot cue's palette code (NULL for none), `Kind` 0 for a memory cue, 4 for
@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use super::Edit;
-use crate::onelibrary::kind_for_hot_cue;
+use crate::onelibrary::{hot_cue_from_kind, kind_for_hot_cue};
 use crate::{Error, Refusal, Result};
 
 /// The `djmdCue` columns a `contentCue` list gives each cue, in its order.
@@ -113,7 +113,8 @@ pub struct CuesBefore {
 
 impl Edit<'_> {
     /// Sets track `track_id`'s whole cue list to `cues`, as rekordbox does (see the module docs),
-    /// answering what it replaced. Refused, with nothing changed, for a hot cue past H or given
+    /// answering what it replaced. A cue the track has already, exactly so (as [`Edit::cues`] reads
+    /// it), keeps its row and all it holds. Refused, with nothing changed, for a hot cue past H or given
     /// twice, a loop that ends before it starts, or a colour that isn't a palette code.
     pub fn set_cues(&mut self, track_id: &str, cues: &[CueEntry]) -> Result<CuesBefore> {
         let uuid = self.track_uuid(track_id)?;
@@ -132,8 +133,28 @@ impl Edit<'_> {
             }
         }
         let before = self.cues_before(track_id)?;
-        self.conn.execute("DELETE FROM djmdCue WHERE ContentID = ?1", [track_id]).map_err(|e| self.sql(e))?;
+        // A cue the track has already, as it is, keeps its row: its ID and UUID, and what isn't
+        // modelled here (a memory cue's colour, a loop's stored length). rekordbox replaces only the
+        // cue edited too.
+        let mut rows = self.cue_rows(track_id)?;
+        let mut keep = Vec::new();
+        let mut new = Vec::new();
         for c in cues {
+            match rows.iter().position(|(_, have)| have == c) {
+                Some(i) => keep.push(rows.swap_remove(i).0),
+                None => new.push(c),
+            }
+        }
+        for (id, _) in &rows {
+            self.conn
+                .execute("DELETE FROM djmdCue WHERE ContentID = ?1 AND ID IS ?2", rusqlite::params![track_id, id])
+                .map_err(|e| self.sql(e))?;
+        }
+        if columns(self.conn, "djmdCue").map_err(|e| self.sql(e))?.contains("rb_local_deleted") {
+            let sql = "DELETE FROM djmdCue WHERE ContentID = ?1 AND IFNULL(rb_local_deleted, 0) != 0";
+            self.conn.execute(sql, [track_id]).map_err(|e| self.sql(e))?;
+        }
+        for c in new {
             let frame = |ms: u32| i64::from(ms) * 150 / 1000;
             let kind = match (c.hot_cue, c.end_ms) {
                 (Some(h), _) => kind_for_hot_cue(h),
@@ -170,6 +191,54 @@ impl Edit<'_> {
         }
         self.write_cue_list(track_id, &uuid)?;
         Ok(before)
+    }
+
+    /// Track `track_id`'s cues as they are (rows marked deleted left out), in the order stored.
+    pub fn cues(&self, track_id: &str) -> Result<Vec<CueEntry>> {
+        Ok(self.cue_rows(track_id)?.into_iter().map(|(_, c)| c).collect())
+    }
+
+    /// Track `track_id`'s `djmdCue` rows that aren't marked deleted: each one's `ID` and cue.
+    fn cue_rows(&self, track_id: &str) -> Result<Vec<(Option<String>, CueEntry)>> {
+        let deleted = match columns(self.conn, "djmdCue").map_err(|e| self.sql(e))?.contains("rb_local_deleted") {
+            true => " AND IFNULL(rb_local_deleted, 0) = 0",
+            false => "",
+        };
+        let sql = format!(
+            "SELECT ID, Kind, InMsec, OutMsec, ColorTableIndex, Comment, ActiveLoop FROM djmdCue \
+             WHERE ContentID = ?1{deleted} ORDER BY rowid"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| self.sql(e))?;
+        let rows = stmt
+            .query_map([track_id], |r| {
+                let v = |i| r.get::<_, Value>(i);
+                Ok((v(0)?, v(1)?, v(2)?, v(3)?, v(4)?, v(5)?, v(6)?))
+            })
+            .map_err(|e| self.sql(e))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| self.sql(e))?;
+        let int = super::super::int;
+        Ok(rows
+            .into_iter()
+            .map(|(id, kind, start, end, color, comment, active)| {
+                let hot_cue = hot_cue_from_kind(int(&kind));
+                let start = int(&start).clamp(0, i64::from(u32::MAX));
+                let end = int(&end);
+                let code = int(&color);
+                let id = (id != Value::Null).then(|| super::super::text(&id));
+                let entry = CueEntry {
+                    hot_cue,
+                    start_ms: start as u32,
+                    end_ms: (end > start).then(|| end.min(i64::from(u32::MAX)) as u32),
+                    comment: super::super::text(&comment),
+                    color: hot_cue
+                        .and_then(|_| u8::try_from(code).ok())
+                        .filter(|c| (1..=HOT_CUE_PALETTE.len() as u8).contains(c)),
+                    active_loop: int(&active) == 1,
+                };
+                (id, entry)
+            })
+            .collect())
     }
 
     /// Puts back the cue rows `before` holds (as [`Edit::set_cues`] or this answered them), as a
