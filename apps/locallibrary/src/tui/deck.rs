@@ -156,6 +156,11 @@ impl App {
         self.position().as_secs_f64() * 1000.0
     }
 
+    /// Where the track is heard, in milliseconds (see [`App::heard`]).
+    pub fn heard_ms(&self) -> f64 {
+        self.heard().as_secs_f64() * 1000.0
+    }
+
     /// How a jump made now keeps to the grid.
     pub fn snap(&self) -> Snap {
         match (self.deck.quantize, self.is_playing()) {
@@ -310,7 +315,8 @@ pub fn toggle_loop(app: &mut App) {
         set_loop(app, Some(Loop { on: false, ..l }));
         return;
     }
-    let pos = app.position_ms();
+    // Where it's heard: a loop made by ear starts on what was heard.
+    let pos = app.heard_ms();
     let saved = (now.analysis.cues.iter())
         .filter_map(|c| Some(Loop { start: c.start_ms as f64, end: c.end_ms? as f64, on: true }))
         .filter(|l| l.contains(pos))
