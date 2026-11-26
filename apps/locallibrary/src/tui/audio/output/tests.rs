@@ -20,7 +20,7 @@ fn what_is_heard_lags_by_what_is_still_to_play() {
 fn what_is_heard_never_goes_back_past_a_jump() {
     // Played on to 10 s: heard 100 ms behind.
     assert_eq!(heard(ms(10_000), ms(100), ms(0)), ms(9_900));
-    // Just seeked to 30 s: what's coming is from there, so it shows there, not before it.
+    // Just sought 30 s: what's coming is from there, so it shows there, not before it.
     assert_eq!(heard(ms(30_020), ms(100), ms(30_000)), ms(30_000));
     // Once the sound has caught up it moves on as before.
     assert_eq!(heard(ms(30_200), ms(100), ms(30_000)), ms(30_100));

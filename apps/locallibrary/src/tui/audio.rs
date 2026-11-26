@@ -20,6 +20,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use locallibrary::probe;
 use loclib_waveform::analyzer::FFT_SIZE;
+#[cfg(feature = "playback")]
+mod device;
+#[cfg(feature = "playback")]
+use device::open_device;
 mod output;
 pub use output::OutputClock;
 use rodio::mixer::Mixer;
@@ -739,47 +743,6 @@ fn device_names() -> Result<Listed> {
 #[cfg(not(feature = "playback"))]
 fn device_names() -> Result<Listed> {
     Ok((Vec::new(), None))
-}
-
-/// Open the output device called `name`, or the default one (failing that, as rodio does, the
-/// first other that opens). Its stream's errors are kept for the UI (see [`Audio::stream_error`]).
-#[cfg(feature = "playback")]
-fn open_device(name: Option<&str>) -> Result<Audio> {
-    use rodio::cpal::traits::{DeviceTrait, HostTrait};
-    let host = rodio::cpal::default_host();
-    let errors = StreamErrors::default();
-    let on_error = {
-        let errors = errors.clone();
-        move |e| stream_error(&errors, e)
-    };
-    let open = |d: rodio::cpal::Device| output::open(&d, on_error.clone());
-    let devices = || host.output_devices().ok().into_iter().flatten();
-    let (stream, mixer, clock) = match name {
-        Some(name) => {
-            let device = devices()
-                .find(|d| d.description().is_ok_and(|d| d.name() == name))
-                .with_context(|| format!("no output called {name}"))?;
-            open(device).with_context(|| format!("can't open {name}"))?
-        }
-        None => {
-            let default = host.default_output_device().context("no audio output device")?;
-            match open(default) {
-                Ok(opened) => opened,
-                Err(e) => devices()
-                    .filter(|d| d.description().is_ok_and(|d| d.driver().is_some_and(|driver| driver != "null")))
-                    .find_map(|d| open(d).ok())
-                    .ok_or(e)
-                    .context("no audio output device")?,
-            }
-        }
-    };
-    Ok(Audio {
-        _stream: Some(stream),
-        clock: Some(clock),
-        device: name.map(str::to_string),
-        errors,
-        ..Audio::with(mixer)
-    })
 }
 
 /// Built without the `playback` feature, no output opens.
