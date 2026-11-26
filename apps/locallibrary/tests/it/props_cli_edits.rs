@@ -327,6 +327,14 @@ fn run(fx: &Env, args: &[String]) -> Run {
     fx.run(&args.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
+/// The databases an applied replay's `✓ N change(s) written` line names: none when its edits
+/// wrote only analysis files (cue edits on a drive without OneLibrary), as the line then says.
+fn replay_wrote<'a>(out: &'a str, said: &str) -> Vec<&'a str> {
+    let line = out.lines().find(|l| l.contains(" change(s) written")).unwrap_or_else(|| panic!("{said}"));
+    let written = line.split_once("written to ").map_or("", |(_, w)| w.split(';').next().unwrap());
+    written.split(" and ").filter(|w| !w.is_empty()).collect()
+}
+
 /// The JSON a run printed, if it did.
 fn json(r: &Run) -> Option<Value> {
     serde_json::from_str(&r.out).ok()
@@ -433,10 +441,8 @@ fn prop_edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
                     if words[..2] == ["edits", "replay"] {
                         // A recorded edit that no longer applies writes nothing, so a replay writes
                         // some of the databases its plan names, and none it doesn't.
-                        let line =
-                            applied.out.lines().find(|l| l.contains("written to ")).unwrap_or_else(|| panic!("{said}"));
-                        let written = line.split("written to ").nth(1).unwrap().split(';').next().unwrap();
-                        assert!(written.split(" and ").all(|w| dbs.contains(&w)), "{written}: {said}");
+                        let written = replay_wrote(&applied.out, &said);
+                        assert!(written.iter().all(|w| dbs.contains(w)), "{written:?}: {said}");
                     } else {
                         assert!(applied.out.contains(&format!("written to {}", dbs.join(" and "))), "{said}");
                     }
@@ -504,4 +510,15 @@ fn prop_edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
             }
         }
     }
+}
+
+/// A replay whose recorded edits only rewrite analysis files (a cue set, then coloured: the replay
+/// sets it again, then colours it) says how many changes it wrote, naming no database.
+#[test]
+fn replayed_cue_edits_say_what_they_wrote() {
+    let fx = Env::from_template();
+    fx.ok(&["--yes", "cues", "set", "A", "--track", "1", "--hot", "B", "--at", "1.5", "--colour", "red"]);
+    fx.ok(&["--yes", "cues", "colour", "A", "--track", "1", "--hot", "B", "blue"]);
+    let out = fx.ok(&["--yes", "edits", "replay", "A"]);
+    assert_eq!(replay_wrote(&out, &out), Vec::<&str>::new(), "{out}");
 }
