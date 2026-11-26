@@ -58,6 +58,19 @@ fn round_trips_beside_the_store_until_there_is_one() {
     }
 }
 
+/// rekordbox's collection opens as a drive at `/`: the state is still saved while it's open (it
+/// once never was, so the queue came back as it had been before the collection was opened).
+#[test]
+fn saves_while_the_collection_is_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    std::fs::write(store.join("store.json"), "{}").unwrap();
+    let saved = Saved { root: Some("/".into()), volume: Some(0.3), ..Default::default() };
+    save(&store, &saved);
+    assert_eq!(load(&store).as_ref(), Some(&saved));
+}
+
 /// Whatever's saved reads back the same, beside the store before there is one and in it
 /// after; and nothing is saved inside the drive that was open.
 #[hegel::test(test_cases = 40)]
