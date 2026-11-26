@@ -57,7 +57,7 @@ const EDIT = '/act/halflight?tab=about&edit';
 
 const VIEW = '/act/halflight?tab=about';
 
-const subject = { kind: 'act' as const, uri: 'at://did:plc:root/space/halflight' };
+const subject = { kind: 'act' as const, uri: 'at:space/did:plc:root/halflight' };
 
 /** One of an act's people on its page, signed in, as the page's load and the root layout's would give them. */
 const owner = {

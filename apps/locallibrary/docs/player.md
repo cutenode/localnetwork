@@ -213,6 +213,9 @@ needs.
   - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
     bar starts and bar numbers, sitting on the waveform, each bar's line carried down through it.
     "zoom in" and "zoom out" in the palette zoom it, from 1.5 to 60 seconds across.
+    Drag it left or right to scrub: the track moves under the playhead with the pointer, held while
+    it moves, and plays on from where it's let go of (on the nearest beat with quantize on). A
+    click alone doesn't seek.
   - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
     Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
     wouldn't fit whole.
@@ -267,12 +270,13 @@ needs.
   the playhead was, as if they had waited for the nearest beat, so the rhythm carries on; paused,
   beat jumps land on a beat. A track without a beat grid jumps by its BPM.
 - **Loops**: `l` loops the loop the playhead is in (a saved one, or the last one exited), or makes
-  one of 4 beats from the beat it's in (from the playhead with quantize off); `l` again exits it and
-  playback carries on. "halve the loop" and "double the loop" in the palette work along the grid,
-  and a hot cue saved as a loop plays its loop. Seeking out of a loop leaves it. The loop repeats on
-  the audio thread, to the sample: the first time round it's kept in memory and then replayed from
-  there, so going round doesn't read the drive. The player shows `LOOP` with its length in beats,
-  and a loop made in the player is drawn like a saved one.
+  a bar of 4 beats from the nearest downbeat, so it's on the bar even pressed a little early or
+  late (from the playhead with quantize off); `l` again exits it and playback carries on. "halve
+  the loop" and "double the loop" in the palette work along the grid, and a hot cue saved as a loop
+  plays its loop. Seeking out of a loop leaves it. The loop repeats on the audio thread, to the
+  sample: the first time round it's kept in memory and then replayed from there, so going round
+  doesn't read the drive. The player shows `LOOP` with its length in beats, and a loop made in the
+  player is drawn like a saved one.
 - **Phrases**: rekordbox's phrase analysis (Intro, Up, Down, Chorus, Verse, Bridge, Outro) shows
   as the current phrase and bar in the player, with a countdown to the next one, and as a strip
   under player mode's overview. "next phrase" and "previous phrase" in the palette jump to them.
@@ -594,7 +598,7 @@ Deck:
 | --- | --- |
 | `1 … 8` | in player mode (browsing over it too), or with the pads on: hot cue A … H (jumps there and plays) |
 | `,  .` | beat jump: one beat back / forward |
-| `l` | loop: the saved loop the playhead is in, else 4 beats from the beat it's in; again to exit |
+| `l` | loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit |
 |  | A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it. |
 
 Visuals:
@@ -675,4 +679,5 @@ By name, in :
 [//]: # (End of the key tables.)
 
 Mouse: click to select (or a tab to switch views, or a pane's title to open it), double-click to play, scroll to move, click a
-column header to sort, click or drag the waveform to seek, right-click in the library for actions.
+column header to sort, click or drag the overview to seek, drag the zoomed waveform to scrub, right-click in the library for
+actions.

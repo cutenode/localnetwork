@@ -48,7 +48,7 @@ fn pathish() -> impl hegel::PrintableGenerator<String> {
 /// A key is the same however the path was written (NFC or NFD, `\` or `/`, a leading slash
 /// or not), has no leading slash or backslash, and keying it again changes nothing.
 #[hegel::test(test_cases = 300)]
-fn keys_are_the_same_however_the_path_is_written(tc: TestCase) {
+fn prop_keys_are_the_same_however_the_path_is_written(tc: TestCase) {
     let s = tc.draw(pathish());
     let k = key(&s);
     assert_eq!(key(&k), k);
@@ -64,7 +64,7 @@ fn keys_are_the_same_however_the_path_is_written(tc: TestCase) {
 /// made there is still inside the root once the file system resolves the path. A key of
 /// plain names is joined on as it is; what could climb out is dropped.
 #[hegel::test(test_cases = 300)]
-fn keys_resolve_inside_their_root(tc: TestCase) {
+fn prop_keys_resolve_inside_their_root(tc: TestCase) {
     for (k, want) in [
         ("Contents/A/x.mp3", "Contents/A/x.mp3"),
         ("/../../etc/passwd", "etc/passwd"),
@@ -97,7 +97,7 @@ fn keys_resolve_inside_their_root(tc: TestCase) {
 /// device's name. Sanitising it again changes nothing, and a name that was fine already is
 /// kept.
 #[hegel::test(test_cases = 500)]
-fn sanitised_names_are_safe_on_fat(tc: TestCase) {
+fn prop_sanitised_names_are_safe_on_fat(tc: TestCase) {
     let parts = vec!["CON", "nul", "Com1", "lpt9", "aux", "prn", " ", ".", "x", "/", ":", "?", "\u{7f}", "\t", "é"];
     let s = tc.draw(hegel::one_of!(
         gs::text().max_size(8),
@@ -124,7 +124,7 @@ fn sanitised_names_are_safe_on_fat(tc: TestCase) {
 
 /// Path styles serialise in snake case and read back; relative is the default.
 #[hegel::test(test_cases = 20)]
-fn path_styles_round_trip_through_json(tc: TestCase) {
+fn prop_path_styles_round_trip_through_json(tc: TestCase) {
     let style = tc.draw(gs::sampled_from(vec![PathStyle::Relative, PathStyle::Drive, PathStyle::Absolute]));
     let json = serde_json::to_value(style).unwrap();
     assert_eq!(json, format!("{style:?}").to_lowercase());
@@ -135,7 +135,7 @@ fn path_styles_round_trip_through_json(tc: TestCase) {
 /// Slashes are trimmed before normalising and NFC paths aren't normalised again, landing where
 /// normalising everything first would.
 #[hegel::test(test_cases = 200)]
-fn keys_are_the_nfc_path_without_leading_slashes(tc: hegel::TestCase) {
+fn prop_keys_are_the_nfc_path_without_leading_slashes(tc: hegel::TestCase) {
     let s = tc.draw(hegel::generators::text().alphabet("/\\a.e\u{301}\u{e9}\u{338}\u{fb01}").max_size(10));
     let nfc: String = s.nfc().collect();
     assert_eq!(key(&s), nfc.replace('\\', "/").trim_start_matches('/'), "{s:?}");
@@ -150,7 +150,7 @@ fn keys_are_the_nfc_path_without_leading_slashes(tc: hegel::TestCase) {
 // Regression: `..` was folded before symlinks were resolved, so this many up from a macOS temp
 // folder (`/var/folders/xx/yyy/T/.tmpX`, `/var` being `/private/var`) gave `/`, not `/private`.
 #[hegel::explicit_test_case(parts = vec![".."; 6], rooted = false, made = 0usize)]
-fn paths_are_folded_part_by_part(tc: TestCase) {
+fn prop_paths_are_folded_part_by_part(tc: TestCase) {
     let real = |p: &Path| dunce::canonicalize(p).ok();
     let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
     let rooted = tc.draw(gs::booleans());
@@ -241,7 +241,7 @@ fn a_relative_path_needs_a_root_in_common() {
 /// climbing one folder, only as far as the two paths part); from a relative folder, which shares
 /// no root with the file, there's none.
 #[hegel::test(test_cases = 300)]
-fn a_relative_path_leads_from_the_folder_to_the_file(tc: TestCase) {
+fn prop_a_relative_path_leads_from_the_folder_to_the_file(tc: TestCase) {
     let parts = || gs::vecs(gs::sampled_from(vec!["Volumes", "USB", "Lists", "Contents", "a b", "é"])).max_size(4);
     let (from, to): (Vec<&str>, Vec<&str>) = (tc.draw(parts()), tc.draw(parts().min_size(1)));
     let rooted = tc.draw(gs::booleans());

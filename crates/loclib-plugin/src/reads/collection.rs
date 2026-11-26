@@ -73,6 +73,7 @@ pub struct CollectionLocations {
     /// The folder `master.db` is in, with the playlist files and the databases beside it
     /// (`~/Library/Pioneer/rekordbox`).
     pub data: Option<PathBuf>,
+    /// `master.db`, rekordbox's database, in `data`.
     pub master_db: Option<PathBuf>,
     /// Whether `master_db` is there.
     pub master_db_exists: bool,
@@ -114,6 +115,7 @@ pub struct CollectionTracks {
     pub db_id: Option<String>,
     /// Track rows in all, deleted ones too.
     pub total: usize,
+    /// The page's track rows, in the order rekordbox stored them.
     pub tracks: Vec<CollectionTrack>,
 }
 
@@ -122,6 +124,7 @@ pub struct CollectionTracks {
 pub struct CollectionTrack {
     /// rekordbox's id, as stored (`"84935471"`).
     pub id: String,
+    /// rekordbox's UUID for it (`UUID`), as stored; `None` without one.
     pub uuid: Option<String>,
     /// The audio file on this computer: `OrgFolderPath` for a track Cloud Library Sync keeps (whose
     /// `FolderPath` is `/contents_<DBID>/...`), else `FolderPath`.

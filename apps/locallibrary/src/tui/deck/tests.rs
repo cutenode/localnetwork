@@ -195,12 +195,17 @@ fn auto_cue_finds_the_first_memory_cue_or_beat() {
 #[test]
 fn loops_from_the_grid() {
     let g = grid(100, 120.0, 64);
-    // From the beat the playhead is in, or from the playhead.
-    assert_eq!(auto_loop(&g, 1225.0, 4.0, true), Some((1100.0, 3100.0)));
+    // Bars start at 100, 2100, 4100...: from the nearest, or from the playhead.
+    assert_eq!(auto_loop(&g, 1225.0, 4.0, true), Some((2100.0, 4100.0)), "pressed early for bar 2");
+    assert_eq!(auto_loop(&g, 2160.0, 4.0, true), Some((2100.0, 4100.0)), "pressed late");
+    assert_eq!(auto_loop(&g, 900.0, 4.0, true), Some((100.0, 2100.0)), "in the first half of the bar");
     assert_eq!(auto_loop(&g, 1225.0, 4.0, false), Some((1225.0, 3225.0)));
     assert_eq!(auto_loop(&[], 1225.0, 4.0, true), None);
-    // The beat before the first starts before the track: the first one instead.
     assert_eq!(auto_loop(&g, 0.0, 4.0, true), Some((100.0, 2100.0)));
+    // A grid that marks no bars: from the beat the playhead is in, never before the first.
+    let unbarred: Vec<Beat> = g.iter().map(|b| Beat { beat_number: 0, ..*b }).collect();
+    assert_eq!(auto_loop(&unbarred, 1225.0, 4.0, true), Some((1100.0, 3100.0)));
+    assert_eq!(auto_loop(&unbarred, 0.0, 4.0, true), Some((100.0, 2100.0)));
     assert_eq!((beats_label(4.0), beats_label(0.5), beats_label(0.25)), ("4".into(), "1/2".into(), "1/4".into()));
 }
 
@@ -219,7 +224,9 @@ fn loop_keys() {
     app.perform(Act::LoopSize(true), None);
     app.perform(Act::LoopSize(true), None);
     assert_eq!(looped(&app), Some((0, 4000, true)));
-    assert!(app.drawn_cues().iter().any(|c| c.end_ms == Some(4000) && c.comment == "loop ↻8"));
+    assert!(
+        app.drawn_cues().iter().any(|c| c.end_ms == Some(4000) && c.comment == "loop" && c.loop_beats == Some((8, 1)))
+    );
     let s = super::super::ui::screen(&mut app, 120, 50);
     assert!(s.contains("LOOP 8"), "{s}");
     // Exited: playback carries on; l again (still in it) loops it again.
@@ -328,7 +335,7 @@ fn a_late_listing_of_the_outputs_is_dropped() {
 /// Playback reaching a loop rekordbox marks active goes round it, wherever it is in the track and
 /// however the output's reads fall; a loop that isn't active is played through to the next track.
 #[hegel::test(test_cases = 30)]
-fn playback_reaching_an_active_loop_goes_round_it(tc: hegel::TestCase) {
+fn prop_playback_reaching_an_active_loop_goes_round_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let start = tc.draw(gs::integers::<u32>().min_value(20).max_value(300));
     let end = start + tc.draw(gs::integers::<u32>().min_value(60).max_value(150));
@@ -608,7 +615,7 @@ fn odd_grid(tc: &hegel::TestCase) -> Vec<locallibrary::anlz::Beat> {
 /// the track, the deck draws at any size, and nothing panics, on the UI thread or the audio
 /// thread.
 #[hegel::test(test_cases = 100)]
-fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
+fn prop_quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
     use super::super::ui::screen;
     use hegel::generators as gs;
     // Two seconds each.
@@ -657,7 +664,7 @@ fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
 /// A time's place on any grid (before it, along it, past it) and that place's time agree, and
 /// later times are further along.
 #[hegel::test(test_cases = 300)]
-fn places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
+fn prop_places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
     let g = any_grid(&tc);
     let (a, b) = (any_ms(&tc, &g), any_ms(&tc, &g));
     let (ia, ib) = (beat_index(&g, a).unwrap(), beat_index(&g, b).unwrap());
@@ -671,7 +678,7 @@ fn places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
 /// A beat jump moves the playhead along the grid by the beats asked: keeping its place in the
 /// beat while playing, onto a beat when paused, and by the beat it's in with quantize off.
 #[hegel::test(test_cases = 300)]
-fn beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
+fn prop_beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let ms = any_ms(&tc, &g);
@@ -689,7 +696,7 @@ fn beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
 /// playhead is from its nearest beat; otherwise on the cue. Marks ahead are the first to land
 /// past the playhead; back, the last to land well before it, or the start.
 #[hegel::test(test_cases = 300)]
-fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
+fn prop_cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let (ms, cue) = (any_ms(&tc, &g), any_ms(&tc, &g).max(0.0));
@@ -719,10 +726,10 @@ fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
     assert_eq!(l, lands(m));
 }
 
-/// A loop made on the grid is as many beats long as asked, from the beat the playhead is in
-/// (or the playhead itself with quantize off), never from before the track starts.
+/// A loop made on the grid is as many beats long as asked, from the nearest downbeat (or the
+/// playhead itself with quantize off), never from before the track starts.
 #[hegel::test(test_cases = 300)]
-fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
+fn prop_loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let ms = any_ms(&tc, &g).max(0.0);
@@ -733,7 +740,10 @@ fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
     assert!((e - s - len).abs() < 1e-6, "{s}..{e} for {len} beats");
     let at = beat_index(&g, ms).unwrap();
     if on_beat {
-        assert!((s - s.round()).abs() < 1e-6 && (s - at).abs() < 1.0 + 1e-6, "beat {s} for the playhead at {at}");
+        let downbeats: Vec<f64> = (0..g.len()).filter(|i| g[*i].beat_number == 1).map(|i| i as f64).collect();
+        assert!(downbeats.contains(&s), "beat {s} isn't a downbeat");
+        let nearest = downbeats.iter().map(|d| (d - at).abs()).fold(f64::INFINITY, f64::min);
+        assert!(((s - at).abs() - nearest).abs() < 1e-6, "downbeat {s} for the playhead at {at}");
         assert!(start >= 0.0, "a loop from {start}");
     } else {
         assert!((start - ms).abs() < 1e-6);
@@ -750,7 +760,7 @@ fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
 /// bounds, or say there's no loop; and the outputs listed take the arrows and enter, playing on
 /// through the one picked.
 #[hegel::test(test_cases = 200)]
-fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
+fn prop_the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
     use super::super::keymap::Act;
     use hegel::generators as gs;
     let beats = if tc.draw(gs::booleans()) { grid(0, 120.0, 400) } else { Vec::new() };
@@ -914,7 +924,7 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
 /// the beginning; a hot cue pressed while paused jumps there and plays; a phrase jump past the
 /// last phrase says there's none; an output that won't open says why, and nothing changes.
 #[hegel::test(test_cases = 100)]
-fn cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
+fn prop_cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
     use super::super::keymap::Act;
     use hegel::generators as gs;
     let memory: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(60_000)).max_size(3));

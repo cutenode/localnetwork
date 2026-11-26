@@ -14,10 +14,11 @@ targets = [
 exclude-dev = true
 
 [advisories]
-# Every RustSec vulnerability fails the check. Unmaintained crates fail it only when the
-# workspace depends on them directly; deeper ones are for the crates that pull them in.
+# Every RustSec vulnerability fails the check, and so does a yanked version in Cargo.lock, which
+# `cargo install --locked` warns about. Unmaintained crates fail it only when the workspace depends
+# on them directly; deeper ones are for the crates that pull them in.
 unmaintained = "workspace"
-yanked = "warn"
+yanked = "deny"
 # osv-scanner.toml ignores the same three for Scorecard, with the same reasons.
 ignore = [
     # rsa's Marvin attack (timing side channel in RSA decryption; no fixed release). It comes

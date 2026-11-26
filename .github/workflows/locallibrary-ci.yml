@@ -1,11 +1,13 @@
 name: locallibrary CI
 
 # The quick checks of the Rust workspace, which ci.yml calls when a pull request, merge queue group
-# or push touches it: on Linux, everything below but other-os, and on macOS and Windows, other-os,
-# which ci.yml runs for each merge queue group (and on pull requests with the `all-os` label). The
-# slow suites (Bombadil, every feature combination, mutation testing, fuzzing, a release build)
-# and a weekly advisory check are in locallibrary-scheduled.yml, and locallibrary-cache.yml keeps
-# other-os's caches on main.
+# or push touches it: on Linux, everything below but other-os, and on macOS and Windows, other-os.
+# Pull requests run its Windows jobs, where path and separator bugs show up, and its macOS ones only
+# with the `all-os` label, since the plan's 5 macOS runners can't keep up with every push. A merge
+# queue group runs its macOS jobs, and its Windows ones unless the pull request's run passed them on
+# the same files. The slow suites (Bombadil, every feature
+# combination, mutation testing, fuzzing, a release build) and a weekly advisory check are in
+# locallibrary-scheduled.yml, and locallibrary-cache.yml keeps other-os's caches on main.
 on:
   workflow_call:
     inputs:
@@ -30,15 +32,19 @@ on:
         type: boolean
         required: true
       budgets:
-        description: Whether to measure the budgets job's numbers alone, for a push to main that changed the workspace, so pull requests have their base's.
+        description: Whether to measure the budgets job's numbers alone, for a merge queue group that changed the workspace, so pull requests have their base's.
         type: boolean
         required: true
       dist:
         description: Whether a pull request changed what `dist plan` reads (locallibrary_dist).
         type: boolean
         required: true
-      other-os:
-        description: Whether to run other-os, on macOS and Windows.
+      windows:
+        description: Whether to run other-os on Windows.
+        type: boolean
+        required: true
+      macos:
+        description: Whether to run other-os on macOS.
         type: boolean
         required: true
       semver:
@@ -52,6 +58,14 @@ on:
       fuzz:
         description: Whether a pull request changed what the fuzz targets reach (ci.yml's locallibrary_fuzz paths).
         type: boolean
+        required: true
+      crates:
+        description: Whether a pull request changed a crate's manifest or added a crate (ci.yml's locallibrary_crates paths).
+        type: boolean
+        required: true
+      group-base:
+        description: The commit a merge queue group's budgets are measured over, main's tip when its run started; empty otherwise.
+        type: string
         required: true
 
 permissions:
@@ -76,9 +90,10 @@ jobs:
   # fmt, clippy, the doctests and the docs, which build the same crates, in one job. A change to the
   # crates' READMEs alone (`docs`) runs only the doctests and the docs. A pull request that changes
   # what `dist plan` reads gets the plan here too (`dist`), in place of a runner of its own in
-  # locallibrary-release.yml.
+  # locallibrary-release.yml, and one that changes a crate's manifest (`crates`) gets the crates
+  # packaged and their names checked on crates.io.
   lint:
-    if: inputs.linux || inputs.docs || inputs.cache || inputs.dist
+    if: inputs.linux || inputs.docs || inputs.cache || inputs.dist || inputs.crates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -155,9 +170,25 @@ jobs:
             echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
             exit 1
           fi
+      # tools/crates-io needs only Node: it uses none of the root's packages.
+      - if: inputs.crates
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # `cargo package --no-verify` over the crates that aren't `publish = false`: what crates.io
+      # would get from each, without building it (tools/crates-io/package.ts). The full
+      # `cargo publish --dry-run` builds every crate, so it runs weekly (locallibrary-scheduled.yml)
+      # and in setup.
+      - if: inputs.crates
+        run: node tools/crates-io/cli.ts package
+      # Each crate's name on crates.io is free or ours (tools/crates-io/names.ts). A crate crates.io
+      # doesn't have yet only gets a warning, and loclib-release.yml publishes nothing until setup
+      # has published it.
+      - if: inputs.crates
+        run: node tools/crates-io/cli.ts check
 
-  # What's behind cfg(windows), on a pull request rather than first in the merge queue's Windows
-  # job: clippy for the GNU target, cross-compiled on Linux with MinGW for the crates that build C.
+  # What's behind cfg(windows), well before other-os's Windows leg gets that far: clippy for the
+  # GNU target, cross-compiled on Linux with MinGW for the crates that build C.
   # The pre-push hook runs the same command (lefthook.yml). macOS has no such cross check, so it
   # waits for other-os.
   clippy-windows:
@@ -285,9 +316,10 @@ jobs:
   # benchmarks/README.md): what everyday operations and a frame of the player allocate, what writing
   # a library asks of the filesystem, and the instructions of a frame, from the shards' archive, so
   # no build of its own. A pull request is held to how much it grows each over the commit its merge
-  # commit sits on (HEAD^1), whose numbers a push to main measures here; only when none did is the
-  # base built here too. And that no allowance was widened without a `budget-raise:` line in the
-  # pull request's body.
+  # commit sits on (HEAD^1), whose numbers the merge queue group that made it measured here; only
+  # when none did is the base built here too. And that no allowance was widened without a
+  # `Budget-Raise` trailer on one of its commits (or, from before trailers, a `budget-raise:` line in
+  # its body).
   budgets:
     needs: build
     if: inputs.linux || inputs.budgets
@@ -298,14 +330,14 @@ jobs:
       contents: read
       # The base's measurements, from its run's artifact.
       actions: read
-      # The pull request's body.
+      # The pull request's body, for budget-raise lines from before trailers.
       pull-requests: read
     steps:
-      # The base, and enough of main before it for the baseline to look back through.
+      # The base, and main's history before it for the baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 30
+          fetch-depth: 0
       - run: rustup toolchain install
       # The build job's cache, which a key per job would miss, for a base built here. Never saved.
       - if: github.event_name == 'pull_request'
@@ -325,6 +357,13 @@ jobs:
           cache: pnpm
       - if: github.event_name == 'pull_request'
         run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      # A merge commit from before the base branch's budget tooling last changed, which a close and
+      # reopen can leave, would measure and check with the old tooling.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: node tools/budgets/cli.ts current HEAD^1 "origin/$BASE_REF" "$GITHUB_REPOSITORY" "$NUMBER"
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
@@ -365,29 +404,42 @@ jobs:
           } > "$RUNNER_TEMP/raises.md"
           node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" | tee -a "$GITHUB_STEP_SUMMARY"
           node tools/budgets/cli.ts raises HEAD^1 "$RUNNER_TEMP/raises.md"
-      # Under the run's own commit: for a push to main, main's measurement.
+      # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
+      # The repository's default retention, so a quiet stretch on main doesn't leave pull requests
+      # without a base.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: budgets
           path: target/budgets
           if-no-files-found: ignore
-          retention-days: 14
 
   # What only a release build can tell, against benchmarks/budgets/ (see benchmarks/README.md): when a
   # manifest, the lockfile or the Rust that ships changed (ci.yml's locallibrary_release paths).
   # A pull request is held to how much it grows each number over the commit its merge commit sits on
-  # (HEAD^1), and a merge queue group to how much its pull requests grow them together over the
-  # group's base. The base's numbers come from the run that measured that commit, or of the nearest
-  # one before it that changed nothing these measure: a group's head becomes main, so the queue's
-  # runs measure main. Only when no run did is the base built here too. Changes to tests alone are
-  # caught by locallibrary-bench.yml's weekly run of the same.
+  # (HEAD^1), and a merge queue group to how much its pull request and the ones ahead of it grow them
+  # together over main's tip as its run started. The base's numbers come from the run that measured
+  # that commit, or of the nearest one before it that changed nothing these measure: a group's head
+  # becomes main, so the queue's runs measure main. Only when no run did is the base built here too.
+  # Changes to tests alone are caught by locallibrary-bench.yml's weekly run of the same.
+  # Its two release builds, dist's for the CLI and the release profile's for the frame test, run as
+  # two jobs side by side, each with its own areas (benchmarks/budgets/, `job`) and artifact.
   release-budgets:
     if: inputs.release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: cli
+            job: release
+            artifact: release-budgets
+          - part: frames
+            job: release-frames
+            artifact: release-budgets-frames
+    name: release-budgets (${{ matrix.part }})
     runs-on: ubuntu-latest
-    # Two release builds, dist's for the CLI and the release profile's for the frame test, and the
-    # base's two when no run measured it.
-    timeout-minutes: 90
+    # One release build, and the base's when no run measured it.
+    timeout-minutes: 60
     permissions:
       contents: read
       # The base's measurements, from its run's artifact.
@@ -395,12 +447,12 @@ jobs:
       # The bodies of the pull requests, for budget-raise lines from before trailers.
       pull-requests: read
     steps:
-      # The base and a group's pull requests' merge commits, and enough of main before them for the
+      # The base and a group's pull requests' merge commits, and main's history before them for the
       # baseline to look back through.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 30
+          fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -411,10 +463,17 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo --ignore-scripts
+      # As in the budgets job. A merge queue group's base is main's tip as its run started.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: node tools/budgets/cli.ts current HEAD^1 "origin/$BASE_REF" "$GITHUB_REPOSITORY" "$NUMBER"
       - uses: ./.github/actions/release-budgets
         with:
           out: ${{ github.workspace }}/target/budgets
-      # A merge queue group's base, how many pull requests it holds, and their commits' Budget-Raise
+          part: ${{ matrix.part }}
+      # A merge queue group's base, how many pull requests it adds to it, and their commits' Budget-Raise
       # trailers and bodies, or a pull request's base, trailers and body.
       - id: base
         env:
@@ -422,7 +481,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           NUMBER: ${{ github.event.pull_request.number }}
-          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_BASE: ${{ inputs.group-base }}
         run: |
           if [ "$EVENT" = merge_group ]; then base=$GROUP_BASE; else base=$(git rev-parse HEAD^1); fi
           git log --format='%(trailers:key=Budget-Raise)' "$base..HEAD" > "$RUNNER_TEMP/raises.md"
@@ -442,7 +501,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           BASE: ${{ steps.base.outputs.sha }}
-        run: node tools/budgets/cli.ts baseline "$BASE" locallibrary_release release-budgets target/budgets-base >> "$GITHUB_OUTPUT"
+          ARTIFACT: ${{ matrix.artifact }}
+        run: node tools/budgets/cli.ts baseline "$BASE" locallibrary_release "$ARTIFACT" target/budgets-base >> "$GITHUB_OUTPUT"
       - if: steps.baseline.outputs.found != 'true'
         env:
           BASE: ${{ steps.base.outputs.sha }}
@@ -456,22 +516,24 @@ jobs:
         with:
           root: ${{ runner.temp }}/base
           out: ${{ github.workspace }}/target/budgets-base
+          part: ${{ matrix.part }}
       # `shell: bash` adds pipefail, so tee doesn't hide a failed check.
       - shell: bash
         env:
           ENTRIES: ${{ steps.base.outputs.entries }}
-        run: node tools/budgets/cli.ts check release target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
+          JOB: ${{ matrix.job }}
+        run: node tools/budgets/cli.ts check "$JOB" target/budgets-base target/budgets "$RUNNER_TEMP/raises.md" "$ENTRIES" | tee -a "$GITHUB_STEP_SUMMARY"
       # Under the run's own commit: for a group, the commit main becomes, so it's main's measurement.
+      # The repository's default retention, as the budgets job's.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-budgets
+          name: ${{ matrix.artifact }}
           path: target/budgets
           if-no-files-found: ignore
-          retention-days: 14
 
   # The Hegel property tests alone, under coverage and held to the same thresholds
-  # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
+  # (`cargo hegel-coverage`): the properties have to reach what the whole suite does. They run
   # from the archive the shards use, beside the shards, and the coverage job puts their totals next
   # to the whole suite's.
   hegel:
@@ -489,10 +551,10 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # As the shards have them, and rg, which the script picks the tests with.
+      # As the shards have them.
       - uses: ./.github/actions/apt-packages
         with:
-          packages: libasound2-dev sqlcipher ripgrep
+          packages: libasound2-dev sqlcipher
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
@@ -501,7 +563,7 @@ jobs:
           name: tests
       - run: |
           mkdir -p target/llvm-cov-target
-          tools/hegel-coverage.sh --archive-file tests.tar.zst --json --summary-only --output-path target/coverage-hegel.json
+          cargo hegel-coverage --archive-file tests.tar.zst --json --summary-only --output-path target/coverage-hegel.json
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -514,7 +576,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-hegel
-          path: target/nextest/ci/junit.xml
+          path: target/nextest/hegel/junit.xml
           if-no-files-found: ignore
           retention-days: 14
 
@@ -635,35 +697,46 @@ jobs:
           path: coverage.md
           if-no-files-found: ignore
 
-  # clippy, the doctests and the tests on macOS and Windows, in one job each: no coverage (Linux's
-  # holds the thresholds) and no shards, so each OS takes one of the plan's runners, where it used
-  # to take six. fmt doesn't depend on the OS, so only Linux runs it. Each OS is a matrix leg of
-  # its own, so one that can't get a runner (#88 waited for a macOS runner GitHub never gave it)
-  # holds up only itself. Only main saves the caches, from locallibrary-cache.yml's nightly run of
-  # this job.
+  # clippy, the doctests and the tests on macOS and Windows, without coverage (Linux's holds the
+  # thresholds). The tests run in two shards. clippy and the doctests are a Windows job of their own
+  # (`lint`), and ride with macOS's first shard, where they take two minutes: two jobs a group leave
+  # the plan's 5 macOS runners room for the two groups the queue builds at once. fmt doesn't depend
+  # on the OS, so only Linux runs it. A job that can't get a runner (#88 waited for a macOS runner
+  # GitHub never gave it) holds up only itself.
   other-os:
-    if: inputs.other-os
+    if: inputs.windows || inputs.macos
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: ${{ fromJSON(inputs.windows && inputs.macos && '["macos-latest", "windows-latest"]' || inputs.macos && '["macos-latest"]' || '["windows-latest"]') }}
+        part: [1, 2, lint]
+        exclude:
+          - os: macos-latest
+            part: lint
     runs-on: ${{ matrix.os }}
-    # Windows took 15 minutes to build and 7 to 13 for each of its three shards in run 41157262485, with
-    # a warm cache and coverage on; one job without coverage still needs room for a cold cache.
+    # One Windows job of it all took 57 minutes in run 45622612913 with a warm cache, 40 of them
+    # building and running the tests; half of the tests still need room for a cold cache.
     timeout-minutes: 90
     env:
       LOCALLIBRARY_REQUIRE_SQLCIPHER: 1
+      # Keep the number of shards in step with the matrix.
+      SHARD: ${{ matrix.part }}/2
+      # Whether this job runs clippy and the doctests.
+      LINT: ${{ matrix.part == 'lint' || (matrix.os == 'macos-latest' && matrix.part == 1) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
       # Keyed by name rather than by the calling job, which differs between ci.yml and
-      # locallibrary-cache.yml. The key has the host's target in it, so each OS keeps its own.
+      # locallibrary-cache.yml. The key has the host's target in it, so each OS keeps its own. Only
+      # main saves them, from locallibrary-cache.yml's nightly run of this job, and only from the job
+      # that runs clippy, which there builds every dependency both ways: checked, and compiled as the
+      # tests link it.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: other-os
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && env.LINT == 'true' }}
       # The tests' temporary folders go on a Dev Drive: on the runner's C: drive, Defender scans
       # every file they make and each flush takes milliseconds, which made the tests that write
       # files run several times longer than on macOS or Linux. Defender's performance mode only
@@ -704,18 +777,25 @@ jobs:
       - if: runner.os == 'Windows'
         shell: bash
         run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - if: matrix.part != 'lint'
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest@0.9.148
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --doc --workspace --locked
+      - if: env.LINT == 'true'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - if: env.LINT == 'true'
+        run: cargo test --doc --workspace --locked
+      # For the cache: the doctests leave out what only the CLI uses, as it has no library.
+      - if: github.ref == 'refs/heads/main' && env.LINT == 'true'
+        run: cargo test --workspace --locked --no-run
       # Every failure, where the first would hide the rest of a run this long.
-      - run: cargo nextest run --workspace --locked --no-fail-fast
+      - if: matrix.part != 'lint'
+        run: cargo nextest run --workspace --locked --no-fail-fast --partition "count:$SHARD"
       # As the test job's.
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && matrix.part != 'lint' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: junit-${{ runner.os }}
+          name: junit-${{ runner.os }}-${{ matrix.part }}
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
@@ -758,9 +838,9 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny@0.20.2,cargo-about@0.9.3
+          tool: cargo-deny@0.20.2
       - run: cargo deny --locked check advisories bans licenses sources
-      - run: cargo notices
+      - uses: ./.github/actions/notices
 
   # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
   # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the

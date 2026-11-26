@@ -26,7 +26,7 @@ use locallibrary::sync;
 /// out a library with no drive mounted.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(name = "Main 2".to_string(), role = Some(Role::Primary), label = true)]
-fn registry_requests_name_the_drives_they_mean(tc: TestCase) {
+fn prop_registry_requests_name_the_drives_they_mean(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["Main 2".to_string(), "Gig stick".to_string(), "  Home  ".to_string()]));
     let role = tc.draw(gs::sampled_from(vec![None, Some(Role::Primary), Some(Role::Backup)]));
     let label = tc.draw(gs::booleans());

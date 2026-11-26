@@ -93,7 +93,7 @@ fn unsafe_keys() {
 /// transient, the track filter and sync records stay with the drive, settings files are the
 /// profile's, and anything under OS clutter or locallibrary's own folder isn't managed.
 #[hegel::test(test_cases = 300)]
-fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
+fn prop_pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let shout = |s: &str, tc: &hegel::TestCase| -> String {
         s.chars()

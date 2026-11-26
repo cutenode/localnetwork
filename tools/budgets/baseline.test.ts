@@ -3,17 +3,17 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { filterPaths, run, selects } from './baseline.ts';
+import { filterPaths, run, selected } from './baseline.ts';
 
-describe('selects', () => {
+describe('selected', () => {
 	const paths = ['crates/**', 'Cargo.lock', '!**/*.md', '!**/tests/**'];
 
 	it('takes a file a glob matches and no exclusion does', () => {
-		expect(selects(paths, ['crates/a/src/lib.rs'])).toBe(true);
-		expect(selects(paths, ['README.md', 'Cargo.lock'])).toBe(true);
+		expect(selected(paths, ['crates/a/src/lib.rs'])).toBe('crates/a/src/lib.rs');
+		expect(selected(paths, ['README.md', 'Cargo.lock'])).toBe('Cargo.lock');
 	});
 	it('leaves out excluded and unmatched files', () => {
-		expect(selects(paths, ['crates/a/README.md', 'crates/a/tests/it.rs', 'apps/web/x.ts', ''])).toBe(false);
+		expect(selected(paths, ['crates/a/README.md', 'crates/a/tests/it.rs', 'apps/web/x.ts', ''])).toBeUndefined();
 	});
 });
 
@@ -55,23 +55,29 @@ describe('the command', () => {
 	});
 
 	describe('baseline', () => {
-		// A gh that lists the runs named in runs/<sha>, each `<id>:<event>` (push when no event), and
-		// downloads an artifact from runs whose artifacts/<run> file exists, writing that file's
-		// contents as size.json.
+		// A gh whose listing of the artifact holds the runs named for each commit, `<id>:<event>` (push
+		// when no event) with `:expired` for one that expired, and that downloads an artifact from runs
+		// whose artifacts/<run> file exists, writing that file's contents as size.json.
 		const fakeGh = (runs: Record<string, string[]>, artifacts: string[]) => {
 			mkdirSync('bin');
-			mkdirSync('runs');
+			mkdirSync('events');
 			mkdirSync('artifacts');
 
-			for (const [sha, ids] of Object.entries(runs)) {
-				const listed = ids.map((run) => {
-					const [id, event = 'push'] = run.split(':');
+			const listed = Object.entries(runs).flatMap(([sha, ids]) =>
+				ids.map((named) => {
+					const [id = '', event = 'push', expired] = named.split(':');
 
-					return { databaseId: Number(id), event };
-				});
+					writeFileSync(join('events', id), event);
 
-				writeFileSync(join('runs', sha), JSON.stringify(listed));
-			}
+					return { expired: expired === 'expired', workflow_run: { id: Number(id), head_sha: sha } };
+				})
+			);
+
+			// Two pages, as `--paginate --slurp` gives them.
+			writeFileSync(
+				'listing.json',
+				JSON.stringify([{ artifacts: listed.slice(0, 1) }, { artifacts: listed.slice(1) }])
+			);
 
 			for (const id of artifacts) writeFileSync(join('artifacts', id), `{"binary": ${id}}`);
 
@@ -80,8 +86,9 @@ describe('the command', () => {
 				`#!/bin/sh
 root=${JSON.stringify(dir)}
 case "$1 $2" in
-  "run list") cat "$root/runs/$6" 2>/dev/null || echo '[]' ;;
+  "api --paginate") cat "$root/listing.json" ;;
   "run download") [ -f "$root/artifacts/$3" ] || exit 1; mkdir -p "$7"; cp "$root/artifacts/$3" "$7/size.json" ;;
+  api*) cat "$root/events/\${2##*/}" ;;
 esac
 `
 			);
@@ -136,6 +143,54 @@ esac
 			const changed = commit('code');
 			fakeGh({ [measured]: ['7'] }, ['7']);
 			expect(run(['baseline', changed, 'sizes', 'budgets', 'out']).lines).toEqual(['found=false']);
+		});
+		it('walks back as far as the history goes past commits that change nothing it measures', () => {
+			repo();
+			writeFileSync('src/a.rs', '1');
+			const measured = commit('measured');
+
+			// 25 commits that change only web.ts, in one fast-import: made one by one, with three git
+			// processes each, they took more than the test's 5 seconds on a busy machine.
+			const branch = git('symbolic-ref', 'HEAD');
+
+			const stream = Array.from({ length: 25 }, (_, i) =>
+				[
+					`commit ${branch}`,
+					'committer t <t@t> 0 +0000',
+					'data 0',
+					...(i === 0 ? [`from ${measured}`] : []),
+					'M 644 inline web.ts',
+					`data ${String(i).length}`,
+					String(i),
+					''
+				].join('\n')
+			).join('');
+
+			execFileSync('git', ['fast-import', '--quiet'], { input: stream });
+
+			const web = git('rev-parse', 'HEAD');
+
+			expect(git('rev-list', '--count', `${measured}..${web}`)).toBe('25');
+
+			fakeGh({ [measured]: ['7'] }, ['7']);
+			expect(run(['baseline', web, 'sizes', 'budgets', 'out']).lines).toEqual(['found=true', `from=${measured}`]);
+		});
+		it('takes the commit that changed what the budgets measure, and goes no further', () => {
+			repo();
+			writeFileSync('src/a.rs', '1');
+			const before = commit('before');
+			writeFileSync('src/a.rs', '2');
+			const changed = commit('code');
+			writeFileSync('src/a.md', 'docs');
+			const docs = commit('docs only');
+			fakeGh({ [changed]: ['8'], [before]: ['7'] }, ['7', '8']);
+			expect(run(['baseline', docs, 'sizes', 'budgets', 'out']).lines).toEqual(['found=true', `from=${changed}`]);
+		});
+		it('passes over an expired artifact', () => {
+			repo();
+			const sha = commit('one');
+			fakeGh({ [sha]: ['3:push:expired'] }, ['3']);
+			expect(run(['baseline', sha, 'sizes', 'budgets', 'out']).lines).toEqual(['found=false']);
 		});
 		it("passes over a pull request's run, which measured its merge commit", () => {
 			repo();

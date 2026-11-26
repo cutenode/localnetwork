@@ -24,7 +24,7 @@ impl Write for Limited {
 /// the buffers; progress adds up to its size; a write that fails is the error, and leaves the
 /// reader stopped rather than waiting to be heard.
 #[hegel::test(test_cases = 30)]
-fn a_copy_is_the_file_and_its_hash(tc: hegel::TestCase) {
+fn prop_a_copy_is_the_file_and_its_hash(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let size =
         tc.draw(gs::sampled_from(vec![0, 1, BUF_SIZE - 1, BUF_SIZE, BUF_SIZE + 1, BUF_SIZE * 3 + 7, BUF_SIZE * 8]));
@@ -83,7 +83,7 @@ fn the_schema_matches_the_serialised_form() {
 /// A hash reads back from its hex in either case, its short form starts it, and it shows as
 /// `Hash(short)` when debugged.
 #[hegel::test(test_cases = 100)]
-fn a_hash_reads_back_from_its_hex(tc: hegel::TestCase) {
+fn prop_a_hash_reads_back_from_its_hex(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let bytes: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(64));
     let h = Hash::of(&bytes);

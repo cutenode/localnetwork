@@ -24,14 +24,19 @@ locallibrary-core = { path = "crates/locallibrary", default-features = false }
 loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0", default-features = false }
 loclib-anlz = { path = "crates/loclib-anlz", version = "0.1.0" }
 loclib-audio = { path = "crates/loclib-audio", version = "0.1.0" }
+loclib-aup = { path = "crates/loclib-aup", version = "0.1.0" }
 loclib-capacity = { path = "crates/loclib-capacity", version = "0.1.0" }
+loclib-disk = { path = "crates/loclib-disk", version = "0.1.0" }
+loclib-drive-speed = { path = "crates/loclib-drive-speed", version = "0.1.0" }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
+loclib-format = { path = "crates/loclib-format", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
 loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
 loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
 loclib-plugin = { path = "crates/loclib-plugin", version = "0.1.0" }
 loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
+loclib-rekordbox-db = { path = "crates/loclib-rekordbox-db", version = "0.1.0" }
 loclib-sqlcipher = { path = "crates/loclib-sqlcipher", version = "0.1.0" }
 # Test helpers, never published: a dev-dependency only, so no version.
 loclib-testkit = { path = "crates/loclib-testkit" }

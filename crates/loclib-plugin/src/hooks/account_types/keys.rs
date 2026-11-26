@@ -22,8 +22,11 @@ pub struct Key {
 /// [`AccountType::place`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyPlace {
+    /// The header it goes in (`Authorization`), or none when it goes in a query parameter.
     pub header: Option<String>,
+    /// The query parameter it goes in, or none when it goes in a header.
     pub query: Option<String>,
+    /// What goes there, each key named in braces (`Bearer {token}`, `LOW {access}:{secret}`).
     pub value: String,
 }
 

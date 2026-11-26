@@ -14,7 +14,7 @@ use std::path::Path;
 
 use loclib_model::audio::Format;
 
-use crate::{Error, Result};
+use crate::{Error, PROBE_LIMIT, Result};
 
 /// The atoms symphonia reads other atoms out of. `meta` starts with a version and flags.
 const CONTAINERS: [&[u8; 4]; 12] =
@@ -35,20 +35,12 @@ const ALAC_FRAME: u32 = 1 << 16;
 /// Deeper than any atom symphonia reads (`moov/udta/meta/ilst/<tag>/data` is 6).
 const DEPTH: u8 = 8;
 
-/// How far symphonia's probe looks for a format's marker (`Probe::PROBE_SEARCH_LIMIT`).
-const PROBE_LIMIT: u64 = 1 << 20;
-
 /// Refuse `path` when it's an MP4 whose atoms claim more than the file holds: a sample table
 /// whose count wouldn't fit in it, a sample larger than the file, an ALAC frame longer than
 /// `ALAC_FRAME`, or an atom inside another running past it or the file's end.
 /// Anything else, MP4 or not, is left for the decoder to make sense of. So is what isn't a regular
 /// file (a FIFO): what this read of it took would be gone when the decoder opened it again, and
-/// its atoms can't be walked without seeking.
-pub fn vet_container(path: &Path) -> Result<()> {
-    vet_file(&mut File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?, path)
-}
-
-/// [`vet_container`] for the file `path` is open as, which is left at its start.
+/// its atoms can't be walked without seeking. `file` is `path`, open, and is left at its start.
 pub(super) fn vet_file(file: &mut File, path: &Path) -> Result<()> {
     let io = |source| Error::Io { path: path.to_path_buf(), source };
     let meta = file.metadata().map_err(io)?;

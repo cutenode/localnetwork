@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 mod error;
 mod folder;
@@ -140,6 +142,13 @@ impl PathSlot {
     }
 }
 
+/// The beat grid (`PQTZ`) in an analysis file, empty when it has none. A grid whose declared beat
+/// count runs past its section ends with the last whole beat.
+///
+/// # Errors
+///
+/// [`Error::Malformed`] when the bytes aren't an analysis file, a section runs past its end, or
+/// the grid's header is cut short.
 pub fn beat_grid(bytes: &[u8]) -> Result<Vec<Beat>> {
     let secs = sections(bytes)?;
     let Some(s) = find(&secs, b"PQTZ") else { return Ok(Vec::new()) };
@@ -467,12 +476,17 @@ pub fn track_cues(dat: Option<&[u8]>, ext: Option<&[u8]>) -> Vec<Cue> {
 /// fields empty.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TrackWaves {
+    /// The blue overview (`PWAV`, in `.DAT`).
     pub blue_preview: Option<Waveform>,
+    /// The blue scrolling detail waveform (`PWV3`, in `.EXT`).
     pub blue_detail: Option<Waveform>,
+    /// The colour overview (`PWV4`, in `.EXT`).
     pub rgb_preview: Option<Waveform>,
+    /// The colour scrolling detail waveform (`PWV5`, in `.EXT`).
     pub rgb_detail: Option<Waveform>,
+    /// The 3-band overview (`PWV6`, in `.2EX`).
     pub band_preview: Option<Bands>,
-    /// With how many columns it has a second.
+    /// The 3-band scrolling detail waveform (`PWV7`, in `.2EX`), with how many columns it has a second.
     pub band_detail: Option<(Bands, f64)>,
 }
 

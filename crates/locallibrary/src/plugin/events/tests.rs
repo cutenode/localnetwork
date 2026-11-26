@@ -16,7 +16,7 @@ fn notice(plugin: &str, suggests: Suggestion) -> PluginNotice {
 /// one of it keeps the tracks none of them had, and is none when that leaves nothing or one of
 /// them was on every track. Another plugin's is as it is.
 #[hegel::test(test_cases = 50)]
-fn a_suggestion_keeps_what_wasnt_suggested_before(tc: hegel::TestCase) {
+fn prop_a_suggestion_keeps_what_wasnt_suggested_before(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path()).unwrap();
     let tracks = || gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).max_size(4);

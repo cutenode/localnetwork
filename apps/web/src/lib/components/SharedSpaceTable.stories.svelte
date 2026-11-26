@@ -7,7 +7,7 @@
 	const { Story } = defineMeta({ title: 'Staff/Spaces', component: SharedSpaceTable, tags: ['autodocs'] });
 
 	const space = (kind: SharedSpaceSummary['kind'], skey: string, people: number, listed: boolean, handle: string | null): SharedSpaceSummary => ({
-		uri: `at://did:plc:root/space/computer.localnetwork.space.${kind}/${skey}`,
+		uri: `at:space/did:plc:root/computer.localnetwork.space.${kind}/${skey}`,
 		kind,
 		skey,
 		listed,

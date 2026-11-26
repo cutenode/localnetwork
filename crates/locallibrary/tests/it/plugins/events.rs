@@ -401,7 +401,7 @@ fn suggestions_kept_by_other_versions_are_read_or_left_be() {
 /// each line in order, with exactly the actions it may suggest: none it may not ever reaches it,
 /// so none can be planned.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn only_the_actions_a_plugin_may_suggest_reach_the_front_end(tc: hegel::TestCase) {
+fn prop_only_the_actions_a_plugin_may_suggest_reach_the_front_end(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
     let all = actions(&drive_id(&f));
@@ -431,7 +431,7 @@ fn shutting_down_sends_the_events_waiting() {
 /// For any events, a plugin listening for some of them hears exactly those, in the order they
 /// happened, each with its drive and payload.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugin_hears_what_it_listens_for_in_order(tc: hegel::TestCase) {
+fn prop_a_plugin_hears_what_it_listens_for_in_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let on: Vec<EventName> = tc.draw(gs::subsequences(EventName::ALL.to_vec()).min_size(1));
     let names: Vec<&str> = on.iter().map(|e| e.name()).collect();
@@ -457,7 +457,7 @@ fn a_plugin_hears_what_it_listens_for_in_order(tc: hegel::TestCase) {
 /// oldest first, without each forgotten (the oldest the same as it), and those another version
 /// kept that this one can't read are left as they are.
 #[hegel::test(test_cases = 20)]
-fn the_newest_suggestions_are_kept_until_forgotten(tc: hegel::TestCase) {
+fn prop_the_newest_suggestions_are_kept_until_forgotten(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::plugin::MAX_SUGGESTED;
     let dir = tempfile::tempdir().unwrap();

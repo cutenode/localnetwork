@@ -70,3 +70,70 @@ test_dev_package_not_listed if {
 	broken := json.patch(crate, [{"op": "add", "path": "/profile/dev/package/digest", "value": {"opt-level": 3}}])
 	"Cargo.toml: add \"digest\" to dev_optimised in tools/policy/cargo.rego, so the policies notice if it goes missing" in cargo.deny with input as fixtures.with_file("Cargo.toml", broken)
 }
+
+crate_x := fixtures.file("crates/loclib-x/Cargo.toml")
+
+test_published_crate_without_all_features if {
+	broken := json.remove(crate_x, ["package/metadata/docs/rs/all-features"])
+	"crates/loclib-x/Cargo.toml: set `all-features = true` in [package.metadata.docs.rs], so docs.rs shows what features add" in cargo.deny with input as fixtures.with_file("crates/loclib-x/Cargo.toml", broken)
+}
+
+test_published_crate_without_docsrs_cfg if {
+	broken := json.patch(crate_x, [{"op": "replace", "path": "/package/metadata/docs/rs/rustdoc-args", "value": ["--cfg", "other"]}])
+	"crates/loclib-x/Cargo.toml: set `rustdoc-args = [\"--cfg\", \"docsrs\"]` in [package.metadata.docs.rs], so docs.rs marks what each feature adds" in cargo.deny with input as fixtures.with_file("crates/loclib-x/Cargo.toml", broken)
+}
+
+loclib_x_attributes := fixtures.file("/scratch/crate-roots.json").roots["crates/loclib-x/Cargo.toml"].attributes
+
+test_published_crate_without_missing_docs if {
+	roots := {"roots": {"crates/loclib-x/Cargo.toml": {"root": "crates/loclib-x/src/lib.rs", "attributes": ["#![cfg_attr(docsrs, feature(doc_cfg))]"]}}}
+	denied := cargo.deny with input as fixtures.with_file("/scratch/crate-roots.json", roots)
+	denied == {"crates/loclib-x/Cargo.toml: add `#![warn(missing_docs)]` to crates/loclib-x/src/lib.rs, so clippy, which CI runs with -D warnings, fails on a public item without docs"}
+}
+
+# Clippy's own missing_docs_in_private_items isn't missing_docs.
+test_published_crate_allowing_missing_docs if {
+	attributes := array.concat(loclib_x_attributes, [
+		"#![allow(missing_docs)]",
+		"#![cfg_attr(test, expect(dead_code, missing_docs))]",
+		"#![allow(clippy::missing_docs_in_private_items)]",
+	])
+	roots := {"roots": {"crates/loclib-x/Cargo.toml": {"root": "crates/loclib-x/src/lib.rs", "attributes": attributes}}}
+	denied := cargo.deny with input as fixtures.with_file("/scratch/crate-roots.json", roots)
+	denied == {
+		"crates/loclib-x/Cargo.toml: take `#![allow(missing_docs)]` out of crates/loclib-x/src/lib.rs, and document what it hid",
+		"crates/loclib-x/Cargo.toml: take `#![cfg_attr(test, expect(dead_code, missing_docs))]` out of crates/loclib-x/src/lib.rs, and document what it hid",
+	}
+}
+
+# The root is wherever the crate's [lib] puts it, as crate-roots.json says.
+test_published_crate_with_its_own_root if {
+	roots := {"roots": {"crates/loclib-x/Cargo.toml": {"root": "crates/loclib-x/lib.rs", "attributes": loclib_x_attributes}}}
+	count(cargo.deny) == 0 with input as fixtures.with_file("/scratch/crate-roots.json", roots)
+}
+
+# An app that goes to crates.io needs the same as a crate, at its own root.
+test_published_app_with_its_own_root if {
+	app := json.patch(fixtures.file("apps/tool/Cargo.toml"), [
+		{"op": "remove", "path": "/package/publish"},
+		{"op": "add", "path": "/package/metadata", "value": {"docs": {"rs": {"all-features": true, "rustdoc-args": ["--cfg", "docsrs"]}}}},
+	])
+	roots := {"roots": {"apps/tool/Cargo.toml": {"root": "apps/tool/lib.rs", "attributes": []}}}
+	repo := [f | some f in fixtures.with_file("apps/tool/Cargo.toml", app); f.path != "/scratch/crate-roots.json"]
+	denied := cargo.deny with input as array.concat(repo, [{"path": "/scratch/crate-roots.json", "contents": roots}])
+	denied == {
+		"apps/tool/Cargo.toml: add `#![warn(missing_docs)]` to apps/tool/lib.rs, so clippy, which CI runs with -D warnings, fails on a public item without docs",
+		"apps/tool/Cargo.toml: add `#![cfg_attr(docsrs, feature(doc_cfg))]` to apps/tool/lib.rs, so docs.rs marks what each feature adds",
+	}
+}
+
+# A package without a library has no crate attributes to check.
+test_published_crate_without_a_library if {
+	count(cargo.deny) == 0 with input as fixtures.with_file("/scratch/crate-roots.json", {"roots": {}})
+}
+
+test_unpublished_crate_needs_neither if {
+	unpublished := json.patch(crate_x, [{"op": "remove", "path": "/package/metadata"}, {"op": "add", "path": "/package/publish", "value": false}])
+	repo := [f | some f in fixtures.with_file("crates/loclib-x/Cargo.toml", unpublished); f.path != "/scratch/crate-roots.json"]
+	count(cargo.deny) == 0 with input as array.concat(repo, [{"path": "/scratch/crate-roots.json", "contents": {"roots": {}}}])
+}

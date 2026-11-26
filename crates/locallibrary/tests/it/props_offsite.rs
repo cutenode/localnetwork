@@ -69,7 +69,7 @@ fn pulled(tc: &TestCase, dir: &std::path::Path) -> Store {
 }
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn pruning_removes_exactly_its_plan_and_keeps_every_history_list(tc: TestCase) {
+fn prop_pruning_removes_exactly_its_plan_and_keeps_every_history_list(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(&tc, dir.path());
     let all: Vec<Hash> = ids(&store).into_iter().collect();
@@ -109,7 +109,7 @@ fn pruning_removes_exactly_its_plan_and_keeps_every_history_list(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
+fn prop_a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(&tc, dir.path());
     let dest = dir.path().join("NAS");
@@ -192,7 +192,7 @@ fn a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
 /// folder of other things, not under a folder that isn't there (an unmounted share). Over a copy
 /// of it, a stored file that rotted there is put right when verifying.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_copy_goes_only_where_it_can_and_puts_rot_right(tc: TestCase) {
+fn prop_a_copy_goes_only_where_it_can_and_puts_rot_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(&tc, dir.path());
     let silent = Ctx::silent();

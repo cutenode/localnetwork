@@ -25,6 +25,7 @@ const MAGIC_BE: u32 = 0x377f_0683;
 pub struct Committed<'a> {
     /// Latest committed image of each page, by 1-based page number.
     pub pages: IndexMap<u32, &'a [u8]>,
+    /// The database size in pages that the last committed transaction gives.
     pub db_pages: u32,
 }
 

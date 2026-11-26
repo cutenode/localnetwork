@@ -7,10 +7,10 @@ use crate::common::{self, path, sync_pair};
 use locallibrary::api::{self, Direction};
 use locallibrary::compare::{Relation, Side};
 use locallibrary::device::{Device, dunce_canonicalize};
-use locallibrary::drive_speed;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::{Error, fleet};
+use loclib_drive_speed as drive_speed;
 
 /// A write big enough says how long it'll take. A plan times its drive only when a front end says
 /// it may, and timing it doesn't make the plan stale.
@@ -303,7 +303,7 @@ fn provisioning_an_archive_drive_is_refused_before_anything_is_written() {
 /// Through the API, a drive's speed is none until measured, then what was measured, and a record
 /// damaged in between counts as none again.
 #[hegel::test(test_cases = 4)]
-fn a_drives_speed_is_what_was_last_measured(tc: hegel::TestCase) {
+fn prop_a_drives_speed_is_what_was_last_measured(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let volumes = common::isolate(dir.path(), None);

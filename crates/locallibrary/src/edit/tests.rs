@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::TrackColor;
 use loclib_model::test_util::track;
 
 fn lib() -> Library {
@@ -410,7 +411,7 @@ fn counts(keys: &[String]) -> FxHashMap<&str, usize> {
 /// the edit removed (as many as `current` has) and gains the ones it added, and keys the edit
 /// never saw stay in `current`'s order.
 #[hegel::test(test_cases = 300)]
-fn an_edit_rebased_onto_other_entries_makes_its_own_changes(tc: hegel::TestCase) {
+fn prop_an_edit_rebased_onto_other_entries_makes_its_own_changes(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     let keys = || gs::vecs(gs::sampled_from(vec!["a", "b", "c", "d", "e"]).map(String::from)).max_size(6);
@@ -570,7 +571,7 @@ fn resolve_all(start: &Library, edits: &[Edit], lenient: bool) -> Result<(Librar
 /// What the journal keeps of an edit redoes it: its recorded form, made on the library the edit
 /// was made on, gives the same library, and so does replaying that leniently.
 #[hegel::test(test_cases = 400)]
-fn an_edits_recorded_form_redoes_it(tc: hegel::TestCase) {
+fn prop_an_edits_recorded_form_redoes_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let start = drawn_lib(&tc);
     let edits: Vec<Edit> =
@@ -612,7 +613,7 @@ fn edits_that_change_nothing_record_nothing() {
 /// difference otherwise: a track's details, an extra track, a playlist's entries, an extra
 /// playlist, the order of a folder's children, a history list's entries, or an extra list.
 #[hegel::test(test_cases = 200)]
-fn verification_names_the_first_difference_it_finds(tc: hegel::TestCase) {
+fn prop_verification_names_the_first_difference_it_finds(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let expected = drawn_lib(&tc);
     let mut actual = expected.clone();
@@ -675,7 +676,7 @@ fn verification_names_the_first_difference_it_finds(tc: hegel::TestCase) {
 /// is refused exactly when it would go deeper. A move never gives a playlist a sibling of its
 /// exact name.
 #[hegel::test(test_cases = 40)]
-fn playlists_nest_no_deeper_than_a_drive_reads_and_moves_make_no_namesakes(tc: hegel::TestCase) {
+fn prop_playlists_nest_no_deeper_than_a_drive_reads_and_moves_make_no_namesakes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let chain = |prefix: &str, n: usize| (0..n).map(|i| format!("{prefix}{i}")).collect::<Vec<_>>().join("/");
     let depth = tc.draw(gs::integers::<usize>().min_value(50).max_value(MAX_DEPTH + 2));
@@ -721,7 +722,7 @@ fn playlists_nest_no_deeper_than_a_drive_reads_and_moves_make_no_namesakes(tc: h
 /// none is there and several paths match ignoring case, which was meant can't be told and it's
 /// refused naming them; otherwise it makes the playlist at exactly its path.
 #[hegel::test(test_cases = 100)]
-fn a_fill_takes_exactly_its_path_or_says_which_ones_it_could_mean(tc: hegel::TestCase) {
+fn prop_a_fill_takes_exactly_its_path_or_says_which_ones_it_could_mean(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut start = lib();
     let folders: Vec<&str> = tc.draw(gs::subsequences(&["GIGS", "Gigs", "gIGS"]));
@@ -774,7 +775,7 @@ fn a_fill_takes_exactly_its_path_or_says_which_ones_it_could_mean(tc: hegel::Tes
 /// name and those entries not taken already. Strictly each must be there; leniently (a replay)
 /// the ones that are go, unless none is.
 #[hegel::test(test_cases = 150)]
-fn recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
+fn prop_recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let start = drawn_lib(&tc);
     let files = |ids: &[u32]| -> Vec<String> {
@@ -819,7 +820,7 @@ fn recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
 /// no other track shares its own file (the databases' edits find it by its file).
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(shared = false, id = 1u32, path = "/contents/NEW.mp3")]
-fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
+fn prop_a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (dir, device) = empty_drive();
     std::fs::create_dir_all(dir.path().join("Contents")).unwrap();
@@ -905,7 +906,7 @@ fn prop_every_row_of_a_file_is_pointed_with_it(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(rating = Some(6u8), color = None::<&str>, key = None::<&str>)]
 #[hegel::explicit_test_case(rating = Some(5u8), color = Some("plaid"), key = Some("8A"))]
 #[hegel::explicit_test_case(rating = None::<u8>, color = Some("red"), key = Some("zz"))]
-fn track_edits_take_only_ratings_colours_and_keys_there_are(tc: hegel::TestCase) {
+fn prop_track_edits_take_only_ratings_colours_and_keys_there_are(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let rating = tc.draw(gs::optional(gs::integers::<u8>()));
     let color = tc.draw(gs::optional(gs::sampled_from(vec!["red", "none", "3", "plaid", "9"])));
@@ -930,7 +931,7 @@ fn track_edits_take_only_ratings_colours_and_keys_there_are(tc: hegel::TestCase)
 /// refused on the database edits are planned on, and on the other skipped, said and leaving it as
 /// it was. Entries can't be set on a folder on either.
 #[hegel::test(test_cases = 60)]
-fn ops_naming_what_a_database_lacks_are_refused_or_skipped(tc: hegel::TestCase) {
+fn prop_ops_naming_what_a_database_lacks_are_refused_or_skipped(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let name = || vec![tc.draw(gs::text().alphabet("xyz").min_size(1).max_size(4))];
     let track = || format!("contents/{}.mp3", tc.draw(gs::text().alphabet("xyz").min_size(1).max_size(4)));
@@ -979,7 +980,7 @@ fn ops_naming_what_a_database_lacks_are_refused_or_skipped(tc: hegel::TestCase) 
 /// it, whether it fills, makes or orders into one, as is an edit that adds at position 0 or
 /// points several tracks at one file; the library is left as it was.
 #[hegel::test(test_cases = 30)]
-fn edits_naming_no_playlist_position_or_track_are_refused(tc: hegel::TestCase) {
+fn prop_edits_naming_no_playlist_position_or_track_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let path = tc.draw(gs::text().alphabet(" /").max_size(4));
     let ids = || TrackSelector { ids: vec![1, 2], ..Default::default() };
@@ -1024,7 +1025,7 @@ fn edits_naming_no_playlist_position_or_track_are_refused(tc: hegel::TestCase) {
 /// (every entry of a track named, one of a repeated track at a position) and keeps the rest in
 /// order; removing none records nothing, and what's recorded removes the same again.
 #[hegel::test(test_cases = 200)]
-fn removing_tracks_takes_exactly_the_entries_named(tc: hegel::TestCase) {
+fn prop_removing_tracks_takes_exactly_the_entries_named(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let start = drawn_lib(&tc);
     let old = entries(&start, "Sets/Fri");
@@ -1077,7 +1078,7 @@ fn isrc_model(s: &str) -> bool {
 #[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = Some("0000-01-1".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32])]
 #[hegel::explicit_test_case(bpm = None::<f64>, isrc = Some("GBDUW000005".to_string()), date = None::<String>, album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
 #[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = None::<String>, album = Some(" ".to_string()), album_artist = Some("Bicep".to_string()), ids = vec![2u32])]
-fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hegel::TestCase) {
+fn prop_track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     let bpm = tc.draw(gs::optional(hegel::one_of!(
@@ -1169,7 +1170,7 @@ fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hege
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(specs = vec!["Sets/Fri", "Sets"], orphaned = false)]
 #[hegel::explicit_test_case(orphaned = true, specs = vec!["Fri"])]
-fn what_is_chosen_is_what_each_spec_chooses(tc: hegel::TestCase) {
+fn prop_what_is_chosen_is_what_each_spec_chooses(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut library = lib();
     let sat =
@@ -1241,7 +1242,7 @@ fn plan_each(start: &Library, edits: &[Edit], indexed: bool) -> (Vec<String>, Li
 /// whole library made: the same ops, descriptions, recorded edits, refusals and model, among
 /// other edits, with tracks sharing a file or an id. And so do their ops on the other database.
 #[hegel::test(test_cases = 300)]
-fn edits_to_fields_plan_alike_on_the_tracks_they_name(tc: hegel::TestCase) {
+fn prop_edits_to_fields_plan_alike_on_the_tracks_they_name(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut start = drawn_lib(&tc);
     if tc.draw(gs::booleans()) {

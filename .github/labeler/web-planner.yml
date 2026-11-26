@@ -1,0 +1,7 @@
+"web: planner":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/dashboard/planner/**"
+          - "apps/web/src/lib/server/services/planner.*"
+          - "apps/web/src/lib/server/planner-page.*"
+          - "lexicons/computer/localnetwork/planner/**"

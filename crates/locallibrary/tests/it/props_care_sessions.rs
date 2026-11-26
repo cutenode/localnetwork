@@ -17,7 +17,7 @@ use locallibrary::sets::session;
 /// earlier bound); a drive whose OneLibrary can't be read gives what its export.pdb holds and a
 /// warning naming the drive.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn every_history_list_is_one_session_naming_its_drives(tc: TestCase) {
+fn prop_every_history_list_is_one_session_naming_its_drives(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let lists: [(&str, &[u32]); 3] = [("HISTORY 001", &[1]), ("HISTORY 002", &[1, 2]), ("HISTORY 003", &[2])];
     let mut drives = Vec::new();

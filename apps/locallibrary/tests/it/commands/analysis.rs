@@ -151,9 +151,12 @@ fn analyze_writes_keys_and_bpms_to_the_tracks() {
     assert!(unsure.contains("nothing to change") && unsure.contains("less sure of them than 0.95"), "{unsure}");
     let planned = env.json(&["analyze", path(&root), "--apply", "key,bpm", "--overwrite", "--dry-run"]);
     assert_eq!(planned["plan"]["operation"], "plugins.apply_fields", "{planned}");
-    assert_eq!(planned["plan"]["summary"][0], "write key and bpm from Tempo, key and loudness to 1 track(s)");
+    assert_eq!(
+        planned["plan"]["summary"][0],
+        "write key and bpm from Tempo, key, loudness and beat grid to 1 track(s)"
+    );
     let out = env.ok(&["--yes", "analyze", path(&root), "--apply", "key,bpm", "--overwrite"]);
-    assert!(out.contains("write key and bpm from Tempo, key and loudness to 1 track(s)"), "{out}");
+    assert!(out.contains("write key and bpm from Tempo, key, loudness and beat grid to 1 track(s)"), "{out}");
     let after = Device::open(&root).unwrap().library().unwrap().tracks;
     let key = Camelot::parse(&before[0].key).unwrap().parallel().note();
     assert_eq!((&after[0].key, after[0].bpm), (&key, before[0].bpm * 2.0));
@@ -197,13 +200,14 @@ fn plugin_roles_shows_and_chooses_where_each_role_is_read_from() {
     // The beat grid, phrases and waveform are chosen as roles are, from an analyzer that has one.
     let out = env.ok(&["plugin", "roles"]);
     assert!(line(&out, "waveform").contains("sound.tempo-key-loudness  default"), "{out}");
+    assert!(line(&out, "grid").contains("sound.tempo-key-loudness  default"), "{out}");
     assert!(line(&out, "phrases").contains("no analyzer works it out"), "{out}");
     let out = env.ok(&["--yes", "plugin", "roles", "waveform", sound]);
     assert!(line(&out, "waveform  ").ends_with("chosen"), "{out}");
     let v = env.json(&["plugin", "roles", "waveform"]);
     assert_eq!(v, json!([{ "role": "waveform", "chosen": sound, "set": true, "off": false, "offered": [sound] }]));
-    let err = env.fails(1, &["--yes", "plugin", "roles", "grid", sound]);
-    assert!(err.contains("no analyzer works out grid"), "{err}");
+    let err = env.fails(1, &["--yes", "plugin", "roles", "phrases", sound]);
+    assert!(err.contains("no analyzer works out phrases"), "{err}");
 }
 
 /// `analyze` alone leaves out the analyzers of plugins that go online, and says how to run them:
@@ -306,7 +310,10 @@ fn the_sidecar_chooses_roles_and_writes_what_was_heard() {
 
     let apply = json!({ "plugin": "sound", "analyzer": "tempo-key-loudness", "drive": path(&root), "fields": ["key", "bpm"], "overwrite": true });
     let planned = result(s.call(5, "plugins.apply_fields.plan", apply));
-    assert_eq!(planned["summary"][0], "write key and bpm from Tempo, key and loudness to 1 track(s)", "{planned}");
+    assert_eq!(
+        planned["summary"][0], "write key and bpm from Tempo, key, loudness and beat grid to 1 track(s)",
+        "{planned}"
+    );
     let wrong = s.call(6, "plugins.op.apply", json!({ "plan_id": planned["plan_id"] }));
     assert!(
         wrong["error"]["message"].as_str().unwrap().contains("is a plugins.apply_fields plan, not plugins.op"),
@@ -366,7 +373,7 @@ fn analyze_applies_from_the_analyzer_chosen_for_the_role() {
 
 /// `--apply grid,phrases,waveform` writes what an analyzer worked out besides its columns into the
 /// tracks' analysis files, planned as any edit is, and the sidecar plans it too; a key or BPM goes
-/// in a run of its own.
+/// in a run of its own. The sound plugin works out a grid too, so the test plugin's is named.
 #[cfg(debug_assertions)]
 #[test]
 fn analyze_writes_a_grid_into_the_analysis_files() {
@@ -381,14 +388,17 @@ fn analyze_writes_a_grid_into_the_analysis_files() {
     for t in Device::open(&root).unwrap().library().unwrap().tracks {
         std::fs::write(paths::to_fs(&root, &paths::key(&t.file_path)), json!({ "grid": grid }).to_string()).unwrap();
     }
+    let heard = ["--plugin", "echo", "--analyzer", "heard"];
     let err = env.fails(2, &["analyze", path(&root), "--apply", "key,grid"]);
     assert!(err.contains("write a key and BPM in a run of their own"), "{err}");
     let err = env.fails(2, &["analyze", path(&root), "--apply", "grid", "--min-confidence", "0.5"]);
     assert!(err.contains("--min-confidence is for a key and BPM"), "{err}");
-    let out = env.ok(&["analyze", path(&root), "--apply", "grid", "--dry-run"]);
+    let err = env.fails(2, &["analyze", path(&root), "--apply", "grid", "--dry-run"]);
+    assert!(err.contains("several analyzers work out grid"), "{err}");
+    let out = env.ok(&[&["analyze", path(&root), "--apply", "grid", "--dry-run"][..], &heard].concat());
     assert!(out.contains("heard (echo): 2 tracks analyzed"), "{out}");
     assert!(out.contains("2 of what's asked the tracks have already"), "{out}");
-    let out = env.ok(&["--yes", "analyze", path(&root), "--apply", "grid", "--overwrite"]);
+    let out = env.ok(&[&["--yes", "analyze", path(&root), "--apply", "grid", "--overwrite"][..], &heard].concat());
     assert!(out.contains("write the grid from Heard to 2 track(s)"), "{out}");
     let d = Device::open(&root).unwrap();
     for t in d.library().unwrap().tracks {
@@ -420,7 +430,7 @@ fn analyze_writes_a_grid_into_the_analysis_files() {
 /// `heard`), as `plugins.apply_fields` plans it.
 #[cfg(debug_assertions)]
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
+fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::plugin::AnalysisPart;
     let mut env = Env::new();
@@ -452,7 +462,8 @@ fn analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
         let r = env.run(&args);
         assert_eq!(r.code, 0, "{args:?}\n{}\n{}", r.out, r.err);
         let written = usize::from(overwrite);
-        let summary = format!("write {} from Tempo, key and loudness to {written} track(s)", roles.join(" and "));
+        let summary =
+            format!("write {} from Tempo, key, loudness and beat grid to {written} track(s)", roles.join(" and "));
         if as_json {
             let v: Value = serde_json::from_str(&r.out).unwrap();
             assert_eq!(v["plan"]["operation"], "plugins.apply_fields", "{v}");
@@ -628,7 +639,7 @@ fn roles_text(listed: &Value) -> String {
 /// no analyzer works out its roles (tempo, key, level), and the doctor's analysis says no plugin
 /// works them out.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
+fn prop_plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut env = Env::new();
     let without_sound = cfg!(debug_assertions) && tc.draw(gs::booleans());
@@ -724,7 +735,7 @@ fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
 /// the library's tempos favour the stored one, and `--fix-tempo` then sets the tempo heard (a dry
 /// run changing nothing), or else has nothing to change.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn doctor_fixes_a_tempo_only_where_the_library_favours_the_analysis(tc: hegel::TestCase) {
+fn prop_doctor_fixes_a_tempo_only_where_the_library_favours_the_analysis(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();
     let root = env.demo("A");

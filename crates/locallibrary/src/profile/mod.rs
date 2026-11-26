@@ -12,7 +12,7 @@
 //! the store.
 //!
 //! Genres, artists, era and energy describe the collection, each track once, however often it was
-//! played: rekordbox's own collection on this computer (`master.db`, see [`crate::masterdb`]) when
+//! played: rekordbox's own collection on this computer (`master.db`, see [`loclib_rekordbox_db::masterdb`]) when
 //! the profile reads it, else every track in the libraries read (drives' and the store's latest
 //! snapshots), which are copies of it as it was when they were exported. The rest
 //! describe what was *played* (every appearance in a set counts). Until the DJ declares sets, the
@@ -484,7 +484,7 @@ enum Origin {
     Drive(usize),
     Snapshot(usize),
     /// rekordbox's collection on this computer: its files are full paths here
-    /// ([`crate::masterdb::Collection::library_from_root`]).
+    /// ([`loclib_rekordbox_db::masterdb::Collection::library_from_root`]).
     Collection,
 }
 
@@ -820,9 +820,9 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
     let mut from_collection = false;
     if let Some(path) = &sources.collection {
         ctx.check()?;
-        match crate::masterdb::open(path, &crate::masterdb::resolve_key(None)) {
+        match loclib_rekordbox_db::masterdb::open(path, &loclib_rekordbox_db::masterdb::resolve_key(None)) {
             Ok(c) => {
-                let lib = c.library_from_root(&crate::masterdb::CloudFolders::this_computer());
+                let lib = c.library_from_root(&loclib_rekordbox_db::masterdb::CloudFolders::this_computer());
                 b.add_collection(&lib, Origin::Collection);
                 b.sources.push(SourceInfo {
                     kind: "collection",

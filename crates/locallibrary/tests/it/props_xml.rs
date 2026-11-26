@@ -41,7 +41,7 @@ fn attribute(xml: &str, id: u32, name: &str) -> Option<String> {
 /// stars at most), and its year is the release date's when it has none of its own. Asking for
 /// only a playlist the drive has exports just it; one it hasn't is refused naming it.
 #[hegel::test(test_cases = 30)]
-fn xml_tracks_say_what_rekordbox_says_of_them(tc: TestCase) {
+fn prop_xml_tracks_say_what_rekordbox_says_of_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // The twelve-track export, with drawn tracks added.
     let root = common::bigger_drive(dir.path(), "USB");

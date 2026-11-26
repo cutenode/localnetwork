@@ -1,0 +1,7 @@
+"web: notifications":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/lib/server/notifications/**"
+          - "apps/web/src/routes/notifications/**"
+          - "apps/web/src/routes/dashboard/inbox/**"
+          - "apps/web/src/routes/dashboard/account/notifications/**"

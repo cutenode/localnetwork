@@ -79,7 +79,7 @@ fn settings_record(values: &IndexMap<&str, &str>, unknown: usize) -> Value {
 /// replaces where there's a record to replace, and a line for each setting published before that
 /// it no longer publishes.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_settings_plan_marks_each_setting_against_the_published_one(tc: TestCase) {
+fn prop_a_settings_plan_marks_each_setting_against_the_published_one(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::new().with_directory(&pds.url);
     sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
@@ -131,7 +131,7 @@ fn a_settings_plan_marks_each_setting_against_the_published_one(tc: TestCase) {
 /// without) can each be looked at, as they would be published, saying how to sign in, and as JSON
 /// with no account or address; asked to publish them, it says to sign in, and nothing is written.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn signed_out_a_plan_is_only_shown(tc: TestCase) {
+fn prop_signed_out_a_plan_is_only_shown(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
     set_base(&fx, &draw_settings(&tc));
@@ -187,7 +187,7 @@ fn signed_out_a_plan_is_only_shown(tc: TestCase) {
 /// offers to sign in again first and, declined, asks to publish and does as answered.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn late_in_a_session_publishing_says_to_sign_in_again(tc: TestCase) {
+fn prop_late_in_a_session_publishing_says_to_sign_in_again(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
     let hours = tc.draw(gs::integers::<i64>().min_value(1).max_value(47));
@@ -225,7 +225,7 @@ fn late_in_a_session_publishing_says_to_sign_in_again(tc: TestCase) {
 /// it; and planned again, it replaces the recording uploaded.
 #[cfg(unix)]
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn uploading_a_recording_publishes_the_set_pointing_at_it(tc: TestCase) {
+fn prop_uploading_a_recording_publishes_the_set_pointing_at_it(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::new().with_directory(&pds.url);
@@ -337,7 +337,7 @@ fn imported(
 /// replace or add to, and a warning for each setting it leaves out up to 20, then how many more;
 /// imported with `--yes`, the base is what the model says, and importing again changes nothing.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn importing_published_settings_comes_to_what_was_published(tc: TestCase) {
+fn prop_importing_published_settings_comes_to_what_was_published(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::new().with_directory(&pds.url);
     let published = draw_settings(&tc);
@@ -418,7 +418,7 @@ fn importing_published_settings_comes_to_what_was_published(tc: TestCase) {
 /// left for later. Deleting the set then names the record it has on the account, if any.
 #[cfg(all(unix, debug_assertions))]
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_set_published_at_a_destination_publishes_its_record_too(tc: TestCase) {
+fn prop_a_set_published_at_a_destination_publishes_its_record_too(tc: TestCase) {
     use crate::mock_pds::Writes;
 
     let pds = MockPds::start();

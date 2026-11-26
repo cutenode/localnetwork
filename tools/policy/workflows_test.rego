@@ -5,10 +5,13 @@ import data.workflows
 
 ci := fixtures.file(".github/workflows/site-ci.yml")
 
+# The fixture's own report job, in place of the repository's.
+reports := {".github/workflows/site-e2e.yml#report"}
+
 with_ci(contents) := fixtures.with_file(".github/workflows/site-ci.yml", contents)
 
 test_fixture_passes if {
-	count(workflows.deny) == 0 with input as fixtures.repo
+	count(workflows.deny) == 0 with input as fixtures.repo with workflows.reports as reports
 }
 
 test_gated_workflows if {
@@ -28,7 +31,7 @@ test_unfiltered_workflow_needs_no_changes_job if {
 		{"op": "remove", "path": "/jobs/verify/needs"},
 		{"op": "replace", "path": "/jobs/passed/needs", "value": ["verify"]},
 	])
-	count(workflows.deny) == 0 with input as fixtures.with_file(".github/workflows/pr-issue.yml", unfiltered)
+	count(workflows.deny) == 0 with input as fixtures.with_file(".github/workflows/pr-issue.yml", unfiltered) with workflows.reports as reports
 }
 
 test_trigger_paths if {
@@ -63,7 +66,7 @@ test_report_and_semver_stay_outside_passed if {
 		{"op": "add", "path": "/jobs/report", "value": {"needs": ["changes"], "runs-on": "ubuntu-latest"}},
 		{"op": "add", "path": "/jobs/semver", "value": {"needs": "changes", "runs-on": "ubuntu-latest"}},
 	])
-	count(workflows.deny) == 0 with input as with_ci(extra)
+	count(workflows.deny) == 0 with input as with_ci(extra) with workflows.reports as reports
 }
 
 test_passed_misnamed if {
@@ -127,7 +130,7 @@ test_draft_fails_passed if {
 		{"op": "replace", "path": "/jobs/passed/if", "value": draft_if},
 		{"op": "add", "path": "/jobs/passed/steps/-", "value": draft_step},
 	])
-	count(workflows.deny) == 0 with input as with_ci(drafts)
+	count(workflows.deny) == 0 with input as with_ci(drafts) with workflows.reports as reports
 }
 
 test_job_ignores_changes if {
@@ -142,7 +145,7 @@ test_no_concurrency if {
 
 test_main_pushes_finish if {
 	finishing := json.patch(ci, [{"op": "replace", "path": "/concurrency/cancel-in-progress", "value": "${{ github.event_name != 'push' }}"}])
-	count(workflows.deny) == 0 with input as with_ci(finishing)
+	count(workflows.deny) == 0 with input as with_ci(finishing) with workflows.reports as reports
 }
 
 test_main_runs_not_cancelled if {
@@ -168,7 +171,7 @@ test_pull_request_only_needs_no_base if {
 		{"op": "replace", "path": "/true", "value": "pull_request"},
 		{"op": "remove", "path": "/jobs/changes/steps/1/with/base"},
 	])
-	count(workflows.deny) == 0 with input as with_ci(pr_only)
+	count(workflows.deny) == 0 with input as with_ci(pr_only) with workflows.reports as reports
 }
 
 e2e := fixtures.file(".github/workflows/site-e2e.yml")
@@ -193,6 +196,58 @@ test_called_workflow_on_push if {
 test_called_report_can_fail_the_call if {
 	broken := json.remove(e2e, ["jobs/report/continue-on-error"])
 	".github/workflows/site-e2e.yml: give job \"report\" `continue-on-error: true`, or it fails the call when it fails" in workflows.deny with input as with_e2e(broken)
+}
+
+report_only_msg := ".github/workflows/site-e2e.yml: job \"test\" can't fail; for a report-only check, add it to report_only in tools/policy/workflows.rego with the issue that makes it required"
+
+with_test_step(step) := json.patch(e2e, [{"op": "add", "path": "/jobs/test/steps", "value": [step]}])
+
+test_job_that_cant_fail if {
+	broken := json.patch(e2e, [{"op": "add", "path": "/jobs/test/continue-on-error", "value": true}])
+	report_only_msg in workflows.deny with input as with_e2e(broken)
+}
+
+test_job_that_can_fail_by_expression if {
+	broken := json.patch(e2e, [{"op": "add", "path": "/jobs/test/continue-on-error", "value": "${{ matrix.experimental }}"}])
+	report_only_msg in workflows.deny with input as with_e2e(broken)
+}
+
+test_step_that_cant_fail if {
+	broken := with_test_step({"run": "pnpm knip", "continue-on-error": true})
+	report_only_msg in workflows.deny with input as with_e2e(broken)
+}
+
+test_artifact_download_can_fail if {
+	allowed := with_test_step({"uses": "actions/download-artifact@0000000000000000000000000000000000000000", "continue-on-error": true})
+	count(workflows.deny) == 0 with input as with_e2e(allowed) with workflows.reports as reports
+}
+
+test_report_only_job_with_its_issue if {
+	report_only := json.patch(e2e, [{"op": "add", "path": "/jobs/test/continue-on-error", "value": true}])
+	count(workflows.deny) == 0 with input as with_e2e(report_only) with workflows.reports as reports
+		with workflows.report_only as {".github/workflows/site-e2e.yml#test": "LOC-624"}
+}
+
+test_report_job_in_another_workflow if {
+	broken := json.patch(ci, [{"op": "add", "path": "/jobs/report", "value": {"needs": "changes", "continue-on-error": true}}])
+	".github/workflows/site-ci.yml: job \"report\" can't fail; for a report-only check, add it to report_only in tools/policy/workflows.rego with the issue that makes it required" in workflows.deny with input as with_ci(broken)
+		with workflows.reports as reports
+}
+
+test_exemption_that_matches_no_job if {
+	denied := workflows.deny with input as fixtures.repo
+		with workflows.reports as reports | {".github/workflows/gone.yml#report"}
+		with workflows.report_only as {".github/workflows/site-e2e.yml#gone": "LOC-624"}
+	denied == {
+		"tools/policy/workflows.rego: \".github/workflows/gone.yml#report\" in reports matches no job; remove it",
+		"tools/policy/workflows.rego: report_only[\".github/workflows/site-e2e.yml#gone\"] matches no job; remove it",
+	}
+}
+
+test_report_only_without_an_issue if {
+	msg := "tools/policy/workflows.rego: report_only[\".github/workflows/site-e2e.yml#test\"] should name the issue that makes it required, as LOC-123"
+	msg in workflows.deny with input as fixtures.repo
+		with workflows.report_only as {".github/workflows/site-e2e.yml#test": "soon"}
 }
 
 test_call_without_a_permission_its_jobs_ask_for if {
@@ -225,11 +280,11 @@ test_added_or_deleted_without_renamed if {
 }
 
 test_added_deleted_and_renamed if {
-	count(workflows.deny) == 0 with input as with_files_filter("added|deleted|renamed")
+	count(workflows.deny) == 0 with input as with_files_filter("added|deleted|renamed") with workflows.reports as reports
 }
 
 test_modified_needs_no_renamed if {
-	count(workflows.deny) == 0 with input as with_files_filter("modified")
+	count(workflows.deny) == 0 with input as with_files_filter("modified") with workflows.reports as reports
 }
 
 reads(list) := fixtures.with_file("/scratch/reads.json", {"reads": list})
@@ -248,7 +303,7 @@ test_read_of_a_folder_outside_the_filter if {
 
 # Bombadil is in apps/locallibrary/, but only a weekly run reads what its specs read.
 test_read_from_a_folder_no_pull_request_runs if {
-	count(workflows.deny) == 0 with input as reads([{"from": "apps/locallibrary/bombadil/lib.mjs", "path": "docs/a.pdb"}])
+	count(workflows.deny) == 0 with input as reads([{"from": "apps/locallibrary/bombadil/lib.mjs", "path": "docs/a.pdb"}]) with workflows.reports as reports
 }
 
 test_read_from_the_longest_folder if {
@@ -281,6 +336,42 @@ test_codeql_filter_with_both if {
 	}
 }
 
+budgets(base) := fixtures.with_file(".github/workflows/site-e2e.yml", json.patch(fixtures.file(".github/workflows/site-e2e.yml"), [{"op": "add", "path": "/jobs/test/steps", "value": [{"run": "check", "env": {"GROUP_BASE": base}}]}]))
+
+test_budgets_over_the_entry_ahead if {
+	".github/workflows/site-e2e.yml: job \"test\" reads the entry ahead of a merge queue group (base_sha); take main's tip from the workflow that calls it, as `inputs.group-base`" in workflows.deny with input as budgets("${{ github.event.merge_group.base_sha }}")
+}
+
+test_budgets_over_main if {
+	count(workflows.deny) == 0 with input as budgets("${{ inputs.group-base }}") with workflows.reports as reports
+}
+
+# A changes job that lets a group skip Windows, with the step's env and the globs of workflow_lint.
+with_windows_skip(env, globs) := with_ci(json.patch(ci, [
+	{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": sprintf("run:\n  - 'apps/**'\n  - 'packages/**'\nworkflow_lint:\n%s", [concat("", [sprintf("  - '%s'\n", [g]) | some g in globs])])},
+	{"op": "add", "path": "/jobs/changes/steps/-", "value": {"run": "node tools/queue/cli.ts >> \"$GITHUB_OUTPUT\"", "env": env}},
+]))
+
+from_filter := {"WORKFLOWS_CHANGED": "${{ steps.filter.outputs.workflow_lint }}"}
+
+test_windows_skip_without_the_filter if {
+	".github/workflows/site-ci.yml: give the tools/queue/cli.ts step `WORKFLOWS_CHANGED: ${{ steps.filter.outputs.workflow_lint }}`, so a group that changes a workflow runs Windows" in workflows.deny
+		with input as with_windows_skip({"WORKFLOWS_CHANGED": "false"}, [".github/workflows/**", ".github/actions/**"])
+}
+
+test_windows_skip_without_the_actions if {
+	".github/actions/last-passed/action.yml: add it to the workflow_lint paths filter; a merge queue group that changes it has to run Windows" in workflows.deny with input as with_windows_skip(from_filter, [".github/workflows/**"])
+}
+
+test_windows_skip_without_the_workflows if {
+	".github/workflows/ci.yml: add it to the workflow_lint paths filter; a merge queue group that changes it has to run Windows" in workflows.deny with input as with_windows_skip(from_filter, [".github/actions/**"])
+}
+
+test_windows_skip if {
+	count(workflows.deny) == 0 with input as with_windows_skip(from_filter, [".github/workflows/**", ".github/actions/**"])
+		with workflows.reports as reports
+}
+
 install(tools) := {"true": ["workflow_dispatch"], "jobs": {"lint": {"steps": [
 	{"uses": "taiki-e/install-action@0000000000000000000000000000000000000000", "with": {"tool": tools}},
 ]}}}
@@ -294,5 +385,29 @@ test_install_with_versions if {
 	denied := workflows.deny with input as fixtures.with_file(".github/workflows/tools.yml", install("cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1"))
 	every msg in denied {
 		not contains(msg, "tools.yml")
+	}
+}
+
+apt(packages) := {"runs": {"using": "composite", "steps": [{"uses": "./.github/actions/apt-packages", "with": {"packages": packages}}]}}
+
+test_apt_packages_from_an_expression if {
+	repo := fixtures.with_file(".github/actions/build/action.yml", apt("${{ inputs.packages }}"))
+	".github/actions/build/action.yml: name the apt packages \"${{ inputs.packages }}\" stands for; locallibrary-cache.yml can't warm an expression" in workflows.deny with input as repo
+}
+
+test_apt_packages_from_an_expression_in_a_workflow if {
+	wf := {"true": ["workflow_dispatch"], "jobs": {"build": {"steps": apt("${{ matrix.packages }}").runs.steps}}}
+	repo := fixtures.with_file(".github/workflows/build.yml", wf)
+	".github/workflows/build.yml: name the apt packages \"${{ matrix.packages }}\" stands for; locallibrary-cache.yml can't warm an expression" in workflows.deny with input as repo
+	warmer := workflows.deny with input as fixtures.with_file(".github/workflows/locallibrary-cache.yml", wf)
+	every msg in warmer {
+		not contains(msg, "locallibrary-cache.yml: name the apt packages")
+	}
+}
+
+test_apt_packages_named if {
+	denied := workflows.deny with input as fixtures.with_file(".github/actions/build/action.yml", apt("libasound2-dev valgrind"))
+	every msg in denied {
+		not contains(msg, "build/action.yml")
 	}
 }

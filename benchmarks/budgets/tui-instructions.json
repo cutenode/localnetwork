@@ -1,6 +1,6 @@
 {
 	"$schema": "../budget.schema.json",
-	"job": "release",
+	"job": "release-frames",
 	"metrics": {
 		"library": {
 			"allowance": 5047,

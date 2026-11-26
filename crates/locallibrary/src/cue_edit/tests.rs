@@ -52,7 +52,7 @@ fn colours() {
 #[hegel::explicit_test_case(stem = "aé".to_string(), end = "xyz")]
 #[hegel::explicit_test_case(stem = "é".to_string(), end = "")]
 #[hegel::explicit_test_case(stem = "PIONEER/USBANLZ/P001/ANLZ0000".to_string(), end = ".dAt")]
-fn an_analysis_files_ext_is_its_dat_renamed(tc: hegel::TestCase) {
+fn prop_an_analysis_files_ext_is_its_dat_renamed(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let stem = tc.draw(gs::text().max_size(8));
     let end = tc.draw(gs::sampled_from(vec![".DAT", ".dat", ".EXT", "DAT", ".DA", "", "é.DAT", "xyz"]));
@@ -63,7 +63,7 @@ fn an_analysis_files_ext_is_its_dat_renamed(tc: hegel::TestCase) {
 
 /// `#rrggbb` gives a cue a colour exactly when all six are hex digits, for hot and memory cues.
 #[hegel::test(test_cases = 300)]
-fn hex_colours_need_six_hex_digits(tc: hegel::TestCase) {
+fn prop_hex_colours_need_six_hex_digits(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let digits = tc.draw(gs::text().alphabet("0123456789abcdefABCDEFgz ").min_size(6).max_size(6));
     let spec = format!("#{digits}");
@@ -79,7 +79,7 @@ fn hex_colours_need_six_hex_digits(tc: hegel::TestCase) {
 /// loop.
 #[hegel::test(test_cases = 300)]
 #[hegel::explicit_test_case(code = 200u8, r = 1u8, g = 2u8, b = 3u8, end = Some(5_000u32), active = true)]
-fn a_hot_cues_colour_is_its_palettes_or_its_own(tc: hegel::TestCase) {
+fn prop_a_hot_cues_colour_is_its_palettes_or_its_own(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let code = tc.draw(gs::integers::<u8>());
     let r = tc.draw(gs::integers::<u8>());

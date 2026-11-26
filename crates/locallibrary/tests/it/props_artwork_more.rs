@@ -21,7 +21,7 @@ use lofty::prelude::*;
 /// The medium copy of an image sits beside it, `_m` before its extension (or at the end without
 /// one); any image becomes a PNG of its own size, and bytes that aren't one are refused.
 #[hegel::test(test_cases = 100)]
-fn medium_copies_and_pngs(tc: TestCase) {
+fn prop_medium_copies_and_pngs(tc: TestCase) {
     let dir = tc.draw(gs::sampled_from(vec!["PIONEER/Artwork/00001", "PIONEER/Art.work", ""]));
     let name = tc.draw(gs::sampled_from(vec!["a1.jpg", "b12.png", "noext"]));
     let key = if dir.is_empty() { name.to_string() } else { format!("{dir}/{name}") };
@@ -41,7 +41,7 @@ fn medium_copies_and_pngs(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_comes_from_what_audio_embeds_and_what_decodes(tc: TestCase) {
+fn prop_art_comes_from_what_audio_embeds_and_what_decodes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     assert!(artwork::restore_embedded(&store, None).is_err_and(|e| e.to_string().contains("no embedded art")));
@@ -120,7 +120,7 @@ fn art_comes_from_what_audio_embeds_and_what_decodes(tc: TestCase) {
 /// Art set on tracks of a drive whose OneLibrary lacks some of them: they get it in export.pdb,
 /// and the drive says OneLibrary's players won't show it.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn art_for_tracks_onelibrary_lacks_is_said(tc: TestCase) {
+fn prop_art_for_tracks_onelibrary_lacks_is_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&root);

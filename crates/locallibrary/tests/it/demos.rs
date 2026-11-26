@@ -9,7 +9,7 @@ use std::path::Path;
 use locallibrary::api::{self, DriveRef, LibraryCache, LibraryRequest, UndoRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, EditPlan};
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::tags::TagChange;
@@ -143,7 +143,7 @@ fn demo_tracks_go_from_both_databases_and_come_back_on_undo_without_their_files(
     assert!(db.artists.iter().any(|a| a.name == "rekordbox"));
     assert!(db.albums.iter().all(|a| a.name != "GROOVE CIRCUIT FACTORY SAMPLES"));
     assert!(db.genres.iter().all(|g| g.name != "Loop Samples"));
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = onelibrary::open_root(&root).unwrap();
     let count = |sql: &str| one.connection().query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
     assert_eq!(count("SELECT count(*) FROM album WHERE name = 'GROOVE CIRCUIT FACTORY SAMPLES'"), 0);
     assert_eq!(count("SELECT count(*) FROM genre WHERE name = 'Loop Samples'"), 0);

@@ -29,7 +29,7 @@ fn times_are_to_the_nearest_second() {
 /// A line cut short fits its columns however wide its characters (CJK and emoji take two),
 /// keeps as much as fits, and says it was cut.
 #[hegel::test(test_cases = 500)]
-fn clip_counts_columns(tc: hegel::TestCase) {
+fn prop_clip_counts_columns(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use unicode_width::UnicodeWidthStr;
     let s: String =
@@ -993,8 +993,8 @@ fn confirmation_screen(app: &mut App, root: &std::path::Path, plan: Box<dyn loca
 /// off the journal; a plan that deletes something says so.
 #[test]
 fn confirmations_say_what_goes_back_and_what_is_lost() {
-    use locallibrary::diff::{Move, PlaylistChanges};
     use locallibrary::model::TrackRef;
+    use loclib_model::diff::{Move, PlaylistChanges};
 
     let (dir, root) = demo_drive();
     let device = locallibrary::Device::open(&root).unwrap();
@@ -1057,7 +1057,7 @@ fn confirmations_say_what_goes_back_and_what_is_lost() {
 /// Spans fitted to a width take no more columns than that, start as the line does, and are
 /// the whole line when it fits.
 #[hegel::test(test_cases = 300)]
-fn fitted_spans_keep_to_their_width(tc: hegel::TestCase) {
+fn prop_fitted_spans_keep_to_their_width(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use unicode_width::UnicodeWidthStr;
     let parts: Vec<String> = tc.draw(gs::vecs(gs::text().alphabet("ab 日😹").max_size(6)).max_size(5));
@@ -1077,7 +1077,7 @@ fn fitted_spans_keep_to_their_width(tc: hegel::TestCase) {
 /// window doesn't run past the end of the list. A window of no rows (a pane too short for
 /// any) starts no later than the selection, and never past the end of the list.
 #[hegel::test(test_cases = 300)]
-fn the_selection_is_always_in_the_window(tc: hegel::TestCase) {
+fn prop_the_selection_is_always_in_the_window(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let len = tc.draw(gs::integers::<usize>().max_value(100));
     // No rows often: the drives list and the profile's sections have none under 4 rows.
@@ -1095,7 +1095,7 @@ fn the_selection_is_always_in_the_window(tc: hegel::TestCase) {
 /// it fits again: drawn short, then tall, its first row and the one selected show. (The
 /// Mixes view's and the profile's have their own, in `mix.rs` and `profile.rs`.)
 #[hegel::test(test_cases = 100)]
-fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
+fn prop_lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
     use std::sync::Arc;
 
     use hegel::generators as gs;
@@ -1212,7 +1212,7 @@ fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
 /// How long ago something was reads back as a span that holds it: under five seconds is just
 /// now, then seconds, minutes and hours, each the whole number passed.
 #[hegel::test(test_cases = 300)]
-fn ages_read_back_as_the_time_passed(tc: hegel::TestCase) {
+fn prop_ages_read_back_as_the_time_passed(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let secs = tc.draw(gs::integers::<u64>().max_value(400_000));
     let said = ago(std::time::Duration::from_secs(secs));
@@ -1234,7 +1234,7 @@ fn ages_read_back_as_the_time_passed(tc: hegel::TestCase) {
 /// A count said short reads back as near what it is: as it is under a thousand, to a tenth of a
 /// thousand below ten thousand, then to the thousand, never over.
 #[hegel::test(test_cases = 300)]
-fn counts_said_short_read_back(tc: hegel::TestCase) {
+fn prop_counts_said_short_read_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>().max_value(2_000_000));
     let said = compact(n);
@@ -1252,7 +1252,7 @@ fn counts_said_short_read_back(tc: hegel::TestCase) {
 /// Tags and ratings when asked for, the sorted column when it wouldn't show otherwise, and BPM,
 /// key and time last; each once, each named apart.
 #[hegel::test(test_cases = 300)]
-fn the_columns_are_the_ones_that_fit_and_the_sort(tc: hegel::TestCase) {
+fn prop_the_columns_are_the_ones_that_fit_and_the_sort(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let width = tc.draw(gs::integers::<u16>().max_value(220));
     let field = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..])));
@@ -1300,19 +1300,19 @@ const LISTS: &[&str] = &["Sets/Sunday", "Old", "Warm-up", "Peak", "Closing"];
 /// the files it puts back (the first four, then how many more) and the recorded edits that come
 /// off the journal; any other plan its summary and warnings, and whether it deletes.
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_confirmation_lists_all_its_plan_does(tc: hegel::TestCase) {
+fn prop_a_confirmation_lists_all_its_plan_does(tc: hegel::TestCase) {
     // An edit, an undo and another plan, in each case.
     for kind in 0..3u8 {
         a_confirmation_lists(&tc, kind);
     }
 }
 
-/// [`a_confirmation_lists_all_its_plan_does`] for an edit (0), an undo (1) or another plan.
+/// [`prop_a_confirmation_lists_all_its_plan_does`] for an edit (0), an undo (1) or another plan.
 fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
     use hegel::generators as gs;
-    use locallibrary::diff::{Entry, Move, PlaylistChanges};
     use locallibrary::edit::{EditOptions, PlaylistChange};
     use locallibrary::model::TrackRef;
+    use loclib_model::diff::{Entry, Move, PlaylistChanges};
 
     let (dir, root, path) = edited_drive();
     let names = |tc: &hegel::TestCase| -> Vec<String> {
@@ -1478,7 +1478,7 @@ fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
 /// the drive (or that the sets are being read); with no drive, whether one is being read; and the
 /// selected track's details, with why there are no matches.
 #[hegel::test(test_cases = 100)]
-fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
+fn prop_the_library_says_what_is_going_on(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::sets::{EntryOrigin, SetEntry};
 
@@ -1665,7 +1665,7 @@ fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
     }
 }
 
-/// [`the_library_says_what_is_going_on`]'s overlay `over` (none for 0), put over the screen;
+/// [`prop_the_library_says_what_is_going_on`]'s overlay `over` (none for 0), put over the screen;
 /// what it says.
 fn put_over(app: &mut App, over: u8) -> Vec<String> {
     match over {
@@ -1716,7 +1716,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
 /// plugged in and not (each with where it stands), and the store's latest snapshot of it. The
 /// Snapshots view says when they're being read, can't be, or there are none.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
+fn prop_the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     use chrono::TimeZone;
     use hegel::generators as gs;
     use locallibrary::fleet::{CheckEntry, DriveLog, KnownDrive, Problem};
@@ -1989,7 +1989,7 @@ fn plugins_values_show_shortly() {
 /// their own names (not the categories they're under), in the order the drive has them; a track
 /// without any shows none.
 #[hegel::test(test_cases = 50)]
-fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
+fn prop_the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::sync::Arc;
     let (mut app, _dir) = app_with(library());

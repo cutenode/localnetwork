@@ -18,7 +18,8 @@ impl Operation for Plan {
 /// A plan's estimate is in what it says, and a write big enough corrects the rate behind it.
 #[test]
 fn an_estimate_is_said_and_a_big_write_learns_from_it() {
-    use crate::drive_speed::{self, DriveSpeed, MeasuredBy, Work};
+    use loclib_drive_speed::test_util::work;
+    use loclib_drive_speed::{self as drive_speed, DriveSpeed, MeasuredBy};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     std::fs::create_dir(root.join(paths::STATE_DIR)).unwrap();
@@ -33,9 +34,8 @@ fn an_estimate_is_said_and_a_big_write_learns_from_it() {
         link_bps: None,
         logged_bytes: None,
     };
-    let work = Work { bytes: 2 << 30, files: 1, folders: 0, ..Work::default() };
-    let estimate = drive_speed::WriteEstimate::new(work, Some(speed), None, None);
-    let said = estimate.lines();
+    let estimate = drive_speed::WriteEstimate::new(work(2 << 30, 1, 0), Some(speed), None, None);
+    let said = crate::api::estimate_lines(&estimate);
     let plan = Plan { tracks: 3, warnings: Vec::new() };
     let planned =
         Planned::new("test", plan, ()).estimated(Some(estimate)).touches(Touched::drive(&d, true, Vec::new()));
@@ -58,12 +58,12 @@ fn a_plan_without_an_estimate_says_none() {
 /// A plan's drive keeps what a test left once the plan is applied, and only then.
 #[test]
 fn applying_keeps_what_a_test_left_and_dropping_doesnt() {
-    use crate::drive_speed::{self, DriveNow, Work};
+    use loclib_drive_speed::test_util::work;
+    use loclib_drive_speed::{self as drive_speed, DriveNow};
     let plan_on = |root: &Path| {
         let d = Device::open(root).unwrap();
         let now = DriveNow { at: Utc::now(), logged_bytes: None, capacity: None, link_bps: None };
-        let work = Work { bytes: 64 << 20, files: 300, folders: 3, ..Work::default() };
-        let estimate = drive_speed::estimate(&d, work, &now, true, &Ctx::silent()).unwrap();
+        let estimate = drive_speed::estimate(&d, work(64 << 20, 300, 3), &now, true, &Ctx::silent()).unwrap();
         let plan = Plan { tracks: 3, warnings: Vec::new() };
         Planned::new("test", plan, ()).estimated(estimate).touches(Touched::drive(&d, true, Vec::new()))
     };
@@ -352,7 +352,7 @@ fn described<P: Serialize + JsonSchema>(planned: &Planned<P>) -> serde_json::Val
 /// object's fields at the top, nothing for one that's `null`, and anything else under `plan`; its
 /// schema describes it either way. Its details read back as they were given, each warning once.
 #[hegel::test(test_cases = 50)]
-fn a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
+fn prop_a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let summary: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(6)).max_size(3));
     let warnings: Vec<String> = tc.draw(gs::vecs(gs::sampled_from(vec!["a".to_string(), "b".into(), "c".into()])));
@@ -403,7 +403,7 @@ fn a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
 /// other bytes, deleted, or a folder (which reads as unreadable) turned into a file. Rewriting it
 /// with the same bytes, or changing a file it doesn't read, isn't a change.
 #[hegel::test(test_cases = 20)]
-fn a_plan_reading_files_by_content_sees_exactly_their_changes(tc: hegel::TestCase) {
+fn prop_a_plan_reading_files_by_content_sees_exactly_their_changes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

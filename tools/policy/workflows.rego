@@ -5,7 +5,7 @@ package workflows
 import data.lib
 
 # Gated workflows that check the pull request itself rather than its files, so they have nothing
-# to filter and no changes job: pr-issue.yml reads the description, branch and labels.
+# to filter and no changes job: pr-issue.yml reads the description and branch.
 unfiltered := {".github/workflows/pr-issue.yml"}
 
 # Jobs that never hold up the passed check: `report` posts coverage on the pull request, so a
@@ -195,6 +195,65 @@ deny contains msg if {
 	msg := sprintf("%s: give job %q `continue-on-error: true`, or it fails the call when it fails", [path, id])
 }
 
+# Checks that run report-only until every open pull request passes them (.github/CONTRIBUTING.md,
+# "Adding a check"), as "<workflow path>#<job id>" to the issue that makes each one required. The
+# job, or a step in it, has `continue-on-error: true` until then.
+report_only := {}
+
+# The outside_passed jobs that can't fail, as "<workflow path>#<job id>", so a job elsewhere that
+# only shares the name isn't let off. A new tool's coverage report goes here.
+reports := {
+	".github/workflows/locallibrary-ci.yml#report",
+	".github/workflows/locallibrary-ci.yml#semver",
+	".github/workflows/localtoolbox-ci.yml#report",
+	".github/workflows/web-ci.yml#report",
+}
+
+# Any other job or step that can't fail is a check nobody is waiting on to become required.
+# Downloading an artifact a skipped job never uploaded is allowed to fail.
+deny contains msg if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some id, job in lib.file(path).jobs
+	key := sprintf("%s#%s", [path, id])
+	not key in reports
+	not key in object.keys(report_only)
+	can_fail(job)
+	msg := sprintf("%s: job %q can't fail; for a report-only check, add it to report_only in tools/policy/workflows.rego with the issue that makes it required", [path, id])
+}
+
+deny contains msg if {
+	some key in object.keys(report_only)
+	not regex.match(`^LOC-[0-9]+$`, object.get(report_only, key, ""))
+	msg := sprintf("tools/policy/workflows.rego: report_only[%q] should name the issue that makes it required, as LOC-123", [key])
+}
+
+# An entry that matches no job would let off the next job to take its place.
+deny contains msg if {
+	some key in object.keys(report_only)
+	not workflow_job(key)
+	msg := sprintf("tools/policy/workflows.rego: report_only[%q] matches no job; remove it", [key])
+}
+
+deny contains msg if {
+	some key in reports
+	not workflow_job(key)
+	msg := sprintf("tools/policy/workflows.rego: %q in reports matches no job; remove it", [key])
+}
+
+workflow_job(key) if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some id, _ in lib.file(path).jobs
+	key == sprintf("%s#%s", [path, id])
+}
+
+can_fail(job) if object.get(job, "continue-on-error", false) != false
+
+can_fail(job) if {
+	some step in object.get(job, "steps", [])
+	object.get(step, "continue-on-error", false) != false
+	not startswith(object.get(step, "uses", ""), "actions/download-artifact@")
+}
+
 # A push diffed against the commit before it drops what a cancelled or failed run never checked
 # whenever the next push touches other files, so it's diffed against the last commit the workflow
 # passed on, from an earlier .github/actions/last-passed step.
@@ -353,6 +412,38 @@ deny contains msg if {
 	msg := sprintf("%s: add it to the %s paths filter; CodeQL's results change with it", [path, name])
 }
 
+# A merge queue group's base_sha is the entry ahead of it, so a budget measured over that holds a pull
+# request to what the entry ahead shrank, as #762's was. The caller passes main's tip instead.
+deny contains msg if {
+	some path, wf in called
+	some id, job in wf.jobs
+	some step in object.get(job, "steps", [])
+	some value in object.get(step, "env", {})
+	contains(value, "merge_group.base_sha")
+	msg := sprintf("%s: job %q reads the entry ahead of a merge queue group (base_sha); take main's tip from the workflow that calls it, as `inputs.group-base`", [path, id])
+}
+
+# The step that lets a merge queue group skip Windows (tools/queue). A group that changes what CI runs
+# never skips, so the step reads the filter that says it does, which has every workflow and action.
+windows_skips contains {"path": path, "step": step} if {
+	some path, wf in gated
+	some step in wf.jobs.changes.steps
+	contains(object.get(step, "run", ""), "tools/queue/cli.ts")
+}
+
+deny contains msg if {
+	some skip in windows_skips
+	object.get(skip.step, ["env", "WORKFLOWS_CHANGED"], "") != "${{ steps.filter.outputs.workflow_lint }}"
+	msg := sprintf("%s: give the tools/queue/cli.ts step `WORKFLOWS_CHANGED: ${{ steps.filter.outputs.workflow_lint }}`, so a group that changes a workflow runs Windows", [skip.path])
+}
+
+deny contains msg if {
+	count(windows_skips) > 0
+	some path in [".github/workflows/ci.yml", ".github/actions/last-passed/action.yml"]
+	not filtered("workflow_lint", path)
+	msg := sprintf("%s: add it to the workflow_lint paths filter; a merge queue group that changes it has to run Windows", [path])
+}
+
 # Each tool taiki-e/install-action installs names its exact version, so a run installs what the
 # last one did, and a new version comes in as a change to the workflow.
 deny contains msg if {
@@ -364,4 +455,28 @@ deny contains msg if {
 	tool := trim_space(entry)
 	not regex.match(`@[0-9]+\.[0-9]+\.[0-9]+$`, tool)
 	msg := sprintf("%s: job %q installs %s with no exact version; name one, as %s@1.2.3", [path, id, tool, tool])
+}
+
+# The steps that install apt packages, in a workflow's jobs or a composite action's.
+apt_steps contains {"path": path, "step": step} if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some job in lib.file(path).jobs
+	some step in object.get(job, "steps", [])
+	step.uses == "./.github/actions/apt-packages"
+}
+
+apt_steps contains {"path": path, "step": step} if {
+	some path in lib.paths(".github/actions/*/action.yml")
+	some step in object.get(object.get(lib.file(path), "runs", {}), "steps", [])
+	step.uses == "./.github/actions/apt-packages"
+}
+
+# locallibrary-cache.yml warms each set of apt packages by reading the steps' `packages`, so each is
+# the list itself: it would ask apt for an expression as a package of that name. Its own apt job
+# takes the set from its matrix, and leaves expressions out of what it reads.
+deny contains msg if {
+	some s in apt_steps
+	s.path != ".github/workflows/locallibrary-cache.yml"
+	contains(s.step["with"].packages, "${{")
+	msg := sprintf("%s: name the apt packages %q stands for; locallibrary-cache.yml can't warm an expression", [s.path, s.step["with"].packages])
 }

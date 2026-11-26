@@ -1103,6 +1103,7 @@ fn main() -> ExitCode {
         pager::default_sigpipe();
     }
     locallibrary::op::allow_archive_writes(cli.overwrite_archive);
+    locallibrary::onelibrary::keep_keys();
     // A test switch that hides every drive and disk: never let it pass unnoticed (but by a plugin
     // serving, whose host has said so).
     let serving = matches!(&cli.command, Some(Command::Plugin(a)) if a.serves());

@@ -1,0 +1,3 @@
+# Report a bug
+
+"Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out (where the link reads "Report a bug on GitHub"), without `USERINPUT_SPACE`, or with the `userinputReports` flag off for them, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote. Turning `userinputReports` off for everyone sends every report to GitHub while userinput.app is down.

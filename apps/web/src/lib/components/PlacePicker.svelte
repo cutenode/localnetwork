@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { LocateFixed, Search } from '@lucide/svelte';
-	import { Combobox } from '#lib/combobox.svelte.ts';
+	import { Combobox } from '#lib/combobox.page-only.svelte.ts';
 	import { placeKey, placeText, searchPlaces, type Place } from '#lib/places.ts';
 	import type { ProjectFormValues } from '#lib/types.ts';
 	import ComboboxOptions from './ComboboxOptions.svelte';

@@ -9,8 +9,8 @@ use clap::Args;
 use console::style;
 use locallibrary::Store;
 use locallibrary::api;
-use locallibrary::diff::{Entry, PlaylistDiff};
 use locallibrary::progress::Ctx;
+use loclib_model::diff::{Entry, PlaylistDiff};
 
 use crate::output::{Output, cap, dim, ok};
 use crate::render;

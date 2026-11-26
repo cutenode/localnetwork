@@ -4,38 +4,56 @@ use serde::Serialize;
 
 use crate::{Error, Result, SettingsFile};
 
+/// The group a setting belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(rename = "SettingCategory"))]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
+    /// How a player plays and cues tracks.
     Player,
+    /// A player's screens, lights and language, and how waveforms and keys show.
     Display,
+    /// Mixer settings.
     Mixer,
 }
 
+/// One value a setting takes.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Choice {
+    /// The value's id, such as `on` or `-36db`.
     pub id: &'static str,
+    /// The value as rekordbox shows it.
     pub label: &'static str,
+    /// The byte the file stores for it.
     #[serde(skip)]
     pub byte: u8,
 }
 
+/// One known setting: where it's stored and the values it takes.
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SettingDef {
+    /// The setting's key, such as `auto_cue`.
     pub key: &'static str,
+    /// The setting's name as rekordbox shows it.
     pub label: &'static str,
+    /// The group it belongs to.
     pub category: Category,
+    /// The file it's in.
     pub file: SettingsFile,
+    /// Where its byte is, from the start of the file's data section.
     #[serde(skip)]
     pub offset: usize,
+    /// The values it takes.
     pub choices: &'static [Choice],
+    /// The id of rekordbox's default choice.
     pub default: &'static str,
 }
 
 impl SettingDef {
+    /// The choice `id` names. Case, `-`, `_` and spaces don't matter, and a choice's label works
+    /// too (`Deutsch` for `german`).
     pub fn choice(&self, id: &str) -> Option<&'static Choice> {
         let want = normalize_id(id);
         self.choices
@@ -426,6 +444,11 @@ pub fn find(key: &str) -> Option<&'static SettingDef> {
 }
 
 /// Validate a key/value pair, returning canonical ids.
+///
+/// # Errors
+///
+/// [`Error::UnknownSetting`] when no setting has that key, and [`Error::InvalidValue`] when the
+/// value isn't one of its choices.
 pub fn validate(key: &str, value: &str) -> Result<(&'static SettingDef, &'static Choice)> {
     let def = find(key).ok_or_else(|| Error::UnknownSetting(key.to_string()))?;
     let choice = def.choice(value).ok_or_else(|| Error::InvalidValue {

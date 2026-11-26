@@ -77,7 +77,7 @@ fn modelled_switch(raw: &str) -> Option<bool> {
 /// no, an absolute path, else the text as it is), or refused naming the setting, what it takes
 /// and what was typed.
 #[hegel::test(test_cases = 1000)]
-fn any_setting_typed_is_taken_as_its_kind_says(tc: TestCase) {
+fn prop_any_setting_typed_is_taken_as_its_kind_says(tc: TestCase) {
     let kinds = vec![
         SettingType::String,
         SettingType::Number,
@@ -126,7 +126,7 @@ fn any_setting_typed_is_taken_as_its_kind_says(tc: TestCase) {
 /// last of a key winning; and any other type the last typed, as JSON. What can't be is refused,
 /// naming the param, what it takes and what was typed.
 #[hegel::test(test_cases = 1000)]
-fn any_param_typed_is_taken_as_its_schema_says(tc: TestCase) {
+fn prop_any_param_typed_is_taken_as_its_schema_says(tc: TestCase) {
     let kind = tc.draw(gs::sampled_from(vec!["string", "number", "integer"]));
     let (schema, shape) = match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => (json!({ "type": "boolean" }), "switch"),

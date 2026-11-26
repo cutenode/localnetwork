@@ -298,7 +298,7 @@ fn whole(root: &Path) -> LibraryRef {
 fn onelibrary_only_tracks_have_their_my_tags() {
     let dir = tempfile::tempdir().unwrap();
     let (root, plus_id) = drive_with_a_onelibrary_only_track(dir.path());
-    let mut one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     one.add_my_tag(9001, 0, "Venue", true).unwrap();
     one.add_my_tag(9002, 9001, "Booth", false).unwrap();
     one.link_my_tag(9002, &[plus_id]).unwrap();

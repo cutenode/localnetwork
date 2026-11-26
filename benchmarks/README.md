@@ -11,14 +11,14 @@ it merges into, so main's own growth never turns it red and it never edits these
 
 | area | what it holds | measured by | when |
 | --- | --- | --- | --- |
-| `alloc` | allocations and bytes of reading, filtering, comparing and planning | `crates/locallibrary/tests/counters.rs`, in the `budgets` job of `locallibrary-ci.yml` | every pull request that runs the Linux jobs, and pushes to main |
+| `alloc` | allocations and bytes of reading, filtering, comparing and planning | `crates/locallibrary/tests/counters.rs`, in the `budgets` job of `locallibrary-ci.yml` | every pull request that runs the Linux jobs, and merge queue groups |
 | `export` | what writing a library to a blank drive asks of the filesystem: files and folders made, renames, flushes, writes and their size | `crates/locallibrary/tests/export_counters.rs`, in the same job, under `strace` | the same |
 | `tui` | allocations and bytes of a frame of the player, for the Library view, the Deck layout, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
 | `deps` | the names of the packages linked into the default CLI on Linux, whatever their version | `cargo tree`, in `.github/actions/release-budgets` | weekly, by hand, merge queue groups, and pull requests that change a manifest, the lockfile or the Rust that ships |
 | `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | the same |
 | `cli` | instructions of everyday commands on the 3,886-track fixture, less a run of `/bin/true` on the same runner: the loader and libc starting, which counts differently on different runners' CPUs. Each runs with only the environment it needs (`tools/budgets/cachegrind.sh`), since the environment's size moves the count by thousands, and with plugins' checks off, which `check` and `doctor` would otherwise hand the whole library to | the same | the same |
-| `tui-instructions` | instructions of a frame of the player's draw, for the same views, counted inside the frame test's `frame` alone, so not setting the player up or the audio before each frame. The draw still reads the clock for its animations, so these move by up to about 1,600 between runs of the same binary | the same, running the `tui` test | the same |
-| `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Counted as `tui-instructions` is | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and pushes to main |
+| `tui-instructions` | instructions of a frame of the player's draw, for the same views, counted inside the frame test's `frame` alone, so not setting the player up or the audio before each frame. The draw still reads the clock for its animations, so these move by up to about 1,600 between runs of the same binary | the same, running the `tui` test, as a second job beside the dist build's (`job: release-frames`) | the same |
+| `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Counted as `tui-instructions` is | `tools/budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs, and merge queue groups |
 | `web` | the website's JavaScript every page loads, the largest page's own on top of it, and all its CSS, uncompressed | `apps/web/scripts/bundle-sizes.ts`, after `pnpm test:build` in the `verify` job of `web-ci.yml` | pull requests and merge queue groups that change the website, and pushes to main |
 | `size-<other target>` | release binary and archive, recorded in the run's summary with no base to compare with | `locallibrary-scheduled.yml`'s `release-build` | weekly and by hand |
 
@@ -32,13 +32,21 @@ are new.
 
 The base's numbers come from the CI run that measured that commit, or the nearest commit before it
 on main that changed none of what the job measures (`tools/budgets/baseline.ts`, which reads
-`ci.yml`'s paths filter for the job). Pushes to main measure what the `budgets` job does, and merge
-queue groups run `release-budgets`, whose head becomes main. When no run measured the base, the job
-measures it too and says so in a notice.
+`ci.yml`'s paths filter for the job and lists the job's artifacts once). Merge queue groups measure
+what the `budgets` job does and run `release-budgets`, and a group's head becomes main, so a commit
+has its numbers when it lands. The artifacts keep the repository's default retention. When no run
+measured the base, the job measures it too and says so in a notice.
 
-A merge queue group runs `release-budgets` on its pull requests together, against the group's base,
-and allows each pull request in it its allowance, so two that each passed alone can't land over
-together.
+A pull request's merge commit has to sit on a base with its branch's current `tools/budgets/`
+(`tools/budgets/cli.ts current`), or the job fails before measuring: GitHub's merge commit can be
+on an old base, which would check with old tooling. Close and reopen the pull request once
+`gh api repos/<owner>/<repo>/pulls/<number> --jq .merge_commit_sha` prints a merge commit on the
+current base (the message gives the command), and update the branch only if that doesn't happen.
+
+A merge queue group runs `release-budgets` on its pull request and the ones ahead of it in the
+queue together, against main's tip as the group's run started, and allows each of them its
+allowance, so two that each passed alone can't land over together, and one that grows back what the
+one ahead shrank still passes. The website's sizes are held the same way.
 
 Growing a metric past its allowance on purpose takes a `Budget-Raise` trailer on one of the pull
 request's commits, saying by how much in the metric's unit and why. A commit of its own does it:
@@ -63,7 +71,7 @@ To run the check yourself, download a run's measurements and its base's:
 ```bash
 gh run download <run> -n budgets -D target/budgets
 gh run download <base-run> -n budgets -D target/budgets-base
-node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets /dev/null
+node tools/budgets/cli.ts check pull-request target/budgets-base target/budgets
 ```
 
 ## Creep and noise

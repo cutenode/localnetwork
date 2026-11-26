@@ -202,7 +202,7 @@ fn some_sessions(tc: &TestCase) -> Vec<Session> {
 /// two are as far apart as they were played. Appending sessions to a tracklist built from
 /// others gives what building from all of them at once does.
 #[hegel::test(test_cases = 300)]
-fn tracks_from_sessions_are_timed_from_the_first_play(tc: TestCase) {
+fn prop_tracks_from_sessions_are_timed_from_the_first_play(tc: TestCase) {
     let sessions = some_sessions(&tc);
     let refs: Vec<&Session> = sessions.iter().collect();
     let built = from_sessions(&refs);
@@ -240,7 +240,7 @@ fn tracks_from_sessions_are_timed_from_the_first_play(tc: TestCase) {
 /// (by file, else by name, once each) that the recording doesn't hear is noted, a logged one
 /// as a likely preview.
 #[hegel::test(test_cases = 300)]
-fn a_recording_is_the_tracklist_and_notes_what_it_doesnt_hear(tc: TestCase) {
+fn prop_a_recording_is_the_tracklist_and_notes_what_it_doesnt_hear(tc: TestCase) {
     let plays: Vec<(u32, f64, f64)> = (0..tc.draw(gs::integers::<usize>().max_value(5)))
         .map(|_| {
             let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
@@ -307,7 +307,7 @@ fn a_recording_is_the_tracklist_and_notes_what_it_doesnt_hear(tc: TestCase) {
 /// the day every session's window falls on; failing those, the first day one of them was seen
 /// (with a note), or today (with a note).
 #[hegel::test(test_cases = 300)]
-fn a_set_is_dated_by_what_knows_best_whatever_it_has(tc: TestCase) {
+fn prop_a_set_is_dated_by_what_knows_best_whatever_it_has(tc: TestCase) {
     let today = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
     let day = |d: u32| NaiveDate::from_ymd_opt(2026, 10, d).unwrap();
     let local = |d: u32, h: u32| {
@@ -371,7 +371,7 @@ fn a_set_is_dated_by_what_knows_best_whatever_it_has(tc: TestCase) {
 /// several hold the path, matched in any letter case): none when no library's latest has the
 /// file, its copy is gone, or it has none. A track with IDs already keeps them.
 #[hegel::test(test_cases = 40)]
-fn musicbrainz_ids_come_from_the_store_without_the_drive(tc: TestCase) {
+fn prop_musicbrainz_ids_come_from_the_store_without_the_drive(tc: TestCase) {
     use crate::model::LibrarySummary;
     use crate::progress::Ctx;
     use crate::store::Snapshot;

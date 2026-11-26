@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlagGroupView } from '#lib/types.ts';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 
 	/** Every flag group. Each opens on its own page, where it's changed or deleted. */
 	let { groups }: { groups: FlagGroupView[] } = $props();

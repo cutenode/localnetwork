@@ -62,13 +62,76 @@ deny contains msg if {
 	msg := sprintf("%s: set `readme = \"README.md\"`, the crate's docs", [path])
 }
 
+# A crate that goes to crates.io (its manifest doesn't say `publish = false`) documents every public
+# item, and docs.rs builds its docs with every feature and the `docsrs` cfg, which its root turns
+# into feature badges with `#![cfg_attr(docsrs, feature(doc_cfg))]`. `missing_docs` can't be a
+# workspace lint: `[lints] workspace = true` allows no additions per crate, and the app, the core
+# crate and the plugins aren't published.
+published contains path if {
+	some path in members
+	not lib.file(path)["package"].publish == false
+}
+
+docs_rs(path) := object.get(lib.file(path), ["package", "metadata", "docs", "rs"], {})
+
+deny contains msg if {
+	some path in published
+	not docs_rs(path)["all-features"] == true
+	msg := sprintf("%s: set `all-features = true` in [package.metadata.docs.rs], so docs.rs shows what features add", [path])
+}
+
+deny contains msg if {
+	some path in published
+	args := object.get(docs_rs(path), "rustdoc-args", [])
+	not docsrs_cfg(args)
+	msg := sprintf("%s: set `rustdoc-args = [\"--cfg\", \"docsrs\"]` in [package.metadata.docs.rs], so docs.rs marks what each feature adds", [path])
+}
+
+docsrs_cfg(args) if {
+	some i, arg in args
+	arg == "--cfg"
+	args[i + 1] == "docsrs"
+}
+
+# Each library's root, where its [lib] says, and the crate's own attributes (the `#![...]` before
+# its first item), which tools/policy/inputs.ts lists by manifest as
+# {"roots": {"<manifest>": {"root": "<path>", "attributes": [...]}}} in crate-roots.json. A package
+# without a library isn't there.
+crate_roots := f.contents.roots if {
+	some f in input
+	regex.match(`(^|/)crate-roots\.json$`, f.path)
+}
+
+published_root_attributes := {
+	"#![warn(missing_docs)]": "so clippy, which CI runs with -D warnings, fails on a public item without docs",
+	"#![cfg_attr(docsrs, feature(doc_cfg))]": "so docs.rs marks what each feature adds",
+}
+
+deny contains msg if {
+	some path in published
+	crate := crate_roots[path]
+	some attribute, why in published_root_attributes
+	not attribute in crate.attributes
+	msg := sprintf("%s: add `%s` to %s, %s", [path, attribute, crate.root, why])
+}
+
+# An `allow` or `expect` of missing_docs, on its own or in a list or a cfg_attr, turns the warning
+# back off for the whole crate.
+deny contains msg if {
+	some path in published
+	crate := crate_roots[path]
+	some attribute in crate.attributes
+	regex.match(`\b(allow|expect)\([^)]*\bmissing_docs\b`, attribute)
+	msg := sprintf("%s: take `%s` out of %s, and document what it hid", [path, attribute, crate.root])
+}
+
 # The crates the dev profile optimises, each a `[profile.dev.package.<name>]` in Cargo.toml (which
 # says why). `cargo remove` deletes the entries for crates no member depends on directly
 # (.github/CONTRIBUTING.md, "Checks"), so they're listed here as well. Only a crate still in
 # Cargo.lock has to keep its entry, so one that really goes away doesn't trip this.
 dev_optimised := {"aes", "blake3", "clap_builder", "hmac", "hybrid-array", "inout", "jsonschema", "referencing", "ring", "sha2", "symphonia-codec-pcm", "symphonia-core"}
 
-# tools/policy.sh gives conftest Cargo.lock as /scratch/Cargo.lock.toml, so it parses it as TOML.
+# tools/policy/inputs.ts gives conftest Cargo.lock as /scratch/Cargo.lock.toml, so it parses it as TOML.
 locked contains p.name if some p in lib.file("/scratch/Cargo.lock.toml")["package"]
 
 dev_packages := object.get(lib.file("Cargo.toml"), ["profile", "dev", "package"], {})

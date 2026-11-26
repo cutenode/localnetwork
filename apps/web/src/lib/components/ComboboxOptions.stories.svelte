@@ -1,6 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import { Combobox } from '#lib/combobox.svelte.ts';
+	import { Combobox } from '#lib/combobox.page-only.svelte.ts';
 	import { placeKey, placeText, type Place } from '#lib/places.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import ComboboxOptions from './ComboboxOptions.svelte';

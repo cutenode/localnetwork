@@ -82,22 +82,30 @@ describe('problems', () => {
 	it('fails a crate with no floor, and a floor with no crate', () => {
 		expect(problems(measured, { 'crates/gone': all(50) })).toEqual([
 			'crates/a: no floor; run the ratchet and commit tools/coverage/floors.json',
-			'crates/gone: has a floor but no coverage; remove it from tools/coverage/floors.json'
+			'crates/gone: has a floor but no Cargo.toml; remove it from tools/coverage/floors.json'
 		]);
+	});
+
+	it("leaves the floor of a crate a partial report didn't measure", () => {
+		expect(problems(measured, { 'crates/a': all(50), 'crates/locallibrary': all(50) })).toEqual([]);
 	});
 });
 
 describe('ratcheted', () => {
-	it('raises each floor to just under the measurement, never lowers one, and adds new crates in order', () => {
+	it('raises each floor to just under the measurement, never lowers one, keeps the unmeasured, and adds new crates in order', () => {
 		const measured = new Map([
 			['crates/z', { lines: 96.81, functions: 100, regions: 0.1 }],
 			['crates/a', all(90)]
 		]);
 
-		expect(ratcheted(measured, { 'crates/a': all(95), 'crates/old': all(10) })).toEqual({
+		const ratchetedFloors = ratcheted(measured, { 'crates/old': all(10), 'crates/a': all(95) });
+
+		expect(ratchetedFloors).toEqual({
 			'crates/a': all(95),
+			'crates/old': all(10),
 			'crates/z': { lines: 96.6, functions: 99.8, regions: 0 }
 		});
+		expect(Object.keys(ratchetedFloors)).toEqual(['crates/a', 'crates/old', 'crates/z']);
 	});
 });
 
@@ -145,6 +153,15 @@ describe('the commands', () => {
 		expect(JSON.parse(readFileSync('tools/coverage/floors.json', 'utf8'))).toEqual({
 			$schema: './floors.schema.json',
 			floors: { 'crates/a': all(89.8) }
+		});
+	});
+
+	it("ratchet of one crate's report leaves the other floors as they were", () => {
+		floors({ 'crates/a': { lines: 50, functions: 95, regions: 50 }, 'crates/b': all(70) });
+		run(['ratchet', 'coverage.json']);
+		expect(JSON.parse(readFileSync('tools/coverage/floors.json', 'utf8'))).toEqual({
+			$schema: './floors.schema.json',
+			floors: { 'crates/a': { lines: 89.8, functions: 95, regions: 89.8 }, 'crates/b': all(70) }
 		});
 	});
 

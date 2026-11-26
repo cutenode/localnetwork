@@ -12,7 +12,7 @@ fn hash(tc: &TestCase) -> Hash {
 /// Every request reads back from the JSON it's sent as, tagged with its type, and fits in the
 /// request limit; text that isn't one of the three is refused.
 #[hegel::test(test_cases = 300)]
-fn requests_read_back(tc: TestCase) {
+fn prop_requests_read_back(tc: TestCase) {
     let request = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => Request::Hello { token: tc.draw(gs::text().max_size(64)) },
         1 => Request::Snapshot { id: hash(&tc) },
@@ -46,7 +46,7 @@ fn requests_read_back(tc: TestCase) {
 
 /// A catalog reads back from its JSON: the same store, libraries, snapshots and labels.
 #[hegel::test(test_cases = 100)]
-fn catalogs_read_back(tc: TestCase) {
+fn prop_catalogs_read_back(tc: TestCase) {
     let last = chrono::DateTime::from_timestamp(4_000_000_000, 0).unwrap().naive_utc();
     let at = tc.draw(
         gs::default::<chrono::DateTime<chrono::Utc>>()

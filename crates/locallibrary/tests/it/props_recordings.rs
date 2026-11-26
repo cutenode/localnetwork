@@ -18,7 +18,7 @@ use locallibrary::recordings::{self, CollectOptions, Tracklist, WavFormat};
 /// A WAV file: the format chunk, chunks players add around it (odd lengths padded), and a data
 /// chunk whose size the recorder may never have filled in.
 #[hegel::test(test_cases = 300)]
-fn wav_headers_read_back_their_format_and_length(tc: TestCase) {
+fn prop_wav_headers_read_back_their_format_and_length(tc: TestCase) {
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
     let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000, 96_000]));
     let bits = tc.draw(gs::sampled_from(vec![16u16, 24]));
@@ -82,7 +82,7 @@ fn wav_headers_read_back_their_format_and_length(tc: TestCase) {
 /// A recording whose header gives no channels or no rate is listed with its format, but no
 /// length, nor when it started.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn recordings_of_no_sound_have_no_length(tc: TestCase) {
+fn prop_recordings_of_no_sound_have_no_length(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "AZ");
     let mut wav = media::wav_of(44_100, 16, 2, 0.05);
@@ -105,7 +105,7 @@ fn recordings_of_no_sound_have_no_length(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn recordings_are_collected_byte_for_byte(tc: TestCase) {
+fn prop_recordings_are_collected_byte_for_byte(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "AZ");
     common::add_history(&root, "HISTORY 001", &[1, 2]);

@@ -138,7 +138,7 @@ fn entries_recorded_as_the_file_was_written_are_racy() {
 /// What's saved answers lookups as the index recording every hash afresh did (only when entries
 /// were recorded can differ), and recording what the cache holds already writes nothing.
 #[hegel::test(test_cases = 100)]
-fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
+fn prop_the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("index.json");
@@ -232,7 +232,7 @@ fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
 /// The walk lists the managed files walkdir finds, in walkdir's order (depth first, each folder's
 /// entries as it lists them), clutter and what's below a clutter folder left out.
 #[hegel::test(test_cases = 50)]
-fn the_walk_lists_what_walkdir_does(tc: hegel::TestCase) {
+fn prop_the_walk_lists_what_walkdir_does(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

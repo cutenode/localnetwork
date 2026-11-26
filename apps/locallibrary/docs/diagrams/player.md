@@ -194,7 +194,7 @@ sequenceDiagram
     B-->>U: MyTags, Fields
 ```
 
-Source: [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs)
+Source: [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs)
 
 ## Changing a drive from the player
 
@@ -360,7 +360,7 @@ flowchart TD
     beat -->|"paused, quantize on"| landBeat["On a beat"]
     beat -->|"quantize off"| asked["So many beats from the playhead"]
     pads -->|"a hot cue saved as a loop"| looping["A loop playing"]
-    loopKey["l"] -->|"the loop the playhead is in, else 4 beats from<br/>the beat it's in (from the playhead, quantize off)"| looping
+    loopKey["l"] -->|"the loop the playhead is in, else 4 beats from<br/>the nearest bar (from the playhead, quantize off)"| looping
     active["Playback reaching a loop<br/>rekordbox marked active"] --> looping
     looping -->|"loop halve or double (in :)"| looping
     looping -->|"l, or a seek out of it"| left["Left, playing on"]

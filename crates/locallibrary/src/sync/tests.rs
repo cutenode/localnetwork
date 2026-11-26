@@ -11,7 +11,7 @@ fn paths_are_summarised_by_their_top_two_folders() {
 /// A plan's paths grouped by their top two folders: every path counted once, under its own
 /// group, and the groups in order.
 #[hegel::test(test_cases = 200)]
-fn every_path_is_counted_under_its_top_folders(tc: hegel::TestCase) {
+fn prop_every_path_is_counted_under_its_top_folders(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let part = || gs::sampled_from(vec!["Contents", "PIONEER", "A", "b", "é"]);
     let paths: Vec<String> = tc

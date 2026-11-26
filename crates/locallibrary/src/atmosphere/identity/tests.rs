@@ -14,11 +14,17 @@ use super::*;
 use crate::atmosphere::block_on;
 
 /// TXT records by name (lowercase, without the final dot), each record its strings.
-type Records = Arc<Mutex<FxHashMap<String, Vec<Vec<String>>>>>;
+pub(crate) type Records = Arc<Mutex<FxHashMap<String, Vec<Vec<String>>>>>;
 
 /// A resolver whose DNS is a server on this computer, answering with `records` (and that a name
 /// without any doesn't exist).
 fn asking(records: Records) -> Resolver {
+    Resolver::new(Http::new(true).unwrap(), Some(dns(records, ResponseCode::NXDomain)))
+}
+
+/// DNS from a server on this computer, answering with `records`, and `missing` for a name without
+/// any.
+pub(crate) fn dns(records: Records, missing: ResponseCode) -> TokioResolver {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let port = socket.local_addr().unwrap().port();
     std::thread::spawn(move || {
@@ -35,7 +41,7 @@ fn asking(records: Records) -> Resolver {
                     let txt = |strings: &Vec<String>| RData::TXT(TXT::new(strings.clone()));
                     answer.add_answers(found.iter().map(|strings| Record::from_rdata(name.clone(), 60, txt(strings))));
                 }
-                None => answer.metadata.response_code = ResponseCode::NXDomain,
+                None => answer.metadata.response_code = missing,
             }
             socket.send_to(&answer.to_vec().unwrap(), from).unwrap();
         }
@@ -43,10 +49,9 @@ fn asking(records: Records) -> Resolver {
     let mut server = NameServerConfig::udp([127, 0, 0, 1].into());
     server.connections[0].port = port;
     let _guard = runtime().enter();
-    let dns = TokioResolver::builder_with_config(ResolverConfig::from_name_servers(vec![server]), Default::default())
+    TokioResolver::builder_with_config(ResolverConfig::from_name_servers(vec![server]), Default::default())
         .build()
-        .unwrap();
-    Resolver::new(Http::new(true).unwrap(), Some(dns))
+        .unwrap()
 }
 
 /// Regression: a handle with a DNS record and no `/.well-known/atproto-did` wasn't found, as
@@ -118,7 +123,7 @@ fn txt() -> impl hegel::PrintableGenerator<(String, Option<String>)> {
 /// Whatever TXT records a handle has, it's found as the DID in the first valid `did=` string,
 /// across records in the order DNS gives them, and not found without one.
 #[hegel::test(test_cases = 100)]
-fn the_first_valid_did_in_dns_names_the_account(tc: TestCase) {
+fn prop_the_first_valid_did_in_dns_names_the_account(tc: TestCase) {
     let drawn: Vec<Vec<(String, Option<String>)>> =
         tc.draw(gs::vecs(gs::vecs(txt()).min_size(1).max_size(3)).max_size(3));
     let expected = drawn.iter().flatten().find_map(|(_, did)| did.clone());

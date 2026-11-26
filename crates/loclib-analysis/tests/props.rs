@@ -33,11 +33,12 @@ fn clicks(rate: u32, bpm: f64, secs: f64) -> Vec<f64> {
 /// A click track at any tempo DJs play is heard at that tempo, or at half or double it (the
 /// octave errors every tempo estimator makes).
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn click_tracks_are_heard_at_their_tempo(tc: TestCase) {
+fn prop_click_tracks_are_heard_at_their_tempo(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), 44_100, &clicks(44_100, bpm, 8.0));
-    let analysis = analyze(&path, Want { estimate: true, loudness: false, waveform: false }, &Ctx::silent()).unwrap();
+    let analysis =
+        analyze(&path, Want { estimate: true, loudness: false, waveform: false, grid: false }, &Ctx::silent()).unwrap();
     let e = analysis.estimate.unwrap();
     let heard = TempoRelation::between(e.bpm.into(), bpm);
     assert!(
@@ -51,7 +52,7 @@ fn click_tracks_are_heard_at_their_tempo(tc: TestCase) {
 /// LUFS and its peak in dBFS are its level in dB, it has no loudness range and doesn't clip.
 /// Only what's asked for is measured, and the length is the file's either way.
 #[hegel::test(test_cases = 6)]
-fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
+fn prop_a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
     let level = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(0.95));
     let rate = tc.draw(gs::sampled_from(vec![44_100, 48_000]));
     let secs = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(1.5));
@@ -60,7 +61,8 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
     let n = (rate as f64 * secs) as usize;
     let sine: Vec<f64> = (0..n).map(|i| level * (2.0 * PI * 1_000.0 * i as f64 / rate as f64).sin()).collect();
     let path = write(dir.path(), rate, &sine);
-    let analysis = analyze(&path, Want { estimate: false, loudness, waveform: false }, &Ctx::silent()).unwrap();
+    let analysis =
+        analyze(&path, Want { estimate: false, loudness, waveform: false, grid: false }, &Ctx::silent()).unwrap();
     assert_eq!((analysis.version, analysis.estimate.is_some()), (VERSION, false));
     assert!((analysis.duration_secs - n as f64 / rate as f64).abs() < 1e-9, "{analysis:?}");
     let Some(l) = analysis.loudness else { return assert!(!loudness) };
@@ -83,7 +85,7 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 // A last column of one sample, and a last column filled exactly.
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 2_048usize, level = 0.5f64)]
-fn files_are_analysed_for_what_is_asked(tc: TestCase) {
+fn prop_files_are_analysed_for_what_is_asked(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![8, 15, 16, 22_050, 44_100, 3_000_000]));
     // Up to a quarter of a second, and a few frames at least.
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value((rate as usize / 4).clamp(3, 4_000)));
@@ -93,8 +95,10 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), rate, &signal);
     let gone = dir.path().join("gone.wav");
-    for want in (0..8).map(|i| Want { estimate: i & 1 != 0, loudness: i & 2 != 0, waveform: i & 4 != 0 }) {
-        let Want { estimate, loudness, waveform } = want;
+    for want in
+        (0..16).map(|i| Want { estimate: i & 1 != 0, loudness: i & 2 != 0, waveform: i & 4 != 0, grid: i & 8 != 0 })
+    {
+        let Want { estimate, loudness, waveform, grid } = want;
         let too_fast = rate > MAX_RATE;
         let refused = loudness && rate < 16;
         match analyze(&path, want, &Ctx::silent()) {
@@ -106,6 +110,8 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
                 assert!((a.duration_secs - frames as f64 / f64::from(rate)).abs() < 1e-9, "{a:?}");
                 let measured = (a.loudness.is_some(), a.estimate.is_some(), a.waveform.is_some());
                 assert_eq!(measured, (loudness, estimate && sound, waveform), "{a:?}");
+                assert!(grid || a.grid.is_none(), "{a:?}");
+                assert!(sound || a.grid.is_none(), "{a:?}");
                 // Between samples a signal only peaks higher, and silence has no peak at all.
                 if let Some(l) = &a.loudness {
                     assert!(l.true_peak_dbtp() >= l.sample_peak_dbfs() - 0.05, "{l:?}");

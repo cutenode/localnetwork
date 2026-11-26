@@ -2,7 +2,7 @@ import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
+import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.page-only.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { PerformerSection, ProjectProfile } from '#lib/types.ts';
 import { RecordValidationError } from '../atproto/lexicons';
@@ -831,7 +831,7 @@ describe('BookingService', () => {
 				project: project.uri,
 				show: { title: 'Night' },
 				message: 'Free?',
-				plannerShow: `at://${OUTSIDER}/space/${SPACE_TYPE.planner}/self/${OUTSIDER}/${COLLECTION.plannerShow}/${planned}`,
+				plannerShow: `at:space/${OUTSIDER}/${SPACE_TYPE.planner}/self/${OUTSIDER}/${COLLECTION.plannerShow}/${planned}`,
 				createdAt: new Date().toISOString()
 			}
 		});

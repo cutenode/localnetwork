@@ -16,7 +16,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::space::{self, SpaceKind};
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn space_is_measured_around_what_cant_be_read(tc: TestCase) {
+fn prop_space_is_measured_around_what_cant_be_read(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
     let files: &[(&str, usize, SpaceKind)] = &[

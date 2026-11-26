@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::*;
-use crate::masterdb::{self, DEFAULT_KEY};
 use crate::{anlz, pdb};
+use loclib_rekordbox_db::masterdb::{self, DEFAULT_KEY};
 
 /// A rekordbox folder with the collection `masterdb`'s tests use: One More Time with
 /// rekordbox's analysis files (the demo export's) and artwork, Never Grow Old in Dropbox
@@ -21,7 +21,7 @@ impl Computer {
         let dir = tempfile::tempdir().unwrap();
         let rb = dir.path().join("rekordbox");
         let music = dir.path().join("Music");
-        let f = masterdb::tests::sample();
+        let f = loclib_rekordbox_db::test_util::sample();
         f.exec(sql);
         f.exec(&format!(
             "UPDATE djmdContent SET FolderPath = '{}/One More Time.mp3' WHERE ID = '84935471';
@@ -185,7 +185,7 @@ fn intelligent_playlists_hold_what_their_rules_match() {
 /// condition matches.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(lists = vec![(10u8, "o"), (8u8, "never"), (2u8, "here")])]
-fn intelligent_playlists_get_a_rule_when_a_filter_can_say_it(tc: hegel::TestCase) {
+fn prop_intelligent_playlists_get_a_rule_when_a_filter_can_say_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let operators = vec![1u8, 2, 8, 9, 10, 11];
     let values = vec!["never", "one more time", "o", "here"];
@@ -457,7 +457,7 @@ fn says_what_cloud_library_sync_has_still_to_bring() {
 /// analysis naming each track's new path, and the playlists in their order without the tracks
 /// left out. Exporting again copies nothing.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
+fn prop_a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let rb = dir.path().join("rekordbox");
@@ -472,7 +472,7 @@ fn a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
         std::fs::copy(e.path(), share.join(e.file_name())).unwrap();
     }
 
-    let f = masterdb::tests::Fixture::new();
+    let f = loclib_rekordbox_db::test_util::Fixture::new();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let mut here = Vec::new();
     for i in 0..n {
@@ -579,13 +579,13 @@ fn a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
 /// read (saved in the store first, refused without one). A plan with no room is refused; the
 /// collection's artwork and what Cloud Library Sync hasn't brought yet are said.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_export_takes_what_the_target_holds_as_it_should(tc: hegel::TestCase) {
+fn prop_an_export_takes_what_the_target_holds_as_it_should(tc: hegel::TestCase) {
     for variant in 0..5 {
         an_export_takes_what_the_target_holds_as_it_should_with(&tc, variant);
     }
 }
 
-/// One case of [`an_export_takes_what_the_target_holds_as_it_should`], `variant` choosing what's drawn.
+/// One case of [`prop_an_export_takes_what_the_target_holds_as_it_should`], `variant` choosing what's drawn.
 #[hegel::test_helper]
 fn an_export_takes_what_the_target_holds_as_it_should_with(tc: &hegel::TestCase, variant: u8) {
     use hegel::generators as gs;
@@ -693,7 +693,7 @@ fn an_export_takes_what_the_target_holds_as_it_should_with(tc: &hegel::TestCase,
 /// playlist whatever was chosen; and an export too big for the drive says so and is refused
 /// when applied, the drive left as it was.
 #[hegel::test(test_cases = 6)]
-fn an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase) {
+fn prop_an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let pc = Computer::new();
     let anlz = pc.dir.path().join("rekordbox/share/PIONEER/USBANLZ/P016/0000875E");
@@ -808,7 +808,7 @@ fn an_export_cut_off_part_way_through_a_new_file_writes_it_again() {
 #[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(size_changed = true)]
 #[hegel::explicit_test_case(size_changed = false)]
-fn an_export_recopies_an_unfinished_file_matching_the_current_source(tc: hegel::TestCase) {
+fn prop_an_export_recopies_an_unfinished_file_matching_the_current_source(tc: hegel::TestCase) {
     let size_changed = tc.draw(hegel::generators::booleans());
     let pc = Computer::new();
     let mut target = pc.folder("Export");
@@ -887,7 +887,7 @@ fn an_export_stopped_part_way_finishes_when_run_again() {
 #[hegel::explicit_test_case(same = true, on = true)]
 #[hegel::explicit_test_case(same = true, on = false)]
 #[hegel::explicit_test_case(same = false, on = true)]
-fn a_pull_clones_the_collections_audio_into_the_store_when_set_to(tc: hegel::TestCase) {
+fn prop_a_pull_clones_the_collections_audio_into_the_store_when_set_to(tc: hegel::TestCase) {
     let same = tc.draw(hegel::generators::booleans());
     let on = tc.draw(hegel::generators::booleans());
     let pc = Computer::new();
@@ -1197,7 +1197,7 @@ fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase)
     }
     let recent = planned.library.find_playlist("Recent");
     assert_eq!(recent.is_some(), kept && evaluable, "{xml}");
-    let tags = collection.tags_by_track();
+    let tags = TagsByTrack::from_collection(&collection.tags, &collection.library);
     let today = chrono::Local::now().date_naive();
     if let (Some(recent), Some(list)) = (recent, &list) {
         let held: Vec<&str> =

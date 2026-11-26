@@ -193,7 +193,7 @@ fn a_drive_copy_that_fails_keeps_what_was_there_and_leaves_nothing_new() {
 #[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(existing = false)]
 #[hegel::explicit_test_case(existing = true)]
-fn a_drive_write_uses_a_recoverable_name(tc: hegel::TestCase) {
+fn prop_a_drive_write_uses_a_recoverable_name(tc: hegel::TestCase) {
     let existing = tc.draw(hegel::generators::booleans());
     let dir = tempfile::tempdir().unwrap();
     let dst = dir.path().join("a.mp3");
@@ -248,7 +248,7 @@ fn temp_files(dir: &Path) -> Vec<String> {
 #[hegel::explicit_test_case(writer = 5u8, obstacle = 1u8, durable = true, mtime = None::<i64>)]
 #[hegel::explicit_test_case(writer = 6u8, obstacle = 5u8, durable = false, mtime = None::<i64>)]
 #[hegel::explicit_test_case(writer = 6u8, obstacle = 0u8, durable = false, mtime = None::<i64>)]
-fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
+fn prop_a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // write_atomic, write_private, write_deferred, write_output, stage_bytes, copy_file,
     // stage_copy, write_json_atomic, copy_for_drive, write_for_drive.
@@ -346,7 +346,7 @@ fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(entries = vec![(3i64, "x".to_string())], keyed = true)]
 #[hegel::explicit_test_case(entries = Vec::<(i64, String)>::new(), keyed = false)]
-fn json_reads_back_what_was_written(tc: hegel::TestCase) {
+fn prop_json_reads_back_what_was_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use indexmap::IndexMap;
     let entries: Vec<(i64, String)> =
@@ -382,7 +382,7 @@ fn json_reads_back_what_was_written(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 30)]
 #[hegel::explicit_test_case(kinds = vec![0u8, 1, 2])]
 #[hegel::explicit_test_case(kinds = vec![1u8, 0])]
-fn flushing_skips_the_gone_and_stops_at_the_unreadable(tc: hegel::TestCase) {
+fn prop_flushing_skips_the_gone_and_stops_at_the_unreadable(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::os::unix::fs::PermissionsExt;
     // There, gone, unreadable.
@@ -429,7 +429,7 @@ fn flushing_skips_the_gone_and_stops_at_the_unreadable(tc: hegel::TestCase) {
 /// Ahead of a rewrite, a missing or damaged file reads as empty and what's kept reads as it is. A
 /// file that can't be read says so: its folder here, on every platform.
 #[hegel::test(test_cases = 20)]
-fn only_a_damaged_file_is_written_anew(tc: hegel::TestCase) {
+fn prop_only_a_damaged_file_is_written_anew(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("kept.json");
@@ -456,7 +456,7 @@ fn only_a_damaged_file_is_written_anew(tc: hegel::TestCase) {
 /// the file, and a lock in a folder that isn't there can't be had.
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(steps = vec![0u8, 1, 2, 3, 1, 4])]
-fn a_lock_has_one_holder_at_a_time(tc: hegel::TestCase) {
+fn prop_a_lock_has_one_holder_at_a_time(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // Wait, try, try as a reader, release, check the file.
     let steps: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(4)).max_size(8));
@@ -546,7 +546,7 @@ fn a_file_read_while_its_rewritten_is_read_whole() {
 /// FAT32. Unsettled, a FAT32 file (even mtime) has such a rewrite: one at `at` itself. Regression:
 /// the hash cache and scrub each had a window of their own, neither allowing for that drift.
 #[hegel::test(test_cases = 300)]
-fn settled_means_no_rewrite_since_can_look_unchanged(tc: hegel::TestCase) {
+fn prop_settled_means_no_rewrite_since_can_look_unchanged(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mtime: i64 = tc.draw(gs::integers::<i64>().min_value(1_000_000_000).max_value(2_000_000_000));
     let at = mtime + tc.draw(gs::integers::<i64>().min_value(0).max_value(12));

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// Whatever the items and the bound, each item's result comes back in its place, a panic in one
 /// doesn't stop the others, and no more than `workers` run at once.
 #[hegel::test(test_cases = 50)]
-fn each_item_runs_once_in_order_and_within_the_bound(tc: hegel::TestCase) {
+fn prop_each_item_runs_once_in_order_and_within_the_bound(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let items: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(20)).max_size(12));
     let workers = tc.draw(gs::integers::<usize>().max_value(5));
@@ -31,7 +31,7 @@ fn each_item_runs_once_in_order_and_within_the_bound(tc: hegel::TestCase) {
 
 /// A map gives each item's result in its place, and a panic in any item is the caller's.
 #[hegel::test(test_cases = 50)]
-fn a_map_keeps_the_order_and_raises_a_panic(tc: hegel::TestCase) {
+fn prop_a_map_keeps_the_order_and_raises_a_panic(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let items: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(20)).max_size(12));
     let mapped = std::panic::catch_unwind(|| {

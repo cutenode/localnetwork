@@ -2,7 +2,7 @@ import type { JsonObject } from '@atproto/lex-json';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectDetails, RequestRecord } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { parseSpaceUri, sharedSpaceKind } from '../atproto/spaces';
+import { currentSpaceUris, parseSpaceUri, sharedSpaceKind } from '../atproto/spaces';
 import type { AuditLog } from '../audit/log';
 import type { Core } from '../core';
 import type { BookingRecord, BookingService } from '../services/bookings';
@@ -106,7 +106,9 @@ export function createProjections(deps: {
 		let value: JsonObject;
 
 		try {
-			value = validateRecord(change.collection, change.value);
+			// An audit copy is compared with its entry, whose hash covers its URIs as they were written.
+			const read = change.collection === COLLECTION.auditEntry ? change.value : currentSpaceUris(change.value);
+			value = validateRecord(change.collection, read);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
 			core.logger.warn('ignoring invalid synced record', { uri: change.uri, err: error });

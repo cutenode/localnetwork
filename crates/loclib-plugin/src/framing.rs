@@ -10,6 +10,7 @@ pub const MAX_LINE: usize = 16 << 20;
 /// What [`read_line`] read.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Line {
+    /// A line, now in the buffer, with its `\n` when it had one.
     Read,
     /// Longer than [`MAX_LINE`]: read to its end and dropped.
     TooLong,

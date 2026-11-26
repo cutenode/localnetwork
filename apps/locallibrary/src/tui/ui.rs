@@ -65,7 +65,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     a.hints.clear();
     a.loop_chip = Default::default();
     a.columns.clear();
-    (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu, a.overview) =
+    (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu, a.overview, a.zoom) =
         Default::default();
     (a.drive_list, a.drive_side, a.history, a.played, a.prepare, a.steps) = Default::default();
     if shell.density == Density::DeckOnly {

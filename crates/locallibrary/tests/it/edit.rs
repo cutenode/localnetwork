@@ -15,8 +15,9 @@ use std::path::Path;
 use crate::common::{apply, replay};
 use locallibrary::cue_edit::{CueChange, CuePosition, SetCue};
 use locallibrary::device::{Device, LineageOp};
-use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::model::TrackColor;
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, backup, paths, pdb};
@@ -836,7 +837,7 @@ fn history_lists_only_onelibrary_has_are_selected() {
     let dir = tempfile::tempdir().unwrap();
     let root = both_databases(dir.path());
     let plus = common::plus_library(&root);
-    let mut one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let list = one.create_history("HISTORY 003", 0, false).unwrap();
     for t in [&plus.tracks[3], &plus.tracks[1]] {
         one.add_to_history(list, t.id).unwrap();

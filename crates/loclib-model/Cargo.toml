@@ -10,6 +10,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: core"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 loclib-progress.workspace = true
 indexmap.workspace = true
@@ -19,6 +26,7 @@ serde.workspace = true
 unicode-normalization.workspace = true
 hegeltest = { workspace = true, optional = true }
 tempfile.workspace = true
+thiserror.workspace = true
 
 [features]
 schemars = ["dep:schemars"]

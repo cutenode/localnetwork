@@ -483,7 +483,7 @@ impl Heard {
 }
 
 #[hegel::test(test_cases = 300)]
-fn loops_and_seeks_play_what_a_playhead_would(tc: hegel::TestCase) {
+fn prop_loops_and_seeks_play_what_a_playhead_would(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const FRAMES: u32 = 400;
     let head = Arc::new(Playhead::default());
@@ -560,7 +560,7 @@ fn loops_and_seeks_play_what_a_playhead_would(tc: hegel::TestCase) {
 /// Asked, it's said once.
 #[cfg(feature = "playback")]
 #[hegel::test(test_cases = 300)]
-fn a_stream_says_its_output_went_away_over_any_glitch(tc: hegel::TestCase) {
+fn prop_a_stream_says_its_output_went_away_over_any_glitch(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use rodio::cpal::{BackendSpecificError, StreamError};
     let errors = StreamErrors::default();
@@ -623,7 +623,7 @@ fn a_pause_stops_the_playhead_at_once() {
 /// pauses and plays; the volume stays within bounds; only a track of the same format queues
 /// behind the playing one, which the player goes straight on to; stopped, nothing's loaded.
 #[hegel::test(test_cases = 100)]
-fn an_output_plays_pauses_seeks_and_queues_as_asked(tc: hegel::TestCase) {
+fn prop_an_output_plays_pauses_seeks_and_queues_as_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let file_at = |rate: u32, frames: i16| {
@@ -697,7 +697,7 @@ fn an_output_plays_pauses_seeks_and_queues_as_asked(tc: hegel::TestCase) {
 /// still goes round, from memory; a track that breaks part-way ends there, saying why, with
 /// nothing left of its span; one dropped from the queue ends as it starts.
 #[hegel::test(test_cases = 200)]
-fn a_track_that_cant_seek_or_breaks_plays_on_or_ends(tc: hegel::TestCase) {
+fn prop_a_track_that_cant_seek_or_breaks_plays_on_or_ends(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let ahead = tc.draw(gs::integers::<u64>().min_value(1).max_value(20));
     let len = tc.draw(gs::integers::<u64>().min_value(2).max_value(8));
@@ -747,7 +747,7 @@ fn a_track_that_cant_seek_or_breaks_plays_on_or_ends(tc: hegel::TestCase) {
 /// played, timed in the last span's rate, the tap holds a mono sample a frame at that rate, and
 /// both say the track's length as it does. A playhead nothing has played yet is at the start.
 #[hegel::test(test_cases = 200)]
-fn a_track_plays_through_whatever_its_spans_rate(tc: hegel::TestCase) {
+fn prop_a_track_plays_through_whatever_its_spans_rate(tc: hegel::TestCase) {
     use hegel::generators as gs;
     assert_eq!(Playhead::default().position(), Duration::ZERO);
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
@@ -790,7 +790,7 @@ fn a_track_plays_through_whatever_its_spans_rate(tc: hegel::TestCase) {
 /// Text saved under any audio file's name (no audio in it) fails to open, saying which file it
 /// can't decode, rather than playing noise or panicking.
 #[hegel::test(test_cases = 50)]
-fn a_file_without_audio_fails_to_open_saying_so(tc: hegel::TestCase) {
+fn prop_a_file_without_audio_fails_to_open_saying_so(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let ext = tc.draw(gs::sampled_from(&["mp3", "MP3", "wav", "flac", "m4a", "aiff", "ogg"][..]));
     let text = tc.draw(gs::text().alphabet("abcdefghij klmnop\n").max_size(2_000));

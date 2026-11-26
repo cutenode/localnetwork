@@ -1,0 +1,9 @@
+"locallibrary: sidecar":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/locallibrary/src/rpc.rs"
+          - "apps/locallibrary/src/rpc/**"
+          - "apps/locallibrary/docs/sidecar.md"
+          - "apps/locallibrary/docs/rpc/**"
+          - "crates/locallibrary/src/api.rs"
+          - "crates/locallibrary/src/api/**"

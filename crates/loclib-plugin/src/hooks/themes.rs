@@ -14,8 +14,12 @@ use crate::{Manifest, ManifestError};
 /// of two or more). What it leaves out is the default's.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Theme {
+    /// What hosts name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other theme's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
+    /// Its colours by token name, nested a level for each dot (`cues.hot`): one at least.
     pub tokens: Map<String, Value>,
 }
 

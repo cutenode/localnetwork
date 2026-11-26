@@ -1,5 +1,5 @@
 import { type AccountStatus, AccountStatuses } from '../atproto/account-status';
-import { rootSpaces } from '../atproto/spaces';
+import { parseSpaceUri, rootSpaces } from '../atproto/spaces';
 import { AuditLog } from '../audit/log';
 import { ensureRootSpaces } from '../bootstrap';
 import type { Core } from '../core';
@@ -123,7 +123,7 @@ export async function createTestServices(
 		// The root reads a space only once it's a member, as the space host checks its credential.
 		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
 			const found = net.spaces.get(space);
-			const member = space.startsWith(`at://${ROOT}/`) || found?.members.get(ROOT)?.read;
+			const member = parseSpaceUri(space)?.authority === ROOT || found?.members.get(ROOT)?.read;
 
 			if (!member) throw new Error(`the root is not a member of ${space}`);
 

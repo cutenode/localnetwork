@@ -1,5 +1,5 @@
 //! The reads of rekordbox's files a backup needs (`collection:files`, see
-//! [`crate::masterdb::files`]). The host answers them itself rather than through the app's reads
+//! [`loclib_rekordbox_db::masterdb::files`]). The host answers them itself rather than through the app's reads
 //! ([`super::callbacks::Reads`]): two name files in the request's scratch folder, which only the
 //! host knows. `collection.copy` writes a new file there, as far as the folder has room, and
 //! `collection.tracks` reads one there (or rekordbox's own `master.db`). Neither writes anywhere
@@ -15,8 +15,8 @@ use super::blobs;
 use super::callbacks::invalid_params;
 use super::process::Live;
 use crate::api::{RpcFailure, collection_path};
-use crate::masterdb::{self, files};
 use crate::{Error, op};
+use loclib_rekordbox_db::masterdb::{self, files};
 
 /// The reads answered here.
 const METHODS: [&str; 4] = ["collection.locations", "collection.status", "collection.copy", "collection.tracks"];
@@ -58,7 +58,7 @@ pub(crate) fn answer(live: &Live, most: u64, method: &str, params: Value) -> Res
         "collection.copy" => {
             let p: ToCopy = serde_json::from_value(params).map_err(read)?;
             let (dir, into) = in_scratch(live, &p.into)?;
-            let made = files::export(&collection_path(None)?, &key, p.with_credentials, &into)?;
+            let made = files::export(&collection_path(None)?, &key, p.with_credentials, &into).map_err(Error::from)?;
             if blobs::size(&dir) > most {
                 let _ = std::fs::remove_file(&into);
                 let why = format!("the copy is more than the scratch folder has room for ({})", op::bytes(most));
@@ -73,7 +73,7 @@ pub(crate) fn answer(live: &Live, most: u64, method: &str, params: Value) -> Res
                 Some(db) => scratch_file(live, db)?,
                 None => collection_path(None)?,
             };
-            serde_json::to_value(files::tracks(&db, &key, p.offset, p.limit)?)
+            serde_json::to_value(files::tracks(&db, &key, p.offset, p.limit).map_err(Error::from)?)
         }
     };
     Ok(answer.expect("an answer is JSON"))

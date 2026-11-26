@@ -775,7 +775,7 @@ const DRIVE_READS: &[(&[&str], &[&str])] = &[
 #[hegel::explicit_test_case(flags = picked(&[14]))]
 #[hegel::explicit_test_case(flags = picked(&[2, 4]))]
 #[hegel::explicit_test_case(flags = picked(&[2, 4, 8, 16, 21, 22]))]
-fn drive_reads_say_what_their_json_says(tc: TestCase) {
+fn prop_drive_reads_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let universe = universe(&fx);
@@ -836,7 +836,7 @@ const STORE_READS: &[(&[&str], &[&str])] = &[
 #[hegel::explicit_test_case(flags = vec![false; FLAGS])]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>())]
-fn store_reads_say_what_their_json_says(tc: TestCase) {
+fn prop_store_reads_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let universe = universe(&fx);
@@ -959,7 +959,7 @@ const TRACK_READS: &[(&[&str], &[&str])] = &[
 #[hegel::explicit_test_case(flags = picked(&[14]))]
 #[hegel::explicit_test_case(flags = picked(&[2, 4]))]
 #[hegel::explicit_test_case(flags = picked(&[2, 4, 8, 16, 21, 22]))]
-fn track_reads_say_what_their_json_says(tc: TestCase) {
+fn prop_track_reads_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let other = twin(&fx);
@@ -1044,7 +1044,7 @@ const DISPATCH: &[(&[&str], &[&str])] = &[
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS])]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS])]
-fn dispatch_says_the_same_either_way(tc: TestCase) {
+fn prop_dispatch_says_the_same_either_way(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let universe = universe(&fx);

@@ -1,5 +1,5 @@
 /**
- * Clearing the drafts of accounts that signed out (see form-draft.svelte.ts). It's apart from the drafts themselves
+ * Clearing the drafts of accounts that signed out (see form-draft.page-only.svelte.ts). It's apart from the drafts themselves
  * because every page runs it, while only the pages with long forms keep drafts.
  */
 

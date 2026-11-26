@@ -483,7 +483,7 @@ impl StoreMachine {
 }
 
 #[hegel::test(test_cases = 100, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_store_matches_the_model(tc: TestCase) {
+fn prop_the_store_matches_the_model(tc: TestCase) {
     hegel::stateful::machine(StoreMachine::new()).steps(30).run(tc);
 }
 
@@ -491,7 +491,7 @@ fn the_store_matches_the_model(tc: TestCase) {
 /// and nothing else: the summary is derived from the files, and the source drive and its lineage
 /// are provenance, so the same content saved from two drives (or re-saved) keeps one id.
 #[hegel::test(test_cases = 50)]
-fn snapshot_ids_cover_content_but_not_provenance(tc: TestCase) {
+fn prop_snapshot_ids_cover_content_but_not_provenance(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let h = store.import_bytes(b"audio").unwrap();
@@ -530,7 +530,7 @@ fn snapshot_ids_cover_content_but_not_provenance(tc: TestCase) {
 /// Hashes print as 64 lower-case hex digits and parse back from either case; anything else is
 /// refused, also from JSON.
 #[hegel::test(test_cases = 200)]
-fn hashes_round_trip_through_hex_and_serde(tc: TestCase) {
+fn prop_hashes_round_trip_through_hex_and_serde(tc: TestCase) {
     let bytes = tc.draw(gs::binary().min_size(32).max_size(32));
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let h: Hash = hex.parse().unwrap();
@@ -559,7 +559,7 @@ fn hashes_round_trip_through_hex_and_serde(tc: TestCase) {
 /// Resolving a prefix agrees with scanning the snapshot ids: one match resolves, none is not
 /// found, several are ambiguous, under four characters is refused; other files are ignored.
 #[hegel::test(test_cases = 100)]
-fn resolving_a_prefix_agrees_with_a_scan(tc: TestCase) {
+fn prop_resolving_a_prefix_agrees_with_a_scan(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let snapshots = store.root().join("snapshots");
@@ -599,7 +599,7 @@ fn resolving_a_prefix_agrees_with_a_scan(tc: TestCase) {
 /// verify reports every object a snapshot uses that is missing or whose bytes no longer match
 /// its hash (same length or not), and nothing else.
 #[hegel::test(test_cases = 50)]
-fn verify_reports_exactly_the_damaged_objects(tc: TestCase) {
+fn prop_verify_reports_exactly_the_damaged_objects(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut objects: IndexMap<Hash, Vec<u8>> = IndexMap::new();
@@ -694,7 +694,7 @@ fn gc_removes_nothing_when_a_reachable_manifest_is_garbled() {
 /// made it and the rest found it. A folder holding anything else is refused by each of them and
 /// left as it was.
 #[hegel::test(test_cases = 50)]
-fn making_the_store_at_once_makes_one(tc: TestCase) {
+fn prop_making_the_store_at_once_makes_one(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     match tc.draw(gs::integers::<u8>().max_value(3)) {

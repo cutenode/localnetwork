@@ -81,7 +81,7 @@ it('lists the press kits its managers publish, and links a manager to manage the
 		did: 'did:plc:root',
 		rkey: '3k',
 		cid: 'bafyepk',
-		space: 'at://did:plc:root/space/computer.localnetwork.space.epk/3k',
+		space: 'at:space/did:plc:root/computer.localnetwork.space.epk/3k',
 		legacy: false,
 		record: {
 			project: project.uri,

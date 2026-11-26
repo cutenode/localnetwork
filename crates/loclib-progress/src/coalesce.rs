@@ -9,7 +9,13 @@ use crate::{Event, Phase, Progress, Scope};
 #[derive(Debug, Clone)]
 pub enum Report {
     /// An event; for an `item`, how many items it stands for when that's more than one.
-    Event { event: Event, items: Option<u64> },
+    Event {
+        /// The event. Held-back `bytes` events come as one with their sum, and held-back `item`
+        /// events as the latest of them.
+        event: Event,
+        /// How many items an `item` event stands for, when more than one. `None` otherwise.
+        items: Option<u64>,
+    },
     /// A step begins (the scope's `step` says which).
     Step,
 }
@@ -57,6 +63,10 @@ impl Held {
 }
 
 impl Coalesced {
+    /// Passes reports to `send`, with the scope each belongs to. Bytes and items wait for the
+    /// first event after `every` has passed, or for [`flush_due`](Self::flush_due) to find it
+    /// has, so they wait at most about `every` only while something calls `flush_due`, as a
+    /// [`Flusher`] does.
     pub fn new(every: Duration, send: impl Fn(&Scope, Report) + Send + Sync + 'static) -> Self {
         Coalesced { send: Box::new(send), every, held: Mutex::new(Held { sent: Instant::now(), scopes: Vec::new() }) }
     }

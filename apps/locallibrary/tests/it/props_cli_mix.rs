@@ -35,7 +35,7 @@ fn is_play(line: &str) -> bool {
 /// printed as a gap in the tracklist when it's long enough to be one), with the cover given for
 /// it if one was.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
+fn prop_a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
     let fx = Env::from_template();
     let a = fx.volumes.join("A");
     // Drive A's tracks: a sound each (maybe the same one), no audio at all, or a file that isn't
@@ -214,7 +214,7 @@ fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
 #[cfg(unix)]
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(twice = false, html = false, opener_works = false)]
-fn reports_are_opened_where_they_are_written(tc: TestCase) {
+fn prop_reports_are_opened_where_they_are_written(tc: TestCase) {
     let fx = Env::from_template();
     let sound = wav(&synth(30.0, SEEDS[0]));
     std::fs::write(fx.volumes.join("A/Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3"), &sound).unwrap();
@@ -265,7 +265,7 @@ fn reports_are_opened_where_they_are_written(tc: TestCase) {
 /// there, one that isn't audio, and `--audio` or `--cover` for several recordings are refused,
 /// in any order, as JSON or not, saying why.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn only_recordings_mix_can_read_are_taken(tc: TestCase) {
+fn prop_only_recordings_mix_can_read_are_taken(tc: TestCase) {
     let fx = Env::from_template();
     let notes = fx.home("notes.txt");
     std::fs::write(&notes, "not audio").unwrap();
@@ -300,7 +300,7 @@ fn only_recordings_mix_can_read_are_taken(tc: TestCase) {
 /// as its `--json` does, as it's set and when it's shown, and `settings export` carries what's
 /// set.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_index_limit_set_is_the_one_shown_and_exported(tc: TestCase) {
+fn prop_the_index_limit_set_is_the_one_shown_and_exported(tc: TestCase) {
     let fx = Env::new();
     let mut set: Option<u64> = None;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {

@@ -188,7 +188,7 @@ fn a_onelibrary_players_changes_are_sorted_too() {
     main.adopt(Some("Main")).unwrap();
     let club_root = synced(&store, &mut main, &dir.path().join("Club")).root().to_path_buf();
     let on_the_cdj = |change: &dyn Fn(&mut OneLibrary)| {
-        let mut one = OneLibrary::open_root(&club_root).unwrap();
+        let mut one = locallibrary::onelibrary::open_root(&club_root).unwrap();
         change(&mut one);
         std::fs::write(club_root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     };
@@ -243,7 +243,6 @@ fn a_onelibrary_database_added_since_is_a_drives_own_change() {
 /// too.
 #[test]
 fn status_counts_history_lists_a_onelibrary_player_recorded() {
-    use locallibrary::onelibrary::OneLibrary;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     locallibrary::testing::store_root_on_this_thread(Some(store.root().to_path_buf()));
@@ -253,7 +252,7 @@ fn status_counts_history_lists_a_onelibrary_player_recorded() {
     common::add_onelibrary(&main);
     common::adopt(Some(&store), &main, "Main");
     api::pull(&store, &api::PullRequest { drive: path(&main), ..Default::default() }, &ctx).unwrap();
-    let mut one = OneLibrary::open_root(&main).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&main).unwrap();
     let ids: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
     let history = one.create_history("HISTORY 001", 0, false).unwrap();
     for id in ids {

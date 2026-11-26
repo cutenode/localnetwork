@@ -1,0 +1,6 @@
+# conftest's settings for `pnpm policy` (tools/policy/cli.ts), read from the folder it runs in: the
+# policies in tools/policy/, over every file it's given as one input, so a policy can compare files.
+policy = "tools/policy"
+combine = true
+all-namespaces = true
+no-color = true

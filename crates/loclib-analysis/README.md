@@ -1,7 +1,7 @@
 # loclib-analysis
 
-A second opinion on a DJ library's tempos and keys, how loud each track is, and a way to score
-both against annotated datasets. It was split out of
+A second opinion on a DJ library's tempos and keys, how loud each track is, a beat grid placed
+where rekordbox would place it, and a way to score them against annotated datasets. It was split out of
 [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), which checks
 the BPMs and keys rekordbox stored on a USB drive, but all it needs is audio files.
 
@@ -10,7 +10,9 @@ the BPMs and keys rekordbox stored on a USB drive, but all it needs is audio fil
   [stratum-dsp](https://github.com/HLLMR/stratum-dsp); loudness from
   [ebur128](https://github.com/sdroege/ebur128): integrated loudness, loudness range, sample and
   true peak, and runs of clipped samples; and a waveform in three bands (lows under 200 Hz, mids,
-  highs over 2 kHz, a column every 1024 samples of the mono mix at 44.1 kHz). The `Analysis`
+  highs over 2 kHz, a column every 1024 samples of the mono mix at 44.1 kHz); and a beat grid of
+  one tempo, to 0.01 BPM, from the onsets (`Grid`, whose `beats` are what loclib-anlz writes).
+  The `Analysis`
   serialises, carrying the crate's `VERSION`, so you can cache it by the audio's hash and drop it
   when the version changes.
 - `tempo` tells whether a stored tempo and an estimate agree or are off by half, double, 2/3 or
@@ -62,11 +64,20 @@ assert_eq!(library.more_plausible(87.0, 174.0), Some(Plausible::Estimate));
 - stratum-dsp's accuracy is self-reported (88% of 155 tracks within 2 BPM, 72% of 68 keys), so
   its estimate is a second opinion to compare with, not a replacement. Score both on the same
   files with `benchmark` before trusting either.
+- The beat grid was scored against rekordbox's grids for 588 tracks of electronic music with the
+  `grid_vs_rekordbox` example: its tempo was in rekordbox's octave for 87% (it picks one from 90
+  to 180 BPM), and within 0.01 BPM of rekordbox's for 91% of those; 76% of tracks had their beats
+  within 10 ms of rekordbox's and 11% half a beat off them (on the off-beat). It counts bars from
+  the first beat, as rekordbox did for 80%. It assumes one tempo throughout: a live recording or
+  a track that changes tempo gets the tempo it holds longest. rekordbox counts the frame holding
+  an MP3's LAME tag as audio (one other decoders skip), so the grid of such a file is moved a
+  frame later to match.
 - Tracks are resampled to 44.1 kHz mono for the analyzer and held in memory whole (about 10 MB a
   minute) while it runs; loudness is measured on every channel at the file's own rate.
 - Clipping is counted as runs of three or more samples in a row at full scale (32767/32768 or
   above) in one channel. A loud master that peaks at 0 dBFS without flattening doesn't count.
-- The analyzer can't be cancelled once it starts on a decoded track.
+- The analyzer can't be cancelled once it starts on a decoded track (nor can the grid, about a
+  second and a half for a track of a few minutes).
 - Silent audio has no estimate. A blip too short for a tempo gets one with a tempo of 0.
 - The waveform's bands are scaled together, against the track's loudest columns or -40 dBFS
   (RMS), whichever is louder: they keep their ratios, and a near-silent track draws near 0.
@@ -78,7 +89,8 @@ assert_eq!(library.more_plausible(87.0, 174.0), Some(Plausible::Estimate));
 
 - Download datasets: get the GiantSteps annotations and audio from their repositories.
 - Store anything. Analyses serialise; where they go is up to you.
-- Write tempos or keys anywhere. It says what it found and how sure it is.
+- Write tempos, keys or grids anywhere. It says what it found and how sure it is.
+- Phrases, grids whose tempo changes, or bars that start anywhere but the first beat.
 
 ## Licence
 

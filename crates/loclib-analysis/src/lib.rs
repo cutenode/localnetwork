@@ -1,9 +1,13 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod benchmark;
 mod error;
 #[cfg(feature = "dsp")]
 mod estimate;
+#[cfg(feature = "dsp")]
+mod grid;
 #[cfg(feature = "dsp")]
 mod loudness;
 pub mod tempo;
@@ -14,6 +18,7 @@ mod waveform;
 #[cfg(feature = "dsp")]
 pub use {
     estimate::Estimate,
+    grid::Grid,
     loudness::Loudness,
     waveform::{COLUMNS_PER_SEC, Waveform},
 };
@@ -33,7 +38,7 @@ pub use error::{Error, Result};
 /// stratum-dsp or ebur128, different settings, a fix here), so cached analyses made with another
 /// version can be thrown away.
 #[cfg(feature = "dsp")]
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 
 /// What [`analyze`] measures. One decode feeds them all.
 #[cfg(feature = "dsp")]
@@ -41,13 +46,18 @@ pub const VERSION: u32 = 5;
 pub struct Want {
     /// Tempo and key.
     pub estimate: bool,
+    /// Loudness and clipping ([`Loudness`]).
     pub loudness: bool,
+    /// The 3-band waveform ([`Waveform`]).
     pub waveform: bool,
+    /// A beat grid.
+    pub grid: bool,
 }
 
 #[cfg(feature = "dsp")]
 impl Want {
-    pub const ALL: Want = Want { estimate: true, loudness: true, waveform: true };
+    /// Everything [`analyze`] measures.
+    pub const ALL: Want = Want { estimate: true, loudness: true, waveform: true, grid: true };
 }
 
 /// One track's analysis, for caching by the audio's content hash and [`VERSION`].
@@ -65,6 +75,8 @@ pub struct Analysis {
     pub loudness: Option<Loudness>,
     /// When asked for.
     pub waveform: Option<Waveform>,
+    /// When asked for and the audio has one (not silence, nor under 5 seconds).
+    pub grid: Option<Grid>,
 }
 
 /// Decode the track at `path` once and measure what `want` asks for.
@@ -78,9 +90,11 @@ pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
     let mut bands = want.waveform.then(waveform::Bands::new);
     let mut resampler: Option<Resampler> = None;
     let (mut frame_means, mut mono) = (Vec::new(), Vec::new());
-    // The mono mix at RATE: kept whole for the estimate, and measured as it comes for the waveform.
+    // The mono mix at RATE: kept whole for the estimate and the grid, and measured as it comes for
+    // the waveform.
+    let keep = want.estimate || want.grid;
     let mut take = |s: &[f32]| {
-        if want.estimate {
+        if keep {
             mono.extend_from_slice(s);
         }
         if let Some(bands) = &mut bands {
@@ -92,7 +106,7 @@ pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
             if let Some(meter) = &mut meter {
                 meter.push(samples, rate, channels).map_err(|e| Error::analyzer(path, e))?;
             }
-            if want.estimate || want.waveform {
+            if keep || want.waveform {
                 frame_means.clear();
                 frame_means.extend(samples.chunks_exact(channels).map(|f| f.iter().sum::<f32>() / channels as f32));
                 resampler.get_or_insert_with(|| Resampler::new(rate, RATE)).push(&frame_means, &mut take);
@@ -109,6 +123,9 @@ pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
         estimate: want.estimate.then(|| estimate::estimate(&mono)).flatten(),
         loudness: meter.map(loudness::Meter::finish).transpose().map_err(|e| Error::analyzer(path, e))?,
         waveform: bands.map(waveform::Bands::finish),
+        // Where rekordbox's timeline starts a frame before the audio decoded (see
+        // `lame_frame_secs`), its beats are that much later.
+        grid: want.grid.then(|| grid::grid(&mono, audio::lame_frame_secs(path).unwrap_or(0.0))).flatten(),
     })
 }
 

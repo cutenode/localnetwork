@@ -434,7 +434,7 @@ fn only_a_plugin_with_the_net_feature_fetches() {
 /// answer goes to the file asked for, else is answered up to `max_body` when it's text; and a
 /// secret goes to the server only where it's named.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn any_fetch_is_answered_as_the_rules_say(tc: hegel::TestCase) {
+fn prop_any_fetch_is_answered_as_the_rules_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // `/<status>/<length>/<text or bin>`, perhaps first redirected (`/to/<host>/...`).
     let server = Server::new(|base, got| {
@@ -602,7 +602,7 @@ fn a_secret_never_follows_a_redirect_to_another_server() {
 /// until a 301, 302 or 303 asks again with GET, the secret in its query only at first, and no
 /// `Referer`; a body with the secret is never sent to another server, and the fetch fails there.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_redirect_takes_a_secret_no_further_than_its_server(tc: hegel::TestCase) {
+fn prop_a_redirect_takes_a_secret_no_further_than_its_server(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let server = redirecting();
     let f = fixture(&talking_to_two(), &[], Options::default());
@@ -701,7 +701,7 @@ enum Mistake {
 /// account, or a file part's type that isn't one), the host refuses it saying why, wherever in
 /// the request the mistake is, and sends nothing.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
+fn prop_a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
     use Mistake::*;
     use hegel::generators as gs;
     let server = Server::new(|_, _| ok("x"));
@@ -804,7 +804,7 @@ pub(super) fn letters(size: usize) -> Vec<u8> {
 /// length or to its end), the host sends those bytes and no others, saying how many; a part
 /// going past the file's end is refused, and nothing is sent.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_request_sends_the_part_of_a_file_its_range_says(tc: hegel::TestCase) {
+fn prop_a_request_sends_the_part_of_a_file_its_range_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let server = Server::new(|_, got| ok(got.body.clone()));
     let f = fixture(&talking(100.0), &[], Options::default());
@@ -861,7 +861,7 @@ fn a_file_is_sent_in_parts_to_its_end() {
 /// plugin said left out), each part as it's named, saying how long it all is, and the secret
 /// filled in.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_form_is_sent_as_multipart_with_its_file(tc: hegel::TestCase) {
+fn prop_a_form_is_sent_as_multipart_with_its_file(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let server = Server::new(|_, got| ok(got.body.clone()));
     let f = fixture(&talking(100.0), &[], Options::default());
@@ -940,7 +940,7 @@ fn a_file_is_sent_again_where_a_redirect_asks_for_the_body() {
 /// plugin's text was made printable before its secrets were left out, so a secret with control
 /// characters no longer matched, and came through as it prints.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_secret_with_control_characters_never_comes_back(tc: hegel::TestCase) {
+fn prop_a_secret_with_control_characters_never_comes_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // Letters no other text here has three of in a row, between control characters.
     let parts: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[q-z]{3}").fullmatch(true)).min_size(2).max_size(4));

@@ -45,7 +45,7 @@ fn rot_object(store: &Store, snapshot: &Snapshot, key: &str) {
 /// A snapshot's side of a comparison holds the library pulled: export.pdb's, or OneLibrary's on a
 /// drive without export.pdb. Without either readable, there's no side.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_snapshots_side_is_the_library_pulled(tc: TestCase) {
+fn prop_a_snapshots_side_is_the_library_pulled(tc: TestCase) {
     for plus_only in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -72,7 +72,7 @@ fn a_snapshots_side_is_the_library_pulled(tc: TestCase) {
 #[hegel::explicit_test_case(plus = true, imported = true, rotted = 2)]
 #[hegel::explicit_test_case(plus = false, imported = true, rotted = 1)]
 #[hegel::explicit_test_case(plus = false, imported = false, rotted = 0)]
-fn pruning_keeps_the_only_snapshot_of_a_history_list(tc: TestCase) {
+fn prop_pruning_keeps_the_only_snapshot_of_a_history_list(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -161,7 +161,7 @@ fn pruning_keeps_the_only_snapshot_of_a_history_list(tc: TestCase) {
 /// A label goes on one snapshot: labelling it again is a no-op, and another snapshot can't take
 /// the name. The store counts only the files in its object folders whose names are hashes.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn labels_and_counts(tc: TestCase) {
+fn prop_labels_and_counts(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::bigger_drive(dir.path(), "A");

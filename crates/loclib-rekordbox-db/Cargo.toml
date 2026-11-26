@@ -1,0 +1,60 @@
+[package]
+name = "loclib-rekordbox-db"
+description = "Read and edit rekordbox's SQLite databases: a USB drive's OneLibrary (exportLibrary.db) and the collection on a computer (master.db)"
+readme = "README.md"
+keywords = ["rekordbox", "onelibrary", "masterdb", "sqlcipher", "dj"]
+categories = ["database", "multimedia::audio", "parser-implementations"]
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.localnetwork]
+labels = ["locallibrary: core"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+blake3.workspace = true
+chrono.workspace = true
+directories.workspace = true
+getrandom.workspace = true
+hegeltest = { workspace = true, optional = true }
+indexmap.workspace = true
+loclib-model.workspace = true
+loclib-plugin = { workspace = true, optional = true }
+loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }
+quick-xml = "0.42"
+rusqlite.workspace = true
+rustc-hash.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"], optional = true }
+tempfile.workspace = true
+thiserror.workspace = true
+
+[features]
+# `JsonSchema` for what's read from master.db and what a cue edit did.
+schemars = ["dep:schemars", "loclib-model/schemars", "schemars/indexmap2"]
+# `masterdb::files`: rekordbox's files on this computer, as loclib-plugin's `collection:files`
+# reads describe them (where they are, whether rekordbox is running, a copy of master.db, its
+# tracks' files).
+files = ["dep:loclib-plugin", "dep:plist", "dep:sysinfo"]
+# `test_util`: databases and drawn tracks for tests, in this crate and the ones built on it.
+test-util = ["dep:hegeltest"]
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
+loclib-sqlcipher = { workspace = true, features = ["test-util"] }
+loclib-testkit.workspace = true
+
+[lints]
+workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = { version = "1.10.1", optional = true }

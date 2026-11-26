@@ -1,9 +1,9 @@
 //! What each player, all-in-one system and mixer reads ([`loclib_equipment`], whose docs say
 //! where each value comes from), and the models a DJ plays on, remembered in the store.
 //!
-//! The table's exFAT support is what [`crate::format::players::EXFAT`] and
-//! [`crate::format::players::NO_EXFAT`] list, and [`crate::format::players`] has why MBR's 2 TiB
-//! is the largest drive players use.
+//! The exFAT lists `disks` and `format` show are the table's ([`exfat_list`], [`no_exfat_list`]),
+//! and [`crate::format::players`] has why [`MBR_MAX`], MBR's 2 TiB, is the largest drive players
+//! use.
 
 use indexmap::IndexMap;
 

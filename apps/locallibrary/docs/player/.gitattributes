@@ -1,0 +1,2 @@
+# Written by tools/regen/player-screenshots.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+*.svg merge=regen regen=player-screenshots

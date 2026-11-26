@@ -36,7 +36,7 @@ fn entries(lib: &Library) -> Vec<(String, Vec<String>)> {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn cleaning_removes_exactly_the_demo_tracks(tc: TestCase) {
+fn prop_cleaning_removes_exactly_the_demo_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
     // Demo samples, as rekordbox spells them or not, some sharing a kept track's file.
@@ -188,7 +188,7 @@ fn cleaning_removes_exactly_the_demo_tracks(tc: TestCase) {
 /// files out only when nothing else is deleted with them, the space a plan asks for counts just
 /// what it holds, and what it left out it says.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_backup_leaves_out_only_what_nothing_else_deleted_needs(tc: TestCase) {
+fn prop_a_backup_leaves_out_only_what_nothing_else_deleted_needs(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
     let files: Vec<String> =

@@ -11,7 +11,7 @@ use locallibrary::smart::{SmartPlaylist, SmartPlaylists};
 const CASES: &[&str] = &["Smart/Peak", "smart/peak", "SMART/PEAK", "Smart/PEAK", "sMART/pEAK"];
 
 #[hegel::test(test_cases = 100)]
-fn a_path_matching_several_rules_only_ignoring_case_removes_none(tc: TestCase) {
+fn prop_a_path_matching_several_rules_only_ignoring_case_removes_none(tc: TestCase) {
     let held: Vec<&str> = tc.draw(gs::subsequences(CASES));
     let mut rules = SmartPlaylists::default();
     for path in &held {

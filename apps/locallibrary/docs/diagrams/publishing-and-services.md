@@ -29,6 +29,8 @@ sequenceDiagram
     L->>D: What's published here now?
     L->>L: Plan the exact record,<br/>checked against its Lexicon
     opt The account can't write it yet
+        L->>L: Is publishing open?<br/>(the permission set's DNS record)
+        Note over L: Not yet: stops, saying so,<br/>before asking to sign in
         L->>S: Sign in again, allowing it
         L->>L: Plan again, for<br/>whoever approved
     end
@@ -37,7 +39,7 @@ sequenceDiagram
     S-->>L: at:// URI and CID
 ```
 
-Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`src/publish_cmd.rs`](../../src/publish_cmd.rs)
+Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/atmosphere/publishing.rs`](../../../../crates/locallibrary/src/atmosphere/publishing.rs), [`src/publish_cmd.rs`](../../src/publish_cmd.rs)
 
 ## What each command publishes
 
@@ -176,4 +178,4 @@ flowchart LR
     pager["Long lists"] --> less["sh running $PAGER, else less"]
 ```
 
-Source: [`crates/locallibrary/src/format/mod.rs`](../../../../crates/locallibrary/src/format/mod.rs), [`crates/locallibrary/src/fleet.rs`](../../../../crates/locallibrary/src/fleet.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`crates/locallibrary/src/fscheck.rs`](../../../../crates/locallibrary/src/fscheck.rs), [`crates/locallibrary/src/eject.rs`](../../../../crates/locallibrary/src/eject.rs), [`crates/locallibrary/src/publish/recording.rs`](../../../../crates/locallibrary/src/publish/recording.rs), [`plugins/youtube/src/render.rs`](../../../../plugins/youtube/src/render.rs), [`src/autostart.rs`](../../src/autostart.rs), [`src/launchd.rs`](../../src/launchd.rs), [`crates/locallibrary/src/opener.rs`](../../../../crates/locallibrary/src/opener.rs), [`src/pager.rs`](../../src/pager.rs)
+Source: [`crates/locallibrary/src/format/mod.rs`](../../../../crates/locallibrary/src/format/mod.rs), [`crates/locallibrary/src/fleet.rs`](../../../../crates/locallibrary/src/fleet.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`crates/loclib-format/src/macos.rs`](../../../../crates/loclib-format/src/macos.rs), [`crates/loclib-format/src/linux.rs`](../../../../crates/loclib-format/src/linux.rs), [`crates/loclib-format/src/windows.rs`](../../../../crates/loclib-format/src/windows.rs), [`crates/loclib-disk/src/fscheck.rs`](../../../../crates/loclib-disk/src/fscheck.rs), [`crates/loclib-disk/src/eject.rs`](../../../../crates/loclib-disk/src/eject.rs), [`crates/locallibrary/src/publish/recording.rs`](../../../../crates/locallibrary/src/publish/recording.rs), [`plugins/youtube/src/render.rs`](../../../../plugins/youtube/src/render.rs), [`src/autostart.rs`](../../src/autostart.rs), [`src/launchd.rs`](../../src/launchd.rs), [`crates/locallibrary/src/opener.rs`](../../../../crates/locallibrary/src/opener.rs), [`src/pager.rs`](../../src/pager.rs)

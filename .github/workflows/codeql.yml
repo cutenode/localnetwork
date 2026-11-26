@@ -10,13 +10,17 @@ name: CodeQL
 # holds a pull request or a merge queue group until its commit has a result in every category
 # main has (netresearch/.github#170 had every queued pull request stuck on "Code scanning is still
 # expecting 1 result from CodeQL", and so did #347 when only the languages that changed ran).
-# CodeQL's own result is that check. No weekly run: main gets pushes most days, and each analyses
-# with the queries of the action's pinned bundle.
+# CodeQL's own result is that check. No weekly run: main gets pushes most days, and each merge queue
+# group analyses what it changes with the queries of the action's pinned bundle.
 #
 # A language whose code, CodeQL config and this workflow are as they were at the commit ci.yml
-# diffed against has that commit's results, so its job uploads that commit's analysis from main
-# again, for this commit, in place of analysing it: about a minute where Rust takes 15 to 19.
-# With no such analysis on main yet (its push run hasn't got there), it analyses.
+# diffed against has that commit's results, so its job uploads that commit's analysis
+# again, for this commit, in place of analysing it: about a minute where Rust takes 15 to 19. A push
+# to main uploads its own commit's Rust analysis, which its merge queue group made; JavaScript that
+# changed is analysed on main too, where CodeQL saves the caches pull requests' analyses start from,
+# and the workflows take a minute. The analysis is main's, or the group's that made the commit, which
+# is there before main's push run gets to it. With none of either, or when GitHub's lists or the
+# analysis can't be read, it analyses.
 on:
   workflow_call:
     inputs:
@@ -57,27 +61,41 @@ jobs:
           persist-credentials: false
           # A pull request's merge commit and its first parent.
           fetch-depth: 2
-      # main's analysis of the base commit in this language, when its code is unchanged and main
-      # has one. The list is filtered here (see .github/actions/last-passed).
+      # An analysis in this language to upload again: a push's own commit's, for Rust, or the base
+      # commit's when the code is unchanged. Main's list reaches weeks back, and the list of every ref's, which has
+      # the merge queue groups', hours. They're filtered here (see .github/actions/last-passed), to
+      # the commit and category, and to what ran on main or in its queue.
       - id: reuse
-        if: contains(fromJSON(inputs.unchanged), matrix.language)
+        if: (github.event_name == 'push' && matrix.language == 'rust') || contains(fromJSON(inputs.unchanged), matrix.language)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+          UNCHANGED: ${{ contains(fromJSON(inputs.unchanged), matrix.language) }}
           BASE: ${{ inputs.base }}
-          CATEGORY: /language:${{ matrix.language }}
+          LANGUAGE: ${{ matrix.language }}
         run: |
-          base=${BASE:-$(git rev-parse HEAD^1)}
-          id=$(gh api "repos/$GH_REPO/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" |
-            jq -r --arg category "$CATEGORY" --arg sha "$base" \
-              '[.[] | select(.category == $category and .commit_sha == $sha and .error == "")][0].id // empty')
-          if [ -z "$id" ]; then
-            echo "main has no $CATEGORY analysis of $base yet, so this one analyses"
+          commits=()
+          if [ "$EVENT" = push ] && [ "$LANGUAGE" = rust ]; then commits+=("$SHA"); fi
+          if [ "$UNCHANGED" = true ]; then commits+=("${BASE:-$(git rev-parse HEAD^1)}"); fi
+          list="repos/$GH_REPO/code-scanning/analyses?tool_name=CodeQL&per_page=100"
+          if ! { gh api "$list&ref=refs/heads/main" && gh api "$list" && gh api "$list&page=2"; } > "$RUNNER_TEMP/analyses.json"; then
+            echo "The analyses couldn't be listed, so this one analyses"
             exit 0
           fi
-          gh api -H "Accept: application/sarif+json" "repos/$GH_REPO/code-scanning/analyses/$id" > "$RUNNER_TEMP/main.sarif"
-          echo "Reusing analysis $id of $base"
-          echo "sarif=$RUNNER_TEMP/main.sarif" >> "$GITHUB_OUTPUT"
+          for commit in "${commits[@]}"; do
+            id=$(jq -rs --arg category "/language:$LANGUAGE" --arg sha "$commit" '
+              [add | .[] | select(.category == $category and .commit_sha == $sha and .error == ""
+                and (.ref == "refs/heads/main" or (.ref | startswith("refs/heads/gh-readonly-queue/main/"))))][0].id // empty' \
+              "$RUNNER_TEMP/analyses.json") || id=
+            if [ -n "$id" ] && gh api -H "Accept: application/sarif+json" "repos/$GH_REPO/code-scanning/analyses/$id" > "$RUNNER_TEMP/reused.sarif"; then
+              echo "Reusing analysis $id of $commit"
+              echo "sarif=$RUNNER_TEMP/reused.sarif" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "No $CATEGORY analysis of $commit to reuse"
+          done
       - if: steps.reuse.outputs.sarif != ''
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:

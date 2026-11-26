@@ -73,7 +73,7 @@ fn hex_colours_are_lowercase_rrggbb() {
 /// Setting a token to colours it takes changes that token alone, to those colours; one it doesn't
 /// take (a gradient of one, a colour of two, a name it doesn't have) changes nothing.
 #[hegel::test(test_cases = 300)]
-fn setting_a_token_changes_it_alone(tc: TestCase) {
+fn prop_setting_a_token_changes_it_alone(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(TOKENS.to_vec()));
     let colors = tc.draw(gs::vecs(gs::arrays(gs::integers::<u8>())).max_size(4));
     let gradient = name.starts_with("waveform.");
@@ -136,7 +136,7 @@ fn prop_hex_is_six_lower_case_digits_after_a_hash(tc: TestCase) {
 
 /// Any colour written `#rrggbb` reads back as itself.
 #[hegel::test(test_cases = 200)]
-fn hex_reads_back_what_it_writes(tc: TestCase) {
+fn prop_hex_reads_back_what_it_writes(tc: TestCase) {
     let [r, g, b] = tc.draw(gs::arrays(gs::integers::<u8>()));
     assert_eq!(hex(&format!("#{r:02x}{g:02x}{b:02x}")), Some([r, g, b]));
 }

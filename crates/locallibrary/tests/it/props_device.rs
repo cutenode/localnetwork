@@ -29,7 +29,7 @@ const OPS: &[LineageOp] = &[
 ];
 
 #[hegel::test(test_cases = 60)]
-fn a_cut_off_operation_says_what_finishes_it(tc: TestCase) {
+fn prop_a_cut_off_operation_says_what_finishes_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
     let op = tc.draw(gs::sampled_from(OPS.to_vec()));
@@ -56,7 +56,7 @@ fn a_cut_off_operation_says_what_finishes_it(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 200)]
-fn the_lineage_keeps_the_newest_states_without_repeats(tc: TestCase) {
+fn prop_the_lineage_keeps_the_newest_states_without_repeats(tc: TestCase) {
     let entry = |n: u8| LineageEntry {
         fingerprint: Hash::of(&[n]),
         at: Utc::now(),
@@ -88,7 +88,7 @@ fn the_lineage_keeps_the_newest_states_without_repeats(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 200)]
-fn rekordbox_sync_files_read_back(tc: TestCase) {
+fn prop_rekordbox_sync_files_read_back(tc: TestCase) {
     let automatic = tc.draw(gs::booleans());
     let id = tc.draw(gs::integers::<i32>());
     let nodes = tc.draw(gs::integers::<usize>().max_value(5));
@@ -108,7 +108,7 @@ fn rekordbox_sync_files_read_back(tc: TestCase) {
 /// A drive's volume name is its folder's own name, wherever the folder is; at the top of the file
 /// system, where the folder has no name of its own, it's the whole path.
 #[hegel::test(test_cases = 50)]
-fn a_volumes_name_is_its_folders(tc: TestCase) {
+fn prop_a_volumes_name_is_its_folders(tc: TestCase) {
     let name = tc.draw(gs::text().alphabet("abcXYZ 09-_.é♪").min_size(1).max_size(12));
     // Windows drops a folder name's trailing dots, so `0.` makes the folder `0`.
     tc.assume(!name.trim_matches('.').is_empty() && name.trim() == name && !name.ends_with('.'));

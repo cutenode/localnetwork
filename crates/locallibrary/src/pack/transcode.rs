@@ -22,12 +22,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::check;
 use crate::device::Device;
-use crate::edit::{AudioFile, Move};
+use crate::edit::Move;
 use crate::equipment::{self, Codec, Model, Unplayable};
 use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
 use crate::library_write;
+use crate::model::AudioFile;
 use crate::model::{Track, TrackRef};
 use crate::paths;
 use crate::progress::{Ctx, Event, Phase};

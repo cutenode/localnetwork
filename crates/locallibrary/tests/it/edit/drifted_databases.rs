@@ -5,7 +5,8 @@ use crate::common;
 
 use std::path::{Path, PathBuf};
 
-use locallibrary::edit::{Edit, TrackFields};
+use locallibrary::edit::Edit;
+use locallibrary::model::TrackFields;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, paths, pdb};
 
@@ -74,7 +75,6 @@ fn what_onelibrary_lacks_is_edited_in_export_pdb_and_skipped_there() {
 /// entries doesn't drop the player's: they stay, after the edit's, with a warning.
 #[test]
 fn entries_only_onelibrary_has_survive_an_edit_of_the_playlist() {
-    use locallibrary::onelibrary::OneLibrary;
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
@@ -90,7 +90,7 @@ fn entries_only_onelibrary_has_survive_an_edit_of_the_playlist() {
     let pdb = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
     let file = |id: u32| pdb.track(id).unwrap().file_path.clone();
     // The player adds track 3, in OneLibrary.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let in_plus = plus.tracks.iter().find(|t| t.file_path == file(3)).unwrap().id;
     one.add_to_playlist(plus.find_playlist("Set").unwrap().id, in_plus).unwrap();
@@ -114,7 +114,6 @@ fn entries_only_onelibrary_has_survive_an_edit_of_the_playlist() {
 /// follow.
 #[test]
 fn an_edit_is_made_in_onelibrarys_own_entries() {
-    use locallibrary::onelibrary::OneLibrary;
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
@@ -130,7 +129,7 @@ fn an_edit_is_made_in_onelibrarys_own_entries() {
     let pdb = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
     let file = |id: u32| pdb.track(id).unwrap().file_path.clone();
     // The player takes 2 out and puts 3 first, in OneLibrary.
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let plus = one.library().unwrap();
     let in_plus = |id: u32| plus.tracks.iter().find(|t| t.file_path == file(id)).unwrap().id;
     let set = plus.find_playlist("Set").unwrap().id;

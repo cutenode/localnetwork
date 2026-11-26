@@ -405,17 +405,24 @@ impl App {
         let (t, r, auto_cue, store_root) = (track.clone(), root.clone(), self.deck.auto_cue, self.store_root.clone());
         // Matches and playlists need the drive's library, which is open unless the player
         // moved to another drive since the track was queued.
-        let library = self.loaded.as_ref().filter(|l| l.root() == root).map(|l| l.library.clone());
+        let open = self.loaded.as_ref().filter(|l| l.root() == root);
+        let library = open.map(|l| l.library.clone());
+        // rekordbox's collection keeps its cues in master.db, not in its analysis files.
+        let cues = open.and_then(|l| Some(l.collection_cues.as_ref()?.get(&track.id).cloned().unwrap_or_default()));
         let job = move |o: &Opening| {
             let file = Device::open(&r).map_err(anyhow::Error::from).and_then(|d| {
                 let mut file = audio::open_file(&d.checked_path(&paths::key(&t.file_path))?)?;
                 if auto_cue {
-                    file.start = crate::tui::deck::auto_cue(&anlz::load_grid(&d, &t));
+                    let mut grid = anlz::load_grid(&d, &t);
+                    if let Some(cues) = &cues {
+                        grid.cues.clone_from(cues);
+                    }
+                    file.start = crate::tui::deck::auto_cue(&grid);
                 }
                 Ok(file)
             });
             if o.send(Msg::Opened(id, file.map_err(|e| format!("{e:#}")))) {
-                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library, &store_root))));
+                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library, cues, &store_root))));
             }
         };
         self.opener.open(&self.tx, id, starts, Box::new(job));

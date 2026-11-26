@@ -19,7 +19,7 @@ fn silence_has_no_estimate() {
 /// Every key stratum-dsp names is the Camelot key on that tonic and in that mode, and a minor
 /// key is the relative of the major three semitones above it.
 #[hegel::test(test_cases = 50)]
-fn every_key_lands_on_its_camelot_key(tc: hegel::TestCase) {
+fn prop_every_key_lands_on_its_camelot_key(tc: hegel::TestCase) {
     let pitch = tc.draw(hegel::generators::integers::<u32>().max_value(11));
     let (major, minor) = (camelot(Key::Major(pitch)), camelot(Key::Minor(pitch)));
     assert_eq!((major.pitch(), major.major), (pitch, true));

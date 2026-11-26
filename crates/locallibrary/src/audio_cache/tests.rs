@@ -142,7 +142,7 @@ fn audio_files(tc: &TestCase, dir: &Path) -> Vec<(Audio, Outcome)> {
 /// decodes only what the first couldn't settle: unreadable files, which may read next time,
 /// and everything when the cache can't be written, which warns once per value it couldn't keep.
 #[hegel::test(test_cases = 60)]
-fn runs_decode_each_file_once_and_remember_what_doesnt_decode(tc: TestCase) {
+fn prop_runs_decode_each_file_once_and_remember_what_doesnt_decode(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let files = audio_files(&tc, dir.path());
     let writable = tc.draw(gs::booleans());
@@ -207,7 +207,7 @@ fn runs_decode_each_file_once_and_remember_what_doesnt_decode(tc: TestCase) {
 /// what it finished: every value it cached is that file's own, and a run after it finishes the
 /// job, working out only what the cancelled one didn't.
 #[hegel::test(test_cases = 40)]
-fn a_cancelled_run_keeps_what_it_finished(tc: TestCase) {
+fn prop_a_cancelled_run_keeps_what_it_finished(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
     let files: Vec<Audio> = (0..n)
@@ -277,7 +277,7 @@ impl<const V: u32> Kind for Stamped<V> {
 /// or the contents'), and works everything out again; `store gc` finds the old values as
 /// nothing reads them, and nothing of the new one's.
 #[hegel::test(test_cases = 40)]
-fn a_new_version_reads_nothing_an_old_one_kept(tc: TestCase) {
+fn prop_a_new_version_reads_nothing_an_old_one_kept(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (files, outcomes): (Vec<Audio>, Vec<Outcome>) = audio_files(&tc, dir.path()).into_iter().unzip();
     let contents: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(8)).max_size(4));

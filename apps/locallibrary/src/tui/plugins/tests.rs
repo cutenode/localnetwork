@@ -1089,7 +1089,8 @@ fn palette(app: &App) -> (Vec<Item>, Vec<Act>) {
 
 /// The list open moved (with the arrows) to its `i`th item.
 fn move_to(app: &mut App, i: usize) {
-    for _ in 0..200 {
+    // As many presses as the list has rows: the palette holds hundreds, and grows with plugins.
+    for _ in 0..=picker(app).shown.len() {
         let p = picker(app);
         let at = p.state.selected().unwrap_or(0);
         // What's run lately comes first, so an item's place isn't its row.
@@ -1139,7 +1140,7 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 /// settings or which provider to fetch from, a job, a panel, a column, a theme) and esc backs out
 /// of it to the view it started in.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
+fn prop_the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
     // Every plugin here reads the drive, or reads only rekordbox's collection: its hooks need a
     // drive open (a folder opened by path too) but for its commands about the collection alone;
@@ -1241,7 +1242,7 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
 /// chosen (its accent on screen, no other's), says so, and keeps it for next time; the default
 /// too.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_theme_chosen_last_is_drawn_and_kept(tc: TestCase) {
+fn prop_the_theme_chosen_last_is_drawn_and_kept(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
@@ -1500,7 +1501,7 @@ fn expected(t: &Typed) -> Result<Value, (usize, String)> {
 /// is the drive and the tracks marked (else the one selected). What the plugin logs goes to the
 /// messages, not the footer. Esc closes a form refused, back to the library.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_commands_form_sends_what_fits_its_schema(tc: TestCase) {
+fn prop_a_commands_form_sends_what_fits_its_schema(tc: TestCase) {
     plugins_once();
     let drive = plugged();
     let mut app = app_on(&drive.0);
@@ -1724,7 +1725,7 @@ fn cells(v: &View) -> Vec<String> {
 /// from top to bottom it shows each of its lines (a table's cut at the panel's edge, the rest
 /// wrapped); any other key closes it.
 #[hegel::test(test_cases = 60)]
-fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
+fn prop_a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
     let (mut app, _dir) = blank(Screen::Library);
     let answer = match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => CommandOutput::Headless(Value::Null),
@@ -1864,7 +1865,7 @@ fn ctrl(app: &mut App, c: char) {
 /// so; otherwise the confirmation has the plugin's summary, a no writes nothing, a yes writes
 /// the playlist (the drive read again shows it) and u takes the drive back to how it was.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_operation_is_planned_applied_and_taken_back(tc: TestCase) {
+fn prop_an_operation_is_planned_applied_and_taken_back(tc: TestCase) {
     plugins_once();
     let drive = plugged();
     let mut app = app_on(&drive.0);
@@ -1946,7 +1947,7 @@ fn a_library_source_asks_for_its_folders_and_options() {
 /// writes every track's file into it, anything else leaves what was there. Onto the drive itself,
 /// it's refused.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn an_export_is_planned_then_written_or_left_be(tc: TestCase) {
+fn prop_an_export_is_planned_then_written_or_left_be(tc: TestCase) {
     plugins_once();
     let drive = plugged();
     let mut app = app_on(&drive.0);
@@ -2020,7 +2021,7 @@ fn an_export_is_planned_then_written_or_left_be(tc: TestCase) {
 /// (left empty, its default), only those set apart from their defaults are written, the form
 /// opens again as it was saved, and saving that again changes nothing. Esc keeps nothing.
 #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
+fn prop_settings_are_kept_as_the_form_has_them(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     let greeting = tc.draw(gs::sampled_from(&["", "hi", "日本 😹", "hello"][..]));
@@ -2101,7 +2102,7 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
 /// saying "as given" and warning "given"), the confirmation has its summary first, each playlist
 /// it makes, and its warning once; a yes makes them all on the drive and u takes them all back.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
+fn prop_a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
     plugins_once();
     let drive = plugged();
     let mut app = app_on(&drive.0);

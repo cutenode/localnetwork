@@ -24,7 +24,7 @@ fn a_time_past_what_a_cue_holds_is_refused() {
 /// a colon, an empty part, more than three parts, a part that isn't a number or a time past what a
 /// cue holds don't read, and the error quotes what was given.
 #[hegel::test(test_cases = 300)]
-fn times_read_back_however_they_are_written(tc: hegel::TestCase) {
+fn prop_times_read_back_however_they_are_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let ms = tc.draw(gs::integers::<u32>());
     let (h, m, s, frac) = (ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000);
@@ -54,7 +54,7 @@ fn times_read_back_however_they_are_written(tc: hegel::TestCase) {
 /// cue at a time, else the one on a beat. A track's cues are listed with a warning when the
 /// OneLibrary database has a different number of them.
 #[hegel::test(test_cases = 200)]
-fn a_cues_line_shows_what_it_has(tc: hegel::TestCase) {
+fn prop_a_cues_line_shows_what_it_has(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::model::TrackRef;
     let maybe = |tc: &hegel::TestCase| tc.draw(gs::booleans());
@@ -105,4 +105,14 @@ fn a_cues_line_shows_what_it_has(tc: hegel::TestCase) {
         warnings: tc.draw(gs::subsequences(vec!["no beat grid".to_string()])),
     }];
     render_list(&list);
+}
+
+#[test]
+fn a_style_is_picked_by_number_or_name() {
+    assert_eq!(choice("\n"), Ok(CueStyle::ALL[0]));
+    assert_eq!(choice("2"), Ok(CueStyle::ALL[1]));
+    assert_eq!(choice(" intro-chorus \n"), Ok(CueStyle::IntroChorus));
+    assert!(choice("0").is_err() && choice("9").is_err() && choice("nope").is_err());
+    let mut typed = std::io::Cursor::new("first-cue\n");
+    assert_eq!(ask_style(&mut typed).unwrap(), CueStyle::FirstCue);
 }

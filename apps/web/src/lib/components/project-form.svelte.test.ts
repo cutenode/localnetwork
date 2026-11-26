@@ -2,7 +2,7 @@ import { createRawSnippet } from 'svelte';
 import { page } from 'vitest/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
+import { draftKey, hasDraft } from '#lib/form-draft.page-only.svelte.ts';
 import { stubFormAction } from '#lib/testing/form-action.ts';
 import type { ProjectFormValues } from '#lib/types.ts';
 import ProjectForm from './ProjectForm.svelte';

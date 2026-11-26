@@ -136,9 +136,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -2739,22 +2739,24 @@ dependencies = [
  "loclib-analysis",
  "loclib-anlz",
  "loclib-audio",
+ "loclib-aup",
  "loclib-capacity",
+ "loclib-disk",
+ "loclib-drive-speed",
  "loclib-equipment",
+ "loclib-format",
  "loclib-mixid",
  "loclib-model",
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
- "loclib-sqlcipher",
+ "loclib-rekordbox-db",
  "loclib-tracklist",
  "loclib-transcode",
  "lofty",
  "memchr",
  "oauth2",
  "percent-encoding",
- "plist",
- "quick-xml",
  "rayon",
  "rekordbox-pdb",
  "reqwest",
@@ -2767,7 +2769,6 @@ dependencies = [
  "sha2 0.10.9",
  "strsim",
  "symphonia",
- "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -2805,8 +2806,12 @@ dependencies = [
  "locallibrary-plugin-interop",
  "loclib-anlz",
  "loclib-audio",
+ "loclib-aup",
  "loclib-interop",
+ "loclib-mixid",
  "loclib-mysettings",
+ "loclib-progress",
+ "loclib-rekordbox-db",
  "loclib-tracklist",
  "rekordbox-pdb",
  "rusqlite",
@@ -2858,6 +2863,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-aup"
+version = "0.1.0"
+dependencies = [
+ "loclib-audio",
+ "loclib-progress",
+ "loclib-sqlcipher",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "loclib-capacity"
 version = "0.1.0"
 dependencies = [
@@ -2869,6 +2888,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-disk"
+version = "0.1.0"
+dependencies = [
+ "loclib-format",
+]
+
+[[package]]
+name = "loclib-drive-speed"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fs4",
+ "loclib-capacity",
+ "loclib-progress",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "loclib-equipment"
 version = "0.1.0"
 dependencies = [
@@ -2876,6 +2917,23 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-format"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake3",
+ "chrono",
+ "loclib-equipment",
+ "loclib-progress",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
@@ -2920,6 +2978,7 @@ dependencies = [
  "schemars",
  "serde",
  "tempfile",
+ "thiserror 2.0.21",
  "unicode-normalization",
 ]
 
@@ -2960,6 +3019,30 @@ version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-rekordbox-db"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chrono",
+ "directories",
+ "getrandom 0.3.4",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-sqlcipher",
+ "plist",
+ "quick-xml",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -4155,6 +4238,9 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "rekordbox-pdb"
 version = "0.1.0+locallibrary.1"
+dependencies = [
+ "loclib-model",
+]
 
 [[package]]
 name = "reqwest"

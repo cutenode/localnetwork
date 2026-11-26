@@ -18,7 +18,7 @@ fn store() -> &'static Store {
 /// Any time a check is given, however long, it runs: a deadline past what the clock can say is
 /// none, rather than a panic.
 #[hegel::test(test_cases = 50)]
-fn a_check_is_run_within_any_time(tc: TestCase) {
+fn prop_a_check_is_run_within_any_time(tc: TestCase) {
     let timeout = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => Duration::MAX,
         1 => Duration::new(tc.draw(gs::integers::<u64>()), tc.draw(gs::integers::<u32>().max_value(999_999_999))),
@@ -34,7 +34,7 @@ fn a_check_is_run_within_any_time(tc: TestCase) {
 /// A timeout is set only from [`MIN_TIMEOUT`] to [`MAX_TIMEOUT`]; one kept otherwise (by hand)
 /// reads as the nearest of them, and one of 0 or less as [`TIMEOUT`].
 #[hegel::test(test_cases = 60)]
-fn a_timeout_is_a_millisecond_to_an_hour(tc: TestCase) {
+fn prop_a_timeout_is_a_millisecond_to_an_hour(tc: TestCase) {
     let store = store();
     let secs = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => tc.draw(gs::sampled_from(vec![

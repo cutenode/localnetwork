@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use super::{LibraryCache, LibraryRef, TrackSelector, resolve_drive};
-use crate::cue_edit::{self, CueEdit, CuePlan, CueRef, CueReport, SetCue, TrackCues, UpdateCue};
+use crate::cue_edit::{self, AutoCues, CueEdit, CuePlan, CueRef, CueReport, SetCue, TrackCues, UpdateCue};
 use crate::device::Device;
 use crate::op::{Operation, Planned, Probe, Touched};
 use crate::progress::Ctx;
@@ -27,7 +27,7 @@ pub fn cues_list(req: &ListCues) -> Result<Vec<TrackCues>> {
 /// What to do to the selected tracks' cues, tagged by `op`:
 /// `{"op": "set", "hot_cue": "B", "at": {"ms": 62500}, "loop_beats": 8, "name": "Drop", "color": "red"}`,
 /// `{"op": "update", "cue": {"hot": "B"}, "name": "Drop"}`, `{"op": "delete", "cue": "all"}`,
-/// `{"op": "copy", "from": {"ids": [12]}}`.
+/// `{"op": "copy", "from": {"ids": [12]}}`, `{"op": "auto", "style": "rekordbox"}`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum CueOp {
@@ -40,6 +40,8 @@ pub enum CueOp {
     Copy {
         from: TrackSelector,
     },
+    /// Place the cues a style puts on each track, from its own beat grid and phrases.
+    Auto(AutoCues),
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -63,6 +65,7 @@ fn edit_of(req: &EditCues) -> Result<(Device, Vec<u32>, CueEdit)> {
             [one] => CueEdit::Copy { from: one },
             ref many => return Err(Error::invalid(format!("copy from one track ({} selected)", many.len()))),
         },
+        CueOp::Auto(a) => CueEdit::Auto(*a),
     };
     Ok((d, ids, edit))
 }

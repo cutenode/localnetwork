@@ -61,7 +61,7 @@ fn round_trips_beside_the_store_until_there_is_one() {
 /// Whatever's saved reads back the same, beside the store before there is one and in it
 /// after; and nothing is saved inside the drive that was open.
 #[hegel::test(test_cases = 40)]
-fn what_is_saved_reads_back(tc: hegel::TestCase) {
+fn prop_what_is_saved_reads_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("store");
@@ -109,7 +109,7 @@ fn what_is_saved_reads_back(tc: hegel::TestCase) {
 /// A store at the top of the disk has no folder beside it to keep the player's state in: nothing
 /// is saved there, and the next run starts fresh.
 #[hegel::test(test_cases = 20)]
-fn a_store_with_nothing_beside_it_keeps_nothing(tc: hegel::TestCase) {
+fn prop_a_store_with_nothing_beside_it_keeps_nothing(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let root = std::path::Path::new("/");
     let saved = Saved {
@@ -203,7 +203,7 @@ fn preferences_of(saved: &Saved) -> Saved {
 /// player; where it was (the drive, the list, the queue, its panels, the volume, the output)
 /// never goes out.
 #[hegel::test(test_cases = 30)]
-fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCase) {
+fn prop_its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::api;
     let dir = tempfile::tempdir().unwrap();
@@ -283,7 +283,7 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
 /// for it, and those aren't what the file holds.
 #[cfg(unix)]
 #[hegel::test(test_cases = 10)]
-fn a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
+fn prop_a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("store");

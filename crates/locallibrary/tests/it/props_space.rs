@@ -48,7 +48,7 @@ fn library_kind(key: &str) -> SpaceKind {
 }
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn every_byte_is_counted_once_in_its_kind(tc: TestCase) {
+fn prop_every_byte_is_counted_once_in_its_kind(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "A");
     let mut want: IndexMap<SpaceKind, (usize, u64)> = IndexMap::new();
@@ -91,7 +91,7 @@ fn every_byte_is_counted_once_in_its_kind(tc: TestCase) {
 /// The library fits on another drive of its set exactly when its size and the players' headroom
 /// fit in the room that drive had, and no forecast is made from one day's snapshots.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn fitting_on_the_set_goes_by_each_drives_room(tc: TestCase) {
+fn prop_fitting_on_the_set_goes_by_each_drives_room(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();

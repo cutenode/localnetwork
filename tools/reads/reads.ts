@@ -12,8 +12,7 @@
 //
 // A read of a folder counts the files in it, or one folder down, whose names the same file spells
 // out (`README.md`, `src/lib.rs`); when it names none, the folder itself is the read, as `<folder>/`.
-//
-//   node tools/reads/cli.ts > reads.json
+// tools/policy/inputs.ts writes them to reads.json for the policies.
 import { posix } from 'node:path';
 
 export interface Read {

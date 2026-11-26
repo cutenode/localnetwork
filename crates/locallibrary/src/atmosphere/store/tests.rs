@@ -53,7 +53,7 @@ fn each_accounts_secrets_have_their_own_place_in_the_file() {
 /// that's damaged, even past being text, is still replaced.
 #[cfg(unix)]
 #[hegel::test(test_cases = 10)]
-fn a_session_file_that_cant_be_read_keeps_every_account(tc: hegel::TestCase) {
+fn prop_a_session_file_that_cant_be_read_keeps_every_account(tc: hegel::TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -285,7 +285,7 @@ fn auth_request(state: &str) -> AuthRequestData {
 /// when another signs in (or remembered, when the keychain won't let go), and the sign-ins
 /// in flight kept by their state.
 #[hegel::test(test_cases = 6)]
-fn the_store_agrees_with_a_model_of_one_account(tc: TestCase) {
+fn prop_the_store_agrees_with_a_model_of_one_account(tc: TestCase) {
     crate::atmosphere::tests::mock_keychain();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

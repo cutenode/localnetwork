@@ -57,7 +57,7 @@ fn spelled(key: Camelot) -> String {
 /// Ids are file names up to the first dot, in any folder: a name made of an id and dotted
 /// suffixes reads as that id, and one with nothing before its first dot has none.
 #[hegel::test(test_cases = 300)]
-fn ids_are_names_up_to_the_first_dot(tc: TestCase) {
+fn prop_ids_are_names_up_to_the_first_dot(tc: TestCase) {
     let named = [
         ("audio/1030011.LOFI.mp3", Some("1030011")),
         (r"C:\gs\5.LOFI.key", Some("5")),
@@ -88,7 +88,7 @@ fn ids_are_names_up_to_the_first_dot(tc: TestCase) {
 /// for (the ones it fails on as misses), by what it heard; the rest are unmatched. Without
 /// annotations, or anything to score, there's nothing to do.
 #[hegel::test(test_cases = 8)]
-fn scores_count_every_annotated_track_once(tc: TestCase) {
+fn prop_scores_count_every_annotated_track_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, folder, keys_dir, tempos_dir) =
         (dir.path().join("drive"), dir.path().join("audio"), dir.path().join("key"), dir.path().join("tempo"));
@@ -189,7 +189,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
 /// path. Without the bad one, the same annotations read (and scoring then wants something to
 /// score).
 #[hegel::test(test_cases = 40)]
-fn annotations_that_dont_read_are_refused_naming_the_file(tc: TestCase) {
+fn prop_annotations_that_dont_read_are_refused_naming_the_file(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (keys_dir, tempos_dir) = (dir.path().join("key"), dir.path().join("tempo"));
     std::fs::create_dir_all(&keys_dir).unwrap();

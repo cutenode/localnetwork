@@ -13,6 +13,7 @@ use crate::analysis::PhraseKind;
 use crate::model::TrackColor;
 use crate::tokens::{self, Rgb};
 
+/// Every colour DJ data and a player's own chrome are drawn in, by role, each 8-bit sRGB.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     /// Text.
@@ -42,8 +43,11 @@ pub struct Theme {
     pub mixes: Rgb,
     /// A record drawn for a track without cover art.
     pub vinyl: Rgb,
+    /// Something that's fine (`status.dark.good`).
     pub good: Rgb,
+    /// Something worth a look (`status.dark.warning`).
     pub warning: Rgb,
+    /// Something wrong (`status.dark.critical`).
     pub critical: Rgb,
     /// The 3-band waveform: low, mid and high.
     pub bands: [Rgb; 3],
@@ -57,6 +61,7 @@ pub struct Theme {
     pub loop_cue: Rgb,
     /// rekordbox's track colours, pink to purple (also the memory cue colour table).
     pub track_colors: [Rgb; 8],
+    /// The playhead.
     pub playhead: Rgb,
     /// The spectrum's bars by height, bottom to top: two colours or more.
     pub spectrum: Cow<'static, [Rgb]>,

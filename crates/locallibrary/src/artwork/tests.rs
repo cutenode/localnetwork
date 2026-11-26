@@ -57,7 +57,7 @@ use hegel::generators as gs;
 /// by its hash while the drive keeps it and refused, naming it, once it doesn't. Text that isn't
 /// base64, or bytes that aren't an image, are refused as images.
 #[hegel::test(test_cases = 30)]
-fn images_are_staged_by_the_hash_of_their_jpeg(tc: TestCase) {
+fn prop_images_are_staged_by_the_hash_of_their_jpeg(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let device = Device::open(dir.path()).unwrap();
     let (w, h) = (

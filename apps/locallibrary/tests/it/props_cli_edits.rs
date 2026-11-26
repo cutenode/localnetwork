@@ -347,7 +347,7 @@ fn tracklists(fx: &Env) {
 /// succeeds, says it did, and leaves the playlists, tracks, cues and tags the plan says.
 // Each case runs every edit: each run tries another order, other drives and arguments.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
+fn prop_edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
     let fx = Env::from_template();
     tracklists(&fx);
     // The blank drive made a copy of library A, or not: an edit to A then says it's copied onto

@@ -4,7 +4,7 @@
 	import type { DjSetView, ProjectMix } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
-	import MixEmbed from './mix/MixEmbed.svelte';
+	import MixEmbed from './mix/MixEmbed.page-only.svelte';
 	import LinkedSet from './LinkedSet.svelte';
 	import { webHref } from '#lib/web-url.ts';
 

@@ -51,7 +51,7 @@ fn ending(tc: &TestCase) -> Try {
 /// (saying the tracklist and tags that would go, when there are any), or a recording or picture
 /// Mixcloud wouldn't take, sends nothing.
 #[hegel::test(test_cases = 50)]
-fn the_form_goes_until_mixcloud_makes_or_refuses_it(tc: TestCase) {
+fn prop_the_form_goes_until_mixcloud_makes_or_refuses_it(tc: TestCase) {
     let (set, tags, tracklist) = any_set(&tc, 12);
     let unlisted = tc.draw(gs::booleans());
     // Mostly a recording Mixcloud takes, published.
@@ -153,7 +153,7 @@ fn the_form_goes_until_mixcloud_makes_or_refuses_it(tc: TestCase) {
 /// timeout, a server error, the rate limit for up to 15 minutes), and otherwise the error says
 /// it in Mixcloud's words, its kind saying what's wrong, and what to do when there's something.
 #[hegel::test(test_cases = 100)]
-fn a_refusal_is_said_in_mixclouds_words(tc: TestCase) {
+fn prop_a_refusal_is_said_in_mixclouds_words(tc: TestCase) {
     let status = tc.draw(gs::sampled_from(vec![400, 401, 403, 404, 408, 413, 429, 500, 503]));
     let kind = tc.draw(gs::sampled_from(vec!["", "RateLimitException", "UploadLimitException", "OAuthException"]));
     let message = tc.draw(gs::sampled_from(vec!["", "No.", "You have reached your upload limit."]));

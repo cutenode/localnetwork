@@ -90,7 +90,7 @@ fn drawn_value(tc: &TestCase, kind: &str, fits: bool) -> Value {
 /// the param (an item of its list, with `multi`); and answered with any of its items, the params
 /// it gives the hook again fit the hook's schema.
 #[hegel::test(test_cases = 60)]
-fn a_choice_that_checks_is_answered_with_params_that_fit(tc: TestCase) {
+fn prop_a_choice_that_checks_is_answered_with_params_that_fit(tc: TestCase) {
     let kind = tc.draw(gs::sampled_from(vec!["integer", "string", "boolean"]));
     let multi = tc.draw(gs::booleans());
     let property = match multi {
@@ -195,7 +195,7 @@ fn a_host_that_doesnt_know_more_reads_the_first_question() {
 /// at most as many as a round may ask, each about a param of its own whose values it takes; and
 /// answered, every param asked about is set, fitting the hook's schema.
 #[hegel::test(test_cases = 60)]
-fn questions_that_check_are_answered_with_params_that_fit(tc: TestCase) {
+fn prop_questions_that_check_are_answered_with_params_that_fit(tc: TestCase) {
     let schema = json!({
         "type": "object",
         "additionalProperties": false,

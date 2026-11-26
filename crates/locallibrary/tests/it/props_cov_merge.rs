@@ -11,7 +11,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions, PlaylistMode};
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::progress::{CancelToken, Ctx, Event, Phase};
 
@@ -119,7 +119,7 @@ fn prop_hot_cue_bank_lists_side_by_side_keep_their_order(tc: TestCase) {
     common::add_onelibrary(&guest);
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
     let positions: Vec<i64> = (0..n).map(|_| tc.draw(gs::integers::<i64>().min_value(0).max_value(3))).collect();
-    let mut one = OneLibrary::open_root(&guest).unwrap();
+    let mut one = onelibrary::open_root(&guest).unwrap();
     let first = one.library().unwrap().tracks[0].id;
     let mut lists = Vec::new();
     for (i, position) in positions.iter().enumerate() {
@@ -148,7 +148,7 @@ fn prop_hot_cue_bank_lists_side_by_side_keep_their_order(tc: TestCase) {
     let report = merge::apply(&plan, &src, &mut dst, &opts, &warnings.ctx()).unwrap();
     assert_eq!(report.hot_cue_bank_lists_added, n, "{:?}", warnings.said());
 
-    let lists = OneLibrary::open_root(&main).unwrap().hot_cue_bank_lists().unwrap();
+    let lists = onelibrary::open_root(&main).unwrap().hot_cue_bank_lists().unwrap();
     let folder = lists.iter().find(|l| l.is_folder && l.name == "From Guest").expect("the merge folder");
     let mut inside: Vec<_> = lists.iter().filter(|l| l.parent_id == Some(folder.id)).collect();
     inside.sort_by_key(|l| (l.sort_order, l.id));

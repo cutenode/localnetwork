@@ -18,7 +18,7 @@ fn list(id: u32, parent_id: Option<u32>, name: &str, is_folder: bool, track_ids:
 }
 
 #[hegel::test(test_cases = 200)]
-fn tempo_colour_and_playlist_terms_select_what_they_name(tc: TestCase) {
+fn prop_tempo_colour_and_playlist_terms_select_what_they_name(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let mut lib = Library::default();
     for id in 1..=n {

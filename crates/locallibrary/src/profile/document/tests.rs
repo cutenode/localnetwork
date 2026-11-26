@@ -132,7 +132,7 @@ use hegel::{Generator, TestCase};
 /// Rounded, a count is a round number it's at least: itself below 10, then a multiple of 5,
 /// 50, 500 or 5000 as it grows, less than one step below it. Exact, it's itself.
 #[hegel::test(test_cases = 300)]
-fn counts_round_down_to_round_numbers_they_reach(tc: TestCase) {
+fn prop_counts_round_down_to_round_numbers_they_reach(tc: TestCase) {
     let n = tc.draw(hegel::one_of!(gs::integers::<usize>().max_value(200), gs::integers::<usize>().max_value(100_000)));
     assert_eq!(Round(Precision::Exact).count(n), Count::Exact { count: n as u64 });
     let steps = [(10, 1), (100, 5), (1000, 50), (10_000, 500)];
@@ -150,7 +150,7 @@ fn counts_round_down_to_round_numbers_they_reach(tc: TestCase) {
 /// of what they round, and together within a step of what they add up to: exactly the whole
 /// when nothing is left out.
 #[hegel::test(test_cases = 300)]
-fn rounded_shares_still_add_up(tc: TestCase) {
+fn prop_rounded_shares_still_add_up(tc: TestCase) {
     let r = Round(if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded });
     let step = 1.0 / r.units();
     let weights: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(100)).min_size(1).max_size(6));
@@ -175,7 +175,7 @@ fn rounded_shares_still_add_up(tc: TestCase) {
 /// document. Any key at all loses its underscores, and otherwise only the case of its letters
 /// can change; a key read once reads the same again.
 #[hegel::test(test_cases = 200)]
-fn setting_keys_read_in_camel_case(tc: TestCase) {
+fn prop_setting_keys_read_in_camel_case(tc: TestCase) {
     #[derive(Serialize, Default)]
     #[serde(rename_all = "camelCase")]
     struct Named {

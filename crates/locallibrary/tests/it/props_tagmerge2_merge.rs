@@ -13,7 +13,6 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions, PlaylistMode};
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Library, Playlist, paths, pdb};
 use rekordbox_pdb::{ExtDatabase, ExtEditor, NewTrack, PdbEditor};
@@ -48,7 +47,7 @@ fn onelibrary_source(dir: &Path, name: &str, chain: &[String], history: &[String
 /// characters), a history list past 4,040, and a playlist the merge folder would put deeper than
 /// playlists nest.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn names_and_depths_the_target_cant_hold_are_refused_when_planning(tc: TestCase) {
+fn prop_names_and_depths_the_target_cant_hold_are_refused_when_planning(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let main = common::bigger_drive(dir.path(), "Main");
     let before = common::Before::take(&main);
@@ -120,7 +119,7 @@ fn guest(dir: &Path, outside: &str) -> PathBuf {
     }
     ed.save(&ext_path).unwrap();
     common::add_onelibrary(&root);
-    let mut one = OneLibrary::open_root(&root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&root).unwrap();
     let ext = ExtDatabase::from_file(&ext_path).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
@@ -155,7 +154,7 @@ fn guest(dir: &Path, outside: &str) -> PathBuf {
 /// tags beyond rekordbox's limits (the others carried, and none left on a reused id), the matched
 /// track's playlist entries in OneLibrary. No hot cue bank list comes: none holds a cue that does.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_merge_says_what_it_leaves_behind(tc: TestCase) {
+fn prop_a_merge_says_what_it_leaves_behind(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let outside = tc.draw(gs::sampled_from(vec!["/../escape.mp3", "/PIONEER/rekordbox/export.pdb"]));
     let src_root = guest(dir.path(), outside);
@@ -168,7 +167,7 @@ fn a_merge_says_what_it_leaves_behind(tc: TestCase) {
     .unwrap();
     common::add_onelibrary(&both);
     let ext = ExtDatabase::from_file(both.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(&both).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&both).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
     }
@@ -230,7 +229,7 @@ fn a_merge_says_what_it_leaves_behind(tc: TestCase) {
 /// drive with only OneLibrary takes the tracks with their image and tags. A merge whose files are
 /// bigger than the target holds is refused when applied, the target left alone.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase) {
+fn prop_a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // A guest whose artwork has no larger copy, with a history list, and a OneLibrary without
     // the table of its tracks' My Tags.
@@ -246,7 +245,7 @@ fn a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase
     ed.link(ed.tags(ed.categories()[0].0)[0].0, 1).unwrap();
     ed.save(src_root.join(paths::EXPORT_EXT_PDB)).unwrap();
     common::add_onelibrary(&src_root);
-    let one = OneLibrary::open_root(&src_root).unwrap();
+    let one = locallibrary::onelibrary::open_root(&src_root).unwrap();
     one.connection().execute_batch("DROP TABLE myTag_content").unwrap();
     fs::write(src_root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     let src = Device::open_export(&src_root).unwrap();

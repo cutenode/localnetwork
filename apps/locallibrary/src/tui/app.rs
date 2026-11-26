@@ -414,6 +414,8 @@ pub struct App {
     last_volume_poll: Instant,
     last_tick: Instant,
     last_seek: Instant,
+    /// A drag along player mode's zoomed waveform, under way.
+    zoom_drag: Option<ZoomDrag>,
     /// When a row was last clicked, and which. Only a click on that same row soon after is a
     /// second click.
     last_click: Option<(Instant, ClickedRow)>,
@@ -607,6 +609,7 @@ impl App {
             last_volume_poll: Instant::now(),
             last_tick: Instant::now(),
             last_seek: Instant::now(),
+            zoom_drag: None,
             last_click: None,
             rng: seed | 1,
             next_id: 1,

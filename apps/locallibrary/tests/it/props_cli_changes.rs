@@ -664,7 +664,7 @@ fn changes_agree(flags: &[bool], order: Vec<usize>, changes: Changes) {
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..DRIVE_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..DRIVE_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>(), order = (0..DRIVE_CHANGES.len()).rev().collect::<Vec<usize>>())]
-fn drive_changes_say_what_their_json_says(tc: TestCase) {
+fn prop_drive_changes_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..DRIVE_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, DRIVE_CHANGES);
@@ -676,7 +676,7 @@ fn drive_changes_say_what_their_json_says(tc: TestCase) {
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..LIBRARY_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..LIBRARY_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>(), order = (0..LIBRARY_CHANGES.len()).rev().collect::<Vec<usize>>())]
-fn library_changes_say_what_their_json_says(tc: TestCase) {
+fn prop_library_changes_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..LIBRARY_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, LIBRARY_CHANGES);
@@ -688,7 +688,7 @@ fn library_changes_say_what_their_json_says(tc: TestCase) {
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..SYNC_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..SYNC_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>(), order = (0..SYNC_CHANGES.len()).rev().collect::<Vec<usize>>())]
-fn sync_changes_say_what_their_json_says(tc: TestCase) {
+fn prop_sync_changes_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..SYNC_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, SYNC_CHANGES);
@@ -700,7 +700,7 @@ fn sync_changes_say_what_their_json_says(tc: TestCase) {
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..STORE_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..STORE_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>(), order = (0..STORE_CHANGES.len()).rev().collect::<Vec<usize>>())]
-fn store_changes_say_what_their_json_says(tc: TestCase) {
+fn prop_store_changes_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..STORE_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, STORE_CHANGES);
@@ -716,7 +716,7 @@ fn store_changes_say_what_their_json_says(tc: TestCase) {
 // `exportLibrary.db` (encrypted afresh each time it's written) went in a fan-out folder of its own
 // in each copy.
 #[hegel::explicit_test_case(flags = picked(&[1, 2, 3, 5, 7, 8, 9, 10, 11, 12, 18, 20, 21, 24, 25]), order = vec![15usize, 7, 2, 12, 28, 5, 8, 4, 3, 0, 25, 14, 16, 17, 19, 29, 32, 6, 1, 22, 11, 26, 13, 31, 20, 30, 10, 21, 18, 27, 34, 24, 9, 33, 23])]
-fn jobs_say_what_their_json_says(tc: TestCase) {
+fn prop_jobs_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..JOBS_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, JOBS_CHANGES);
@@ -756,7 +756,7 @@ fn redraw_waveform(ext: &Path, wav: &[u8]) {
 /// that can't play a 96 kHz track says what its JSON says, and points to `pack --transcode`.
 #[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(delay = 26usize, remove_old = true)]
-fn upgrades_say_what_their_json_says(tc: TestCase) {
+fn prop_upgrades_say_what_their_json_says(tc: TestCase) {
     let delay = tc.draw(gs::integers::<usize>().max_value(60));
     let remove_old = tc.draw(gs::booleans());
     let h = Env::from_template();

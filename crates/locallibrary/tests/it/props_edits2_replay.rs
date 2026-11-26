@@ -10,7 +10,9 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::analysis_edit::NewAnalysis;
 use locallibrary::anlz::Beat;
-use locallibrary::cue_edit::{self, CueChange, CueEdit, CueInfo, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
+use locallibrary::cue_edit::{
+    self, AutoCues, CueChange, CueEdit, CueInfo, CuePosition, CueRef, CueStyle, HotCue, SetCue, UpdateCue,
+};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, EditReport};
 use locallibrary::progress::Ctx;
@@ -57,7 +59,7 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
         name: None,
         color: None,
     };
-    let change = match tc.draw(gs::integers::<u8>().max_value(5)) {
+    let change = match tc.draw(gs::integers::<u8>().max_value(6)) {
         0 => CueChange::Set(set(Some(hot))),
         5 => {
             let slots = || tc.draw(gs::optional(gs::integers::<u8>().max_value(3))).map(HotCue);
@@ -68,6 +70,10 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
         1 => CueChange::Update(UpdateCue { cue: CueRef::Hot(hot), name: Some("Again".into()), color: None }),
         2 => CueChange::Delete(if tc.draw(gs::booleans()) { CueRef::Hot(hot) } else { CueRef::All }),
         3 => CueChange::Copy { from: from() },
+        6 => CueChange::Auto(AutoCues {
+            style: tc.draw(gs::sampled_from(CueStyle::ALL.to_vec())),
+            overwrite: tc.draw(gs::booleans()),
+        }),
         _ => CueChange::Carry { from: from(), shift_ms: tc.draw(gs::integers::<i32>().min_value(-500).max_value(500)) },
     };
     Edit::Cues { tracks, change }
@@ -79,7 +85,7 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
 /// source gone, a cue that isn't there, one track's edit on several) with a warning. A replay
 /// that makes nothing says it made no changes.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
+fn prop_replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let replayed = common::demo_drive(dir.path(), "Replayed");
     let model = common::demo_drive(dir.path(), "Model");
@@ -121,6 +127,7 @@ fn replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
             CueChange::Delete(r) => Some(CueEdit::Delete(r.clone())),
             CueChange::Copy { from } => id(from).map(|from| CueEdit::Copy { from }),
             CueChange::Carry { from, shift_ms } => id(from).map(|from| CueEdit::Carry { from, shift_ms: *shift_ms }),
+            CueChange::Auto(a) => Some(CueEdit::Auto(*a)),
         };
         let mut d = Device::open_export(&model).unwrap();
         match edit.map(|edit| cue_edit::plan(&d, &ids, &edit, &Ctx::silent())) {
@@ -159,7 +166,7 @@ fn replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
 #[hegel::explicit_test_case(scenario = 1u8)]
 #[hegel::explicit_test_case(scenario = 2u8)]
 #[hegel::explicit_test_case(scenario = 3u8)]
-fn a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
+fn prop_a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
     let scenario = tc.draw(gs::integers::<u8>().max_value(3));
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -221,7 +228,7 @@ fn a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
 #[hegel::explicit_test_case(step = 0u8, playlist = false)]
 #[hegel::explicit_test_case(step = 1u8, playlist = false)]
 #[hegel::explicit_test_case(step = 2u8, playlist = true)]
-fn a_replay_that_fails_stops_saying_how_far_it_got(tc: TestCase) {
+fn prop_a_replay_that_fails_stops_saying_how_far_it_got(tc: TestCase) {
     let step = tc.draw(gs::integers::<u8>().max_value(2));
     let playlist = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();

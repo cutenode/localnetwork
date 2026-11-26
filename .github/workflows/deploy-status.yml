@@ -1,0 +1,55 @@
+name: Deploy status
+
+# Railway reports each production deploy of a commit on main as a commit status, and skips one when
+# any of the commit's check suites failed (checkSuites in .railway/railway.ts), even one that isn't
+# CI's. A skip used to go unseen until someone noticed production was behind. A skipped or failed
+# deploy opens an issue, or comments on the one still open, and the next deploy that succeeds closes
+# it. GitHub only runs status workflows from the default branch, which is the one Railway deploys.
+on:
+  status:
+
+permissions: {}
+
+# One at a time, so two statuses close together can't open two issues.
+concurrency:
+  group: deploy-status
+
+# Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  issue:
+    if: >-
+      startsWith(github.event.context, 'localnetwork.computer')
+      && github.event.state != 'pending'
+      && contains(github.event.branches.*.name, 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STATE: ${{ github.event.state }}
+          DESCRIPTION: ${{ github.event.description }}
+          SHA: ${{ github.event.sha }}
+          TARGET: ${{ github.event.target_url }}
+          SERVER: ${{ github.server_url }}
+          TITLE: Production deploy skipped or failed
+        run: |
+          issue=$(gh issue list --label ci --state open --limit 100 --json number,title \
+            | jq --arg title "$TITLE" 'first(.[] | select(.title == $title) | .number) // empty')
+          commit="$SERVER/$GH_REPO/commit/$SHA"
+          if [ "$STATE" = success ]; then
+            if [ -n "$issue" ]; then gh issue close "$issue" --comment "Deployed again: $commit"; fi
+            exit 0
+          fi
+          body=$(printf 'Railway reported "%s" for %s.\n\n%s\n' "$DESCRIPTION" "$commit" "${TARGET:-}")
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "$TITLE" --label ci --label web --body "$body"
+          fi

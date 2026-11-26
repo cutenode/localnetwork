@@ -17,7 +17,7 @@ use crate::support::{Env, path};
 /// the JSON does, each with its count of tracks, and `cues list` prints each track's cues as its
 /// JSON has them.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn tags_and_cues_print_what_their_json_says(tc: TestCase) {
+fn prop_tags_and_cues_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     // With a OneLibrary database beside the export, My Tags are in both.
     if tc.draw(gs::weighted_booleans(0.3)) {
@@ -160,7 +160,7 @@ fn tags_and_cues_print_what_their_json_says(tc: TestCase) {
 /// edits, `tags list` says where the two disagree, each difference as its JSON has it. A word
 /// that's neither a drive nor a command, but looks like one, is taken for a mistyped command.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn tag_edits_say_what_their_plan_counts(tc: TestCase) {
+fn prop_tag_edits_say_what_their_plan_counts(tc: TestCase) {
     let fx = Env::from_template();
     let onelibrary = tc.draw(gs::booleans());
     let ext = fx.volumes.join("A/PIONEER/rekordbox/exportExt.pdb");
@@ -233,7 +233,7 @@ fn tag_edits_say_what_their_plan_counts(tc: TestCase) {
 /// each warning its JSON has; with none gone there are none, and with every one gone every plan
 /// has one.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn cue_plans_print_their_warnings(tc: TestCase) {
+fn prop_cue_plans_print_their_warnings(tc: TestCase) {
     let fx = Env::from_template();
     let analysis = fx.volumes.join("A/PIONEER/USBANLZ");
     let exts: Vec<std::path::PathBuf> = Env::files_in(&analysis)
@@ -279,7 +279,7 @@ fn cue_plans_print_their_warnings(tc: TestCase) {
 /// its JSON details, under its id and name, and `track matches` prints a line for each track
 /// that mixes into it, with its key and how it relates.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn track_details_and_matches_print_what_their_json_says(tc: TestCase) {
+fn prop_track_details_and_matches_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["Club", "A"][..]));
     let selector: Vec<String> = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -335,7 +335,7 @@ fn track_details_and_matches_print_what_their_json_says(tc: TestCase) {
 /// and `undo --list` each drive's backups, the next one marked, as their JSON has them; `edits
 /// clear` says what it forgets before it does.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn recorded_edits_and_backups_print_what_their_json_says(tc: TestCase) {
+fn prop_recorded_edits_and_backups_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["Club", "A"][..]));
     let edits: [&[&str]; 4] = [
@@ -427,7 +427,7 @@ fn recorded_edits_and_backups_print_what_their_json_says(tc: TestCase) {
 /// then has each rule's playlist, holding as many tracks as the rule's filter finds (at most
 /// its limit).
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn smart_playlists_agree_with_a_model(tc: TestCase) {
+fn prop_smart_playlists_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     // Each rule's filter, limit and whether it's for library A only.
     let mut model: IndexMap<String, (String, Option<u32>, bool)> = IndexMap::new();
@@ -540,7 +540,7 @@ fn smart_playlists_agree_with_a_model(tc: TestCase) {
 /// is left alone, one with none is counted; the plan printed is its JSON's, and applied, each
 /// relocated track's audio is on the drive.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn missing_audio_is_found_where_it_was_put(tc: TestCase) {
+fn prop_missing_audio_is_found_where_it_was_put(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");
     let tracks = fx.json(&["tracks", "Club"]);

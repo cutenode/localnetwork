@@ -60,7 +60,7 @@ fn a_manifest_reads_back_from_json_unchanged() {
 }
 
 #[hegel::test(test_cases = 8)]
-fn only_built_in_plugins_delete_without_a_backup(tc: TestCase) {
+fn prop_only_built_in_plugins_delete_without_a_backup(tc: TestCase) {
     let mut capabilities = tc.draw(gs::subsequences(third_party_capabilities()));
     let at = tc.draw(gs::integers::<usize>().max_value(capabilities.len()));
     capabilities.insert(at, Capability::LibraryDeleteUnbacked);
@@ -1443,7 +1443,7 @@ fn field_values_are_shown_as_their_hints_say() {
 /// A meter is always as long as it says, and fuller for more; a percentage and a duration read
 /// back as the number they show, to their rounding.
 #[hegel::test(test_cases = 300)]
-fn hints_show_numbers_as_they_are(tc: TestCase) {
+fn prop_hints_show_numbers_as_they_are(tc: TestCase) {
     let v = tc.draw(gs::floats::<f64>().min_value(-1e7).max_value(1e7));
     let width = tc.draw(gs::integers::<u16>().min_value(1).max_value(FieldDisplay::MAX_WIDTH));
     let meter = FieldDisplay { format: Some(FieldFormat::Meter), width: Some(width), ..FieldDisplay::default() };
@@ -2019,7 +2019,7 @@ fn first_cli(m: &Manifest) -> Option<String> {
 /// JSON (what `describe` sends), and fits the manifest's JSON Schema. One that gives commands or
 /// operations places on the command line is valid only for a built-in plugin.
 #[hegel::test(test_cases = 60)]
-fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
+fn prop_a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     let built_in = tc.draw(gs::booleans());
     let m = manifest(&tc, built_in);
     assert_eq!(problem_with(&m, built_in), "");
@@ -2197,7 +2197,7 @@ fn index(tc: &TestCase, len: usize) -> usize {
 /// Any one thing wrong with a manifest that's otherwise right is refused, saying where it is and
 /// what's wrong with it: the first thing `validate` finds is that.
 #[hegel::test(test_cases = 150)]
-fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
+fn prop_each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
     refused_saying_where(&tc, tc.draw(gs::sampled_from(MISTAKES.to_vec())));
 }
 
@@ -2886,7 +2886,7 @@ fn misfit(tc: &TestCase, p: &Param) -> (Value, String) {
 /// a missing param or params that aren't an object as a whole. Each param's hints and `x-path`
 /// read back as the schema gives them.
 #[hegel::test(test_cases = 80)]
-fn params_fit_their_schema_or_are_refused_saying_where(tc: TestCase) {
+fn prop_params_fit_their_schema_or_are_refused_saying_where(tc: TestCase) {
     let mistake = tc.draw(gs::sampled_from(vec!["none", "wrong type", "missing", "relative path", "not an object"]));
     let mut drawn = params(&tc);
     // A param the mistake can be made with.
@@ -2959,7 +2959,7 @@ fn params_fit_their_schema_or_are_refused_saying_where(tc: TestCase) {
 
 /// No schema takes any object, and nothing else; a schema that doesn't compile is the host's bug.
 #[hegel::test(test_cases = 20)]
-fn without_a_schema_params_are_any_object(tc: TestCase) {
+fn prop_without_a_schema_params_are_any_object(tc: TestCase) {
     let p = Param {
         name: "x".into(),
         kind: tc.draw(gs::sampled_from(KINDS.to_vec())),
@@ -2992,7 +2992,7 @@ fn field_value(tc: &TestCase) -> FieldValue {
 /// A field's value is accepted by its own type alone (an integer by a number's too, null by any),
 /// and reads back from JSON as the same kind of value.
 #[hegel::test(test_cases = 100)]
-fn a_value_fits_its_field_type_alone(tc: TestCase) {
+fn prop_a_value_fits_its_field_type_alone(tc: TestCase) {
     let value = field_value(&tc);
     let json = serde_json::to_string(&value).unwrap();
     assert_eq!(serde_json::from_str::<FieldValue>(&json).unwrap(), value, "{json}");
@@ -3016,7 +3016,7 @@ fn a_value_fits_its_field_type_alone(tc: TestCase) {
 /// fits each, as nothing to report; an empty grid is an empty list of strings too), reads back
 /// from JSON as the same, and is what [`crate::Output`] reads; a waveform needs columns a second.
 #[hegel::test(test_cases = 100)]
-fn structured_values_fit_their_type_alone(tc: TestCase) {
+fn prop_structured_values_fit_their_type_alone(tc: TestCase) {
     use loclib_model::analysis::{Beat, Mood, Phrase, PhraseKind, SongStructure};
     let n = tc.draw(gs::integers::<usize>().max_value(4));
     let beats: Vec<Beat> =
@@ -3065,7 +3065,7 @@ fn structured_values_fit_their_type_alone(tc: TestCase) {
 /// A setting takes a value of its type (an enum, one of its choices; a secret, text that isn't
 /// empty) and nothing else.
 #[hegel::test(test_cases = 100)]
-fn a_setting_takes_values_of_its_type_alone(tc: TestCase) {
+fn prop_a_setting_takes_values_of_its_type_alone(tc: TestCase) {
     let s = setting(&tc, "s".into());
     let value: Value = match tc.draw(gs::integers::<u8>().max_value(6)) {
         0 => Value::Null,
@@ -3089,7 +3089,7 @@ fn a_setting_takes_values_of_its_type_alone(tc: TestCase) {
 /// A capability's name reads back as the capability, and any other string is refused saying
 /// what it may be. In a manifest, the same.
 #[hegel::test(test_cases = 100)]
-fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
+fn prop_capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
     let named = [
         "library:read",
         "analysis:read",
@@ -3266,7 +3266,7 @@ const NOT_OURS: &str = "contributes.account_types[0].token_exchange: is only for
 /// from JSON, and fits the manifest's JSON Schema. One using Local Network's token exchange is
 /// valid only for a built-in plugin.
 #[hegel::test(test_cases = 100)]
-fn a_drawn_account_plugin_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
+fn prop_a_drawn_account_plugin_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     let built_in = tc.draw(gs::booleans());
     let m = account_plugin(&tc, built_in);
     assert_eq!(problem_with(&m, built_in), "");
@@ -3284,7 +3284,7 @@ fn a_drawn_account_plugin_is_valid_and_reads_back_as_it_was_written(tc: TestCase
 /// Any one thing wrong with an account plugin that's otherwise right is refused, saying where it
 /// is and what's wrong with it.
 #[hegel::test(test_cases = 500)]
-fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
+fn prop_each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
     let mut built_in = tc.draw(gs::booleans());
     let mut m = account_plugin(&tc, built_in);
     let mistakes = vec![
@@ -3645,7 +3645,7 @@ fn keys_account_type(tc: &TestCase) -> AccountType {
 /// in the `Authorization` header only, with the keys its value names; and any one thing wrong with it is
 /// refused, saying where it is and what's wrong with it.
 #[hegel::test(test_cases = 500)]
-fn a_drawn_keys_account_type_is_valid_and_broken_in_one_place_is_refused_there(tc: TestCase) {
+fn prop_a_drawn_keys_account_type_is_valid_and_broken_in_one_place_is_refused_there(tc: TestCase) {
     let mut m = account_plugin(&tc, false);
     m.contributes.account_types = vec![keys_account_type(&tc)];
     assert_eq!((problem_with(&m, false), problem_with(&m, true)), (String::new(), String::new()));
@@ -3785,7 +3785,7 @@ fn a_drawn_keys_account_type_is_valid_and_broken_in_one_place_is_refused_there(t
 /// with it when it ends in `*`: never another method, a host whose name starts the same, a user
 /// name, another scheme or a path beside it.
 #[hegel::test(test_cases = 100)]
-fn a_pattern_covers_exactly_the_urls_it_prefixes(tc: TestCase) {
+fn prop_a_pattern_covers_exactly_the_urls_it_prefixes(tc: TestCase) {
     let host = tc.draw(gs::from_regex("[a-z][a-z0-9]{0,7}(\\.[a-z][a-z0-9]{0,7}){0,2}"));
     let path = tc.draw(gs::from_regex("[a-z0-9/]{0,12}"));
     let start = format!("https://{host}/{path}");
@@ -3864,7 +3864,7 @@ fn asking_plugin(tc: &TestCase) -> Manifest {
 /// Any plugin asking for accounts that keeps the rules validates, has the `accounts` feature,
 /// reads back as it was written from TOML and from JSON, and fits the manifest's JSON Schema.
 #[hegel::test(test_cases = 100)]
-fn a_drawn_plugin_asking_for_accounts_is_valid_and_reads_back(tc: TestCase) {
+fn prop_a_drawn_plugin_asking_for_accounts_is_valid_and_reads_back(tc: TestCase) {
     let m = asking_plugin(&tc);
     assert_eq!(problem_with(&m, tc.draw(gs::booleans())), "");
     assert!(!m.is_account_plugin());
@@ -3892,7 +3892,7 @@ fn scope_group<'a>(x: &'a mut AccountNeed, at: &str, g: usize) -> (String, &'a m
 /// Any one thing wrong with a plugin asking for accounts that's otherwise right is refused, saying
 /// where it is and what's wrong with it.
 #[hegel::test(test_cases = 300)]
-fn each_kind_of_accounts_mistake_is_refused_saying_where(tc: TestCase) {
+fn prop_each_kind_of_accounts_mistake_is_refused_saying_where(tc: TestCase) {
     let mut m = asking_plugin(&tc);
     let mistakes =
         vec!["type", "type twice", "why", "no scopes", "scope name", "scope twice", "no net", "account plugin"];
@@ -3964,7 +3964,7 @@ fn each_kind_of_accounts_mistake_is_refused_saying_where(tc: TestCase) {
 /// A request names an account by type as `{account:<type>}`, or one access to it as
 /// `{account:<type>/<access id>}`, the access's 8 lowercase hex digits; anything else names none.
 #[hegel::test(test_cases = 100)]
-fn an_account_placeholder_names_a_type_and_maybe_an_access(tc: TestCase) {
+fn prop_an_account_placeholder_names_a_type_and_maybe_an_access(tc: TestCase) {
     let kind = tc.draw(gs::from_regex(DRAWN_NAME));
     let access = tc.draw(gs::optional(gs::from_regex("[0-9a-f]{8}").fullmatch(true)));
     let named = match &access {

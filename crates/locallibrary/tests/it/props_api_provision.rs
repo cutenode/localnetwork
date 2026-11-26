@@ -36,7 +36,7 @@ fn provision(target: &std::path::Path) -> api::ProvisionRequest {
 /// stops it there, failed, with everything before it done.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(name = Some("SPARE"), colour = Some(2i64), damaged = true)]
-fn a_new_drive_is_set_up_from_a_drive_or_the_one_library(tc: TestCase) {
+fn prop_a_new_drive_is_set_up_from_a_drive_or_the_one_library(tc: TestCase) {
     let name = tc.draw(gs::optional(gs::sampled_from(vec!["SPARE", "B2"])));
     let colour = tc.draw(gs::optional(gs::integers::<i64>().min_value(1).max_value(8)));
     let damaged = tc.draw(gs::booleans());

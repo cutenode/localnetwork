@@ -51,7 +51,7 @@ fn edited(tc: &TestCase, file: SettingsFile) -> SettingsBlob {
 /// checksum, version `0.001`, every setting at its default and nothing undecoded; parsing its
 /// bytes gives it back, and it lives in `PIONEER/` under its own name.
 #[hegel::test(test_cases = 20)]
-fn default_files_hold_every_default(tc: TestCase) {
+fn prop_default_files_hold_every_default(tc: TestCase) {
     let file = settings_file(&tc);
     let blob = SettingsBlob::default_for(file);
     assert_eq!(blob.as_bytes().len(), HEADER_LEN + data_len(file) + 4);
@@ -77,7 +77,7 @@ fn default_files_hold_every_default(tc: TestCase) {
 /// length and give the right data length; then they're kept as they are. Anything else (random
 /// bytes, a file cut short or run on, another kind's file) is a parse error naming the file.
 #[hegel::test(test_cases = 500)]
-fn parse_accepts_exactly_the_right_shape(tc: TestCase) {
+fn prop_parse_accepts_exactly_the_right_shape(tc: TestCase) {
     let file = settings_file(&tc);
     let mut bytes = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => tc.draw(gs::binary().max_size(200)),
@@ -121,7 +121,7 @@ fn parse_accepts_exactly_the_right_shape(tc: TestCase) {
 /// is. Planning no changes repairs exactly the checksum and keeps every other byte; a file with
 /// a sound checksum isn't written.
 #[hegel::test(test_cases = 300)]
-fn checksum_covers_the_data_and_for_djm_the_header(tc: TestCase) {
+fn prop_checksum_covers_the_data_and_for_djm_the_header(tc: TestCase) {
     let file = settings_file(&tc);
     let data_end = HEADER_LEN + data_len(file);
     let mut bytes = edited(&tc, file).as_bytes().to_vec();
@@ -158,7 +158,7 @@ fn checksum_covers_the_data_and_for_djm_the_header(tc: TestCase) {
 /// A setting's byte reads as the choice that has it, or as the raw byte (shown in hex) when none
 /// does; setting a choice reads back as it, with a sound checksum whenever something changed.
 #[hegel::test(test_cases = 300)]
-fn values_read_back_as_choices_or_raw_bytes(tc: TestCase) {
+fn prop_values_read_back_as_choices_or_raw_bytes(tc: TestCase) {
     let file = settings_file(&tc);
     let (def, c) = setting(&tc, file);
     let byte = tc.draw(hegel::one_of!(
@@ -243,7 +243,7 @@ fn snapshot(files: &IndexMap<SettingsFile, SettingsBlob>) -> SettingsSnapshot {
 /// that error, before any file after it is read.
 // Enough that the plans nothing stops (about 77%) still run about 200 times.
 #[hegel::test(test_cases = 270)]
-fn planned_changes_reach_the_wanted_values_and_settle(tc: TestCase) {
+fn prop_planned_changes_reach_the_wanted_values_and_settle(tc: TestCase) {
     let mut files: IndexMap<SettingsFile, SettingsBlob> =
         SettingsFile::ALL.iter().filter_map(|&f| seeded(&tc, f).map(|b| (f, b))).collect();
     let mut desired = IndexMap::new();
@@ -344,7 +344,7 @@ fn planned_changes_reach_the_wanted_values_and_settle(tc: TestCase) {
 /// A key no setting has, or a value none of a setting's choices is, fails validation naming
 /// what was given (and, for a value, every choice), and fails planning before any file is read.
 #[hegel::test(test_cases = 300)]
-fn bad_keys_and_values_are_refused_before_anything_is_read(tc: TestCase) {
+fn prop_bad_keys_and_values_are_refused_before_anything_is_read(tc: TestCase) {
     let file = settings_file(&tc);
     let (def, c) = setting(&tc, file);
     let key = tc.draw(hegel::one_of!(gs::just(def.key.to_string()), gs::text().max_size(10)));
@@ -397,7 +397,7 @@ fn bad_keys_and_values_are_refused_before_anything_is_read(tc: TestCase) {
 /// CRC-16/XMODEM starts from zero with no final xor, so it's linear: the CRC of two equally
 /// long inputs xored together is their CRCs xored.
 #[hegel::test(test_cases = 200)]
-fn crc_is_linear(tc: TestCase) {
+fn prop_crc_is_linear(tc: TestCase) {
     let a = tc.draw(gs::binary().max_size(120));
     let b = tc.draw(gs::binary().min_size(a.len()).max_size(a.len()));
     let both: Vec<u8> = a.iter().zip(&b).map(|(x, y)| x ^ y).collect();

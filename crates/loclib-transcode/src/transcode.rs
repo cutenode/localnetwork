@@ -45,6 +45,7 @@ pub fn transcode(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> R
 pub struct Transcoded {
     /// Frames (samples per channel) at the recipe's rate.
     pub frames: u64,
+    /// The channel count, the source's.
     pub channels: u16,
 }
 

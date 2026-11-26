@@ -34,7 +34,7 @@ fn held(d: &Device) -> IndexMap<String, BTreeSet<String>> {
 }
 
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn tags_given_are_carried_wherever_the_tracks_go(tc: TestCase) {
+fn prop_tags_given_are_carried_wherever_the_tracks_go(tc: TestCase) {
     // With exportExt.pdb alone, and with OneLibrary beside it.
     for both in [false, true] {
         carry(&tc, both);

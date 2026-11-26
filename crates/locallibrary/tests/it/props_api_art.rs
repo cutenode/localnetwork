@@ -26,7 +26,7 @@ use locallibrary::query::TrackSelector;
 /// scrolling ones), and art is embedded in a file here but never one on an export, a folder or a
 /// file that isn't there, which applying lists as failed.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
+fn prop_a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
     let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(64));
     let dir = tempfile::tempdir().unwrap();
     let volumes = common::isolate(dir.path(), None);

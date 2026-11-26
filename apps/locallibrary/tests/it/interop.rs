@@ -9,7 +9,6 @@ use std::path::Path;
 
 use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::{convert, paths};
 use rekordbox_pdb::PdbEditor;
 use serde_json::{Value, json};
@@ -263,7 +262,7 @@ fn analysis_and_what_only_onelibrary_has_are_read() {
 
     // Track 1 goes from export.pdb, leaving OneLibrary's, and a playlist only OneLibrary has.
     env.ok(&["--yes", "convert", d, "--to", "onelibrary"]);
-    let mut one = OneLibrary::open_root(&main).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(&main).unwrap();
     let own = one.library().unwrap().tracks.into_iter().find(|t| t.file_path == first.file_path).unwrap();
     let booth = one.create_playlist("Booth", 0, false).unwrap();
     one.add_to_playlist(booth, own.id).unwrap();

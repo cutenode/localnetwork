@@ -8,21 +8,23 @@
 //! it too. The [`MixReport`] adds the library's metadata, the transitions between tracks and a
 //! waveform of the whole mix.
 //!
-//! Decoding is loclib-audio's ([`audio`] re-exports it), and fingerprinting, the index and the
-//! matcher are loclib-mixid's ([`fingerprint`], [`matcher`] and part of [`index`]); this module
-//! brings the drive, the store's fingerprint cache, Audacity projects and the report.
+//! Decoding is loclib-audio's ([`audio`] re-exports it), reading Audacity projects loclib-aup's,
+//! and fingerprinting, the index and the matcher are loclib-mixid's ([`fingerprint`], [`matcher`]
+//! and part of [`index`]); this module brings the drive, the store's fingerprint cache and the
+//! report.
 //!
 //! ```text
 //! locallibrary mix "Live at the Warehouse.wav" --drive DNA --html set.html
 //! ```
 
-pub mod aup;
 pub mod export;
 pub mod index;
 pub mod prefs;
 pub mod report;
 
 pub use loclib_audio as audio;
+// What `MixInfo::labels` holds.
+pub use loclib_aup::Label;
 pub use loclib_mixid::{Heard, fingerprint, matcher};
 
 use rustc_hash::FxHashMap;
@@ -37,7 +39,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
-use self::aup::{Label, Project};
 use self::fingerprint::{Analyzer, FRAMES_PER_SEC, FrameLevels, LevelColumns, QUERY, RATE};
 use self::index::{Cache, IndexReport, LibraryIndex};
 use self::matcher::Found;
@@ -48,6 +49,7 @@ use crate::harmony::Camelot;
 use crate::model::{Library, Track};
 use crate::progress::{Ctx, Phase};
 use crate::{Error, Result, audio_cache, probe};
+use loclib_aup::Project;
 
 /// What a mix file is: `audio` or `audacity`. (An alias, so serde doesn't take the `&str` as
 /// borrowed from what a report is read back from.)
@@ -505,7 +507,7 @@ impl Identifier {
 
 /// Whether `path` is something [`Identifier::identify`] can read.
 pub fn is_mix_file(path: &Path) -> bool {
-    aup::is_project(path) || audio::is_decodable(path)
+    loclib_aup::is_project(path) || audio::is_decodable(path)
 }
 
 /// The files [`is_mix_file`] takes in `dir` and every folder under it (hidden ones left out), by
@@ -555,18 +557,18 @@ pub fn listen_with(
         cover: None,
     };
     let mut tags: Vec<(String, String)> = Vec::new();
-    let result = if aup::is_project(path) {
+    let result = if loclib_aup::is_project(path) {
         info.kind = "audacity";
         let project = Project::open(path)?;
-        tags = project.tags.clone();
-        info.labels = project.labels.clone();
+        tags = project.tags().to_vec();
+        info.labels = project.labels().to_vec();
         index::heard(
             recordings,
             path,
             || {
                 let mut analyzer = Analyzer::new(QUERY, true);
-                let rendered = project.render(RATE, ctx, &mut |s| analyzer.push(s));
-                rendered.map(|format| (format, Heard::from(analyzer)))
+                let format = project.render(RATE, ctx, &mut |s| analyzer.push(s))?;
+                Ok((format, Heard::from(analyzer)))
             },
             ctx,
         )

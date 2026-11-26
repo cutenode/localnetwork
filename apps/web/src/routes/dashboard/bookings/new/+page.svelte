@@ -5,7 +5,7 @@
 	import FormActions from '#lib/components/form/FormActions.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import PlacePicker from '#lib/components/PlacePicker.svelte';
-	import { draftKey, FormDraft } from '#lib/form-draft.svelte.ts';
+	import { draftKey, FormDraft } from '#lib/form-draft.page-only.svelte.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { FEE_TIERS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import type { PageProps } from './$types';

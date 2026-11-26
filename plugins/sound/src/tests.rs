@@ -100,7 +100,7 @@ fn describes_one_analyzer_and_hears_of_drives_changing() {
         ["bpm", "bpm_confidence", "clipped_runs", "integrated_lufs", "key", "key_confidence", "true_peak_dbtp"];
     assert_eq!(columns, expected);
     // Drawn, and written to analysis files when asked, not columns.
-    assert_eq!(structured, [("waveform", FieldType::Waveform)]);
+    assert_eq!(structured, [("waveform", FieldType::Waveform), ("beats", FieldType::Beats)]);
     // Every role of a track's sound: doctor reads them all.
     let roles: Vec<Role> = analyzer.roles.keys().copied().collect();
     let not_heard = [Role::Identity, Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
@@ -251,7 +251,7 @@ fn prop_a_read_that_fails_suggests_nothing(tc: TestCase) {
 /// For any library, what it suggests is its tracks without fields, in the library's order, the
 /// first [`MAX_SUGGESTED_TRACKS`] of them, and nothing when there are none.
 #[hegel::test(test_cases = 20)]
-fn it_suggests_the_first_tracks_without_fields(tc: TestCase) {
+fn prop_it_suggests_the_first_tracks_without_fields(tc: TestCase) {
     let n: u32 = tc.draw(gs::sampled_from(vec![0, 1, 3, 40, MAX_SUGGESTED_TRACKS as u32 * 2]));
     let every = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
     let analysed: Vec<u32> = (1..=n).filter(|t| t % every == 0).collect();
@@ -282,7 +282,7 @@ fn the_analyzers_version_is_loclib_analysis_s() {
 #[hegel::explicit_test_case(seed = 5u32, secs = 3.0f64, rate = 48_000u32, gain = 0.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 0.05f64, rate = 44_100u32, gain = 12_000.0f32)]
 #[hegel::explicit_test_case(seed = 44_276_527u32, secs = 0.0625f64, rate = 11_025u32, gain = 200_000.0f32)]
-fn fields_are_what_doctor_reports(tc: TestCase) {
+fn prop_fields_are_what_doctor_reports(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>());
     let secs = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(8.0));
     let rate = tc.draw(gs::sampled_from(vec![11_025u32, 44_100, 48_000]));
@@ -308,9 +308,16 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     let a = analyze(&path, Want::ALL, &Ctx::silent()).unwrap();
     let l = a.loudness.unwrap();
     // Doctor's tempo findings leave out a tempo of 0 (`TempoRelation::between` has none for it).
+    // The grid's tempo is the tempo where there's a grid, with the estimate's confidence where
+    // they agree.
     let tempo = a.estimate.as_ref().filter(|e| e.bpm > 0.0);
-    assert_eq!(number("bpm"), tempo.map(|e| f64::from(e.bpm)), "{fields:?}");
-    assert_eq!(number("bpm_confidence"), tempo.map(|e| f64::from(e.bpm_confidence)));
+    let bpm = a.grid.map(|g| g.bpm).or(tempo.map(|e| f64::from(e.bpm)));
+    assert_eq!(number("bpm"), bpm, "{fields:?}");
+    let agree = tempo.filter(|e| bpm.is_some_and(|b| (f64::from(e.bpm) / b - 1.0).abs() < 0.02));
+    assert_eq!(number("bpm_confidence"), agree.map(|e| f64::from(e.bpm_confidence)));
+    // The grid's beats, to the end.
+    let beats = a.grid.map(|g| g.beats(a.duration_secs)).filter(|b| !b.is_empty());
+    assert_eq!(fields["beats"], beats.as_deref().map_or(FieldValue::Null, FieldValue::beats));
     assert_eq!(number("key_confidence"), a.estimate.as_ref().map(|e| f64::from(e.key_confidence)));
     // Keys that tie (confidence 0) are none: two analyses of one file hear the same.
     let key = a.estimate.as_ref().and_then(|e| e.key);
@@ -405,7 +412,7 @@ enum Unreadable {
 /// `cancelled` for a decode the host cancels, naming the file; the plugin answers the next one
 /// all the same.
 #[hegel::test(test_cases = 8)]
-fn audio_that_cant_be_analysed_fails_its_track_alone(tc: TestCase) {
+fn prop_audio_that_cant_be_analysed_fails_its_track_alone(tc: TestCase) {
     let kinds = tc.draw(
         gs::vecs(gs::sampled_from(vec![Unreadable::Gone, Unreadable::Text, Unreadable::Slow, Unreadable::Endless]))
             .min_size(1)
@@ -535,7 +542,7 @@ fn a_click_track_has_a_waveform() {
 /// its silence empty.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(bpm = 150.0f64, lead = 2.5f64)]
-fn waveforms_follow_the_audio(tc: TestCase) {
+fn prop_waveforms_follow_the_audio(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
     let lead = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3.0));
     let dir = tempfile::tempdir().unwrap();
@@ -560,7 +567,7 @@ fn waveforms_follow_the_audio(tc: TestCase) {
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(columns = 3_720_937usize)]
 #[hegel::explicit_test_case(columns = 3_720_938usize)]
-fn waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
+fn prop_waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
     let columns = tc.draw(gs::integers::<usize>().max_value(10_000_000));
     // A day at 44.1 kHz, 1024 samples a column.
     assert_eq!(within_a_day(columns), columns as u64 * 1024 <= 86_400 * 44_100, "{columns}");

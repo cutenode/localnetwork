@@ -1,0 +1,5 @@
+"accessibility":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/a11y*.ts"
+          - "**/a11y*.mjs"

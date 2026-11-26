@@ -95,7 +95,7 @@ fn bands_rise_fast() {
 /// loudest band, or the one beside it. (Among bands narrower than a bin, the first band wide enough
 /// to take its bins' peak can come out louder: it takes in the bin just below it.)
 #[hegel::test(test_cases = 100)]
-fn a_sine_shows_in_its_band(tc: hegel::TestCase) {
+fn prop_a_sine_shows_in_its_band(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let freq = tc.draw(gs::integers::<u32>().min_value(40).max_value(12_000)) as f32;
     let bands = tc.draw(gs::integers::<usize>().min_value(8).max_value(200));
@@ -114,7 +114,7 @@ fn a_sine_shows_in_its_band(tc: hegel::TestCase) {
 /// quieter one falls no faster than gravity would (never below it); the peak cap is never under
 /// the band, holds a moment, then falls.
 #[hegel::test(test_cases = 300)]
-fn bands_rise_fast_fall_slowly_and_their_peaks_hold(tc: hegel::TestCase) {
+fn prop_bands_rise_fast_fall_slowly_and_their_peaks_hold(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut b = Bands::new(1);
     let mut held = 0.0f32;
@@ -146,7 +146,7 @@ fn bands_rise_fast_fall_slowly_and_their_peaks_hold(tc: hegel::TestCase) {
 /// Samples given a few at a time follow on from those before: the window analysed is the latest
 /// `FFT_SIZE` of them, however they were split up.
 #[hegel::test(test_cases = 100)]
-fn samples_given_in_pieces_follow_on(tc: hegel::TestCase) {
+fn prop_samples_given_in_pieces_follow_on(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let all = sine(tc.draw(gs::integers::<u32>().min_value(40).max_value(12_000)) as f32, 3 * FFT_SIZE);
     let mut pieces = Analyzer::default();

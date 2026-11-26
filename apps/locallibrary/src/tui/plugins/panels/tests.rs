@@ -185,7 +185,7 @@ fn a_panels_picture_and_chart_are_drawn() {
 /// one for a track whose panels aren't asked for yet, one failing), what's drawn under the
 /// selected track is its own panels' answers, or that they're coming: never another track's.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_track_shows_only_its_own_panels(tc: TestCase) {
+fn prop_a_track_shows_only_its_own_panels(tc: TestCase) {
     let dir = plugins_once();
     let root = demo_drive_in(dir, &format!("D{}", tc.draw(gs::integers::<u32>())));
     let mut app = showing(&root);
@@ -221,7 +221,7 @@ fn a_track_shows_only_its_own_panels(tc: TestCase) {
 /// series) is drawn at any size without failing, from at most `MOST_SERIES` series of at most
 /// `MOST_POINTS` points each, two or more named under it.
 #[hegel::test(test_cases = 100)]
-fn any_chart_is_drawn(tc: TestCase) {
+fn prop_any_chart_is_drawn(tc: TestCase) {
     let number = || gs::floats::<f64>().allow_nan(false).allow_infinity(false);
     // A few points drawn, repeated to make a long series: drawing each of thousands is slow.
     let series: Vec<Series> = (0..tc.draw(gs::integers::<usize>().max_value(12)))

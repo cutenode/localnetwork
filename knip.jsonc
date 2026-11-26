@@ -11,12 +11,13 @@
 		".": {
 			// The workflows set their folder with `defaults.run.working-directory`, which knip's GitHub
 			// Actions plugin doesn't read, so it looks for apps/web's binaries and scripts in the root package.
-			// valgrind is the system's, which tools/budgets/cachegrind.test.ts looks for.
-			"ignoreBinaries": ["fuzz", "playwright", "tsx", "valgrind"],
-			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
+			// valgrind is the system's, which tools/budgets/cachegrind.test.ts looks for. dist isn't an npm package:
+			// tools/verify/release-cli.ts runs it from the PATH, as CI installs it.
+			"ignoreBinaries": ["fuzz", "playwright", "tsx", "valgrind", "dist"],
+			// tools/verify/steps.json runs it, which knip doesn't read.
+			"entry": ["tools/verify/release-cli.ts"],
+			// tools/policy/inputs.ts runs it from node_modules/.bin, which knip doesn't follow.
 			"ignoreDependencies": ["@lavamoat/harden"],
-			// tools/policy.sh runs it, and the workflows that run the other tools/*/cli.ts don't.
-			"entry": ["tools/reads/cli.ts"],
 			// The repo's own tooling: nothing here ships.
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},

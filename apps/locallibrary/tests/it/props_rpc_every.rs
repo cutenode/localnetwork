@@ -64,7 +64,7 @@ fn answered(fx: &Env, requests: &[(&'static Value, Value)]) -> Vec<Value> {
 /// are refused as invalid), and every apply also with a plan id that names no plan and with one
 /// that isn't a string: each answers once, as the contract says, and the plan ids are refused.
 #[hegel::test(test_cases = 3)]
-fn every_method_answers_as_the_contract_says(tc: TestCase) {
+fn prop_every_method_answers_as_the_contract_says(tc: TestCase) {
     let fx = Env::from_template();
     let mut requests = Vec::new();
     for m in callable() {
@@ -92,7 +92,7 @@ fn every_method_answers_as_the_contract_says(tc: TestCase) {
 /// With a file where the store should be, every method still answers as the contract says (those
 /// that need the store with an error), and none replaces the file or writes into it.
 #[hegel::test(test_cases = 2)]
-fn a_file_in_place_of_the_store_is_left_alone(tc: TestCase) {
+fn prop_a_file_in_place_of_the_store_is_left_alone(tc: TestCase) {
     let fx = Env::from_template();
     std::fs::remove_dir_all(&fx.store).unwrap();
     std::fs::write(&fx.store, "not a store").unwrap();
@@ -124,7 +124,7 @@ const STORE_FILES: [&str; 9] = [
 /// contract says, those that need one of them with an error, and none writes over one: what
 /// was in it is never lost to a method that couldn't read it.
 #[hegel::test(test_cases = 4)]
-fn unreadable_store_files_are_never_written_over(tc: TestCase) {
+fn prop_unreadable_store_files_are_never_written_over(tc: TestCase) {
     let fx = Env::from_template();
     let broken: Vec<&str> = tc.draw(hegel::generators::subsequences(STORE_FILES.to_vec()).min_size(1));
     for name in &broken {

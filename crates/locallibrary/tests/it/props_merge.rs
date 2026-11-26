@@ -41,7 +41,7 @@ fn contains_all(big: &[String], small: &[String]) -> bool {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn merging_loses_nothing_and_undoes_exactly(tc: TestCase) {
+fn prop_merging_loses_nothing_and_undoes_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
     let (main, _) = drawn::drive(&tc, &root, "Main");

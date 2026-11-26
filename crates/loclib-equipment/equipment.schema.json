@@ -7,6 +7,7 @@
   },
   "$defs": {
     "Model": {
+      "description": "What one player, all-in-one system or mixer reads from a USB drive.",
       "type": "object",
       "properties": {
         "name": {
@@ -14,6 +15,7 @@
           "type": "string"
         },
         "kind": {
+          "description": "What sort of equipment it is.",
           "$ref": "#/$defs/Kind"
         },
         "export_pdb": {
@@ -25,6 +27,7 @@
           "$ref": "#/$defs/Spec_for_boolean"
         },
         "exfat": {
+          "description": "Whether it reads exFAT drives.",
           "$ref": "#/$defs/Spec_for_Exfat"
         },
         "audio": {
@@ -63,6 +66,7 @@
       ]
     },
     "Kind": {
+      "description": "What sort of equipment a model is.",
       "oneOf": [
         {
           "description": "A multi player (CDJ, XDJ-1000...).",
@@ -86,9 +90,11 @@
       "type": "object",
       "properties": {
         "value": {
+          "description": "The value.",
           "type": "boolean"
         },
         "inferred": {
+          "description": "Whether no source confirms the value, so it's inferred (from a related model, say).",
           "type": "boolean"
         }
       },
@@ -102,9 +108,11 @@
       "type": "object",
       "properties": {
         "value": {
+          "description": "The value.",
           "$ref": "#/$defs/Exfat"
         },
         "inferred": {
+          "description": "Whether no source confirms the value, so it's inferred (from a related model, say).",
           "type": "boolean"
         }
       },
@@ -117,11 +125,14 @@
       "description": "Whether a model reads exFAT.",
       "oneOf": [
         {
+          "description": "It doesn't.",
           "type": "string",
-          "enum": [
-            "no",
-            "yes"
-          ]
+          "const": "no"
+        },
+        {
+          "description": "It does, with any firmware.",
+          "type": "string",
+          "const": "yes"
         },
         {
           "description": "With this firmware version or later.",
@@ -143,9 +154,11 @@
       "type": "object",
       "properties": {
         "codec": {
+          "description": "The format.",
           "$ref": "#/$defs/Codec"
         },
         "rates": {
+          "description": "The sample rates it plays, in Hz.",
           "type": "array",
           "items": {
             "type": "integer",
@@ -154,6 +167,7 @@
           }
         },
         "depths": {
+          "description": "The bit depths it plays. Lossy formats list 16, and their depth isn't checked.",
           "type": "array",
           "items": {
             "type": "integer",
@@ -163,6 +177,7 @@
           }
         },
         "inferred": {
+          "description": "Whether the rates and depths are inferred rather than documented.",
           "type": "boolean"
         }
       },
@@ -175,14 +190,37 @@
     },
     "Codec": {
       "description": "An audio format players list.",
-      "type": "string",
-      "enum": [
-        "mp3",
-        "aac",
-        "wav",
-        "aiff",
-        "flac",
-        "alac"
+      "oneOf": [
+        {
+          "description": "MP3.",
+          "type": "string",
+          "const": "mp3"
+        },
+        {
+          "description": "AAC.",
+          "type": "string",
+          "const": "aac"
+        },
+        {
+          "description": "WAV.",
+          "type": "string",
+          "const": "wav"
+        },
+        {
+          "description": "AIFF.",
+          "type": "string",
+          "const": "aiff"
+        },
+        {
+          "description": "FLAC.",
+          "type": "string",
+          "const": "flac"
+        },
+        {
+          "description": "Apple Lossless.",
+          "type": "string",
+          "const": "alac"
+        }
       ]
     }
   }

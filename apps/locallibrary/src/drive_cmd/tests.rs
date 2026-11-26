@@ -56,7 +56,7 @@ fn fleet_drive(tc: &TestCase, dir: &std::path::Path, name: &str) -> FleetDrive {
 /// naming the drive), and a check that failed (never one that passed). The fleet's listing shows
 /// them with every drive, in a library or in none.
 #[hegel::test(test_cases = 100)]
-fn a_drives_notes_say_what_else_to_know(tc: TestCase) {
+fn prop_a_drives_notes_say_what_else_to_know(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let drives: Vec<FleetDrive> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
         .map(|i| fleet_drive(&tc, dir.path(), &format!("D{i}")))
@@ -108,7 +108,7 @@ fn a_drives_notes_say_what_else_to_know(tc: TestCase) {
 /// Every kind of space is named, and no two alike; a space report shows each part of it: the
 /// forecast whichever way the library goes, the drives it fits on and those it doesn't.
 #[hegel::test(test_cases = 100)]
-fn space_reports_name_every_kind(tc: TestCase) {
+fn prop_space_reports_name_every_kind(tc: TestCase) {
     let kinds = [
         SpaceKind::Audio,
         SpaceKind::Analysis,
@@ -172,7 +172,7 @@ fn space_reports_name_every_kind(tc: TestCase) {
 /// up to its cap, says how many more there are, and offers the repair only when there's a good
 /// copy to repair from.
 #[hegel::test(test_cases = 100)]
-fn check_reports_list_each_problem(tc: TestCase) {
+fn prop_check_reports_list_each_problem(tc: TestCase) {
     let problem = |tc: &TestCase, i: usize| -> FileProblem {
         let mut p: FileProblem = serde_json::from_value(json!({
             "path": format!("Contents/{i}.mp3"), "class": "audio", "size": 10,
@@ -205,4 +205,31 @@ fn check_reports_list_each_problem(tc: TestCase) {
     };
     assert_eq!(report.is_clean(), report.problems().next().is_none());
     scrub_report(&report);
+}
+
+/// Erasing a disk goes ahead only when what the plan asks for is typed (the disk's identifier,
+/// with no drive to keep a name), in any case and spacing: anything else declines it, and with
+/// nothing typed and no terminal to ask on it isn't confirmed, `--yes` or not.
+#[hegel::test(test_cases = 50)]
+fn prop_an_erase_goes_ahead_only_with_what_the_plan_asks_for(tc: TestCase) {
+    let disk = loclib_format::test_util::sample_disk();
+    // A plan on Linux asks lsblk what's mounted on the disk: nothing, here.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _lsblk = {
+        let mut fake = loclib_format::test_util::FakeTools::new();
+        fake.lsblk(Some(&disk.device), &json!({ "blockdevices": [] }));
+        fake
+    };
+    let mut plan = format::plan(disk, &FormatOptions::default(), None, &[], &Ctx::silent()).unwrap();
+    plan.keeps_name = None;
+    assert_eq!(plan.confirmation(), "disk4");
+    // `--json` never prompts, so nothing here waits on stdin.
+    let out = Output { json: true, quiet: tc.draw(gs::booleans()), yes: tc.draw(gs::booleans()), pager: false };
+    let given = tc.draw(gs::sampled_from(vec![None, Some("disk4"), Some(" DISK4 "), Some("DNA"), Some("disk5")]));
+    let expected = match given {
+        None => Some(Outcome::NotConfirmed),
+        Some(g) if g.trim().eq_ignore_ascii_case("disk4") => None,
+        Some(_) => Some(Outcome::Declined),
+    };
+    assert_eq!(confirm_erase(&out, &plan, given), expected, "{given:?}");
 }

@@ -8,7 +8,7 @@ use locallibrary::harmony::Camelot;
 use locallibrary::sound;
 
 #[hegel::test(test_cases = 400)]
-fn a_disagreeing_analysis_lowers_trust_in_a_key_by_how_far_it_is(tc: TestCase) {
+fn prop_a_disagreeing_analysis_lowers_trust_in_a_key_by_how_far_it_is(tc: TestCase) {
     let (n, minor) = (tc.draw(gs::integers::<u8>().min_value(1).max_value(12)), tc.draw(gs::booleans()));
     let (m, other_minor) = (tc.draw(gs::integers::<u8>().min_value(1).max_value(12)), tc.draw(gs::booleans()));
     let code = |n: u8, minor: bool| format!("{n}{}", if minor { 'A' } else { 'B' });

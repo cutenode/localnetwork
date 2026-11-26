@@ -26,7 +26,7 @@ const REACH_MS: f64 = 4_294_967_295.0;
 /// again), with its tags, key, tempo, length, rating and year, its grid marker and cues; every
 /// playlist reads back with its folders and the files it lists.
 #[hegel::test(test_cases = 200)]
-fn a_collection_reads_back(tc: TestCase) {
+fn prop_a_collection_reads_back(tc: TestCase) {
     let lib = common::library(&tc, 5);
     let analysis = common::analysis(&tc, &lib);
     let load = common::loader(&analysis);
@@ -207,7 +207,7 @@ fn markers_a_third_of_a_millisecond_apart() -> Entry {
 /// left out.
 #[hegel::test(test_cases = 300)]
 #[hegel::explicit_test_case(e = markers_a_third_of_a_millisecond_apart())]
-fn grid_markers_lay_down_the_grid(tc: TestCase) {
+fn prop_grid_markers_lay_down_the_grid(tc: TestCase) {
     let e = tc.draw(gridded());
     let mut grid: Vec<&Marker> = e.markers.iter().collect();
     grid.sort_by(|a, b| a.start_ms.total_cmp(&b.start_ms));
@@ -275,7 +275,7 @@ fn wild() -> impl PrintableGenerator<f64> {
 /// numbers as they are, has at most a beat a step of the fastest tempo through the track, and one
 /// more for each marker.
 #[hegel::test(test_cases = 300)]
-fn wild_numbers_stay_in_reach(tc: TestCase) {
+fn prop_wild_numbers_stay_in_reach(tc: TestCase) {
     let [length, bpm, grid_start, grid_bpm, start, len] = [(); 6].map(|_| tc.draw(wild()));
     let nml = format!(
         "<NML><COLLECTION><ENTRY><LOCATION FILE=\"x.mp3\"/><INFO PLAYTIME_FLOAT=\"{length}\"/><TEMPO BPM=\"{bpm}\"/>\
@@ -320,7 +320,7 @@ fn assert_bounded(e: &Entry) {
 /// being one, never anything else; what reads has a file for every track, and playlists list
 /// only the collection's tracks (by key, whatever type their entries are).
 #[hegel::test(test_cases = 300)]
-fn anything_reads_or_is_refused(tc: TestCase) {
+fn prop_anything_reads_or_is_refused(tc: TestCase) {
     let pieces = vec![
         "<NML VERSION=\"19\">",
         "</NML>",
@@ -379,7 +379,7 @@ fn anything_reads_or_is_refused(tc: TestCase) {
 /// counted with what holding it takes (a `String`), or are refused: for nodes nested more than
 /// 128 deep, or for paths coming to more.
 #[hegel::test(test_cases = 60)]
-fn playlist_paths_stay_bounded(tc: TestCase) {
+fn prop_playlist_paths_stay_bounded(tc: TestCase) {
     let name = "n".repeat(tc.draw(gs::sampled_from(vec![0, 10, 1 << 16, 1 << 20])));
     let depth = tc.draw(gs::integers::<usize>().max_value(if name.len() > 1000 { 20 } else { 200 }));
     let playlists = tc.draw(hegel::one_of!(

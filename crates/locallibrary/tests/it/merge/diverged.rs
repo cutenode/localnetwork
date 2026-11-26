@@ -59,7 +59,7 @@ fn diverged(dir: &Path, edited: bool) -> (PathBuf, PathBuf) {
 }
 
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_merge_that_takes_in_the_source_lets_sync_go_ahead(tc: TestCase) {
+fn prop_a_merge_that_takes_in_the_source_lets_sync_go_ahead(tc: TestCase) {
     let edited = tc.draw(gs::booleans());
     for how in [How::PlannedOnly, How::Whole, How::OnePlaylist, How::TracksOnly, How::Undone] {
         let dir = tempfile::tempdir().unwrap();
@@ -114,7 +114,7 @@ fn a_merge_that_takes_in_the_source_lets_sync_go_ahead(tc: TestCase) {
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(tagged = true, plus_only = false)]
 #[hegel::explicit_test_case(tagged = false, plus_only = true)]
-fn a_merge_lists_the_my_tags_and_onelibrary_tracks_a_sync_would_drop(tc: TestCase) {
+fn prop_a_merge_lists_the_my_tags_and_onelibrary_tracks_a_sync_would_drop(tc: TestCase) {
     let tagged = tc.draw(gs::booleans());
     let plus_only = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();

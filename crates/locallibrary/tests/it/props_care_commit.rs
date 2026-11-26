@@ -16,7 +16,7 @@ use locallibrary::{backup, paths};
 /// the one backup made before the plan and says undoing takes back what it made, and restoring
 /// that backup puts every file back.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_write_cut_short_at_its_swap_can_be_taken_back(tc: TestCase) {
+fn prop_a_write_cut_short_at_its_swap_can_be_taken_back(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     let mut d = Device::open_export(&root).unwrap();

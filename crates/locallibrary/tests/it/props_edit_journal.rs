@@ -16,7 +16,7 @@ use locallibrary::tags::{self, TagChange};
 use locallibrary::{backup, paths};
 
 #[hegel::test(test_cases = 40)]
-fn the_journal_reads_back_in_every_format_it_has_had(tc: TestCase) {
+fn prop_the_journal_reads_back_in_every_format_it_has_had(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let d = Device::open(dir.path()).unwrap();
     let file = d.state_dir().join("edits.json");
@@ -72,7 +72,7 @@ fn draw_tag(tc: &TestCase, files: &[String]) -> TagChange {
 }
 
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_replay_makes_my_tag_and_playlist_edits_again_under_one_backup(tc: TestCase) {
+fn prop_a_replay_makes_my_tag_and_playlist_edits_again_under_one_backup(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     if tc.draw(gs::booleans()) {

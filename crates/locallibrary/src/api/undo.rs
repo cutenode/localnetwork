@@ -15,7 +15,6 @@ use super::{known_drives, resolve_drive};
 use crate::artwork::{self, EmbedBackup};
 use crate::backup::{self, BackupInfo};
 use crate::device::Device;
-use crate::diff::PlaylistDiff;
 use crate::edit::journal::{self, JournalEntry};
 use crate::error::{Action, Reason};
 use crate::hash::{self, Hash};
@@ -25,6 +24,7 @@ use crate::paths;
 use crate::progress::{Ctx, Phase};
 use crate::store::Store;
 use crate::{Error, Result};
+use loclib_model::diff::PlaylistDiff;
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct UndoRequest {

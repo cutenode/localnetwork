@@ -129,7 +129,7 @@ fn scope_of(layers: &[Layer]) -> Scope {
 /// drive and begun step; each step that begins is announced with the drive around it. A front
 /// end that only implements `on_event` gets the same events with the scopes dropped.
 #[hegel::test(test_cases = 300)]
-fn events_carry_the_innermost_drive_and_step(tc: TestCase) {
+fn prop_events_carry_the_innermost_drive_and_step(tc: TestCase) {
     let layers: Vec<Layer> = (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|_| layer(&tc)).collect();
     let events: Vec<Event> = (0..tc.draw(gs::integers::<usize>().max_value(5))).map(|_| event(&tc)).collect();
     let texts: Vec<String> = events.iter().map(|e| format!("{e:?}")).collect();
@@ -167,7 +167,7 @@ fn scope(tc: &TestCase) -> Scope {
 /// `within` fills only what the inner scope leaves unset, the empty scope changes nothing on
 /// either side, and nesting three scopes gives the same however it's grouped.
 #[hegel::test(test_cases = 200)]
-fn within_fills_only_what_is_unset(tc: TestCase) {
+fn prop_within_fills_only_what_is_unset(tc: TestCase) {
     let (a, b, c) = (scope(&tc), scope(&tc), scope(&tc));
     let ab = a.within(&b);
     assert_eq!(ab.target, a.target.clone().or(b.target.clone()));
@@ -194,7 +194,7 @@ enum Op {
 /// Cancelling any handle fails every check sharing its flag (clones, a drive's or a step's
 /// context) and stays cancelled, while an uncancellable context's flag is its own.
 #[hegel::test(test_cases = 300)]
-fn cancellation_reaches_every_context_sharing_the_flag(tc: TestCase) {
+fn prop_cancellation_reaches_every_context_sharing_the_flag(tc: TestCase) {
     let mut handles: Vec<(usize, CancelToken)> = vec![(0, CancelToken::new())];
     let mut cancelled = vec![false];
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
@@ -240,7 +240,7 @@ fn cancellation_reaches_every_context_sharing_the_flag(tc: TestCase) {
 /// Of each kind of warning the first `limit` pass through as they come, in order, and `finish`
 /// adds one summary per kind that went over, counting the rest and the total.
 #[hegel::test(test_cases = 300)]
-fn warnings_past_the_limit_are_summed_up(tc: TestCase) {
+fn prop_warnings_past_the_limit_are_summed_up(tc: TestCase) {
     let limit = tc.draw(gs::integers::<usize>().max_value(4));
     let kinds = tc.draw(gs::vecs(gs::sampled_from(vec!["unreadable files", "missing files", "bad tags"])).max_size(20));
     let seen = Mutex::new(Vec::new());

@@ -24,7 +24,7 @@ fn put(d: &Device, key: &str, bytes: &[u8], mtime: i64) {
 /// didn't finish and leaves the finished ones, the ones that were there before it started and the
 /// ones it never got to. The next write to the drive does the same.
 #[hegel::test(test_cases = 40)]
-fn what_a_cut_off_write_left_goes_and_nothing_else(tc: hegel::TestCase) {
+fn prop_what_a_cut_off_write_left_goes_and_nothing_else(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // Never started, part written, whole but unstamped, finished.
     let states: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(3)).max_size(6));
@@ -102,7 +102,7 @@ fn a_torn_file_with_its_sources_time_is_unfinished() {
 #[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(by_tidy = false)]
 #[hegel::explicit_test_case(by_tidy = true)]
-fn a_stale_note_leaves_a_later_writes_files(tc: hegel::TestCase) {
+fn prop_a_stale_note_leaves_a_later_writes_files(tc: hegel::TestCase) {
     let by_tidy = tc.draw(hegel::generators::booleans());
     let dir = tempfile::tempdir().unwrap();
     let mut d = cut_off(dir.path());

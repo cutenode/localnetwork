@@ -1,3 +1,5 @@
+use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_plugin::method;
 use loclib_plugin::test_util::FakeHost;
 use zip::write::SimpleFileOptions;
@@ -176,5 +178,53 @@ fn verify_says_when_the_music_folder_isnt_beside_the_zip() {
     let View::Kv { pairs, .. } = &items[0].view else { panic!("{items:?}") };
     let music = pairs.iter().find(|p| p.label == "Music").unwrap();
     assert_eq!(music.value, json!(format!("3 files, but {} isn't beside the zip", folder.display())));
+    host.stop();
+}
+
+/// However a zip's entries are laid out (some of `master.db`, `contents.xml`, a library file and a
+/// folder, in any order), `verify` says each way the layout differs from rekordbox's, in the order
+/// it reads them, and nothing else: one laid out as rekordbox lays it out is whole.
+#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_verify_says_each_way_a_layout_is_wrong(tc: TestCase) {
+    stamped();
+    let f = fixture();
+    let host = host(&f);
+    let xml = contents_xml(&[]);
+    let pool: [(&str, Option<&[u8]>); 4] = [
+        ("master.db", Some(MASTER_DB)),
+        ("contents.xml", Some(&xml)),
+        ("masterPlaylists6.xml", Some(b"x")),
+        ("share/", None),
+    ];
+    let mut entries: Vec<(&str, Option<&[u8]>)> = pool.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    for i in (1..entries.len()).rev() {
+        entries.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
+    }
+    let zip = f.dest.join("rekordbox_bak_20260101.zip");
+    zip_of(&zip, &entries);
+
+    let names: Vec<&str> = entries.iter().map(|(n, _)| *n).collect();
+    let mut expected: Vec<String> = names
+        .iter()
+        .filter(|n| n.ends_with('/'))
+        .map(|n| format!("it has a folder entry, {n}, which rekordbox's backups don't"))
+        .collect();
+    if names.first() != Some(&"master.db") {
+        expected.push("master.db isn't its first entry".into());
+    }
+    if names.last() != Some(&"contents.xml") {
+        expected.push("contents.xml isn't its last entry".into());
+    }
+    if !names.contains(&"contents.xml") {
+        expected.push("it has no contents.xml that reads".into());
+    } else if names.first() != Some(&"master.db") {
+        // Only a first master.db is unpacked for the host to open.
+        expected.push("it has no master.db".into());
+    }
+    if expected.is_empty() {
+        run(&host, &f, "verify", json!({ "file": zip }), json!({})).unwrap();
+    } else {
+        assert_eq!(problems(&host, &f, &zip), expected, "{names:?}");
+    }
     host.stop();
 }

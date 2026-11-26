@@ -179,10 +179,18 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   reads from a USB drive, with sources, also as JSON
 - [loclib-capacity](../../crates/loclib-capacity): catching fake-capacity USB sticks and cards by
   writing and reading back test regions across the whole disk
+- [loclib-drive-speed](../../crates/loclib-drive-speed): how long a write to a USB stick or card will
+  take, from its rate and its file and folder costs, measured on it by a short test
+- [loclib-format](../../crates/loclib-format): finding external disks and formatting them with the
+  system's own tools, and writing FAT32 at any size up to 2 TiB, with the cluster size you choose
+- [loclib-disk](../../crates/loclib-disk): checking, repairing and ejecting drives with the
+  system's own tools
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
 - [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
   (rekordbox's OneLibrary and collection) in pure Rust, with their write-ahead log replayed
+- [loclib-rekordbox-db](../../crates/loclib-rekordbox-db): reading and editing rekordbox's
+  OneLibrary database (`exportLibrary.db`) on USB drives, and reading its collection (`master.db`)
 - [loclib-anlz](../../crates/loclib-anlz): reading and writing rekordbox's analysis files: beat
   grids, cues, waveforms, phrases and the audio path
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
@@ -191,6 +199,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   headers, and resampling them as they stream
 - [loclib-mixid](../../crates/loclib-mixid): which known tracks a recorded mix plays, when and at what
   speed
+- [loclib-aup](../../crates/loclib-aup): reading Audacity projects (`.aup3`, `.aup4`): tags, labels,
+  and the audible tracks mixed to mono
 - [loclib-transcode](../../crates/loclib-transcode): which copy of a file a set of players needs,
   and lossless copies (AIFF, WAV, FLAC) that keep cue points in time
 - [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo and key, loudness and
@@ -293,13 +303,20 @@ flowchart LR
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
-    core --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
+    core --> rkdb["loclib-rekordbox-db<br/>OneLibrary, master.db"]
+    rkdb --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
+    core --> sqlc
     core --> anlz["loclib-anlz<br/>analysis files"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> cap["loclib-capacity<br/>fake-capacity probe"]
+    core --> speed["loclib-drive-speed<br/>how long a write takes"]
+    core --> fmt["loclib-format<br/>disks, formatting, FAT32"]
+    core --> disk["loclib-disk<br/>file-system checks, eject"]
+    disk --> fmt
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
+    core --> aup["loclib-aup<br/>Audacity projects"]
     core -->|scoring only| sound["loclib-analysis<br/>tempo, key, loudness"]
     core --> trans["loclib-transcode<br/>copies for players"]
     core --> model["loclib-model<br/>loclib-progress"]
@@ -466,7 +483,7 @@ flowchart TD
     hub --> playlist["playlist<br/>ls, new, rename, move, delete, add, remove, reorder, sort, dedupe, order, fill, unfiled, import"]
     hub --> track["track<br/>set, rm, replace, dedupe, relocate, upgrade, show, fetch, matches"]
     hub --> tags["tags<br/>list, add, untag, rename, delete"]
-    hub --> cues["cues<br/>list, set, rename, colour, rm, copy"]
+    hub --> cues["cues<br/>list, set, rename, colour, rm, copy, auto"]
     hub --> art["art<br/>missing, set, auto, embed, unembed, fetch, get"]
     hub --> edits["edits<br/>list, replay, clear"]
     hub --> smart["smart<br/>list, add, rm, apply"]

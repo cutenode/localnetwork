@@ -1,0 +1,11 @@
+id: hegel-test-name
+valid:
+  - "#[hegel::test]\nfn prop_sorting_keeps_every_item(tc: TestCase) {}"
+  - "#[hegel::test(test_cases = 50)]\n#[hegel::explicit_test_case(n = 1)]\n/// Doc.\nfn prop_sorting_keeps_every_item(tc: TestCase) {}"
+  - "#[hegel::test_helper]\nfn sorting_case(tc: &TestCase) {}"
+  - "#[test]\nfn sorting_keeps_every_item() {}"
+  - "#[hegel::test]\nfn prop_a(tc: TestCase) {}\nfn helper() {}"
+invalid:
+  - "#[hegel::test]\nfn sorting_keeps_every_item(tc: TestCase) {}"
+  - "#[hegel::test(test_cases = 50)]\n#[hegel::explicit_test_case(n = 1)]\n// Why.\nfn sorting_keeps_every_item(tc: TestCase) {}"
+  - "#[cfg(unix)]\n#[hegel::test]\npub(crate) fn properties(tc: TestCase) {}"

@@ -11,7 +11,7 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use rekordbox_pdb::NewTrack;
@@ -83,7 +83,7 @@ fn prop_an_active_loop_stays_active_through_a_cue_edit(tc: TestCase) {
     let listed = cue_edit::list(&Device::open_export(&root).unwrap(), &[t.id]).unwrap();
     let a = listed[0].cues.iter().find(|c| c.hot_cue.as_deref() == Some("A")).unwrap();
     assert!(a.active_loop, "{:?}", listed[0].cues);
-    let rows = OneLibrary::open_root(&root).unwrap().cue_rows(content_id(&root, &t.file_path)).unwrap();
+    let rows = onelibrary::open_root(&root).unwrap().cue_rows(content_id(&root, &t.file_path)).unwrap();
     let row = rows.iter().find(|r| r.hot_cue == Some(0)).unwrap();
     assert!(row.active_loop && row.out_usec.is_some(), "{rows:?}");
 }
@@ -106,7 +106,7 @@ fn prop_cues_copied_onto_a_track_of_the_same_audio_keep_its_onelibrary_rows(tc: 
     }
     let cid = content_id(&root, &a.file_path);
     let rows = |root: &std::path::Path| {
-        let mut r: Vec<_> = OneLibrary::open_root(root)
+        let mut r: Vec<_> = onelibrary::open_root(root)
             .unwrap()
             .cue_rows(cid)
             .unwrap()

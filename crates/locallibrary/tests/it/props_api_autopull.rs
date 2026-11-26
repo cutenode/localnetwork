@@ -78,7 +78,7 @@ fn same(a: &Path, b: &Path) -> bool {
 /// or the drives diverged (then the other is left for a merge, or saved beside the newest
 /// snapshot when only players changed it).
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_watched_group_is_synced_from_its_newest_drive(tc: TestCase) {
+fn prop_a_watched_group_is_synced_from_its_newest_drive(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());
     let volumes = main.parent().unwrap().to_path_buf();
@@ -188,7 +188,7 @@ fn a_watched_group_is_synced_from_its_newest_drive(tc: TestCase) {
 /// as drawn): the poll sees its databases change, and the next look saves it; the pull rewrites
 /// its state, which the next poll sees, and nothing more after that.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_drive_changed_while_watched_is_seen_and_saved(tc: TestCase) {
+fn prop_a_drive_changed_while_watched_is_seen_and_saved(tc: TestCase) {
     use locallibrary::watch::{DriveChange, WatchEvent};
     use std::cell::Cell;
     let dir = tempfile::tempdir().unwrap();

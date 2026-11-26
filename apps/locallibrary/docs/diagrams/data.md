@@ -33,7 +33,7 @@ flowchart TD
     library --> cache["Sidecar: parsed libraries of the last 4 drives,<br/>read again when a database changes"]
 ```
 
-Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/loclib-anlz/src/lib.rs`](../../../../crates/loclib-anlz/src/lib.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
+Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/loclib-rekordbox-db/src/onelibrary/mod.rs`](../../../../crates/loclib-rekordbox-db/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/loclib-anlz/src/lib.rs`](../../../../crates/loclib-anlz/src/lib.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
 
 ## My Settings
 
@@ -83,7 +83,7 @@ flowchart TD
     read --> reads["collection info, tracks, playlists"]
     read --> diff["collection diff:<br/>what a drive lacks"]
     read --> export["collection export"]
-    read --> player["The player: every file as a full path on this<br/>computer, cloud tracks in Dropbox or Google Drive"]
+    read --> player["The player: every file as a full path on this<br/>computer, cloud tracks in Dropbox or Google Drive,<br/>cues from master.db (its analysis files have none)"]
     master -.->|"rekordbox saves: the open<br/>collection is read again"| player
     export --> write["Copy what differs, build both databases,<br/>swap them in"]
     write --> target["A drive, or a folder laid out like one"]
@@ -91,7 +91,7 @@ flowchart TD
     store -->|"library push"| drive["Any drive"]
 ```
 
-Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
+Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
 
 ## Exporting a collection
 
@@ -107,7 +107,7 @@ flowchart TD
     build --> delete["Delete what's no longer used, record the<br/>new state, write collection.json, forget the journal"]
 ```
 
-Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
+Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`crates/loclib-drive-speed/src/lib.rs`](../../../../crates/loclib-drive-speed/src/lib.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
 
 ## Sets from histories and recordings
 
@@ -161,7 +161,7 @@ flowchart TD
     report --> set["sets new, from the recording"]
 ```
 
-Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/src/mix/mod.rs), [`crates/locallibrary/src/mix/index.rs`](../../../../crates/locallibrary/src/mix/index.rs), [`crates/loclib-audio/src/lib.rs`](../../../../crates/loclib-audio/src/lib.rs), [`crates/loclib-mixid/src/lib.rs`](../../../../crates/loclib-mixid/src/lib.rs), [`crates/locallibrary/src/mix/report.rs`](../../../../crates/locallibrary/src/mix/report.rs), [`crates/locallibrary/src/mix/export.rs`](../../../../crates/locallibrary/src/mix/export.rs), [`src/mix_cmd.rs`](../../src/mix_cmd.rs)
+Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/src/mix/mod.rs), [`crates/locallibrary/src/mix/index.rs`](../../../../crates/locallibrary/src/mix/index.rs), [`crates/loclib-audio/src/lib.rs`](../../../../crates/loclib-audio/src/lib.rs), [`crates/loclib-aup/src/lib.rs`](../../../../crates/loclib-aup/src/lib.rs), [`crates/loclib-mixid/src/lib.rs`](../../../../crates/loclib-mixid/src/lib.rs), [`crates/locallibrary/src/mix/report.rs`](../../../../crates/locallibrary/src/mix/report.rs), [`crates/locallibrary/src/mix/export.rs`](../../../../crates/locallibrary/src/mix/export.rs), [`src/mix_cmd.rs`](../../src/mix_cmd.rs)
 
 ## The DJ profile
 

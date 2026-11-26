@@ -17,7 +17,7 @@ use locallibrary::progress::Ctx;
 use rekordbox_pdb::PdbEditor;
 
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_plan_is_refused_exactly_when_what_it_was_made_from_changes(tc: TestCase) {
+fn prop_a_plan_is_refused_exactly_when_what_it_was_made_from_changes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, &common::isolate(dir.path(), None), "A");
     if tc.draw(gs::booleans()) {
@@ -86,7 +86,7 @@ fn a_plan_is_refused_exactly_when_what_it_was_made_from_changes(tc: TestCase) {
 
 /// A size reads back as about as many bytes, in the largest unit under a thousand.
 #[hegel::test(test_cases = 300)]
-fn sizes_read_as_a_person_would(tc: TestCase) {
+fn prop_sizes_read_as_a_person_would(tc: TestCase) {
     let n = tc.draw(hegel::one_of!(
         gs::integers::<u64>().max_value(2_000_000),
         gs::integers::<u64>().max_value(1 << 44),

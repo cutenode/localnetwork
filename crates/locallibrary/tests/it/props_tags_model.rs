@@ -13,7 +13,6 @@ use std::path::Path;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use locallibrary::tags::{self, Edit};
@@ -132,7 +131,7 @@ fn after(m: &Model, edit: &Edit, files: &[(u32, String)], ext: bool) -> Result<M
 /// Give OneLibrary the categories and tags exportExt.pdb has, as rekordbox exports both.
 fn mirror(root: &Path) {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     for c in ext.categories() {
         one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
         for t in ext.tags_in(c.id) {
@@ -170,7 +169,7 @@ fn draw_edit(tc: &TestCase, m: &Model, tracks: &[u32]) -> Edit {
 }
 
 #[hegel::test(test_cases = 16, suppress_health_check = [HealthCheck::TooSlow])]
-fn tag_edits_on_a_drive_match_the_model(tc: TestCase) {
+fn prop_tag_edits_on_a_drive_match_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     // At times a category already holding as many tags as rekordbox allows.
@@ -277,7 +276,7 @@ fn tag_edits_on_a_drive_match_the_model(tc: TestCase) {
 /// OneLibrary's alone: every read says exportExt.pdb is left alone, edits match the model with
 /// OneLibrary's limits, and exportExt.pdb keeps its bytes whatever is edited.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn exportext_without_export_pdb_is_left_alone_whatever_is_edited(tc: TestCase) {
+fn prop_exportext_without_export_pdb_is_left_alone_whatever_is_edited(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);

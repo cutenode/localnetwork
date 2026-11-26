@@ -9,7 +9,7 @@ use super::*;
 /// or not, and the track as typed after the first colon; anything else is refused, naming what
 /// was given.
 #[hegel::test(test_cases = 200)]
-fn moves_and_inserts_read_as_written(tc: TestCase) {
+fn prop_moves_and_inserts_read_as_written(tc: TestCase) {
     let (from, to) = (tc.draw(gs::integers::<usize>()), tc.draw(gs::integers::<usize>()));
     let pad = |tc: &TestCase| tc.draw(gs::sampled_from(&["", " ", "  "][..]));
     let written = format!("{}{from}{}:{}{to}{}", pad(&tc), pad(&tc), pad(&tc), pad(&tc));
@@ -38,7 +38,7 @@ fn moves_and_inserts_read_as_written(tc: TestCase) {
 /// session itself; nothing to say is nothing at all. (Where a track was played is listed for
 /// sets titled or not, at a time or not, alongside.)
 #[hegel::test(test_cases = 50)]
-fn marks_say_what_sets_an_entry_apart(tc: TestCase) {
+fn prop_marks_say_what_sets_an_entry_apart(tc: TestCase) {
     let mut e: SetEntry = serde_json::from_value(json!({"title": "T", "artist": "A", "origin": "session"})).unwrap();
     e.unnamed = tc.draw(gs::booleans());
     e.origin = tc.draw(gs::sampled_from(&[EntryOrigin::Session, EntryOrigin::Added, EntryOrigin::Recording][..]));
@@ -66,7 +66,7 @@ fn marks_say_what_sets_an_entry_apart(tc: TestCase) {
 /// name, in the order written. A part that isn't a number or a range of them is refused quoting
 /// the whole list, and a range that runs backwards is refused quoting the range.
 #[hegel::test(test_cases = 200)]
-fn positions_read_as_every_one_they_name(tc: TestCase) {
+fn prop_positions_read_as_every_one_they_name(tc: TestCase) {
     let pad = |tc: &TestCase| tc.draw(gs::sampled_from(&["", " "][..]));
     let (mut parts, mut want) = (Vec::new(), Vec::new());
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {

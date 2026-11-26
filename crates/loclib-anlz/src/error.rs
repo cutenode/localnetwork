@@ -12,6 +12,7 @@ pub enum Error {
     Invalid(String),
 }
 
+/// A `Result` whose error defaults to this crate's [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl Error {

@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::edit::{self, Edit, EditOptions};
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, paths, pdb};
@@ -42,7 +42,7 @@ fn drifted(dir: &Path, plus: bool) -> PathBuf {
 
 /// A player adds `file` to the end of OneLibrary's `playlist`.
 fn player_adds(root: &Path, playlist: &str, file: &str) {
-    let mut one = OneLibrary::open_root(root).unwrap();
+    let mut one = locallibrary::onelibrary::open_root(root).unwrap();
     let lib = one.library().unwrap();
     let id = lib.tracks.iter().find(|t| t.file_path == file).unwrap().id;
     one.add_to_playlist(lib.find_playlist(playlist).unwrap().id, id).unwrap();
@@ -115,7 +115,7 @@ fn draw_edit(tc: &TestCase, kind: u8, files: &[String], bonus: &str) -> Edit {
 }
 
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn edits_on_drifted_databases_change_export_pdb_alike_and_onelibrary_only_where_it_can(tc: TestCase) {
+fn prop_edits_on_drifted_databases_change_export_pdb_alike_and_onelibrary_only_where_it_can(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (alone, both) = (drifted(dir.path(), false), drifted(dir.path(), true));
     let lib = pdb::read_library(&both.join(paths::EXPORT_PDB)).unwrap();

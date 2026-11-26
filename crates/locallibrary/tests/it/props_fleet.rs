@@ -53,7 +53,7 @@ pub(crate) fn demote<'a>(roles: impl Iterator<Item = &'a mut Option<Role>>, role
 }
 
 #[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_registry_matches_the_model(tc: TestCase) {
+fn prop_the_registry_matches_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut devices: Vec<Device> = Vec::new();
@@ -208,7 +208,7 @@ fn the_registry_matches_the_model(tc: TestCase) {
 /// that, and given an identity of its own it no longer is one. A drive that lost its identity is
 /// recognised by what it holds, and takes the identity back.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn copies_are_told_apart_and_lost_identities_found(tc: TestCase) {
+fn prop_copies_are_told_apart_and_lost_identities_found(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
@@ -266,7 +266,7 @@ fn copies_are_told_apart_and_lost_identities_found(tc: TestCase) {
 /// only by a serial number, and of one volume by its id; and of drives claiming one identity, the
 /// one on the disk or volume the identity was given on is the original, when only one is.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn roles_and_hardware_tell_drives_apart(tc: TestCase) {
+fn prop_roles_and_hardware_tell_drives_apart(tc: TestCase) {
     use locallibrary::fleet::Hardware;
     for role in Role::ALL {
         let spelled = match tc.draw(gs::integers::<u8>().max_value(2)) {

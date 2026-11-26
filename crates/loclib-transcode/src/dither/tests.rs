@@ -39,7 +39,7 @@ use hegel::generators as gs;
 /// step and a half of it, both stay in the depth's range, and the same samples always round
 /// the same way.
 #[hegel::test(test_cases = 300)]
-fn samples_round_to_a_step_near_them(tc: TestCase) {
+fn prop_samples_round_to_a_step_near_them(tc: TestCase) {
     let depth = tc.draw(gs::sampled_from(vec![16u16, 24]));
     let samples = tc.draw(gs::vecs(gs::floats::<f64>().min_value(-1.5).max_value(1.5)).min_size(1).max_size(50));
     let scale = f64::from(1u32 << (depth - 1));

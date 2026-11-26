@@ -285,9 +285,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -4093,10 +4093,14 @@ dependencies = [
  "locallibrary-plugin-soundcloud",
  "locallibrary-plugin-tracklist",
  "locallibrary-plugin-youtube",
+ "loclib-aup",
+ "loclib-drive-speed",
+ "loclib-format",
  "loclib-interop",
  "loclib-model",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-rekordbox-db",
  "loclib-testkit",
  "loclib-waveform",
  "oauth2",
@@ -4135,7 +4139,6 @@ dependencies = [
  "chrono",
  "codspeed-criterion-compat",
  "directories",
- "fatfs",
  "filetime",
  "form_urlencoded",
  "fs4",
@@ -4160,15 +4163,19 @@ dependencies = [
  "loclib-analysis",
  "loclib-anlz",
  "loclib-audio",
+ "loclib-aup",
  "loclib-capacity",
+ "loclib-disk",
+ "loclib-drive-speed",
  "loclib-equipment",
+ "loclib-format",
  "loclib-interop",
  "loclib-mixid",
  "loclib-model",
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
- "loclib-sqlcipher",
+ "loclib-rekordbox-db",
  "loclib-testkit",
  "loclib-tracklist",
  "loclib-transcode",
@@ -4177,7 +4184,6 @@ dependencies = [
  "mio",
  "oauth2",
  "percent-encoding",
- "plist",
  "quick-xml 0.42.0",
  "rayon",
  "rekordbox-pdb",
@@ -4192,7 +4198,6 @@ dependencies = [
  "sha2 0.10.9",
  "strsim",
  "symphonia",
- "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -4416,11 +4421,13 @@ dependencies = [
  "ebur128",
  "hegeltest",
  "indexmap",
+ "loclib-anlz",
  "loclib-audio",
  "loclib-mixid",
  "loclib-model",
  "loclib-progress",
  "loclib-testkit",
+ "rustfft",
  "schemars",
  "serde",
  "serde_json",
@@ -4457,12 +4464,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-aup"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-audio",
+ "loclib-progress",
+ "loclib-sqlcipher",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "loclib-capacity"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "hegeltest",
  "loclib-progress",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-disk"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-format",
+ "tempfile",
+]
+
+[[package]]
+name = "loclib-drive-speed"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fs4",
+ "hegeltest",
+ "loclib-capacity",
+ "loclib-progress",
+ "rustc-hash",
  "schemars",
  "serde",
  "serde_json",
@@ -4480,6 +4529,26 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-format"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake3",
+ "chrono",
+ "fatfs",
+ "hegeltest",
+ "loclib-equipment",
+ "loclib-progress",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
@@ -4536,6 +4605,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "unicode-normalization",
 ]
 
@@ -4583,6 +4653,32 @@ dependencies = [
  "hegeltest",
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-rekordbox-db"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chrono",
+ "directories",
+ "getrandom 0.3.4",
+ "hegeltest",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-sqlcipher",
+ "loclib-testkit",
+ "plist",
+ "quick-xml 0.42.0",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -5520,9 +5616,9 @@ dependencies = [
 
 [[package]]
 name = "num-modular"
-version = "0.6.6"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26ac76200f74e658124f95fa63e1a82b2fd2181c5b2fdde80b3d89d2d3f905e7"
+checksum = "bd8e500409e6cd603b03e477c26a6caecdc27ac58979a53e881c75eafc079f44"
 
 [[package]]
 name = "num-rational"
@@ -7044,6 +7140,7 @@ version = "0.1.0+locallibrary.1"
 dependencies = [
  "hegeltest",
  "indexmap",
+ "loclib-model",
 ]
 
 [[package]]

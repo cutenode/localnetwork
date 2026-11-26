@@ -20,6 +20,7 @@ pub enum Level {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Finding {
+    /// How much it matters.
     pub level: Level,
     /// The check that found it (`files`, a plugin's `<plugin>.<check>`).
     #[serde(default)]

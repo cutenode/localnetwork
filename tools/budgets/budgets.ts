@@ -3,9 +3,9 @@
 // to how much it grows that number over the commit it merges into, not to a committed limit, so
 // main's own growth never turns a pull request red and pull requests never edit these files.
 //
-//   node tools/budgets/cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]
+//   node tools/budgets/cli.ts check <job> <base-dir> <head-dir> [<raises-file> [entries]]
 //       fails on a metric that grew past its allowance (times `entries`, the pull requests a merge
-//       queue group holds) and the raises <raises-file> declares for it
+//       queue group holds) and the raises <raises-file> declares for it; with no <raises-file>, none
 //   node tools/budgets/cli.ts baseline <sha> <filter> <artifact> <dir>
 //       see baseline.ts
 //   node tools/budgets/cli.ts noise <job> <dir> <dir>...
@@ -15,6 +15,9 @@
 //       see creep.ts
 //   node tools/budgets/cli.ts raises <base-ref> <raises-file>
 //       fails on an allowance widened or a metric dropped that no raise names
+//   node tools/budgets/cli.ts current <base-ref> <branch> <repo> <pull-request>
+//       fails when <base-ref> predates <branch>'s last change to tools/budgets/, and says how to get
+//       a current merge commit
 //
 // A raise is a commit's `Budget-Raise: <area>/<metric> +<amount>: <why>` trailer, which <raises-file>
 // holds as `git log --format='%(trailers:key=Budget-Raise)'` prints it: in a commit, review covers it
@@ -174,8 +177,14 @@ function measuredIn(dir: string, area: string): Measured | undefined {
 	return existsSync(path) ? readJson<Measured>(path) : undefined;
 }
 
-function check(job: string, baseDir: string, headDir: string, raisesFile: string, entries: number): Outcome {
-	const raised = declared(readFileSync(raisesFile, 'utf8'));
+function check(
+	job: string,
+	baseDir: string,
+	headDir: string,
+	raisesFile: string | undefined,
+	entries: number
+): Outcome {
+	const raised = raisesFile === undefined ? new Map<string, number>() : declared(readFileSync(raisesFile, 'utf8'));
 	const rows: Row[] = [];
 	const found: string[] = [];
 
@@ -255,14 +264,42 @@ function raises(base: string, raisesFile: string): Outcome {
 	return { lines: found, ok: found.length === 0 };
 }
 
+/**
+ * Whether `base` has `branch`'s budget tooling. A pull request's merge commit holds its base as it was
+ * when GitHub made it, and a close and reopen can leave an old one, which would measure and check with
+ * the old tooling (LOC-710).
+ */
+function current(base: string, branch: string, repo: string, number: string): Outcome {
+	const changed = execFileSync('git', ['log', '-1', '--format=%H', branch, '--', 'tools/budgets'], {
+		encoding: 'utf8'
+	}).trim();
+
+	try {
+		execFileSync('git', ['merge-base', '--is-ancestor', changed, base]);
+
+		return { lines: [], ok: true };
+	} catch {
+		const short = changed.slice(0, 9);
+
+		// A close and reopen gets a new merge commit once GitHub has made one on the current base, which
+		// keeps the pull request's history as it is; updating the branch is for when it doesn't.
+		return {
+			lines: [
+				`${base} predates ${short}, ${branch}'s last change to tools/budgets/, so this would check with old tooling. Close and reopen the pull request once \`gh api repos/${repo}/pulls/${number} --jq .merge_commit_sha\` prints a merge commit whose first parent contains ${short}, and update the branch only if that doesn't happen.`
+			],
+			ok: false
+		};
+	}
+}
+
 /** What a command prints, and whether it passed. */
 export type Outcome = { lines: string[]; ok: boolean };
 
 /** Runs a command and gives the lines to print and whether it passed. */
 export function run([command, ...args]: string[]): Outcome {
-	if (command === 'check' && (args.length === 4 || args.length === 5)) {
+	if (command === 'check' && args.length >= 3 && args.length <= 5) {
 		// SAFETY: the length is checked just above.
-		const [job, baseDir, headDir, raisesFile, entries] = args as [string, string, string, string, string?];
+		const [job, baseDir, headDir, raisesFile, entries] = args as [string, string, string, string?, string?];
 		const groupSize = Number(entries ?? '1');
 
 		if (Number.isInteger(groupSize) && groupSize > 0) return check(job, baseDir, headDir, raisesFile, groupSize);
@@ -282,11 +319,19 @@ export function run([command, ...args]: string[]): Outcome {
 		return raises(base, raisesFile);
 	}
 
+	if (command === 'current' && args.length === 4) {
+		// SAFETY: the length is checked just above.
+		const [base, branch, repo, number] = args as [string, string, string, string];
+
+		return current(base, branch, repo, number);
+	}
+
 	return {
 		lines: [
-			'usage: cli.ts check <job> <base-dir> <head-dir> <raises-file> [entries]',
+			'usage: cli.ts check <job> <base-dir> <head-dir> [<raises-file> [entries]]',
 			'       cli.ts noise <job> <dir> <dir>...',
-			'       cli.ts raises <base-ref> <raises-file>'
+			'       cli.ts raises <base-ref> <raises-file>',
+			'       cli.ts current <base-ref> <branch> <repo> <pull-request>'
 		],
 		ok: false
 	};

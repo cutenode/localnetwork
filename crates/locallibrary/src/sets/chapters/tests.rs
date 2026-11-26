@@ -53,7 +53,7 @@ fn chapters_follow_the_start_times() {
 /// a chapter at its start, named for the first track starting there; and every other track is in a
 /// note.
 #[hegel::test(test_cases = 300)]
-fn chapters_are_ordered_and_end_where_the_next_starts(tc: TestCase) {
+fn prop_chapters_are_ordered_and_end_where_the_next_starts(tc: TestCase) {
     let starts = tc.draw(gs::vecs(gs::optional(gs::integers::<u32>().max_value(600))).max_size(12));
     let length = tc.draw(gs::optional(gs::integers::<u64>().max_value(700)));
     let s = timed(&starts);

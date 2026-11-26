@@ -47,8 +47,10 @@ fn writes(m: &Manifest) -> bool {
 pub struct PutRecord {
     /// The record type, by NSID (`fm.plyr.track`).
     pub collection: String,
+    /// The record key to write it at, or none for one the account's server picks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rkey: Option<String>,
+    /// The record, a JSON object with its `$type`, which fits the collection's Lexicon.
     pub record: Value,
     /// The CID of the record replaced, with `rkey`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

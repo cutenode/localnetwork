@@ -74,7 +74,7 @@ fn wrapping_keeps_words_whole() {
 /// Every word, in order, on lines no wider than `width` (a word longer than that on a line of
 /// its own), and no line that the next one's first word would have fitted on.
 #[hegel::test(test_cases = 300)]
-fn wrapped_lines_fit_and_keep_every_word(tc: hegel::TestCase) {
+fn prop_wrapped_lines_fit_and_keep_every_word(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let text: String = tc.draw(gs::text().alphabet("ab cdé日 \n\t").max_size(80));
     let width = tc.draw(gs::integers::<usize>().min_value(1).max_value(20));
@@ -123,7 +123,7 @@ fn typo(tc: &hegel::TestCase, word: &str) -> String {
 /// A "did you mean" for a group's subcommand only ever names a visible subcommand of that
 /// group; a name typed right is itself, and one typed with a single slip still finds one.
 #[hegel::test(test_cases = 200)]
-fn suggestions_for_a_subcommand_are_real_subcommands(tc: hegel::TestCase) {
+fn prop_suggestions_for_a_subcommand_are_real_subcommands(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (group, names) = &tc.draw(gs::sampled_from(groups()));
     let name = &tc.draw(gs::sampled_from(&names[..]));
@@ -155,7 +155,7 @@ fn suggestions_for_a_subcommand_are_real_subcommands(tc: hegel::TestCase) {
 /// A mistyped top-level command is a usage error whose suggestions, once tidied, are only
 /// visible commands, each once.
 #[hegel::test(test_cases = 100)]
-fn suggestions_for_a_command_are_visible(tc: hegel::TestCase) {
+fn prop_suggestions_for_a_command_are_visible(tc: hegel::TestCase) {
     use clap::error::{ContextKind, ContextValue};
     use hegel::generators as gs;
     // Built once: it's the slow part.

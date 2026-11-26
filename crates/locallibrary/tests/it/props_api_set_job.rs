@@ -55,7 +55,7 @@ fn names_lists(line: &str, lists: &[String]) -> bool {
 /// the source after Main and finds Main newer.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(n = 4usize, order = [0usize, 1, 2], players = Vec::<String>::new(), eject = true, by_plan = true)]
-fn a_set_job_saves_what_it_can_and_says_why_not_the_rest(tc: TestCase) {
+fn prop_a_set_job_saves_what_it_can_and_says_why_not_the_rest(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(5));
     // The order Main, Old and Loose are named in.
     let order = tc.draw(gs::sampled_from(vec![[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]));

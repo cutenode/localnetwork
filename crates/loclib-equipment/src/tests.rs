@@ -14,6 +14,23 @@ fn names_are_found_however_they_are_spelled() {
     assert!(MODELS.iter().all(|m| seen.insert(normalise(m.name))), "no two models normalise alike");
 }
 
+/// The exFAT lists put every model on one of them, with the firmware it needs, and the mixers
+/// together.
+#[test]
+fn every_model_is_on_one_exfat_list() {
+    let (yes, no) = (exfat_list(), no_exfat_list());
+    assert!(yes.iter().any(|m| m == "CDJ-3000 (firmware 1.20+)"), "{yes:?}");
+    assert!(yes.iter().any(|m| m == "OPUS-QUAD"), "{yes:?}");
+    assert_eq!(no.first().map(String::as_str), Some("CDJ-2000NXS2"));
+    assert_eq!(no.last().map(String::as_str), Some("DJM-V10/DJM-A9 (settings, firmware)"));
+    let names = |entry: &str| entry.split(" (").next().unwrap().split('/').map(str::to_string).collect::<Vec<_>>();
+    let mut listed: Vec<String> = yes.iter().chain(&no).flat_map(|e| names(e)).collect();
+    listed.sort();
+    let mut all: Vec<String> = MODELS.iter().map(|m| m.name.to_string()).collect();
+    all.sort();
+    assert_eq!(listed, all);
+}
+
 #[test]
 fn every_player_reads_a_database_and_plays_mp3() {
     for m in MODELS.iter().filter(|m| !m.is_mixer()) {
@@ -94,7 +111,7 @@ fn formats_from_file_names() {
 /// inferred is the format's, and a format it doesn't list doesn't play, as sure as the model's
 /// list is. Its documented values are `known`, never inferred.
 #[hegel::test(test_cases = 200)]
-fn models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
+fn prop_models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
     let rate_lists = [MPEG_1_AND_2, R32_48, R44_48, R44_96];
     let mut audio = Vec::new();
     for codec in Codec::ALL {

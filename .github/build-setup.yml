@@ -1,9 +1,5 @@
-# Steps dist puts in locallibrary-release.yml's build-local-artifacts job, before it builds the
-# archives (github-build-setup in dist-workspace.toml): they write the third-party notices the
+# The step dist puts in locallibrary-release.yml's build-local-artifacts job, before it builds the
+# archives (github-build-setup in dist-workspace.toml): it writes the third-party notices the
 # archives include.
-- name: Install cargo-about
-  uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-  with:
-    tool: cargo-about@0.9.3
 - name: Write third-party notices
-  run: cargo notices
+  uses: ./.github/actions/notices

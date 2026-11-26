@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_plugin::{Column, ExportedFile, Pair, Section};
 
 use super::*;
@@ -398,5 +400,94 @@ fn verify_asks_which_backup() {
     let View::Choose(choice) = asked else { panic!("{asked:?}") };
     assert_eq!((choice.param.as_str(), choice.items.len()), ("file", 1));
     assert_eq!(choice.items[0].value, json!(f.zip()));
+    host.stop();
+}
+
+/// Whatever tracks the library has, under whatever tags, and whatever the settings: the plan
+/// says what the backup then does, `verify` finds the backup whole, `backups` lists it, and each
+/// counts the tracks rekordbox hasn't deleted and the music of those whose file is here (when the
+/// music is asked for). A second backup copies none of that music again.
+#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_backup_is_whole_listed_and_as_planned(tc: TestCase) {
+    stamped();
+    let mut f = fixture();
+    f.tracks.retain(|_| tc.draw(gs::booleans()));
+    // Tags as people write them, with what a file name can't hold. Not just any text: APFS
+    // refuses a name with a character Unicode hasn't assigned.
+    let tag = || gs::optional(gs::from_regex(r#"[A-Za-z0-9 ÜïØłø東'&.,:/\\~?*<>|"()-]{0,12}"#).fullmatch(true));
+    for t in &mut f.tracks {
+        t.artist = tc.draw(tag());
+        t.album = tc.draw(tag());
+    }
+    let (music, strip, earlier) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let settings = json!({ "music": music, "credentials": if strip { "strip" } else { "keep" } });
+    let live = f.tracks.iter().filter(|t| !t.deleted).count();
+    let here = f.tracks.iter().filter(|t| !t.deleted && Path::new(&t.path).is_file()).count();
+    let copied = if music { here } else { 0 };
+    let host = host(&f);
+    let zip = f.zip();
+    if earlier {
+        std::fs::write(&zip, b"an older backup of today's").unwrap();
+    }
+
+    let plan = super::plan(&host, &f, settings.clone()).unwrap();
+    assert_eq!(plan.files[0].path, zip);
+    assert_eq!(plan.files.len(), 1 + copied, "{:?}", plan.files);
+    assert!(plan.files[1..].iter().all(|c| c.path.starts_with(f.dest.join("rekordbox_bak"))), "{:?}", plan.files);
+    let summary = format!("Back up rekordbox's library ({live} tracks) to {}", zip.display());
+    assert!(plan.summary.starts_with(&summary), "{}", plan.summary);
+    let replaced = format!("{} is there already, and is replaced", zip.display());
+    assert_eq!(plan.warnings.contains(&replaced), earlier, "{:?}", plan.warnings);
+    assert_eq!(plan.warnings.iter().any(|w| w.contains("sign-in tokens")), !strip, "{:?}", plan.warnings);
+
+    let made = as_view(run(&host, &f, "backup", json!({}), settings.clone()).unwrap());
+    let View::Kv { pairs, .. } = made else { panic!("{made:?}") };
+    let said = |label: &str| pairs.iter().find(|p| p.label == label).map(|p| p.value.clone());
+    assert_eq!(said("Tracks"), Some(json!(live)));
+    let copies =
+        if music { format!("{here} copied, 0 there already") } else { "not copied (the music setting)".into() };
+    assert_eq!(said("Music"), Some(json!(copies)));
+    let names = super::names(&zip);
+    assert_eq!(
+        (names.first().map(String::as_str), names.last().map(String::as_str)),
+        (Some("master.db"), Some("contents.xml"))
+    );
+    let settings_xml = if strip { SETTINGS_STRIPPED } else { SETTINGS_XML };
+    assert_eq!(entry(&zip, "rekordbox3.settings"), settings_xml.as_bytes());
+
+    let checked = as_view(run(&host, &f, "verify", json!({ "file": zip }), json!({})).unwrap());
+    let folder = f.dest.join("rekordbox_bak");
+    let music_line = match copied {
+        0 => "not in this backup".to_string(),
+        n => format!("{n} files, all in {}", folder.display()),
+    };
+    let expected = [
+        ("contents.xml", json!("rekordbox 7.2.14, format 4")),
+        ("master.db", json!(format!("opens, {live} tracks"))),
+        ("Music", json!(music_line)),
+    ]
+    .map(|(l, v)| (l.to_string(), v));
+    assert_eq!(kv(&checked)[1..], expected);
+    // Not told which, verify offers it, the one backup there.
+    let asked = as_view(run(&host, &f, "verify", json!({}), json!({})).unwrap());
+    let View::Choose(choice) = asked else { panic!("{asked:?}") };
+    assert_eq!(choice.items.iter().map(|i| i.value.clone()).collect::<Vec<_>>(), [json!(zip)]);
+
+    let listed = as_view(run(&host, &f, "backups", json!({}), json!({})).unwrap());
+    let View::Sections { items, .. } = listed else { panic!("{listed:?}") };
+    let View::Table { rows, .. } = &items[0].view else { panic!("{items:?}") };
+    let bytes = std::fs::metadata(&zip).unwrap().len();
+    let has_music = if copied > 0 { "yes" } else { "no" };
+    let name = zip.file_name().unwrap().to_string_lossy().into_owned();
+    let row =
+        [json!(name), json!("2026-09-21"), json!(crate::size(bytes)), json!(live), json!("7.2.14"), json!(has_music)];
+    assert_eq!(rows[..], [row.to_vec()]);
+
+    if music {
+        let again = as_view(run(&host, &f, "backup", json!({}), settings).unwrap());
+        let View::Kv { pairs, .. } = again else { panic!("{again:?}") };
+        let music = pairs.iter().find(|p| p.label == "Music").unwrap();
+        assert_eq!(music.value, json!(format!("0 copied, {here} there already")));
+    }
     host.stop();
 }

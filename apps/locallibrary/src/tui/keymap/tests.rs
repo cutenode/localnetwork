@@ -285,7 +285,7 @@ fn each_views_help_starts_with_its_own_keys() {
 /// The footer's hints fit the width they're given, in any view and pane, and a wider footer
 /// keeps every hint a narrower one shows.
 #[hegel::test(test_cases = 200)]
-fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
+fn prop_hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     app.view = tc.draw(gs::sampled_from(&View::ALL[..]));
@@ -307,7 +307,7 @@ fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
 /// their own, none empty; its commands (the view's own, then everywhere's) are each named once,
 /// and for any letters typed the palette shows just the commands they're in, best first.
 #[hegel::test(test_cases = 50)]
-fn every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
+fn prop_every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
     use super::super::palette::{Picker, Then, commands};
     use hegel::generators as gs;
     let typed: String = tc.draw(gs::text().alphabet("aeioustr ").max_size(4));
@@ -343,7 +343,7 @@ fn every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
 /// own fields, a row drawn from it is the same row, and a row with no keys is a help line (a
 /// note) or a footer hint (a tip), as the constructors make them.
 #[hegel::test(test_cases = 100)]
-fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
+fn prop_every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let b = tc.draw(gs::sampled_from(KEYMAP));
     let rebuilt = key(b.scope, b.keys, b.shown, b.act, b.name, b.help, b.group).label(b.label).words(b.words);
@@ -676,7 +676,7 @@ fn prop_narrowing_the_help_only_takes_rows_away(tc: hegel::TestCase) {
 /// arrows, other keys by their name, with shift or ctrl said, and a run of digits from one to the
 /// other; no two keys share a name.
 #[hegel::test(test_cases = 300)]
-fn keys_are_named_apart(tc: hegel::TestCase) {
+fn prop_keys_are_named_apart(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let codes = [
         KeyCode::Up,

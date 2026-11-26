@@ -20,6 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use crate::common::Files;
 use hegel::generators as gs;
@@ -100,6 +101,12 @@ fn copy_tree(from: &Path, to: &Path) {
             filetime::set_file_mtime(&dst, filetime::FileTime::from_last_modification_time(&meta)).unwrap();
         }
     }
+}
+
+/// What `look` sees of a drive at one instant, while a run goes on writing it on other threads:
+/// their renames wait for it, which a file it has open would fail on Windows.
+fn at_one_instant<T>(look: impl FnOnce() -> T) -> T {
+    locallibrary::fsutil::unreplaced(look)
 }
 
 /// Overwrite a file's data with zeros, keeping its length and modification time: what a file
@@ -222,7 +229,7 @@ impl Progress for Watch {
         match self.stop {
             Stop::Cancel(k) if k == n => self.cancel.cancel(),
             Stop::Unplug(k) if k == n => {
-                copy_tree(&self.drive, &self.image);
+                at_one_instant(|| copy_tree(&self.drive, &self.image));
                 *self.imaged.lock().unwrap() = Some(self.flushed.load(Ordering::SeqCst));
             }
             _ => {}
@@ -293,6 +300,59 @@ fn watched<T>(
     let out = f(&Ctx::new(&watch, cancel));
     let imaged = watch.imaged.lock().unwrap().take();
     (out, imaged.map(|flushed| Image { dir: image, flushed }))
+}
+
+/// Looks at files twice, as a run copies the first of them.
+struct LooksTwice {
+    files: Vec<PathBuf>,
+    looking: AtomicBool,
+    looks: Mutex<Option<[Vec<Vec<u8>>; 2]>>,
+}
+
+impl Progress for LooksTwice {
+    fn on_event(&self, e: &Event) {
+        // The other copies' events don't wait for the first one's look.
+        if !matches!(e, Event::Item { phase: Phase::Copy, .. }) || self.looking.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let look = || self.files.iter().map(|f| fs::read(f).unwrap()).collect();
+        let looks = at_one_instant(|| {
+            let first = look();
+            // Long enough for the other copies to be renamed, were they let.
+            std::thread::sleep(Duration::from_millis(300));
+            [first, look()]
+        });
+        *self.looks.lock().unwrap() = Some(looks);
+    }
+}
+
+/// Regression (LOC-1101): a run copies small files several at a time, so others were renamed into
+/// place while the image of the drive was read. On Windows a file that's open can't be renamed
+/// over, and the run failed ("Access is denied").
+#[test]
+fn an_image_is_taken_between_the_runs_renames() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
+    let (main, b) = (main_drive(&root, false), root.join("B"));
+    fs::create_dir_all(&b).unwrap();
+    let sync = |ctx: &Ctx<'_>| {
+        let (mut main, mut b) = (Device::open(&main).unwrap(), Device::open(&b).unwrap());
+        sync::sync_drive_to_drive(&mut main, &mut b, &SyncOptions::default(), ctx).unwrap();
+    };
+    sync(&Ctx::silent());
+    // Every track is copied again, over the one that's there.
+    let keys = common::library_files(&b).into_iter().map(|(key, _)| key).filter(|key| key.starts_with("Contents/"));
+    let files: Vec<PathBuf> = keys.map(|key| paths::to_fs(&b, &key)).collect();
+    assert!(files.len() > 1, "{files:?}");
+    for file in &files {
+        write(file, b"another");
+    }
+    let progress = LooksTwice { files, looking: AtomicBool::new(false), looks: Mutex::new(None) };
+    sync(&Ctx::new(&progress, CancelToken::new()));
+    let [first, second] = progress.looks.into_inner().unwrap().expect("a file was copied");
+    let renamed = first.iter().zip(&second).filter(|(a, b)| a != b).count();
+    assert_eq!(renamed, 0, "renamed while the drive was looked at");
+    assert_same_files("B", &fold(common::library_files(&b)), &fold(common::library_files(&main)));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -777,28 +837,28 @@ fn run_copies(tc: TestCase, cfg: Config) {
 /// Syncs and pushes onto drives holding nothing, an older copy or another library, cancelled at
 /// any checkpoint and run again: each ends with the source's library files, and compare agrees.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn copies_match_the_model(tc: TestCase) {
+fn prop_copies_match_the_model(tc: TestCase) {
     run_copies(tc, Config::default());
 }
 
 /// `--keep-extra` keeps a drive's own audio but never its old databases, and the next sync still
 /// runs from the source.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn keep_extra_never_turns_a_copy_into_the_newer_drive(tc: TestCase) {
+fn prop_keep_extra_never_turns_a_copy_into_the_newer_drive(tc: TestCase) {
     run_copies(tc, Config { keep_extra: true, ..Config::default() });
 }
 
 /// Audio outside `Contents/` goes where the database says, but never over a file of the DJ's
 /// that the target's own library doesn't use.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn copies_never_overwrite_the_djs_own_files(tc: TestCase) {
+fn prop_copies_never_overwrite_the_djs_own_files(tc: TestCase) {
     run_copies(tc, Config { outside: true, ..Config::default() });
 }
 
 /// A run cut off as by a pulled plug, possibly left that way while Main moves on: the next run
 /// finishes the job, torn files included, and compare sends it the right way meanwhile.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_unplugged_copy_is_finished_by_the_next_run(tc: TestCase) {
+fn prop_an_unplugged_copy_is_finished_by_the_next_run(tc: TestCase) {
     locallibrary::testing::no_reflinks();
     run_copies(tc, Config { unplug: true, ..Config::default() });
 }
@@ -853,7 +913,7 @@ fn sync_onto_another_library_cancelled_anywhere(template: &Path, opts: &SyncOpti
     }
 }
 
-/// The example hegel found for `an_unplugged_copy_is_finished_by_the_next_run`: a `--delete-first`
+/// The example hegel found for `prop_an_unplugged_copy_is_finished_by_the_next_run`: a `--delete-first`
 /// sync onto a drive holding another library, cancelled after deleting some of that library's
 /// audio and left that way, then a plain sync cancelled before its databases went in. The old
 /// library comes off the drive before its audio does, so neither leaves a library missing a file.
@@ -1135,20 +1195,20 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
 /// run again: the club drive holds the chosen playlists with the source's files, and nothing else
 /// on it changes.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn packs_match_the_model(tc: TestCase) {
+fn prop_packs_match_the_model(tc: TestCase) {
     run_packs(tc, PackConfig::default());
 }
 
 /// A club drive back from a set keeps what the players recorded: packing it again saves its
 /// history lists and cues first, and backs up the databases it replaces.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn packing_again_keeps_what_players_recorded(tc: TestCase) {
+fn prop_packing_again_keeps_what_players_recorded(tc: TestCase) {
     run_packs(tc, PackConfig { sets: true, ..PackConfig::default() });
 }
 
 /// A pack cut off as by a pulled plug ends, once run again, where an uninterrupted one does.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
+fn prop_an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
     locallibrary::testing::no_reflinks();
     run_packs(tc, PackConfig { unplug: true, ..PackConfig::default() });
 }
@@ -1234,12 +1294,12 @@ fn run_merge(tc: TestCase, outside: bool) {
 
 /// Undoing a merge, finished or cancelled at any checkpoint, gives every file back.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_merge_is_undone_exactly(tc: TestCase) {
+fn prop_a_merge_is_undone_exactly(tc: TestCase) {
     run_merge(tc, false);
 }
 
 /// A guest's track whose audio would land on a file of the DJ's outside `Contents/` goes beside it.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
-fn merging_never_overwrites_the_djs_own_files(tc: TestCase) {
+fn prop_merging_never_overwrites_the_djs_own_files(tc: TestCase) {
     run_merge(tc, true);
 }

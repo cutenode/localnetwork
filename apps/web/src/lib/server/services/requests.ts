@@ -21,7 +21,7 @@ import type {
 } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import type { RepoClient } from '../atproto/repo-client';
-import { parseSpaceRecordUri, spaceRecordUri } from '../atproto/spaces';
+import { currentSpaceUris, parseSpaceRecordUri, spaceRecordUri, writtenAs } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { unlessOffline } from '../happyview/offline';
@@ -841,13 +841,13 @@ export class RequestService {
 			.where('spaceUri', '=', spaces.moderation)
 			.where('repoDid', '=', rootDid)
 			.where('collection', '=', COLLECTION.decision)
-			.where(sql<string>`json_extract(value, '$.request')`, '=', request)
+			.where(sql<string>`json_extract(value, '$.request')`, 'in', writtenAs(request))
 			.execute();
 
 		for (const { rkey, value } of decisions) {
 			await this.applyDecision({
 				uri: spaceRecordUri(spaces.moderation, rootDid, COLLECTION.decision, rkey),
-				value: parseJson<JsonObject>(value, {})
+				value: currentSpaceUris(parseJson<JsonObject>(value, {}))
 			});
 		}
 	}
@@ -924,7 +924,7 @@ export class RequestService {
 				.selectFrom('auditEntry')
 				.select('changes')
 				.where('action', 'in', ['project.create', 'project.update'])
-				.where(sql<string>`json_extract(details, '$.request')`, '=', request.uri)
+				.where(sql<string>`json_extract(details, '$.request')`, 'in', writtenAs(request.uri))
 				.executeTakeFirst();
 
 			const changes = parseJson<FieldChange[]>(entry?.changes ?? null, []);

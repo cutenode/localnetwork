@@ -12,7 +12,7 @@
 	const values = { relationship: 'self', evidence: 'I added it to our SoundCloud bio.', links: 'https://soundcloud.com/neontide' };
 
 	/** A venue's claim, which only an owner makes, so it doesn't ask how they're connected. */
-	const venue = claimTerms({ space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor' });
+	const venue = claimTerms({ space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor' });
 </script>
 
 <!-- The claim pages lay the fields out in a card. -->

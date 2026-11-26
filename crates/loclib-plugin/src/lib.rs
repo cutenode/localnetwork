@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 // The tests serve the example plugin, which names this crate as any plugin does.
 #[cfg(test)]

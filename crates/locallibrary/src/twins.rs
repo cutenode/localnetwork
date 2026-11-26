@@ -13,11 +13,11 @@ use rustc_hash::FxHashMap;
 
 use crate::audio_cache::{Cache, Kind};
 use crate::hash::{self, Hash};
-use crate::masterdb::{self, CloudFolders};
 use crate::progress::{Ctx, NoProgress, Phase};
 use crate::store::Store;
 use crate::tree::FileEntry;
 use crate::{Result, fsutil};
+use loclib_rekordbox_db::masterdb::{self, CloudFolders};
 
 /// What's in an audio file, kept by the file's name, size and modification time so the
 /// collection's audio is read once.

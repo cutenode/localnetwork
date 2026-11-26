@@ -289,7 +289,7 @@ fn any_playlists(tc: &hegel::TestCase) -> Vec<Playlist> {
 /// The tree lists the playlists as the library orders them: a folder's children (in their
 /// order) straight after it, one deeper, when it's open; and each path is the library's.
 #[hegel::test(test_cases = 300)]
-fn the_tree_and_its_paths_come_from_the_library(tc: hegel::TestCase) {
+fn prop_the_tree_and_its_paths_come_from_the_library(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { playlists: any_playlists(&tc), ..library() };
     let mut open = FxHashSet::default();
@@ -329,7 +329,7 @@ fn the_tree_and_its_paths_come_from_the_library(tc: hegel::TestCase) {
 /// sort key cycles through every column and back to the list's order; and clicking a column
 /// sorts by it, then the other way, then not.
 #[hegel::test(test_cases = 300)]
-fn sorting_orders_by_rank_and_keeps_ties(tc: hegel::TestCase) {
+fn prop_sorting_orders_by_rank_and_keeps_ties(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let ranks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(4)).max_size(12));
     let mut list: Vec<usize> = (0..ranks.len()).collect();
@@ -387,7 +387,7 @@ fn value_of(c: Category, t: &Track) -> Option<String> {
 /// puts each track in exactly one group: with the tracks of its value, in library order, those
 /// of none last; groups come in the category's order, each named for its value.
 #[hegel::test(test_cases = 300)]
-fn every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
+fn prop_every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
     let n = lib.tracks.len();
@@ -442,7 +442,7 @@ fn every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
 /// drive (the rest counted as left out), newest set first; a session its tracks on the drive in
 /// play order; missing files and copies of a recording under Problems.
 #[hegel::test(test_cases = 200)]
-fn the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
+fn prop_the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::sets::Set;
     let tracks = super::super::app::testing::any_tracks(&tc, 8);
@@ -545,7 +545,7 @@ fn the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
 /// counted, and the values of each category open under it, counted by their tracks; closed,
 /// none of them. The playlists follow either way.
 #[hegel::test(test_cases = 200)]
-fn browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
+fn prop_browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 6), ..library() };
     let ids = by_id(&lib);
@@ -580,7 +580,7 @@ fn browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
 /// playlist sorted on the drive by it reads the same), and the sort as the drive's tools spell it
 /// reads back as itself.
 #[hegel::test(test_cases = 300)]
-fn any_tracks_sort_as_the_library_does(tc: hegel::TestCase) {
+fn prop_any_tracks_sort_as_the_library_does(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
     let field = tc.draw(gs::sampled_from(&EVERY_FIELD[..]));
@@ -597,7 +597,7 @@ fn any_tracks_sort_as_the_library_does(tc: hegel::TestCase) {
 
 /// A word in quotes is the word; words in quotes together are one, spaces and all.
 #[hegel::test(test_cases = 200)]
-fn quotes_hold_words_together(tc: hegel::TestCase) {
+fn prop_quotes_hold_words_together(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let words: Vec<&str> =
         tc.draw(gs::vecs(gs::sampled_from(&["daft", "PUNK", "re-edit", "8a", "x|y"][..])).min_size(1).max_size(3));
@@ -613,7 +613,7 @@ fn quotes_hold_words_together(tc: hegel::TestCase) {
 /// Folders nested deeper than a database could mean (a corrupt one, nesting without end) are
 /// listed down to 32 deep and no further.
 #[hegel::test(test_cases = 50)]
-fn the_tree_stops_32_folders_deep(tc: hegel::TestCase) {
+fn prop_the_tree_stops_32_folders_deep(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(45));
     let playlists: Vec<Playlist> = (1..=n)

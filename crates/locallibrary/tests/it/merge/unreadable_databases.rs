@@ -43,7 +43,7 @@ fn unreadable_tag_and_onelibrary_databases_are_left_out_with_warnings() {
 
 /// The drive at `root`'s OneLibrary database without `table`.
 fn drop_onelibrary_table(root: &std::path::Path, table: &str) {
-    let one = OneLibrary::open_root(root).unwrap();
+    let one = locallibrary::onelibrary::open_root(root).unwrap();
     one.connection().execute_batch(&format!("DROP TABLE \"{table}\"")).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 }
@@ -66,7 +66,7 @@ fn onelibrary_tables() -> Vec<String> {
 #[hegel::explicit_test_case(table = "myTag_content".to_string())]
 #[hegel::explicit_test_case(table = "genre".to_string())]
 #[hegel::explicit_test_case(table = "cue".to_string())]
-fn a_source_onelibrary_lacking_a_table_still_merges(tc: TestCase) {
+fn prop_a_source_onelibrary_lacking_a_table_still_merges(tc: TestCase) {
     let table = tc.draw(gs::sampled_from(onelibrary_tables()));
     let dir = tempfile::tempdir().unwrap();
     let src_root = common::demo_drive(dir.path(), "Guest");
@@ -91,7 +91,7 @@ fn a_source_onelibrary_lacking_a_table_still_merges(tc: TestCase) {
 /// A target whose OneLibrary database lacks a My Tag table is planned with a warning that its My
 /// Tags are left out, and applying does that: the tracks still go into it, without their tags.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_target_onelibrary_without_my_tags_takes_the_tracks(tc: TestCase) {
+fn prop_a_target_onelibrary_without_my_tags_takes_the_tracks(tc: TestCase) {
     let table = tc.draw(gs::sampled_from(vec!["myTag", "myTag_content"]));
     let dir = tempfile::tempdir().unwrap();
     let src_root = common::demo_drive(dir.path(), "Guest");

@@ -88,3 +88,27 @@ fn a_drive_with_onelibrary_has_its_cues_edited_there_too() {
         "{out}"
     );
 }
+
+#[test]
+fn cues_auto_places_a_style_or_asks_for_one() {
+    let env = Env::ascii();
+    let drive = env.demo("Demo");
+    let d = path(&drive);
+    let out = env.ok(&["cues", "auto", d, "--track", "1", "--style", "first-cue", "--dry-run"]);
+    assert!(out.contains("\"1.1Bars\""), "{out}");
+    // Not in a terminal, it can't ask.
+    let err = env.fails(1, &["cues", "auto", d, "--track", "1", "--dry-run"]);
+    assert!(err.contains("pick a style with --style (rekordbox, intro-chorus, first-cue)"), "{err}");
+}
+
+/// In a terminal it asks, and takes a number.
+#[cfg(all(unix, feature = "account"))]
+#[test]
+fn cues_auto_asks_which_style_in_a_terminal() {
+    let env = Env::ascii();
+    let drive = env.demo("Demo");
+    let r = env.typed_ahead(&["cues", "auto", path(&drive), "--track", "1", "--dry-run"], "3\n");
+    assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
+    assert!(r.err.contains("Which cues?"), "{}", r.err);
+    assert!(r.out.contains("\"1.1Bars\"") && !r.out.contains(" A  "), "first-cue only: {}", r.out);
+}

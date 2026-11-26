@@ -638,7 +638,7 @@ fn the_progress_says_how_publishing_went() {
 /// Any file goes as plyr.fm's parts: numbered from 1, end to end, each the part's size but the
 /// last, which isn't empty.
 #[hegel::test(test_cases = 200)]
-fn parts_tile_any_file(tc: TestCase) {
+fn prop_parts_tile_any_file(tc: TestCase) {
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(MAX_BYTES));
     // plyr.fm splits a file into 1,000 parts at most.
     let part = tc.draw(gs::integers::<u64>().min_value(size.div_ceil(1000)).max_value(64 << 20));
@@ -675,7 +675,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
 /// its description, a line each, both within plyr.fm's lengths: a tracklist too long keeps the
 /// lines that fit, in order, and says how many more there are and why.
 #[hegel::test(test_cases = 100)]
-fn the_track_is_the_set_within_plyrs_lengths(tc: TestCase) {
+fn prop_the_track_is_the_set_within_plyrs_lengths(tc: TestCase) {
     let words = gs::optional(gs::sampled_from(vec!["Closing set".to_string(), "  ".into(), "Ω".repeat(200)]));
     let set = PublishedSet {
         title: tc.draw(words),
@@ -771,7 +771,7 @@ const REFUSALS: [(u16, &str); 5] = [
 /// past it. A dry run, a recording plyr.fm wouldn't take, or a host with the account signed out
 /// sends nothing.
 #[hegel::test(test_cases = 100)]
-fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
+fn prop_any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     let format = tc.draw(gs::sampled_from(vec!["flac", "WAV", "aif", "mp3", "ogg", "aac"]));
     // 0: empty, 1: gone, 2: over plyr.fm's limit; else as long as it's drawn.
     let shape = tc.draw(gs::integers::<u8>().max_value(19));

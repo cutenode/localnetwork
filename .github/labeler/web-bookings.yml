@@ -1,0 +1,11 @@
+"web: bookings":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/dashboard/bookings/**"
+          - "apps/web/src/lib/bookings.*"
+          - "apps/web/src/lib/server/services/bookings.*"
+          - "apps/web/src/lib/server/services/booking-performers.*"
+          - "apps/web/src/lib/components/BookingDetails.svelte"
+          - "apps/web/src/routes/dashboard/promoter/**"
+          - "lexicons/computer/localnetwork/booking/**"
+          - "apps/web/src/routes/dashboard/calendar/**"

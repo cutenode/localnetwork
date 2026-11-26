@@ -16,7 +16,7 @@ use locallibrary::store::Store;
 /// it alone and are removed by path. A My Tag filter on a drive without My Tags matches no track,
 /// and negated, every one.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn edits_kept_or_refused_as_their_requests_say(tc: TestCase) {
+fn prop_edits_kept_or_refused_as_their_requests_say(tc: TestCase) {
     let which = tc.draw(gs::sampled_from(vec!["history 001", "HISTORY 002", " History 001 "]));
     let negated = tc.draw(gs::booleans());
 

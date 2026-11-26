@@ -73,7 +73,7 @@ account = ["locallibrary-core/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary-core/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx"]
+tui = ["dep:ratatui", "dep:rodio", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx", "dep:loclib-aup"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -148,6 +148,11 @@ tachyonfx = { version = "0.25", default-features = false, features = ["std"], op
 locallibrary-plugin-rekordbox-backup = { version = "0.1.0", path = "../../plugins/rekordbox-backup" }
 # Where the copy drive writes run from on macOS is kept (`launchd.rs`).
 directories.workspace = true
+# The player plays the audio an Audacity project was exported to, rather than the project.
+loclib-aup = { workspace = true, optional = true }
+loclib-model.workspace = true
+loclib-drive-speed.workspace = true
+loclib-rekordbox-db.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the
@@ -191,6 +196,8 @@ loclib-interop.workspace = true
 oauth2 = { version = "5.0.0", default-features = false }
 form_urlencoded = "1.2.2"
 loclib-testkit.workspace = true
+# Stands in for lsblk, which a format plan on Linux asks what's mounted on the disk.
+loclib-format = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

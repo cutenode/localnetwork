@@ -11,7 +11,8 @@
 //!   their tracks in a library (the `loclib-tracklist` crate, re-exported).
 //! * [`smart`]: rule-based playlists kept in the store and written to drives as plain playlists.
 //! * [`pack`]: drives for a set, holding only chosen playlists of another drive.
-//! * [`drive_speed`]: how long a write to a drive will take, from what's measured on it.
+//! * how long a write to a drive will take, from what's measured on it: loclib-drive-speed's
+//!   numbers, which [`api`] words for plans.
 //! * [`settings`]: manage the player/mixer "My Settings" on every drive from one profile (the
 //!   files themselves are [`loclib_mysettings`]'s).
 //! * [`artwork`]: set and audit cover art on drives and in audio files.
@@ -22,8 +23,8 @@
 //!   as.
 //! * [`cue_edit`]: set, rename, recolour, delete and copy hot cues, memory cues and loops.
 //! * [`edit`]: edit playlists, folders and track details on a drive, in both databases.
-//! * [`onelibrary`]: read and edit `exportLibrary.db`, the only database newer players
-//!   (CDJ-3000X, OPUS-QUAD, XDJ-AZ...) read.
+//! * [`onelibrary`]: a drive's `exportLibrary.db`, the only database newer players (CDJ-3000X,
+//!   OPUS-QUAD, XDJ-AZ...) read (reading and editing it is the loclib-rekordbox-db crate's).
 //! * [`convert`]: build either database from the other.
 //! * [`tags`]: read and edit My Tags in `exportExt.pdb` and OneLibrary.
 //! * [`harmony`]: Camelot keys, harmonic matches and mix costs (from loclib-model, like the
@@ -33,8 +34,6 @@
 //! * [`mix`]: find which library tracks a recorded DJ mix plays, when, and how (the fingerprints
 //!   and the matcher are loclib-mixid's).
 //! * [`query`]: the track filter and sort language, and track selectors.
-//! * [`masterdb`]: read rekordbox's own collection (`master.db`) on this computer, and compare a
-//!   drive with it.
 //! * [`op`]: planned operations: what a change will do, confirmed and then applied exactly as
 //!   planned.
 //! * [`opener`]: hand an https address to the browser, or a file to the app that opens it.
@@ -74,9 +73,7 @@ pub mod compare;
 pub mod convert;
 pub mod cue_edit;
 pub mod device;
-pub mod diff;
 pub mod doctor;
-pub mod drive_speed;
 pub mod edit;
 pub mod eject;
 pub mod equipment;
@@ -96,7 +93,6 @@ pub mod keybinds;
 pub mod keychain;
 pub mod library_write;
 mod local_time;
-pub mod masterdb;
 pub mod merge;
 pub mod mix;
 mod net;
@@ -197,6 +193,14 @@ pub mod testing {
     /// `$LOCALLIBRARY_VOLUMES` says), as that variable would make them for the whole process.
     pub fn volumes_on_this_thread(folders: Option<Vec<std::path::PathBuf>>) {
         crate::device::THREAD_VOLUMES.with(|v| *v.borrow_mut() = folders);
+    }
+
+    #[cfg(feature = "account")]
+    /// Whether publishing is open, answered for this thread (`None`: ask, as
+    /// [`crate::atmosphere::publishing::availability`] does), so a sign-in test doesn't depend on
+    /// the real DNS record.
+    pub fn publishing_on_this_thread(answer: Option<crate::atmosphere::publishing::Availability>) {
+        crate::atmosphere::publishing::THREAD_ANSWER.with(|a| a.set(answer));
     }
 
     /// Readers on this thread find the analyzers' fields with roles in `offered` (`None`: what

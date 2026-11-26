@@ -244,7 +244,7 @@ fn a_suggested_export_takes_a_source_its_exporter_writes_out() {
 /// params it takes, on echo's own contributions, alone and short enough, and then as it was sent:
 /// anything else is refused, saying so, and never taken.
 #[hegel::test(test_cases = 200)]
-fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
+fn prop_only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
     let m = Manifest::parse(echo::MANIFEST).unwrap();
     let name: &str =
         tc.draw(gs::sampled_from(vec!["art.fetch", "track.fetch", "export", "analyze", "pull", "sync", "delete"]));
@@ -318,7 +318,7 @@ fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
 /// `drive.mounted` with an export (its payload's `has_export` not false), or `drive.changed` with
 /// its payload's `changed` saying `databases`.
 #[hegel::test(test_cases = 100)]
-fn new_tracks_are_a_drive_plugged_in_or_its_databases_changed(tc: TestCase) {
+fn prop_new_tracks_are_a_drive_plugged_in_or_its_databases_changed(tc: TestCase) {
     let event = tc.draw(gs::sampled_from(EventName::ALL.to_vec()));
     let drive: Option<String> = tc.draw(gs::optional(gs::sampled_from(vec!["USB".to_string(), "1f0e".into()])));
     let changed: Vec<String> =

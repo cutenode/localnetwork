@@ -30,7 +30,7 @@ fn key(path: &str) -> String {
 }
 
 #[hegel::test(test_cases = 200)]
-fn rules_match_the_model(tc: TestCase) {
+fn prop_rules_match_the_model(tc: TestCase) {
     let mut rules = SmartPlaylists::default();
     let mut model: Vec<(String, String)> = Vec::new();
     let drive = Uuid::from_u128(7);
@@ -81,7 +81,7 @@ fn rules_match_the_model(tc: TestCase) {
 /// Written to a drive, each rule's playlist holds the tracks its filter selects, in its order and
 /// no more than its limit; written again, nothing changes.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_rules_playlist_holds_what_it_selects(tc: TestCase) {
+fn prop_a_rules_playlist_holds_what_it_selects(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");
     let mut rules = SmartPlaylists::default();

@@ -1,6 +1,5 @@
 # The "Protect Main" ruleset (.github/rulesets/protect-main.json) requires exactly the passed
-# check of every gated workflow. tools/ruleset.sh applies the file, and repo-checks.yml checks
-# that GitHub's copy matches it.
+# check of every gated workflow. An admin applies the file to GitHub's copy (.github/NEW_PROJECT.md).
 package ruleset
 
 import data.lib
@@ -32,7 +31,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some name in (passed - required)
-	msg := sprintf(".github/rulesets/protect-main.json: require %q, then apply it with tools/ruleset.sh", [name])
+	msg := sprintf(".github/rulesets/protect-main.json: require %q, then an admin applies it to GitHub's copy", [name])
 }
 
 deny contains msg if {

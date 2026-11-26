@@ -14,7 +14,7 @@ const viewer = (did: string): Viewer => ({
 	spacesCapable: true
 });
 
-const SPACE = 'at://did:plc:root/computer.localnetwork.space.booking/3kaaaaaaaaaaa';
+const SPACE = 'at:space/did:plc:root/computer.localnetwork.space.booking/3kaaaaaaaaaaa';
 
 const thread = (status: string): BookingThreadView => ({
 	space: SPACE,

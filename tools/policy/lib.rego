@@ -1,4 +1,4 @@
-# Helpers for the repository's policies. conftest runs them with --combine (tools/policy.sh), so
+# Helpers for the repository's policies. conftest runs them with --combine (conftest.toml), so
 # `input` is every file it was given, each as {path, contents}, paths from the repository root.
 package lib
 
@@ -24,18 +24,32 @@ apps := ts_apps | rust_apps
 # The manifest of every project CI has to cover: apps, packages, Rust crates and plugins, vendored crates.
 manifests := ((((paths("apps/*/package.json") | paths("apps/*/Cargo.toml")) | paths("packages/*/package.json")) | paths("crates/*/Cargo.toml")) | paths("plugins/*/Cargo.toml")) | paths("vendor/*/Cargo.toml")
 
-# The files the repository tracks, which tools/policy.sh lists as {"files": [...]} in
+# The files the repository tracks, which tools/policy/inputs.ts lists as {"files": [...]} in
 # tracked-files.json.
 tracked_files := f.contents.files if {
 	some f in input
 	regex.match(`(^|/)tracked-files\.json$`, f.path)
 }
 
-# What each project's code reads from outside its own folder, which tools/reads/cli.ts lists as
+# What each project's code reads from outside its own folder, which tools/policy/inputs.ts lists as
 # {"reads": [{"from": ..., "path": ...}]} in reads.json: a file, or a folder as `<folder>/`.
 reads := f.contents.reads if {
 	some f in input
 	regex.match(`(^|/)reads\.json$`, f.path)
+}
+
+# The labeler config tools/labeler/labeler.ts builds, which tools/policy/inputs.ts writes to
+# labeler.json.
+labeler := f.contents if {
+	some f in input
+	regex.match(`(^|/)labeler\.json$`, f.path)
+}
+
+# `harden check --json`'s report on each project's package manager, which tools/policy/inputs.ts
+# lists as {"harden": [{"manager": ..., "folder": ..., "report": ...}]} in harden.json.
+harden := f.contents.harden if {
+	some f in input
+	regex.match(`(^|/)harden\.json$`, f.path)
 }
 
 # A value that may be one string or a list of them, as a set.

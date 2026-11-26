@@ -464,7 +464,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
 /// its description, a line each, both within SoundCloud's lengths in characters: a tracklist too
 /// long keeps the lines that fit, in order, and says how many more there are and why.
 #[hegel::test(test_cases = 200)]
-fn the_track_is_the_set_within_soundclouds_lengths(tc: TestCase) {
+fn prop_the_track_is_the_set_within_soundclouds_lengths(tc: TestCase) {
     let words = gs::optional(gs::sampled_from(vec!["Closing set".to_string(), "  ".into(), "\u{3a9}".repeat(150)]));
     let set = PublishedSet {
         title: tc.draw(words),
@@ -591,7 +591,7 @@ fn failing(reply: &Reply) -> (&'static str, bool, bool) {
 /// publish is). The account's tracks are asked for after each try SoundCloud may have made the
 /// track of.
 #[hegel::test(test_cases = 100)]
-fn any_publish_sends_the_set_whole_or_stops_saying_why(tc: TestCase) {
+fn prop_any_publish_sends_the_set_whole_or_stops_saying_why(tc: TestCase) {
     let format = tc.draw(gs::sampled_from(vec!["flac", "WAV", "aiff", "mp3", "m4a", "opus"]));
     // 0: empty, 1: gone, 2: over SoundCloud's limit; else as long as it's drawn.
     let shape = tc.draw(gs::integers::<u8>().max_value(19));

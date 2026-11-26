@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 use std::io;
 use std::path::Path;
@@ -18,7 +20,9 @@ const MAX_REGIONS: u64 = 256;
 /// Raw access to a whole disk, which [`probe`] overwrites. [`DeviceFile`] is a real device; an
 /// implementation of your own stands in for one (in memory, in a test).
 pub trait RawDisk {
+    /// Write all of `buf` at byte `offset`.
     fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()>;
+    /// Fill all of `buf` from byte `offset`.
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()>;
     /// Make the writes reach the device, and make the next reads come from it.
     fn flush(&mut self) -> io::Result<()>;
@@ -45,7 +49,9 @@ pub struct ProbeReport {
 /// byte offsets. It serialises as that array, and its schema names each element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Alias {
+    /// The offset the data was written to, in bytes.
     pub written_at: u64,
+    /// The offset it was read back from, in bytes.
     pub read_at: u64,
 }
 
@@ -133,6 +139,13 @@ fn regions(size: u64, align: u64) -> Vec<u64> {
 /// This destroys what `disk` holds: the first region and every test region are overwritten, and
 /// a disk with a file system on it no longer mounts afterwards. Nothing at or past `size` is
 /// touched, and a disk smaller than one region isn't written at all.
+///
+/// A read error on a region counts that region as failed.
+///
+/// # Errors
+///
+/// [`Error::Random`] if the OS has no random numbers for the nonce, [`Error::Io`] if a write or
+/// flush fails, and [`Error::Cancelled`] if `ctx` is cancelled between regions.
 pub fn probe(disk: &mut dyn RawDisk, size: u64, align: u32, ctx: &Ctx<'_>) -> Result<ProbeReport> {
     let offsets = regions(size, u64::from(align.max(512)));
     let mut nonce_bytes = [0u8; 8];
@@ -193,6 +206,11 @@ impl DeviceFile {
     /// Probing what this returns destroys everything on the disk. Unmount all its volumes first,
     /// and make sure `path` is the disk you mean to erase: nothing here checks. A path that
     /// doesn't exist is an error rather than a new file.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Permission`] if the OS denies access (usually: not running as administrator), and
+    /// [`Error::Io`] for anything else, a missing path included.
     pub fn open_to_overwrite(path: impl AsRef<Path>) -> Result<DeviceFile> {
         let path = path.as_ref();
         let file = std::fs::OpenOptions::new().read(true).write(true).open(path).map_err(|e| match e.kind() {

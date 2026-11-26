@@ -45,12 +45,13 @@ use crate::error::Action;
 use crate::hash::Hash;
 use crate::merge::{self, MergeOptions, PlannedPlaylist, PlaylistDb, PlaylistMode};
 use crate::model::{Library, Playlist, Track};
-use crate::onelibrary::{ContentRecord, OneLibrary};
+use crate::onelibrary::OneLibrary;
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Event, Phase};
 use crate::tags::{self, DbTags, Wanted};
 use crate::{Error, Result, fsutil};
+use loclib_rekordbox_db::onelibrary::ContentRecord;
 
 /// A real rekordbox export holding one track, emptied to start new `export.pdb` files from. It's
 /// rekordbox-pdb's `tests/data/one-song-export.pdb` (MIT, see `vendor/rekordbox-pdb/LICENSE`),
@@ -146,7 +147,7 @@ pub struct ConvertReport {
 fn source_library(device: &Device, to: Target) -> Result<Library> {
     match to {
         Target::OneLibrary if device.has_device_library() => pdb::read_library(&device.path(paths::EXPORT_PDB)),
-        Target::DeviceLibrary if device.has_library_plus() => device.library_plus()?.library(),
+        Target::DeviceLibrary if device.has_library_plus() => Ok(device.library_plus()?.library()?),
         _ => Err(Error::invalid(format!("{} has no {} to convert from", device.name(), to.source_file()))),
     }
 }
@@ -161,7 +162,7 @@ fn has_target(device: &Device, to: Target) -> bool {
 /// The library the target database holds now (the drive has one).
 fn existing_library(device: &Device, to: Target) -> Result<Library> {
     match to {
-        Target::OneLibrary => device.library_plus()?.library(),
+        Target::OneLibrary => Ok(device.library_plus()?.library()?),
         Target::DeviceLibrary => pdb::read_library(&device.path(paths::EXPORT_PDB)),
     }
 }
@@ -371,7 +372,7 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
         let banks = match opts.to {
             Target::OneLibrary => device
                 .library_plus()
-                .and_then(|one| one.hot_cue_bank_lists())
+                .and_then(|one| Ok(one.hot_cue_bank_lists()?))
                 .map_or(0, |l| l.iter().filter(|l| !l.is_folder).count()),
             Target::DeviceLibrary => 0,
         };

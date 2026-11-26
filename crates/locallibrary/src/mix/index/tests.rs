@@ -101,7 +101,7 @@ use hegel::generators as gs;
 /// file to look at, and remembers nothing; run again, it sorts every track into exactly one of
 /// indexed, missing, unreadable or too long, and a file it couldn't read isn't decoded twice.
 #[hegel::test(test_cases = 20)]
-fn fingerprinting_sorts_every_track_and_a_cancelled_run_keeps_nothing(tc: TestCase) {
+fn prop_fingerprinting_sorts_every_track_and_a_cancelled_run_keeps_nothing(tc: TestCase) {
     use crate::progress::{CancelToken, Event};
     use loclib_model::test_util::track;
     let dir = tempfile::tempdir().unwrap();
@@ -197,7 +197,7 @@ fn said(r: &crate::mix::MixReport) -> serde_json::Value {
 /// time, decodes nothing and says exactly what the first time did, index and all. The seeds are
 /// distinct: two tracks of the same audio are one play, the other its alternate.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn identifying_again_from_the_cache_says_what_the_first_time_did(tc: TestCase) {
+fn prop_identifying_again_from_the_cache_says_what_the_first_time_did(tc: TestCase) {
     use crate::mix::{Identifier, Options};
     use crate::progress::{CancelToken, Event};
     let seeds: Vec<u32> =
@@ -249,7 +249,7 @@ fn identifying_again_from_the_cache_says_what_the_first_time_did(tc: TestCase) {
 /// the one kept from the drive's older prints goes, so the drive keeps none, as does one kept
 /// under a higher limit once it's read. The limit doesn't change the index.
 #[hegel::test(test_cases = 20)]
-fn only_an_index_within_the_limit_is_kept(tc: TestCase) {
+fn prop_only_an_index_within_the_limit_is_kept(tc: TestCase) {
     let prints = |n: u32, tag: &str| -> Vec<Fingerprinted> {
         let peaks = (0..n * 3).map(|t| Peak { t: t * 7, f: (t % 50) as u8 }).collect();
         let print = TrackPrint { duration_secs: 30.0, peaks };
@@ -280,7 +280,7 @@ fn only_an_index_within_the_limit_is_kept(tc: TestCase) {
 /// An index reads back as it was written, and nothing else does: bytes cut short or added to,
 /// or written by another version.
 #[hegel::test(test_cases = 50)]
-fn an_index_reads_back_as_it_was_written(tc: TestCase) {
+fn prop_an_index_reads_back_as_it_was_written(tc: TestCase) {
     use hegel::Generator;
     let prints: Vec<(u32, TrackPrint)> = tc.draw(
         gs::vecs(
@@ -317,7 +317,7 @@ fn an_index_reads_back_as_it_was_written(tc: TestCase) {
 
 /// What's heard in a recording reads back bit for bit, and nothing else does.
 #[hegel::test(test_cases = 50)]
-fn a_recording_heard_reads_back_bit_for_bit(tc: TestCase) {
+fn prop_a_recording_heard_reads_back_bit_for_bit(tc: TestCase) {
     let f = || gs::floats::<f32>().allow_nan(false);
     let peaks: Vec<Peak> = tc
         .draw(gs::vecs(gs::tuples!(gs::integers::<u32>(), gs::integers::<u8>())).max_size(50))

@@ -612,7 +612,7 @@ fn shuffled<T>(tc: &TestCase, mut items: Vec<T>) -> Vec<T> {
 /// spells the title and whatever else the ISRC is. A recording alone is the track only when it's
 /// as long, or without a length titled alike. A tag that isn't an ISRC asks nothing.
 #[hegel::test(test_cases = 60)]
-fn ambiguity_never_yields_ids(tc: TestCase) {
+fn prop_ambiguity_never_yields_ids(tc: TestCase) {
     let title = tc.draw(gs::sampled_from(TITLES.to_vec()));
     let secs = tc.draw(gs::integers::<u64>().min_value(60).max_value(600));
     let near = |tc: &TestCase| secs * 1000 + tc.draw(gs::integers::<u64>().max_value(2000)) - 1000;
@@ -648,7 +648,7 @@ const ARTISTS: [&str; 6] = ["Chris Lake", "Alexis Roberts", "Young Fathers", "Bi
 /// own, an artist ID only ever goes with the name of the artist it's for, all of them or none:
 /// all when every name is credited.
 #[hegel::test(test_cases = 60)]
-fn artist_ids_line_up_with_names(tc: TestCase) {
+fn prop_artist_ids_line_up_with_names(tc: TestCase) {
     let id = |name: &str| ARTISTS.iter().position(|a| *a == name).unwrap() as u128 + 1;
     let some_artists = || gs::vecs(gs::sampled_from(ARTISTS.to_vec())).min_size(1).max_size(4).unique(true);
     let credited: Vec<&str> = tc.draw(some_artists());
@@ -712,7 +712,7 @@ enum Last {
 /// nothing when MusicBrainz doesn't know it, and a failure for anything else. The track is read
 /// once; one the library hasn't got, or asked about without a drive, is never looked up.
 #[hegel::test(test_cases = 60)]
-fn each_track_takes_one_lookup_and_its_retries(tc: TestCase) {
+fn prop_each_track_takes_one_lookup_and_its_retries(tc: TestCase) {
     let busy_for = tc.draw(gs::integers::<usize>().max_value(lookup::TRIES + 1));
     let wait = tc.draw(gs::sampled_from(vec!["0", "0", "1", "3"]));
     let last = tc.draw(gs::sampled_from(vec![

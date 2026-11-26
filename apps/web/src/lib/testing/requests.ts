@@ -32,7 +32,7 @@ export const neonTide: ProjectView = {
 
 /** A request about Neon Tide: a tagline change from neon.test unless overridden. */
 export const request = (kind: RequestKind, overrides: Partial<RequestView> = {}): RequestView => ({
-	uri: `at://did:plc:root/space/computer.localnetwork.space.moderation/main/${neon.did}/computer.localnetwork.moderation.request/3k${kind}`,
+	uri: `at:space/did:plc:root/computer.localnetwork.space.moderation/main/${neon.did}/computer.localnetwork.moderation.request/3k${kind}`,
 	cid: 'c',
 	rkey: `3k${kind}`,
 	kind,

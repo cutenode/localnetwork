@@ -2,7 +2,7 @@
 	import type { ComponentProps, Snippet } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { PROJECT_KINDS } from '#lib/taxonomy/options.ts';
-	import { FormDraft } from '#lib/form-draft.svelte.ts';
+	import { FormDraft } from '#lib/form-draft.page-only.svelte.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { formValues } from '#lib/project-form.ts';
 	import type { DjSetView, ProjectFormValues } from '#lib/types.ts';

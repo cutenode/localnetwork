@@ -487,7 +487,7 @@ impl Editing {
 
 /// Any sequence of edits leaves a database that holds what was asked for, and nothing else.
 #[hegel::test(test_cases = 100)]
-fn edits_match_a_model(tc: TestCase) {
+fn prop_edits_match_a_model(tc: TestCase) {
     let mut all = fixtures();
     let (name, bytes) = all.swap_remove(tc.draw(gs::integers::<usize>().max_value(all.len() - 1)));
     tc.note(&format!("starting from the {name} fixture"));
@@ -506,7 +506,7 @@ fn unedited_files_round_trip() {
 
 /// A name survives being written and read back, whatever its length or script.
 #[hegel::test(test_cases = 300)]
-fn playlist_names_round_trip(tc: TestCase) {
+fn prop_playlist_names_round_trip(tc: TestCase) {
     let name = tc.draw(names());
     let mut editor = PdbEditor::from_bytes(fixture("tests/fixtures/rekordcrate/empty/PIONEER/rekordbox/export.pdb"));
     match editor.create_playlist(&name, 0, false) {
@@ -519,7 +519,7 @@ fn playlist_names_round_trip(tc: TestCase) {
     }
 }
 
-/// Found by `edits_match_a_model`: an album name too long for a row used to fail only after
+/// Found by `prop_edits_match_a_model`: an album name too long for a row used to fail only after
 /// the artist row was written, leaving an artist no track uses.
 #[test]
 fn add_track_is_all_or_nothing() {
@@ -600,7 +600,7 @@ fn damaged(tc: &TestCase) -> Vec<u8> {
 /// accepts grows the file by a page per table past its end at most, whatever its free page
 /// fields say (no edit took many gigabytes before).
 #[hegel::test(test_cases = 300)]
-fn damaged_exports_are_read_or_refused(tc: TestCase) {
+fn prop_damaged_exports_are_read_or_refused(tc: TestCase) {
     let bytes = damaged(&tc);
     let _ = std::panic::catch_unwind(|| Database::from_bytes(bytes.clone()));
     let Ok(db) = locallibrary::pdb::parse_database(bytes.clone(), std::path::Path::new("export.pdb")) else { return };

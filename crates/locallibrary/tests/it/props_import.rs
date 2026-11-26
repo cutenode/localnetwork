@@ -48,7 +48,7 @@ fn drive_locator() -> Locator {
 
 /// CSV export reads back with the same title, artist, album, duration and path.
 #[hegel::test(test_cases = 300)]
-fn csv_export_reads_back(tc: TestCase) {
+fn prop_csv_export_reads_back(tc: TestCase) {
     let lib = tc.draw(library());
     let refs: Vec<&Track> = lib.tracks.iter().collect();
     let csv = export::csv(&refs, &drive_locator());
@@ -68,7 +68,7 @@ fn csv_export_reads_back(tc: TestCase) {
 /// M3U8 export reads back with the same durations and paths, and the artist and title when
 /// neither contains a dash separator.
 #[hegel::test(test_cases = 300)]
-fn m3u8_export_reads_back(tc: TestCase) {
+fn prop_m3u8_export_reads_back(tc: TestCase) {
     let lib = tc.draw(library());
     let name = tc.draw(field());
     let refs: Vec<&Track> = lib.tracks.iter().collect();
@@ -89,7 +89,7 @@ fn m3u8_export_reads_back(tc: TestCase) {
 /// Every entry of an exported list, CSV or M3U8, with any path style, is found again by its path
 /// as the track it came from.
 #[hegel::test(test_cases = 100)]
-fn exported_lists_match_their_tracks(tc: TestCase) {
+fn prop_exported_lists_match_their_tracks(tc: TestCase) {
     let lib = tc.draw(library());
     let style = tc.draw(gs::sampled_from(vec![PathStyle::Drive, PathStyle::Relative, PathStyle::Absolute]));
     let csv = tc.draw(gs::booleans());
@@ -109,7 +109,7 @@ fn exported_lists_match_their_tracks(tc: TestCase) {
 /// A plain-text set list (`01. Artist - Title`) reads back as the artists and titles it lists,
 /// for names without dashes, colons (cue times) or a leading bullet.
 #[hegel::test(test_cases = 300)]
-fn text_export_reads_back(tc: TestCase) {
+fn prop_text_export_reads_back(tc: TestCase) {
     let name = || gs::from_regex("[A-Za-z0-9é][A-Za-z0-9é&'.,()! \u{a0}]{0,10}[A-Za-z0-9é)!]").fullmatch(true);
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(12));
     let tracks: Vec<Track> = (1..=n).map(|id| test_util::track(id, &tc.draw(name()), &tc.draw(name()), "")).collect();
@@ -125,7 +125,7 @@ fn text_export_reads_back(tc: TestCase) {
 /// rekordbox XML written by a real XML writer (`quick-xml` escaping) reads back: the collection's
 /// names, artists, albums, durations and file locations, and each playlist's tracks in order.
 #[hegel::test(test_cases = 300)]
-fn rekordbox_xml_reads_back(tc: TestCase) {
+fn prop_rekordbox_xml_reads_back(tc: TestCase) {
     let lib = tc.draw(library());
     let lists: Vec<Vec<u32>> = tc.draw(
         gs::vecs(gs::vecs(gs::integers::<u32>().min_value(1).max_value(lib.tracks.len() as u32)).max_size(5))

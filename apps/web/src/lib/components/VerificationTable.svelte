@@ -3,7 +3,7 @@
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import type { IssuedVerification, LiveIdentity } from '#lib/types.ts';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 	import { isCurrent } from '#lib/verification.ts';
 
 	let {

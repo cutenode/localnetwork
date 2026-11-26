@@ -160,7 +160,7 @@ fn every_views_commands_name_their_keys_as_the_help_does() {
 /// put anywhere in the text, never makes it match better: it can only split a run, push a
 /// letter further in or stop one starting a word.
 #[hegel::test(test_cases = 300)]
-fn fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
+fn prop_fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let text: String = tc.draw(gs::text().alphabet("abcAB -").max_size(12));
     let query: String = tc.draw(gs::text().alphabet("abcAB ").max_size(5));
@@ -182,7 +182,7 @@ fn fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
 /// be done says why and stays; a drive's action is done to that drive while it's plugged in (it
 /// says when it isn't any more); a library's to its clones; a click outside closes the list.
 #[hegel::test(test_cases = 100)]
-fn a_choice_from_a_list_is_done_to_its_drive(tc: hegel::TestCase) {
+fn prop_a_choice_from_a_list_is_done_to_its_drive(tc: hegel::TestCase) {
     use super::super::app::testing::{blank, fleet};
     use super::super::drives::DriveRow;
     use hegel::generators as gs;

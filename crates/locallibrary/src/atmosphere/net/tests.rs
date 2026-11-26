@@ -47,7 +47,7 @@ use hegel::generators as gs;
 
 /// Redirects are followed to public addresses for the first five, and none after.
 #[hegel::test(test_cases = 200)]
-fn redirects_go_only_to_public_addresses_five_times(tc: TestCase) {
+fn prop_redirects_go_only_to_public_addresses_five_times(tc: TestCase) {
     let previous = tc.draw(gs::integers::<usize>().max_value(10));
     let url = tc.draw(gs::sampled_from(vec![
         "https://pds.example/",
@@ -86,7 +86,7 @@ fn scope_list(tc: &TestCase) -> (String, bool) {
 /// A token answer granting scopes jacquard can't read is refused, naming them on one line;
 /// anything else (not a token answer, not JSON) passes through.
 #[hegel::test(test_cases = 300)]
-fn only_token_answers_with_unreadable_scopes_are_refused(tc: TestCase) {
+fn prop_only_token_answers_with_unreadable_scopes_are_refused(tc: TestCase) {
     let (scope, readable) = scope_list(&tc);
     let token = tc.draw(gs::booleans());
     let mut answer = serde_json::json!({ "scope": scope });
@@ -112,7 +112,7 @@ fn only_token_answers_with_unreadable_scopes_are_refused(tc: TestCase) {
 /// past it; a redirect to this computer isn't followed; a client for public servers only
 /// sends nothing to this computer.
 #[hegel::test(test_cases = 6)]
-fn answers_are_read_whole_up_to_the_limit(tc: TestCase) {
+fn prop_answers_are_read_whole_up_to_the_limit(tc: TestCase) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, OnceLock};
     // Building a client loads the system's certificates: one of each, and one server, for

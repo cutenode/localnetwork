@@ -19,13 +19,13 @@ use locallibrary::progress::Ctx;
 use rekordbox_pdb::NewTrack;
 
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do(tc: TestCase) {
+fn prop_the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do(tc: TestCase) {
     for variant in 0..3 {
         the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with(&tc, variant);
     }
 }
 
-/// One case of [`the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do`], `variant` choosing what's drawn.
+/// One case of [`prop_the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do`], `variant` choosing what's drawn.
 #[hegel::test_helper]
 fn the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with(tc: &TestCase, variant: u8) {
     let dir = tempfile::tempdir().unwrap();
@@ -144,7 +144,7 @@ fn the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with
 /// (asking `diskutil`, `lsblk` or PowerShell), and a folder that isn't a volume's root has none.
 /// On macOS, `/` is a volume's root.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_volume_of_a_folder_is_the_one_mounted_there(tc: TestCase) {
+fn prop_the_volume_of_a_folder_is_the_one_mounted_there(tc: TestCase) {
     use std::path::Path;
     let dir = tempfile::tempdir().unwrap();
     let below = tc.draw(gs::sampled_from(vec!["", "Contents", "PIONEER/USBANLZ", "日本"]));

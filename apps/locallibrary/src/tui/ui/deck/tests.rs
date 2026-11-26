@@ -886,3 +886,13 @@ fn the_loop_chip_clicked_ends_the_loop() {
     mouse(&mut app, LEFT, at);
     assert!(app.loop_playing().is_none(), "{}", screen(&mut app, 120, 30));
 }
+
+/// A loop made on the deck is labelled once with its length, as a saved one is.
+#[test]
+fn a_loop_on_the_deck_says_its_length_once() {
+    let (mut app, _dir) = on_deck();
+    app.deck_layout = true;
+    press(&mut app, "l");
+    let s = screen(&mut app, 120, 40);
+    assert!(s.contains("loop ↻4") && !s.contains("↻4 ↻4"), "{s}");
+}

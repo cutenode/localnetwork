@@ -13,7 +13,8 @@ use std::path::Path;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions};
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, Track, paths};
@@ -76,7 +77,7 @@ fn add_copies(tc: &TestCase, root: &Path, lib: &Library, playlist: &str) {
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn reordering_a_playlist_keeps_its_tracks_in_the_asked_order(tc: TestCase) {
+fn prop_reordering_a_playlist_keeps_its_tracks_in_the_asked_order(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // The twelve-track export drawn on, or the demo export, whose analysis has phrases (the
     // energy a set is ordered by).

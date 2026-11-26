@@ -4,7 +4,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
-	import { draftKey } from '#lib/form-draft.svelte.ts';
+	import { draftKey } from '#lib/form-draft.page-only.svelte.ts';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { REQUEST_KIND_LABEL, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';

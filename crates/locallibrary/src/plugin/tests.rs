@@ -4,7 +4,7 @@ use loclib_model::test_util::track;
 /// Tracks found through one map are the ones finding each in the library finds, a repeated id
 /// its first track, and an id no track has fails it, naming the first such.
 #[hegel::test(test_cases = 200)]
-fn tracks_named_are_those_the_library_finds(tc: hegel::TestCase) {
+fn prop_tracks_named_are_those_the_library_finds(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let tracks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).max_size(8));
     let library = Library {

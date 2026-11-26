@@ -39,6 +39,7 @@ pub struct ReadLibrary {
     /// The `next` of the page before; none for the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// The plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -47,8 +48,10 @@ pub struct ReadLibrary {
 /// pages (a playlist names its tracks by path, on this page or another).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LibraryPage {
+    /// Some of the library's tracks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<SourceTrack>,
+    /// Some of its playlists.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub playlists: Vec<SourcePlaylist>,
     /// A file in the request's scratch folder holding more of the page, a page as JSON (its own
@@ -69,27 +72,37 @@ pub struct LibraryPage {
 pub struct SourceTrack {
     /// Its audio file, absolute, in one of the request's `roots`.
     pub path: PathBuf,
+    /// Its title.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
+    /// Its artist.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub artist: String,
+    /// The album it's on.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub album: String,
+    /// The album's artist.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub album_artist: String,
+    /// Its genre.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub genre: String,
     /// The record label.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
+    /// Who remixed it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remixer: String,
+    /// Who wrote it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub composer: String,
+    /// Its comment.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub comment: String,
+    /// Its ISRC.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub isrc: String,
+    /// The year it came out.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub year: u16,
     /// 0 to 5 stars.
@@ -98,8 +111,10 @@ pub struct SourceTrack {
     /// A Camelot code (`8A`), or a key as rekordbox names it (`Am`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// Its tempo, in beats per minute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bpm: Option<f64>,
+    /// Its hot cues, memory cues and loops.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cues: Vec<SourceCue>,
     /// Its beat grid: each beat's number in its bar (1-4), the tempo there and its time.
@@ -124,10 +139,12 @@ pub struct SourceCue {
     /// Its hot cue's slot, 0 for A to 7 for H; a memory cue without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hot_cue: Option<u8>,
+    /// Where it is, in milliseconds from the start.
     pub start_ms: u32,
     /// Where a loop ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_ms: Option<u32>,
+    /// What the cue is called.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     /// As cue edits take a colour: a name (`red`, `aqua`), `#rrggbb` (the nearest players have),
@@ -158,7 +175,10 @@ impl Hook for ReadLibrary {
 /// folders the user grants it, which takes `fs:read`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LibrarySource {
+    /// What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other source's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
     /// A JSON Schema for its options (an object).
     #[serde(default, skip_serializing_if = "Option::is_none")]

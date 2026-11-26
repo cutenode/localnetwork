@@ -9,7 +9,7 @@ fn entry(path: &Path) -> FileEntry {
 /// A drive's file finds the file on this computer with its content, whichever of those with its
 /// size that is, and none when none has it. A size nothing here has doesn't read the drive's file.
 #[hegel::test(test_cases = 40)]
-fn a_twin_holds_what_the_drives_file_does(tc: hegel::TestCase) {
+fn prop_a_twin_holds_what_the_drives_file_does(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let contents: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(3)).max_size(5));
     let on_drive = tc.draw(gs::integers::<u8>().max_value(3));
@@ -52,7 +52,7 @@ fn a_twin_holds_what_the_drives_file_does(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 #[hegel::explicit_test_case(data = b"the audio".to_vec(), change = 0u8)]
 #[hegel::explicit_test_case(data = b"the audio".to_vec(), change = 5u8)]
-fn a_kept_content_hash_reads_back(tc: hegel::TestCase) {
+fn prop_a_kept_content_hash_reads_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let data: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(16));
     // As written, in capitals, one digit short, one too many, one not a digit, padded.
@@ -76,7 +76,7 @@ fn a_kept_content_hash_reads_back(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(how = 1u8)]
 #[hegel::explicit_test_case(how = 2u8)]
 #[hegel::explicit_test_case(how = 3u8)]
-fn no_collection_means_no_twins(tc: hegel::TestCase) {
+fn prop_no_collection_means_no_twins(tc: hegel::TestCase) {
     // Unset, gone, not a database, a folder.
     let how = tc.draw(hegel::generators::integers::<u8>().max_value(3));
     let dir = tempfile::tempdir().unwrap();

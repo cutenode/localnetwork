@@ -4,7 +4,7 @@
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { requestTitle, timeAgo } from '#lib/format.ts';
 	import type { RequestView } from '#lib/types.ts';
-	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.page-only.svelte';
 
 	/** Requests to staff that match the console's filters. */
 	let { requests }: { requests: RequestView[] } = $props();

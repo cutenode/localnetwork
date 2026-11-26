@@ -54,7 +54,7 @@ use hegel::generators as gs;
 /// comes: the output is the input's length at the new rate to the nearest frame, the same
 /// whatever the pieces, and a click comes out within a frame of when it went in.
 #[hegel::test(test_cases = 5)]
-fn clicks_keep_their_time_between_any_rates(tc: TestCase) {
+fn prop_clicks_keep_their_time_between_any_rates(tc: TestCase) {
     let rates = vec![32_000, 44_100, 48_000, 88_200, 96_000];
     let (from, to) = (tc.draw(gs::sampled_from(rates.clone())), tc.draw(gs::sampled_from(rates)));
     let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
@@ -87,7 +87,7 @@ fn clicks_keep_their_time_between_any_rates(tc: TestCase) {
 /// A sink's error (a copy that can't be written) stops resampling at the output it was
 /// handed and comes back as it is, from a push or the finish: nothing more is handed on.
 #[hegel::test(test_cases = 3)]
-fn a_sinks_error_stops_resampling(tc: TestCase) {
+fn prop_a_sinks_error_stops_resampling(tc: TestCase) {
     let rates = vec![44_100, 48_000, 96_000];
     let (from, to) = (tc.draw(gs::sampled_from(rates.clone())), tc.draw(gs::sampled_from(rates)));
     tc.assume(from != to);

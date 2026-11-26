@@ -9,13 +9,15 @@ use serde::{Deserialize, Serialize};
 use super::{resolve_drive, write_estimate};
 use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
 use crate::device::Device;
-use crate::drive_speed::Work;
-use crate::masterdb::{self, CloudFolders, Collection, CollectionInfo, DriveDiff, TagCategory};
-use crate::model::Library;
+use crate::import::{self, MatchKind, Matcher, Status};
+use crate::model::{Library, TrackRef};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
+use loclib_drive_speed::Work;
+use loclib_model::diff::{self, PlaylistDiff};
+use loclib_rekordbox_db::masterdb::{self, CloudFolders, Collection, CollectionInfo, TagCategory};
 
 /// Which `master.db` to read, and how.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -31,7 +33,7 @@ pub struct CollectionRef {
 
 /// Read the collection `req` names.
 pub fn open_collection(req: &CollectionRef) -> Result<Collection> {
-    masterdb::open(&collection_path(req.db.as_deref())?, &masterdb::resolve_key(req.key.as_deref()))
+    Ok(masterdb::open(&collection_path(req.db.as_deref())?, &masterdb::resolve_key(req.key.as_deref()))?)
 }
 
 /// The `master.db` to read: `db`, else rekordbox's own ([`masterdb::default_path`]), once it's
@@ -88,7 +90,68 @@ pub fn collection_diff(req: &CollectionDiffRequest) -> Result<DriveDiff> {
     let d = resolve_drive(&req.drive)?;
     let drive = d.library()?;
     let collection = open_collection(&req.collection)?;
-    collection.diff_drive(&drive, &d.name(), req.playlist.as_deref())
+    diff_drive(&collection, &drive, &d.name(), req.playlist.as_deref())
+}
+
+/// [`collection_diff`]: `diff.added_*` is what the drive lacks, `diff.removed_*` what only the
+/// drive has, and changed tracks are details the collection has since changed (or the drive was
+/// edited).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DriveDiff {
+    /// Collection tracks found on the drive by their file.
+    pub matched_by_file: usize,
+    /// Found by ISRC, or artist, title and length.
+    pub matched_by_details: usize,
+    /// Collection tracks only a loose match (title alone, or similar words) finds on the drive;
+    /// counted as missing from it.
+    pub uncertain: Vec<TrackRef>,
+    pub diff: PlaylistDiff,
+}
+
+/// What `drive` (a drive's library) lacks against `collection`, and what it has that the
+/// collection doesn't: tracks, playlists and their entries, through [`diff::between`] with the
+/// drive on the left. Collection tracks are found on the drive by file name and the folders above
+/// it, then ISRC, then artist, title and length ([`import::Matcher`]); a track only a looser match
+/// finds counts as missing, and is listed in `uncertain`. A `playlist` neither has is refused.
+fn diff_drive(
+    collection: &Collection,
+    drive: &Library,
+    drive_label: &str,
+    playlist: Option<&str>,
+) -> Result<DriveDiff> {
+    diff::check_playlist(drive, &collection.library, playlist)?;
+    let matcher = Matcher::new(drive);
+    let drive_track = drive.track_lookup();
+    let mut translated = collection.library.clone();
+    let (mut by_file, mut by_details, mut uncertain) = (0, 0, Vec::new());
+    for t in &mut translated.tracks {
+        let entry = import::Entry {
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            album: (!t.album.is_empty()).then(|| t.album.clone()),
+            mix: (!t.mix_name.is_empty()).then(|| t.mix_name.clone()),
+            duration_secs: (t.duration_secs > 0).then_some(t.duration_secs),
+            path: (!t.file_path.is_empty()).then(|| t.file_path.clone()),
+            isrc: (!t.isrc.is_empty()).then(|| t.isrc.clone()),
+            ..Default::default()
+        };
+        match matcher.find(&entry) {
+            Status::Found { track_id, how } if how != MatchKind::Title && how != MatchKind::Fuzzy => {
+                // The matcher finds only the drive's own tracks.
+                let Some(d) = drive_track(track_id) else { continue };
+                t.file_path = d.file_path.clone();
+                if how == MatchKind::Path { by_file += 1 } else { by_details += 1 }
+            }
+            Status::Missing => {}
+            _ => uncertain.push(TrackRef::from(&*t)),
+        }
+    }
+    Ok(DriveDiff {
+        matched_by_file: by_file,
+        matched_by_details: by_details,
+        uncertain,
+        diff: diff::between(drive, &translated, (drive_label, "rekordbox collection"), playlist),
+    })
 }
 
 #[cfg(test)]

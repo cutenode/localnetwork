@@ -26,7 +26,7 @@ fn options(playlist: &str, players: Vec<String>) -> PackOptions {
 /// unplayable. The high-rate WAVs, packed with the store, come out as copies, and the target is
 /// registered.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn packing_for_the_players_remembered_plans_what_naming_them_does(tc: TestCase) {
+fn prop_packing_for_the_players_remembered_plans_what_naming_them_does(tc: TestCase) {
     let models: Vec<String> = tc
         .draw(gs::vecs(gs::sampled_from(vec!["CDJ-2000", "CDJ-900", "XDJ-700"])).min_size(1).max_size(2).unique(true))
         .into_iter()

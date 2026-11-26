@@ -18,8 +18,9 @@ use binrw::{BinRead, BinWrite};
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, EditPlan, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions, EditPlan};
 use locallibrary::model::TrackColor;
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, Playlist, Track, backup, harmony, paths, pdb, query};
@@ -1157,7 +1158,7 @@ fn draw_edit(tc: &TestCase, m: &Model, pool: &[String], names: Names) -> Edit {
 }
 
 /// Keep edits from giving a playlist a sibling whose name differs only in ASCII case: how those
-/// are told apart is its own property (see `names_that_differ_only_in_case_name_different_playlists`).
+/// are told apart is its own property (see `prop_names_that_differ_only_in_case_name_different_playlists`).
 fn without_case_twins(m: &Model, edit: Edit) -> Edit {
     let twin = |kids: &[Node], name: &str, skip: Option<usize>| {
         kids.iter().enumerate().any(|(j, n)| Some(j) != skip && n.name != name && n.name.eq_ignore_ascii_case(name))
@@ -1265,13 +1266,13 @@ fn run_machine(tc: TestCase, plus: bool) {
 
 /// Edits on a drive with export.pdb only.
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
-fn edits_on_an_export_pdb_drive_match_the_model(tc: TestCase) {
+fn prop_edits_on_an_export_pdb_drive_match_the_model(tc: TestCase) {
     run_machine(tc, false);
 }
 
 /// Edits on a drive with export.pdb and OneLibrary: both are edited alike.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn edits_on_a_drive_with_both_databases_match_the_model(tc: TestCase) {
+fn prop_edits_on_a_drive_with_both_databases_match_the_model(tc: TestCase) {
     run_machine(tc, true);
 }
 
@@ -1293,7 +1294,7 @@ fn oversized(edits: &[Edit]) -> bool {
 /// (it used to, on the ones too long, before plan refused them) changes no file, leaves no backup
 /// behind and doesn't mark the drive as interrupted; everything else is applied as the model says.
 #[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_failed_apply_leaves_the_drive_untouched(tc: TestCase) {
+fn prop_a_failed_apply_leaves_the_drive_untouched(tc: TestCase) {
     let mut drive = Drive::new(tc.draw(gs::booleans()));
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
         let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
@@ -1312,7 +1313,7 @@ fn a_failed_apply_leaves_the_drive_untouched(tc: TestCase) {
 /// Everything `plan` takes, `apply` can make: names and details too long for export.pdb are
 /// refused when planning.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn plan_refuses_what_export_pdb_cannot_hold(tc: TestCase) {
+fn prop_plan_refuses_what_export_pdb_cannot_hold(tc: TestCase) {
     let mut drive = Drive::new(false);
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
         if let Attempt::Failed { error, .. } = drive.edit(&tc, Names::Oversized) {
@@ -1326,7 +1327,7 @@ fn plan_refuses_what_export_pdb_cannot_hold(tc: TestCase) {
 /// comment and mix name, alone or together. Refused, it says what's too long and the drive is as it
 /// was; a lookup name one character longer than one refused is refused too.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase) {
+fn prop_names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = fresh_pdb_drive(dir.path());
     let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
@@ -1444,7 +1445,7 @@ fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase
 /// replaying the journal never fails, makes what it still can, and brings none of the missing
 /// tracks back; what it leaves out it says.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
+fn prop_a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
     let mut drive = Drive::new(false);
     let pdb_path = drive.root.join(paths::EXPORT_PDB);
     let exported = fs::read(&pdb_path).unwrap();
@@ -1488,7 +1489,7 @@ fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
 /// After rekordbox exports over the edits (both databases as they were), replaying the journal
 /// gives the library the edits made.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
-fn replaying_the_journal_after_a_new_export_redoes_the_edits(tc: TestCase) {
+fn prop_replaying_the_journal_after_a_new_export_redoes_the_edits(tc: TestCase) {
     let mut drive = Drive::new(tc.draw(gs::booleans()));
     let exported: Vec<(&str, Vec<u8>)> = [paths::EXPORT_PDB, paths::LIBRARY_PLUS_DB]
         .into_iter()
@@ -1524,7 +1525,7 @@ fn replaying_the_journal_after_a_new_export_redoes_the_edits(tc: TestCase) {
 /// Two playlists whose names differ only in ASCII case can sit side by side (creating, renaming
 /// and moving compare names exactly), so an edit naming one by its exact path changes that one.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn names_that_differ_only_in_case_name_different_playlists(tc: TestCase) {
+fn prop_names_that_differ_only_in_case_name_different_playlists(tc: TestCase) {
     let drive = Drive::new(tc.draw(gs::booleans()));
     let base = tc.draw(gs::sampled_from(&["Foo", "friday", "Set A", "aab"][..])).to_string();
     let flips = tc.draw(gs::vecs(gs::booleans()).min_size(base.len()).max_size(base.len()));
@@ -1693,7 +1694,7 @@ fn moving_a_playlist_next_to_a_namesake_is_refused() {
 /// no playlist, while edits leave blank names out and find `x/y`, so a batch naming it was taken
 /// by the plan and refused by the model.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn blank_names_in_a_playlist_path_are_left_out(tc: TestCase) {
+fn prop_blank_names_in_a_playlist_path_are_left_out(tc: TestCase) {
     let mut drive = Drive::new(tc.draw(gs::booleans()));
     let file = drive.pool[0].clone();
     let create = [Edit::CreatePlaylist { path: "x//y".into(), folder: false }];
@@ -2047,7 +2048,7 @@ fn replaying_a_fill_leaves_out_tracks_the_new_export_lacks() {
 /// the tempo to hundredths, the album artist with the album (given, or the track's own), and
 /// refused, changing nothing, when the track would be left without an album to keep it with.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn tempos_and_album_artists_read_back_from_every_database(tc: TestCase) {
+fn prop_tempos_and_album_artists_read_back_from_every_database(tc: TestCase) {
     use hegel::Generator;
     let dir = tempfile::tempdir().unwrap();
     let root = fresh_pdb_drive(dir.path());

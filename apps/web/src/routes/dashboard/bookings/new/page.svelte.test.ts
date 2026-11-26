@@ -1,7 +1,7 @@
 import { page } from 'vitest/browser';
 import { afterEach, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { draftKey } from '#lib/form-draft.svelte.ts';
+import { draftKey } from '#lib/form-draft.page-only.svelte.ts';
 import { inquiryDefaults, inquiryValues } from '#lib/shows.ts';
 import type { Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';

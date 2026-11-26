@@ -22,7 +22,7 @@ fn set(hot: Option<u8>, at: CuePosition, loop_beats: Option<f64>) -> SetCue {
 /// Edits refused for what they ask of a track, each on a track it doesn't fit: the error says why
 /// and the drive is as it was.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn cue_edits_a_track_cant_take_are_refused(tc: TestCase) {
+fn prop_cue_edits_a_track_cant_take_are_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     // A track rekordbox hasn't analysed, and one analysed without a beat grid or tempo.
@@ -97,7 +97,7 @@ fn cue_edits_a_track_cant_take_are_refused(tc: TestCase) {
 /// without names (said), and one OneLibrary doesn't list gets them in export.pdb's analysis only
 /// (said).
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn cues_are_carried_onto_copies_that_have_none(tc: TestCase) {
+fn prop_cues_are_carried_onto_copies_that_have_none(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);

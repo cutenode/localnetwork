@@ -6,7 +6,7 @@ import type { AddVenueResponse, VenueOption } from '#lib/venues.ts';
 import VenuePicker from './VenuePicker.svelte';
 
 const tresor: VenueOption = {
-	space: 'at://did:plc:root/computer.localnetwork.space.venue/3tresor',
+	space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3tresor',
 	skey: '3tresor',
 	name: 'Tresor',
 	locality: 'Berlin',
@@ -99,7 +99,7 @@ describe('VenuePicker', () => {
 	it('adds a new venue with its city from the search', async () => {
 		const added: VenueOption = {
 			...tresor,
-			space: 'at://did:plc:root/computer.localnetwork.space.venue/3kater',
+			space: 'at:space/did:plc:root/computer.localnetwork.space.venue/3kater',
 			skey: '3kater',
 			name: 'Kater Blau'
 		};

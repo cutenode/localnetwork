@@ -39,7 +39,7 @@ const UPDATES: &[(&str, Option<&str>)] = &[
 ];
 
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn firmware_goes_in_the_root_only_as_the_device_takes_it(tc: TestCase) {
+fn prop_firmware_goes_in_the_root_only_as_the_device_takes_it(tc: TestCase) {
     let (dir, root) = usb();
     let library = common::library_files(&root);
     let (name, model) = tc.draw(gs::sampled_from(UPDATES));
@@ -116,7 +116,7 @@ const CLUTTER: &[(&str, Option<TidyKind>)] = &[
 ];
 
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn tidying_removes_exactly_the_clutter(tc: TestCase) {
+fn prop_tidying_removes_exactly_the_clutter(tc: TestCase) {
     let (_dir, root) = usb();
     let mut want: BTreeSet<String> = BTreeSet::new();
     let mut trash = 0u64;
@@ -172,7 +172,7 @@ fn tidying_removes_exactly_the_clutter(tc: TestCase) {
 /// database, where players read them, saying so; otherwise they go into OneLibrary as given, and
 /// undoing gives the old ones back.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn the_name_players_show_is_checked_set_and_undone(tc: TestCase) {
+fn prop_the_name_players_show_is_checked_set_and_undone(tc: TestCase) {
     let (_dir, root) = usb();
     let plus = tc.draw(gs::weighted_booleans(0.8));
     if plus {

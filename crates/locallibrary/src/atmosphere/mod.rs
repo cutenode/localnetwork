@@ -38,6 +38,7 @@ pub mod flags;
 mod identity;
 pub mod lexicon;
 mod net;
+pub mod publishing;
 pub mod repo;
 pub mod store;
 
@@ -312,6 +313,7 @@ fn oauth_error(e: OAuthError) -> Error {
         OAuthError::Callback(CallbackError::IssuerMismatch { .. }) => Error::Account(one_line(&format!(
             "the sign-in came back from a different server than it went to ({e}); sign in again"
         ))),
+        OAuthError::Request(r) if unresolved_permission_set(r) => Error::Account(publishing::NOT_OPEN.into()),
         _ => match causes(&e).find_map(|c| c.downcast_ref::<identity::HandleNotFound>()) {
             Some(nf) => Error::Account(one_line(&format!(
                 "no Atmosphere account has the handle {}: {nf}. Check the handle, or sign in with your \
@@ -321,6 +323,16 @@ fn oauth_error(e: OAuthError) -> Error {
             None => Error::Account(one_line(&format!("signing in: {}", net::with_causes(&e)))),
         },
     }
+}
+
+/// Whether `r` is a server refusing a sign-in because it can't find [`PUBLISH_SET`]
+/// ([`publishing::refused`]). `OAuthError::Request` is transparent, so it's matched, not found
+/// among the causes.
+fn unresolved_permission_set(r: &jacquard_oauth::request::RequestError) -> bool {
+    use jacquard_oauth::request::RequestErrorKind;
+    let RequestErrorKind::HttpStatusWithBody { body, .. } = r.kind() else { return false };
+    let field = |name: &str| body.get(name).and_then(|v| v.as_str()).unwrap_or_default();
+    publishing::refused(field("error"), field("error_description"))
 }
 
 /// `e` and the errors under it, outermost first.
@@ -475,6 +487,13 @@ pub fn begin_login(root: &Path, input: &str, options: &LoginOptions) -> Result<L
     } else {
         options.scopes.clone()
     };
+    // No server can grant publishing before its permission set is published: say so here, not
+    // after the browser.
+    if requested.iter().any(|s| s.strip_prefix("include:") == Some(PUBLISH_SET))
+        && let Some(why) = publishing::availability().why_not()
+    {
+        return Err(Error::Account(why.into()));
+    }
     let (client, note) = match &options.client {
         None => own_client(block_on(document_check(CLIENT_ID, &requested)))?,
         Some(Client::Hosted { client_id }) => {

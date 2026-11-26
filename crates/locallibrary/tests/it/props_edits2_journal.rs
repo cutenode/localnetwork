@@ -18,7 +18,7 @@ use locallibrary::progress::Ctx;
 /// it (listing, the edits to replay, what an undo takes off, clearing, planning an edit, making a
 /// cue edit), and is left as it was.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_journal_this_build_cant_use_is_refused_and_kept(tc: TestCase) {
+fn prop_a_journal_this_build_cant_use_is_refused_and_kept(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     // An edit, so the drive has a backup an undo could take the journal's edits off with.
@@ -66,7 +66,7 @@ fn a_journal_this_build_cant_use_is_refused_and_kept(tc: TestCase) {
 /// Clearing the journal before a time takes off exactly the entries recorded before it, oldest
 /// or not, and keeps the rest in order; clearing it all takes everything.
 #[hegel::test(test_cases = 60)]
-fn clearing_the_journal_before_a_time_takes_exactly_the_earlier_entries(tc: TestCase) {
+fn prop_clearing_the_journal_before_a_time_takes_exactly_the_earlier_entries(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let d = Device::open(dir.path()).unwrap();
     let start: DateTime<Utc> = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();

@@ -1,0 +1,2 @@
+# Written by tools/regen/token-exchange-schema.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+services.schema.json merge=regen regen=token-exchange-schema

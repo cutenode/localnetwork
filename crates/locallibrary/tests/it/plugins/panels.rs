@@ -159,7 +159,7 @@ fn a_panel_stops_when_cancelled() {
 /// the feature brings from a plugin without it, a question (or one in a section), an image whose
 /// file isn't there or isn't a picture, or the plugin's own failure.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_panels_answer_is_its_view_or_why_it_isnt(tc: TestCase) {
+fn prop_a_panels_answer_is_its_view_or_why_it_isnt(tc: TestCase) {
     let views = tc.draw(gs::booleans());
     let f = Fixture::panelled(if views { &[] } else { &["--without", "views"] });
     let tree = json!({ "kind": "tree", "items": [{ "label": "a", "children": [{ "label": "b", "detail": "c" }] }] });

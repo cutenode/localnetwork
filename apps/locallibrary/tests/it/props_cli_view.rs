@@ -73,7 +73,7 @@ fn signal(child: &Running, signal: i32) {
 /// views` and `store info` say it's there, and `store unbrowse` removes it, by name or with the
 /// rest. A file in the view can't be written.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_kept_view_is_said_listed_and_removed(tc: TestCase) {
+fn prop_a_kept_view_is_said_listed_and_removed(tc: TestCase) {
     let env = Env::from_template();
     let id = snapshot(&env);
     let to = env.outside("view");
@@ -118,7 +118,7 @@ fn a_kept_view_is_said_listed_and_removed(tc: TestCase) {
 /// unbrowse` elsewhere, and goes with it, also when that leaves a file someone put there. It's made
 /// in the temporary folder unless told otherwise.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_view_goes_when_the_command_stops(tc: TestCase) {
+fn prop_a_view_goes_when_the_command_stops(tc: TestCase) {
     let env = Env::from_template();
     let id = snapshot(&env);
     for how in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, 0] {
@@ -149,7 +149,7 @@ fn a_view_goes_when_the_command_stops(tc: TestCase) {
 /// A run killed outright can't tidy up, so its view is said until it's removed, and pruning its
 /// snapshot says what that leaves.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_view_left_by_a_killed_run_is_still_found(_tc: TestCase) {
+fn prop_a_view_left_by_a_killed_run_is_still_found(_tc: TestCase) {
     let env = Env::from_template();
     let id = snapshot(&env);
     let listed_when_opened = listed(&env, &id);
@@ -175,7 +175,7 @@ fn a_view_left_by_a_killed_run_is_still_found(_tc: TestCase) {
 /// In words, a view says where it is and how it goes, and names a file it left out: here one whose
 /// path would lead out of the view, as a damaged or crafted manifest could.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_view_says_where_it_is_and_what_it_left_out(_tc: TestCase) {
+fn prop_a_view_says_where_it_is_and_what_it_left_out(_tc: TestCase) {
     let env = Env::from_template();
     let id = snapshot(&env);
     let file = manifest(&env, &id);
@@ -211,7 +211,7 @@ fn a_view_says_where_it_is_and_what_it_left_out(_tc: TestCase) {
 /// its full path, whatever path the store was named by, so it works from anywhere once the file is
 /// back, and the view warns that it breaks when pruned.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_lost_file_is_a_symlink_that_leads_to_the_store(_tc: TestCase) {
+fn prop_a_lost_file_is_a_symlink_that_leads_to_the_store(_tc: TestCase) {
     let env = Env::from_template();
     let id = snapshot(&env);
     let shard = std::fs::read_dir(env.store.join("objects")).unwrap().flatten().find(|e| e.path().is_dir()).unwrap();
@@ -238,7 +238,7 @@ fn a_lost_file_is_a_symlink_that_leads_to_the_store(_tc: TestCase) {
 /// Hard links are real files, so a view reads like a drive, but no write gets in: not a command
 /// pointed at it, nor a write to one of its files. The store's files stay as they were.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn nothing_writes_into_a_view(tc: TestCase) {
+fn prop_nothing_writes_into_a_view(tc: TestCase) {
     let env = Env::from_template();
     let id = snapshot(&env);
     let view = env.outside("view");
@@ -266,7 +266,7 @@ fn nothing_writes_into_a_view(tc: TestCase) {
 
 /// What a view can't be made of says so, and a chosen folder with something in it is refused.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_view_that_cant_be_made_says_why(_tc: TestCase) {
+fn prop_a_view_that_cant_be_made_says_why(_tc: TestCase) {
     let env = Env::from_template();
     let err = env.fails(1, &["store", "browse", "feedface"]);
     assert!(err.contains("snapshot feedface"), "{err}");

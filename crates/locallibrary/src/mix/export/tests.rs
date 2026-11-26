@@ -95,6 +95,28 @@ fn exports_what_a_page_needs_and_nothing_local() {
     assert!(json.contains("\"keyLock\":true"));
 }
 
+/// rekordbox counted these phrases at half tempo (one ends halfway through a two-beat grid), so
+/// the phrase it starts on beat 2 lands past the grid's end and isn't exported. The case the
+/// export property found (LOC-1026).
+#[test]
+fn a_phrase_past_the_half_tempo_grid_is_left_out() {
+    let mut r = report();
+    r.plays.truncate(1);
+    r.transitions.clear();
+    let dir = tempfile::tempdir().unwrap();
+    let device = Device::open(dir.path()).unwrap();
+    let library = Library { tracks: vec![r.plays[0].track.clone()], ..Default::default() };
+    let phrase = |start_beat, end_beat| Phrase { kind: PhraseKind::Chorus, start_beat, end_beat, fill_beat: None };
+    let analyses = vec![TrackAnalysis {
+        beats: (0..2).map(|i| Beat { beat_number: i as u16 + 1, bpm: 120.0, time_ms: i * 500 }).collect(),
+        structure: Some(SongStructure { mood: Mood::High, phrases: vec![phrase(0, 2), phrase(2, 0)] }),
+        ..Default::default()
+    }];
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
+    let e = build(&r, Some(drive), &ProfilePrefs::default());
+    assert_eq!(e.plays[0].track.phrases.len(), 1);
+}
+
 /// A track the profile hides is "ID - ID", with nothing else that names it; a cover found
 /// next to the recording (a guess) stays out.
 #[test]
@@ -201,7 +223,7 @@ fn analysis(tc: &TestCase) -> TrackAnalysis {
 /// tracks the profile hides are "ID - ID", and from the drive each track has its overview (at most
 /// 200 columns), its hot cues and its phrases on the grid, as the HTML report has them.
 #[hegel::test(test_cases = 60)]
-fn exports_count_what_the_report_found(tc: TestCase) {
+fn prop_exports_count_what_the_report_found(tc: TestCase) {
     let mut r = report();
     let base = r.plays[0].clone();
     r.plays = (0..tc.draw(gs::integers::<u32>().max_value(4)))
@@ -313,13 +335,14 @@ fn exports_count_what_the_report_found(tc: TestCase) {
 
     for (i, (x, a)) in e.plays.iter().zip(&analyses).enumerate() {
         let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
-        let phrases = a
-            .structure
-            .as_ref()
-            .unwrap()
+        // A phrase is on the grid where its first beat is, at the half tempo rekordbox may have
+        // counted the phrases at (`beat_scale`).
+        let structure = a.structure.as_ref().unwrap();
+        let scale = structure.beat_scale(a.beats.len());
+        let phrases = structure
             .phrases
             .iter()
-            .filter(|ph| (1..=a.beats.len()).contains(&(ph.start_beat as usize).max(1)))
+            .filter(|ph| crate::anlz::SongStructure::grid_index(ph.start_beat, scale) < a.beats.len())
             .count();
         let preview = a.preview.as_ref().filter(|w| !w.columns.is_empty());
         let page = extras(
@@ -359,7 +382,7 @@ fn play_elsewhere() -> Play {
 /// Downsampling keeps the loudest value, leaves a short series as it is, and makes as many
 /// columns as asked of a long one, each the loudest of its stretch, stretches in order.
 #[hegel::test(test_cases = 300)]
-fn downsampling_keeps_the_loudest(tc: TestCase) {
+fn prop_downsampling_keeps_the_loudest(tc: TestCase) {
     let values = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(500));
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
     let out = downsample(&values, n);
@@ -389,7 +412,7 @@ fn image_bytes(dir: &std::path::Path, side: u32) -> Vec<u8> {
 /// artwork of each track the profile lets it name. What isn't artwork (not an image, or under
 /// 16 pixels) is left out.
 #[hegel::test(test_cases = 12)]
-fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
+fn prop_exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut r = report();
     let set = dir.path().join("set.wav");
@@ -455,7 +478,7 @@ fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
 /// An export names the mix and each track it may name by their text without the space around
 /// it, and what is only space as untitled; a track the profile hides is "ID" whatever it's called.
 #[hegel::test(test_cases = 100)]
-fn exports_name_what_has_a_name_and_call_the_rest_untitled(tc: TestCase) {
+fn prop_exports_name_what_has_a_name_and_call_the_rest_untitled(tc: TestCase) {
     let text = || gs::sampled_from(vec!["", " ", "\t\n", "Friday", "  Demo Track 1 ", "日本"]);
     let mut r = report();
     r.mix.title = tc.draw(text()).to_string();

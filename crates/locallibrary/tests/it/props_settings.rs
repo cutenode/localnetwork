@@ -97,7 +97,7 @@ fn spelled(tc: &TestCase, s: &str, spaces: bool) -> String {
 /// CRC-16/XMODEM appended big-endian leaves a zero remainder, and every single-bit error changes
 /// the CRC.
 #[hegel::test]
-fn crc_residue_is_zero_and_single_bit_errors_are_caught(tc: TestCase) {
+fn prop_crc_residue_is_zero_and_single_bit_errors_are_caught(tc: TestCase) {
     let data = tc.draw(gs::binary().max_size(300));
     let crc = settings::crc16_xmodem(&data);
     let mut framed = data.clone();
@@ -115,7 +115,7 @@ fn crc_residue_is_zero_and_single_bit_errors_are_caught(tc: TestCase) {
 /// touches at most the value byte and the two checksum bytes, `set` reports whether anything
 /// changed, and in the end every byte but the values set and the checksum is as it was.
 #[hegel::test]
-fn set_patches_only_the_value_and_checksum(tc: TestCase) {
+fn prop_set_patches_only_the_value_and_checksum(tc: TestCase) {
     let file = settings_file(&tc);
     let mut blob = base_blob(&tc, file);
     let original = blob.clone();
@@ -146,7 +146,7 @@ fn set_patches_only_the_value_and_checksum(tc: TestCase) {
 /// parse back (with the CRC it computes) gives the same bytes: its model of every value and its
 /// checksum agree with ours.
 #[hegel::test]
-fn rekordcrate_reads_and_rewrites_files_identically(tc: TestCase) {
+fn prop_rekordcrate_reads_and_rewrites_files_identically(tc: TestCase) {
     use rekordcrate::setting::Setting;
     let file = settings_file(&tc);
     let mut blob = base_blob(&tc, file);
@@ -164,7 +164,7 @@ fn rekordcrate_reads_and_rewrites_files_identically(tc: TestCase) {
 /// Every choice is found by its id or its label however it's spelled (case, `-`/`_`/space,
 /// blanks around it), and every setting by its key the same way.
 #[hegel::test(test_cases = 300)]
-fn lookup_is_lenient_about_spelling(tc: TestCase) {
+fn prop_lookup_is_lenient_about_spelling(tc: TestCase) {
     let (def, c) = setting(&tc, None);
     let choice = &def.choices[c];
     let use_label = tc.draw(gs::booleans());
@@ -174,7 +174,7 @@ fn lookup_is_lenient_about_spelling(tc: TestCase) {
     assert_eq!((found.key, chosen.id), (def.key, choice.id), "{key:?} = {value:?}");
 }
 
-/// Shrunk counterexamples of `lookup_is_lenient_about_spelling`: labels with non-ASCII capitals
+/// Shrunk counterexamples of `prop_lookup_is_lenient_about_spelling`: labels with non-ASCII capitals
 /// typed in another case, and keys typed with spaces like their labels.
 #[test]
 fn lookup_regressions() {
@@ -247,7 +247,7 @@ fn files_on(root: &Path) -> Vec<(SettingsFile, Option<Vec<u8>>)> {
 /// all with `create_missing`), writes nothing on a dry run but reports the same, and a second
 /// run finds nothing to do.
 #[hegel::test(test_cases = 100)]
-fn apply_reaches_the_wanted_values_and_is_idempotent(tc: TestCase) {
+fn prop_apply_reaches_the_wanted_values_and_is_idempotent(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let loc = DriveSettings(dir.path());
     let seeds: Vec<Seed> = SettingsFile::ALL.iter().map(|&f| seed(&tc, f)).collect();
@@ -305,7 +305,7 @@ fn apply_reaches_the_wanted_values_and_is_idempotent(tc: TestCase) {
 /// leaves no drift for that drive, before and after a JSON round trip of the profile; and a
 /// profile imported from a drive has no drift against it.
 #[hegel::test(test_cases = 100)]
-fn no_drift_after_applying_a_profile(tc: TestCase) {
+fn prop_no_drift_after_applying_a_profile(tc: TestCase) {
     let drives = [Uuid::from_u128(1), Uuid::from_u128(2)];
     let mut profile = SettingsProfile::default();
     let edits = tc.draw(gs::integers::<usize>().max_value(12));
@@ -363,7 +363,7 @@ fn no_drift_after_applying_a_profile(tc: TestCase) {
 /// Any bytes of the right length parse, and reading, checking and setting values on them never
 /// panics; other lengths are refused. Damaged files on a drive are reported, not fatal.
 #[hegel::test]
-fn arbitrary_bytes_never_panic(tc: TestCase) {
+fn prop_arbitrary_bytes_never_panic(tc: TestCase) {
     let file = settings_file(&tc);
     let exact = tc.draw(gs::booleans());
     let bytes = if exact {

@@ -11,11 +11,12 @@ use console::style;
 use locallibrary::api;
 use locallibrary::collection_export::CollectionExportOptions;
 use locallibrary::collection_export::CollectionExportPlan;
-use locallibrary::masterdb::CollectionInfo;
 use locallibrary::op::Planned;
 use locallibrary::plugin::SourceExport;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter};
+use locallibrary::tags::TagsByTrack;
+use loclib_rekordbox_db::masterdb::CollectionInfo;
 
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};
 
@@ -133,7 +134,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             }
             if let Some(f) = &filter {
                 let f = Filter::parse(f)?;
-                let tags = f.uses_tags().then(|| c.tags_by_track());
+                let tags = f.uses_tags().then(|| TagsByTrack::from_collection(&c.tags, &c.library));
                 let ctx = api::filter_context(lib, &f, tags.as_ref(), None)?;
                 tracks.retain(|t| f.matches(t, &ctx));
             }

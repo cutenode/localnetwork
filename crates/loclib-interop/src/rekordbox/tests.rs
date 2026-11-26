@@ -95,7 +95,7 @@ fn tracks_carry_their_colour_kind_tempos_and_cues() {
 /// imports and builds drives from rekordbox XML with) reads back: its tags, key, tempo and
 /// rating, a TEMPO for each tempo change that expands back into the same grid, and its cues.
 #[hegel::test(test_cases = 200)]
-fn the_xml_reader_reads_back_what_the_writer_writes(tc: hegel::TestCase) {
+fn prop_the_xml_reader_reads_back_what_the_writer_writes(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
     // What XML holds, which is what the writer keeps.

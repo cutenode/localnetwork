@@ -76,7 +76,7 @@ fn named(mood: Mood, kind: u16) -> PhraseKind {
 }
 
 #[hegel::test(test_cases = 300)]
-fn phrases_and_the_detail_waveform_read_back_as_written(tc: TestCase) {
+fn prop_phrases_and_the_detail_waveform_read_back_as_written(tc: TestCase) {
     let mood_code = tc.draw(gs::integers::<u16>().min_value(1).max_value(3));
     let mood = [Mood::High, Mood::Mid, Mood::Low][usize::from(mood_code - 1)];
     // Phrases in order, each at least a beat long.
@@ -137,7 +137,7 @@ fn be32(b: &[u8], o: usize) -> Option<u32> {
 /// past the section's own end) as truncated: a short section is never read out of bytes that
 /// aren't there, whatever follows it.
 #[hegel::test(test_cases = 400)]
-fn sections_cut_short_are_refused_as_truncated(tc: TestCase) {
+fn prop_sections_cut_short_are_refused_as_truncated(tc: TestCase) {
     let tag = tc.draw(gs::sampled_from(vec![*b"PPTH", *b"PQTZ", *b"PSSI"]));
     let total = tc.draw(gs::integers::<usize>().min_value(12).max_value(48));
     let header = tc.draw(gs::integers::<usize>().min_value(12).max_value(total));

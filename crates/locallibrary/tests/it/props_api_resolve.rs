@@ -63,7 +63,7 @@ fn any_case(tc: &TestCase, word: &str) -> String {
 /// here is refused as ambiguous; the folder is meant by its path. A folder here that no drive is
 /// named like is meant by its name alone.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
+fn prop_a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let volumes = dunce_canonicalize(&common::isolate(dir.path(), Some(store.root())));
@@ -137,7 +137,7 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
         }
         assert!(!said.contains("BLANK") && !said.contains("Pretender"), "{said}");
     };
-    // A prefix several drives share is another question (`a_prefix_unplugged_drives_share_names_them`).
+    // A prefix several drives share is another question (`prop_a_prefix_unplugged_drives_share_names_them`).
     let all: Vec<String> = ours
         .iter()
         .map(|(_, root)| Device::open(root).unwrap().id().unwrap().to_string())
@@ -208,7 +208,7 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
 /// Drives the store knows, none of them plugged in, whose ids start alike: the first characters
 /// they share don't pick one. The refusal names each, and asks for the id.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_prefix_unplugged_drives_share_names_them(tc: TestCase) {
+fn prop_a_prefix_unplugged_drives_share_names_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     common::isolate(dir.path(), Some(store.root()));
@@ -283,7 +283,7 @@ fn unplug(root: &Path, away: &Path) {
 /// they diverged with no primary (a write to both then goes to the first named), and none when
 /// both are archive or retired.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_command_given_no_drive_lists_the_drives_it_could_mean(tc: TestCase) {
+fn prop_a_command_given_no_drive_lists_the_drives_it_could_mean(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());
     // Named apart from its library, so that "Main" means the library.

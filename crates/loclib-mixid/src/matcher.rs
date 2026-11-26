@@ -70,14 +70,20 @@ pub const PRESENCE_STEP: f64 = 2.0;
 /// for different speeds never meet, nothing else changes.
 const VARIANT_CHUNK: usize = 8;
 
+/// A track heard in one slice of the mix: a (track, speed, offset) cell with enough votes.
 #[derive(Debug, Clone)]
 pub struct Detection {
+    /// The track's place in the [`LibraryIndex`]: its id is `index.track_ids[slot]`.
     pub slot: u32,
+    /// The slice it was heard in, counted from the start of the mix (about 4 s each).
     pub slice: u32,
+    /// The speed it was heard at, as an index into the variants searched.
     pub variant: u16,
+    /// The votes in its cell.
     pub votes: u32,
-    /// Best votes among key-locked (time only) and pitched speeds.
+    /// The track's best cell's votes in this slice among key-locked (time only) speeds.
     pub stretch_votes: u32,
+    /// The track's best cell's votes in this slice among pitched speeds.
     pub pitch_votes: u32,
     /// Matching (mix frame, track frame) anchors.
     pub pairs: Vec<(u32, u32)>,
@@ -300,7 +306,9 @@ fn slice_detections(
 /// One continuous stretch of a track's playback.
 #[derive(Debug, Clone)]
 pub struct Chain {
+    /// The track's place in the [`LibraryIndex`]: its id is `index.track_ids[slot]`.
     pub slot: u32,
+    /// Its detections in slice order. Never empty: [`plays`] panics on an empty chain.
     pub detections: Vec<Detection>,
 }
 
@@ -354,16 +362,20 @@ pub fn chain(detections: Vec<Detection>, variants: &[Variant]) -> Vec<Chain> {
 /// A straight line `track frame = intercept + ratio * mix frame` through a chain's pairs.
 #[derive(Debug, Clone, Copy)]
 pub struct Fit {
+    /// Track frames per mix frame: the playback speed, 1.0 as recorded.
     pub ratio: f64,
+    /// The track frame the line puts at mix frame 0.
     pub intercept: f64,
-    /// Mix frames of the first and last matching pair.
+    /// The mix frame of the first matching pair that isn't a stray vote: where the track comes in.
     pub start: f64,
+    /// The mix frame of the last matching pair that isn't a stray vote: where the track goes out.
     pub end: f64,
     /// Whether the slope came from the data (else it's the searched speed).
     pub measured: bool,
 }
 
 impl Fit {
+    /// The track frame the line puts at `mix_frame`.
     pub fn track_frame(&self, mix_frame: f64) -> f64 {
         self.intercept + self.ratio * mix_frame
     }
@@ -580,11 +592,13 @@ impl Bend {
 pub struct Found {
     /// The track's place in the [`LibraryIndex`]: its id is `index.track_ids[slot]`.
     pub slot: u32,
-    /// Mix seconds.
+    /// Where it comes in, in mix seconds.
     pub start: f64,
+    /// Where it goes out, in mix seconds.
     pub end: f64,
-    /// Track seconds at `start` and `end`.
+    /// Track seconds at `start`.
     pub track_start: f64,
+    /// Track seconds at `end`.
     pub track_end: f64,
     /// Playback speed (1.0 as recorded): the average of its lines' speeds, by how long each was
     /// heard and how clearly, when the pitch fader was ridden (see [`Found::speed_range`]).
@@ -592,11 +606,13 @@ pub struct Found {
     /// Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0, or the
     /// votes too even, to tell.
     pub key_lock: Option<bool>,
+    /// Votes in all of the play's chains.
     pub votes: u32,
     /// Votes of the play's strongest chain.
     pub strongest: u32,
-    /// Slices heard, and slices between the first and last.
+    /// Slices heard: the detections in all of the play's chains.
     pub heard: u32,
+    /// Slices from the first heard to the last, both included.
     pub spanned: u32,
     /// Matching anchors per [`PRESENCE_STEP`] from `start`, scaled to 0-1.
     pub presence: Vec<f32>,
@@ -610,6 +626,7 @@ pub struct Found {
 }
 
 impl Found {
+    /// How long it plays, in mix seconds.
     pub fn duration(&self) -> f64 {
         self.end - self.start
     }

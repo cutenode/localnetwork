@@ -1,0 +1,3 @@
+# Booking inquiries
+
+Booking inquiries open a private thread (its own space) shared only with the project's managers, or with a DJ Find DJs lists who turned on Take inquiries in their profile, and answers for themself as the thread's performer (`/dashboard/bookings/new?dj=<did>`, whose inquiry names their profile's URI), with show details up front and a status flow (open → negotiating → confirmed / declined / cancelled). The side being booked (managers or the DJ) negotiates, confirms or declines; the promoter can confirm once that side has answered, or withdraw; either side can cancel a confirmed booking. The server refuses any other change (`src/lib/bookings.page-only.ts`).

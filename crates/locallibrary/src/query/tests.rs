@@ -426,7 +426,7 @@ fn field_values_compare_numbers_then_text() {
 /// above `T`, negated the rest; sorted by it either way, the tracks with one come in order and
 /// those without last.
 #[hegel::test(test_cases = 200)]
-fn a_plugins_number_filters_and_sorts_as_its_values_say(tc: hegel::TestCase) {
+fn prop_a_plugins_number_filters_and_sorts_as_its_values_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = lib();
     let mut values = values();

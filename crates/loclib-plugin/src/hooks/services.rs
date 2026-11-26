@@ -26,6 +26,7 @@ pub(crate) const FEATURE: Feature = Feature {
 pub struct StartService {
     /// One of the manifest's services.
     pub service: String,
+    /// The plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -44,7 +45,10 @@ impl Hook for StartService {
 /// command run once.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Service {
+    /// What requests name it by, and its setting (`services.<name>`): lowercase letters, digits, `-`
+    /// and `_`, starting with a letter, 64 characters at most, and no other service's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
 }
 

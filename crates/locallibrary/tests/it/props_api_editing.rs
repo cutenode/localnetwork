@@ -17,11 +17,13 @@ use locallibrary::api::{
 };
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue};
 use locallibrary::device::Device;
-use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
+use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::error::Reason;
+use locallibrary::model::TrackFields;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter, QueryContext, TrackSelector};
-use locallibrary::{Library, Store, Track, diff, paths};
+use locallibrary::{Library, Store, Track, paths};
+use loclib_model::diff;
 
 /// The twelve-track export with a playlist and two history lists, in a folder of its own.
 fn fresh(dir: &Path, name: &str) -> PathBuf {
@@ -115,7 +117,7 @@ fn an_edit(tc: &TestCase, lib: &Library) -> Edit {
 /// empty library), a replay after rekordbox exports over the drive makes the batches still
 /// recorded again, and clearing the journal forgets them.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
+fn prop_edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let a = fresh(dir.path(), "A");
@@ -233,7 +235,7 @@ const SORTS: &[&str] = &["bpm", "-rating", "key,bpm", "title", "-time"];
 /// agree, and an artist filter selects the tracks whose artist holds the text. A filter naming
 /// no field, a sort by nothing and a playlist the drive lacks are refused.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn queries_agree_with_their_filter(tc: TestCase) {
+fn prop_queries_agree_with_their_filter(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = fresh(dir.path(), "Main");
@@ -296,7 +298,7 @@ fn queries_agree_with_their_filter(tc: TestCase) {
 /// only once the store keeps them or when forced: otherwise it's a conflict naming the lists
 /// not saved, the drive left as it was. Lists the drive doesn't have are not found.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn history_is_deleted_only_once_kept(tc: TestCase) {
+fn prop_history_is_deleted_only_once_kept(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = fresh(dir.path(), "Main");
@@ -347,7 +349,7 @@ fn history_is_deleted_only_once_kept(tc: TestCase) {
 /// the rules as they were. Applied to a drive, each rule's playlist holds what a query with its
 /// filter, sort and limit answers.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn smart_playlists_follow_their_rules(tc: TestCase) {
+fn prop_smart_playlists_follow_their_rules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -418,7 +420,7 @@ fn smart_playlists_follow_their_rules(tc: TestCase) {
 /// takes it off every track; what's listed is the model, cached or not, and a plan that changes
 /// nothing says so.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn tag_edits_follow_a_model(tc: TestCase) {
+fn prop_tag_edits_follow_a_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = common::demo_drive(dir.path(), "Main");
@@ -492,7 +494,7 @@ fn tag_edits_follow_a_model(tc: TestCase) {
 /// Cue edits through the service layer leave the analysis files as the same edits made with
 /// `cue_edit` on a copy of the drive, list what was set, and an edit refused is refused alike.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn cue_edits_agree_with_cue_edit(tc: TestCase) {
+fn prop_cue_edits_agree_with_cue_edit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let a = common::demo_drive(dir.path(), "A");
@@ -555,7 +557,7 @@ fn cue_edits_agree_with_cue_edit(tc: TestCase) {
 /// the other copy of its recording: one of each pair stays, playlist entries of the one that
 /// goes move to it, and its file goes. Two rows for one file, and nothing else alike, both stay.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn dedupe_keeps_one_of_each_copy(tc: TestCase) {
+fn prop_dedupe_keeps_one_of_each_copy(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = fresh(dir.path(), "Main");
@@ -628,7 +630,7 @@ fn dedupe_keeps_one_of_each_copy(tc: TestCase) {
 /// moved elsewhere on the drive is pointed at where it is, one only on this computer is copied
 /// back to its path; after that there's nothing left to relocate.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn relocating_finds_each_moved_file(tc: TestCase) {
+fn prop_relocating_finds_each_moved_file(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let root = common::bigger_drive(dir.path(), "Main");
@@ -679,7 +681,7 @@ fn relocating_finds_each_moved_file(tc: TestCase) {
 /// registers it in the store with its write, and packing again (as it was last packed) has
 /// nothing to copy.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn packing_puts_the_chosen_playlists_on_the_target(tc: TestCase) {
+fn prop_packing_puts_the_chosen_playlists_on_the_target(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     common::isolate(dir.path(), None);
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

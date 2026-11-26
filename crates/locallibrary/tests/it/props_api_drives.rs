@@ -602,7 +602,7 @@ impl Registry {
 /// the registered drives and what every kind of spec (a path, a name, an id or its prefix)
 /// finds.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn registry_operations_agree_with_a_model(tc: TestCase) {
+fn prop_registry_operations_agree_with_a_model(tc: TestCase) {
     hegel::stateful::machine(Registry::new()).steps(10).run(tc);
 }
 
@@ -636,7 +636,7 @@ fn blank_drive() -> (tempfile::TempDir, PathBuf) {
 /// (replacing the one there, which the plan says) onto the demo export, with its playlist when
 /// asked.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_contact_is_written_with_its_playlist(tc: TestCase) {
+fn prop_a_contact_is_written_with_its_playlist(tc: TestCase) {
     let (_dir, root) = blank_drive();
     let root: &Path = &demo_export().write(&root);
     let file = root.join(locallibrary::player::CONTACT_FILE);
@@ -671,7 +671,7 @@ fn a_contact_is_written_with_its_playlist(tc: TestCase) {
 /// asked for (by path, in any case, or all of them) copies each, deleting it from the drive only
 /// when asked, and one that isn't there is refused before anything is copied.
 #[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
-fn recordings_are_listed_and_collected_as_asked(tc: TestCase) {
+fn prop_recordings_are_listed_and_collected_as_asked(tc: TestCase) {
     let (dir, root) = blank_drive();
     let root: &Path = &root;
     let sets = &dir.path().join("Sets");
@@ -778,7 +778,7 @@ pub(crate) fn saved_copy(dir: &Path) -> (Store, PathBuf) {
 /// is recognised as the snapshot saved, its space is weighed with the store and without, and checking
 /// its file system or ejecting it (refused for a folder) leaves the logbook as it was.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_check_finds_the_damage_done_and_a_repair_mends_it(tc: TestCase) {
+fn prop_a_check_finds_the_damage_done_and_a_repair_mends_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, root) = saved_copy(dir.path());
     let ctx = Ctx::silent();
@@ -880,7 +880,7 @@ const NEW_ROLES: &[Option<&str>] = &[None, Some("backup"), Some("Archive")];
 /// database in the library; ejecting a folder), and leaves the drive named, registered with its
 /// role and holding Main's library, whatever library it held before.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn setting_up_a_drive_runs_the_steps_asked_for(tc: TestCase) {
+fn prop_setting_up_a_drive_runs_the_steps_asked_for(tc: TestCase) {
     // The plan's warnings are checked exactly, so the platform's own (ejecting is untested on
     // Linux and Windows) would fail the cases that eject there: answer as macOS on every platform.
     locallibrary::testing::os_on_this_thread(Some("macos"));
@@ -1052,7 +1052,7 @@ impl Progress for MishapAt<'_> {
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(like = false, settings = true, role = true, verify = true, eject = true, at = 5usize, mishap = Mishap::Unplugged)]
 #[hegel::explicit_test_case(like = true, settings = true, role = true, verify = true, eject = false, at = 1usize, mishap = Mishap::Unplugged)]
-fn setting_up_stops_at_the_step_the_drive_went_away_in(tc: TestCase) {
+fn prop_setting_up_stops_at_the_step_the_drive_went_away_in(tc: TestCase) {
     let like = tc.draw(gs::booleans());
     let settings = tc.draw(gs::booleans());
     let role = tc.draw(gs::booleans());

@@ -32,11 +32,11 @@ use schemars::JsonSchema;
 use serde::{Serialize, Serializer};
 
 use crate::device::{Device, DeviceState};
-use crate::drive_speed::WriteEstimate;
 use crate::hash::Hash;
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result, fsutil, paths};
+use loclib_drive_speed::WriteEstimate;
 
 thread_local! {
     static ARCHIVE_WRITES: Cell<bool> = const { Cell::new(false) };
@@ -120,7 +120,7 @@ pub fn allow_archive_writes(yes: bool) {
 }
 
 /// Let plans made on this thread time the drive they write to, when it hasn't been measured or
-/// that's stale (see [`crate::drive_speed`]). That writes to the drive before anything's confirmed,
+/// that's stale (see [`loclib_drive_speed`]). That writes to the drive before anything's confirmed,
 /// so only a front end about to ask sets it: not a dry run, and not plans made for later.
 pub fn allow_measuring(yes: bool) {
     MEASURING.with(|m| m.set(yes));
@@ -482,7 +482,7 @@ impl<P, R> Planned<P, R> {
 
     /// How long it'll take, with what that comes to in the summary.
     pub(crate) fn estimated(mut self, estimate: Option<WriteEstimate>) -> Self {
-        self.summary.extend(estimate.iter().flat_map(WriteEstimate::lines));
+        self.summary.extend(estimate.iter().flat_map(crate::api::estimate_lines));
         self.estimate = estimate;
         self
     }

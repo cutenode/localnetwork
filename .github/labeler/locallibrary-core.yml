@@ -1,0 +1,9 @@
+# The core crate's files no other locallibrary area claims. Crates it covers whole name it in their
+# Cargo.toml.
+"locallibrary: core":
+  - changed-files:
+      - unclaimed-files-in:
+          - "crates/locallibrary/**"
+      - any-glob-to-any-file:
+          - "vendor/**"
+          - "fuzz/**"

@@ -44,7 +44,7 @@ fn one_method_comes_with_only_what_it_uses() {
 /// exactly the definitions it uses, each as the contract has it; a name no method has
 /// describes nothing.
 #[hegel::test(test_cases = 60)]
-fn one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
+fn prop_one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let all = contract()["methods"].as_array().unwrap();
     let m = &tc.draw(gs::sampled_from(&all[..]));
@@ -70,7 +70,7 @@ fn one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
 /// The contract's files, emitted into any folder (made when it isn't there), are the files the
 /// contract is: its JSON, read back, is the contract, and its types are declared from it.
 #[hegel::test(test_cases = 5)]
-fn the_files_emitted_are_the_contract(tc: hegel::TestCase) {
+fn prop_the_files_emitted_are_the_contract(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join(tc.draw(gs::sampled_from(&["", "docs/rpc", "Ünïcödé"][..])));

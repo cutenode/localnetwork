@@ -17,7 +17,7 @@ use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 
 #[hegel::test(test_cases = 20)]
-fn a_store_is_made_only_where_it_can_be(tc: TestCase) {
+fn prop_a_store_is_made_only_where_it_can_be(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     fs::create_dir_all(&root).unwrap();
@@ -45,7 +45,7 @@ fn a_store_is_made_only_where_it_can_be(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn library_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
+fn prop_library_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::bigger_drive(dir.path(), "A");

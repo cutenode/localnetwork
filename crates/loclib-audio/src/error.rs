@@ -7,11 +7,21 @@ use std::path::PathBuf;
 pub enum Error {
     /// A file couldn't be read.
     #[error("{}: {source}", path.display())]
-    Io { path: PathBuf, source: io::Error },
+    Io {
+        /// The file.
+        path: PathBuf,
+        /// Why it couldn't be read.
+        source: io::Error,
+    },
 
     /// A file isn't audio the decoder can make sense of.
     #[error("could not parse {}: {message}", path.display())]
-    Parse { path: PathBuf, message: String },
+    Parse {
+        /// The file.
+        path: PathBuf,
+        /// What's wrong with it.
+        message: String,
+    },
 
     /// An argument out of range.
     #[error("{0}")]
@@ -22,6 +32,7 @@ pub enum Error {
     Cancelled(#[from] loclib_progress::Cancelled),
 }
 
+/// A `Result` whose error defaults to this crate's [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl Error {

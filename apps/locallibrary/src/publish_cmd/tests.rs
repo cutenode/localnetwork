@@ -92,7 +92,7 @@ fn a_set_record_reads_as_its_details_and_tracks() {
 /// for and how many it couldn't look up (their drive not plugged in), each only when there are
 /// some, in that order.
 #[hegel::test(test_cases = 100)]
-fn a_lookup_says_what_it_found_and_what_it_couldnt_reach(tc: hegel::TestCase) {
+fn prop_a_lookup_says_what_it_found_and_what_it_couldnt_reach(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = || gs::integers::<usize>().max_value(1200);
     let looked =
@@ -111,7 +111,7 @@ fn a_lookup_says_what_it_found_and_what_it_couldnt_reach(tc: hegel::TestCase) {
 /// A count in a profile record reads as the number, or a floor as the number and a plus, the
 /// number winning when there are both; with neither it's a question mark.
 #[hegel::test(test_cases = 100)]
-fn a_count_reads_as_its_number_or_floor(tc: hegel::TestCase) {
+fn prop_a_count_reads_as_its_number_or_floor(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let count = tc.draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(100_000)));
     let at_least = tc.draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(100_000)));

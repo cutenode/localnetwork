@@ -101,7 +101,7 @@ use hegel::generators as gs;
 /// A copy at any delay either way, at any level and at either rate, is lined up to within a
 /// microsecond from any estimate up to 4 ms out, and correlates as the same audio.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
+fn prop_any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
     // Whole samples here, so a fraction of one at 44.1 kHz but every 160th.
     let delay =
         tc.draw(gs::integers::<isize>().min_value(1).max_value(600)) * if tc.draw(gs::booleans()) { 1 } else { -1 };
@@ -127,7 +127,7 @@ fn any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
 /// past its edge, where the correlation still climbs towards it: that's refused, not taken for
 /// the peak. So is a copy that's silent, which correlates with nothing at any offset.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn estimates_past_the_search_are_refused(tc: TestCase) {
+fn prop_estimates_past_the_search_are_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let x = synth(5.0, tc.draw(gs::integers::<u32>().min_value(1)));
     let delay = tc.draw(gs::integers::<isize>().min_value(-600).max_value(600));
@@ -148,7 +148,7 @@ fn estimates_past_the_search_are_refused(tc: TestCase) {
 /// Refining needs both files and the time to: one that isn't there is that file's I/O
 /// error, whichever of the two it is, and a cancelled one is cancelled.
 #[hegel::test(test_cases = 5)]
-fn refining_needs_both_files(tc: TestCase) {
+fn prop_refining_needs_both_files(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let x = synth(1.0, tc.draw(gs::integers::<u32>().min_value(1)));
     let there = save(dir.path(), "a.wav", &x, 0, tc.draw(gs::sampled_from(vec![44_100, 48_000])));

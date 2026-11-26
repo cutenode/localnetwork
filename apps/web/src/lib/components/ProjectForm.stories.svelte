@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect } from 'storybook/test';
-	import { draftKey } from '#lib/form-draft.svelte.ts';
+	import { draftKey } from '#lib/form-draft.page-only.svelte.ts';
 	import { submit } from '#lib/testing/submits.ts';
 	import { phone } from '#lib/testing/viewports.ts';
 	import type { DjSetView, ProjectFormValues } from '#lib/types.ts';

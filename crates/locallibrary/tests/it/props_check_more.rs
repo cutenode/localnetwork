@@ -42,13 +42,13 @@ fn big_track(root: &Path) {
 }
 
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
-fn each_fault_put_in_is_named(tc: TestCase) {
+fn prop_each_fault_put_in_is_named(tc: TestCase) {
     for variant in 0..4 {
         each_fault_put_in_is_named_with(&tc, variant);
     }
 }
 
-/// One case of [`each_fault_put_in_is_named`], `variant` choosing what's drawn.
+/// One case of [`prop_each_fault_put_in_is_named`], `variant` choosing what's drawn.
 #[hegel::test_helper]
 fn each_fault_put_in_is_named_with(tc: &TestCase, variant: u8) {
     let dir = tempfile::tempdir().unwrap();

@@ -101,7 +101,7 @@ use hegel::generators as gs;
 /// A window names the local day it falls on (a timed log, the day it started), else the span
 /// it's known to lie in, as far as that's known.
 #[hegel::test(test_cases = 300)]
-fn a_window_names_its_day_or_what_it_spans(tc: TestCase) {
+fn prop_a_window_names_its_day_or_what_it_spans(tc: TestCase) {
     // Days no time zone changes its clocks on.
     let local = |d: u32, h: u32| {
         NaiveDate::from_ymd_opt(2026, 11, d)
@@ -144,7 +144,7 @@ fn a_window_names_its_day_or_what_it_spans(tc: TestCase) {
 /// named back that way; a library track keeps its details trimmed, its file, and where it
 /// came from.
 #[hegel::test(test_cases = 300)]
-fn entries_name_the_track_they_hold(tc: TestCase) {
+fn prop_entries_name_the_track_they_hold(tc: TestCase) {
     let part = || tc.draw(gs::sampled_from(vec!["", " Floorplan", "Never Grow Old ", "A - B", "ID"]));
     let (artist, title) = (part(), part());
     let text = match tc.draw(gs::booleans()) {
@@ -183,7 +183,7 @@ fn entries_name_the_track_they_hold(tc: TestCase) {
 /// session again: `find` takes it back to that session unless another id starts the same way.
 /// Ids are hex hashes; a two-letter alphabet makes them share prefixes.
 #[hegel::test(test_cases = 100)]
-fn sessions_are_listed_by_a_short_id(tc: TestCase) {
+fn prop_sessions_are_listed_by_a_short_id(tc: TestCase) {
     use crate::sets::build::tests::session;
     assert_eq!(session("0123456789abcdef", &[], Window::default()).short_id(), "01234567");
     assert_eq!(session("ab12", &[], Window::default()).short_id(), "ab12");
@@ -249,7 +249,7 @@ fn mb_value(tc: &TestCase) -> String {
 /// gives back the UUIDs among them in order (the first recording and release, every artist)
 /// and leaves out the rest; a file that isn't audio has none.
 #[hegel::test(test_cases = 40)]
-fn musicbrainz_ids_read_back_as_tagged(tc: TestCase) {
+fn prop_musicbrainz_ids_read_back_as_tagged(tc: TestCase) {
     use lofty::config::WriteOptions;
     use lofty::tag::{ItemValue, Tag, TagItem, TagType};
     let dir = tempfile::tempdir().unwrap();
@@ -289,7 +289,7 @@ fn musicbrainz_ids_read_back_as_tagged(tc: TestCase) {
 /// none of them when the analyzer says it worked from another ISRC, and no artists when from
 /// another credit. Exactly those answers are stale.
 #[hegel::test(test_cases = 300)]
-fn musicbrainz_ids_are_read_from_the_roles(tc: TestCase) {
+fn prop_musicbrainz_ids_are_read_from_the_roles(tc: TestCase) {
     use crate::fields::FieldValue;
     use crate::fields::roles::{Role, RoleValues};
     let names = tc.draw(gs::integers::<usize>().max_value(3));
@@ -440,7 +440,7 @@ fn prop_a_set_found_to_edit_is_the_one_found_to_read(tc: TestCase) {
 /// by its name when only it has that name; a name more than one has is refused, naming each of
 /// them by its short id, its name and where it was recorded.
 #[hegel::test(test_cases = 100)]
-fn a_session_shared_by_name_is_refused_naming_each(tc: TestCase) {
+fn prop_a_session_shared_by_name_is_refused_naming_each(tc: TestCase) {
     let names = ["HISTORY 001", "HISTORY 002", "Friday"];
     let drawn = tc.draw(gs::vecs(gs::sampled_from(&names[..])).min_size(1).max_size(5));
     let sessions: Vec<Session> = drawn

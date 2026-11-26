@@ -56,7 +56,7 @@ fn keys_score_as_mirex_does() {
 /// A weighted key score is between 0 and 1, 1 only for the right key, and the same whichever
 /// of the two keys is the reference.
 #[hegel::test(test_cases = 300)]
-fn key_scores_are_bounded_and_symmetric(tc: hegel::TestCase) {
+fn prop_key_scores_are_bounded_and_symmetric(tc: hegel::TestCase) {
     let (a, b) = (tc.draw(keys()), tc.draw(keys()));
     let credit = KeyOutcome::of(a, Some(b)).credit();
     assert!((0.0..=1.0).contains(&credit));
@@ -80,7 +80,7 @@ fn tempos_score_with_both_accuracies() {
 
 /// Accuracy2 is never below Accuracy1, both are percentages, and every track is counted once.
 #[hegel::test(test_cases = 200)]
-fn tempo_reports_add_up(tc: hegel::TestCase) {
+fn prop_tempo_reports_add_up(tc: hegel::TestCase) {
     let pairs = tc.draw(gs::vecs(gs::tuples!(
         gs::floats::<f64>().min_value(60.0).max_value(200.0),
         gs::optional(gs::floats::<f64>().min_value(20.0).max_value(600.0))
@@ -120,7 +120,7 @@ fn spelled(key: Camelot) -> String {
 /// it; any tempo written out reads back, 0 as none, and a negative or unreadable one is an
 /// error on line 1.
 #[hegel::test(test_cases = 300)]
-fn annotations_read_back_what_was_written(tc: hegel::TestCase) {
+fn prop_annotations_read_back_what_was_written(tc: hegel::TestCase) {
     let key = tc.draw(keys());
     let pad = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(vec!["", " ", "\n", "\t \n"]));
     assert_eq!(parse_key(&format!("{}{}{}", pad(&tc), spelled(key), pad(&tc))).unwrap(), key);
@@ -137,7 +137,7 @@ fn annotations_read_back_what_was_written(tc: hegel::TestCase) {
 /// The MTG table reads back the rows it was written from, whatever blank lines and header
 /// it has; a row without its three fields is an error on its own line.
 #[hegel::test(test_cases = 200)]
-fn the_mtg_table_reads_back_its_rows(tc: hegel::TestCase) {
+fn prop_the_mtg_table_reads_back_its_rows(tc: hegel::TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(8));
     let rows: Vec<MtgKey> = (0..n)
         .map(|i| MtgKey {
@@ -170,7 +170,7 @@ fn the_mtg_table_reads_back_its_rows(tc: hegel::TestCase) {
 /// Key reports count every track once under its analyzer, in the order analyzers first
 /// answer; the score is the mean credit, and the misses are the tracks not fully right.
 #[hegel::test(test_cases = 200)]
-fn key_reports_add_up(tc: hegel::TestCase) {
+fn prop_key_reports_add_up(tc: hegel::TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(30));
     let rows: Vec<Row<Camelot>> = (0..n)
         .map(|i| Row {
@@ -210,7 +210,7 @@ fn key_reports_add_up(tc: hegel::TestCase) {
 /// isn't one is an error on line 1. No rows make no report, and a report of no tracks
 /// scores 0 for every outcome.
 #[hegel::test(test_cases = 200)]
-fn unreadable_annotations_say_where_and_what(tc: hegel::TestCase) {
+fn prop_unreadable_annotations_say_where_and_what(tc: hegel::TestCase) {
     let key = tc.draw(keys());
     let tonic = TONICS[key.pitch() as usize];
     let blanks = tc.draw(gs::integers::<usize>().max_value(3));

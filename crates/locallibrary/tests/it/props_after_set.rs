@@ -67,7 +67,7 @@ fn change(tc: &TestCase, root: &Path, side: &str, others: bool) -> Done {
 }
 
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn only_a_drive_changed_the_way_players_do_is_back_from_a_set(tc: TestCase) {
+fn prop_only_a_drive_changed_the_way_players_do_is_back_from_a_set(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
@@ -119,7 +119,7 @@ fn only_a_drive_changed_the_way_players_do_is_back_from_a_set(tc: TestCase) {
 /// OneLibrary that appeared, went or can't be read is a change no player makes; what a drive's
 /// players changed reads as one line counting each kind.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn both_databases_count_once_and_say_what_players_did(tc: TestCase) {
+fn prop_both_databases_count_once_and_say_what_players_did(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::demo_drive(dir.path(), "Main");

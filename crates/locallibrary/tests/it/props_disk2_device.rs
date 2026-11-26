@@ -17,7 +17,7 @@ use rekordbox_pdb::PdbEditor;
 #[hegel::explicit_test_case(layout = 0u8, drifted = false, damaged = 1u8)]
 #[hegel::explicit_test_case(layout = 0u8, drifted = true, damaged = 2u8)]
 #[hegel::explicit_test_case(layout = 1u8, drifted = false, damaged = 0u8)]
-fn drift_is_the_same_read_or_handed_in(tc: TestCase) {
+fn prop_drift_is_the_same_read_or_handed_in(tc: TestCase) {
     // Both databases, export.pdb alone, OneLibrary alone.
     let layout = tc.draw(gs::integers::<u8>().max_value(2));
     // export.pdb gains a playlist OneLibrary doesn't have.

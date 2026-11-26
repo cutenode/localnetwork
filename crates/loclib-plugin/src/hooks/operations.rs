@@ -28,6 +28,7 @@ pub struct PlanOp {
     /// What the operation's `params` schema describes.
     #[serde(default)]
     pub params: Value,
+    /// Where the user was when they ran it, and the plugin's settings.
     #[serde(default)]
     pub context: Context,
 }
@@ -37,7 +38,12 @@ pub struct PlanOp {
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum OpAnswer {
-    Choose { choose: Choice },
+    /// A question for the user first.
+    Choose {
+        /// What's asked, and the param the answer sets.
+        choose: Choice,
+    },
+    /// The operation's plan.
     Plan(OpPlan),
 }
 
@@ -67,6 +73,7 @@ impl<'de> Deserialize<'de> for OpAnswer {
 pub struct OpPlan {
     /// One line on what it would do, for the confirmation.
     pub summary: String,
+    /// What the user should know before confirming, a line each.
     #[serde(default)]
     pub warnings: Vec<String>,
     /// Each an `Edit` as the sidecar's `edit.plan` takes them (`{"op": "create_playlist", ...}`),
@@ -92,7 +99,10 @@ impl Hook for PlanOp {
 /// destructive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Operation {
+    /// What requests name it by: lowercase letters, digits, `-` and `_`, starting with a letter, 64
+    /// characters at most, and no other operation's.
     pub name: String,
+    /// What hosts show it as.
     pub title: String,
     /// Where hosts offer it (see [`Where`]).
     #[serde(default = "on_a_drive", rename = "where")]

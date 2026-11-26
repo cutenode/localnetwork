@@ -14,7 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::{self, OneLibrary};
+use locallibrary::onelibrary;
 use locallibrary::paths::{self, FileClass};
 use locallibrary::player;
 use locallibrary::progress::Ctx;
@@ -23,7 +23,7 @@ use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
+fn prop_a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
@@ -54,7 +54,7 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
         .collect();
     // Its bytes differ from the snapshot's, its library doesn't: never damage.
     if on_onelibrary {
-        let again = OneLibrary::open(&main).unwrap().to_encrypted().unwrap();
+        let again = main.library_plus().unwrap().to_encrypted().unwrap();
         onelibrary::write(&main, &again).unwrap();
     }
     let rotted = tc.draw(gs::sampled_from(audio.clone()));
@@ -109,7 +109,7 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
 /// However often `exportLibrary.db` is rewritten holding the same library (a name, a colour, a
 /// checkpoint), a scrub takes it as the state saved, and finds exactly the audio that rotted.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
+fn prop_rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
@@ -124,7 +124,7 @@ fn rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
             let colour = tc.draw(gs::integers::<i64>().min_value(0).max_value(8));
             player::set(&mut main, Some(&name), Some(colour)).unwrap();
         } else {
-            let again = OneLibrary::open(&main).unwrap().to_encrypted().unwrap();
+            let again = main.library_plus().unwrap().to_encrypted().unwrap();
             onelibrary::write(&main, &again).unwrap();
         }
     }
@@ -146,7 +146,7 @@ fn rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
+fn prop_repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
     common::age(&root);
@@ -335,7 +335,7 @@ fn prop_a_repair_from_a_copy_it_cant_read_says_why(tc: TestCase) {
 /// forgotten, by that snapshot. Repairing it all from the store makes the drive the snapshot's
 /// again, clean, its name kept.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_drive_that_lost_a_file_is_checked_against_the_snapshot_it_held(tc: TestCase) {
+fn prop_a_drive_that_lost_a_file_is_checked_against_the_snapshot_it_held(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
@@ -395,7 +395,7 @@ fn a_drive_that_lost_a_file_is_checked_against_the_snapshot_it_held(tc: TestCase
 /// cached its hash: that scrub finds the database damaged, a repair rewrites it from the store's
 /// copy with the drive's name, and it's clean again.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_onelibrary_repaired_from_the_store_keeps_its_name(tc: TestCase) {
+fn prop_a_onelibrary_repaired_from_the_store_keeps_its_name(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::demo_drive(dir.path(), "Main");

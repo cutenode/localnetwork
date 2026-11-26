@@ -18,7 +18,7 @@ use hegel::generators as gs;
 /// Verses and unknown phrases are named with their number; the others have names of their
 /// own, all different. Each kind serialises in snake case, a numbered one with its number.
 #[hegel::test(test_cases = 100)]
-fn phrases_are_named_and_serialised_with_their_number(tc: TestCase) {
+fn prop_phrases_are_named_and_serialised_with_their_number(tc: TestCase) {
     let (verse, unknown) = (tc.draw(gs::integers::<u8>()), tc.draw(gs::integers::<u16>()));
     assert_eq!(PhraseKind::Verse(verse).name(), format!("Verse {verse}"));
     assert_eq!(PhraseKind::Unknown(unknown).name(), format!("Phrase {unknown}"));
@@ -44,7 +44,7 @@ fn phrases_are_named_and_serialised_with_their_number(tc: TestCase) {
 /// A cue's loop length serialises as `[numerator, denominator]` (or null), as its schema says,
 /// and the rest of an analysis keeps its fields' names.
 #[hegel::test(test_cases = 100)]
-fn analyses_serialise_as_their_schema_describes(tc: TestCase) {
+fn prop_analyses_serialise_as_their_schema_describes(tc: TestCase) {
     let loop_beats = tc.draw(gs::optional(gs::tuples!(gs::integers::<u16>(), gs::integers::<u16>())));
     let hot_cue = tc.draw(gs::optional(gs::integers::<u8>().max_value(15)));
     let cue = Cue {
@@ -94,7 +94,7 @@ fn analyses_serialise_as_their_schema_describes(tc: TestCase) {
 /// Packed bands unpack to themselves, and only whole columns unpack; pooled, each band's loudest
 /// stays the loudest; drawn, a column is its two tallest bands, the taller behind.
 #[hegel::test(test_cases = 100)]
-fn bands_pack_pool_and_draw(tc: TestCase) {
+fn prop_bands_pack_pool_and_draw(tc: TestCase) {
     let columns = tc.draw(gs::vecs(gs::tuples!(gs::integers(), gs::integers(), gs::integers())).max_size(40));
     let bands = Bands(columns.into_iter().map(|(l, m, h)| [l, m, h]).collect());
     let packed = bands.pack();

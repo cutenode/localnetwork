@@ -391,6 +391,7 @@ locallibrary cues rename Home --track 12 --hot B "Big drop"
 locallibrary cues colour Home --track 12 --memory-beat 129 aqua
 locallibrary cues rm Home --track 12 --hot B           # or --memory-at 1:00, --all
 locallibrary cues copy Home --from 12 --to 40          # e.g. onto a duplicate
+locallibrary cues auto Home --playlist New --style rekordbox   # placed from the grid and phrases
 ```
 
 Players read cues from a track's analysis files (`.DAT` for every player; `.EXT`, with names and
@@ -401,6 +402,24 @@ violet, pink... or `#rrggbb` for the nearest) and memory cues its 8 track colour
 beats ends on the beat grid. Exporting the track from rekordbox again brings back your
 collection's cues; cue edits are recorded in the drive's journal, so `edits replay` makes them
 again.
+
+`cues auto` places cues from each track's beat grid and phrases, in a style you pick. Without
+`--style` it asks you which one.
+
+| Style | Cues |
+|---|---|
+| `rekordbox` | hot cues A-H where each new phrase starts (a run of choruses is one), named after the phrase |
+| `intro-chorus` | A in green on the intro, H, G and F in pink on the first three choruses (H the earliest) |
+| `first-cue` | only the memory cue below |
+
+Every style also puts a memory cue named `1.1Bars` on the first downbeat, which is what rekordbox
+does when "first cue" is on. The `rekordbox` style's hot cues haven't yet been checked against
+tracks rekordbox generated hot cues for. A cue already in a slot the style uses (that hot cue letter, or a
+memory cue within 0.1 s of the beat) is kept unless you pass `--overwrite`, so running it again
+changes nothing. A track rekordbox didn't phrase-analyse gets only the memory cue, and one with
+no beat grid or no analysis files is passed over with a warning. The journal records the style
+rather than the cues, so `edits replay` after a re-export places them again on that export's
+grid and phrases.
 
 ## Cover art
 

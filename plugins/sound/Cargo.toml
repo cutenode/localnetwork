@@ -8,6 +8,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.localnetwork]
+labels = ["locallibrary: analysis"]
+
 [dependencies]
 loclib-analysis = { workspace = true, features = ["dsp"] }
 loclib-plugin.workspace = true

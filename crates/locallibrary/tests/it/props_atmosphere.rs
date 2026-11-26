@@ -88,7 +88,7 @@ fn granted(tc: &TestCase) -> Granted {
 /// records of it (or it holds `transition:generic`), and a list with a scope that can't be read
 /// grants nothing; otherwise `missing_scope` names exactly the scope to ask for.
 #[hegel::test(test_cases = 400)]
-fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
+fn prop_missing_scope_agrees_with_what_was_granted(tc: TestCase) {
     let list: Vec<Granted> = (0..tc.draw(gs::integers::<usize>().max_value(5))).map(|_| granted(&tc)).collect();
     let collection = tc.draw(gs::sampled_from(vec![SETTINGS, PROFILE, SET, "app.example.thing", "not an nsid"]));
     let scopes: Vec<String> = list.iter().map(|g| g.scope.clone()).collect();
@@ -111,7 +111,7 @@ fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
 /// may write each of locallibrary's record types and nothing else's, and upload audio and nothing
 /// else.
 #[hegel::test(test_cases = 50)]
-fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
+fn prop_the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
     let asked = ["atproto".to_string(), FLAGS_SCOPE.into(), format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.into()];
     assert_eq!(publish_scopes(), asked);
     let granted = crate::mock_pds::granted(&publish_scopes());
@@ -135,7 +135,7 @@ fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
 /// `WARN_DAYS` (warned about), agree with the time it's due; an account is named by its handle
 /// when it has one, its DID otherwise.
 #[hegel::test(test_cases = 300)]
-fn days_left_and_expiry_agree_with_the_due_date(tc: TestCase) {
+fn prop_days_left_and_expiry_agree_with_the_due_date(tc: TestCase) {
     let day = 86_400;
     let offset = tc.draw(gs::integers::<i64>().min_value(-40 * day).max_value(40 * day));
     // Checked a moment after it's due: far enough from a day's boundary not to cross it.
@@ -209,7 +209,7 @@ fn query_string(tc: &TestCase, q: &CallbackQuery) -> String {
 
 /// Parsing a query gets back each field, however it was encoded and whatever else is there.
 #[hegel::test(test_cases = 150)]
-fn a_query_parses_back_to_its_fields(tc: TestCase) {
+fn prop_a_query_parses_back_to_its_fields(tc: TestCase) {
     let q = callback_query(&tc);
     let query = query_string(&tc, &q);
     assert_eq!(CallbackQuery::parse(&query), q, "{query}");
@@ -218,7 +218,7 @@ fn a_query_parses_back_to_its_fields(tc: TestCase) {
 /// A pasted address reads as its query (not its fragment) when it carries a code or a refusal,
 /// and is refused otherwise.
 #[hegel::test(test_cases = 150)]
-fn a_pasted_address_reads_as_its_query(tc: TestCase) {
+fn prop_a_pasted_address_reads_as_its_query(tc: TestCase) {
     let q = callback_query(&tc);
     let query = query_string(&tc, &q);
     let base = tc.draw(gs::sampled_from(vec![
@@ -247,7 +247,7 @@ fn a_pasted_address_reads_as_its_query(tc: TestCase) {
 /// server's description or its error code, on one line without control characters. No error,
 /// no refusal.
 #[hegel::test(test_cases = 300)]
-fn a_refusal_says_what_the_server_said_on_one_line(tc: TestCase) {
+fn prop_a_refusal_says_what_the_server_said_on_one_line(tc: TestCase) {
     let q = callback_query(&tc);
     let expected = q.error.as_deref().map(|e| match (e, q.error_description.as_deref()) {
         ("access_denied", _) => "the sign-in was declined, so locallibrary wasn't given access".to_string(),
@@ -261,7 +261,7 @@ fn a_refusal_says_what_the_server_said_on_one_line(tc: TestCase) {
 
 /// A wait is said in whole seconds under two minutes, and in minutes, rounded up, from then.
 #[hegel::test(test_cases = 300)]
-fn waits_are_said_in_seconds_or_rounded_up_minutes(tc: TestCase) {
+fn prop_waits_are_said_in_seconds_or_rounded_up_minutes(tc: TestCase) {
     let secs = tc.draw(hegel::one_of!(gs::integers::<u64>().max_value(200), gs::integers::<u64>().max_value(1 << 40)));
     let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
     let said = atmosphere::span(Duration::new(secs, nanos));
@@ -284,7 +284,7 @@ fn waits_are_said_in_seconds_or_rounded_up_minutes(tc: TestCase) {
 /// its host; the API's document is the same one; and a client ID that isn't https, or a scope
 /// that can't be read, gets no document.
 #[hegel::test(test_cases = 200)]
-fn the_client_document_allows_what_it_should(tc: TestCase) {
+fn prop_the_client_document_allows_what_it_should(tc: TestCase) {
     let host = tc.draw(gs::from_regex(r"[a-z][a-z0-9-]{0,8}(\.[a-z][a-z0-9]{0,5}){1,3}").fullmatch(true));
     let port = tc.draw(gs::optional(gs::integers::<u16>().min_value(1)));
     let path = tc.draw(gs::from_regex(r"(/[a-z0-9._-]{1,8}){0,3}").fullmatch(true));
@@ -368,7 +368,7 @@ fn random_session(tc: &TestCase) -> Value {
 /// with neither left anywhere in the half for `atmosphere.json`; the halves together are the
 /// session again.
 #[hegel::test(test_cases = 40)]
-fn a_split_session_keeps_its_secrets_apart_and_joins_back(tc: TestCase) {
+fn prop_a_split_session_keeps_its_secrets_apart_and_joins_back(tc: TestCase) {
     let original = random_session(&tc);
     let session: ClientSessionData = serde_json::from_value(original.clone()).unwrap();
     let whole = serde_json::to_value(&session).unwrap();
@@ -448,7 +448,7 @@ fn account_file(tc: &TestCase) -> AccountFile {
 /// `atmosphere.json` reads back as it was saved, whatever's in it, and only its owner can read
 /// it.
 #[hegel::test(test_cases = 10)]
-fn the_account_file_reads_back_as_saved(tc: TestCase) {
+fn prop_the_account_file_reads_back_as_saved(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(serde_json::to_value(AccountFile::load(dir.path()).unwrap()).unwrap(), json!({}), "none yet");
     let file = account_file(&tc);
@@ -508,7 +508,7 @@ enum Kept {
 /// as that account's. A damaged file is said to be, without quoting it, until the next sign-in
 /// or sign-out replaces it; a folder in its place stops both.
 #[hegel::test(test_cases = 8)]
-fn the_session_file_is_a_map_of_each_accounts_secrets(tc: TestCase) {
+fn prop_the_session_file_is_a_map_of_each_accounts_secrets(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let path = root.join(store::SECRETS_FILE);
@@ -667,7 +667,7 @@ struct Signed {
 /// can't be reached keeps the session, and signing out always signs out (revoked only when the
 /// server took both tokens). The API's calls and the library's say the same.
 #[hegel::test(test_cases = 2)]
-fn checking_and_signing_out_agree_with_a_model(tc: TestCase) {
+fn prop_checking_and_signing_out_agree_with_a_model(tc: TestCase) {
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -792,7 +792,9 @@ enum ClientChoice {
 /// or that can't be read, and otherwise the account's server, which isn't public. Nobody ends up
 /// signed in.
 #[hegel::test(test_cases = 8)]
-fn starting_a_sign_in_with_local_servers_fails_for_the_first_reason(tc: TestCase) {
+fn prop_starting_a_sign_in_with_local_servers_fails_for_the_first_reason(tc: TestCase) {
+    // Open, so a sign-in asking to publish reaches the server's refusal rather than the DNS check.
+    locallibrary::testing::publishing_on_this_thread(Some(locallibrary::atmosphere::publishing::Availability::Open));
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -863,7 +865,7 @@ fn starting_a_sign_in_with_local_servers_fails_for_the_first_reason(tc: TestCase
 /// A sign-in nobody started can't be finished, by waiting or by a pasted address, nor
 /// cancelled, whatever it's called.
 #[hegel::test(test_cases = 100)]
-fn a_sign_in_nobody_started_cant_be_finished(tc: TestCase) {
+fn prop_a_sign_in_nobody_started_cant_be_finished(tc: TestCase) {
     let id = tc.draw(gs::text().max_size(20));
     let not_found = |e: locallibrary::Error| assert!(matches!(e, locallibrary::Error::NotFound(_)), "{e}");
     let finish = api::AccountLoginFinish { id: id.clone(), timeout_secs: tc.draw(gs::optional(gs::integers::<u64>())) };

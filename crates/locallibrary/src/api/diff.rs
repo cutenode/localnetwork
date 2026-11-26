@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use super::{RestoreBackup, resolve_drive};
 use crate::backup::{self, BackupInfo};
 use crate::device::Device;
-use crate::diff::{self, PlaylistDiff};
 use crate::doctor::Databases;
 use crate::store::{Snapshot, Store};
 use crate::{Error, Result};
+use loclib_model::diff::{self, PlaylistDiff};
 
 /// A library to read: a drive, or a snapshot in the store.
 pub(super) enum Endpoint<'s> {

@@ -10,13 +10,13 @@ use std::fs;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
-use locallibrary::onelibrary::OneLibrary;
+use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::player::{self, DbIdentity};
 use locallibrary::progress::Ctx;
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_players_name_and_colour_read_back_as_set(tc: TestCase) {
+fn prop_a_players_name_and_colour_read_back_as_set(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
     common::add_onelibrary(&root);
@@ -51,7 +51,7 @@ fn a_players_name_and_colour_read_back_as_set(tc: TestCase) {
     assert_eq!(player::db_identity(&root), Some(other));
 
     // A database with no property row shows no name and no colour.
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = onelibrary::open_root(&root).unwrap();
     one.connection().execute("DELETE FROM property", []).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     assert_eq!(player::db_identity(&root), Some(DbIdentity::default()));
@@ -61,7 +61,7 @@ fn a_players_name_and_colour_read_back_as_set(tc: TestCase) {
 /// files that aren't records, or are empty, are passed over. A drive without OneLibrary can't be
 /// given a name or colour.
 #[hegel::test(test_cases = 20)]
-fn rekordboxs_record_is_the_first_file_that_holds_one(tc: TestCase) {
+fn prop_rekordboxs_record_is_the_first_file_that_holds_one(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
     let backup = root.join("PIONEER/DeviceLibBackup");
@@ -89,7 +89,7 @@ fn rekordboxs_record_is_the_first_file_that_holds_one(tc: TestCase) {
 }
 
 #[hegel::test(test_cases = 20)]
-fn a_contact_with_nothing_to_contact_is_refused(tc: TestCase) {
+fn prop_a_contact_with_nothing_to_contact_is_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
     let mut d = Device::open(&root).unwrap();
@@ -165,7 +165,7 @@ fn prop_a_property_row_of_the_wrong_type_shows_no_identity(tc: TestCase) {
         "UPDATE property SET backGroundColorType = 'red'",
         "UPDATE property SET backGroundColorType = 2.5",
     ]));
-    let one = OneLibrary::open_root(&root).unwrap();
+    let one = onelibrary::open_root(&root).unwrap();
     one.connection().execute(wrong, []).unwrap();
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
     let mut d = Device::open_export(&root).unwrap();

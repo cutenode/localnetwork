@@ -13,20 +13,27 @@ use crate::{Choice, Error, Result, SCHEMA, SettingDef};
 
 const HEADER_LEN: usize = 104;
 
+/// Which of the four settings files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SettingsFile {
+    /// `MYSETTING.DAT`: player settings.
     MySetting,
+    /// `MYSETTING2.DAT`: newer player settings.
     MySetting2,
+    /// `DJMMYSETTING.DAT`: mixer settings.
     DjmMySetting,
+    /// `DEVSETTING.DAT`: waveform and key display.
     DevSetting,
 }
 
 impl SettingsFile {
+    /// Every settings file.
     pub const ALL: [SettingsFile; 4] =
         [SettingsFile::MySetting, SettingsFile::MySetting2, SettingsFile::DjmMySetting, SettingsFile::DevSetting];
 
+    /// The file's name, e.g. `MYSETTING.DAT`.
     pub fn file_name(self) -> &'static str {
         match self {
             SettingsFile::MySetting => "MYSETTING.DAT",
@@ -88,8 +95,10 @@ impl SettingsFile {
     }
 }
 
+/// One settings file's bytes, read and edited in place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsBlob {
+    /// Which settings file it is.
     pub file: SettingsFile,
     bytes: Vec<u8>,
 }
@@ -113,6 +122,13 @@ impl SettingsBlob {
         blob
     }
 
+    /// Reads `bytes` as a settings file of kind `file`. The checksum isn't checked here: see
+    /// [`SettingsBlob::checksum_ok`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Parse`] when the bytes are too short, or the header's string section length or
+    /// data length isn't what that kind of file has.
     pub fn parse(file: SettingsFile, bytes: Vec<u8>) -> Result<Self> {
         let bad = |message: String| Error::Parse { file, message };
         if bytes.len() < HEADER_LEN + 4 {
@@ -129,6 +145,7 @@ impl SettingsBlob {
         Ok(SettingsBlob { file, bytes })
     }
 
+    /// The whole file, as it would be written.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -144,11 +161,23 @@ impl SettingsBlob {
         String::from_utf8_lossy(&field[..end]).into_owned()
     }
 
+    /// The byte that holds `def`.
+    ///
+    /// # Panics
+    ///
+    /// `def` must be one of this file's settings. Debug builds panic when it's another file's,
+    /// and any build panics when its offset is past the end of this file's data section.
     pub fn raw(&self, def: &SettingDef) -> u8 {
         debug_assert_eq!(def.file, self.file);
         self.data()[def.offset]
     }
 
+    /// The value of `def`: one of its choices, or [`SettingValue::Unknown`] for a byte it doesn't
+    /// have.
+    ///
+    /// # Panics
+    ///
+    /// As for [`SettingsBlob::raw`].
     pub fn get(&self, def: &SettingDef) -> SettingValue {
         let b = self.raw(def);
         match def.by_byte(b) {
@@ -158,6 +187,11 @@ impl SettingsBlob {
     }
 
     /// Set a value; returns whether anything changed.
+    ///
+    /// # Panics
+    ///
+    /// `def` must be one of this file's settings. Debug builds panic when it's another file's,
+    /// and any build panics when its offset is past the end of the file.
     pub fn set(&mut self, def: &SettingDef, choice: &Choice) -> bool {
         debug_assert_eq!(def.file, self.file);
         let i = HEADER_LEN + def.offset;
@@ -175,11 +209,13 @@ impl SettingsBlob {
         crc16_xmodem(&self.bytes[start..end])
     }
 
+    /// The CRC-16/XMODEM checksum stored in the file.
     pub fn stored_checksum(&self) -> u16 {
         let o = HEADER_LEN + self.file.data_len();
         u16::from_le_bytes([self.bytes[o], self.bytes[o + 1]])
     }
 
+    /// Whether the stored checksum matches the file's contents.
     pub fn checksum_ok(&self) -> bool {
         self.computed_checksum() == self.stored_checksum()
     }
@@ -203,10 +239,13 @@ pub fn crc16_xmodem(data: &[u8]) -> u16 {
     crc
 }
 
+/// A setting's value as read from a file. In JSON, a choice id as a string, or an unknown byte as
+/// a number.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum SettingValue {
+    /// One of the setting's choices, by id.
     Known(String),
     /// A byte value not in the schema (newer firmware?). Preserved untouched.
     Unknown(u8),

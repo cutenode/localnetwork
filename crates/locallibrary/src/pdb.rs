@@ -3,6 +3,9 @@
 //! Parsing is delegated to the (vendored) `rekordbox-pdb` crate. That crate indexes raw byte
 //! buffers directly, so a truncated or corrupt file from a half-written USB drive could panic; we
 //! contain that with `catch_unwind` and surface a normal parse error instead.
+//!
+//! It stays here rather than in loclib-rekordbox-db with the other databases: the vendored
+//! rekordbox-pdb is `publish = false`, and loclib-rekordbox-db is published.
 
 use rustc_hash::FxHashMap;
 use std::cell::Cell;

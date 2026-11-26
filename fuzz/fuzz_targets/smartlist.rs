@@ -6,7 +6,7 @@
 use chrono::NaiveDate;
 use libfuzzer_sys::fuzz_target;
 use locallibrary::Track;
-use locallibrary::masterdb::SmartList;
+use loclib_rekordbox_db::masterdb::SmartList;
 
 fuzz_target!(|data: &[u8]| {
     // The column is read as text, lossily (`masterdb`'s `text`).

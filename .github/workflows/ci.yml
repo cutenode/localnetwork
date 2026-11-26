@@ -2,16 +2,19 @@ name: CI
 
 # Every pull request, merge queue group and push to main runs this one workflow: a changes job works
 # out which tools' files changed, each tool's workflow runs as a call when its did, and "CI passed",
-# the one check the "Protect Main" ruleset requires, fails when one of them did. One changes job per
-# run, where each tool's workflow used to start its own, leaves the runners to the work.
+# one of the two checks the "Protect Main" ruleset requires (with pr-issue.yml's), fails when one of
+# them did. One changes job per run, where each tool's workflow used to start its own, leaves the
+# runners to the work.
 #
-# Pull requests run on Linux. locallibrary's macOS and Windows jobs, which the plan's 5 macOS
-# runners can't keep up with on every push, run once for each merge queue group instead, or on a
-# pull request with the `all-os` label. A group also runs CodeQL and the quick static checks
-# (formatting, lint, types, unit tests, the repo's policies), on the commit that goes on main; its
-# pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
+# Pull requests run on Linux, and locallibrary's Windows jobs when its code changed. A merge queue
+# group runs those again unless its pull request's run passed them on the same files. Its macOS jobs,
+# which the plan's 5 macOS runners can't keep up with on every push, run once for each merge queue
+# group instead, or on a pull request with the `all-os` label. A group also runs CodeQL,
+# locallibrary's budgets and release build, the web app's verify and Lighthouse jobs, localtoolbox's
+# and atstore's checks, the workflow lint, Bombadil's install and type check, and the repo's
+# policies, spelling and links, on the commit that goes on main; its pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
 # web app's and localtoolbox's coverage and sizes to compare with, the Rust and Docker caches when
-# what they're keyed on changed, CodeQL's analysis, and the ruleset check when the ruleset changed.
+# what they're keyed on changed, and CodeQL's analysis.
 # Its commit is the merge queue group's, which already passed.
 on:
   push:
@@ -62,10 +65,12 @@ jobs:
       locallibrary_release: ${{ steps.scope.outputs.locallibrary_release }}
       locallibrary_budgets: ${{ steps.scope.outputs.locallibrary_budgets }}
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
-      locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
+      locallibrary_windows: ${{ steps.scope.outputs.locallibrary_windows }}
+      locallibrary_macos: ${{ steps.scope.outputs.locallibrary_macos }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
       locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
       locallibrary_fuzz: ${{ steps.scope.outputs.locallibrary_fuzz }}
+      locallibrary_crates: ${{ steps.scope.outputs.locallibrary_crates }}
       web: ${{ steps.scope.outputs.web }}
       web_verify: ${{ steps.scope.outputs.web_verify }}
       web_integration: ${{ steps.scope.outputs.web_integration }}
@@ -80,7 +85,6 @@ jobs:
       repo_checks: ${{ steps.scope.outputs.repo_checks }}
       repo_checks_policy: ${{ steps.scope.outputs.repo_checks_policy }}
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
-      repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
       repo_checks_diagrams: ${{ steps.scope.outputs.repo_checks_diagrams }}
       repo_checks_bombadil: ${{ steps.scope.outputs.repo_checks_bombadil }}
       repo_checks_text: ${{ steps.scope.outputs.repo_checks_text }}
@@ -90,6 +94,7 @@ jobs:
       codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
       codeql_base: ${{ steps.scope.outputs.codeql_base }}
       draft: ${{ steps.scope.outputs.draft }}
+      group_base: ${{ steps.main.outputs.sha }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
       # workflow passed on, so what a failed run didn't check runs on the next push, and a merge
@@ -146,7 +151,6 @@ jobs:
               - 'clippy.toml'
               - '.cargo/**'
               - '.config/nextest.toml'
-              - 'tools/hegel-coverage.sh'
               - 'tools/budgets/**'
               - 'tools/coverage/**'
               - 'benchmarks/**'
@@ -200,6 +204,7 @@ jobs:
               - 'deny.toml'
               - 'about.{toml,hbs}'
               - '.cargo/config.toml'
+              - '.github/actions/notices/**'
               - '.github/workflows/locallibrary-ci.yml'
             locallibrary_semver:
               - 'crates/loclib-*/**'
@@ -227,6 +232,12 @@ jobs:
               - '!**/{tests,testing,test_util,screens,props}.rs'
               - '!**/tests/**'
               - '!**/*.md'
+            # A crate's manifest, a new crate's too, and the name check: lint packages the crates and
+            # checks their names on crates.io.
+            locallibrary_crates:
+              - '**/Cargo.toml'
+              - 'tools/crates-io/**'
+              - '.github/workflows/locallibrary-ci.yml'
             # What `dist plan` reads (see locallibrary-release.yml).
             locallibrary_dist:
               - '**/Cargo.toml'
@@ -246,7 +257,7 @@ jobs:
               - '.github/workflows/locallibrary-ci.yml'
             # The web app, and what its Docker image copies in from outside apps/web: the shared
             # tokens, and the tools' READMEs, docs and changelogs for their pages (see .dockerignore).
-            # Its tests also read its bug report form and docs/link-matrix.md, and `pnpm check`
+            # Its tests also read its bug report form and the link matrix, and `pnpm check`
             # type-checks the root's tools/ (its tsconfig includes them).
             web: &web
               - 'apps/web/**'
@@ -261,6 +272,7 @@ jobs:
               - '.github/labels.yml'
               - '.github/ISSUE_TEMPLATE/web-bug.yml'
               - 'docs/link-matrix.md'
+              - 'docs/link-matrix/**'
               - 'tools/**/*.ts'
               - 'packages/tokens/**'
               - 'package.json'
@@ -281,14 +293,15 @@ jobs:
               - '.github/actions/patch-coverage/**'
               - 'tools/coverage/patch.json'
             # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
-            # of the above but the Markdown and labels that the tool pages and
-            # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs and
+            # of the above but the Markdown and labels that the tool pages, src/lib/tools/docs.test.ts
+            # and features.test.ts read, which verify covers, the lint and format configs and
             # the root's tools, which only verify reads (patch.json stays, for the patch coverage),
             # and what only the e2e tests, Lighthouse and the Docker image use.
             web_integration:
               - *web
               - '!apps/*/README.md'
               - '!apps/*/docs/*.md'
+              - '!apps/web/docs/features/**'
               - '!apps/*/CHANGELOG.md'
               - '!README.md'
               - '!.github/CONTRIBUTING.md'
@@ -308,7 +321,8 @@ jobs:
             # What the e2e tests run: the app as `pnpm dev` serves it, on the dev network and seed
             # data, and the tools' READMEs, which the home page's tool cards are made from. Left out:
             # the unit, integration and build tests, stories and Storybook (locallibrary's terminal
-            # widgets' among them, src/lib/tui), and what only Lighthouse and the Docker image read.
+            # widgets' among them, src/lib/tui), the README's features, and what only Lighthouse and
+            # the Docker image read.
             web_e2e:
               - 'apps/web/**'
               - 'apps/*/README.md'
@@ -322,6 +336,7 @@ jobs:
               - '.node-version'
               - '.github/workflows/web-ci.yml'
               - '!apps/web/README.md'
+              - '!apps/web/docs/features/**'
               - '!apps/web/**/*.test.ts'
               - '!apps/web/**/*.stories.svelte'
               - '!apps/web/**/*.mdx'
@@ -473,21 +488,18 @@ jobs:
               - '!**/*.md'
             repo_checks_files:
               - added|deleted|renamed: '**'
-            # The Markdown the tools' tests check: the diagrams and Mermaid in the apps' READMEs and
-            # diagram pages, the crate READMEs that are their crates' docs, and the pull request
-            # template the PR issue check has to pass.
+            # The Markdown the tools' tests and policies check: the diagrams and Mermaid in the apps'
+            # READMEs and diagram pages, the crate READMEs that are their crates' docs, the pull
+            # request template the PR issue check has to pass, and CONTRIBUTING's commands.
             repo_checks_md:
               - 'apps/*/README.md'
               - 'apps/*/docs/diagrams/*.md'
               - 'crates/*/README.md'
               - '.github/pull_request_template.md'
+              - '.github/CONTRIBUTING.md'
             repo_checks_lexicons:
               - 'lexicons/**'
-              - 'tools/lexicons.sh'
-              - '.github/workflows/repo-checks.yml'
-            repo_checks_ruleset:
-              - '.github/rulesets/**'
-              - 'tools/ruleset.sh'
+              - 'package.json'
               - '.github/workflows/repo-checks.yml'
             # Bombadil's own npm project, which repo-checks installs and type-checks. Its specs run
             # weekly (locallibrary-scheduled.yml).
@@ -533,6 +545,29 @@ jobs:
         run: |
           gh api "repos/$GH_REPO/pulls/$NUMBER" \
             --jq '"draft=\(.draft)", "all_os=\(any(.labels[]; .name == "all-os"))"' >> "$GITHUB_OUTPUT"
+      # Main's tip, which a merge queue group's budgets are measured over. The group's own base_sha is
+      # the entry ahead of it, and a pull request that grows a number the entry ahead shrank would be
+      # held to what that one left: #762 failed behind #759, where the two together were under one
+      # pull request's allowance. Read once, so a job that starts or re-runs after the entry ahead
+      # merged measures over the same commit.
+      - if: github.event_name == 'merge_group'
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh api "repos/$GH_REPO/commits/main" --jq '"sha=\(.sha)"' >> "$GITHUB_OUTPUT"
+      # Whether the group's pull request passed its Windows jobs on the same files, so the group can
+      # skip them (tools/queue/windows.ts). Only `true` skips them.
+      - if: github.event_name == 'merge_group'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - if: github.event_name == 'merge_group'
+        id: windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOWS_CHANGED: ${{ steps.filter.outputs.workflow_lint }}
+        run: node tools/queue/cli.ts >> "$GITHUB_OUTPUT"
       # Which jobs run. Everything runs for a pull request too big for the API's file list (it lists
       # at most 3000), and for a change to this workflow, on the OSes the event runs (see the top of
       # the file). A draft runs nothing.
@@ -545,22 +580,23 @@ jobs:
           ALL_OS: ${{ steps.pr.outputs.all_os }}
           BASE: ${{ github.base_ref }}
           LAST_PASSED: ${{ steps.base.outputs.sha }}
+          WINDOWS_TESTED: ${{ steps.windows.outputs.tested }}
         run: |
           matched() { [ "$(jq -r --arg f "$1" '.[$f] // "false"' <<< "$FILTER")" = true ]; }
           all=false
           if [ "$CHANGED_FILES" -ge 3000 ] || matched ci; then all=true; fi
           changed() { [ "$all" = true ] || matched "$1"; }
           linux=true
-          other_os=${ALL_OS:-false}
-          if [ "$EVENT" = merge_group ]; then linux=false; other_os=true; fi
-          if [ "$DRAFT" = true ]; then linux=false; other_os=false; fi
+          macos=${ALL_OS:-false}
+          if [ "$EVENT" = merge_group ]; then linux=false; macos=true; fi
+          if [ "$DRAFT" = true ]; then linux=false; macos=false; fi
 
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands locallibrary_fuzz web_verify \
-            web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
-            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
+            locallibrary_dist locallibrary_windows locallibrary_macos locallibrary_semver locallibrary_commands locallibrary_fuzz \
+            locallibrary_crates web_verify web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
+            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons \
             repo_checks_diagrams repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
             out[$name]=false
           done
@@ -573,6 +609,7 @@ jobs:
             set_if locallibrary_semver changed locallibrary_semver
             set_if locallibrary_commands changed locallibrary_commands
             set_if locallibrary_fuzz changed locallibrary_fuzz
+            set_if locallibrary_crates changed locallibrary_crates
             set_if web_verify changed web
             set_if web_integration changed web_integration
             set_if web_e2e changed web_e2e
@@ -597,10 +634,12 @@ jobs:
           # A merge queue group: the quick static checks again on the commit that goes on main, so
           # two pull requests that each passed alone can't break it together. The Rust ones are in
           # other-os below, beside the release budgets, which hold the group's pull requests' growth
-          # together and measure what main becomes, and Lighthouse's assertions that don't depend on
-          # the runner's speed. Integration, e2e and Docker stay on pull requests.
+          # together and measure what main becomes, as the budgets job does with the workspace, so a
+          # pull request has its base's numbers when that lands, and Lighthouse's assertions that
+          # don't depend on the runner's speed. Integration, e2e and Docker stay on pull requests.
           if [ "$EVENT" = merge_group ]; then
             set_if locallibrary_release changed locallibrary_release
+            set_if locallibrary_budgets changed locallibrary
             set_if web_lighthouse changed web_lighthouse
             set_if web_verify changed web
             set_if localtoolbox changed localtoolbox
@@ -611,35 +650,39 @@ jobs:
             out[repo_checks_text]=true
           fi
           # A push to main: what main's runs keep for pull requests. The sizes and coverage the
-          # reports compare with change only with the code (web_integration's paths), the Rust
-          # caches (locallibrary's and the mix report's) only with what they're keyed on, and the
-          # budgets job's numbers with the workspace.
+          # reports compare with change only with the code (web_integration's paths), and the Rust
+          # caches (locallibrary's and the mix report's) only with what they're keyed on. The
+          # budgets job measured the commit already, in its merge queue group.
           if [ "$linux" = true ] && [ "$EVENT" = push ]; then
-            set_if locallibrary_budgets changed locallibrary
             set_if locallibrary_cache changed rust_cache
             set_if mix_report changed rust_cache
             set_if web_verify changed web_integration
             set_if web_integration changed web_integration
             set_if web_docker changed web_docker
             set_if localtoolbox changed localtoolbox
-            set_if repo_checks_ruleset changed repo_checks_ruleset
           fi
           # Not `all`: a change to this workflow tests its wiring on Linux, and macOS and Windows
-          # run only what changed for them.
-          if [ "$other_os" = true ] && { matched locallibrary || matched locallibrary_md; }; then out[locallibrary_other_os]=true; fi
+          # run only what changed for them. Windows runs on pull requests too, so a path or
+          # separator bug fails there rather than in the merge queue, which skips what its pull request
+          # passed on the same files; macOS waits for the queue.
+          if matched locallibrary || matched locallibrary_md; then
+            if [ "$EVENT" = pull_request ]; then out[locallibrary_windows]=$linux; fi
+            if [ "$EVENT" = merge_group ] && [ "$WINDOWS_TESTED" != true ]; then out[locallibrary_windows]=true; fi
+            out[locallibrary_macos]=$macos
+          fi
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
-            locallibrary_budgets locallibrary_dist locallibrary_other_os locallibrary_semver
+            locallibrary_budgets locallibrary_dist locallibrary_windows locallibrary_macos locallibrary_semver locallibrary_crates
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
-          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil \
+          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_bombadil \
             repo_checks_text repo_checks_commits repo_checks_diagrams
 
           # CodeQL, every language, on every event but a draft's and a pull request's into another
           # branch than main. The code scanning rule holds a pull request or a merge queue group until
           # its commit has a result in every category main has: #347, which changed no Rust and got
           # no Rust analysis, couldn't join the queue ("Code scanning is still expecting 1 result
-          # from CodeQL"). Pull requests' alerts are compared with main's, so main's pushes analyse
+          # from CodeQL"). Pull requests' alerts are compared with main's, so main's pushes have
           # every language too.
           codeql=false
           if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then codeql=true; fi
@@ -704,10 +747,13 @@ jobs:
       release: ${{ needs.changes.outputs.locallibrary_release == 'true' }}
       budgets: ${{ needs.changes.outputs.locallibrary_budgets == 'true' }}
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
-      other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
+      windows: ${{ needs.changes.outputs.locallibrary_windows == 'true' }}
+      macos: ${{ needs.changes.outputs.locallibrary_macos == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
       commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
       fuzz: ${{ needs.changes.outputs.locallibrary_fuzz == 'true' }}
+      crates: ${{ needs.changes.outputs.locallibrary_crates == 'true' }}
+      group-base: ${{ needs.changes.outputs.group_base }}
 
   web:
     needs: changes
@@ -724,6 +770,7 @@ jobs:
       e2e: ${{ needs.changes.outputs.web_e2e == 'true' }}
       lighthouse: ${{ needs.changes.outputs.web_lighthouse == 'true' }}
       docker: ${{ needs.changes.outputs.web_docker == 'true' }}
+      group-base: ${{ needs.changes.outputs.group_base }}
 
   localtoolbox:
     needs: changes
@@ -766,7 +813,6 @@ jobs:
     with:
       policy: ${{ needs.changes.outputs.repo_checks_policy == 'true' }}
       lexicons: ${{ needs.changes.outputs.repo_checks_lexicons == 'true' }}
-      ruleset: ${{ needs.changes.outputs.repo_checks_ruleset == 'true' }}
       bombadil: ${{ needs.changes.outputs.repo_checks_bombadil == 'true' }}
       text: ${{ needs.changes.outputs.repo_checks_text == 'true' }}
       commits: ${{ needs.changes.outputs.repo_checks_commits == 'true' }}
@@ -793,11 +839,14 @@ jobs:
       unchanged: ${{ needs.changes.outputs.codeql_unchanged }}
       base: ${{ needs.changes.outputs.codeql_base }}
 
-  # The check the "Protect Main" ruleset requires. It starts a runner only to fail: when a tool's
-  # workflow failed or was cancelled, or was skipped while its changes output was true (it didn't
-  # run), or on a draft. Otherwise it's skipped, which GitHub counts as passing. A call's result
-  # covers every job in it, so a job skipped because one it needs didn't finish (#88's tests, after
-  # its macOS build was cancelled) fails its tool's.
+  # The check the "Protect Main" ruleset requires. A job in a called workflow that can't fail
+  # (`continue-on-error`) is a coverage report, `semver`, or a new check that reports only until
+  # every open pull request passes it (.github/CONTRIBUTING.md#adding-a-check, report_only in
+  # tools/policy/workflows.rego). It starts a runner only to fail: when a tool's workflow failed or
+  # was cancelled, or was skipped while its changes output was true (it didn't run), or on a draft.
+  # Otherwise it's skipped, which GitHub counts as passing. A call's result covers every job in it,
+  # so a job skipped because one it needs didn't finish (#88's tests, after its macOS build was
+  # cancelled) fails its tool's.
   passed:
     name: CI passed
     if: >-

@@ -1,0 +1,2 @@
+# Written by tools/regen/data-colors.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+data-colors.css merge=regen regen=data-colors

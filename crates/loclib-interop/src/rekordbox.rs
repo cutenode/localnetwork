@@ -50,8 +50,11 @@ fn colour(c: TrackColor) -> &'static str {
 /// The software that wrote a collection, as rekordbox XML's `PRODUCT` names it.
 #[derive(Debug, Clone, Copy)]
 pub struct Product<'a> {
+    /// The software's name (`Name`).
     pub name: &'a str,
+    /// Its version (`Version`).
     pub version: &'a str,
+    /// Who makes it (`Company`).
     pub company: &'a str,
 }
 

@@ -75,10 +75,6 @@ froms = "froms"
 # Plural of SQL's SELECT, split like PNGs
 SELECTs = "SELECTs"
 
-[type.sh.extend-identifiers]
-# jq regex class in tools/policy.sh
-pn = "pn"
-
 [type.ts.extend-words]
 # The media element's seeked event
 seeked = "seeked"

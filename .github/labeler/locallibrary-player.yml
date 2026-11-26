@@ -1,0 +1,8 @@
+"locallibrary: player":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/locallibrary/src/tui/**"
+          - "apps/locallibrary/docs/player.md"
+          - "apps/locallibrary/docs/player/**"
+          - "apps/locallibrary/bombadil/**"
+          - "apps/web/src/lib/tui/**"

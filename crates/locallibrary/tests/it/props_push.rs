@@ -14,7 +14,7 @@ use locallibrary::sync::{self, PullOptions, PushOptions};
 use locallibrary::{Error, paths};
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_push_writes_the_snapshot_and_never_loses_unsaved_work(tc: TestCase) {
+fn prop_a_push_writes_the_snapshot_and_never_loses_unsaved_work(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let main_root = common::bigger_drive(dir.path(), "Main");
@@ -75,7 +75,7 @@ fn a_push_writes_the_snapshot_and_never_loses_unsaved_work(tc: TestCase) {
 /// A store that lost a file the push would copy refuses it while planning, naming the track the
 /// file belongs to (or the file, when no track uses it), and leaves the drive as it was.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
-fn a_push_missing_a_stored_file_is_refused_before_the_drive_changes(tc: TestCase) {
+fn prop_a_push_missing_a_stored_file_is_refused_before_the_drive_changes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let main_root = common::bigger_drive(dir.path(), "Main");

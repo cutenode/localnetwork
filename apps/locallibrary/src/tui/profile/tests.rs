@@ -506,7 +506,7 @@ fn the_mouse_picks_sections_and_rows() {
 /// whichever section, pane, row or scroll, and with room, lists every section by its title,
 /// the selected one's numbers beside them; the selected row stays among the section's rows.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_full_profile_draws_whole_at_any_size(tc: hegel::TestCase) {
+fn prop_a_full_profile_draws_whole_at_any_size(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut t = full_tab();
     let basis = t.report().unwrap().basis;
@@ -541,7 +541,7 @@ fn a_full_profile_draws_whole_at_any_size(tc: hegel::TestCase) {
 /// A section's table scrolled down to its selection on a short screen comes back up once it
 /// fits again: drawn short, then tall, its first row and the one selected show.
 #[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_tables_come_back_up_once_they_fit(tc: hegel::TestCase) {
+fn prop_the_tables_come_back_up_once_they_fit(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut t = full_tab();
     let r = t.report().unwrap();
@@ -593,7 +593,7 @@ fn tab_of(view: ProfileView) -> ProfileTab {
 /// era's decades; how much of the collection was played and its copies; and, without the data,
 /// what it needs. The header sums up the collection, and how many sets or sessions there are.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
+fn prop_every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::profile::{DecadeCount, EnergySection};
     let mut v = full_view();
@@ -671,7 +671,7 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
 /// the document or leaves it out, and the numbers go exact or rounded; each says what it did, and
 /// h used where it means nothing says where to go.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
+fn prop_the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::collections::BTreeSet;
     let (mut app, _dir) = profile_app(tab_of(full_view()));
@@ -752,7 +752,7 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
 /// there's one to write); a build replaced since changes nothing; a choice that can't be saved
 /// says why.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
+fn prop_the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = profile_app(tab_of(full_view()));
     let artists = SECTIONS.iter().position(|s| *s == Section::Artists).unwrap();

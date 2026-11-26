@@ -85,7 +85,7 @@ fn panics_say_what_they_said() {
 /// wins, fields given win over what the kind says (last given first), actions keep their
 /// order, and a permission error always offers to run elevated.
 #[hegel::test(test_cases = 300)]
-fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
+fn prop_detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let kinds: Vec<fn() -> Error> = vec![
         || Error::Io { path: "/a".into(), source: io::Error::other("gone") },
@@ -182,7 +182,7 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
 /// A track id the library doesn't have is `not_found` naming it, and says it's one only
 /// OneLibrary has exactly when the id carries OneLibrary's own-track flag.
 #[hegel::test(test_cases = 200)]
-fn a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
+fn prop_a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let id = tc.draw(gs::integers::<u32>());
     let e = Error::no_track(id);
@@ -194,7 +194,7 @@ fn a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
 
 /// An I/O error given a path says which, and keeps its cause.
 #[hegel::test(test_cases = 50)]
-fn io_errors_name_their_path(tc: hegel::TestCase) {
+fn prop_io_errors_name_their_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "Ünï/ANLZ0000.DAT", "a b"]));
     let r: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "no such file"));
@@ -210,7 +210,7 @@ fn io_errors_name_their_path(tc: hegel::TestCase) {
 /// `io` with its path, one that isn't what it should be `parse`, a stop `cancelled`, a bad
 /// argument `invalid`) and their message, detail added on top or not.
 #[hegel::test(test_cases = 400)]
-fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase) {
+fn prop_errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/Volumes/A/x.mp3", "/tmp/é.flac"])));
     let message = tc.draw(gs::text().alphabet("abc é:").min_size(1).max_size(8));
@@ -224,7 +224,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));
     // (the error, its code, whether its message (or path) comes through)
-    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(8)) {
+    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(9)) {
         0 => (mixid(kind).into(), mixid_code(kind), kind < 3),
         1 => {
             let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -272,6 +272,10 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
             true => (loclib_anlz::Error::Malformed(message.clone()).into(), "parse", true),
             false => (loclib_anlz::Error::Invalid(message.clone()).into(), "invalid", true),
         },
+        8 => match tc.draw(gs::booleans()) {
+            true => (loclib_aup::Error::Parse { path: path.clone(), message: message.clone() }.into(), "parse", true),
+            false => (loclib_aup::Error::Cancelled(loclib_progress::Cancelled).into(), "cancelled", false),
+        },
         _ => (Error::Io { path: path.clone(), source: io() }, "io", true),
     };
     let detailed = e.to_string();
@@ -289,7 +293,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
 
 /// What a panic said, whether it panicked with a literal or a formatted message.
 #[hegel::test(test_cases = 100)]
-fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
+fn prop_a_panics_text_is_what_it_said(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let said = tc.draw(gs::text().max_size(12));
     let literal = std::panic::catch_unwind(|| std::panic::panic_any("fixed")).unwrap_err();
@@ -303,7 +307,7 @@ fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
 /// What a capacity probe's errors become: an I/O error keeps its path, a device that needs rights
 /// is a `permission` error that says so and asks to run as an administrator, a stop `cancelled`.
 #[hegel::test(test_cases = 50)]
-fn capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+fn prop_capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_capacity::Error as C;
     let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/dev/rdisk4", "/dev/sdb"])));
@@ -319,6 +323,78 @@ fn capacity_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
             let said = format!("checking the capacity of {} needs administrator rights", path.display());
             assert_eq!((e.to_string(), e.reason()), (said, Some(Reason::NeedsAdmin)));
         }
+        _ => {}
+    }
+}
+
+/// loclib-rekordbox-db's errors keep their messages and gain what a front end acts on: a
+/// `master.db` under another key asks for the key, and a My Tag id that's taken, or a collection
+/// that kept changing, is a conflict.
+#[test]
+fn rekordbox_database_errors_say_what_would_resolve_them() {
+    use loclib_rekordbox_db::Error as E;
+    let wrong = Error::from(E::WrongKey(PathBuf::from("/x/master.db")));
+    assert_eq!((wrong.code(), wrong.reason()), ("invalid", Some(Reason::WrongKey)));
+    assert_eq!(wrong.detail().fields["env"], loclib_rekordbox_db::masterdb::KEY_ENV);
+    assert!(wrong.to_string().starts_with("/x/master.db can't be decrypted with this key"), "{wrong}");
+    assert!(wrong.detail().actions.iter().any(|a| a.method.is_none() && a.params.contains_key("key")));
+    let taken = Error::from(E::Exists("My Tag id 5 is already used in exportLibrary.db".into()));
+    assert_eq!((taken.code(), taken.reason()), ("conflict", Some(Reason::Exists)));
+    assert_eq!(Error::from(E::Changing(PathBuf::from("master.db"))).code(), "conflict");
+    assert_eq!(Error::from(E::Parse { path: "master.db".into(), message: "bad".into() }).code(), "parse");
+    assert_eq!(Error::from(E::OneLibrary("damaged".into())).to_string(), "exportLibrary.db: damaged");
+    assert_eq!(Error::from(E::NotFound("track #9".into())).code(), "not_found");
+    assert_eq!(Error::from(E::Invalid("no".into())).code(), "invalid");
+    let io = Error::from(E::Io { path: "a".into(), source: std::io::ErrorKind::NotFound.into() });
+    assert!(matches!(io, Error::Io { .. }));
+}
+
+/// What loclib-format's errors become: each keeps its kind and its words (a tool's command and
+/// message, a path), and a stop is `cancelled`.
+#[hegel::test(test_cases = 100)]
+fn prop_format_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_format::Error as F;
+    let message = tc.draw(gs::sampled_from(vec!["Resource busy", "no such disk", "mkfs.vfat: bad label"])).to_string();
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/dev/sdb", "lsblk output"])));
+    let (e, code): (Error, &str) = match tc.draw(gs::integers::<u8>().max_value(6)) {
+        0 => (F::Io { path: path.clone(), source: io::Error::other(message.clone()) }.into(), "io"),
+        1 => (F::Invalid(message.clone()).into(), "invalid"),
+        2 => (F::Parse { path: path.clone(), message: message.clone() }.into(), "parse"),
+        3 => (F::NotFound(message.clone()).into(), "not_found"),
+        4 => (F::External { command: "diskutil eject disk4".into(), message: message.clone() }.into(), "external"),
+        5 => (F::Permission(message.clone()).into(), "permission"),
+        _ => (F::Cancelled(loclib_progress::Cancelled).into(), "cancelled"),
+    };
+    assert_eq!(e.code(), code, "{e:?}");
+    match &e {
+        Error::Io { path: p, .. } | Error::Parse { path: p, .. } => assert_eq!(p, &path),
+        Error::External { command, message: m } => {
+            assert_eq!((command.as_str(), m), ("diskutil eject disk4", &message))
+        }
+        Error::Cancelled => {}
+        _ => assert!(e.to_string().contains(&message), "{e}"),
+    }
+}
+
+/// What loclib-drive-speed's errors become: an I/O error keeps its path, a stop is `cancelled`,
+/// and what a drive's own write failed with comes back as that error, or, when it wasn't one of
+/// core's, as its words.
+#[hegel::test(test_cases = 50)]
+fn prop_drive_speed_errors_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_drive_speed::Error as D;
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/Volumes/DNA/.locallibrary/speed.json", "/media/x"])));
+    let (e, code): (Error, &str) = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => (D::Io { path: path.clone(), source: io::Error::other("unplugged") }.into(), "io"),
+        1 => (D::Drive(io::Error::other(Error::Locked(path.clone()))).into(), "locked"),
+        2 => (D::Drive(io::Error::other("the drive went away")).into(), "invalid"),
+        _ => (D::Cancelled(loclib_progress::Cancelled).into(), "cancelled"),
+    };
+    assert_eq!(e.code(), code, "{e:?}");
+    match &e {
+        Error::Io { path: p, .. } | Error::Locked(p) => assert_eq!(p, &path),
+        Error::Invalid(m) => assert_eq!(m, "the drive went away"),
         _ => {}
     }
 }

@@ -82,7 +82,7 @@ fn chain(rows: &[(i64, i64)]) -> Vec<i64> {
 /// folder, siblings linked in display order with names made unique, and every playlist's tracks are
 /// linked in order, repeats left out and counted. The database passes SQLite's checks.
 #[hegel::test(test_cases = 100)]
-fn library_reads_back(tc: TestCase) {
+fn prop_library_reads_back(tc: TestCase) {
     let lib = common::library(&tc, 5);
     let root = PathBuf::from(tc.draw(gs::sampled_from(vec!["/out", "/Volumes/USB"])));
     // Both styles, since a case costs a new SQLite database each time.
@@ -332,7 +332,7 @@ impl TrackRow {
 /// no root with the audio, and a cancelled export stops: each fails with its typed error once
 /// there's a track to place, and an empty library always works.
 #[hegel::test(test_cases = 100)]
-fn exports_that_cant_be_written_fail(tc: TestCase) {
+fn prop_exports_that_cant_be_written_fail(tc: TestCase) {
     let lib = common::library(&tc, 2);
     let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: None };
     for (output, style, cancelled) in

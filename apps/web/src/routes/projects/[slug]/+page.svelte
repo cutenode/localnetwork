@@ -6,7 +6,7 @@
 	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
-	import FollowButton from '#lib/components/FollowButton.svelte';
+	import FollowButton from '#lib/components/FollowButton.page-only.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';

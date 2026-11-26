@@ -143,14 +143,10 @@ jobs:
       # The toolchain rust-toolchain.toml pins; release binaries are built with it.
       - name: Install Rust
         run: rustup toolchain install
-      # .github/build-setup.yml's steps (github-build-setup in dist-workspace.toml): the
+      # .github/build-setup.yml's step (github-build-setup in dist-workspace.toml): the
       # third-party notices the archives include.
-      - name: Install cargo-about
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-about@0.9.3
       - name: Write third-party notices
-        run: cargo notices
+        uses: ./.github/actions/notices
       - name: Install dist
         uses: ./.github/actions/install-dist
       # Get the dist-manifest

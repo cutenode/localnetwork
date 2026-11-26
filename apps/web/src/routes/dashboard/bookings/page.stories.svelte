@@ -18,7 +18,7 @@
 	const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
 
 	const thread = (skey: string, title: string, status: string, showDate: string | null, lastAuthor: string, overrides: Partial<BookingListThread> = {}): BookingListThread => ({
-		space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
+		space: `at:space/did:plc:root/computer.localnetwork.space.booking/${skey}`,
 		skey,
 		status,
 		title,

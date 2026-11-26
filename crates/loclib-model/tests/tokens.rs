@@ -17,8 +17,9 @@ fn rgb(v: &Value, at: &str) -> String {
     format!("[{}, {}, {}]", byte(0), byte(2), byte(4))
 }
 
-/// A module of `Rgb` constants, one per key of `group` in `keys`' order.
-fn module(out: &mut String, doc: &str, name: &str, group: &Value, keys: &[&str], indent: &str) {
+/// A module of `Rgb` constants, one per key of `group` in `keys`' order, each documented as `item`
+/// with the key in place of `{}`.
+fn module(out: &mut String, doc: &str, name: &str, group: &Value, keys: &[&str], item: &str, indent: &str) {
     for line in doc.lines() {
         writeln!(out, "{indent}/// {line}").unwrap();
     }
@@ -26,6 +27,7 @@ fn module(out: &mut String, doc: &str, name: &str, group: &Value, keys: &[&str],
     writeln!(out, "{indent}    use super::Rgb;").unwrap();
     for key in keys {
         let value = rgb(&group[key], &format!("{name}.{key}"));
+        writeln!(out, "{indent}    /// {}", item.replace("{}", key)).unwrap();
         writeln!(out, "{indent}    pub const {}: Rgb = {value};", key.to_ascii_uppercase()).unwrap();
     }
 }
@@ -41,7 +43,7 @@ fn generate(json: &Value) -> String {
     out.push_str("\n/// An 8-bit sRGB colour.\npub type Rgb = [u8; 3];\n\n");
 
     let bands = &json["bands"];
-    module(&mut out, "The 3-band waveform.", "bands", bands, &["low", "mid", "high"], "");
+    module(&mut out, "The 3-band waveform.", "bands", bands, &["low", "mid", "high"], "The {} band.", "");
     let scale = |k: &str| bands["scales"][k].as_f64().unwrap_or_else(|| panic!("bands.scales.{k} isn't a number"));
     out.push_str("    /// Each band's height against the lows' (low, mid, high): lows outermost, the highs a bright\n");
     out.push_str("    /// core.\n");
@@ -56,31 +58,32 @@ fn generate(json: &Value) -> String {
         "phrases",
         &json["phrases"],
         &phrases,
+        "The {} phrase kind.",
         "",
     );
     out.push_str("}\n\n");
     let light_doc = "The phrase kinds for a light background: 3:1 on a near-white page, so the strips stand out.";
-    module(&mut out, light_doc, "phrases_light", &json["phrasesLight"], &phrases, "");
+    module(&mut out, light_doc, "phrases_light", &json["phrasesLight"], &phrases, "The {} phrase kind.", "");
     out.push_str("}\n\n");
 
     let cue_doc = "Cues without a colour of their own, for a dark background.";
-    module(&mut out, cue_doc, "cues", &json["cues"], &["hot", "memory", "loop"], "");
+    module(&mut out, cue_doc, "cues", &json["cues"], &["hot", "memory", "loop"], "A {} cue.", "");
     out.push_str("}\n\n");
     let cue_doc = "The cue defaults for a light background: 3:1 on a near-white page, so the marks stand out.";
-    module(&mut out, cue_doc, "cues_light", &json["cuesLight"], &["hot", "memory", "loop"], "");
+    module(&mut out, cue_doc, "cues_light", &json["cuesLight"], &["hot", "memory", "loop"], "A {} cue.", "");
     out.push_str("}\n\n");
 
     let colors = ["pink", "red", "orange", "yellow", "green", "aqua", "blue", "purple"];
     let track_doc = "rekordbox's track colours (and memory cue colour table), roughly as its players show them.";
-    module(&mut out, track_doc, "track_colors", &json["trackColors"], &colors, "");
+    module(&mut out, track_doc, "track_colors", &json["trackColors"], &colors, "rekordbox's {}.", "");
     out.push_str("}\n\n");
 
     out.push_str("/// Good, warning and critical.\npub mod status {\n    use super::Rgb;\n\n");
     let levels = ["good", "warning", "critical"];
-    module(&mut out, "For a dark background.", "dark", &json["status"]["dark"], &levels, "    ");
+    module(&mut out, "For a dark background.", "dark", &json["status"]["dark"], &levels, "The {} level.", "    ");
     out.push_str("    }\n\n");
     let light_doc = "For a light background: 4.5:1 on a near-white page, so they work as text.";
-    module(&mut out, light_doc, "light", &json["status"]["light"], &levels, "    ");
+    module(&mut out, light_doc, "light", &json["status"]["light"], &levels, "The {} level.", "    ");
     out.push_str("    }\n}\n\n");
 
     writeln!(out, "/// The playhead.\npub const PLAYHEAD: Rgb = {};", rgb(&json["playhead"], "playhead")).unwrap();

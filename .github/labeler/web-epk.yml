@@ -1,0 +1,16 @@
+"web: epk":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/epk/**"
+          - "apps/web/src/routes/projects/*/epk/**"
+          - "apps/web/src/routes/dashboard/projects/*/press-kits/**"
+          - "apps/web/src/routes/dashboard/access/**"
+          - "apps/web/src/lib/epk.*"
+          - "apps/web/src/lib/epk-schema.*"
+          - "apps/web/src/lib/components/epk/**"
+          - "apps/web/src/lib/server/epk-page.*"
+          - "apps/web/src/lib/server/forms/epk.*"
+          - "apps/web/src/lib/server/services/epk.*"
+          - "apps/web/src/lib/server/services/epk-*.*"
+          - "lexicons/computer/localnetwork/epk.json"
+          - "lexicons/computer/localnetwork/epk/**"

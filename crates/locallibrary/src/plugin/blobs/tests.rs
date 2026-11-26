@@ -69,7 +69,7 @@ enum Leads {
 /// waiting on the pipe); a fetch may write to any plain name but through a link.
 #[cfg(unix)]
 #[hegel::test(test_cases = 200)]
-fn a_blob_is_a_file_in_the_scratch_folder_and_nothing_else(tc: TestCase) {
+fn prop_a_blob_is_a_file_in_the_scratch_folder_and_nothing_else(tc: TestCase) {
     let (dir, scratches, scratch) = made();
     let folder = scratch.dir().unwrap().to_path_buf();
     let outside = dir.path().join("outside.jpg");

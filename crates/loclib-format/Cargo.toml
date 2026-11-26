@@ -1,0 +1,53 @@
+[package]
+name = "loclib-format"
+description = "Find USB drives and SD cards and format them with the operating system's own tools, plus a FAT32 writer for volumes up to 2 TiB with a chosen cluster size"
+readme = "README.md"
+keywords = ["fat32", "format", "filesystem", "usb", "disk"]
+categories = ["filesystem", "hardware-support"]
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.localnetwork]
+labels = ["locallibrary: drives"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+base64.workspace = true
+blake3.workspace = true
+chrono.workspace = true
+hegeltest = { workspace = true, optional = true }
+loclib-equipment.workspace = true
+loclib-progress.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "std"] }
+serde_json.workspace = true
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+# Independent FAT reader used to check the FAT32 formatter.
+fatfs = "0.3"
+hegeltest = { workspace = true, features = ["chrono"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `JsonSchema` for Disk, Volume, Scheme and Filesystem.
+schemars = ["dep:schemars", "loclib-equipment/schemars"]
+# `test_util`: a sample disk, Hegel generators of disks, the disk image a test may format, the
+# JSON readers and PowerShell runner, and stand-ins for the system's disk tools. For
+# dev-dependencies only: with it on, `Disk::problem` and Linux's listing let through the disk
+# image `TEST_IMAGE` names.
+test-util = ["dep:hegeltest", "dep:tempfile"]
+
+[target."cfg(windows)".dependencies]
+uuid.workspace = true

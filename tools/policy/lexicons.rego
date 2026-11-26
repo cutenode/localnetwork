@@ -41,6 +41,23 @@ deny contains msg if {
 	msg := sprintf("%s: other authorities' lexicons come from the network, not the repo: add the NSID to the lexicon manifest instead", [path])
 }
 
+# Every string in our lexicons has a limit: a format, or a maxLength (and a maxGraphemes, for text
+# people write). goat's lint reports a missing one only at info level, beside lints we don't hold
+# to, and without naming the field.
+deny contains msg if {
+	some path in documents
+	startswith(path, "lexicons/computer/")
+	some field in unlimited(lib.file(path))
+	msg := sprintf("%s: %s needs a maxLength (and a maxGraphemes, for text people write) or a format", [path, field])
+}
+
+# Where each string without a limit is in `document`, as its keys joined with dots.
+unlimited(document) := {concat(".", [sprintf("%v", [step]) | some step in at]) |
+	walk(document, [at, value])
+	value.type == "string"
+	count(object.keys(value) & {"format", "maxLength", "maxGraphemes"}) == 0
+}
+
 allowed(group) if group in shared
 
 allowed(group) if group in lib.apps

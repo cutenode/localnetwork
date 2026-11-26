@@ -5,7 +5,7 @@ use crate::common::{self, rot};
 use std::path::Path;
 
 use locallibrary::device::Device;
-use locallibrary::onelibrary::{self, OneLibrary};
+use locallibrary::onelibrary;
 use locallibrary::player;
 use locallibrary::progress::Ctx;
 use locallibrary::scrub::{self, FileProblem, ReferenceKind, RepairSource, ScrubOptions, ScrubReport};
@@ -275,7 +275,7 @@ fn a_checkpoint_leaves_the_database_intact_and_its_wal_not_missing() {
     sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap();
     assert!(store.load_snapshot(&head(&store)).unwrap().files.iter().any(|f| f.path == paths::LIBRARY_PLUS_WAL));
 
-    onelibrary::write(&d, &OneLibrary::open(&d).unwrap().to_encrypted().unwrap()).unwrap();
+    onelibrary::write(&d, &d.library_plus().unwrap().to_encrypted().unwrap()).unwrap();
     assert!(!d.path(paths::LIBRARY_PLUS_WAL).exists());
 
     let r = scrub(&d, Some(&store), &ScrubOptions::default());

@@ -5,9 +5,9 @@
 //! symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. Reading a file's audio
 //! ([`format()`], [`check_tracks`], mix fingerprinting) and opening it to play happen inside
 //! [`guarded`], so one bad file is that file's error rather than a crash. The player catches a
-//! panic while decoding as it plays on its own audio thread. An MP4 claiming more than it holds
-//! would make symphonia abort the process, which nothing can catch: [`vet_container`] refuses it
-//! first.
+//! panic while decoding as it plays on its own audio thread. An MP4 or FLAC claiming more than it
+//! holds would make symphonia abort the process, which nothing can catch: [`vet_container`]
+//! refuses it first.
 
 use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};

@@ -108,8 +108,8 @@ export const isExpired = (expiresAt: string | null | undefined) => !!expiresAt &
 
 export type SharedSpaceView = { uri: string; kind: SpaceKind; listed: boolean; createdBy: string; createdAt: string };
 
-/** A record in a shared space. */
-type SpaceRecordChange = { space: string; collection: string; rkey: string; value: JsonObject };
+/** A record in a shared space. A synced one has its `cid`, which `value` may no longer give (currentSpaceUris). */
+type SpaceRecordChange = { space: string; collection: string; rkey: string; value: JsonObject; cid?: string };
 
 /** What a change sees and does: the space's kind, and its people as the root's repo has them now, by DID. */
 export type LiveSpace = { space: string; kind: SpaceKind; root: RootRepoClient; people: Map<string, PersonRecord> };
@@ -629,7 +629,7 @@ export class SharedSpaces {
 	}
 
 	/** Saves a shared space's record to the index, or returns false when it isn't one this app reads. */
-	private async save(kind: SpaceKind, { space, collection, rkey, value }: SpaceRecordChange): Promise<boolean> {
+	private async save(kind: SpaceKind, { space, collection, rkey, value, cid }: SpaceRecordChange): Promise<boolean> {
 		const { db } = this.core;
 
 		switch (collection) {
@@ -726,7 +726,7 @@ export class SharedSpaces {
 			case COLLECTION.event:
 				return (
 					kind === 'party' &&
-					indexEvent(db, space, rkey, spaceRecordUri(space, this.core.rootDid, COLLECTION.event, rkey), value)
+					indexEvent(db, space, rkey, spaceRecordUri(space, this.core.rootDid, COLLECTION.event, rkey), value, cid)
 				);
 
 			case COLLECTION.party:

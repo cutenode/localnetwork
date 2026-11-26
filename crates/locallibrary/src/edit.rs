@@ -34,14 +34,17 @@ use crate::fields::TrackValues;
 use crate::fsutil;
 use crate::harmony;
 use crate::hash::Hash;
-use crate::model::{Library, LibraryDiff, MAX_DEPTH, Playlist, PlaylistKey, Track, TrackColor, TrackRef, is_isrc};
-use crate::onelibrary::{OneLibrary, Tree};
+use crate::model::{
+    AudioFile, Library, LibraryDiff, MAX_DEPTH, Playlist, PlaylistKey, Track, TrackFields, TrackRef, is_isrc,
+};
+use crate::onelibrary::OneLibrary;
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
 use crate::query::{self, DriveContext, Filter, TrackSelector};
 use crate::tags::TagChange;
 use crate::{Error, Result};
+use loclib_rekordbox_db::onelibrary::Tree;
 
 // ---------------------------------------------------------------------------------------------
 // Edits
@@ -245,199 +248,38 @@ pub struct HistoryList {
     pub tracks: Vec<String>,
 }
 
-/// New values for track details; fields left out stay as they are, and an empty name clears
-/// artist, album, genre, label, key and the like (an empty ISRC or release date clears it too).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct TrackFields {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub artist: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub album: Option<String>,
-    /// The databases keep it with the album, so a track needs one (given here too, or its own).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub album_artist: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub genre: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remixer: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub original_artist: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub composer: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mix_name: Option<String>,
-    /// 0-5 stars.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rating: Option<u8>,
-    /// A colour name (`aqua`), rekordbox's number (1-8), or `none`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub year: Option<u16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub play_count: Option<u16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_number: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disc_number: Option<u16>,
-    /// 1-999.99, kept to hundredths as rekordbox keeps it. The beat grid in the analysis files,
-    /// which players count beats by, stays as it is.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bpm: Option<f64>,
-    /// Like `GBDUW0000059`: two letters, three letters or digits, and seven digits.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub isrc: Option<String>,
-    /// `YYYY-MM-DD`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub release_date: Option<String>,
-}
-
-impl TrackFields {
-    /// The colour to set: `None` leaves it, `Some(None)` clears it.
-    pub fn color_value(&self) -> Result<Option<Option<TrackColor>>> {
-        self.color.as_deref().map(query::parse_color).transpose()
+/// Refuses fields an edit can't set: none at all, or a value out of range or not understood.
+fn validate_fields(f: &TrackFields) -> Result<()> {
+    if f.is_empty() {
+        return Err(Error::invalid("give at least one field to change"));
     }
-
-    pub fn is_empty(&self) -> bool {
-        *self == TrackFields::default()
+    if f.rating.is_some_and(|r| r > 5) {
+        return Err(Error::invalid("ratings go from 0 to 5"));
     }
-
-    fn validate(&self) -> Result<()> {
-        if self.is_empty() {
-            return Err(Error::invalid("give at least one field to change"));
-        }
-        if self.rating.is_some_and(|r| r > 5) {
-            return Err(Error::invalid("ratings go from 0 to 5"));
-        }
-        self.color_value()?;
-        if let Some(k) = &self.key
-            && !k.trim().is_empty()
-            && harmony::Camelot::parse(k).is_none()
-        {
-            return Err(Error::invalid(format!("{k:?} isn't a key (8A, Am, 1m...)")));
-        }
-        if self.bpm.is_some_and(|b| !(1.0..=999.99).contains(&b)) {
-            return Err(Error::invalid("BPM goes from 1 to 999.99"));
-        }
-        if let Some(i) = self.isrc.as_deref().filter(|i| !i.is_empty() && !is_isrc(i)) {
-            return Err(Error::invalid(format!("{i:?} isn't an ISRC (like GBDUW0000059)")));
-        }
-        // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` and `2019-05-1` too):
-        // the Traktor export reads the date from the first ten characters.
-        let date = |d: &str| {
-            let digits = d.len() == 10
-                && d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
-            digits && chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()
-        };
-        if let Some(d) = self.release_date.as_deref().filter(|d| !d.is_empty() && !date(d)) {
-            return Err(Error::invalid(format!("{d:?} isn't a release date (YYYY-MM-DD)")));
-        }
-        Ok(())
+    f.color_value().map_err(Error::Invalid)?;
+    if let Some(k) = &f.key
+        && !k.trim().is_empty()
+        && harmony::Camelot::parse(k).is_none()
+    {
+        return Err(Error::invalid(format!("{k:?} isn't a key (8A, Am, 1m...)")));
     }
-
-    /// The details as they will be after the edit.
-    fn apply_to(&self, t: &mut Track) {
-        let set = |v: &Option<String>, f: &mut String| {
-            if let Some(v) = v {
-                *f = v.clone();
-            }
-        };
-        // The databases store no name for these when one is given blank; names the edit leaves
-        // alone are kept as they are.
-        let name = |v: &Option<String>, f: &mut String| {
-            if let Some(v) = v {
-                *f = if v.trim().is_empty() { String::new() } else { v.clone() };
-            }
-        };
-        set(&self.title, &mut t.title);
-        name(&self.artist, &mut t.artist);
-        name(&self.genre, &mut t.genre);
-        name(&self.label, &mut t.label);
-        name(&self.key, &mut t.key);
-        name(&self.remixer, &mut t.remixer);
-        name(&self.original_artist, &mut t.original_artist);
-        name(&self.composer, &mut t.composer);
-        set(&self.comment, &mut t.comment);
-        set(&self.mix_name, &mut t.mix_name);
-        name(&self.album_artist, &mut t.album_artist);
-        set(&self.isrc, &mut t.isrc);
-        set(&self.release_date, &mut t.release_date);
-        name(&self.album, &mut t.album);
-        // As a cleared album's row goes, its artist goes with it.
-        if self.album.is_some() && t.album.is_empty() {
-            t.album_artist.clear();
-        }
-        if let Some(r) = self.rating {
-            t.rating = r;
-        }
-        if let Ok(Some(c)) = self.color_value() {
-            t.color = c;
-        }
-        if let Some(y) = self.year {
-            t.year = y;
-        }
-        if let Some(p) = self.play_count {
-            t.play_count = p;
-        }
-        if let Some(n) = self.track_number {
-            t.track_number = n;
-        }
-        if let Some(n) = self.disc_number {
-            t.disc_number = n;
-        }
-        if let Some(b) = self.bpm {
-            t.bpm = (b * 100.0).round() / 100.0;
-        }
+    if f.bpm.is_some_and(|b| !(1.0..=999.99).contains(&b)) {
+        return Err(Error::invalid("BPM goes from 1 to 999.99"));
     }
-
-    /// `rating 5, colour aqua, genre "Deep House"`.
-    fn describe(&self) -> String {
-        let mut parts = Vec::new();
-        for (name, v) in [
-            ("title", &self.title),
-            ("artist", &self.artist),
-            ("album", &self.album),
-            ("genre", &self.genre),
-            ("label", &self.label),
-            ("key", &self.key),
-            ("remixer", &self.remixer),
-            ("original artist", &self.original_artist),
-            ("composer", &self.composer),
-            ("comment", &self.comment),
-            ("mix", &self.mix_name),
-            ("album artist", &self.album_artist),
-            ("colour", &self.color),
-            ("ISRC", &self.isrc),
-            ("release date", &self.release_date),
-        ] {
-            if let Some(v) = v {
-                parts.push(format!("{name} {v:?}"));
-            }
-        }
-        for (name, v) in [
-            ("rating", self.rating.map(u32::from)),
-            ("year", self.year.map(u32::from)),
-            ("play count", self.play_count.map(u32::from)),
-            ("track number", self.track_number),
-            ("disc", self.disc_number.map(u32::from)),
-        ] {
-            if let Some(v) = v {
-                parts.push(format!("{name} {v}"));
-            }
-        }
-        if let Some(b) = self.bpm {
-            parts.push(format!("BPM {}", (b * 100.0).round() / 100.0));
-        }
-        parts.join(", ")
+    if let Some(i) = f.isrc.as_deref().filter(|i| !i.is_empty() && !is_isrc(i)) {
+        return Err(Error::invalid(format!("{i:?} isn't an ISRC (like GBDUW0000059)")));
     }
+    // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` and `2019-05-1` too):
+    // the Traktor export reads the date from the first ten characters.
+    let date = |d: &str| {
+        let digits = d.len() == 10
+            && d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
+        digits && chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()
+    };
+    if let Some(d) = f.release_date.as_deref().filter(|d| !d.is_empty() && !date(d)) {
+        return Err(Error::invalid(format!("{d:?} isn't a release date (YYYY-MM-DD)")));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -899,7 +741,7 @@ impl EditDb for PdbDb {
     }
     fn set_fields(&mut self, ids: &[u32], at: &[usize], f: &TrackFields) -> Result<()> {
         self.note_lookups(ids, false);
-        let color = f.color_value()?;
+        let color = f.color_value().map_err(Error::Invalid)?;
         // Each id's album as its first track has it.
         let mut albums: FxHashMap<u32, (String, String)> = FxHashMap::default();
         for t in at.iter().map(|&i| &self.lib.tracks[i]) {
@@ -995,7 +837,7 @@ impl EditDb for PdbDb {
     }
     fn set_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, _: i32) -> Result<()> {
         self.editor.set_track_strings(id, &[("file_path", path), ("filename", file_name(path))])?;
-        self.editor.set_track_field(id, "file_type", rekordbox_pdb::file_type_code(path).into())?;
+        self.editor.set_track_field(id, "file_type", loclib_model::audio::file_type_code(path).into())?;
         if let Some(f) = file {
             self.editor.set_track_field(id, "file_size", self.stored_size(f.size) as u32)?;
             self.editor.set_track_field(id, "sample_rate", f.sample_rate)?;
@@ -1023,35 +865,35 @@ impl EditDb for PlusDb {
         &mut self.lib
     }
     fn create(&mut self, name: &str, parent: u32, folder: bool) -> Result<u32> {
-        self.one.create_playlist(name, parent, folder)
+        Ok(self.one.create_playlist(name, parent, folder)?)
     }
     fn rename(&mut self, id: u32, name: &str) -> Result<()> {
-        self.one.rename_node(Tree::Playlist, id, name)
+        Ok(self.one.rename_node(Tree::Playlist, id, name)?)
     }
     fn place(&mut self, id: u32, parent: u32, sort_order: u32) -> Result<()> {
-        self.one.place_node(Tree::Playlist, id, parent, sort_order)
+        Ok(self.one.place_node(Tree::Playlist, id, parent, sort_order)?)
     }
     fn delete(&mut self, ids: &[u32]) -> Result<()> {
-        self.one.remove_nodes(Tree::Playlist, ids)
+        Ok(self.one.remove_nodes(Tree::Playlist, ids)?)
     }
     fn set_entries(&mut self, id: u32, tracks: &[u32]) -> Result<()> {
-        self.one.set_playlist_entries(id, tracks)
+        Ok(self.one.set_playlist_entries(id, tracks)?)
     }
     fn set_fields(&mut self, ids: &[u32], _: &[usize], fields: &TrackFields) -> Result<()> {
-        self.one.set_track_fields(ids, fields)
+        Ok(self.one.set_track_fields(ids, fields)?)
     }
     fn delete_tracks(&mut self, ids: &[u32]) -> Result<()> {
-        self.one.remove_tracks(ids)
+        Ok(self.one.remove_tracks(ids)?)
     }
     fn repoint(&mut self, from: u32, to: u32) -> Result<()> {
         self.one.repoint_track(from, to)?;
         Ok(())
     }
     fn set_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, shift_ms: i32) -> Result<()> {
-        self.one.set_track_path(id, path, file, shift_ms)
+        Ok(self.one.set_track_path(id, path, file, shift_ms)?)
     }
     fn delete_history(&mut self, ids: &[u32]) -> Result<()> {
-        self.one.remove_nodes(Tree::History, ids)
+        Ok(self.one.remove_nodes(Tree::History, ids)?)
     }
 }
 
@@ -1908,7 +1750,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             Edit::EditTracks { tracks, fields } => {
-                fields.validate()?;
+                validate_fields(fields)?;
                 let ids = self.select(lib, tracks, false)?;
                 if fields.album_artist.as_deref().is_some_and(|a| !a.trim().is_empty()) {
                     let no_album = lib
@@ -2225,16 +2067,6 @@ pub struct EditOptions {
     /// Don't record the edits in the drive's journal.
     #[serde(default)]
     pub no_journal: bool,
-}
-
-/// What a track's rows say about its audio file, for a track pointed at another encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct AudioFile {
-    pub size: u64,
-    pub sample_rate: u32,
-    pub bit_depth: u16,
-    /// kbps.
-    pub bitrate: u32,
 }
 
 fn is_zero(n: &i32) -> bool {
@@ -3476,10 +3308,11 @@ pub mod journal {
     /// and its entries can hold edits older builds don't know (`set_entries`,
     /// `delete_history_lists`, `my_tag`, `cues`); 3 adds `set_artwork`, and track details 2 would
     /// drop (`album_artist`, `bpm`, `isrc`, `release_date`); 4 adds `set_analysis` and cue edits
-    /// setting several (`set_many`); 5 adds `delete_unbacked`. Each is written only when an entry
+    /// setting several (`set_many`); 5 adds `delete_unbacked`; 6 adds cues placed from a style
+    /// (`auto`). Each is written only when an entry
     /// uses what it adds. A journal of a later version is refused rather than misread or
     /// overwritten.
-    pub const VERSION: u32 = 5;
+    pub const VERSION: u32 = 6;
 
     #[derive(Serialize)]
     struct Versioned<'a> {
@@ -3526,12 +3359,14 @@ pub mod journal {
         staged(entries).into_iter().try_for_each(|(kind, keep)| kind.prune(device, &keep))
     }
 
-    /// The version `entries` need: 5 once one leaves files out of a backup, 4 once one holds an
+    /// The version `entries` need: 6 once one places cues from a style (`cues auto`), 5 once one
+    /// leaves files out of a backup, 4 once one holds an
     /// analysis edit or a cue edit setting several, 3 once one holds an artwork edit or a track
     /// detail 3 added, else 2, so a build that reads an older one keeps editing a drive whose
     /// edits use nothing newer.
     fn version(entries: &[JournalEntry]) -> u32 {
         let needs = |e: &Edit| match e {
+            Edit::Cues { change: crate::cue_edit::CueChange::Auto(_), .. } => 6,
             Edit::DeleteUnbacked { .. } => 5,
             Edit::SetAnalysis { .. } | Edit::Cues { change: crate::cue_edit::CueChange::SetMany(_), .. } => 4,
             Edit::SetArtwork { .. } => 3,

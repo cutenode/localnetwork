@@ -1,0 +1,2 @@
+# Written by tools/regen/model-tokens.sh, which a merge reruns instead of conflicting (tools/regen/regen.ts).
+tokens.rs merge=regen regen=model-tokens

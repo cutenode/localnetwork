@@ -199,7 +199,7 @@ fn plugin_checks_lists_and_changes_them() {
 /// sidecar puts it back first), only a time from a millisecond to an hour is taken, and a check
 /// is named as PLUGIN.CHECK: a change refused changes nothing.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn plugin_checks_lists_every_change_made(tc: TestCase) {
+fn prop_plugin_checks_lists_every_change_made(tc: TestCase) {
     let env = env();
     // Each check, whether it's a guard (run before a plan is applied), and whether it runs by default.
     let checks = [("untitled", false, true), ("edits", true, false), ("found", false, true), ("guard", true, true)];
@@ -324,7 +324,7 @@ fn plugin_checks_lists_every_change_made(tc: TestCase) {
 /// own, and exits 4 exactly when there's a problem among them all. A finding's fix is said as the
 /// command line that runs its plugin's operation, its params (any) quoted for the shell.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn check_exits_on_a_plugins_problems_as_on_its_own(tc: TestCase) {
+fn prop_check_exits_on_a_plugins_problems_as_on_its_own(tc: TestCase) {
     let env = env();
     let levels: Vec<&str> =
         tc.draw(gs::vecs(gs::sampled_from(vec!["info", "warning", "problem"])).min_size(1).max_size(4));

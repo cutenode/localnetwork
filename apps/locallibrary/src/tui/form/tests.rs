@@ -152,7 +152,7 @@ fn the_schema_is_checked_on_the_field() {
 /// A whole number typed in is a param exactly when it reads as one; left empty, the form is
 /// short of it only when it's needed.
 #[hegel::test(test_cases = 200)]
-fn a_whole_number_is_taken_when_it_reads_as_one(tc: hegel::TestCase) {
+fn prop_a_whole_number_is_taken_when_it_reads_as_one(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let required = tc.draw(gs::booleans());
     let schema = format!(
@@ -174,7 +174,7 @@ fn a_whole_number_is_taken_when_it_reads_as_one(tc: hegel::TestCase) {
 /// Keys in any order keep the form whole: a field is always selected, a switch is on or off and
 /// a choice is one of its choices, and what's typed goes to the field selected alone.
 #[hegel::test(test_cases = 200)]
-fn keys_keep_the_form_whole(tc: hegel::TestCase) {
+fn prop_keys_keep_the_form_whole(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = blank(View::Library);
     let f = form(
@@ -213,7 +213,7 @@ fn keys_keep_the_form_whole(tc: hegel::TestCase) {
 /// `KEY=VALUE` (the last of a key winning), the path made absolute (`~` for home, quotes taken
 /// off); a pair without `=` is said on its field, and a number the schema refuses on its own.
 #[hegel::test(test_cases = 200)]
-fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
+fn prop_what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut f = form(
         r#"params = { type = "object", properties = { ids = { type = "array", items = { type = "integer" } }, pick = { type = "object", additionalProperties = { type = "integer" } }, file = { type = "string", x-path = true }, n = { type = "integer", minimum = 1 } } }"#,
@@ -286,7 +286,7 @@ fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
 /// keeps the field selected, one outside closes it; the wheel and other buttons change nothing.
 /// Enter with a field that's needed left empty selects it and says so under the fields.
 #[hegel::test(test_cases = 100)]
-fn a_click_selects_the_field_under_it_or_closes_the_form(tc: hegel::TestCase) {
+fn prop_a_click_selects_the_field_under_it_or_closes_the_form(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
     let (mut app, _dir) = blank(View::Library);

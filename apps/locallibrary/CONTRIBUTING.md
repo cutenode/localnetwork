@@ -6,19 +6,23 @@ repository root. Paths below that start with `crates/`, `vendor/`, `plugins/` or
 from there; the rest are from this folder.
 
 ```bash
-cargo test --workspace --locked     # unit + integration tests against real rekordbox export fixtures
+cargo nextest run --workspace --locked   # unit + integration tests against real rekordbox export fixtures
+cargo test --doc --workspace --locked    # the doctests, which nextest doesn't run
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo fmt --all --check
-RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+cargo doc-strict                         # the docs, with rustdoc's warnings as errors
 ```
 
-CI expects all four to pass, and the builds without the default features to build and pass
+Run the tests with nextest, as CI does: `.config/nextest.toml` gives each test its timeout and
+the wall-clock budget tests the whole machine, which plain `cargo test` ignores. `pnpm verify:rust`
+runs all five and the rest of CI's lint job. CI expects them to pass, and the builds without the
+default features to build and pass
 their tests too (see [Install](docs/install.md#install) for the features; CI tests them weekly):
 
 ```bash
-cargo test -p locallibrary-core --no-default-features --locked
-cargo test -p locallibrary --no-default-features --locked
-cargo test -p locallibrary --no-default-features --features account --locked
+cargo nextest run -p locallibrary-core --no-default-features --locked
+cargo nextest run -p locallibrary --no-default-features --locked
+cargo nextest run -p locallibrary --no-default-features --features account --locked
 cargo clippy -p locallibrary --no-default-features --features tui,account --all-targets --locked -- -D warnings
 ```
 
@@ -32,8 +36,8 @@ locallibrary: it depends on them, re-exports them where their code used to live,
 their errors into its own in `crates/locallibrary/src/error.rs`, keeping the messages and RPC
 error codes. Their tests sit beside their code (`cargo test -p loclib-tracklist`), and tests that
 need locallibrary's fixtures stay in locallibrary. Each one's README is its crate docs, so the
-README's examples are doctests: run `cargo test --doc -p <crate>` after changing one, since CI
-skips changes to Markdown alone.
+README's examples are doctests: run `cargo test --doc -p <crate>` after changing one (CI runs the
+doctests and docs when a loclib crate's README changes).
 
 The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrary-plugin-<id>`),
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
@@ -55,8 +59,9 @@ the msrv job in `locallibrary-ci.yml`.
 
 CI (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
 pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
-Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
-merge, or on a pull request with the `all-os` label (add it, then re-run CI):
+Linux, and pull requests on Windows too (`other-os`). macOS runs in the merge queue, once for each
+group of pull requests about to merge, or on a pull request with the `all-os` label (add it, then
+re-run CI). The queue runs Windows again unless the pull request passed it on the same files:
 
 | Job | What it runs |
 | --- | --- |
@@ -64,8 +69,8 @@ merge, or on a pull request with the `all-os` label (add it, then re-run CI):
 | `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
-| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
-| `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
+| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`cargo hegel-coverage`); its totals sit beside the whole suite's |
+| `other-os` | on macOS and Windows, without coverage: `cargo nextest run` in 2 shards, and clippy and the doctests, in a job of their own on Windows and with the first shard on macOS |
 | `fuzz` | on pull requests that change what the fuzz targets reach: every target for a minute (see Fuzzing) |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
@@ -112,6 +117,8 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - dist's release build of every target, unsigned and without a tag (see Releasing);
+- `cargo publish --workspace --dry-run`, which builds each loclib crate from its packaged files
+  alone (see Releasing crates);
 - every fuzz target, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
@@ -164,7 +171,7 @@ OneLibrary fixtures (`onelibrary/`, rekordbox's schema with synthetic tracks) ar
 `sqlcipher` CLI, so reading is checked against an independent SQLCipher. An ignored test remakes
 them: `cargo test -p locallibrary-core --test it remake_sqlcipher_fixtures -- --ignored`. With
 `sqlcipher` installed, the tests that merge, clean, convert or edit a OneLibrary database also
-have it check the result (`tests/support/sqlcipher.rs`); without it they skip that check, unless
+have it check the result (loclib-testkit's `sqlcipher`); without it they skip that check, unless
 `LOCALLIBRARY_REQUIRE_SQLCIPHER=1` is set, as in CI, which makes them fail.
 
 Publishing is tested against a pretend data server on 127.0.0.1
@@ -181,7 +188,7 @@ touches the computer's keychain or goes on the network.
 ```bash
 cargo coverage              # the tests under coverage, with a summary per file
 cargo coverage --open       # and an HTML report
-tools/hegel-coverage.sh     # the property tests alone, against the same thresholds (from the repository root)
+cargo hegel-coverage        # the property tests alone, against the same thresholds
 ```
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
@@ -190,20 +197,27 @@ function or region coverage drops below the thresholds there, just under what CI
 Linux; raise them when coverage goes up. It
 measures only the code that ships: unit tests live in a module's own `tests.rs` (`foo.rs` declares
 `#[cfg(test)] mod tests;`, and the tests are in `foo/tests.rs`), which the alias leaves out with the
-TUI's other test-only files (`props.rs`, `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new
+TUI's other test-only files (`props.rs`, `screens.rs`, `stories.rs`, `testing.rs`), `test_util.rs`,
+loclib-testkit and the test plugin. Keep new
 unit tests in those files, not inline. It needs `cargo-llvm-cov` and `cargo-nextest`, and the
 `llvm-tools` that `rust-toolchain.toml` installs, found through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
 proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
 
-`tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
-function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
-the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job
-runs it on Linux, from the test archive. It also needs `rg`. Code it reports as missed is code no
-property reaches: a place where a new or wider generator would test more. It names every test in
-its nextest filter, so it packs them into filtersets of at most 96 KiB, each its own `-E`, under
-Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
-`tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
-same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
+`cargo coverage` builds a second, instrumented copy of the workspace, about 25 GB per checkout, so
+check you have that free; `cargo llvm-cov clean --workspace` gives it back. Don't share one
+`CARGO_TARGET_DIR` between checkouts or worktrees of this repository: cargo tells their packages apart
+by path inside the workspace, which is the same in each, so one checkout can reuse another's builds
+and test stale code. [sccache](https://github.com/mozilla/sccache) is the safe way to share
+compiles. On a Mac, run it awake ([Long runs on macOS](../../.github/CONTRIBUTING.md#long-runs-on-macos)).
+
+`cargo hegel-coverage` runs `cargo coverage` over only the `#[hegel::test]` tests, and so fails
+below the same thresholds: the properties alone have to reach what the whole suite does. CI's
+`hegel` job runs it on Linux, from the test archive. Code it reports as missed is code no property
+reaches: a place where a new or wider generator would test more. It picks the tests by name, through
+nextest's `hegel` profile (`.config/nextest.toml`), so every `#[hegel::test]` function is named
+`prop_*` (the `hegel-test-name` ast-grep rule checks it), and the fixed examples beside them in the
+`props_*` modules aren't. The scheduled workflow's `hegel` job runs the same tests through that
+profile.
 
 Run one coverage run at a time in a checkout. Both commands build into the same
 `target/llvm-cov-target`, and cargo-llvm-cov deletes the old build output there when it starts, so
@@ -326,7 +340,7 @@ plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):
 ```bash
 sqlite3 fuzz/seeds/masterdb/master.db '.read fuzz/seeds/masterdb.sql'
 sqlite3 fuzz/seeds/onelibrary/plain.db '.filectrl reserve_bytes 80' \
-  '.read crates/locallibrary/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
+  '.read crates/loclib-rekordbox-db/src/onelibrary/schema.sql' '.read crates/locallibrary/tests/fixtures/onelibrary/wal.sql'
 cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/onelibrary/with-wal.db
 ```
 
@@ -336,7 +350,7 @@ cat crates/locallibrary/tests/fixtures/onelibrary/wal.db{,-wal} > fuzz/seeds/one
 report in headless Chrome with random keys, clicks and resizes, checking properties over time
 (`bombadil/tui.ts`, `bombadil/report.ts`): the header and footer are always drawn, the deck stays on
 screen, `g` and a letter switches views, help opens and closes, a typed line keeps its cursor in view, edits finish, the report's
-counts agree and its player stays consistent. macOS and Linux only, with Node 22:
+counts agree and its player stays consistent. macOS and Linux only, with the Node in `.node-version`:
 
 ```bash
 cd bombadil && npm ci       # from this folder
@@ -410,7 +424,7 @@ is built from, among them the vendored rekordbox-pdb's, which `template.pdb` is 
 build jobs write it with `cargo notices` ([cargo-about](https://github.com/EmbarkStudios/cargo-about),
 set up in the root's `about.toml` and `about.hbs`) before dist builds, and the Homebrew formula
 installs it in `share/locallibrary`. `about.toml` accepts the licences `deny.toml` allows, which
-`tools/policy.sh` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
+`pnpm policy` checks, and `locallibrary-ci.yml`'s deny job writes the notices on pull requests
 that change the lockfile or their configuration. To see what it writes, run `cargo install
 --locked cargo-about` and then `cargo notices`, which writes `THIRD-PARTY-NOTICES.md` at the root.
 
@@ -455,10 +469,21 @@ publishing, so no crates.io token is stored anywhere.
    dependencies first, and tags it `<crate>-v<version>`.
 
 crates.io takes a crate's first version only from a token, and only then lets it trust a
-workflow. So for a new crate, or for all of them the first time, run `tools/crates-io.sh` to see
-what's missing and `tools/crates-io.sh setup` to fix it. It sets up the `crates-io` environment
-(deploys from `main` only), publishes the crates crates.io doesn't have, has every crate trust
-the workflow, and turns on "require trusted publishing" so a token can't publish them again.
-Make the token it asks for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`,
-with the scopes `publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. The
-environment needs `gh` signed in as a repository admin.
+workflow. So for a new crate, or for all of them the first time, run
+`node tools/crates-io/cli.ts status` to see what's missing and `node tools/crates-io/cli.ts setup`
+to fix it. Until then the workflow publishes nothing, and its notice names the crates crates.io
+doesn't have. Setup checks the names and runs `cargo publish --dry-run` over the new crates first,
+and changes nothing if either fails. Then it sets up the `crates-io` environment (deploys from
+`main` only), publishes the crates crates.io doesn't have, has every crate trust the workflow, and
+turns on "require trusted publishing" so a token can't publish them again. Make the token it asks
+for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`, with the scopes
+`publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. Setup stops before
+changing anything unless the token is from an account in `OWNERS` and has `trusted-publishing`.
+The environment needs `gh` signed in as a repository admin.
+
+`node tools/crates-io/cli.ts check` is the name check on its own. Pull requests that change a
+crate's `Cargo.toml` or add a crate run it, and `node tools/crates-io/cli.ts package`, which runs
+`cargo package` over the crates without building them. The name check fails when any spelling of
+a crate's name is on crates.io and the crate isn't ours there, under its exact name with an owner
+in `OWNERS` (`tools/crates-io/names.ts`): crates.io counts `loclib-aup` and `loclib_aup` as the
+same name. A crate crates.io doesn't have yet gets a warning to run setup.

@@ -8,8 +8,9 @@ out of [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/lo
 
 `MODELS` is the table. `find` looks one up however it's spelled, `Model::reads` says
 whether it reads a file system, and `Model::plays` whether it plays a format at a sample rate and
-bit depth. Every model names the manual or notice its values come from, and a value no source
-confirmed is marked `inferred`, so a check built on it can say "probably".
+bit depth. `exfat_list` and `no_exfat_list` name the models that read exFAT (with the firmware
+each needs) and the ones that don't. Every model names the manual or notice its values come from,
+and a value no source confirmed is marked `inferred`, so a check built on it can say "probably".
 
 ```rust
 use loclib_equipment::{Codec, FsKind, Unplayable, find};
@@ -41,7 +42,8 @@ What the player and all-in-one manuals all say, and so isn't repeated per model:
 partitions only the first is used (or, most add, the one holding a rekordbox library); folders
 are browsed 8 levels deep, showing up to 10,000 entries per folder; the number of folders and
 files is "unlimited", and none gives a limit on the number of tracks. The GUID partition table
-isn't supported (AlphaTheta Help Center), which leaves MBR's 2 TiB as the largest usable drive.
+isn't supported (AlphaTheta Help Center), which leaves MBR's 2 TiB as the largest usable drive
+(`MBR_MAX`).
 
 ## The table as JSON
 
