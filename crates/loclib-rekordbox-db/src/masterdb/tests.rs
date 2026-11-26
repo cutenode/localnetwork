@@ -284,6 +284,36 @@ fn master_db_is_copied_again_when_its_wal_restarts_meanwhile() {
     assert_eq!(wal, Some(generation((3, 4))));
 }
 
+/// A restart while the WAL is being read, after its header was (rekordbox writes the new header
+/// first, then frames that overtake the read), shows only in the header read after it: the
+/// copy is made again, and a WAL that never holds still gives up saying so.
+#[test]
+fn master_db_is_copied_again_when_its_wal_restarts_while_read() {
+    let path = Path::new("master.db");
+    let generation = |salts| Some(loclib_sqlcipher::wal::tests::build(PAGE_SIZE, salts, &[]));
+    // Each copy reads three headers: before the copy, with the whole WAL, and after it.
+    let reads = |torn: u32| {
+        let reads = std::cell::RefCell::new(Vec::new());
+        for round in 0..3 {
+            let restarted = generation((10 + round, 1));
+            let header = if round < torn { restarted } else { generation((1, 2)) };
+            reads.borrow_mut().extend([generation((1, 2)), generation((1, 2)), header]);
+        }
+        reads.borrow_mut().reverse();
+        reads
+    };
+    for torn in [0, 1, 2] {
+        let (reads, copies) = (reads(torn), std::cell::Cell::new(0));
+        let wal =
+            snapshot_with(path, || Ok(copies.replace(copies.get() + 1)), |_| Ok(reads.borrow_mut().pop().unwrap()));
+        assert_eq!(wal.unwrap(), generation((1, 2)), "{torn} torn");
+        assert_eq!(copies.get(), u64::from(torn) + 1);
+    }
+    let reads = reads(3);
+    let err = snapshot_with(path, || Ok(0), |_| Ok(reads.borrow_mut().pop().unwrap())).unwrap_err();
+    assert!(matches!(err, Error::Changing(_)), "{err}");
+}
+
 /// SQLCipher itself, given rekordbox's key as `PRAGMA key` (as pyrekordbox opens master.db):
 /// a database it writes reads here, and it reads the fixtures. Skipped without the sqlcipher
 /// CLI (see loclib-testkit's `sqlcipher`).
