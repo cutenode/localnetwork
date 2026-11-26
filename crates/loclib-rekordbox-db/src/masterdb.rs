@@ -432,8 +432,8 @@ enum Image {
 fn decrypt(path: &Path, key: &str) -> Result<Image> {
     // Read whole first: rekordbox may be writing, and nothing here holds its files open for long.
     let read = std::cell::RefCell::new(Vec::new());
-    let wal = snapshot(path, path, |from, _| {
-        let bytes = std::fs::read(from)?;
+    let wal = snapshot(path, || {
+        let bytes = std::fs::read(path)?;
         let len = bytes.len() as u64;
         *read.borrow_mut() = bytes;
         Ok(len)
@@ -484,11 +484,11 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
     Ok(Image::Decrypted(db, salt))
 }
 
-/// Copy `path` to `to` with `copy` and read its WAL, both as of one moment. rekordbox may
-/// checkpoint and then restart its WAL in between: the copy would lack what the old WAL held and
-/// the new one doesn't. A restart changes the WAL header's checkpoint sequence and salts, so the
-/// header is read before copying too, and the copy made again when it changed.
-fn snapshot(path: &Path, to: &Path, copy: impl Fn(&Path, &Path) -> std::io::Result<u64>) -> Result<Option<Vec<u8>>> {
+/// Copy `path` with `copy` and read its WAL, both as of one moment. rekordbox may checkpoint and
+/// then restart its WAL in between: the copy would lack what the old WAL held and the new one
+/// doesn't. A restart changes the WAL header's checkpoint sequence and salts, so the header is
+/// read before copying too, and the copy made again when it changed.
+fn snapshot(path: &Path, copy: impl Fn() -> std::io::Result<u64>) -> Result<Option<Vec<u8>>> {
     let wal_path = PathBuf::from(format!("{}-wal", path.display()));
     let read_wal = |limit: u64| -> Result<Option<Vec<u8>>> {
         let file = match std::fs::File::open(&wal_path) {
@@ -503,7 +503,7 @@ fn snapshot(path: &Path, to: &Path, copy: impl Fn(&Path, &Path) -> std::io::Resu
     let generation = |wal: &Option<Vec<u8>>| wal.as_ref().and_then(|w| w.get(12..24)).map(<[u8]>::to_vec);
     for _ in 0..3 {
         let before = generation(&read_wal(24)?);
-        copy(path, to).at(path)?;
+        copy().at(path)?;
         let wal = read_wal(u64::MAX)?;
         if generation(&wal) == before {
             return Ok(wal);

@@ -271,10 +271,10 @@ fn master_db_is_copied_again_when_its_wal_restarts_meanwhile() {
     std::fs::write(&wal_path, generation((1, 2))).unwrap();
     // rekordbox checkpoints into master.db and restarts its WAL just after the first copy.
     let copies = std::cell::Cell::new(0);
-    let wal = snapshot(&path, &to, |from: &Path, to: &Path| {
-        let copied = std::fs::copy(from, to);
+    let wal = snapshot(&path, || {
+        let copied = std::fs::copy(&path, &to);
         if copies.replace(copies.get() + 1) == 0 {
-            std::fs::write(from, "after the checkpoint").unwrap();
+            std::fs::write(&path, "after the checkpoint").unwrap();
             std::fs::write(&wal_path, generation((3, 4))).unwrap();
         }
         copied
@@ -1020,12 +1020,12 @@ fn prop_a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
     }
     let restarts = tc.draw(gs::integers::<u32>().max_value(4));
     let copies = std::cell::Cell::new(0u32);
-    let got = snapshot(&path, &to, |from: &Path, to: &Path| {
-        let copied = std::fs::copy(from, to);
+    let got = snapshot(&path, || {
+        let copied = std::fs::copy(&path, &to);
         let n = copies.get();
         copies.set(n + 1);
         if n < restarts {
-            std::fs::write(from, format!("state {}", n + 1)).unwrap();
+            std::fs::write(&path, format!("state {}", n + 1)).unwrap();
             std::fs::write(&wal_path, generation(2 * n + 2)).unwrap();
         }
         copied
@@ -1054,7 +1054,7 @@ fn prop_a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
     {
         std::fs::remove_file(&wal_path).ok();
         std::os::unix::fs::symlink(&wal_path, &wal_path).unwrap();
-        let err = snapshot(&path, &to, |from: &Path, to: &Path| std::fs::copy(from, to)).unwrap_err();
+        let err = snapshot(&path, || std::fs::copy(&path, &to)).unwrap_err();
         assert!(matches!(&err, Error::Io { path, .. } if *path == wal_path), "{err}");
     }
 }
