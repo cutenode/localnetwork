@@ -537,3 +537,53 @@ fn rekordboxs_agent_and_its_helpers_are_the_agent() {
         assert_eq!(super::super::files::is_agent(OsStr::new(name)), is, "{name}");
     }
 }
+
+/// A counter some script left below a stamp is raised to it, even by an edit that stamps nothing,
+/// and a count kept as text in `str_1` rises with `int_1`.
+#[test]
+fn the_counter_is_raised_past_every_stamp() {
+    let f = writable();
+    f.exec(&format!(
+        "UPDATE djmdContent SET rb_local_usn = {} WHERE ID = '4';
+         UPDATE agentRegistry SET int_1 = NULL, str_1 = '{UPDATE_COUNT}' WHERE registry_id = 'localUpdateCount';",
+        UPDATE_COUNT + 50
+    ));
+    let lib = Lib::new(&f, false);
+    let written = write(&lib.target, |_| Ok(())).unwrap();
+    assert_eq!(written.count, (UPDATE_COUNT, UPDATE_COUNT + 50));
+    let stored = "SELECT int_1 || ' ' || str_1 FROM agentRegistry WHERE registry_id = 'localUpdateCount'";
+    assert_eq!(lib.query::<String>(stored), format!("{0} {0}", UPDATE_COUNT + 50));
+    let written = write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap();
+    assert_eq!(written.count, (UPDATE_COUNT + 50, UPDATE_COUNT + 52));
+
+    // Text that isn't a number is no count.
+    let f = writable();
+    f.exec("UPDATE agentRegistry SET int_1 = NULL, str_1 = 'many' WHERE registry_id = 'localUpdateCount'");
+    let lib = Lib::new(&f, false);
+    let e = write(&lib.target, |e| e.set_cues(TRACK, &[])).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
+}
+
+/// Rows that already point nowhere (rekordbox leaves some) don't stop a write; an edit that would
+/// leave a new one fails (SQLite enforces foreign keys on the working copy), and nothing changes.
+#[test]
+fn only_new_rows_pointing_nowhere_are_refused() {
+    let f = writable();
+    f.exec(
+        "PRAGMA foreign_keys = OFF;
+         CREATE TABLE pointer (ID VARCHAR(255) PRIMARY KEY, CueID VARCHAR(255) REFERENCES djmdCue (ID));
+         INSERT INTO pointer VALUES ('old', 'gone');",
+    );
+    let lib = Lib::new(&f, false);
+    write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap();
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| {
+        e.conn()
+            .execute("INSERT INTO pointer VALUES ('new', 'also gone')", [])
+            .map_err(|e| Error::Invalid(e.to_string()))
+    })
+    .unwrap_err();
+    assert!(e.to_string().contains("FOREIGN KEY"), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(lib.leftovers(true), Vec::<String>::new());
+}

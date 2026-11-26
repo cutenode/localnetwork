@@ -132,6 +132,9 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
         return Err(Error::Refused(Refusal::Changed));
     }
 
+    // Rows already pointing nowhere (rekordbox leaves some) aren't this write's to answer for.
+    let pointing_nowhere = dangling(conn).map_err(at)?;
+
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(at)?;
     let mut e = Edit::new(&tx, &backup.0)?;
     let value = edit(&mut e)?;
@@ -139,7 +142,7 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     let (touched, cue_tracks) = (std::mem::take(&mut e.touched), std::mem::take(&mut e.cue_tracks));
     drop(e);
     tx.commit().map_err(at)?;
-    check(conn, count, &touched, &cue_tracks)
+    check(conn, count, &pointing_nowhere, &touched, &cue_tracks)
         .map_err(|why| Error::Refused(Refusal::Odd(format!("the edited copy {why}"))))?;
     drop(db);
 
@@ -319,12 +322,21 @@ fn sync_dir(file: &Path) {
     let _ = file;
 }
 
-/// Checks the edited copy before it's written: SQLite finds it whole, `localUpdateCount` is at
-/// least every stamp, each track `touched` is there, and each one whose `cues` were written has its
-/// `djmdCue` rows and `contentCue` list agreeing. `Err` says what's wrong.
+/// The rows `PRAGMA foreign_key_check` finds pointing at a row that isn't there: (table, rowid,
+/// the table pointed at).
+fn dangling(conn: &Connection) -> rusqlite::Result<FxHashSet<(String, Option<i64>, String)>> {
+    let mut stmt = conn.prepare("SELECT \"table\", rowid, parent FROM pragma_foreign_key_check")?;
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()
+}
+
+/// Checks the edited copy before it's written: SQLite finds it whole, no row points nowhere that
+/// didn't before (`dangling`), `localUpdateCount` is at least every stamp, each track `touched` is
+/// there, and each one whose `cues` were written has its `djmdCue` rows and `contentCue` list
+/// agreeing. `Err` says what's wrong.
 fn check(
     conn: &Connection,
     count: (i64, i64),
+    dangling_before: &FxHashSet<(String, Option<i64>, String)>,
     touched: &FxHashSet<String>,
     cue_tracks: &FxHashSet<String>,
 ) -> std::result::Result<(), String> {
@@ -332,12 +344,8 @@ fn check(
     if let Some(why) = integrity(conn).map_err(sql)? {
         return Err(why);
     }
-    let bad: Option<String> = conn
-        .query_row("SELECT \"table\" FROM pragma_foreign_key_check LIMIT 1", [], |r| r.get(0))
-        .optional()
-        .map_err(sql)?;
-    if let Some(table) = bad {
-        return Err(format!("has a row in {table} pointing at one that isn't there"));
+    if let Some((table, _, parent)) = dangling(conn).map_err(sql)?.difference(dangling_before).next() {
+        return Err(format!("has a row in {table} pointing at one in {parent} that isn't there"));
     }
     let stored = Stamp::count(conn).map_err(sql)?;
     let highest = Stamp::highest(conn).map_err(sql)?;
@@ -372,17 +380,16 @@ struct Stamp {
 }
 
 impl Stamp {
-    /// `localUpdateCount` (`int_1`, else a number in `str_1`), when there's one row of it.
+    /// `localUpdateCount` (`int_1`, else a number in `str_1`), when there's one row of it. Text that
+    /// isn't a number is no count (SQLite's `CAST` would make it 0).
     fn count(conn: &Connection) -> rusqlite::Result<Option<i64>> {
-        let rows: Vec<Option<i64>> = conn
-            .prepare(
-                "SELECT COALESCE(int_1, CAST(str_1 AS INTEGER)) FROM agentRegistry \
-                 WHERE registry_id = 'localUpdateCount'",
-            )?
-            .query_map([], |r| r.get(0))?
+        let rows: Vec<(Option<i64>, Option<String>)> = conn
+            .prepare("SELECT int_1, CAST(str_1 AS TEXT) FROM agentRegistry WHERE registry_id = 'localUpdateCount'")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(match rows[..] {
-            [n] => n,
+        Ok(match &rows[..] {
+            [(Some(n), _)] => Some(*n),
+            [(None, s)] => s.as_deref().and_then(|s| s.trim().parse().ok()),
             _ => None,
         })
     }
@@ -460,14 +467,18 @@ impl<'c> Edit<'c> {
         &self.now
     }
 
-    /// Writes the count back: the last stamp handed out, never less than it was. Answers it before
-    /// and after.
+    /// Writes the count back: the last stamp handed out, which is never less than it was nor than
+    /// any stamp already in the database (with no stamp handed out, a count some script left below
+    /// a stamp is raised to it). A count kept as text in `str_1` is raised there too. Answers it
+    /// before and after.
     fn finish(&mut self) -> Result<(i64, i64)> {
-        let count = self.stamp.was.max(self.stamp.next - 1);
+        let count = self.stamp.next - 1;
         if count != self.stamp.was {
             self.conn
                 .execute(
-                    "UPDATE agentRegistry SET int_1 = ?1, updated_at = ?2 WHERE registry_id = 'localUpdateCount'",
+                    "UPDATE agentRegistry SET int_1 = ?1, \
+                     str_1 = CASE WHEN str_1 IS NOT NULL AND trim(str_1) GLOB '[0-9]*' THEN CAST(?1 AS TEXT) \
+                     ELSE str_1 END, updated_at = ?2 WHERE registry_id = 'localUpdateCount'",
                     rusqlite::params![count, self.now],
                 )
                 .map_err(|e| self.sql(e))?;
