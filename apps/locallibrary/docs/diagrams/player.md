@@ -300,7 +300,7 @@ flowchart TD
     analyzer --> vis["Visualisers"]
 ```
 
-Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/audio/output.rs`](../../src/tui/audio/output.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`crates/loclib-waveform/src/analyzer.rs`](../../../../crates/loclib-waveform/src/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)
+Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/audio/output.rs`](../../src/tui/audio/output.rs), [`src/tui/audio/device.rs`](../../src/tui/audio/device.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`crates/loclib-waveform/src/analyzer.rs`](../../../../crates/loclib-waveform/src/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)
 
 ## Output devices
 
