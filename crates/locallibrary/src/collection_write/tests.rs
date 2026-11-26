@@ -192,6 +192,28 @@ fn cloud_library_sync_refuses_and_keeps_nothing() {
     assert!(staged(&lib.store, &lib.db).unwrap().is_empty());
 }
 
+/// With rekordbox open, an edit with Cloud Library Sync on is refused now rather than kept: it'd
+/// show on the deck as made and never be written.
+#[test]
+fn cloud_library_sync_refuses_an_edit_that_would_wait_too() {
+    let lib = Lib::new(&writable());
+    let log = lib.db.parent().unwrap().parent().unwrap().join("log.log");
+    std::fs::write(&log, "[261126T012213.828-0600] I/sync mode: standalone => cloud\n").unwrap();
+    RUNNING.with(|r| r.store(true, Ordering::Relaxed));
+    let set = SetCue {
+        hot_cue: Some(HotCue(2)),
+        at: CuePosition::Ms(3000),
+        snap: false,
+        loop_beats: None,
+        name: None,
+        color: None,
+    };
+    let plan = api::cues_plan(&lib.edit(CueOp::Set(set)), &Ctx::silent()).unwrap();
+    let e = plan.apply(Some(&lib.store), &Ctx::silent()).unwrap_err();
+    assert!(e.to_string().contains("Cloud Library Sync"), "{e}");
+    assert!(staged(&lib.store, &lib.db).unwrap().is_empty());
+}
+
 #[test]
 fn repair_makes_the_lists_agree() {
     let lib = Lib::new(&writable());

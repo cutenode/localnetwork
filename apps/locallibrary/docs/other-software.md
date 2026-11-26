@@ -48,7 +48,9 @@ edits: the cue rows, the track's cue list (`contentCue`) and its `CueUpdated`, s
 `localUpdateCount`. A cue the edit leaves alone keeps its row. Made while rekordbox or its agent
 runs, an edit waits in the store; the player writes what's waiting once both have quit, or
 `collection apply` does. Nothing is written while Cloud Library Sync is on, or might be: what a
-synced write has to change hasn't been worked out, and the refusal says what made it look on.
+synced write has to change hasn't been worked out, and the refusal says what made it look on. An
+edit made with sync on is refused there and then, even while rekordbox runs, rather than kept to
+wait.
 
 `collection undo` takes back the latest edit as a new change with new stamps (the count only
 rises), leaving a track whose cues changed in rekordbox since; one still waiting is dropped.

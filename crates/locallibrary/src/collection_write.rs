@@ -197,12 +197,20 @@ fn target(store: &Store, db: &Path, key: &str) -> Target {
         running: masterdb::files::running_now,
     };
     #[cfg(test)]
-    TEST_TARGET.with(|o| {
-        if let Some((running, log)) = o.borrow().clone() {
-            t.running = running;
-            t.agent_log = log;
-        }
-    });
+    {
+        TEST_TARGET.with(|o| {
+            if let Some((running, log)) = o.borrow().clone() {
+                t.running = running;
+                t.agent_log = log;
+            }
+        });
+        // No test of this crate writes rekordbox's own collection: the write path's own guard is
+        // built only into that crate's tests.
+        let own = masterdb::default_path().filter(|_| std::env::var_os(masterdb::PATH_ENV).is_none());
+        assert!(own.as_deref() != Some(db), "a test tried to write rekordbox's own collection");
+        let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer"));
+        assert!(!home.is_some_and(|h| db.starts_with(h)), "a test tried to write {}", db.display());
+    }
     t
 }
 
@@ -387,6 +395,15 @@ fn prune_backups(store: &Store) {
 /// or waits for rekordbox and its agent to quit. Refused otherwise (Cloud Library Sync, a damaged
 /// file), the edit is dropped.
 pub(crate) fn make_now(store: &Store, db: &Path, key: &str, change: Change, ctx: &Ctx<'_>) -> Result<CollectionWrite> {
+    // An edit that would wait for rekordbox to quit is refused now if Cloud Library Sync is on:
+    // the write would be refused then anyway, and the deck would show it as made meanwhile.
+    let t = target(store, db, key);
+    let running = (t.running)();
+    if (running.rekordbox || running.agent)
+        && let Some(why) = mw::sync_on_at(db, key, t.agent_log.as_deref())?
+    {
+        return Err(loclib_rekordbox_db::Error::Refused(loclib_rekordbox_db::Refusal::CloudSync(why)).into());
+    }
     let id = stage(store, db, change)?;
     match flush(store, db, key, ctx) {
         Ok(w) => Ok(w),
