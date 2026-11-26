@@ -939,3 +939,75 @@ fn analysis_files_that_cant_be_replaced() {
     assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
     assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
 }
+
+/// Undo puts back only a backup from the collection's own backups folder, into the file it was
+/// taken from: not after rekordbox has analysed the track again into other files.
+#[test]
+fn undo_takes_only_its_own_backups_into_the_same_file() {
+    let (lib, dir) = analysed_lib();
+    let ext = write(&lib.target, |e| e.replace_analysis_file(TRACK, "EXT", b"new ext")).unwrap().value.unwrap();
+    let before = lib.bytes();
+
+    let elsewhere = lib.target.master_db.parent().unwrap().join("elsewhere.EXT");
+    std::fs::write(&elsewhere, b"ext").unwrap();
+    let forged = FileBefore { backup: elsewhere, ..ext.clone() };
+    let e = write(&lib.target, |e| e.restore_analysis_file(&forged)).unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "{e}");
+
+    let moved = format!(
+        "UPDATE djmdContent SET AnalysisDataPath = '/PIONEER/USBANLZ/P099/X/ANLZ0000.DAT' WHERE ID = '{TRACK}'"
+    );
+    let e = write(&lib.target, |e| {
+        e.conn().execute(&moved, []).unwrap();
+        e.restore_analysis_file(&ext)
+    })
+    .unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "{e}");
+
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"new ext")]));
+}
+
+/// A new file left beside one (by a crash, or another write) refuses the write, and stays.
+#[test]
+fn a_new_file_there_already_is_left_alone() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    std::fs::write(dir.join("ANLZ0000.EXT.locallibrary-new"), b"theirs").unwrap();
+    let e = write(&lib.target, |e| e.replace_analysis_file(TRACK, "EXT", b"new")).unwrap_err();
+    assert!(matches!(e, Error::Io { .. }), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(
+        files_in(&dir),
+        named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext"), ("ANLZ0000.EXT.locallibrary-new", b"theirs")])
+    );
+}
+
+/// A file that can't be renamed in once master.db has been swapped in fails the write, and keeps
+/// master.db's backup and the files' backups, which are all that can put it back.
+#[cfg(unix)]
+#[test]
+fn a_file_that_cant_be_swapped_in_keeps_the_backups() {
+    use std::os::unix::fs::PermissionsExt;
+    let (lib, dir) = analysed_lib();
+    let mode = |m: u32| std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(m)).unwrap();
+    let result = write(&lib.target, |e| {
+        let replaced = e.replace_analysis_file(TRACK, "EXT", b"new ext");
+        mode(0o555);
+        replaced
+    });
+    mode(0o755);
+    // Where the folder can be written anyway (as root), the write goes through.
+    let Err(e) = result else { return };
+    assert!(matches!(e, Error::Io { .. }), "{e}");
+    assert_eq!(std::fs::read(dir.join("ANLZ0000.EXT")).unwrap(), b"ext");
+    let mut kept: Vec<String> = std::fs::read_dir(&lib.target.backups)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    kept.sort();
+    assert_eq!(kept.len(), 2, "{kept:?}");
+    assert!(kept[0].ends_with(".db") && kept[1] == format!("{}.share", kept[0]), "{kept:?}");
+    let share_backup = lib.target.backups.join(&kept[1]).join(ANALYSIS_DIR).join("ANLZ0000.EXT");
+    assert_eq!(std::fs::read(share_backup).unwrap(), b"ext");
+}

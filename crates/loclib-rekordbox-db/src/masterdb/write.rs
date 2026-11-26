@@ -179,9 +179,12 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     std::fs::rename(&new.0, master).at(master)?;
     new.keep();
     sync_dir(master);
-    share::swap_in(replaced)?;
+    // master.db is the new one from here: its backup and the analysis files' are kept whatever
+    // happens next, as they're all that can put it back.
+    let backup = backup.keep();
     share_backup.keep();
-    Ok(Written { value, backup: backup.keep(), count })
+    share::swap_in(replaced)?;
+    Ok(Written { value, backup, count })
 }
 
 /// Refuses while rekordbox or its agent runs.

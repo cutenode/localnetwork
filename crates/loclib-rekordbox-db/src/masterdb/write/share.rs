@@ -174,8 +174,11 @@ impl Edit<'_> {
             std::fs::create_dir_all(dir).at(dir)?;
         }
         write_new(&backup, &old)?;
-        let new = Removed::new(PathBuf::from(format!("{}.locallibrary-new", file.display())));
-        write_new(&new.0, bytes)?;
+        // Only a file this write made is removed should it fail: one there already (another
+        // write's, or one a crash left) is refused, and left as it is.
+        let new = PathBuf::from(format!("{}.locallibrary-new", file.display()));
+        write_new(&new, bytes)?;
+        let new = Removed::new(new);
         let _ = std::fs::set_permissions(&new.0, meta.permissions());
 
         let (old_md5, md5) = (md5_hex(&old), md5_hex(bytes));
@@ -216,9 +219,28 @@ impl Edit<'_> {
     }
 
     /// Puts back what [`Edit::replace_analysis_file`] replaced, from its backup, as a new change
-    /// with new stamps, answering what that replaced in turn. Refused when the backup is gone or
-    /// no longer holds what was backed up.
+    /// with new stamps, answering what that replaced in turn. Refused when the backup is gone, isn't
+    /// one of this collection's write backups, or no longer holds what was backed up, and when the
+    /// track's analysis files have moved since (rekordbox analysed it again).
     pub fn restore_analysis_file(&mut self, before: &FileBefore) -> Result<Option<FileBefore>> {
+        let ext = before.path.rsplit_once('.').map_or("", |(_, ext)| ext);
+        let (path, _, _) = self.analysis_file(&before.track_id, ext)?;
+        if !path.eq_ignore_ascii_case(&before.path) {
+            return Err(Error::Invalid(format!(
+                "track {}'s analysis files are {path} now, not {}: rekordbox analysed it again since",
+                before.track_id, before.path
+            )));
+        }
+        // Backups are kept beside master.db's, in the folder this write backs up into.
+        let backups = self.share_backup.parent().unwrap_or(self.share_backup);
+        let backups = backups.canonicalize().at(backups)?;
+        if !before.backup.canonicalize().at(&before.backup)?.starts_with(&backups) {
+            return Err(Error::Invalid(format!(
+                "{} isn't in the collection's backups folder ({})",
+                before.backup.display(),
+                backups.display()
+            )));
+        }
         let bytes = std::fs::read(&before.backup).at(&before.backup)?;
         if md5_hex(&bytes) != before.md5 {
             return Err(Error::Invalid(format!(
@@ -227,7 +249,6 @@ impl Edit<'_> {
                 before.path
             )));
         }
-        let ext = before.path.rsplit_once('.').map_or("", |(_, ext)| ext);
         self.replace_analysis_file(&before.track_id, ext, &bytes)
     }
 
@@ -251,11 +272,16 @@ fn not_plain(file: &Path) -> Error {
     Error::Refused(Refusal::Odd(format!("{} isn't a plain file in rekordbox's share folder", file.display())))
 }
 
-/// Writes `bytes` to a new file at `path`, on disk before it answers.
+/// Writes `bytes` to a new file at `path`, on disk before it answers. Refused when there's a file
+/// there already, which is left as it is; one it made and couldn't finish is removed.
 fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut out = File::create_new(path).at(path)?;
-    out.write_all(bytes).at(path)?;
-    out.sync_all().at(path)
+    let written = out.write_all(bytes).and_then(|()| out.sync_all()).at(path);
+    if written.is_err() {
+        drop(out);
+        let _ = std::fs::remove_file(path);
+    }
+    written
 }
 
 pub(super) fn md5_hex(bytes: &[u8]) -> String {
