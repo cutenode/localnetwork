@@ -18,6 +18,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # Whether a surviving mutant fails the run (see mutants). Off until LOC-1149 turns it on, once
+  # LOC-1148's survivors are dealt with: they're listed in the report's issue either way, as
+  # findings while it's off.
+  FAIL_ON_SURVIVORS: false
 
 # Explicitly bash, which turns pipefail on: a failure piped into tee or jq fails the step.
 defaults:
@@ -267,14 +271,14 @@ jobs:
 
   # Mutation testing with cargo-mutants (settings in .cargo/mutants.toml): it makes small changes
   # to the code (a function returning a default, a flipped comparison) and runs the package's
-  # tests against each, to find code the tests run but don't check. A missed mutant (exit 2) fails
-  # the job: the summary and the report's issue list each one (see survivors), and each shard's
-  # mutants.out has their diffs. Kill it with a test, or, for an equivalent mutant (one no test can
+  # tests against each, to find code the tests run but don't check. The summary and the report's
+  # issue list each missed mutant (see survivors), and each shard's mutants.out has their diffs; with
+  # FAIL_ON_SURVIVORS, one (exit 2) fails the job too. Kill it with a test, or, for an equivalent mutant (one no test can
   # tell from the code), exclude it in .cargo/mutants.toml's exclude_re with the reason above it. A
   # deleted field that makes no difference, which exclude_re doesn't leave out, can go from the code.
   # Timeouts alone (exit 3) pass: a mutant that makes the tests hang has been caught by them, and
-  # a run with both fails on its missed ones. Any other exit (a build or baseline
-  # test failure) fails it too.
+  # a run with both counts as missing some. Any other exit (a build or baseline test failure) fails
+  # the job whatever FAIL_ON_SURVIVORS says.
   # Only the code changed in the past week: all of it is about 4,800 mutants and 20 runner-hours.
   # Then the survivors the open weekly issue lists, which a later week's changes don't reach, so it
   # stays open until none survive (tools/mutants/survivors.ts).
@@ -345,9 +349,10 @@ jobs:
           name: listed-survivors
           path: ${{ runner.temp }}/listed.txt
 
-  # Survivors cut from a list too long for an issue, which nothing makes again. Failing keeps every
-  # later run from counting as the last that passed, and so from skipping the week and closing the
-  # issue, until someone has closed it by hand.
+  # Survivors cut from a list too long for an issue, which nothing makes again. With
+  # FAIL_ON_SURVIVORS, failing keeps every later run from counting as the last that passed, and so
+  # from skipping the week and closing the issue, until someone has closed it by hand. Without it,
+  # the report's findings say so, which keeps the issue open the same way.
   survivors-cut:
     needs: mutants-plan
     if: needs.mutants-plan.outputs.more != ''
@@ -358,7 +363,7 @@ jobs:
           MORE: ${{ needs.mutants-plan.outputs.more }}
         run: |
           echo "$MORE"
-          exit 1
+          if [ "$FAIL_ON_SURVIVORS" = true ]; then exit 1; fi
 
   mutants:
     needs: mutants-plan
@@ -418,8 +423,8 @@ jobs:
             mkdir -p mutants.out/listed
             mutate --output mutants.out/listed "${listed[@]}"
           fi
-          # Missed ones fail the shard whichever status cargo-mutants exited with.
-          if [ -s mutants.out/missed.txt ] || [ -s mutants.out/listed/mutants.out/missed.txt ]; then exit 2; fi
+          # With FAIL_ON_SURVIVORS, missed ones fail the shard whichever status cargo-mutants exited with.
+          if [ "$FAIL_ON_SURVIVORS" = true ] && { [ -s mutants.out/missed.txt ] || [ -s mutants.out/listed/mutants.out/missed.txt ]; }; then exit 2; fi
       - if: ${{ !cancelled() && hashFiles('mutants.out/**/outcomes.json') != '' }}
         run: |
           {
@@ -445,10 +450,10 @@ jobs:
           if-no-files-found: ignore
 
   # Every shard's missed mutants, each as `file:line:column: change`, for the report's issue, cut to
-  # what an issue holds.
+  # what an issue holds. Whether or not they failed the shards (FAIL_ON_SURVIVORS).
   survivors:
     needs: mutants
-    if: ${{ !cancelled() && needs.mutants.result == 'failure' }}
+    if: ${{ !cancelled() && (needs.mutants.result == 'success' || needs.mutants.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

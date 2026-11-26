@@ -116,8 +116,9 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
-  shards. A missed mutant fails it, and the run's summary and the weekly issue list each one by file
-  and line, with their diffs in each shard's `mutants.out` artifact. Kill it with a test, or, when
+  shards. The run's summary and the weekly issue list each missed mutant by file and line, with
+  their diffs in each shard's `mutants.out` artifact; once `FAIL_ON_SURVIVORS` is on in
+  `locallibrary-scheduled.yml`, a missed one fails the run too. Kill it with a test, or, when
   no test can tell it from the code (an equivalent mutant), add it to `exclude_re` in
   `.cargo/mutants.toml` with the reason above it (a deleted field that makes no difference, which that
   doesn't leave out, can go from the code). Timeouts alone don't fail it. The next runs try the ones
