@@ -36,6 +36,8 @@ pub(crate) const FIND_TOLERANCE_MS: u32 = 100;
 
 pub mod auto;
 pub use auto::{AutoCues, CueStyle};
+pub mod collection;
+pub use collection::{CollectionCueEdit, CollectionTrack};
 
 /// A hot cue slot, A-H (written as its letter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
@@ -278,6 +280,13 @@ pub struct CuePlan {
     /// The edit as the journal records it.
     #[serde(skip)]
     pub(crate) recorded: Option<crate::edit::Edit>,
+    /// The edit, when it's of rekordbox's collection rather than a drive (`root` is its
+    /// `master.db`): what's written, or kept until it can be (see [`crate::collection_write`]).
+    #[serde(skip)]
+    pub collection: Option<CollectionCueEdit>,
+    /// The collection's SQLCipher key.
+    #[serde(skip)]
+    pub(crate) collection_key: String,
 }
 
 impl CuePlan {
@@ -318,6 +327,9 @@ struct PlusState {
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct CueReport {
     pub tracks_changed: usize,
+    /// For an edit of rekordbox's collection: whether it was written or is waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<crate::collection_write::CollectionWrite>,
     pub files_written: Vec<String>,
     pub onelibrary: Option<CueRowChanges>,
     pub backup: Option<String>,
@@ -1099,6 +1111,8 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
         fits,
         warnings,
         recorded: Some(recorded),
+        collection: None,
+        collection_key: String::new(),
     })
 }
 

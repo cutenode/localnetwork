@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{resolve_drive, write_estimate};
 use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
+use crate::collection_write;
 use crate::device::Device;
 use crate::import::{self, MatchKind, Matcher, Status};
 use crate::model::{Library, TrackRef};
@@ -305,4 +306,37 @@ pub fn collection_export_apply(
     ctx: &Ctx<'_>,
 ) -> Result<CollectionExportReport> {
     collection_export_plan(req, ctx)?.apply(store, ctx)
+}
+
+/// The collection `req` names, and its key, to write.
+fn collection_target(req: &CollectionRef) -> Result<(PathBuf, String)> {
+    Ok((collection_path(req.db.as_deref())?, masterdb::resolve_key(req.key.as_deref())))
+}
+
+/// Plan making the collection's cue lists (`contentCue`) agree with its cue rows (see
+/// [`collection_write::repair_plan`]).
+pub fn collection_repair_plan(
+    req: &CollectionRef,
+    create_missing: bool,
+) -> Result<Planned<collection_write::CollectionRepairPlan>> {
+    let (db, key) = collection_target(req)?;
+    collection_write::repair_plan(&db, &key, create_missing)
+}
+
+/// Plan writing the collection's waiting edits now.
+pub fn collection_apply_plan(
+    store: &Store,
+    req: &CollectionRef,
+) -> Result<Planned<collection_write::CollectionFlushPlan>> {
+    let (db, key) = collection_target(req)?;
+    collection_write::apply_staged_plan(store, &db, &key)
+}
+
+/// Plan taking back the latest edit of the collection made here (see [`collection_write::undo_plan`]).
+pub fn collection_undo_plan(
+    store: &Store,
+    req: &CollectionRef,
+) -> Result<Planned<collection_write::CollectionUndoPlan>> {
+    let (db, key) = collection_target(req)?;
+    collection_write::undo_plan(store, &db, &key)
 }
