@@ -2,8 +2,10 @@
 //!
 //! A decrypted `master.db` or `exportLibrary.db` holds the person's whole library, and
 //! `master.db` can hold the cloud agent's sign-in too. Reads keep it in memory where they can
-//! (see [`crate::masterdb::open`]); what SQLite has to have as a file (a plain database's WAL to
-//! replay, `VACUUM INTO`, a drive's database being edited) goes in a [`Folder`] instead.
+//! (see [`crate::masterdb::open`]); what SQLite has to have as a file (a plain `master.db`, one
+//! too big for SQLite to take into memory, `VACUUM INTO`, a drive's database being edited) goes
+//! in a [`Folder`] instead. Every connection to a decrypted copy keeps SQLite's own temporary
+//! tables and sorts in memory (`temp_store`), so they never spill rows to temporary files.
 //!
 //! A folder is made in the temporary folder, named `locallibrary-decrypted-` and six random
 //! letters and digits, readable by its owner only (`0700` on Unix; on Windows a protected access

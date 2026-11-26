@@ -74,7 +74,8 @@ and `LOCALLIBRARY_MASTERDB` names another file to read.
 Nothing here writes to rekordbox's files or opens them with SQLite. `open` reads the database and
 its WAL into memory (again, should rekordbox restart its WAL meanwhile), decrypts them there with
 the WAL's committed transactions replayed, and hands SQLite that, so rekordbox can keep running and
-no decrypted copy reaches the disk. A `Collection` holds the library, cues by track, My Tags, the intelligent
+nothing here writes the decrypted copy to disk (a plain `master.db`, and one of 2 GiB or more, are
+read from a file instead, below). A `Collection` holds the library, cues by track, My Tags, the intelligent
 playlists' rules (`smartlist`: read, matched against tracks, and written as a filter where one
 can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`CloudFolders`,
 `Collection::audio_file`).
@@ -82,10 +83,16 @@ can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`Cl
 ## Decrypted copies on disk
 
 What SQLite needs as a file (an export's `VACUUM INTO`, a `OneLibrary` being edited, a plain
-`master.db` with a WAL) goes in a `scratch::Folder`: `locallibrary-decrypted-*` in the temporary
-folder, its owner's alone, removed when dropped. Its process keeps a file there locked, and the OS
-lets go of the lock however the process ends, so the first copy a later process makes sweeps away
-folders nobody holds, with the `.tmp*` folders earlier versions decrypted `master.db` into.
+`master.db`, one too big for SQLite to take into memory) goes in a `scratch::Folder`:
+`locallibrary-decrypted-*` in the temporary folder, its owner's alone (`0700` on Unix, an access
+list for the current user alone on Windows), removed when dropped. Its process keeps a file there
+locked, and the OS lets go of the lock however the process ends, so the first copy a later process
+makes sweeps away folders nobody holds, with the `.tmp*` folders earlier versions decrypted
+`master.db` and `exportLibrary.db` into. A sweep only looks into this user's own folders, and
+removes one without a lock, or an earlier version's, only when it holds nothing but the files
+those leave. Every connection to a decrypted copy keeps SQLite's temporary tables and sorts in
+memory (`temp_store`), and the buffers decrypted here are zeroed once done with. Tests make their
+folders in `locallibrary-scratch-tests` in the temporary folder, so they never sweep it.
 
 ## Features
 

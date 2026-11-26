@@ -1,8 +1,8 @@
 //! rekordbox's files on this computer, as a backup of them needs them (a plugin's
 //! `collection:files` reads, in loclib-plugin's types): where they are, whether rekordbox is running
 //! and which version it is, a copy of `master.db` made as rekordbox's own backup makes one, and
-//! what its tracks' files are. As everywhere in [`super`], `master.db` and its WAL are copied
-//! before anything reads them, and nothing is written to rekordbox's folders.
+//! what its tracks' files are. As everywhere in [`super`], `master.db` and its WAL are read into
+//! memory before anything reads them, and nothing is written to rekordbox's folders.
 
 use std::ffi::OsStr;
 use std::fs::File;

@@ -11,9 +11,9 @@
 //!
 //! Nothing here writes to rekordbox's files or opens them with SQLite: the database and its WAL
 //! are read into memory and decrypted there (the WAL's committed transactions replayed, as for
-//! OneLibrary), and only that plain copy is opened, read only. What needs it as a file goes in a
-//! [`crate::scratch::Folder`]. rekordbox may keep
-//! running; a read while it saves can miss its latest changes.
+//! OneLibrary), and only that plain copy is opened, read only. What needs it as a file (a plain
+//! `master.db`, one of 2 GiB or more, an export) goes in a [`crate::scratch::Folder`]. rekordbox
+//! may keep running; a read while it saves can miss its latest changes.
 //!
 //! Tables read, with the column names pyrekordbox gives them: `djmdContent` and its `djmdArtist`,
 //! `djmdAlbum`, `djmdGenre`, `djmdLabel` and `djmdKey` lookups, `djmdPlaylist` +

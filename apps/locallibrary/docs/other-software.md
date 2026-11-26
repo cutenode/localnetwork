@@ -18,7 +18,10 @@ SQLite encrypted with SQLCipher 4 under a key every installation shares, which t
 [pyrekordbox](https://github.com/dylanljones/pyrekordbox) project publishes. `collection` reads
 it, never writes it: the database and its WAL are read into memory, decrypted there (the WAL's
 committed changes applied) and only that copy is opened, so rekordbox can stay open, nothing of
-its is locked, and no decrypted copy is left on disk. A read while rekordbox saves can miss its latest change.
+its is locked, and no decrypted copy is written to disk. A `master.db` that's already plain, one
+of 2 GiB or more, and the copy `collection export` makes go through a private folder in the
+temporary folder instead, which the next run removes if locallibrary was killed meanwhile. A read
+while rekordbox saves can miss its latest change.
 
 It reads tracks with their details, playlists and folders, history lists, hot cues, memory cues
 and loops, and My Tags; `tracks` takes the same [filters](editing.md#filters) and sort orders as a
