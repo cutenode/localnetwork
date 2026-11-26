@@ -51,7 +51,9 @@ fn a_killed_read_leaves_nothing_decrypted_behind() {
         let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
         // libtest names the test on the same line first.
         assert!(lines.any(|l| l.unwrap().ends_with("reading")), "the child never started reading");
-        // Somewhere in the middle of a read: they take a millisecond or two each.
+        // Early in the second iteration, most of which is deriving the key (some 60 ms): this
+        // catches what's written before that. What's written later is
+        // `a_read_writes_nothing_to_the_temporary_folder`'s.
         std::thread::sleep(Duration::from_micros(300 + 700 * i as u64));
         child.kill().unwrap();
         child.wait().unwrap();
@@ -64,7 +66,12 @@ fn a_killed_read_leaves_nothing_decrypted_behind() {
             let found = left(tmp.path());
             assert!(found.iter().all(|n| n.starts_with(crate::scratch::PREFIX)), "{found:?}");
             crate::scratch::sweep_in(tmp.path(), Duration::from_secs(3600));
-            assert_eq!(left(tmp.path()), Vec::<String>::new(), "the sweep left something");
+            // A folder killed in the moment before its lock was taken stays for an hour, but
+            // holds nothing yet.
+            for name in left(tmp.path()) {
+                let inside = left(&tmp.path().join(&name));
+                assert!(inside.iter().all(|n| n == ".lock-making"), "the sweep left {name} holding {inside:?}");
+            }
         }
     }
 }
@@ -142,6 +149,137 @@ fn a_database_read_into_sqlite_is_zeroed_behind_it() {
     reader.read_to_end(&mut got).unwrap();
     assert_eq!(got, want);
     assert!(bytes.iter().all(|&b| b == 0));
+}
+
+/// What the child [`a_read_writes_nothing_to_the_temporary_folder`] starts does: `read`,
+/// `tracks` or `hash`, and the `master.db` to read.
+const WATCHED: &str = "LOCALLIBRARY_TEST_WATCHED_READ";
+
+/// Reads of `master.db` (and a OneLibrary's hash) write nothing to the temporary folder at any
+/// moment, even what they'd remove again: a child process reads 20 times while a thread of its
+/// own lists its temporary folder as fast as it can.
+#[test]
+fn a_read_writes_nothing_to_the_temporary_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &crate::test_util::library().encrypted(DEFAULT_KEY));
+    let modes: &[&str] = if cfg!(feature = "files") { &["read", "hash", "tracks"] } else { &["read", "hash"] };
+    for mode in modes {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = child("masterdb::tests::watched_read", WATCHED, &format!("{mode}:{}", path.display()), tmp.path());
+        assert!(out.ends_with("seen nothing\n"), "{mode}: {out}");
+    }
+}
+
+/// The child [`a_read_writes_nothing_to_the_temporary_folder`] starts.
+#[test]
+#[ignore = "started by a_read_writes_nothing_to_the_temporary_folder"]
+fn watched_read() {
+    let Ok(what) = std::env::var(WATCHED) else { return };
+    let (mode, path) = what.split_once(':').unwrap();
+    let path = Path::new(path);
+    crate::scratch::test_root(std::env::temp_dir());
+    let drive = crate::onelibrary::OneLibrary::create().unwrap().to_encrypted().unwrap();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let seen = std::thread::scope(|s| {
+        let watcher = s.spawn(|| {
+            let mut seen = std::collections::BTreeSet::new();
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                seen.extend(std::fs::read_dir(std::env::temp_dir()).unwrap().map(|e| e.unwrap().file_name()));
+            }
+            seen
+        });
+        for _ in 0..20 {
+            match mode {
+                "read" => drop(open(path, DEFAULT_KEY).unwrap()),
+                "hash" => drop(crate::onelibrary::content_hash(&drive, None).unwrap()),
+                #[cfg(feature = "files")]
+                _ => drop(files::tracks(path, DEFAULT_KEY, 0, 10).unwrap()),
+                #[cfg(not(feature = "files"))]
+                _ => unreachable!(),
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        watcher.join().unwrap()
+    });
+    match seen.is_empty() {
+        true => println!("seen nothing"),
+        false => println!("seen {seen:?}"),
+    }
+}
+
+/// The first read a process makes sweeps its temporary folder: an abandoned folder (a lock
+/// nobody holds) is gone after one `open` in a process of its own.
+#[test]
+fn a_process_sweeps_its_temporary_folder_on_its_first_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &crate::test_util::library().encrypted(DEFAULT_KEY));
+    let tmp = tempfile::tempdir().unwrap();
+    let left = tmp.path().join(format!("{}LEFT01", crate::scratch::PREFIX));
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700).create(&left).unwrap();
+    #[cfg(not(unix))]
+    std::fs::create_dir(&left).unwrap();
+    std::fs::write(left.join(".lock"), b"").unwrap();
+    std::fs::write(left.join("export.db"), b"decrypted").unwrap();
+    let out = child("masterdb::tests::watched_read", WATCHED, &format!("read:{}", path.display()), tmp.path());
+    assert!(out.contains("seen"), "{out}");
+    assert!(!left.exists(), "the first read didn't sweep");
+}
+
+/// This test binary run as a child: `test` alone, with `var` set to `value` and its temporary
+/// folder `tmp`. Answers what it printed.
+fn child(test: &str, var: &str, value: &str, tmp: &Path) -> String {
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([test, "--exact", "--ignored", "--nocapture", "--test-threads=1"])
+        .env(var, value)
+        .env("LOCALLIBRARY_MASTERDB", "no-rekordbox/master.db")
+        .envs(["TMPDIR", "TMP", "TEMP"].map(|v| (v, tmp)))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8(out.stdout).unwrap().lines().filter(|l| l.contains("seen")).map(|l| format!("{l}\n")).collect()
+}
+
+/// A plain `master.db`'s private folder lasts as long as the database read from it.
+#[test]
+fn a_plain_master_dbs_folder_lasts_as_long_as_its_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &sample().plain());
+    let opened = open_db(&path, DEFAULT_KEY).unwrap();
+    let folder = opened._folder.as_ref().expect("a plain one is read from a file").path().to_path_buf();
+    assert!(folder.join("master.db").is_file());
+    assert_eq!(opened.collection().unwrap().library.tracks.len(), 3);
+    drop(opened);
+    assert!(!folder.exists());
+}
+
+/// A WAL whose last commit shrinks the database (rekordbox deleted rows and SQLite vacuumed),
+/// over a file that says WAL mode as rekordbox's do, reads with the smaller page count.
+#[test]
+fn a_wal_that_shrinks_the_database_reads_smaller() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = sample();
+    let codec = codec(DEFAULT_KEY);
+    f.exec("CREATE TABLE filler (body BLOB); WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 40) INSERT INTO filler SELECT zeroblob(3000) FROM n");
+    let mut before = f.plain();
+    f.exec("DROP TABLE filler; VACUUM");
+    let after = f.plain();
+    let pages = (after.len() / PAGE_SIZE) as u32;
+    assert!(after.len() < before.len());
+    before[18..20].copy_from_slice(&[2, 2]);
+    let frames: Vec<(u32, u32, Vec<u8>)> = (1..=pages)
+        .map(|p| {
+            let at = (p as usize - 1) * PAGE_SIZE;
+            (p, if p == pages { pages } else { 0 }, codec.encrypt_page(p, &after[at..at + PAGE_SIZE]).unwrap())
+        })
+        .collect();
+    let path = write(dir.path(), &codec.encrypt(&before).unwrap());
+    std::fs::write(dir.path().join("master.db-wal"), loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (1, 2), &frames))
+        .unwrap();
+    let opened = open_db(&path, DEFAULT_KEY).unwrap();
+    let count: u32 = opened.conn.query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, pages);
+    assert_eq!(opened.collection().unwrap().library.tracks.len(), 3);
 }
 
 fn write(dir: &Path, bytes: &[u8]) -> PathBuf {

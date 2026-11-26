@@ -103,6 +103,16 @@ fn decrypted_copies_keep_temporary_data_in_memory() {
     assert_eq!(tables, 1);
 }
 
+/// A working copy lives in a private scratch folder, whose lock this process holds.
+#[test]
+fn a_working_copy_lives_in_a_locked_private_folder() {
+    let one = OneLibrary::create().unwrap();
+    let dir = one.path.parent().unwrap();
+    assert!(dir.file_name().unwrap().to_string_lossy().starts_with(crate::scratch::PREFIX), "{dir:?}");
+    let lock = std::fs::File::open(dir.join(".lock")).unwrap();
+    assert!(lock.try_lock().is_err(), "nobody holds the folder's lock");
+}
+
 #[test]
 fn file_types() {
     assert_eq!(file_type("/Contents/a/b.MP3"), 1);
