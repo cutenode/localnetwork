@@ -250,8 +250,8 @@ needs.
   playhead was, as if they had waited for the nearest beat, so the rhythm carries on; paused,
   beat jumps land on a beat. A track without a beat grid jumps by its BPM.
 - **Loops**: `l` loops the loop the playhead is in (a saved one, or the last one exited), or makes
-  one of 4 beats from the beat it's in (from the playhead with quantize off); `l` again exits it and
-  playback carries on. `(` and `)` halve and double it along the grid, and a hot cue saved as a loop
+  a bar of 4 beats from the nearest downbeat, so it's on the bar even pressed a little early or
+  late (from the playhead with quantize off); `l` again exits it and playback carries on. `(` and `)` halve and double it along the grid, and a hot cue saved as a loop
   plays its loop. Seeking out of a loop leaves it. The loop repeats on the audio thread, to the
   sample: the first time round it's kept in memory and then replayed from there, so going round
   doesn't read the drive. The player shows `LOOP` with its length in beats, and a loop made in the
@@ -535,7 +535,7 @@ Deck:
 | `<  >` | one bar (4 beats) back / forward |
 | `{  }` | 8 bars (32 beats, a phrase) back / forward |
 | `Z` | quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one |
-| `l` | loop: the saved loop the playhead is in, else 4 beats from the beat it's in; again to exit |
+| `l` | loop: the saved loop the playhead is in, else 4 beats from the nearest bar; again to exit |
 | `(  )` | halve / double the loop |
 |  | A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it. |
 | `S` | autoplay off (single play): stop after each track, the next one ready for space; again to play on |

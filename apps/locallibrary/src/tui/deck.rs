@@ -302,8 +302,8 @@ pub(super) fn reach_active_loop(app: &mut App, prev: f64, pos: f64) {
 }
 
 /// `l`: exit the loop playing; else loop the one the playhead is in (the last one exited, or a
-/// saved loop), else make one of 4 beats from the beat the playhead is in (from the playhead
-/// itself with quantize off).
+/// saved loop), else make one of 4 beats from the nearest downbeat (from the playhead itself with
+/// quantize off).
 pub fn toggle_loop(app: &mut App) {
     let Some(now) = &app.now else { return };
     if let Some(l) = app.deck.looped.filter(|l| l.on) {
@@ -363,15 +363,21 @@ pub fn auto_cue(a: &TrackAnalysis) -> Option<Duration> {
     Some(Duration::from_millis(ms as u64))
 }
 
-/// A loop `beats` long from the beat the playhead is in (`on_beat`) or the playhead itself, along
-/// the grid. `None` without a grid.
+/// A loop `beats` long along the grid, quantized (`on_beat`) from the nearest downbeat, so it
+/// sits on the bar however early or late the key was pressed (from the beat the playhead is in on
+/// a grid that marks no bars); otherwise from the playhead itself. `None` without a grid.
 pub fn auto_loop(beats: &[Beat], ms: f64, len: f64, on_beat: bool) -> Option<(f64, f64)> {
     let at = beat_index(beats, ms)?;
-    // On the beat the playhead is in, unless that one's before the track starts.
-    let at = match on_beat {
-        true if beat_time(beats, at.floor())? < 0.0 => at.ceil(),
-        true => at.floor(),
-        false => at,
+    let downbeat = (beats.iter().enumerate())
+        .filter(|(_, b)| b.beat_number == 1)
+        .map(|(i, _)| i as f64)
+        .min_by(|a, b| (a - at).abs().total_cmp(&(b - at).abs()));
+    let at = match (on_beat, downbeat) {
+        (true, Some(d)) => d,
+        // On the beat the playhead is in, unless that one's before the track starts.
+        (true, None) if beat_time(beats, at.floor())? < 0.0 => at.ceil(),
+        (true, None) => at.floor(),
+        (false, _) => at,
     };
     Some((beat_time(beats, at)?, beat_time(beats, at + len)?))
 }
