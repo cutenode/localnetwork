@@ -235,13 +235,13 @@ impl Peer {
 
     /// Sends a request; [`Pending::wait`] for its response.
     pub fn send_request<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
-        self.send(method, params, None, false, drop)
+        self.send(method, params, None, false, &mut drop)
     }
 
     /// [`Peer::send_request`] for a hook: the other end's `progress` and `partial` about it come
     /// to its [`Pending::progress`] and [`Pending::partials`], not the owner.
     pub fn send_request_reporting<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
-        self.send(method, params, None, true, drop)
+        self.send(method, params, None, true, &mut drop)
     }
 
     /// [`Peer::send_request_reporting`], handing `report_to` where progress this side makes for the
@@ -252,9 +252,9 @@ impl Peer {
         &self,
         method: &str,
         params: &P,
-        report_to: impl FnOnce(Sender<ProgressReport>),
+        mut report_to: impl FnMut(Sender<ProgressReport>),
     ) -> Result<Pending, RpcError> {
-        self.send(method, params, None, true, report_to)
+        self.send(method, params, None, true, &mut report_to)
     }
 
     /// Sends a request while answering the other end's request `within` (a callback during a
@@ -267,16 +267,18 @@ impl Peer {
         method: &str,
         params: &P,
     ) -> Result<Pending, RpcError> {
-        self.send(method, params, Some(within), false, drop)
+        self.send(method, params, Some(within), false, &mut drop)
     }
 
+    // `report_to` as a trait object: generic, `send` would be built again for each caller's
+    // closure, and each instance of a generic caller (`Slot::call_giving`) brings its own.
     fn send<P: Serialize>(
         &self,
         method: &str,
         params: &P,
         within: Option<&Value>,
         reporting: bool,
-        report_to: impl FnOnce(Sender<ProgressReport>),
+        report_to: &mut dyn FnMut(Sender<ProgressReport>),
     ) -> Result<Pending, RpcError> {
         let params = ok(params)?;
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
