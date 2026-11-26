@@ -1067,6 +1067,29 @@ fn a_test_reads_rekordboxs_own_collection_only_when_it_names_it() {
     assert_eq!(open(&own, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
 }
 
+/// rekordbox's own `master.db` (here a made-up one, on any computer) is refused unless
+/// [`PATH_ENV`] names it, under whatever path it's reached; any other is read.
+#[cfg(debug_assertions)]
+#[test]
+fn only_a_named_rekordbox_collection_is_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let own = dir.path().join("rekordbox/master.db");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(&own, b"").unwrap();
+    let other = dir.path().join("other.db");
+    std::fs::write(&other, b"").unwrap();
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::remove_var(PATH_ENV) };
+    refuse_unnamed(&other, Some(own.clone()));
+    refuse_unnamed(&own, None);
+    let roundabout = dir.path().join("rekordbox/../rekordbox/master.db");
+    let refused = std::panic::catch_unwind(|| refuse_unnamed(&roundabout, Some(own.clone()))).unwrap_err();
+    let message = refused.downcast_ref::<String>().unwrap();
+    assert!(message.contains("rekordbox's own collection") && message.contains(PATH_ENV), "{message}");
+    unsafe { std::env::set_var(PATH_ENV, &roundabout) };
+    refuse_unnamed(&own, Some(own.clone()));
+}
+
 /// Every table the collection is read from has to read: one that can't (a view of a table that's
 /// gone) refuses the whole collection, saying why, rather than reading it without that table.
 #[test]
