@@ -402,15 +402,15 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   the target's `export.pdb` rows (OneLibrary has no such limit) is left out with a warning, and a
   playlist, folder or history list name that long is refused in the plan.
 - The computer-side rekordbox database (`master.db`) is written only for cue edits (`cues ...
-  collection`, `collection repair`, `collection undo`, the player), as ADR 0007 decides: only while
+  collection`, `collection repair`, `collection undo`, the player), as [ADR
+  0007](adr/0007-the-collection-is-written-only-over-a-fresh-backup.md) decides: only while
   rekordbox and its agent are closed (edits made meanwhile wait in the store), over a fresh backup
-  kept in the store, never while Cloud Library Sync is on, and undone forward as a new change. A
-  cue the edit leaves as it is keeps its row. Everything else goes through device exports and
-  rekordbox XML. The reader follows pyrekordbox's
-  description of the tables and was checked against databases built to that description (with
-  the `sqlcipher` CLI installed, the tests also have SQLCipher write and read them under
-  rekordbox's key), not against a real rekordbox 6 or 7 collection: which column holds a hot
-  cue's colour (`ColorTableIndex` is taken as the hot cue palette code), the date added
+  kept in the store, never while Cloud Library Sync is on, and undone forward as a new change. A cue
+  the edit leaves as it is keeps its row. Everything else goes through device exports and rekordbox
+  XML. The reader follows pyrekordbox's description of the tables and was checked against databases
+  built to that description (with the `sqlcipher` CLI installed, the tests also have SQLCipher write
+  and read them under rekordbox's key), not against a real rekordbox 6 or 7 collection: which column
+  holds a hot cue's colour (`ColorTableIndex` is taken as the hot cue palette code), the date added
   (`StockDate`) and that `rb_local_deleted` rows are deleted are inferred. Intelligent playlists
   aren't evaluated.
 - **Exports for other DJ software** follow those programs' formats as their users and open source
