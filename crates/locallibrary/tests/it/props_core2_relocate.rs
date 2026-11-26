@@ -7,15 +7,15 @@ use crate::common::{self, media};
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use locallibrary::relocate::{self, RelocateOptions};
 use rekordbox_pdb::NewTrack;
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_file_two_tracks_would_take_is_neithers(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
@@ -65,7 +65,7 @@ fn prop_a_file_two_tracks_would_take_is_neithers(tc: TestCase) {
 /// can't be read, nor one of its folders, a folder it was told to look in isn't there, or it was
 /// stopped before or after the scan. Once the file is found, it's copied, and nothing is missing.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_relocate_that_cant_finish_says_why(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
 

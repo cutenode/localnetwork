@@ -105,7 +105,7 @@ fn the_access_form_says_what_for_and_makes_the_account_chosen_the_default() {
 
 /// For any accounts the store keeps and any one chosen in echo's access form (from the one it
 /// starts on, echo's default or the first), that one becomes echo's default.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_whichever_account_is_chosen_becomes_echos_default(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
@@ -132,7 +132,7 @@ fn prop_whichever_account_is_chosen_becomes_echos_default(tc: TestCase) {
 /// it signed out; signing in fails before the browser opens (its page is on this computer),
 /// keeping what was kept; and the store keeps the account exactly when it was kept since it was
 /// last signed out of.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
@@ -393,7 +393,7 @@ enum Picking {
 /// had, starting on Restore: enter restores echo's access (its default again); Choose restores it
 /// with the scopes typed, or with none typed forgets it; Reset forgets it; closed, it stays
 /// remembered and echo has none.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_the_restore_form_does_what_its_picked_to(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);

@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, DriveRef};
 use locallibrary::backup;
 use locallibrary::device::Device;
@@ -38,7 +38,7 @@ const UPDATES: &[(&str, Option<&str>)] = &[
     ("firmware.UPD", None),
 ];
 
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_firmware_goes_in_the_root_only_as_the_device_takes_it(tc: TestCase) {
     let (dir, root) = usb();
     let library = common::library_files(&root);
@@ -115,7 +115,7 @@ const CLUTTER: &[(&str, Option<TidyKind>)] = &[
     (".locallibrary/.DS_Store", None),
 ];
 
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_tidying_removes_exactly_the_clutter(tc: TestCase) {
     let (_dir, root) = usb();
     let mut want: BTreeSet<String> = BTreeSet::new();
@@ -171,7 +171,7 @@ fn prop_tidying_removes_exactly_the_clutter(tc: TestCase) {
 /// characters, a colour 0 to 8, at least one of them), and then on a drive without a OneLibrary
 /// database, where players read them, saying so; otherwise they go into OneLibrary as given, and
 /// undoing gives the old ones back.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_the_name_players_show_is_checked_set_and_undone(tc: TestCase) {
     let (_dir, root) = usb();
     let plus = tc.draw(gs::weighted_booleans(0.8));

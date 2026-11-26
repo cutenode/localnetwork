@@ -6,8 +6,8 @@ use crate::{common, drawn};
 use indexmap::IndexMap;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
 use locallibrary::space::{self, SpaceKind};
@@ -47,7 +47,7 @@ fn library_kind(key: &str) -> SpaceKind {
     }
 }
 
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_every_byte_is_counted_once_in_its_kind(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "A");
@@ -90,7 +90,7 @@ fn prop_every_byte_is_counted_once_in_its_kind(tc: TestCase) {
 
 /// The library fits on another drive of its set exactly when its size and the players' headroom
 /// fit in the room that drive had, and no forecast is made from one day's snapshots.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_fitting_on_the_set_goes_by_each_drives_room(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -113,7 +113,7 @@ fn prop_fitting_on_the_set_goes_by_each_drives_room(tc: TestCase) {
 
 /// A drive this store has no library for gets no forecast and no drives to fit on: one with no
 /// identity, one with no library yet, or one whose library is another store's.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_drive_without_a_library_here_has_no_forecast_or_set(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

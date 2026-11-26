@@ -124,7 +124,7 @@ fn which_checks_run_is_a_form_kept_where_plugin_checks_keeps_it() {
 /// are offered, in the report's order, each in the palette as "fix on DRIVE: what was found" by
 /// its plugin's name; chosen, one is planned on the drive it was found on with the params it gave
 /// and confirmed, as any plugin operation is.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_only_the_fixes_a_plugin_can_make_are_offered_and_planned(tc: hegel::TestCase) {
     use hegel::generators as gs;
     plugins_once();
@@ -176,7 +176,7 @@ fn prop_only_the_fixes_a_plugin_can_make_are_offered_and_planned(tc: hegel::Test
 /// stopping changes or not, any timeout in range or none): those that differ from what's kept
 /// are kept where `plugin checks` keeps them, a timeout left empty goes back to its default, and
 /// it says whether anything changed. Saved again, nothing does.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_check_settings_saved_from_the_form_are_kept_as_given(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_plugin::When;

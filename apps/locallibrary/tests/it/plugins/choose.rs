@@ -2,8 +2,8 @@
 //! with `--json`), refused saying how to answer it, and answered with `--choose PARAM=VALUE`, the
 //! value as JSON or text. The test plugin's `titles` and `playlist` ask `ask` until given its param.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use crate::support::{Env, echo_plugin};
@@ -91,7 +91,7 @@ fn an_operation_asks_and_is_planned_answered() {
 /// text), without a terminal: refused saying how to answer each, every value aligned beside its
 /// label; given every answer with `--choose`, as JSON or as text, the command runs once with them
 /// all.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_any_questions_a_command_asks_are_answered_with_choose(tc: TestCase) {
     let env = env();
     let mut questions = Vec::new();

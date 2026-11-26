@@ -451,7 +451,7 @@ fn only_a_plugin_with_the_net_feature_fetches() {
 /// host it isn't granted is refused, then a secret that isn't set, then a redirect elsewhere; an
 /// answer goes to the file asked for, else is answered up to `max_body` when it's text; and a
 /// secret goes to the server only where it's named.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_any_fetch_is_answered_as_the_rules_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // `/<status>/<length>/<text or bin>`, perhaps first redirected (`/to/<host>/...`).
@@ -619,7 +619,7 @@ fn a_secret_never_follows_a_redirect_to_another_server() {
 /// and `Authorization` only until a redirect leads to another server, the body (and the method)
 /// until a 301, 302 or 303 asks again with GET, the secret in its query only at first, and no
 /// `Referer`; a body with the secret is never sent to another server, and the fetch fails there.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_a_redirect_takes_a_secret_no_further_than_its_server(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let server = redirecting();
@@ -718,7 +718,7 @@ enum Mistake {
 /// its file's end, a form with a body, a form's part that's both text and a file or names an
 /// account, or a file part's type that isn't one), the host refuses it saying why, wherever in
 /// the request the mistake is, and sends nothing.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
     use Mistake::*;
     use hegel::generators as gs;
@@ -821,7 +821,7 @@ pub(super) fn letters(size: usize) -> Vec<u8> {
 /// For any file in the request's scratch folder and any part of it (from any offset, of any
 /// length or to its end), the host sends those bytes and no others, saying how many; a part
 /// going past the file's end is refused, and nothing is sent.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_a_request_sends_the_part_of_a_file_its_range_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let server = Server::new(|_, got| ok(got.body.clone()));
@@ -878,7 +878,7 @@ fn a_file_is_sent_in_parts_to_its_end() {
 /// place, or not when it has text), the host sends it as `multipart/form-data` with a boundary of its own (the type the
 /// plugin said left out), each part as it's named, saying how long it all is, and the secret
 /// filled in.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_a_form_is_sent_as_multipart_with_its_file(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let server = Server::new(|_, got| ok(got.body.clone()));
@@ -957,7 +957,7 @@ fn a_file_is_sent_again_where_a_redirect_asks_for_the_body() {
 /// prints, or as a URL spells it. (What a server answers is passed on as it is.) Regression: the
 /// plugin's text was made printable before its secrets were left out, so a secret with control
 /// characters no longer matched, and came through as it prints.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_secret_with_control_characters_never_comes_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // Letters no other text here has three of in a row, between control characters.
@@ -1239,7 +1239,7 @@ enum Asking {
 /// kept offline reach only this computer; a server that isn't there, too many redirects or a form
 /// part with both a value and a file fail it, saying why; a HEAD redirected stays one; and
 /// waiting for its turn stops once cancelled.
-#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_each_fetch_is_answered_as_its_rule_says(tc: hegel::TestCase) {
     for asking in [
         Asking::TooBig,

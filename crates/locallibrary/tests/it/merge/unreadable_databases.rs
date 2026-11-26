@@ -5,8 +5,8 @@ use crate::common::{self, Warnings};
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions};
 use locallibrary::onelibrary::OneLibrary;
@@ -62,7 +62,7 @@ fn onelibrary_tables() -> Vec<String> {
 /// someone else made) applies into a target with OneLibrary: whatever planning said the source's
 /// OneLibrary can't give (its My Tags, or its rows, which are then built from export.pdb's) is
 /// left out, and both of the target's databases take the tracks.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(table = "myTag_content".to_string())]
 #[hegel::explicit_test_case(table = "genre".to_string())]
 #[hegel::explicit_test_case(table = "cue".to_string())]
@@ -90,7 +90,7 @@ fn prop_a_source_onelibrary_lacking_a_table_still_merges(tc: TestCase) {
 
 /// A target whose OneLibrary database lacks a My Tag table is planned with a warning that its My
 /// Tags are left out, and applying does that: the tracks still go into it, without their tags.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_target_onelibrary_without_my_tags_takes_the_tracks(tc: TestCase) {
     let table = tc.draw(gs::sampled_from(vec!["myTag", "myTag_content"]));
     let dir = tempfile::tempdir().unwrap();

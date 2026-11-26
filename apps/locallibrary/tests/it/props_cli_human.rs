@@ -8,8 +8,8 @@
 
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, Run, path};
@@ -767,7 +767,7 @@ const DRIVE_READS: &[(&[&str], &[&str])] = &[
 
 /// The commands that read drives (`drive ...`, `status`, `undo --list`) say what their JSON says,
 /// whatever the drives and the store hold.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS])]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>())]
@@ -831,7 +831,7 @@ const STORE_READS: &[(&[&str], &[&str])] = &[
 
 /// The commands that read the store, its libraries, the settings profile and the players say
 /// what their JSON says, whatever the store holds.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS])]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>())]
@@ -951,7 +951,7 @@ const TRACK_READS: &[(&[&str], &[&str])] = &[
 
 /// The commands that list a library's tracks and playlists, show a track, and check a drive say
 /// what their JSON says, whatever the drives hold.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS])]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>())]
@@ -1041,7 +1041,7 @@ const DISPATCH: &[(&[&str], &[&str])] = &[
 
 /// Every way through the command dispatch says the same with and without `--json`: the same exit
 /// status, and an error's message said either way.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS])]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS])]
 fn prop_dispatch_says_the_same_either_way(tc: TestCase) {

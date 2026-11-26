@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::compare::Side;
 use locallibrary::device::Device;
 use locallibrary::hash::Hash;
@@ -44,7 +44,7 @@ fn rot_object(store: &Store, snapshot: &Snapshot, key: &str) {
 
 /// A snapshot's side of a comparison holds the library pulled: export.pdb's, or OneLibrary's on a
 /// drive without export.pdb. Without either readable, there's no side.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_snapshots_side_is_the_library_pulled(tc: TestCase) {
     for plus_only in [false, true] {
         let dir = tempfile::tempdir().unwrap();
@@ -68,7 +68,7 @@ fn prop_a_snapshots_side_is_the_library_pulled(tc: TestCase) {
 /// Which of a drive's three snapshots pruning to the last one keeps: the first, when it alone
 /// holds a history list (rekordbox deletes them once it imports them) or its databases can't be
 /// read; never the middle one. After pruning, the first is still the latest's ancestor.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(plus = true, imported = true, rotted = 2)]
 #[hegel::explicit_test_case(plus = false, imported = true, rotted = 1)]
 #[hegel::explicit_test_case(plus = false, imported = false, rotted = 0)]
@@ -160,7 +160,7 @@ fn prop_pruning_keeps_the_only_snapshot_of_a_history_list(tc: TestCase) {
 
 /// A label goes on one snapshot: labelling it again is a no-op, and another snapshot can't take
 /// the name. The store counts only the files in its object folders whose names are hashes.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_labels_and_counts(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

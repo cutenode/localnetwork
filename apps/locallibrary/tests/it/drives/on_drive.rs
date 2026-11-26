@@ -2,8 +2,8 @@
 //! the name players show, firmware updates, recordings made on the player, and the backups
 //! made before each change.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, line, path};
@@ -11,7 +11,7 @@ use crate::support::{Env, line, path};
 /// Recordings copied off a drive into a folder, then copied there again with some made since:
 /// each one copied before is already there, so it isn't copied again and the run says why (in
 /// text as in `--json`) and exits as a partial change does; the new ones are copied.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_recordings_copied_off_again_are_already_there(tc: TestCase) {
     let env = Env::new();
     let main = env.drive("Main");
@@ -54,7 +54,7 @@ fn prop_recordings_copied_off_again_are_already_there(tc: TestCase) {
 /// Contact details for a drive, with the playlist players show first or without: the plan names
 /// the file and the playlist asked for, and a dry run writes nothing; written, the file holds the
 /// details and the drive has the playlist exactly when asked.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_contact_details_are_written_as_asked(tc: TestCase) {
     let env = Env::new();
     let main = env.drive("Main");

@@ -12,8 +12,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths::{self, FileClass};
 use locallibrary::progress::Ctx;
@@ -65,7 +65,7 @@ enum Unwritable {
 /// A sync, to one drive or several, whose source or target can't be written or whose state
 /// doesn't parse is refused with the error that says so, and the target's library stays as it
 /// was.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_sync_that_cant_write_a_drives_state_leaves_the_target_as_it_was(tc: TestCase) {
     use Unwritable::*;
     let target_has_library = tc.draw(gs::booleans());
@@ -158,7 +158,7 @@ enum Lib {
 
 /// A pull that can't lock or record the drive, or can't read or write what the store needs, is
 /// refused with the error that says so; the store's head stays where it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_pull_that_cant_write_the_drive_or_the_store_is_refused(tc: TestCase) {
     use PullBlock::*;
     let message = tc.draw(gs::sampled_from(vec![None, Some("pulled".to_string())]));
@@ -292,7 +292,7 @@ enum PushBlock {
 /// A push that can't find its snapshot, lock the store or the drive, record the drive, or
 /// whose plan is stale is refused with the error that says so; refused before writing, the drive
 /// holds what it held.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_push_that_cant_read_or_lock_what_it_needs_is_refused(tc: TestCase) {
     use PushBlock::*;
     let force = tc.draw(gs::booleans());
@@ -375,7 +375,7 @@ fn prop_a_push_that_cant_read_or_lock_what_it_needs_is_refused(tc: TestCase) {
 /// refused naming the file, whether the file is copied (audio or a database) or compared with the
 /// target's copy of it, written moments ago (a database, never taken by size and time, must be
 /// hashed to be compared).
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_snapshot_file_with_no_hash_stops_the_push_naming_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -434,7 +434,7 @@ enum Blocked {
 
 /// A sync that can't remove, reach or read what it must on the target (or read the source's
 /// file) is refused with the error that says so, and nothing is written off the drive.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_sync_stops_at_a_file_it_cant_remove_reach_or_read(tc: TestCase) {
     use Blocked::*;
     let verify = tc.draw(gs::booleans());
@@ -510,7 +510,7 @@ fn prop_a_sync_stops_at_a_file_it_cant_remove_reach_or_read(tc: TestCase) {
 
 /// A sync to one drive or several is refused when the target changed since the plan the user
 /// confirmed, or the source's last write never finished; neither writes the target.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_stale_plan_or_a_half_written_source_is_refused(tc: TestCase) {
     let verify = tc.draw(gs::booleans());
     for unfinished in [false, true] {
@@ -560,7 +560,7 @@ fn with_audio_outside_contents(dir: &Path) -> PathBuf {
 /// Where the source keeps audio outside `Contents/`, the target's file there is read to compare
 /// it (verifying) or its folder resolved: one that can't be read, or a folder that leads off the
 /// drive, stops the plan with the error that says so.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_file_outside_the_library_that_cant_be_read_or_reached_stops_the_plan(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let a = Device::open_export(with_audio_outside_contents(dir.path())).unwrap();
@@ -589,7 +589,7 @@ fn prop_a_file_outside_the_library_that_cant_be_read_or_reached_stops_the_plan(t
 /// The file a sync left outside `Contents/` moments ago, which a scan of the target that doesn't
 /// look for it doesn't list: its size and time say nothing of it, so it's compared by content,
 /// and taken as it is when it's the same; when it isn't, it's the DJ's and the plan is refused.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_file_outside_the_library_written_moments_ago_is_compared_by_content(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut a = Device::open_export(with_audio_outside_contents(dir.path())).unwrap();
@@ -622,7 +622,7 @@ fn prop_a_file_outside_the_library_written_moments_ago_is_compared_by_content(tc
 
 /// A plan for a target whose free space can't be told (its folder gone) can't say it won't fit:
 /// it fits, and warns of nothing about space.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_target_whose_free_space_cant_be_told_fits(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let a = Device::open_export(common::demo_drive(dir.path(), "A")).unwrap();
@@ -654,7 +654,7 @@ fn prop_a_drive_never_adopted_isnt_registered(tc: TestCase) {
 /// A file of the target's own state that a whole new library makes stale (its pack record and
 /// transcodes, its collection export record, its recorded edits) is forgotten once the library is
 /// in; when a folder stands where the file goes, the sync or push says so, the new library in.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_folder_where_a_stale_state_file_goes_stops_the_copy_once_the_library_is_in(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

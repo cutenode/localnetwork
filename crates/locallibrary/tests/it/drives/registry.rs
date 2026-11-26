@@ -5,8 +5,8 @@ use std::path::Path;
 
 use crate::common;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Hardware, Role, Standing};
@@ -83,7 +83,7 @@ fn drives_not_linked_to_a_library_have_no_standing() {
 /// saved or not) stands as the library went on since: up to date while that's its latest, behind
 /// once the primary's next export is pulled on top (naming the snapshot when one holds its
 /// state), and holding changes the store lacks once it gets an export of its own.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_drive_stands_as_its_library_went_on_since(tc: TestCase) {
     let saved = tc.draw(gs::booleans());
     let then = tc.draw(gs::sampled_from(vec!["nothing", "primary", "own"]));

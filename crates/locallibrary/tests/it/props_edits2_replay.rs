@@ -6,8 +6,8 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::analysis_edit::NewAnalysis;
 use locallibrary::anlz::Beat;
 use locallibrary::cue_edit::{
@@ -84,7 +84,7 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
 /// playlists as making each edit in turn would, skipping those that no longer apply (a track or
 /// source gone, a cue that isn't there, one track's edit on several) with a warning. A replay
 /// that makes nothing says it made no changes.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let replayed = common::demo_drive(dir.path(), "Replayed");
@@ -161,7 +161,7 @@ fn prop_replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCas
 /// A recorded pointing of a track at another file is made again after rekordbox exports the old
 /// file again; skipped, said so, when the export no longer has the old file or the new one is
 /// gone; and changes nothing when the track points there already.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(scenario = 0u8)]
 #[hegel::explicit_test_case(scenario = 1u8)]
 #[hegel::explicit_test_case(scenario = 2u8)]
@@ -224,7 +224,7 @@ fn prop_a_recorded_pointing_is_replayed_where_it_still_applies(tc: TestCase) {
 /// the edits it made counted and undo offered, whether it was making a recorded cue edit, a
 /// pointing, or the playlist edits after them, and leaves the drive's library as it was. An edit
 /// made outside a replay fails the same way.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(step = 0u8, playlist = false)]
 #[hegel::explicit_test_case(step = 1u8, playlist = false)]
 #[hegel::explicit_test_case(step = 2u8, playlist = true)]
@@ -288,7 +288,7 @@ fn prop_a_replay_that_fails_stops_saying_how_far_it_got(tc: TestCase) {
 /// A My Tag, cue or analysis edit naming a file the drive has no track for (one of its tracks, or
 /// the one a cue edit copies from) is refused when planned, naming it. Replaying, it's planned,
 /// and making it changes nothing on the drive and says which file is gone.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_step_naming_a_file_with_no_track_is_refused_and_replayed_without_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use crate::clones::home;
 use crate::common::{self, Warnings, path};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::compare::Side;
 use locallibrary::device::Device;
@@ -44,7 +44,7 @@ fn fingerprint(root: &Path) -> String {
     side.fingerprint.map(|f| f.to_string()).unwrap_or_default()
 }
 
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_writes_to_a_library_keep_its_clones_identical(tc: TestCase) {
     let h = home();
     let clones = [&h.main, &h.backup, &h.sd];

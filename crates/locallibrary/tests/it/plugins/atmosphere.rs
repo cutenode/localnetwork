@@ -243,7 +243,7 @@ fn without_a_store_a_record_isnt_written() {
 /// session to create the type, one with a key to create and replace it (`transition:generic`
 /// allows both); allowed, it's written once confirmed, and otherwise it fails as `account`
 /// (`missing_scope`) with nothing asked or sent.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_a_write_needs_the_scope_for_it(tc: TestCase) {
     let scopes = tc.draw(gs::sampled_from(vec![
         "atproto",

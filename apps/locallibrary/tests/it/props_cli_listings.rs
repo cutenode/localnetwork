@@ -5,8 +5,8 @@
 
 use indexmap::IndexMap;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::props_cli_edits::{edit_plan_is_printed, has_line, plan_is_printed};
@@ -16,7 +16,7 @@ use crate::support::{Env, path};
 /// JSON has it: `tags list` printed (with and without the tracks) lists every category and tag
 /// the JSON does, each with its count of tracks, and `cues list` prints each track's cues as its
 /// JSON has them.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_tags_and_cues_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     // With a OneLibrary database beside the export, My Tags are in both.
@@ -159,7 +159,7 @@ fn prop_tags_and_cues_print_what_their_json_says(tc: TestCase) {
 /// OneLibrary database beside the export, and rekordbox's export written again without the
 /// edits, `tags list` says where the two disagree, each difference as its JSON has it. A word
 /// that's neither a drive nor a command, but looks like one, is taken for a mistyped command.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_tag_edits_say_what_their_plan_counts(tc: TestCase) {
     let fx = Env::from_template();
     let onelibrary = tc.draw(gs::booleans());
@@ -232,7 +232,7 @@ fn prop_tag_edits_say_what_their_plan_counts(tc: TestCase) {
 /// cues' names and colours): each plan printed, with something to change or nothing, warns of
 /// each warning its JSON has; with none gone there are none, and with every one gone every plan
 /// has one.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_cue_plans_print_their_warnings(tc: TestCase) {
     let fx = Env::from_template();
     let analysis = fx.volumes.join("A/PIONEER/USBANLZ");
@@ -278,7 +278,7 @@ fn prop_cue_plans_print_their_warnings(tc: TestCase) {
 /// For any of the club drive's tracks (or one it doesn't have), `track show` prints each track
 /// its JSON details, under its id and name, and `track matches` prints a line for each track
 /// that mixes into it, with its key and how it relates.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_track_details_and_matches_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["Club", "A"][..]));
@@ -334,7 +334,7 @@ fn prop_track_details_and_matches_print_what_their_json_says(tc: TestCase) {
 /// Edits made on a drive in any order: `edits list` prints each recorded edit with its changes,
 /// and `undo --list` each drive's backups, the next one marked, as their JSON has them; `edits
 /// clear` says what it forgets before it does.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_recorded_edits_and_backups_print_what_their_json_says(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["Club", "A"][..]));
@@ -426,7 +426,7 @@ fn prop_recorded_edits_and_backups_print_what_their_json_says(tc: TestCase) {
 /// rules, printed or as JSON; applied to a drive, each plan printed is its JSON's, and the drive
 /// then has each rule's playlist, holding as many tracks as the rule's filter finds (at most
 /// its limit).
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_smart_playlists_agree_with_a_model(tc: TestCase) {
     let fx = Env::from_template();
     // Each rule's filter, limit and whether it's for library A only.
@@ -539,7 +539,7 @@ fn prop_smart_playlists_agree_with_a_model(tc: TestCase) {
 /// name is pointed at it (on the drive) or has it copied (from this computer), one with several
 /// is left alone, one with none is counted; the plan printed is its JSON's, and applied, each
 /// relocated track's audio is on the drive.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_missing_audio_is_found_where_it_was_put(tc: TestCase) {
     let fx = Env::from_template();
     let club = fx.volumes.join("Club");

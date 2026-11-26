@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{Generator, TestCase};
 use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
 use locallibrary::atmosphere::directory::Fetched;
 use locallibrary::atmosphere::lexicon::{self, ADDRESS, PROFILE, SET, SETTINGS};
@@ -1174,7 +1174,7 @@ impl Model {
 /// fail with theirs kept, a session without the scope sends nothing, and after a refusal (once the DJ
 /// signed in again, if the session ended) publishing again goes through. Applying a plan and
 /// `settings_publish_apply` agree.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_publishing_my_settings_converges_on_the_model(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
@@ -1259,7 +1259,7 @@ fn prop_publishing_my_settings_converges_on_the_model(tc: TestCase) {
 /// skips (and that the directory couldn't be asked to read your own again, when the session may
 /// not), and applying it (or importing in one go) leaves the base as the model says. Nobody to
 /// import from, or nothing published, and there's nothing to import.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
@@ -1354,7 +1354,7 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// replaces exactly what was read, keeping when it first went out; it's listed as published by
 /// its key, and deleting the set takes the record off the account. Signed out, it can only be
 /// looked at, and nothing is listed.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
@@ -1468,7 +1468,7 @@ fn prop_a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCa
 /// The profile published from the store's sets is the record of the profile document built from
 /// them, fits its Lexicon, goes out as the account's profile, and publishing it again unchanged
 /// writes nothing.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_the_published_profile_is_the_documents_record(tc: TestCase) {
     let pds = network();
     let dir = tempfile::tempdir().unwrap();
@@ -1512,7 +1512,7 @@ enum Heard {
 /// second lookup asks only about the tracks it found nothing for. An analyzer failing on a track,
 /// or on the whole drive (a warning), counts it as failed. A set publishing refuses, or the
 /// `recording` role turned off, looks up nothing.
-#[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -1695,7 +1695,7 @@ enum Held {
 /// other holds a file at the same path (another one, as a copy changed since is); a file only the
 /// unreadable drive holds isn't missing, and only a file on neither drive is. Cancelled while the
 /// analyzer runs, a lookup keeps nothing.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -1788,7 +1788,7 @@ fn prop_a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
 /// A set with more tracks than a set record holds can't be published, saying how many it has;
 /// one within that whose record is over what a data server not updated since May 2026 takes (its
 /// tracks' names long) is planned with a note saying how big it is, and a smaller one without.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_set_too_big_for_a_record_says_so(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");

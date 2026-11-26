@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::props_cli_human::{
@@ -659,7 +659,7 @@ fn changes_agree(flags: &[bool], order: Vec<usize>, changes: Changes) {
 }
 
 /// [`DRIVE_CHANGES`] say what their JSON says, in any order, on any drawn drives and store.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS], order = (0..DRIVE_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..DRIVE_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..DRIVE_CHANGES.len()).collect::<Vec<usize>>())]
@@ -671,7 +671,7 @@ fn prop_drive_changes_say_what_their_json_says(tc: TestCase) {
 }
 
 /// [`LIBRARY_CHANGES`] say what their JSON says, in any order, on any drawn drives and store.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS], order = (0..LIBRARY_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..LIBRARY_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..LIBRARY_CHANGES.len()).collect::<Vec<usize>>())]
@@ -683,7 +683,7 @@ fn prop_library_changes_say_what_their_json_says(tc: TestCase) {
 }
 
 /// [`SYNC_CHANGES`] say what their JSON says, in any order, on any drawn drives and store.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS], order = (0..SYNC_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..SYNC_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..SYNC_CHANGES.len()).collect::<Vec<usize>>())]
@@ -700,7 +700,7 @@ fn prop_sync_changes_say_what_their_json_says(tc: TestCase) {
 }
 
 /// [`STORE_CHANGES`] say what their JSON says, in any order, on any drawn drives and store.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS], order = (0..STORE_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..STORE_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..STORE_CHANGES.len()).collect::<Vec<usize>>())]
@@ -712,7 +712,7 @@ fn prop_store_changes_say_what_their_json_says(tc: TestCase) {
 }
 
 /// [`JOBS_CHANGES`] say what their JSON says, in any order, on any drawn drives and store.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS], order = (0..JOBS_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..JOBS_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..JOBS_CHANGES.len()).collect::<Vec<usize>>())]
@@ -759,7 +759,7 @@ fn redraw_waveform(ext: &Path, wav: &[u8]) {
 /// run, then for real, keeping or removing the old files) says what its JSON says, and moves the
 /// cues and grid by the encoder's delay the MP3 has over the lossless file. `check` with a player
 /// that can't play a 96 kHz track says what its JSON says, and points to `pack --transcode`.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(delay = 26usize, remove_old = true)]
 fn prop_upgrades_say_what_their_json_says(tc: TestCase) {
     let delay = tc.draw(gs::integers::<usize>().max_value(60));

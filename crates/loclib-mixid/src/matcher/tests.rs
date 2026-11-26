@@ -217,7 +217,7 @@ fn a_fraction_of_a_frame_is_measured() {
 /// A copy of a short track late by any part of a frame has its offset measured. At half a
 /// frame it keeps under half its landmark pairs, since each of a pair's peaks moves into the next
 /// frame or not on its own, so counting pairs called 20 s copies unmeasured.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(seed = 1u32, delay = 99usize)]
 fn prop_a_short_copy_late_by_part_of_a_frame_is_measured(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>().min_value(1).max_value(10_000));
@@ -472,7 +472,7 @@ fn prop_a_chain_along_any_line_is_one_play(tc: TestCase) {
 
 /// A copy of a track delayed by any amount and at any level lines up with it at that delay,
 /// heard throughout, and the other way round at minus that delay.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 // Late by half a frame, so few landmark pairs match: the last 2 s, a slice cut short where the
 // track ends, kept too few to count as heard by a whole slice's measure.
 #[hegel::explicit_test_case(seed = 6678u32, delay = 134usize, gain = 1.0f32, other = 1u32)]
@@ -550,7 +550,7 @@ fn carries_on(index: &LibraryIndex, peaks: &[Peak], heard: &[(u32, f64, f64, f64
 /// A set stitched from any of the library's tracks, each from any point in it, at any level,
 /// after any silence and with any gap before the next, is heard as those tracks in that
 /// order, each where it was put in the set and from where it was taken in the track.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
     let (tracks, index) = library();
     let secs = |s: f64| (s * RATE as f64) as usize;
@@ -891,7 +891,7 @@ fn prop_a_track_isnt_heard_in_two_places_at_once(tc: TestCase) {
 /// presence runs from 0 to 1. It doesn't grow over a gap of silence into where the track comes
 /// back further on. That's so whatever the key lock reading, and however its line is split
 /// up: a line cut into pieces traces as the whole of it.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_tracing_follows_a_play_along_its_line(tc: TestCase) {
     let (tracks, index) = library();
     let variants = fingerprint::variants(0.02);

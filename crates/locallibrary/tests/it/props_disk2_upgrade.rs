@@ -7,8 +7,8 @@ use crate::upgrade::{recording, store};
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, UpgradeRequest};
 use locallibrary::progress::Ctx;
 use locallibrary::upgrade::UpgradeOptions;
@@ -17,7 +17,7 @@ use rekordbox_pdb::NewTrack;
 /// Seconds of audio: enough to tell recordings apart and line them up, little to decode.
 const SECS: f64 = 15.0;
 
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(hi_res = true, broken = true, odd_m4a = true)]
 fn prop_only_good_lossless_files_a_player_takes_are_used(tc: TestCase) {
     let hi_res = tc.draw(gs::booleans());

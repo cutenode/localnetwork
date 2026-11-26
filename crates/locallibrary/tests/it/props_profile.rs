@@ -884,13 +884,13 @@ fn prop_the_djs_own_genre_spellings_win(tc: TestCase) {
 /// The collection's cue statistics count each track's cues as its analysis files hold them,
 /// whatever cues the DJ set in hot cue slots A to C or as memory cues: the share of tracks with
 /// a hot cue, a memory cue and a loop, and hot cues per track among those with any.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_cue_statistics_count_the_cues_the_analysis_files_hold(tc: TestCase) {
     cue_statistics_after_cue_edits(&tc, 2);
 }
 
 /// The same for hot cues in slots D to H, which a `.EXT` file holds alone.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_cue_statistics_count_hot_cues_past_c(tc: TestCase) {
     cue_statistics_after_cue_edits(&tc, 7);
 }
@@ -999,7 +999,7 @@ fn pulled_store(tc: &TestCase, dir: &std::path::Path, drives: usize) -> (Store, 
 /// from the snapshots, and keeps what it read: built again, it reads none of the files and says
 /// the same. When that can't be kept it warns (a few times, then sums up), and the next profile
 /// reads every file again.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_stores_profile_reads_its_snapshots_analysis_once(tc: TestCase) {
     // Both ways each time: whether the cache can be kept is no draw a few cases can miss.
     for unkept in [false, true] {
@@ -1064,7 +1064,7 @@ enum Analysis {
 /// readable, and none whose files are gone, can't be read or lie outside the drive. A drive whose
 /// exportLibrary.db can't be read is described from export.pdb, saying so, and one whose
 /// export.pdb can't be read is left out, saying so.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_drives_analysis_is_read_only_where_it_can_be(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -1156,7 +1156,7 @@ fn prop_declared_sets_count_when_played_in_the_range(tc: TestCase) {
 /// A profile cancelled after any number of its progress events stops with
 /// [`locallibrary::Error::Cancelled`] (at once, when cancelled before it starts), or, cancelled
 /// once there's nothing left to check, says what an uncancelled one does.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_cancelled_profile_stops_or_says_it_all(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, _) = pulled_store(&tc, dir.path(), 1);
@@ -1193,7 +1193,7 @@ fn prop_a_cancelled_profile_stops_or_says_it_all(tc: TestCase) {
 
 /// A library whose latest snapshot's export.pdb is gone from the store is left out of the
 /// profile, saying so, and the others are read as before.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_library_whose_databases_are_gone_is_left_out_saying_so(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, _) = pulled_store(&tc, dir.path(), 2);
@@ -1214,7 +1214,7 @@ fn prop_a_library_whose_databases_are_gone_is_left_out_saying_so(tc: TestCase) {
 /// Where in the store a profile reads from can't be read (its list of libraries, a library's
 /// latest snapshot, or the declared sets), the profile stops with that error rather than
 /// describe part of the DJ's playing.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_store_that_cant_be_read_stops_the_profile(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, _) = pulled_store(&tc, dir.path(), 1);

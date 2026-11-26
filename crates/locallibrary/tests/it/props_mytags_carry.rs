@@ -8,8 +8,8 @@ use crate::common;
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions};
@@ -33,7 +33,7 @@ fn held(d: &Device) -> IndexMap<String, BTreeSet<String>> {
     out
 }
 
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_tags_given_are_carried_wherever_the_tracks_go(tc: TestCase) {
     // With exportExt.pdb alone, and with OneLibrary beside it.
     for both in [false, true] {

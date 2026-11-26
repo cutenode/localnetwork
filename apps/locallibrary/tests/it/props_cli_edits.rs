@@ -5,8 +5,8 @@
 
 use std::collections::BTreeSet;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, Run, path};
@@ -354,7 +354,7 @@ fn tracklists(fx: &Env) {
 /// what the JSON dry run plans (or fails as it does), and applying the plan (printed or as JSON)
 /// succeeds, says it did, and leaves the playlists, tracks, cues and tags the plan says.
 // Each case runs every edit: each run tries another order, other drives and arguments.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
     let fx = Env::from_template();
     tracklists(&fx);

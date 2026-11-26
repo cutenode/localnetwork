@@ -18,8 +18,8 @@ use std::sync::OnceLock;
 
 use base64::prelude::*;
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, Direction, LabelRequest, RenameLibrary};
 use locallibrary::compare::{self, Relation, Side};
 use locallibrary::device::Device;
@@ -561,7 +561,7 @@ impl StoreApiMachine {
     }
 }
 
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_store_s_libraries_snapshots_and_labels_match_the_model(tc: TestCase) {
     hegel::stateful::machine(StoreApiMachine::new(&demo_pdb())).steps(15).run(tc);
 }
@@ -746,7 +746,7 @@ impl UndoMachine {
     }
 }
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_undo_steps_back_through_the_changes_made(tc: TestCase) {
     hegel::stateful::machine(UndoMachine::new()).steps(7).run(tc);
 }
@@ -755,7 +755,7 @@ fn prop_undo_steps_back_through_the_changes_made(tc: TestCase) {
 /// not found, and with several it's refused, saying which. Audio the backup lists gone from the
 /// drive, or a database it has, needs forcing (the second is put back); a backup that isn't
 /// there isn't found.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_undo_naming_no_drive_needs_one_with_backups(tc: TestCase) {
     let m = UndoMachine::new();
     let vols = m.root.parent().unwrap().to_path_buf();
@@ -1229,7 +1229,7 @@ impl SyncMachine {
     }
 }
 
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_syncs_pulls_and_pushes_go_the_way_the_states_say(tc: TestCase) {
     hegel::stateful::machine(SyncMachine::new()).steps(8).run(tc);
 }
@@ -1527,7 +1527,7 @@ fn with_playlists(dir: &Path) -> PathBuf {
 /// rest listed as missing; with none left it's refused. Restoring again changes nothing.
 /// Restoring needs a playlist, one source at most, the store for a snapshot, and something
 /// to restore from; what isn't there isn't found.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_playlist_comes_back_with_the_entries_it_had(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = with_playlists(dir.path());
@@ -1655,7 +1655,7 @@ fn prop_a_playlist_comes_back_with_the_entries_it_had(tc: TestCase) {
 /// settings are checked against: what's shown as drift is what differs, writing the profile
 /// leaves none (planned first, and a no-op once written), and a dry run writes nothing.
 /// Importing a drive's settings makes them the base. Unknown settings are refused.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let vols = common::isolate(dir.path(), None);
@@ -1793,7 +1793,7 @@ fn json_of<T: Serialize>(v: &T) -> Value {
 /// plans through the api as the modules do for it directly: its library and backups, compare,
 /// convert, merge, missing and automatic artwork and its tracks' art. Applying a merge leaves
 /// nothing more to do; a conversion leaves the drive with the database it was for.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_reads_and_plans_agree_with_the_modules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let vols = common::isolate(dir.path(), None);
@@ -1885,7 +1885,7 @@ fn prop_reads_and_plans_agree_with_the_modules(tc: TestCase) {
 /// as a JPEG for each of them, which are then no longer missing art. Art embedded in files on
 /// this computer goes in only those it can (not missing ones, folders or files on an export),
 /// and taking it back out gives each unchanged file its bytes back.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");

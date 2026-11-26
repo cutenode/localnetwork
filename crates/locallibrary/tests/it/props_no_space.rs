@@ -6,8 +6,8 @@ use crate::{common, drawn};
 
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
 use locallibrary::device::Device;
@@ -69,7 +69,7 @@ fn attempt(command: u8, root: &Path, guest: &Path, fits: bool) -> (Result<()>, u
     }
 }
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_plan_the_drive_has_no_room_for_changes_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());

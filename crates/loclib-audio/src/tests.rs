@@ -407,7 +407,7 @@ fn prop_broken_headers_are_that_files_error(tc: TestCase) {
 /// Cancelled at any packet of a long decode, it stops at the next check (every 256 packets)
 /// with [`Error::Cancelled`], handing on nothing after; cancelled after the last check, it
 /// decodes to the end.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(250 * 1152).max_value(520 * 1152));
     let dir = tempfile::tempdir().unwrap();
@@ -757,7 +757,7 @@ fn prop_a_folder_that_cant_be_opened_is_its_io_error(tc: TestCase) {
 /// decode is then what it heard) or failing (its own error is the decode's). Cancelled at a
 /// packet, the decode stops at the next check (every 256 packets) with the packets before it
 /// handed on; cancelled after the last check, it decodes to the end.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(frames = 300_000usize, at = 3usize, sink = Sink::Cancels(3), damaged = Damaged::Skip)]
 #[hegel::explicit_test_case(frames = 3_000usize, at = 2usize, sink = Sink::Fails(2), damaged = Damaged::Fail)]
 #[hegel::explicit_test_case(frames = 3_000usize, at = 2usize, sink = Sink::Breaks(2), damaged = Damaged::Fail)]

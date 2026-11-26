@@ -7,8 +7,8 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Role, Standing};
@@ -34,7 +34,7 @@ fn register(store: &Store, d: &Device) {
     sync::register_drive(store, d, fp).unwrap();
 }
 
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_drives_stand_where_their_state_is_in_the_library_history(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -121,7 +121,7 @@ fn prop_names_and_labels(tc: TestCase) {
 /// the state it holds (observed, when that state was never saved); a drive with an identity of
 /// its own is refused, with the way to give it another; a drive with no export is recognised as
 /// nothing the store holds.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_identities_go_back_only_where_they_belong(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -155,7 +155,7 @@ fn prop_identities_go_back_only_where_they_belong(tc: TestCase) {
 /// Every change to a drive the registry doesn't have is refused as not found, naming it (a
 /// role, retiring, forgetting it by name), or passes it by (the logbook's notes); either way the
 /// registry is as it was. A drive with no identity of its own can't be given a new one.
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -200,7 +200,7 @@ fn prop_changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
 /// scans it. Whatever was damaged stays as it was, and only noting a write to a drive with no
 /// identity needs nothing.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_what_a_fleet_operation_cant_read_stops_it(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     for fault in 0..5u8 {

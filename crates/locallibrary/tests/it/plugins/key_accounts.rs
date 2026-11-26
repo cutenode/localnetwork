@@ -125,7 +125,7 @@ enum Named {
 /// else in the request; one naming it anywhere else (another header, a query parameter, the body)
 /// is refused, saying it goes only in the `Authorization` header, before anything is sent; and no
 /// key gets into the plugins' logs or the store but its secrets.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 #[hegel::explicit_test_case(steps = vec![Named::Query("accesskey"), Named::Authorization, Named::Query("other")])]
 fn prop_keys_land_only_in_the_authorization_header(tc: TestCase) {
     let k = keyed(false);
@@ -191,7 +191,7 @@ enum Step {
 /// back, as it was; signing out revokes nothing; the store's secrets hold the keys last entered for
 /// each account kept and no others; and no key gets into `accounts.json`, an error, a listing or a
 /// log.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCase) {
     let whoami = tc.draw(gs::booleans());
     let k = keyed(whoami);
@@ -285,7 +285,7 @@ const PAIRS: [(&str, &str); 2] = [("ak-0123456789", "sk-9876543210"), ("ak-abcde
 /// For either pair of keys, a service refusing them, saying they're no good or lack a scope, has
 /// its answer passed on to the plugin as it is, sent once: the account stays signed in with the
 /// same keys, which have no token to refresh.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_service_refusing_keys_leaves_the_account_signed_in(tc: TestCase) {
     let k = keyed(false);
     let keys = tc.draw(gs::sampled_from(PAIRS.to_vec()));
@@ -335,7 +335,7 @@ fn each_key_stays_out_of_the_plugins_log() {
 /// badly or not at all, keep nothing and end the sign-in, saying why but never a key; a sign-in
 /// in the browser isn't finished with keys, nor one with keys in the browser; and keys entered
 /// are trimmed, and kept at the shortest a key is.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_keys_missing_or_undeclared_or_short_keep_nothing(tc: TestCase) {
     let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     let k = keyed(false);
@@ -402,7 +402,7 @@ fn prop_keys_missing_or_undeclared_or_short_keep_nothing(tc: TestCase) {
 /// keys in the `Authorization` header, and nowhere else: the account kept is the one it says;
 /// keys it refuses (a 403, or a 401) keep nothing, saying to check them where the user got them,
 /// and naming the account with a whoami is refused.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_whoami_gets_the_keys_in_the_authorization_header(tc: TestCase) {
     let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     let k = keyed(true);
@@ -447,7 +447,7 @@ enum Lost {
 /// for a request through it, and keys that can't be read, a secrets file that isn't JSON or a
 /// type its account plugin doesn't provide fail the request saying so; nothing is sent, the
 /// account stays, and no key gets out. A store that can't hold its accounts' keys signs nobody in.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_keys_lost_or_unreadable_say_so_and_the_account_stays(tc: TestCase) {
     let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     let k = keyed(false);
@@ -498,7 +498,7 @@ fn prop_keys_lost_or_unreadable_say_so_and_the_account_stays(tc: TestCase) {
 
 /// For either pair of keys, a whoami endpoint sending them on to another origin signs nobody in,
 /// saying it sent the keys on, and the other origin isn't asked.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_whoami_sending_the_keys_elsewhere_signs_nobody_in(tc: TestCase) {
     let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     let elsewhere = Server::new(|_, _| ok("{\"id\": \"me\"}"));

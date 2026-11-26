@@ -478,7 +478,7 @@ fn acts_on_what_is_selected(app: &mut App, row: DriveRow, act: Act, known: bool,
 /// there is replaced only once that's agreed to; and what's written holds the tracks the list
 /// shows. A list of lists (Browse) isn't
 /// exported.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_an_export_writes_the_list_shown_where_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::sets::{EntryOrigin, SetEntry};
@@ -614,7 +614,7 @@ fn exports_the_list_shown(
 /// as a playlist first, named. A drive's other commands need a drive, a playlist to bring back
 /// is guessed from the one shown, rekordbox XML (the interop plugin's) takes the marked
 /// playlists, and a session is exported by its name.
-#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     use super::super::app::testing::{key, press};
     use hegel::generators as gs;
@@ -784,7 +784,7 @@ fn prop_a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
 /// with what went on last time; onto the drive it's from, or none, it asks which drive (none
 /// plugged in here), and onto another it plans packing there, saying why it can't when that
 /// drive isn't one.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
     use super::super::app::testing::key;
     use hegel::generators as gs;

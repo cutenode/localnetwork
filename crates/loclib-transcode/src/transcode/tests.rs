@@ -593,7 +593,7 @@ fn copied(events: &[Event]) -> Vec<u64> {
 /// comes as it's decoded, not all at the end: in steps of a MiB or a packet's worth more, as
 /// many as fit, and the rest at the end, adding up to the source's size. The copy holds every
 /// frame, and its size is its header and samples.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_long_copies_report_progress_as_they_go(tc: TestCase) {
     const MIB: u64 = 1 << 20;
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(8));
@@ -632,7 +632,7 @@ fn prop_long_copies_report_progress_as_they_go(tc: TestCase) {
 
 /// A FLAC whose header leaves its length out (0, "unknown", as the format allows) copies to
 /// every container exactly as one that says it, only with its progress all at the end.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_copies_dont_need_the_length_in_the_header(tc: TestCase) {
     let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
     // Over a block, so the copies that are FLAC encode one as the samples come; often whole

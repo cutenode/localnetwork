@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, DriveRef};
 use locallibrary::device::dunce_canonicalize;
 use locallibrary::error::Reason;
@@ -601,7 +601,7 @@ impl Registry {
 /// a known drive's) agree with a model of the mounted drives and the registry: the fleet view,
 /// the registered drives and what every kind of spec (a path, a name, an id or its prefix)
 /// finds.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_registry_operations_agree_with_a_model(tc: TestCase) {
     hegel::stateful::machine(Registry::new()).steps(10).run(tc);
 }
@@ -635,7 +635,7 @@ fn blank_drive() -> (tempfile::TempDir, PathBuf) {
 /// A contact is refused when it's blank or holds a control character; otherwise it's written
 /// (replacing the one there, which the plan says) onto the demo export, with its playlist when
 /// asked.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_contact_is_written_with_its_playlist(tc: TestCase) {
     let (_dir, root) = blank_drive();
     let root: &Path = &demo_export().write(&root);
@@ -670,7 +670,7 @@ fn prop_a_contact_is_written_with_its_playlist(tc: TestCase) {
 /// Recordings are listed oldest first, `._` files and other files left out; collecting the ones
 /// asked for (by path, in any case, or all of them) copies each, deleting it from the drive only
 /// when asked, and one that isn't there is refused before anything is copied.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_recordings_are_listed_and_collected_as_asked(tc: TestCase) {
     let (dir, root) = blank_drive();
     let root: &Path = &root;
@@ -777,7 +777,7 @@ pub(crate) fn saved_copy(dir: &Path) -> (Store, PathBuf) {
 /// them puts back every byte, as a write; then the check is clean. Around it, the drive's state
 /// is recognised as the snapshot saved, its space is weighed with the store and without, and checking
 /// its file system or ejecting it (refused for a folder) leaves the logbook as it was.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_check_finds_the_damage_done_and_a_repair_mends_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, root) = saved_copy(dir.path());
@@ -879,7 +879,7 @@ const NEW_ROLES: &[Option<&str>] = &[None, Some("backup"), Some("Archive")];
 /// it runs them until the first that can't run here (the name players show, with no OneLibrary
 /// database in the library; ejecting a folder), and leaves the drive named, registered with its
 /// role and holding Main's library, whatever library it held before.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_setting_up_a_drive_runs_the_steps_asked_for(tc: TestCase) {
     // The plan's warnings are checked exactly, so the platform's own (ejecting is untested on
     // Linux and Windows) would fail the cases that eject there: answer as macOS on every platform.
@@ -1049,7 +1049,7 @@ impl Progress for MishapAt<'_> {
 /// Cancelled as a step begins, it ends cancelled when that step or one after it copies or checks
 /// files, and finishes otherwise (stopping at the eject, as a folder can't be ejected). Pushed
 /// from a library the store hasn't got, or one with nothing saved, it's refused before it starts.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(like = false, settings = true, role = true, verify = true, eject = true, at = 5usize, mishap = Mishap::Unplugged)]
 #[hegel::explicit_test_case(like = true, settings = true, role = true, verify = true, eject = false, at = 1usize, mishap = Mishap::Unplugged)]
 fn prop_setting_up_stops_at_the_step_the_drive_went_away_in(tc: TestCase) {
@@ -1162,7 +1162,7 @@ fn prop_setting_up_stops_at_the_step_the_drive_went_away_in(tc: TestCase) {
 /// or cut short): the status and the fleet view still list Backup in Main, saying why it can't be
 /// compared with the newest snapshot, and Main as identical to it; the fleet view can't tell
 /// whether the two hold the same.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_drive_whose_database_cant_be_read_is_listed_with_why(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());
@@ -1193,7 +1193,7 @@ fn prop_a_drive_whose_database_cant_be_read_is_listed_with_why(tc: TestCase) {
 /// A saved drive with an analysis file damaged, whose good copy in the store is damaged too: the
 /// check finds the file and names the store to repair it from, and the repair fails for it,
 /// writing nothing and noting the failure as a problem in the drive's logbook.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_repair_from_a_damaged_copy_fails_and_is_noted(tc: TestCase) {
     use locallibrary::paths::{FileClass, classify};
     let dir = tempfile::tempdir().unwrap();

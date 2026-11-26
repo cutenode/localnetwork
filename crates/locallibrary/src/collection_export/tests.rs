@@ -183,7 +183,7 @@ fn intelligent_playlists_hold_what_their_rules_match() {
 /// can say (contains, doesn't contain) get a smart rule saying it, and the plan counts the others,
 /// exported as the tracks they hold now, naming the first; either way each holds the tracks its
 /// condition matches.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(lists = vec![(10u8, "o"), (8u8, "never"), (2u8, "here")])]
 fn prop_intelligent_playlists_get_a_rule_when_a_filter_can_say_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -456,7 +456,7 @@ fn says_what_cloud_library_sync_has_still_to_bring() {
 /// library holding exactly the chosen tracks found here, their audio byte for byte, the
 /// analysis naming each track's new path, and the playlists in their order without the tracks
 /// left out. Exporting again copies nothing.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
@@ -578,7 +578,7 @@ fn prop_a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
 /// then backed up first), or an earlier export a player wrote to or whose OneLibrary can't be
 /// read (saved in the store first, refused without one). A plan with no room is refused; the
 /// collection's artwork and what Cloud Library Sync hasn't brought yet are said.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_export_takes_what_the_target_holds_as_it_should(tc: hegel::TestCase) {
     for variant in 0..5 {
         an_export_takes_what_the_target_holds_as_it_should_with(&tc, variant);
@@ -998,7 +998,7 @@ enum Brings {
 /// size since (or that's gone), is refused. Exporting again copies nothing and backs up the
 /// databases it replaces; another source's export is only replaced when asked; a damaged record
 /// of the last export is refused, and a forgotten one is gone.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_library_source_exports_its_tracks_as_checked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
@@ -1138,7 +1138,7 @@ fn prop_a_library_source_exports_its_tracks_as_checked(tc: hegel::TestCase) {
 /// leave out one that isn't among them, and exporting again keeps its smart rule. A track's
 /// image gets its key with the image's extension (`.jpg` when it has none), and its larger copy
 /// goes too only when there is one.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let conditions: Vec<&str> = tc.draw(

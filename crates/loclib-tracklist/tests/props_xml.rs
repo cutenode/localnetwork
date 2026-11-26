@@ -654,7 +654,7 @@ fn prop_any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
 /// index (a playlist's entry has its key as its text, not the track's tag), and the playlists'
 /// folder paths come to at most MAX_PATH_BYTES, each part costing 16 bytes besides its name.
 /// Those past it are left out in the file's order, counted.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 // Folder paths past the most: 40 of a MiB each.
 #[hegel::explicit_test_case(folder_len = 1usize << 20, comment_len = 0usize, lists = 40usize, refs = 1usize)]
 fn prop_long_names_and_many_entries_stay_bounded(tc: TestCase) {

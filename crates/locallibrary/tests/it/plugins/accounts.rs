@@ -218,7 +218,7 @@ fn an_account_type_is_only_reached_at_a_public_https_address_outside_tests() {
 /// For an account named by its email or its subject, a kept sign-in that can't be read says to
 /// sign in again, naming it, and both signing in again and signing out (with nothing to revoke)
 /// put it right.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_sign_in_that_cant_be_read_is_signed_in_again_or_out(tc: TestCase) {
     let email = tc.draw(gs::sampled_from(vec![Some("a@mock.example"), None]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -306,7 +306,7 @@ enum Signing {
 /// (exactly when it can be), and is refused once it's signed out; and a sign-in is finished or
 /// cancelled once. No token gets into the plugins' logs, the answers or the store
 /// but its secrets.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) {
     let (revokes, exchanges) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let manifest = |server: &str| {
@@ -430,7 +430,7 @@ enum Named {
 /// query is answered to the plugin as the placeholder that named it; one naming it anywhere else is
 /// refused, saying where it goes, before anything is sent; and no token gets into the plugins' logs
 /// or the store but its secrets.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_a_token_lands_exactly_where_its_account_type_says(tc: TestCase) {
     let token = tc.draw(gs::sampled_from(vec![
         "",
@@ -544,7 +544,7 @@ fn a_token_in_the_query_stays_out_of_errors_logs_and_other_origins() {
 /// For any secret sent in the query, alone or among other text (with letters a URL spells
 /// otherwise among its own, always a `%`, which leaves the secret inside how a URL spells it): it comes back in what the server answers as the placeholder
 /// that named it, as it is and as a URL spells it, which asks for it again. The plugin never has it.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
     let secret = tc.draw(gs::from_regex("[q-z]{3}%[q-z]{0,3}([ &+/=%?#][q-z]{0,3}){0,2}").fullmatch(true));
     let written = tc.draw(gs::sampled_from(vec!["{secret:token}", "a-{secret:token}-b"]));
@@ -576,7 +576,7 @@ fn prop_a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
 /// For anyone signing in, an account type naming the port the browser comes back to is signed in
 /// there, and a sign-in still waiting on it gives way to a new one, while one waiting for the keys
 /// of another type keeps waiting; another program holding the port is said.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42)]));
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -604,7 +604,7 @@ fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
 /// signs nobody in, and is told why; an address pasted with no sign-in result in it is refused;
 /// and a browser that never comes back is given up on. Sign-ins waiting for the browser wait side
 /// by side.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_browser_coming_back_without_a_code_signs_nobody_in(tc: TestCase) {
     let plugin = tc.draw(gs::sampled_from(vec![None, Some("echo")]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -629,7 +629,7 @@ fn prop_a_browser_coming_back_without_a_code_signs_nobody_in(tc: TestCase) {
 
 /// For anyone signing in, an address pasted from another computer signs in only when it's this
 /// sign-in's, and outside tests a service is reached only at a public https address.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_pasted_address_signs_in_only_when_its_this_sign_ins(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec!["a", "b"]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -734,7 +734,7 @@ enum Trade {
 /// one that fails (naming an error without describing it, answering an empty error, not
 /// listening, cutting its answer short, answering what isn't tokens, or a token no request can
 /// carry) signs nobody in, saying why.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_token_endpoint_failing_says_why_and_keeps_nothing(tc: TestCase) {
     let exchanges = tc.draw(gs::booleans());
     for trade in [Trade::Said, Trade::Empty, Trade::Closed, Trade::CutShort, Trade::Unsendable, Trade::Garbled] {
@@ -770,7 +770,7 @@ fn prop_a_token_endpoint_failing_says_why_and_keeps_nothing(tc: TestCase) {
 /// For an account type trading its tokens at a token endpoint or Local Network's token exchange,
 /// a store whose `accounts.json` can't be changed while an expiring token is refreshed fails the
 /// refresh, whether the service refreshed it or won't any more, and keeps the account as it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_store_locked_while_refreshing_keeps_the_account_as_it_was(tc: TestCase) {
     let exchanges = tc.draw(gs::booleans());
     let scripted = Scripted::new();
@@ -814,7 +814,7 @@ enum Refusing {
 /// fails as the service's failure where refreshing it, signing it out or forgetting what it was
 /// granted can't be done; and the refusal is passed on, signing the account out, unless it's no
 /// longer kept or another host signed it in again since.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_store_damaged_as_a_service_refuses_a_token_says_so(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
     let damaged = Damage::here().filter(|d| *d != Damage::Lock).map(Refusing::Damaged);

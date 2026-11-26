@@ -270,7 +270,7 @@ enum Step {
 /// to sign in as the account signed in again, or to another when the account plugin has signed in
 /// any; signing in again as another says so and gives the plugin it was for no access to it; and
 /// no token gets into `accounts.json`, an error, a listing or a log.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
     let m = mock(30);
     let people = 0..WHO.len();
@@ -363,7 +363,7 @@ fn prop_an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
 /// account's expiring token get the newest one, refreshed one at a time: once, when the refreshed
 /// token lasts, or once each, when it expires again within the minute. The service's refresh
 /// tokens refresh once, so a token refreshed twice would sign the account out.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_refreshes_of_an_account_happen_one_at_a_time(tc: TestCase) {
     let hosts = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
     let lasting = tc.draw(gs::booleans());
@@ -552,7 +552,7 @@ enum Whoami {
 /// token given in the `Authorization` header or the query, and anyone it says signed in (a string
 /// or integer subject, or none): the account kept is the one it says, named by its email or
 /// subject, or the sign-in fails saying why and nothing is kept.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
     use Whoami::*;
     let at = tc.draw(gs::sampled_from(vec![Service, Moved, NotJson, Away, Around, Broken, Refusing]));
@@ -631,7 +631,7 @@ enum Unasked {
 /// For any whoever the service says signed in, and a whoami endpoint that can't be reached (a
 /// port nothing listens on, a server elsewhere in a test kept offline) or sends to an address
 /// that can't be read, or back to itself: the sign-in fails saying why, and nothing is kept.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_whoami_out_of_reach_or_sending_nowhere_signs_nobody_in(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42)]));
     for at in [Unasked::Closed, Unasked::Offline, Unasked::Nowhere, Unasked::Around] {
@@ -662,7 +662,7 @@ fn prop_a_whoami_out_of_reach_or_sending_nowhere_signs_nobody_in(tc: TestCase) {
 
 /// For a token in the header or the query, a whoami answer that isn't JSON, or has a subject that
 /// is neither a string nor an integer, or none, signs nobody in, saying so.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_whoami_answer_without_a_subject_signs_nobody_in(tc: TestCase) {
     let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
     for (whoami, said, why) in [
@@ -681,7 +681,7 @@ fn prop_a_whoami_answer_without_a_subject_signs_nobody_in(tc: TestCase) {
 /// For an account the service gave no refresh token, its token in the header or the query: once
 /// its token is about to expire it says to sign in again, and a request its token is refused for
 /// is answered as the service answered, sent once, the account kept.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_account_without_a_refresh_token_isnt_refreshed(tc: TestCase) {
     let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
     let m = mock_at(3600, "/userinfo", token);
@@ -700,7 +700,7 @@ fn prop_an_account_without_a_refresh_token_isnt_refreshed(tc: TestCase) {
 
 /// For a whoami endpoint asked with the token in its query, whatever else its query has: what it
 /// has is kept, but a parameter of the token's name, which the token takes the place of.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_whoami_keeps_its_query_but_where_the_token_goes(tc: TestCase) {
     let kept = tc.draw(gs::sampled_from(vec!["", "via=test&", "via=test&n=2&"]));
     let replaced = tc.draw(gs::booleans());
@@ -950,7 +950,7 @@ impl Mock {
 /// can't be read or opened (a request, as the service's failure) and changes nothing else, but a
 /// sign-in, which writes a secrets file it can't read anew; and everything else does as it
 /// would. No token gets out.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_damaged_store_fails_what_reads_it_and_changes_nothing(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
     let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
@@ -980,7 +980,7 @@ fn prop_a_damaged_store_fails_what_reads_it_and_changes_nothing(tc: TestCase) {
 /// folder can't be written to: `accounts.json` can't be changed, the change fails saying so, and
 /// the accesses are as they were.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_store_it_cant_write_to_keeps_its_accesses_as_they_were(tc: TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let m = mock(3600);
@@ -1004,7 +1004,7 @@ fn prop_a_store_it_cant_write_to_keeps_its_accesses_as_they_were(tc: TestCase) {
 
 /// Whether an account type can be told to forget a token decides whether signing out tells it:
 /// the account is forgotten here either way.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_signing_out_tells_the_service_only_when_its_type_can_be_told(tc: TestCase) {
     let email = tc.draw(gs::sampled_from(vec![None, Some("a@mock.example")]));
     for revokes in [false, true] {
@@ -1028,7 +1028,7 @@ fn prop_signing_out_tells_the_service_only_when_its_type_can_be_told(tc: TestCas
 /// isn't there is said not to be, as is a scope a plugin doesn't ask for; an account whose
 /// tokens the keychain lost is signed out; and one of a type its account plugin no longer
 /// provides can't be signed out of or used, and stays.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_what_isnt_there_is_said_not_to_be(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
     let m = mock(3600);

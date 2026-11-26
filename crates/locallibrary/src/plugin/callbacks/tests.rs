@@ -742,7 +742,7 @@ const AT_ONCE: Duration = Duration::from_secs(2);
 /// refused as busy, at once; those let through are answered once their reads finish, a read that
 /// fails is answered without its actions or the path here, one that panics is answered too, and
 /// once every call is answered the whole quota is free again.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let quota = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let held = tc.draw(gs::integers::<usize>().max_value(7));

@@ -80,6 +80,7 @@ jobs:
               - 'dist-workspace.toml'
               - '.cargo/**'
               - '.config/nextest.toml'
+              - 'hegel.toml'
               - '.node-version'
               - 'lexicons/**'
               - 'about.{toml,hbs}'

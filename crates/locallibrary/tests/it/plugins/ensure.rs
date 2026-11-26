@@ -117,7 +117,7 @@ fn sorted(scopes: &[&str]) -> Vec<String> {
 /// saying how to give them. Once the account is lost, echo has no access to ask about: it fails as
 /// `no_access`, and nobody is asked. One its manifest doesn't ask for is refused. No token gets
 /// out.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
     let mut needs = some(&tc);
     if needs.is_empty() {
@@ -230,7 +230,7 @@ fn prop_ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
 /// in to again with other keys for the plugin, its access is back, and the user allowing more gives
 /// it the scope without signing in again (its scopes ask the service for nothing); a request
 /// through it gets the new keys.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_ensure_signs_in_again_with_the_keys_entered(tc: TestCase) {
     let script = Arc::new(Script { answer: Mutex::new(Some(true)), ..Script::default() });
     let ask = Some(script.clone() as Arc<dyn AskAccess>);
@@ -312,7 +312,7 @@ enum Ensuring {
 /// remembered as declined as they decline; one it wasn't granted is signed in again for in the
 /// browser, given nothing when the browser signs in as another; and where signing in again can't
 /// begin, it says why.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_ensure_answers_what_it_can_and_says_why_not(tc: TestCase) {
     use Ensuring::*;
     let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
