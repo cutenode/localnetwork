@@ -1699,8 +1699,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     app.add_to_crate(&root, &paths);
     // The clicks need only where things were drawn, so a frame goes to one terminal kept for the case, without the
-    // screen's text, at the smallest size that has every target: drawing is most of a case's time, and a slow case
-    // fails Hegel's TooSlow check on a busy machine (LOC-1030).
+    // screen's text, at the smallest size that has every target: drawing is most of a case's time.
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 32)).unwrap();
     let mut draw = |app: &mut App| {
         terminal.draw(|f| super::super::ui::draw(f, app)).unwrap();

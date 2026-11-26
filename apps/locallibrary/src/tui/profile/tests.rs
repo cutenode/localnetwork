@@ -456,6 +456,20 @@ fn r_builds_the_profile_in_the_background() {
     assert!(s.contains("12 tracks ·"), "{s}");
 }
 
+/// A test's player builds no profile from what the machine running it has: no drive mounted there,
+/// nor rekordbox's collection.
+#[test]
+fn a_profile_in_a_test_reads_nothing_of_the_machines() {
+    let (mut app, _dir) = blank(View::Library);
+    app.set_view(View::Profile);
+    wait(&mut app, |a| !a.profile.loading);
+    let Some(Err(why)) = &app.profile.view else { panic!("a profile of something") };
+    assert!(why.contains("no rekordbox drive is mounted"), "{why}");
+    // Said here too, for a machine with no collection of its own.
+    let collection = std::env::var_os("LOCALLIBRARY_MASTERDB").expect("a collection of the tests' own");
+    assert!(!std::path::Path::new(&collection).exists(), "{collection:?}");
+}
+
 /// The pointer picks a section, a click picks the row of its list under it, and the wheel
 /// moves through either.
 #[test]

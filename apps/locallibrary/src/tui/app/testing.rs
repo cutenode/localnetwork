@@ -787,13 +787,15 @@ pub fn mounted(dir: &Path) {
     unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
 }
 
-/// No drive counts as mounted unless a test says so ([`mounted`]): the Profile view reads every
-/// drive it finds, in the background, and a real one plugged into the machine takes seconds and
-/// goes on being read after the test case that asked.
-pub fn no_drives() {
-    if std::env::var_os("LOCALLIBRARY_VOLUMES").is_none() {
-        // SAFETY: as in `echo_plugin`: this is the process's first app, so none of its workers runs.
-        unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", "") };
+/// No drive counts as mounted unless a test says so ([`mounted`]), and rekordbox has no collection
+/// on this computer: the Profile view reads every one it finds, in the background, and a real one
+/// takes seconds and goes on being read after the test case that asked.
+pub fn no_drives_or_collection() {
+    for (name, none) in [("LOCALLIBRARY_VOLUMES", ""), ("LOCALLIBRARY_MASTERDB", "no-rekordbox/master.db")] {
+        if std::env::var_os(name).is_none() {
+            // SAFETY: as in `echo_plugin`: this is the process's first app, so none of its workers runs.
+            unsafe { std::env::set_var(name, none) };
+        }
     }
 }
 
