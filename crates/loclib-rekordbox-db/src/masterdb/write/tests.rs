@@ -1,0 +1,539 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use hegel::TestCase;
+use hegel::generators as gs;
+use loclib_model::analysis::{Cue, hot_cue_palette};
+
+use super::*;
+use crate::masterdb::{DEFAULT_KEY, open};
+use crate::test_util::{Fixture, UPDATE_COUNT, codec, scratch_db, writable};
+
+/// Panics should a test's write be pointed at rekordbox's own collection, or anywhere in its
+/// folders: tests write fixtures in temporary folders only.
+pub(super) fn not_rekordboxs_own(path: &Path) {
+    let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()).unwrap_or_default();
+    let config = directories::BaseDirs::new().map(|b| b.config_dir().to_path_buf()).unwrap_or_default();
+    for theirs in [home.join("Library/Pioneer"), config.join("Pioneer")] {
+        assert!(!path.starts_with(&theirs), "a test tried to write {}", path.display());
+    }
+    if let Some(own) = default_path().filter(|_| std::env::var_os(super::super::PATH_ENV).is_none()) {
+        assert_ne!(path, own, "a test tried to write rekordbox's own collection");
+    }
+}
+
+fn closed() -> Running {
+    Running::default()
+}
+
+/// A collection in a temporary folder of its own, with somewhere for backups and working copies,
+/// and an agent log that says sync is off.
+struct Lib {
+    dir: tempfile::TempDir,
+    target: Target,
+}
+
+impl Lib {
+    /// `f`'s database as `master.db`, encrypted unless `plain`.
+    fn new(f: &Fixture, plain: bool) -> Lib {
+        let dir = tempfile::tempdir().unwrap();
+        let rekordbox = dir.path().join("rekordbox");
+        std::fs::create_dir(&rekordbox).unwrap();
+        let mut bytes = f.plain();
+        // rekordbox keeps master.db in WAL mode.
+        bytes[18..20].copy_from_slice(&[2, 2]);
+        let bytes = if plain { bytes } else { codec(DEFAULT_KEY).encrypt(&bytes).unwrap() };
+        std::fs::write(rekordbox.join("master.db"), bytes).unwrap();
+        let log = dir.path().join("log.log");
+        std::fs::write(&log, "[261126T012213.828-0600] I/sync mode: null => standalone\n").unwrap();
+        std::fs::create_dir(dir.path().join("work")).unwrap();
+        let target = Target {
+            master_db: rekordbox.join("master.db"),
+            key: DEFAULT_KEY.into(),
+            backups: dir.path().join("backups"),
+            agent_log: Some(log),
+            work: Some(dir.path().join("work")),
+            running: closed,
+        };
+        Lib { dir, target }
+    }
+
+    fn bytes(&self) -> Vec<u8> {
+        std::fs::read(&self.target.master_db).unwrap()
+    }
+
+    /// The database, decrypted, opened to look at.
+    fn sql(&self) -> (tempfile::TempDir, Connection) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plain.db");
+        let mut plain = crate::test_util::plain(&self.target.master_db);
+        plain[18..20].copy_from_slice(&[1, 1]);
+        std::fs::write(&path, plain).unwrap();
+        let conn = scratch_db(&path);
+        (dir, conn)
+    }
+
+    fn query<T: rusqlite::types::FromSql>(&self, sql: &str) -> T {
+        let (_dir, conn) = self.sql();
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// Files left anywhere a write puts them but in `master.db` and the backups (when `backups`).
+    fn leftovers(&self, backups: bool) -> Vec<String> {
+        let mut out = Vec::new();
+        let rekordbox = self.target.master_db.parent().unwrap();
+        for dir in [rekordbox, &self.dir.path().join("work"), &self.target.backups] {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let keep = e.path() == self.target.master_db || (backups && dir == self.target.backups);
+                if !keep {
+                    out.push(e.path().display().to_string());
+                }
+            }
+        }
+        out
+    }
+
+    fn cues(&self, track: u32) -> Vec<Cue> {
+        open(&self.target.master_db, DEFAULT_KEY).unwrap().cues.get(&track).cloned().unwrap_or_default()
+    }
+}
+
+fn hot(h: u8, ms: u32) -> CueEntry {
+    CueEntry { hot_cue: Some(h), start_ms: ms, ..Default::default() }
+}
+
+const TRACK: &str = "84935471";
+
+#[test]
+fn cues_set_read_back_as_rekordbox_lays_them_out() {
+    let lib = Lib::new(&writable(), false);
+    let original = lib.bytes();
+    let cues = [
+        CueEntry { color: Some(22), comment: "Drop".into(), ..hot(0, 16_335) },
+        CueEntry { end_ms: Some(118_100), color: Some(36), ..hot(3, 110_383) },
+        CueEntry { start_ms: 154, ..Default::default() },
+        CueEntry { start_ms: 2000, end_ms: Some(4000), ..Default::default() },
+    ];
+    let written = write(&lib.target, |e| e.set_cues(TRACK, &cues)).unwrap();
+
+    // What was there before comes back for undo.
+    let before: Vec<String> = written.value.rows.iter().map(|r| r[0].1.as_str().unwrap().to_string()).collect();
+    assert_eq!(before, ["c1", "c2", "c3"]);
+    assert_eq!(written.value.content_cue, None);
+    // The backup is the file as it was, byte for byte.
+    assert_eq!(std::fs::read(&written.backup).unwrap(), original);
+    // Encrypted again with the same salt, and back in WAL mode.
+    let now = lib.bytes();
+    assert_eq!(now[..16], original[..16]);
+    assert_eq!(crate::test_util::plain(&lib.target.master_db)[18..20], [2, 2]);
+    assert_eq!(lib.leftovers(true), Vec::<String>::new());
+
+    // The reader reads them back.
+    let read = lib.cues(84935471);
+    let summary: Vec<_> = read.iter().map(|c| (c.hot_cue, c.start_ms, c.end_ms, c.comment.as_str(), c.color)).collect();
+    assert_eq!(
+        summary,
+        [
+            (None, 154, None, "", None),
+            (None, 2000, Some(4000), "", None),
+            (Some(0), 16_335, None, "Drop", hot_cue_palette(22)),
+            (Some(3), 110_383, Some(118_100), "", hot_cue_palette(36)),
+        ]
+    );
+
+    // Stamps: the list first, then the track; the counter ends at the last.
+    assert_eq!(written.count, (UPDATE_COUNT, UPDATE_COUNT + 2));
+    assert_eq!(
+        lib.query::<i64>("SELECT int_1 FROM agentRegistry WHERE registry_id = 'localUpdateCount'"),
+        UPDATE_COUNT + 2
+    );
+    assert_eq!(lib.query::<i64>("SELECT rb_local_usn FROM contentCue"), UPDATE_COUNT + 1);
+    let track = format!("SELECT rb_local_usn || ' ' || CueUpdated FROM djmdContent WHERE ID = '{TRACK}'");
+    assert_eq!(lib.query::<String>(&track), format!("{} 2", UPDATE_COUNT + 2));
+    let at: String = lib.query(&format!("SELECT updated_at FROM djmdContent WHERE ID = '{TRACK}'"));
+    assert!(chrono::DateTime::parse_from_str(&at, "%Y-%m-%d %H:%M:%S%.3f %:z").is_ok(), "{at}");
+    assert_eq!(at.len(), "2026-11-26 07:24:06.375 +00:00".len(), "{at}");
+    // Cue rows aren't stamped, as rekordbox leaves them.
+    assert_eq!(lib.query::<i64>("SELECT count(*) FROM djmdCue WHERE rb_local_usn IS NOT NULL OR usn IS NOT NULL"), 0);
+
+    // The rows, as rekordbox writes them.
+    let (_d, conn) = lib.sql();
+    let mut stmt = conn
+        .prepare(
+            "SELECT InMsec, InFrame, OutMsec, OutFrame, Kind, Color, ColorTableIndex, Comment, ContentUUID, \
+             length(ID) <= 10 AND CAST(ID AS INTEGER) > 0, length(UUID) FROM djmdCue WHERE ContentID = ?1 ORDER BY rowid",
+        )
+        .unwrap();
+    type Row = (i64, i64, i64, i64, i64, i64, Option<i64>, Option<String>, String, bool, i64);
+    let rows: Vec<Row> = stmt
+        .query_map([TRACK], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
+                r.get(10)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let uuid = || "uuid-84935471".to_string();
+    assert_eq!(
+        rows,
+        [
+            (16_335, 2450, -1, 0, 1, -1, Some(22), Some("Drop".into()), uuid(), true, 36),
+            (110_383, 16_557, 118_100, 17_715, 5, -1, Some(36), None, uuid(), true, 36),
+            (154, 23, -1, 0, 0, -1, None, None, uuid(), true, 36),
+            (2000, 300, 4000, 600, 4, -1, None, None, uuid(), true, 36),
+        ]
+    );
+
+    // The list: one row, keyed by the track's UUID, the rows' columns that aren't NULL in
+    // rekordbox's order and spelling.
+    let (id, cues_json, count): (String, String, i64) = conn
+        .query_row("SELECT ID, Cues, rb_cue_count FROM contentCue", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap();
+    assert_eq!((id.as_str(), count), ("uuid-84935471", 4));
+    let list: Vec<serde_json::Map<String, serde_json::Value>> = serde_json::from_str(&cues_json).unwrap();
+    let keys: Vec<&str> = list[0].keys().map(String::as_str).collect();
+    // serde_json's map sorts its keys, so the order is checked on the text.
+    let order: Vec<usize> = [
+        "\"ID\"",
+        "\"ContentID\"",
+        "\"ContentUUID\"",
+        "\"InMsec\"",
+        "\"InFrame\"",
+        "\"InMpegFrame\"",
+        "\"InMpegAbs\"",
+        "\"OutMsec\"",
+        "\"OutFrame\"",
+        "\"OutMpegFrame\"",
+        "\"OutMpegAbs\"",
+        "\"Kind\"",
+        "\"Color\"",
+        "\"ColorTableIndex\"",
+        "\"Comment\"",
+        "\"UUID\"",
+        "\"created_at\"",
+        "\"updated_at\"",
+    ]
+    .iter()
+    .map(|k| cues_json.find(k).unwrap())
+    .collect();
+    assert!(order.is_sorted(), "{cues_json}");
+    assert_eq!(keys.len(), 18, "{keys:?}");
+    assert_eq!(list[0]["InMsec"], 16_335);
+    assert_eq!(list[0]["ContentID"], TRACK);
+    assert!(list[0]["ID"].is_string());
+    assert!(!list[2].contains_key("ColorTableIndex") && !list[2].contains_key("Comment"));
+    let created = list[0]["created_at"].as_str().unwrap();
+    assert!(chrono::DateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:%S%.3f%:z").is_ok(), "{created}");
+    assert!(!created.contains(' '), "{created}");
+}
+
+/// Undo moves forward: putting back what a write replaced is a new write with new stamps, and
+/// the cues read as they did.
+#[test]
+fn undo_puts_the_old_cues_back_with_new_stamps() {
+    let lib = Lib::new(&writable(), false);
+    let original = lib.cues(84935471);
+    let first = write(&lib.target, |e| e.set_cues(TRACK, &[hot(1, 5000)])).unwrap();
+    assert_ne!(lib.cues(84935471), original);
+    let undone = write(&lib.target, |e| e.restore_cues(&first.value)).unwrap();
+    assert_eq!(lib.cues(84935471), original);
+    assert!(undone.count.1 > first.count.1 && undone.count.0 == first.count.1);
+    let ids = lib.query::<String>(&format!("SELECT group_concat(ID) FROM djmdCue WHERE ContentID = '{TRACK}'"));
+    assert_eq!(ids, "c1,c2,c3");
+    // And undoing the undo is the first write again.
+    write(&lib.target, |e| e.restore_cues(&undone.value)).unwrap();
+    assert_eq!(lib.cues(84935471).iter().map(|c| (c.hot_cue, c.start_ms)).collect::<Vec<_>>(), [(Some(1), 5000)]);
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 3);
+}
+
+/// A drawn run of writes, each a whole cue list for a drawn track: each reads back through the
+/// collection's reader, and the counter only ever rises, past every stamp.
+#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_writes_read_back_and_the_counter_only_rises(tc: TestCase) {
+    let lib = Lib::new(&writable(), true);
+    let mut count = UPDATE_COUNT;
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let track = tc.draw(gs::sampled_from(vec!["84935471", "205356547", "4"]));
+        let n = tc.draw(gs::integers::<usize>().max_value(5));
+        let mut cues = Vec::new();
+        let mut letters: Vec<u8> = (0..8).collect();
+        for _ in 0..n {
+            let start = tc.draw(gs::integers::<u32>().max_value(600_000));
+            let hot_cue = if tc.draw(gs::booleans()) && !letters.is_empty() {
+                Some(letters.remove(tc.draw(gs::integers::<usize>().max_value(letters.len() - 1))))
+            } else {
+                None
+            };
+            let end =
+                tc.draw(gs::booleans()).then(|| start + tc.draw(gs::integers::<u32>().min_value(1).max_value(9999)));
+            let color = hot_cue.and_then(|_| {
+                tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().min_value(1).max_value(62)))
+            });
+            let comment = tc.draw(gs::sampled_from(vec!["", "drop", "ü \"q\""])).to_string();
+            cues.push(CueEntry { hot_cue, start_ms: start, end_ms: end, comment, color, active_loop: false });
+        }
+        let written = write(&lib.target, |e| e.set_cues(track, &cues)).unwrap();
+        assert_eq!(written.count.0, count);
+        assert!(written.count.1 > count);
+        count = written.count.1;
+        let highest: i64 = lib.query(
+            "SELECT max(n) FROM (SELECT max(rb_local_usn) n FROM djmdContent UNION ALL SELECT max(rb_local_usn) FROM contentCue)",
+        );
+        assert_eq!(highest, count);
+
+        let mut want: Vec<_> = cues
+            .iter()
+            .map(|c| (c.hot_cue, c.start_ms, c.end_ms, c.comment.clone(), c.color.and_then(hot_cue_palette)))
+            .collect();
+        want.sort_by_key(|c| (c.0.map_or(0, |h| h as u32 + 1), c.1));
+        let got: Vec<_> = lib
+            .cues(track.parse().unwrap())
+            .into_iter()
+            .map(|c| (c.hot_cue, c.start_ms, c.end_ms, c.comment, c.color))
+            .collect();
+        // Same order for equal keys isn't promised: compare as sets of sorted lists.
+        let mut got_sorted = got.clone();
+        got_sorted.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+        want.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+        assert_eq!(got_sorted, want);
+    }
+    let mismatched = cue_list_mismatches(&lib.target.master_db, DEFAULT_KEY, false).unwrap();
+    assert_eq!(mismatched, Vec::<String>::new());
+}
+
+/// Each refusal leaves master.db as it was, byte for byte, and nothing behind.
+#[test]
+fn refusals_leave_master_db_untouched() {
+    fn rekordbox() -> Running {
+        Running { rekordbox: true, agent: true }
+    }
+    fn agent() -> Running {
+        Running { rekordbox: false, agent: true }
+    }
+    type Setup = fn(&mut Lib);
+    type Expected = fn(&Refusal) -> bool;
+    let cases: &[(&str, Setup, Expected)] = &[
+        ("rekordbox open", |l| l.target.running = rekordbox, |r| *r == Refusal::RekordboxRunning),
+        ("agent running", |l| l.target.running = agent, |r| *r == Refusal::AgentRunning),
+        ("a WAL with changes", |l| wal(l, "-wal", b"x"), |r| matches!(r, Refusal::Unsaved(_))),
+        ("shared memory in use", |l| wal(l, "-shm", b"x"), |r| matches!(r, Refusal::Unsaved(_))),
+        ("a journal", |l| wal(l, "-journal", b"x"), |r| matches!(r, Refusal::Unsaved(_))),
+        ("no agent log", |l| l.target.agent_log = None, |r| matches!(r, Refusal::CloudSync(_))),
+        ("a log saying sync", |l| log(l, "I/sync mode: standalone => cloud\n"), |r| matches!(r, Refusal::CloudSync(_))),
+        ("a log saying nothing", |l| log(l, "I/started\n"), |r| matches!(r, Refusal::CloudSync(_))),
+    ];
+    fn wal(l: &mut Lib, end: &str, bytes: &[u8]) {
+        std::fs::write(format!("{}{end}", l.target.master_db.display()), bytes).unwrap();
+    }
+    fn log(l: &mut Lib, text: &str) {
+        std::fs::write(l.target.agent_log.as_ref().unwrap(), text).unwrap();
+    }
+    for (what, setup, expected) in cases {
+        let mut lib = Lib::new(&writable(), false);
+        setup(&mut lib);
+        let before = lib.bytes();
+        let Err(e) = write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])) else { panic!("{what} was written") };
+        let Error::Refused(why) = &e else { panic!("{what}: {e}") };
+        assert!(expected(why), "{what}: {e}");
+        assert_eq!(lib.bytes(), before, "{what}");
+        let left: Vec<String> = lib.leftovers(false).into_iter().filter(|p| !p.contains("master.db-")).collect();
+        assert_eq!(left, Vec::<String>::new(), "{what}");
+        assert!(!e.to_string().is_empty());
+    }
+}
+
+/// An empty WAL or shared memory file, which a clean close can leave, doesn't stop a write.
+#[test]
+fn empty_wal_files_are_no_changes() {
+    let lib = Lib::new(&writable(), false);
+    for end in ["-wal", "-shm"] {
+        std::fs::write(format!("{}{end}", lib.target.master_db.display()), b"").unwrap();
+    }
+    write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap();
+}
+
+/// What in the database says sync is (or was) on refuses the write.
+#[test]
+fn cloud_library_sync_in_the_database_refuses() {
+    for (what, sql) in [
+        ("usn", "UPDATE djmdContent SET usn = 5 WHERE ID = '4'"),
+        ("synced", "UPDATE djmdPlaylist SET rb_local_synced = 1 WHERE ID = '10'"),
+        ("cloud agent", "INSERT INTO cloudAgentRegistry (ID, int_1) VALUES ('x', 1)"),
+        ("last count", "INSERT INTO agentRegistry (registry_id, int_1) VALUES ('lastUpdateCount', 7)"),
+    ] {
+        let f = writable();
+        f.exec(sql);
+        let lib = Lib::new(&f, false);
+        let before = lib.bytes();
+        let e = write(&lib.target, |e| e.set_cues(TRACK, &[])).unwrap_err();
+        assert!(matches!(e, Error::Refused(Refusal::CloudSync(_))), "{what}: {e}");
+        assert!(e.to_string().contains("Cloud Library Sync"), "{e}");
+        assert_eq!(lib.bytes(), before, "{what}");
+        assert_eq!(lib.leftovers(false), Vec::<String>::new(), "{what}");
+    }
+}
+
+static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// rekordbox starting while the edit is made stops the swap: nothing changes, nothing's left.
+#[test]
+fn a_failed_swap_leaves_nothing_behind() {
+    fn starts_later() -> Running {
+        Running { rekordbox: CALLS.fetch_add(1, Ordering::SeqCst) > 0, agent: false }
+    }
+    let mut lib = Lib::new(&writable(), false);
+    lib.target.running = starts_later;
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| e.set_cues(TRACK, &[hot(0, 1)])).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::RekordboxRunning)), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(lib.leftovers(false), Vec::<String>::new());
+}
+
+/// master.db changing underneath (rekordbox saved) stops the swap, and the change stays.
+#[test]
+fn a_change_underneath_is_kept() {
+    let lib = Lib::new(&writable(), false);
+    let master = lib.target.master_db.clone();
+    let e = write(&lib.target, |e| {
+        let mut bytes = std::fs::read(&master).unwrap();
+        bytes.extend_from_slice(&[0; 4096]);
+        std::fs::write(&master, bytes).unwrap();
+        e.set_cues(TRACK, &[hot(0, 1)])
+    })
+    .unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Changed)), "{e}");
+    assert_eq!(lib.bytes().len() % 4096, 0);
+    assert_eq!(lib.leftovers(false), Vec::<String>::new());
+}
+
+/// An edit that fails changes nothing, and so does one given cues rekordbox can't hold.
+#[test]
+fn a_failed_edit_changes_nothing() {
+    let lib = Lib::new(&writable(), false);
+    let before = lib.bytes();
+    let bad: &[&[CueEntry]] = &[
+        &[hot(8, 1)],
+        &[hot(0, 1), hot(0, 2)],
+        &[CueEntry { end_ms: Some(5), ..hot(0, 10) }],
+        &[CueEntry { color: Some(63), ..hot(0, 10) }],
+    ];
+    for cues in bad {
+        let e = write(&lib.target, |e| e.set_cues(TRACK, cues)).unwrap_err();
+        assert!(matches!(e, Error::Invalid(_)), "{e}");
+    }
+    let e = write(&lib.target, |e| e.set_cues("3", &[])).unwrap_err();
+    assert!(matches!(e, Error::NotFound(_)), "a deleted track: {e}");
+    let e = write(&lib.target, |e| {
+        e.set_cues(TRACK, &[hot(0, 1)])?;
+        Err::<(), _>(Error::Invalid("changed my mind".into()))
+    })
+    .unwrap_err();
+    assert_eq!(e.to_string(), "changed my mind");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(lib.leftovers(false), Vec::<String>::new());
+}
+
+/// Lists that disagree with their rows are made to agree; with `create_missing`, tracks without
+/// a list get one.
+#[test]
+fn repair_makes_the_lists_agree() {
+    let f = writable();
+    // A list from before a script added c3 (and a count that agrees with it), and one for a
+    // track with no cues left.
+    let stale = r#"[{"ID":"c1","InMsec":1000,"OutMsec":-1,"Kind":1},{"ID":"c2","InMsec":500,"OutMsec":-1,"Kind":0}]"#;
+    f.exec(&format!(
+        "INSERT INTO contentCue (ID, ContentID, Cues, rb_cue_count) VALUES
+             ('uuid-84935471', '84935471', '{stale}', 2), ('uuid-4', '4', '{stale}', 2);
+         INSERT INTO djmdCue (ID, ContentID, ContentUUID, InMsec, OutMsec, Kind) VALUES ('c9', '205356547', 'uuid-205356547', 9, -1, 0);"
+    ));
+    let lib = Lib::new(&f, false);
+    let mut found = cue_list_mismatches(&lib.target.master_db, DEFAULT_KEY, false).unwrap();
+    found.sort();
+    assert_eq!(found, ["4", TRACK]);
+    let all = cue_list_mismatches(&lib.target.master_db, DEFAULT_KEY, true).unwrap();
+    assert_eq!(all.len(), 3, "{all:?}");
+
+    let repaired = write(&lib.target, |e| e.repair_cue_lists(false)).unwrap();
+    assert_eq!(repaired.value.len(), 2);
+    assert!(repaired.value.iter().all(|b| b.content_cue.is_some()));
+    assert_eq!(repaired.count.1, UPDATE_COUNT + 4);
+    assert_eq!(cue_list_mismatches(&lib.target.master_db, DEFAULT_KEY, false).unwrap(), Vec::<String>::new());
+    assert_eq!(lib.query::<String>("SELECT Cues || rb_cue_count FROM contentCue WHERE ContentID = '4'"), "[]0");
+    assert_eq!(lib.query::<i64>(&format!("SELECT rb_cue_count FROM contentCue WHERE ContentID = '{TRACK}'")), 3);
+    // The rows themselves are as they were.
+    assert_eq!(lib.query::<i64>("SELECT count(*) FROM djmdCue"), 5);
+
+    let created = write(&lib.target, |e| e.repair_cue_lists(true)).unwrap();
+    assert_eq!(created.value.iter().map(|b| b.track_id.as_str()).collect::<Vec<_>>(), ["205356547"]);
+    assert_eq!(cue_list_mismatches(&lib.target.master_db, DEFAULT_KEY, true).unwrap(), Vec::<String>::new());
+}
+
+/// A track's columns set through the write path are stamped, and put back the same way.
+#[test]
+fn track_columns_are_set_stamped_and_put_back() {
+    let lib = Lib::new(&writable(), false);
+    let set = [("BPM", Value::Integer(12400)), ("KeyID", Value::Text("2".into()))];
+    let first = write(&lib.target, |e| e.update_track(TRACK, &set)).unwrap();
+    assert_eq!(first.value.values, [("BPM".to_string(), 12280.into()), ("KeyID".to_string(), "1".into())]);
+    let row = format!("SELECT BPM || ' ' || KeyID || ' ' || rb_local_usn FROM djmdContent WHERE ID = '{TRACK}'");
+    assert_eq!(lib.query::<String>(&row), format!("12400 2 {}", UPDATE_COUNT + 1));
+    write(&lib.target, |e| e.restore_track(&first.value)).unwrap();
+    assert_eq!(lib.query::<String>(&row), format!("12280 1 {}", UPDATE_COUNT + 2));
+    for kept in ["ID", "rb_local_usn", "updated_at", "Nope"] {
+        let e = write(&lib.target, |e| e.update_track(TRACK, &[(kept, Value::Null)])).unwrap_err();
+        assert!(matches!(e, Error::Invalid(_)), "{kept}: {e}");
+    }
+}
+
+/// A collection without a localUpdateCount isn't one this writes.
+#[test]
+fn no_update_count_is_refused() {
+    let f = writable();
+    f.exec("DELETE FROM agentRegistry WHERE registry_id = 'localUpdateCount'");
+    let lib = Lib::new(&f, false);
+    let e = write(&lib.target, |e| e.set_cues(TRACK, &[])).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
+}
+
+/// A hot cue from the model takes the palette code nearest its colour; a memory cue none.
+#[test]
+fn model_cues_become_entries() {
+    let cue = |hot_cue, start_ms, end_ms, color| Cue {
+        hot_cue,
+        start_ms,
+        end_ms,
+        comment: String::new(),
+        color,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    };
+    let c = cue(Some(2), 10, Some(10), hot_cue_palette(36));
+    assert_eq!(CueEntry::from(&c), CueEntry { color: Some(36), ..hot(2, 10) });
+    let m = cue(None, 5, Some(9), Some([1, 2, 3]));
+    assert_eq!(CueEntry::from(&m), CueEntry { start_ms: 5, end_ms: Some(9), ..Default::default() });
+}
+
+#[test]
+fn rekordboxs_agent_and_its_helpers_are_the_agent() {
+    use std::ffi::OsStr;
+    for (name, is) in [
+        ("rekordboxAgent", true),
+        ("rekordboxAgent.exe", true),
+        ("rekordboxAgent Helper (Renderer)", true),
+        ("rekordbox", false),
+    ] {
+        assert_eq!(super::super::files::is_agent(OsStr::new(name)), is, "{name}");
+    }
+}
