@@ -59,3 +59,11 @@ workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist = { version = "1.10.1", optional = true }
+
+[target."cfg(unix)".dependencies]
+# Whose a scratch folder is, and opening its lock file without following a link or waiting.
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+# Whose a scratch folder is, and an access list that lets in the current user alone.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }

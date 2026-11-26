@@ -2490,6 +2490,7 @@ dependencies = [
  "directories",
  "getrandom 0.3.4",
  "indexmap",
+ "libc",
  "loclib-model",
  "loclib-plugin",
  "loclib-sqlcipher",
@@ -2503,6 +2504,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

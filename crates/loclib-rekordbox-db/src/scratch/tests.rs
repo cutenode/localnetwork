@@ -8,6 +8,19 @@ fn names(root: &Path) -> Vec<String> {
     names
 }
 
+/// A folder named `name` in `root`, made as a [`Folder`] is (its owner's alone), holding `files`.
+fn made(root: &Path, name: &str, files: &[&str]) -> PathBuf {
+    let dir = root.join(name);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700).create(&dir).unwrap();
+    #[cfg(not(unix))]
+    std::fs::create_dir(&dir).unwrap();
+    for f in files {
+        std::fs::write(dir.join(f), b"x").unwrap();
+    }
+    dir
+}
+
 /// A folder is its owner's alone, and goes with what's in it when dropped.
 #[test]
 fn a_folder_is_private_and_removed_when_dropped() {
@@ -41,13 +54,9 @@ fn a_sweep_removes_only_abandoned_folders() {
     let root = tempfile::tempdir().unwrap();
     let held = folder_in(root.path()).unwrap();
     // A process that ended: its lock file is there, and nobody holds it.
-    let left = root.path().join(format!("{PREFIX}left"));
-    std::fs::create_dir(&left).unwrap();
-    std::fs::write(left.join(LOCK), b"").unwrap();
-    std::fs::write(left.join("master.db"), b"decrypted").unwrap();
+    let left = made(root.path(), &format!("{PREFIX}LEFT01"), &[LOCK, "master.db"]);
     // One being made: no lock file yet.
-    let making = root.path().join(format!("{PREFIX}making"));
-    std::fs::create_dir(&making).unwrap();
+    let making = made(root.path(), &format!("{PREFIX}MAKE01"), &[]);
     let removed = sweep_in(root.path(), GRACE);
     assert_eq!(removed, [left]);
     assert!(held.path().is_dir() && making.is_dir());
@@ -119,7 +128,7 @@ fn a_sweep_follows_no_links() {
     let elsewhere = tempfile::tempdir().unwrap();
     std::fs::write(elsewhere.path().join(LOCK), b"").unwrap();
     std::fs::write(elsewhere.path().join("master.db"), b"x").unwrap();
-    std::os::unix::fs::symlink(elsewhere.path(), root.path().join(format!("{PREFIX}link"))).unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), root.path().join(format!("{PREFIX}LINK01"))).unwrap();
     std::os::unix::fs::symlink(elsewhere.path(), root.path().join(".tmpLINKED")).unwrap();
     assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
     assert_eq!(names(elsewhere.path()), [LOCK, "master.db"]);
@@ -130,12 +139,120 @@ fn a_sweep_follows_no_links() {
 #[test]
 fn a_sweep_leaves_a_folder_whose_lock_cant_be_opened() {
     let root = tempfile::tempdir().unwrap();
-    let other = root.path().join(format!("{PREFIX}other"));
-    std::fs::create_dir(&other).unwrap();
+    let other = made(root.path(), &format!("{PREFIX}OTHER1"), &[]);
     // A link to itself can't be opened, whoever runs the test (root can open any file).
     std::os::unix::fs::symlink(other.join(LOCK), other.join(LOCK)).unwrap();
     assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
     assert!(other.is_dir());
+}
+
+/// Only folders named as `tempfile` names them, this user's own and private, are looked into:
+/// another user on a shared `/tmp` can make one of any name and mode.
+#[cfg(unix)]
+#[test]
+fn a_sweep_looks_only_into_this_users_private_folders() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let root = tempfile::tempdir().unwrap();
+    let open = made(root.path(), &format!("{PREFIX}OPEN01"), &[LOCK, "master.db"]);
+    std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+    made(root.path(), &format!("{PREFIX}toolong"), &[LOCK]);
+    made(root.path(), &format!("{PREFIX}sh0rt"), &[LOCK]);
+    made(root.path(), &format!("{PREFIX}not-it"), &[LOCK]);
+    made(root.path(), &format!("{PREFIX}KEEP"), &[]);
+    assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
+    assert_eq!(names(&open), [LOCK, "master.db"]);
+    // Whose it is, for a user this test can't be.
+    let meta = std::fs::symlink_metadata(made(root.path(), "mine", &[])).unwrap();
+    assert!(owned_by(&meta, meta.uid(), true));
+    assert!(!owned_by(&meta, meta.uid() + 1, true));
+    assert!(!owned_by(&meta, meta.uid() + 1, false));
+    let meta = std::fs::symlink_metadata(&open).unwrap();
+    assert!(!owned_by(&meta, meta.uid(), true), "not private");
+    assert!(owned_by(&meta, meta.uid(), false), "an earlier version's folder needn't be");
+}
+
+/// A lock file that's a FIFO (opening one waits for a writer) or a link is left as it is, and
+/// the sweep doesn't wait on it.
+#[cfg(unix)]
+#[test]
+fn a_sweep_never_waits_on_or_follows_a_lock_file() {
+    let root = tempfile::tempdir().unwrap();
+    let fifo = made(root.path(), &format!("{PREFIX}FIFO01"), &["master.db"]);
+    let made_fifo = std::process::Command::new("mkfifo").arg(fifo.join(LOCK)).status().unwrap();
+    assert!(made_fifo.success());
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::write(elsewhere.path().join("lock"), b"").unwrap();
+    let linked = made(root.path(), &format!("{PREFIX}LINK02"), &["master.db"]);
+    std::os::unix::fs::symlink(elsewhere.path().join("lock"), linked.join(LOCK)).unwrap();
+    let path = root.path().to_path_buf();
+    let (done, removed) = std::sync::mpsc::channel();
+    std::thread::spawn(move || done.send(sweep_in(&path, Duration::ZERO)));
+    let removed = removed.recv_timeout(Duration::from_secs(10)).expect("the sweep waited on the FIFO");
+    assert_eq!(removed, Vec::<PathBuf>::new());
+    assert!(fifo.join("master.db").is_file() && linked.join("master.db").is_file());
+}
+
+/// A folder without a lock file, however old, is removed only when it holds nothing but what
+/// one of ours can: anything else in it is someone's.
+#[test]
+fn a_sweep_removes_a_lockless_folder_only_when_it_holds_what_ours_can() {
+    let root = tempfile::tempdir().unwrap();
+    let killed = made(root.path(), &format!("{PREFIX}KILL01"), &[MAKING]);
+    let dropped = made(root.path(), &format!("{PREFIX}DROP01"), &["master.db", "master.db-journal", "export.db"]);
+    let vacuumed = made(root.path(), &format!("{PREFIX}VACU01"), &["export.db", "export.db-journal"]);
+    let editing = made(root.path(), &format!("{PREFIX}EDIT01"), &["exportLibrary.db"]);
+    made(root.path(), &format!("{PREFIX}NOTE01"), &["master.db", "notes.txt"]);
+    let nested = made(root.path(), &format!("{PREFIX}NEST01"), &["master.db"]);
+    std::fs::create_dir(nested.join("kept")).unwrap();
+    #[cfg(unix)]
+    {
+        let linked = made(root.path(), &format!("{PREFIX}LINK03"), &[]);
+        std::os::unix::fs::symlink(root.path().join("elsewhere"), linked.join("master.db")).unwrap();
+    }
+    let mut removed = sweep_in(root.path(), Duration::ZERO);
+    removed.sort();
+    assert_eq!(removed, [dropped, editing, killed, vacuumed]);
+    let mut kept = vec![format!("{PREFIX}NEST01"), format!("{PREFIX}NOTE01")];
+    if cfg!(unix) {
+        kept.insert(0, format!("{PREFIX}LINK03"));
+    }
+    assert_eq!(names(root.path()), kept);
+}
+
+/// What earlier versions left of each copy they made: a read, a plain one SQLite replayed,
+/// an export, a drive's database being edited and its hash read. A name none of them made, or a
+/// folder without a copy, stays.
+#[test]
+fn a_sweep_removes_every_shape_earlier_versions_left() {
+    let root = tempfile::tempdir().unwrap();
+    let mut left = [
+        made(root.path(), ".tmpREAD01", &["master.db.enc", "master.db"]),
+        made(root.path(), ".tmpPLAIN1", &["master.db", "master.db-wal", "master.db-shm"]),
+        made(root.path(), ".tmpEXPO01", &["master.db", "master.db-journal", "export.db"]),
+        made(root.path(), ".tmpVACU01", &["master.db", "export.db", "export.db-journal"]),
+        made(root.path(), ".tmpEDIT01", &["exportLibrary.db"]),
+        made(root.path(), ".tmpHASH01", &["hash.db"]),
+    ];
+    left.sort();
+    made(root.path(), ".tmpJOUR01", &["exportLibrary.db", "exportLibrary.db-journal"]);
+    made(root.path(), ".tmpSHM001", &["master.db-shm", "master.db-wal"]);
+    made(root.path(), ".tmpLONGER1", &["master.db"]);
+    // A link inside one, where its copy would be, isn't a copy (Windows needs a privilege to
+    // make links).
+    #[cfg(unix)]
+    {
+        let linked = made(root.path(), ".tmpLINKIN", &["master.db.enc"]);
+        std::os::unix::fs::symlink(root.path().join("elsewhere"), linked.join("master.db")).unwrap();
+    }
+    let kept: &[&str] = if cfg!(unix) {
+        &[".tmpJOUR01", ".tmpLINKIN", ".tmpLONGER1", ".tmpSHM001"]
+    } else {
+        &[".tmpJOUR01", ".tmpLONGER1", ".tmpSHM001"]
+    };
+    let mut removed = sweep_in(root.path(), Duration::ZERO);
+    removed.sort();
+    assert_eq!(removed, left);
+    assert_eq!(names(root.path()), kept);
 }
 
 /// Without a root of their own, tests' folders go in one folder of the temporary folder for
