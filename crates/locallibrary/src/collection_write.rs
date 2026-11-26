@@ -173,10 +173,13 @@ pub(crate) fn store_for(store: Option<&Store>) -> Result<Store> {
     }
 }
 
+/// What a test says of rekordbox running, and its agent's log.
+#[cfg(test)]
+type TestTarget = (fn() -> Running, Option<PathBuf>);
+
 #[cfg(test)]
 thread_local! {
-    /// What a test says of rekordbox running and its agent's log.
-    pub(crate) static TEST_TARGET: std::cell::RefCell<Option<(fn() -> Running, Option<PathBuf>)>> =
+    pub(crate) static TEST_TARGET: std::cell::RefCell<Option<TestTarget>> =
         const { std::cell::RefCell::new(None) };
 }
 
