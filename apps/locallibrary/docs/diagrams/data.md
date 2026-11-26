@@ -71,7 +71,7 @@ Source: [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibra
 
 ## rekordbox's collection
 
-How `collection` reads `master.db` without touching it, `collection export` makes a library from it, and the one write path (`masterdb::write`, nothing calls it yet) changes it over a fresh backup.
+How `collection` reads `master.db` without touching it, `collection export` makes a library from it, and cue edits (from `cues ... collection`, `collection repair` and `collection undo`, or the player) go through the one write path (`masterdb::write`) over a fresh backup kept in the store, waiting there while rekordbox or its agent runs.
 
 ```mermaid
 flowchart TD
@@ -87,15 +87,21 @@ flowchart TD
     write --> target["A drive, or a folder laid out like one"]
     target -->|"pull"| store[("Store")]
     store -->|"library push"| drive["Any drive"]
-    master -.->|"rekordbox and its agent closed, no unsaved WAL"| backup["Backed up into a folder the caller gives,<br/>the backup read back whole"]
+    cue["A cue edit, planned on master.db's cues<br/>and those waiting"] --> staged[("Store: staged.json")]
+    staged -.->|"shown as if written"| player
+    staged -->|"rekordbox or its agent running:<br/>waits, the player tries every 5 s"| staged
+    staged -->|"both closed: every waiting edit,<br/>in order, as one write"| backup
+    master -.->|"rekordbox and its agent closed, no unsaved WAL"| backup["Backed up into the store's<br/>collection/backups (latest 10), read back whole"]
     backup --> synced{"Cloud Library Sync<br/>on, or might be?"}
     synced -->|"yes: refused, nothing written"| master
     synced -->|no| edit["The decrypted backup edited in one transaction,<br/>stamped from localUpdateCount"]
     edit --> swap["Checked, encrypted with its salt, read back,<br/>renamed over master.db if it hasn't changed"]
     swap --> master
+    swap --> written[("Store: written.json,<br/>what each write replaced")]
+    written -->|"undo: put back as a new change,<br/>a track changed since is left"| cue
 ```
 
-Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/loclib-rekordbox-db/src/masterdb/write.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb/write.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)
+Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/loclib-rekordbox-db/src/masterdb/write.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb/write.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/collection_write.rs`](../../../../crates/locallibrary/src/collection_write.rs), [`crates/locallibrary/src/cue_edit/collection.rs`](../../../../crates/locallibrary/src/cue_edit/collection.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/collection_writes.rs`](../../src/tui/app/collection_writes.rs)
 
 ## Exporting a collection
 

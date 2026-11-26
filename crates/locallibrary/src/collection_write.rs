@@ -215,13 +215,6 @@ pub fn busy() -> Option<String> {
     Some(refusal.to_string())
 }
 
-/// Why Cloud Library Sync looks to be on for the `master.db` at `db`, when it does (read from a
-/// decrypted copy): writes are off then.
-pub fn sync_on(db: &Path, key: &str) -> Result<Option<String>> {
-    let log = Target::this_computer(PathBuf::new()).and_then(|t| t.agent_log);
-    Ok(mw::sync_on_at(db, key, log.as_deref())?)
-}
-
 /// Keep `change` to be written to `db`, after those waiting already. Answers its id.
 fn stage(store: &Store, db: &Path, change: Change) -> Result<String> {
     let _lock = lock(store)?;

@@ -20,7 +20,12 @@ fn drive_arg(root: &Path) -> String {
 }
 
 fn edit(root: &Path, ids: &[u32], op: CueOp) -> EditCues {
-    EditCues { drive: drive_arg(root), tracks: TrackSelector { ids: ids.to_vec(), ..Default::default() }, edit: op }
+    EditCues {
+        drive: drive_arg(root),
+        collection: None,
+        tracks: TrackSelector { ids: ids.to_vec(), ..Default::default() },
+        edit: op,
+    }
 }
 
 fn set(hot: Option<char>, at: CuePosition) -> SetCue {

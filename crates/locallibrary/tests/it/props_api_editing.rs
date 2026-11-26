@@ -517,7 +517,7 @@ fn prop_cue_edits_agree_with_cue_edit(tc: TestCase) {
                 (CueOp::Copy { from: TrackSelector { ids: vec![from], ..Default::default() } }, CueEdit::Copy { from })
             }
         };
-        let req = EditCues { drive: path(&a), tracks: tracks.clone(), edit: op };
+        let req = EditCues { drive: path(&a), collection: None, tracks: tracks.clone(), edit: op };
         // As the service layer selects them: each track once.
         let d = Device::open(&b).unwrap();
         let selected = tracks.select_on(&d, &d.library().unwrap()).unwrap();
@@ -547,6 +547,7 @@ fn prop_cue_edits_agree_with_cue_edit(tc: TestCase) {
     // Copying from several tracks at once is refused.
     let req = EditCues {
         drive: path(&a),
+        collection: None,
         tracks: TrackSelector { ids: vec![ids[0]], ..Default::default() },
         edit: CueOp::Copy { from: TrackSelector { ids: ids.clone(), ..Default::default() } },
     };

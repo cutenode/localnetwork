@@ -78,6 +78,8 @@ pub enum Msg {
     /// place among its panels.
     Panel((u64, usize), usize, Result<Box<crate::tui::plugins::panels::Ready>, String>),
     Status(Result<api::FleetStatus, String>),
+    /// The collection's waiting cue edits looked at, and written if they could be.
+    CollectionWrites(Box<super::collection_writes::Looked>),
     History(Result<History, String>),
     /// A profile build: which one, and its result.
     Profile(u64, Box<Result<api::ProfileView, String>>),
@@ -251,6 +253,7 @@ impl App {
         }
         self.autosave();
         self.watch_collection();
+        self.watch_collection_writes();
         self.watch_output();
         self.follow_queue();
         self.want_details();
@@ -470,6 +473,7 @@ impl App {
             Msg::Outputs(id, r) => crate::tui::deck::listed_outputs(self, id, r),
             Msg::Output(id, ask, r) => self.output_opened(id, ask, r),
             Msg::Note(msg, level) => self.toast(msg, level),
+            Msg::CollectionWrites(looked) => self.looked_at_collection(*looked),
             Msg::Log(line) => self.remember(line, Level::Info),
             Msg::Notice(notice) => self.told(notice),
             Msg::Suggested(kept) => self.kept(kept),

@@ -371,3 +371,63 @@ fn a_track_from_the_collection_plays_with_its_cues_from_master_db() {
     wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
     assert_eq!(app.position(), Duration::from_millis(500), "auto cue: the memory cue");
 }
+
+#[test]
+fn cue_edits_waiting_for_rekordbox_show_and_are_counted_until_written() {
+    use locallibrary::collection_write::{Change, CollectionWrite, Staged};
+    use locallibrary::cue_edit::{CollectionCueEdit, CollectionTrack, CueChange, CuePosition, HotCue, SetCue};
+    use loclib_rekordbox_db::masterdb::write::CueEntry;
+
+    let (mut app, dir) = blank(View::Library);
+    let db = master_db(dir.path());
+    app.collection_db = Some(db.clone());
+    // Nothing is looked at in the background here: what a look finds is handed over below.
+    app.collection_writes.in_flight = true;
+    let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
+    let set = SetCue {
+        hot_cue: Some(HotCue(1)),
+        at: CuePosition::Ms(3000),
+        snap: false,
+        loop_beats: None,
+        name: None,
+        color: None,
+    };
+    let entry = |hot_cue, start_ms, comment: &str| CueEntry {
+        hot_cue,
+        start_ms,
+        comment: comment.into(),
+        ..Default::default()
+    };
+    let after = vec![entry(Some(0), 1500, "Start"), entry(None, 500, ""), entry(Some(1), 3000, "")];
+    let edit = CollectionCueEdit {
+        tracks: vec![CollectionTrack { id: "1".into(), name: "Floorplan - Here".into(), after }],
+        change: CueChange::Set(set),
+        from: None,
+    };
+    let staged = vec![Staged { id: "s1".into(), at: chrono::Utc::now(), db: db.clone(), change: Change::Cues(edit) }];
+    std::fs::create_dir_all(store.root().join("collection")).unwrap();
+    std::fs::write(store.root().join("collection/staged.json"), serde_json::to_vec(&staged).unwrap()).unwrap();
+    let before = std::fs::read(&db).unwrap();
+
+    app.handle_msg(Msg::Drives(Vec::new()));
+    wait(&mut app, showing_collection);
+    // Shown as if written.
+    let l = app.loaded.as_ref().unwrap();
+    let cues: Vec<(Option<u8>, u32)> =
+        l.collection_cues.as_ref().unwrap()[&1].iter().map(|c| (c.hot_cue, c.start_ms)).collect();
+    assert_eq!(cues, [(None, 500), (Some(0), 1500), (Some(1), 3000)]);
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+
+    // While rekordbox runs, the status line counts them.
+    let why = Some("rekordbox is open: its collection is written only once rekordbox has quit".to_string());
+    let write = Ok(CollectionWrite { waiting: 1, why, ..Default::default() });
+    app.looked_at_collection(super::super::collection_writes::Looked { db: db.clone(), write });
+    assert_eq!(app.collection_waiting().as_deref(), Some("1 cue edit waiting for rekordbox to quit"));
+
+    // Once written, it's said, and u takes it back.
+    let write = Ok(CollectionWrite { written: 1, ..Default::default() });
+    app.looked_at_collection(super::super::collection_writes::Looked { db, write });
+    assert_eq!(app.collection_waiting(), None);
+    assert!(last_message(&app).starts_with("wrote 1 cue edit to rekordbox's collection"), "{}", last_message(&app));
+    assert_eq!(app.undo_drive(), Some(collection_root()));
+}

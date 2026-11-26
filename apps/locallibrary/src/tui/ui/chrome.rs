@@ -193,7 +193,8 @@ pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect, carries_cont
 }
 
 /// What the player's doing: the job's progress first, cut short if need be, else the first of what
-/// the job list (`&`) holds, so the two can't say different things.
+/// the job list (`&`) holds, so the two can't say different things, else how many of the
+/// collection's cue edits wait for rekordbox to quit.
 fn busy(app: &App) -> Vec<Span<'static>> {
     let mut busy = Vec::new();
     if let Some(j) = &app.job {
@@ -218,6 +219,8 @@ fn busy(app: &App) -> Vec<Span<'static>> {
     } else if let Some(row) = crate::tui::jobs::rows(app).first() {
         busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().info)));
         busy.push(Span::styled(format!("{} ", row.label), dim()));
+    } else if let Some(waiting) = app.collection_waiting() {
+        busy.push(Span::styled(format!("{waiting} "), fg(theme::current().info)));
     }
     busy
 }
