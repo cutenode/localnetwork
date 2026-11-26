@@ -1246,7 +1246,14 @@ export type ListCues = {
  * mean every track.
  */
 export type EditCues = {
-  drive: string;
+  /** The drive or library whose cues to edit; left out with `collection`. */
+  drive?: string;
+  /**
+   * Edit rekordbox's collection on this computer instead of a drive (`{}` for rekordbox's own
+   * `master.db`). It's written only while rekordbox and its agent are closed, over a fresh
+   * backup in the store; an edit made while either runs waits in the store until both have quit.
+   */
+  collection?: CollectionRef | null;
   ids?: number[];
   /** Matches "artist - title" or path substrings; must match at least one track. */
   query?: string | null;
@@ -1260,6 +1267,17 @@ export type EditCues = {
   /** The tracks of a history list (what a player recorded), by name. */
   history?: string | null;
   edit: CueOp;
+};
+
+/** Which `master.db` to read, and how. */
+export type CollectionRef = {
+  /** Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]). */
+  db?: string | null;
+  /**
+   * SQLCipher passphrase. Default: `$LOCALLIBRARY_MASTERDB_KEY`, else the one every rekordbox
+   * 6/7 installation uses.
+   */
+  key?: string | null;
 };
 
 /**
@@ -2359,17 +2377,6 @@ export type SetJobRequest = {
   audio?: boolean;
   /** Eject the drives once everything passed [default: yes]. */
   eject?: boolean;
-};
-
-/** Which `master.db` to read, and how. */
-export type CollectionRef = {
-  /** Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]). */
-  db?: string | null;
-  /**
-   * SQLCipher passphrase. Default: `$LOCALLIBRARY_MASTERDB_KEY`, else the one every rekordbox
-   * 6/7 installation uses.
-   */
-  key?: string | null;
 };
 
 /** Which `master.db` to read, and how. */
@@ -5291,10 +5298,28 @@ export type TrackCueChange = {
 
 export type CueReport = {
   tracks_changed: number;
+  /** For an edit of rekordbox's collection: whether it was written or is waiting. */
+  collection?: CollectionWrite | null;
   files_written: string[];
   onelibrary: CueRowChanges | null;
   backup: string | null;
   fingerprint: Hash | null;
+};
+
+/** What came of writing the collection. */
+export type CollectionWrite = {
+  /** Edits written now. */
+  written: number;
+  /** Edits still waiting to be written. */
+  waiting: number;
+  /** Why they're waiting. */
+  why?: string | null;
+  /** `localUpdateCount` before and after the write. */
+  count?: [number, number] | null;
+  /** The backup taken right before it. */
+  backup?: string | null;
+  /** Edits (or tracks of them) passed over: they no longer applied. */
+  warnings?: string[];
 };
 
 /** What [`OneLibrary::replace_cues`] did. */
