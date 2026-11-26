@@ -109,7 +109,7 @@ const CREDENTIALS: &str = "registry_id = 'agentCredentials'";
 /// `with_credentials` (rekordbox's own backup keeps it). `into` is removed again when this fails.
 pub fn export(path: &Path, key: &str, with_credentials: bool, into: &Path) -> Result<CollectionCopy> {
     let dir = crate::scratch::folder()?;
-    let (db, salt) = open_copy(path, key, dir.path(), true)?;
+    let (db, salt) = open_copy(path, key, &dir, true)?;
     let credentials_removed = if with_credentials { 0 } else { db.remove_credentials()? };
     let (db_id, db_version) = (db.property("DBID")?, db.property("DBVersion")?);
     let rebuilt = dir.path().join("export.db");

@@ -363,23 +363,28 @@ impl Opened<'_> {
 /// The salt a file is encrypted with (its first bytes).
 type Salt = [u8; cipher::SALT_LEN];
 
-/// [`decrypt`] of `path`, written into `dir` (a [`crate::scratch::Folder`]'s, as it holds the
-/// whole library decrypted) and opened: read only unless `write` (or a plain copy's WAL is to be
-/// replayed, which SQLite does itself), and only once SQLite finds nothing amiss and it has a
+/// [`decrypt`] of `path`, written into `folder` (a private one, as it holds the whole library
+/// decrypted) and opened: read only unless `write` (or a plain copy's WAL is to be replayed,
+/// which SQLite does itself), and only once SQLite finds nothing amiss and it has a
 /// `djmdContent` table. With the salt it was encrypted with, unless it was plain.
 #[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "only exports and tests write a copy yet"))]
-pub(crate) fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(Db<'a>, Option<Salt>)> {
+pub(crate) fn open_copy<'a>(
+    path: &'a Path,
+    key: &str,
+    folder: &crate::scratch::Folder,
+    write: bool,
+) -> Result<(Db<'a>, Option<Salt>)> {
     let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
     let (copy, salt, flags) = match decrypt(path, key)? {
         Image::Decrypted(plain, salt) => {
-            let out = dir.join("master.db");
+            let out = folder.path().join("master.db");
             std::fs::write(&out, plain).at(&out)?;
             (out, Some(salt), writes)
         }
         // SQLite replays a plain copy's WAL itself, which takes write access to the copy (never
         // to the original).
         Image::Plain(bytes, wal) => {
-            (write_plain(dir, &bytes, wal.as_deref())?, None, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            (write_plain(folder.path(), &bytes, wal.as_deref())?, None, OpenFlags::SQLITE_OPEN_READ_WRITE)
         }
     };
     let conn = Connection::open_with_flags(&copy, flags | OpenFlags::SQLITE_OPEN_NO_MUTEX)
