@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
  * The browser the TUI stories are drawn and screenshotted in: Playwright's own Linux image, the same
  * Chromium on every machine and in CI, so a story's pixels don't depend on the platform its tests ran
  * on. Started for a run (this module is the TUI projects' global setup) and stopped after; with
- * `TUI_BROWSER` set to a browser server's address, that one is used and nothing is started.
+ * `TUI_BROWSER` set to a browser server's address, that one is used and nothing is started, and set to `off`, none is.
  */
 
 // A name and port of this checkout's own, so a run in another worktree neither takes this one's port nor removes
@@ -22,19 +22,24 @@ export const TUI_BROWSER_PORT = 53_000 + (Number.parseInt(checkout.slice(0, 8), 
 
 export const TUI_BROWSER = process.env.TUI_BROWSER ?? `ws://127.0.0.1:${TUI_BROWSER_PORT}/`;
 
+/** No pinned browser, even with Docker there: `TUI_BROWSER=off`, for a run that wants the stories' play tests and not
+ *  their screenshots (CI's coverage job: the stories job compares them). */
+const OFF = process.env.TUI_BROWSER === 'off';
+
 /** Whether there's a pinned browser to draw in: one given, or Docker to run one. Without it the TUI stories run in
  *  this machine's Chromium and their screenshots aren't compared, since this machine's pixels aren't CI's. */
 export const PINNED =
-	Boolean(process.env.TUI_BROWSER) ||
-	(() => {
-		try {
-			execFileSync('docker', ['version'], { stdio: 'ignore', timeout: 10_000 });
+	!OFF &&
+	(Boolean(process.env.TUI_BROWSER) ||
+		(() => {
+			try {
+				execFileSync('docker', ['version'], { stdio: 'ignore', timeout: 10_000 });
 
-			return true;
-		} catch {
-			return false;
-		}
-	})();
+				return true;
+			} catch {
+				return false;
+			}
+		})());
 
 /** The Chromium flags that keep a screenshot the same from run to run: software WebGL (xterm draws
  *  with it), one device pixel per CSS pixel, no font hinting, sRGB and no audio clock. */
