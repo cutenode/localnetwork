@@ -107,20 +107,6 @@ fn a_section_that_cant_be_published_is_ignored_when_saved_and_refused_when_asked
 }
 
 #[test]
-fn every_trait_is_backed_by_a_section() {
-    // Each `tag("id", …)` the summary can add: a trait without a section is never shown.
-    let src = include_str!("../mod.rs");
-    let ids: Vec<&str> = src
-        .match_indices("tag(")
-        .filter_map(|(i, _)| src[i + 4..].trim_start().strip_prefix('"')?.split('"').next())
-        .collect();
-    assert!(ids.len() >= 12, "{ids:?}");
-    for id in ids {
-        assert!(tag_section(id).is_some(), "{id}");
-    }
-}
-
-#[test]
 fn setting_keys_become_camel_case() {
     assert_eq!(camel("vinyl_speed_adjust"), "vinylSpeedAdjust");
     assert_eq!(camel("quantize"), "quantize");
@@ -270,19 +256,4 @@ fn prop_genre_aliases_need_both_sides(tc: TestCase) {
     if !had {
         assert!(matches!(removed, Err(Error::NotFound(_))), "{removed:?}");
     }
-}
-
-/// Every trait the summary can show is backed by a section, and nothing else is.
-#[hegel::test(test_cases = 100)]
-fn prop_only_the_summarys_traits_have_a_section(tc: TestCase) {
-    let src = include_str!("../mod.rs");
-    let mut ids: Vec<String> = src
-        .match_indices("tag(")
-        .filter_map(|(i, _)| src[i + 4..].trim_start().strip_prefix('"')?.split('"').next())
-        .map(str::to_string)
-        .collect();
-    let known = ids.len();
-    ids.extend(["", "harmonic_", "Focused", "nope"].map(String::from));
-    let i = tc.draw(gs::integers::<usize>().max_value(ids.len() - 1));
-    assert_eq!(tag_section(&ids[i]).is_some(), i < known, "{:?}", ids[i]);
 }

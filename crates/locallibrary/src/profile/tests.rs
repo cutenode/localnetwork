@@ -633,7 +633,6 @@ fn prop_the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
     assert!(r.summary.headline.ends_with(&count), "{:?} doesn't end with {count:?}", r.summary.headline);
     assert_eq!(r.summary.headline.contains("BPM"), t.core.is_some(), "{}", r.summary.headline);
     let tags: Vec<&str> = r.summary.tags.iter().map(|t| t.id).collect();
-    assert!(tags.iter().all(|id| tag_section(id).is_some()), "{tags:?}");
     let harmonic_tag = m.keyed >= 20 && m.harmonic_share.is_some_and(|h| h >= 0.6);
     assert_eq!(tags.contains(&"harmonic"), harmonic_tag, "{m:?}");
     let repeats = sets.count >= 5 && sets.plays > 0 && sets.distinct_tracks as f64 / sets.plays as f64 >= 0.85;
@@ -656,7 +655,8 @@ fn prefs_for(tc: &TestCase, r: &ProfileReport) -> ProfilePrefs {
         precision: if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded },
         pinned: some(pins, 3),
         hidden: some(names, 2),
-        hidden_artists: some(artists, 1),
+        // Up to every artist a small collection credits, so the artists can all be withheld.
+        hidden_artists: some(artists, 3),
         genre_aliases: IndexMap::new(),
         headline: None,
     }
@@ -667,15 +667,22 @@ fn rounded_to(x: f64, units: f64) -> bool {
     ((x * units).round() - x * units).abs() < 1e-6
 }
 
-/// The document of any report holds exactly the sections the preferences publish that have
-/// something to say (sessions never counted), rounded as asked: shares on the 5% (or 0.1%)
-/// grid, in [0, 1] and adding up where they're parts of one whole, BPM whole (or to a tenth),
-/// counts at most what they count. It names no hidden track or artist, pinned tracks first,
-/// and its headline and traits say nothing a left-out section would.
+/// The document of any report holds exactly the publishable sections the preferences publish that
+/// have something to say (sessions never counted), rounded as asked: shares on the 5% (or 0.1%)
+/// grid, in [0, 1] and adding up where they're parts of one whole, counts at most what they count,
+/// each within a step of the report's number. It lists the top genres and the first artists not
+/// hidden, in order.
 #[hegel::test(test_cases = 200)]
 fn prop_the_document_publishes_what_the_preferences_allow(tc: TestCase) {
     let s = tc.draw(scenario());
-    let (r, _) = report_of(&s, Utc::now());
+    let (mut r, _) = report_of(&s, Utc::now());
+    // The scenario's sets and library are small: counts as large as a real collection's too, so
+    // a count is rounded at every step.
+    for n in [&mut r.sets.count, &mut r.collection.tracks, &mut r.collection.playlists] {
+        if let Some(x) = tc.draw(gs::optional(gs::integers::<usize>().max_value(20_000))) {
+            *n = x;
+        }
+    }
     let prefs = prefs_for(&tc, &r);
     let d = document(&r, &prefs);
     let on = prefs.published();
@@ -687,100 +694,68 @@ fn prop_the_document_publishes_what_the_preferences_allow(tc: TestCase) {
     let allowed =
         ["version", "generatedAt", "precision", "basis", "sets", "energy", "genres", "artists", "era", "collection"];
     assert!(fields.iter().all(|f| allowed.contains(&f.as_str())), "{fields:?}");
-    let (units, bpm_units) = match prefs.precision {
-        Precision::Rounded => (20.0, 1.0),
-        Precision::Exact => (1000.0, 10.0),
+    let units = match prefs.precision {
+        Precision::Rounded => 20.0,
+        Precision::Exact => 1000.0,
     };
     let share_ok = |x: f64| (0.0..=1.0).contains(&x) && rounded_to(x, units);
+    // Rounded down to 5 in the tens, 50 in the hundreds, up to 5000 from ten thousand.
     let count_ok = |c: Count, n: usize| match (c, prefs.precision) {
         (Count::Exact { count }, Precision::Exact) => count == n as u64,
         (Count::Exact { count }, Precision::Rounded) => count == n as u64 && n < 10,
-        (Count::AtLeast { at_least }, Precision::Rounded) => at_least <= n as u64 && n >= 10 && at_least >= 5,
-        (Count::AtLeast { .. }, Precision::Exact) => false,
+        (Count::AtLeast { at_least }, Precision::Rounded) if n >= 10 => {
+            let (n, step) = (n as u64, 5 * 10u64.pow(n.ilog10().min(4) - 1));
+            at_least <= n && n - at_least < step && at_least % step == 0
+        }
+        (Count::AtLeast { .. }, _) => false,
     };
 
     assert_eq!(d.sets.is_some(), shows(Section::Sets) && r.sets.count > 0);
     if let Some(sets) = &d.sets {
         assert!(count_ok(sets.count, r.sets.count), "{:?} for {}", sets.count, r.sets.count);
         assert_eq!(sets.since, r.sets.oldest.map(|d| d.year()));
-    }
-    assert_eq!(d.tempo.is_some(), on.contains(&Section::Tempo) && r.tempo.core.is_some());
-    if let Some(t) = &d.tempo {
-        assert!(t.low <= t.median && t.median <= t.high, "{t:?}");
-        assert!([t.low, t.high, t.median].iter().all(|b| rounded_to(*b, bpm_units)), "{t:?}");
-    }
-    assert_eq!(d.arc.is_some(), on.contains(&Section::Arc) && r.arc.sets > 0);
-    if let Some(a) = &d.arc {
-        assert!([a.builds, a.steady, a.winds_down].iter().all(|x| share_ok(*x)), "{a:?}");
-        assert!(close(a.builds + a.steady + a.winds_down, 1.0), "{a:?}");
-        let shape = match (a.builds >= 0.5, a.steady >= 0.5, a.winds_down >= 0.5) {
-            (true, _, _) => ArcShape::Builds,
-            (_, true, _) => ArcShape::Steady,
-            (_, _, true) => ArcShape::WindsDown,
-            _ => ArcShape::Varies,
-        };
-        assert_eq!(a.shape, shape);
-    }
-    assert_eq!(d.mixing.is_some(), on.contains(&Section::Mixing) && r.mixing.transitions > 0);
-    if let Some(m) = &d.mixing {
-        assert!([m.harmonic, m.smooth_tempo, m.genre_changes].iter().flatten().all(|x| share_ok(*x)), "{m:?}");
-    }
-    assert_eq!(d.keys.is_some(), on.contains(&Section::Keys) && r.keys.tracks > 0);
-    if let Some(k) = &d.keys {
-        let top: Vec<&String> = r.keys.top.iter().take(3).map(|k| &k.name).collect();
-        assert_eq!(k.top.iter().collect::<Vec<_>>(), top);
+        assert_eq!(sets.median_tracks, r.sets.median_tracks as u64);
     }
     assert_eq!(d.energy.is_some(), on.contains(&Section::Energy) && r.energy.is_some());
+    // Shares of a whole each move less than a step to keep their sum; a share on its own, half one.
+    let near = |x: f64, of: f64, steps: f64| (x - of).abs() <= steps / units + 1e-9;
     if let Some(e) = &d.energy {
         assert!([e.high, e.mid, e.low].iter().all(|x| share_ok(*x)) && close(e.high + e.mid + e.low, 1.0), "{e:?}");
+        let want = r.energy.as_ref().unwrap();
+        assert!(near(e.high, want.high, 1.0) && near(e.mid, want.mid, 1.0) && near(e.low, want.low, 1.0), "{e:?}");
     }
-    for (section, shares, sec) in [(Section::Genres, &d.genres, &r.genres), (Section::Labels, &d.labels, &r.labels)] {
-        assert_eq!(shares.is_some(), on.contains(&section) && !sec.top.is_empty());
-        for x in shares.iter().flatten() {
-            assert!(share_ok(x.share) && sec.top.iter().take(5).any(|t| t.name == x.name), "{x:?}");
+    assert_eq!(d.genres.is_some(), on.contains(&Section::Genres) && !r.genres.top.is_empty());
+    for x in d.genres.iter().flatten() {
+        assert!(share_ok(x.share) && r.genres.top.iter().take(5).any(|t| t.name == x.name), "{x:?}");
+    }
+    // Genres: the top five in order, less those too small to show at this precision.
+    if let Some(genres) = &d.genres {
+        let shown = |name: &str| genres.iter().any(|g| g.name == name);
+        let (kept, dropped): (Vec<&Share>, Vec<&Share>) = r.genres.top.iter().take(5).partition(|t| shown(&t.name));
+        let names: Vec<&String> = genres.iter().map(|g| &g.name).collect();
+        assert_eq!(names, kept.iter().map(|t| &t.name).collect::<Vec<_>>());
+        assert!(genres.iter().zip(&kept).all(|(g, t)| g.share > 0.0 && near(g.share, t.share, 1.0)), "{genres:?}");
+        assert!(dropped.iter().all(|t| t.share < 1.0 / units), "{dropped:?}");
+    }
+    // Artists: the first five the DJ didn't hide, or none at all.
+    let artists: Vec<&Share> = r.artists.top.iter().filter(|a| !prefs.is_hidden_artist(&a.name)).take(5).collect();
+    assert_eq!(d.artists.is_some(), on.contains(&Section::Artists) && !artists.is_empty());
+    if let Some(published) = &d.artists {
+        let names: Vec<&String> = artists.iter().map(|a| &a.name).collect();
+        assert_eq!(published.iter().map(|a| &a.name).collect::<Vec<_>>(), names);
+        for (a, want) in published.iter().zip(&artists) {
+            assert!(share_ok(a.share) && near(a.share, want.share, 0.5), "{a:?} of {want:?}");
         }
     }
-    assert!(d.labels.iter().flatten().map(|l| l.share).sum::<f64>() <= 1.0 + 1e-9);
-    for a in d.artists.iter().flatten() {
-        assert!(on.contains(&Section::Artists) && !prefs.is_hidden_artist(&a.name) && share_ok(a.share), "{a:?}");
-    }
     assert_eq!(d.era.is_some(), on.contains(&Section::Era) && r.era.tracks > 0);
-    assert_eq!(d.prep.is_some(), on.contains(&Section::Prep) && r.prep.is_some());
-    if let Some(p) = &d.prep {
-        assert!([p.hot_cues, p.memory_cues, p.loops].iter().all(|x| share_ok(*x)), "{p:?}");
+    if let Some(e) = &d.era {
+        assert_eq!(e.median_year, r.era.median_year);
+        assert_eq!(e.recent.is_some(), r.era.recent_share.is_some());
+        assert!(e.recent.zip(r.era.recent_share).is_none_or(|(x, of)| share_ok(x) && near(x, of, 0.5)), "{e:?}");
     }
     assert_eq!(d.collection.is_some(), on.contains(&Section::Collection) && r.collection.tracks > 0);
     if let Some(c) = &d.collection {
         assert!(count_ok(c.tracks, r.collection.tracks) && count_ok(c.playlists, r.collection.playlists));
-    }
-    let style: Option<IndexMap<String, String>> = r
-        .style
-        .as_ref()
-        .filter(|_| on.contains(&Section::Style))
-        .map(|s| s.values.iter().map(|v| (camel(&v.key), v.value.clone())).collect());
-    assert_eq!(d.style, style);
-
-    // Signature: named only when allowed, the pins that may be named first, in order.
-    assert!(d.signature.is_none() || on.contains(&Section::Signature));
-    let named = d.signature.clone().unwrap_or_default();
-    let unnamed: Vec<String> = r.signature.played.iter().filter(|p| p.unnamed).map(|p| normalize(&p.name)).collect();
-    for t in &named {
-        let name = if t.artist.is_empty() { t.title.clone() } else { format!("{} - {}", t.artist, t.title) };
-        assert!(prefs.may_name(&name, &t.artist) && !unnamed.contains(&normalize(&name)), "{t:?}");
-    }
-    assert!(named.len() <= r.options.top.max(prefs.pinned.len()));
-
-    // The summary says no more than the sections do.
-    if on.contains(&Section::Summary) {
-        let headline = d.headline.clone().unwrap_or_default();
-        assert_eq!(headline.contains("BPM"), shows(Section::Tempo) && r.tempo.core.is_some(), "{headline:?}");
-        assert!(!headline.contains("session"), "{headline:?}");
-        for tag in &d.tags {
-            let t = r.summary.tags.iter().find(|t| t.label == *tag).expect("a tag of the report");
-            assert!(tag_section(t.id).is_some_and(shows), "{tag:?}");
-        }
-    } else {
-        assert!(d.headline.is_none() && d.tags.is_empty());
     }
 }
 

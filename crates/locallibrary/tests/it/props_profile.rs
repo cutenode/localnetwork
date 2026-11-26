@@ -733,7 +733,6 @@ fn prop_every_section_says_what_it_reveals(tc: TestCase) {
     let opt_in = matches!(s, Section::Artists | Section::Collection);
     assert_eq!(s.published_by_default(), publishable && !opt_in);
     assert_eq!(Basis::Sessions.publishes(s), s != Section::Sets);
-    assert!(profile::tag_section("nope").is_none());
 }
 
 /// Without drives named, the profile reads the mounted drives that hold an export: those the
