@@ -56,6 +56,32 @@ fn a_sweep_removes_only_abandoned_folders() {
     assert!(held.path().join(LOCK).is_file());
 }
 
+/// Folders made while other sweeps run are never taken as abandoned: their lock is held
+/// before it can be found.
+#[test]
+fn a_sweep_never_removes_a_folder_being_made() {
+    let root = tempfile::tempdir().unwrap();
+    std::thread::scope(|s| {
+        let sweeper = s.spawn(|| {
+            let mut removed = Vec::new();
+            for _ in 0..500 {
+                removed.extend(sweep_in(root.path(), GRACE));
+            }
+            removed
+        });
+        // All kept: one being dropped lets go of its lock before it's removed.
+        let folders: Vec<Folder> = (0..200)
+            .map(|_| {
+                let folder = folder_in(root.path()).unwrap();
+                std::fs::write(folder.path().join("exportLibrary.db"), b"decrypted").unwrap();
+                folder
+            })
+            .collect();
+        assert_eq!(sweeper.join().unwrap(), Vec::<PathBuf>::new());
+        assert!(folders.iter().all(|f| f.path().join(LOCK).is_file()));
+    });
+}
+
 /// Folders earlier versions decrypted `master.db` into are removed once old enough; any other
 /// `.tmp` folder, or one with more in it, stays.
 #[test]

@@ -29,6 +29,9 @@ pub const PREFIX: &str = "locallibrary-decrypted-";
 /// The file a folder's process keeps locked.
 const LOCK: &str = ".lock";
 
+/// What the lock file is called until it's locked.
+const MAKING: &str = ".lock-making";
+
 /// How old a folder without its lock file has to be to be taken as abandoned: one is briefly
 /// without it while it's made, and nothing here takes an hour.
 const GRACE: Duration = Duration::from_secs(60 * 60);
@@ -68,9 +71,13 @@ fn folder_in(root: &Path) -> Result<Folder> {
     #[cfg(unix)]
     builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
     let dir = builder.tempdir_in(root).map_err(|e| Error::Io { path: root.to_path_buf(), source: e })?;
+    // Locked under another name first and only then named `.lock`: a sweep that found `.lock`
+    // there but not yet locked would take the folder as abandoned and remove it while it's used.
+    let making = dir.path().join(MAKING);
+    let lock = File::create_new(&making).at(&making)?;
+    lock.try_lock().map_err(|e| Error::Io { path: making.clone(), source: e.into() })?;
     let path = dir.path().join(LOCK);
-    let lock = File::create_new(&path).at(&path)?;
-    lock.try_lock().map_err(|e| Error::Io { path: path.clone(), source: e.into() })?;
+    std::fs::rename(&making, &path).at(&path)?;
     Ok(Folder { _lock: lock, dir })
 }
 
