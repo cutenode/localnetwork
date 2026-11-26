@@ -266,3 +266,36 @@ fn tests_make_folders_outside_the_temporary_folder() {
     test_root(root.path());
     assert_eq!(folder_in(&super::root()).unwrap().path().parent().unwrap(), root.path());
 }
+
+/// What's in a folder goes before its lock does, when it's dropped and when a sweep removes an
+/// abandoned one: a process killed in between leaves a lock nobody holds, which the next sweep
+/// takes at once, never a folder without one that still holds a copy (kept for an hour). Here
+/// something the removal can't take stands in for the moment of the kill.
+#[cfg(unix)]
+#[test]
+fn a_folder_loses_its_lock_only_once_nothing_else_is_in_it() {
+    use std::os::unix::fs::PermissionsExt;
+    // SAFETY: geteuid has no preconditions; root removes what this test makes unremovable.
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let stuck = |dir: &Path, mode: u32| {
+        let inner = dir.join("stuck");
+        if mode == 0o500 {
+            std::fs::create_dir(&inner).unwrap();
+            std::fs::write(inner.join("export.db"), b"decrypted").unwrap();
+        }
+        std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    let root = tempfile::tempdir().unwrap();
+    let folder = folder_in(root.path()).unwrap();
+    let path = folder.path().to_path_buf();
+    stuck(&path, 0o500);
+    drop(folder);
+    assert!(path.join(LOCK).is_file(), "the lock went before what it guards");
+    // Abandoned, the same: the sweep can't take it yet, and leaves its lock.
+    assert_eq!(sweep_in(root.path(), GRACE), Vec::<PathBuf>::new());
+    assert!(path.join(LOCK).is_file(), "the sweep took the lock before what it guards");
+    stuck(&path, 0o700);
+    assert_eq!(sweep_in(root.path(), GRACE), [path]);
+}

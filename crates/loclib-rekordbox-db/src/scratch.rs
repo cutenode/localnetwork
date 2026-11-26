@@ -13,7 +13,8 @@
 //! however it ends, on macOS, Linux and Windows alike, so the next [`sweep`] (each process runs
 //! one before its first copy) can tell an abandoned folder from one in use without trusting
 //! process ids, which get reused. Removing a file while it's open, the other way to have nothing
-//! left, doesn't work on Windows, and a kill while it's being written still leaves it.
+//! left, doesn't work on Windows, and a kill while it's being written still leaves it. A folder's
+//! files go before its lock file does, so one killed while it's removed is taken at once too.
 //!
 //! A sweep only ever looks into folders this user owns (and, for these folders, private ones),
 //! so another user on a shared `/tmp` can't plant one to make it hang or remove anything.
@@ -60,16 +61,28 @@ const OURS: [&str; 8] = [
 
 /// A private folder for decrypted copies, removed with everything in it when dropped.
 pub struct Folder {
-    // Fields drop in order: the lock is let go of before the folder goes (Windows can't remove
-    // a folder holding an open file).
-    _lock: File,
-    dir: tempfile::TempDir,
+    /// Taken when dropped, to let go of the lock before the lock file is removed (Windows can't
+    /// remove an open file).
+    lock: Option<File>,
+    dir: PathBuf,
 }
 
 impl Folder {
     /// Where it is.
     pub fn path(&self) -> &Path {
-        self.dir.path()
+        &self.dir
+    }
+}
+
+impl Drop for Folder {
+    fn drop(&mut self) {
+        // What's in it goes before its lock does (see `remove`). Its lock is held meanwhile, so
+        // no sweep takes it, and Windows removes files beside an open one.
+        let emptied = empty_but_the_lock(&self.dir);
+        drop(self.lock.take());
+        if emptied.is_ok() {
+            let _ = remove_emptied(&self.dir);
+        }
     }
 }
 
@@ -130,7 +143,8 @@ fn folder_in(root: &Path) -> Result<Folder> {
     lock.try_lock().map_err(|e| Error::Io { path: making.clone(), source: e.into() })?;
     let path = dir.path().join(LOCK);
     std::fs::rename(&making, &path).at(&path)?;
-    Ok(Folder { _lock: lock, dir })
+    // Removed by the `Folder` from here on, in its own order.
+    Ok(Folder { lock: Some(lock), dir: dir.keep() })
 }
 
 /// Removes, once per process, what ended processes left in the temporary folder: [`Folder`]s
@@ -163,11 +177,49 @@ pub(crate) fn sweep_in(root: &Path, grace: Duration) -> Vec<PathBuf> {
             continue;
         }
         let gone = if ours { abandoned(&path, grace) } else { legacy(&path, grace) };
-        if gone && std::fs::remove_dir_all(&path).is_ok() {
+        let removed_it = || match ours {
+            true => remove(&path),
+            false => std::fs::remove_dir_all(&path),
+        };
+        if gone && removed_it().is_ok() {
             removed.push(path);
         }
     }
     removed
+}
+
+/// Removes the [`Folder`] at `dir`, what's in it before its lock file: removing everything at
+/// once goes in whatever order the folder lists it, and a process killed after the lock file
+/// went but before a copy did would leave a folder that looks like one being made, kept for an
+/// hour. This way a kill leaves an unlocked lock file, which the next sweep takes at once, or
+/// nothing but the empty folder. When something can't be removed, the lock file stays too.
+fn remove(dir: &Path) -> std::io::Result<()> {
+    empty_but_the_lock(dir)?;
+    remove_emptied(dir)
+}
+
+/// Removes everything in `dir` but its lock file.
+fn empty_but_the_lock(dir: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() == LOCK {
+            continue;
+        }
+        match entry.file_type()?.is_dir() {
+            true => std::fs::remove_dir_all(entry.path())?,
+            false => std::fs::remove_file(entry.path())?,
+        }
+    }
+    Ok(())
+}
+
+/// Removes `dir`'s lock file (if it has one) and then `dir`, once nothing else is in it.
+fn remove_emptied(dir: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(dir.join(LOCK)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    std::fs::remove_dir(dir)
 }
 
 /// Whether `name` is what `tempfile` names a folder made with `prefix`: it and six letters or
