@@ -566,6 +566,27 @@ fn prop_waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
     assert_eq!(within_a_day(columns), columns as u64 * 1024 <= 86_400 * 44_100, "{columns}");
 }
 
+/// A waveform of a day is kept in the scratch folder, and one a column longer is left out with
+/// nothing written, the rest answered all the same.
+#[test]
+fn a_waveform_past_a_day_is_left_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let blob = dir.path().join(WAVEFORM_BLOB);
+    let drawn = |columns| loclib_analysis::Analysis {
+        version: loclib_analysis::VERSION,
+        duration_secs: 86_400.0,
+        estimate: None,
+        loudness: None,
+        waveform: Some(loclib_analysis::Waveform { columns: vec![[1, 2, 3]; columns] }),
+    };
+    let day = answer(&drawn(3_720_937), Some(dir.path())).unwrap();
+    assert!(day.fields.contains_key("waveform") && blob.is_file(), "{:?}", day.fields.keys());
+    std::fs::remove_file(&blob).unwrap();
+    let longer = answer(&drawn(3_720_938), Some(dir.path())).unwrap();
+    assert!(!longer.fields.contains_key("waveform") && !blob.exists(), "{:?}", longer.fields.keys());
+    assert!(longer.fields.contains_key("clipped_runs"));
+}
+
 /// Whatever the recording, its waveform goes in the request's scratch folder, a file of its
 /// columns; without one (a host without `blobs`) it's left out and the rest answered, and one
 /// that's gone fails the track as `io`, naming the file.

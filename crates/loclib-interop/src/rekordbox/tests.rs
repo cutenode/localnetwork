@@ -185,6 +185,28 @@ fn prop_the_xml_reader_reads_back_what_the_writer_writes(tc: hegel::TestCase) {
     assert_eq!(r.marks, marks);
 }
 
+/// A playlist is written a level in from the folder it's in, its tracks a level in from it, all
+/// below `ROOT` (four spaces in).
+#[test]
+fn playlists_are_indented_below_their_folders() {
+    let node = |id, parent_id, is_folder, track_ids| Playlist {
+        id,
+        parent_id,
+        name: format!("n{id}"),
+        is_folder,
+        sort_order: 0,
+        track_ids,
+    };
+    let library = Library {
+        playlists: vec![node(1, None, true, vec![]), node(2, Some(1), false, vec![7])],
+        ..Default::default()
+    };
+    let mut x = String::new();
+    super::node(&mut x, &library, &library.playlists[0], 0);
+    let indents: Vec<usize> = x.lines().map(|l| l.len() - l.trim_start().len()).collect();
+    assert_eq!(indents, [6, 8, 10, 8, 6], "{x}");
+}
+
 #[test]
 fn kinds_and_colours_are_rekordboxs_own() {
     let kinds: Vec<&str> = ["a.MP3", "a.m4a", "a.aac", "a.wav", "a.aif", "a.aiff", "a.flac"].map(kind).into();

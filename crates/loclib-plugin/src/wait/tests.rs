@@ -22,6 +22,9 @@ fn retry_after_says_seconds_or_a_date() {
     assert_eq!(said("retry-after", "99999999999999999999"), Some(u64::MAX));
     // 784111777 is Sun, 06 Nov 1994 08:49:37 GMT: 6.5 seconds after `now`.
     assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT"), Some(7));
+    // From a whole second there's nothing to round up.
+    let on_a_second = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_770);
+    assert_eq!(answer("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT").retry_after(on_a_second), Some(7));
     assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:30 GMT"), None, "past");
     assert_eq!(said("retry-after", "Fri, 31 Dec 9999 23:59:59 GMT"), Some(253_402_300_799 - 784_111_770));
     let unread = [said("retry-after", "soon"), said("retry-after", "-5"), said("retry-after", ""), said("x-wait", "9")];

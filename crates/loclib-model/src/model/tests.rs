@@ -43,6 +43,20 @@ fn diff_detects_adds_removes_changes() {
     assert!(LibraryDiff::between(&old, &old).is_empty());
 }
 
+/// A tempo stored a hair differently (a float written and read back) is the same tempo: it prints
+/// the same to two places. One that doesn't is a change, shown to two places.
+#[test]
+fn tempos_that_print_the_same_are_no_change() {
+    let mut a = track(1, "A", "One", "/Contents/A/1.mp3");
+    a.bpm = 128.0;
+    let changes = |bpm| {
+        let b = Track { bpm, ..a.clone() };
+        track_field_changes(&a, &b).into_iter().map(|c| (c.field, c.old, c.new)).collect::<Vec<_>>()
+    };
+    assert_eq!(changes(128.001), vec![]);
+    assert_eq!(changes(128.01), vec![("bpm".into(), "128.00".into(), "128.01".into())]);
+}
+
 /// A playlist whose folder isn't there is shown at the top level, so it's the second of its
 /// name there: its key differs from the first's, and a diff sees it go.
 #[test]

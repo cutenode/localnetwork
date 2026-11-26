@@ -14,6 +14,11 @@ timeout_multiplier = 2.0
 # finish together: the crates' tests take from a second to a minute a mutant.
 sharding = "round-robin"
 
+# Each mutant's package is built and tested alone, so it misses the features the workspace build
+# turns on for it (schemars, Art behind loclib-waveform's `image`, untrusted behind
+# loclib-sqlcipher's `rusqlite`): every mutant in code behind one went untested and was missed.
+all_features = true
+
 exclude_globs = [
     # Generated from packages/tokens/colors.json; its test compares it with the JSON, so a mutant
     # here says nothing about the tests.
@@ -21,15 +26,60 @@ exclude_globs = [
     # Helpers for tests and benchmarks, built into the crates under their `test-util` feature or
     # kept in loclib-testkit.
     "**/test_util.rs",
+    "**/test_util/**",
     "crates/loclib-testkit/**",
 ]
 
-# Mutants that loop forever, so each one waits out the whole timeout (253 s a mutant in the
-# 2026-10-26 run, which pushed every shard past its 90 minutes) to say what a test would have
-# said in a second. split_ci steps through its string by hand: these leave the index where it
-# is, step it back, or past the end, where no char boundary stops it. Without its `Eof` arm,
-# Traktor's reader asks for the next event forever.
+# Mutants left out, each with why.
 exclude_re = [
+    # Mutants that loop forever, so each one waits out the whole timeout (253 s a mutant in the
+    # 2026-10-26 run, which pushed every shard past its 90 minutes) to say what a test would have
+    # said in a second. split_ci steps through its string by hand: these leave the index where it
+    # is, step it back, or past the end, where no char boundary stops it. Without its `Eof` arm,
+    # Traktor's reader asks for the next event forever.
     "loclib-model/src/model\\.rs:.*: replace (< with <=|\\+= with [*-]=) in split_ci$",
     "loclib-interop/src/traktor/read\\.rs:.*: delete match arm Event::Eof in read$",
+    # The `reflink_into` for systems without clones, which is never built where the tests run
+    # (macOS, Linux). By line, as the one for macOS and Linux has the same name and mutant.
+    "loclib-model/src/reflink\\.rs:38:5: replace reflink_into ",
+    # Equivalent: the one length `<=` adds, 100 bytes, isn't a whole number of pages, which the
+    # next test refuses with the same error.
+    "loclib-sqlcipher/src/cipher\\.rs:.*: replace < with <= in check_plain_header$",
+    # A read of a file just opened fails other than at its end only on a disk error, which no
+    # test can cause.
+    "loclib-interop/src/serato\\.rs:.*: replace match guard e\\.kind\\(\\) == std::io::ErrorKind::UnexpectedEof with true in last_chunk_unwritable$",
+    # The zoomed view's ring draws each frame the same either way: a column is a function of its
+    # number alone, and these only change how many are drawn again. Resetting on both conditions,
+    # stepping one column further, cutting the range to nothing (which the next frame resets) and
+    # a ring of width plus two rather than twice the width (still at least the view's) draw more
+    # columns, never other ones. By line and column where the function has others of the same name
+    # that aren't.
+    "loclib-waveform/src/zoom\\.rs:.*: replace (\\|\\| with &&|> with >=|< with <=) in ZoomRing::fill$",
+    "loclib-waveform/src/zoom\\.rs:125:45: replace \\+ with - in ZoomRing::fill$",
+    "loclib-waveform/src/zoom\\.rs:90:48: replace \\* with \\+ in ZoomRing::reset$",
+    # Equivalent: a bar starting right at a column's start is that column's own tick, drawn before
+    # any number is looked for.
+    "loclib-waveform/src/zoom\\.rs:159:55: replace < with <= in ZoomRing::draw_column$",
+    # Equivalent: a marker isn't to the right of itself, and no two share a cell in a row, so
+    # neither the slice from it nor `>=` finds another next one.
+    "loclib-waveform/src/zoom\\.rs:295:(37: replace \\+ with \\*|84: replace > with >=) in ZoomRing::draw_marks$",
+    # Equivalent: on the plain progress rail the playhead's dot is drawn over the head's cell
+    # afterwards, symbol and colour, whichever line was there. By line and column, as the
+    # waveform's own `x < head` in the same function isn't.
+    "loclib-waveform/src/waveform\\.rs:103:37: replace < with <= in <impl Widget for WaveOverview<'_>>::render$",
+    # Equivalent: a cover's histogram bin packs each channel's top three bits apart, so OR is XOR.
+    "loclib-waveform/src/pixels\\.rs:.*: replace \\| with \\^ in Art::main_colours$",
+    # Equivalent: no pixel's centre is exactly the spindle hole's radius away. Its square is a
+    # whole number and a quarter or a half, never the 1 of a small record's hole, and the larger
+    # holes (8% of the radius) meet no centre at any size up to 400 x 200 cells.
+    "loclib-waveform/src/pixels\\.rs:135:34: replace < with <= in vinyl$",
+    # Equivalent: a grooved pixel's centre is more than a pixel inside the record's edge, which is
+    # never past the picture's, and the outermost pixels' centres are half a pixel in. So none of
+    # those is grooved, and these bounds on its neighbours always hold, however they're weakened.
+    "loclib-waveform/src/pixels\\.rs:(158:32: replace / with [%*]|160:16: replace > with >=|161:16: replace \\+ with [-*]|161:20: replace < with <=|162:16: replace > with >=|163:16: replace \\+ with -|163:20: replace < with <=) in vinyl$",
+    # Equivalent: past -1 the clamp only matters from 0.707 to 0.75 beats, which miss the half
+    # beat and the beat by a fifth of a beat or more, about 19 ms or more at any tempo the reader
+    # keeps (655.35 BPM at most), so neither is within the 1% or 2 ms a loop's beats are taken at.
+    # By line and column, as the `-5.0` beside it has the same name and mutant, and isn't.
+    "plugins/tracklist/src/xml_import\\.rs:75:61: delete - in loop_beats$",
 ]

@@ -208,10 +208,11 @@ impl Entry {
             // (past the first marker, the marker itself), to the last before `until`.
             let first = (-m.start_ms / step).ceil();
             let first = if i == 0 { first } else { first.max(0.0) };
-            let count = whole_u32(((until - m.start_ms) / step - first).ceil());
             let phase = first.rem_euclid(4.0);
             let numbers = (1..=4u16).cycle().skip_while(|n| f64::from(n - 1) < phase);
-            let times = (0..count).map(|j| m.start_ms + (first + f64::from(j)) * step).take_while(|at| *at < until);
+            // Bounded by the beats themselves: a count worked out from (until - start) / step
+            // rounds, and can leave out a beat just before `until`.
+            let times = (0u32..).map(|j| m.start_ms + (first + f64::from(j)) * step).take_while(|at| *at < until);
             for (at, beat_number) in times.zip(numbers) {
                 let time_ms = whole_u32(at);
                 // Two markers closer than a millisecond: the later one's beat goes.
