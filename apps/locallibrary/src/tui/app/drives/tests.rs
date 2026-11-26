@@ -359,10 +359,15 @@ fn a_track_from_the_collection_plays_with_its_cues_from_master_db() {
     wait(&mut app, showing_collection);
     let l = app.loaded.as_ref().unwrap();
     let (track, root) = (l.library.tracks.iter().find(|t| t.title == "Here").unwrap().clone(), l.root().to_path_buf());
+    // Auto cue starts it at its memory cue, which is master.db's too.
+    let (audio, _out) = crate::tui::audio::Audio::offline(8000);
+    (app.audio, app.deck.auto_cue) = (Some(audio), true);
     let now = app.open(track, root, true);
     app.now = Some(now);
     let cues = |a: &App| a.now.as_ref().map(|n| n.analysis.cues.clone()).unwrap_or_default();
     wait(&mut app, |a| !cues(a).is_empty());
     let got: Vec<_> = cues(&app).iter().map(|c| (c.hot_cue, c.start_ms, c.comment.clone())).collect();
     assert_eq!(got, [(None, 500, String::new()), (Some(0), 1500, "Start".into())]);
+    wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
+    assert_eq!(app.position(), Duration::from_millis(500), "auto cue: the memory cue");
 }
