@@ -82,4 +82,7 @@ exclude_re = [
     # keeps (655.35 BPM at most), so neither is within the 1% or 2 ms a loop's beats are taken at.
     # By line and column, as the `-5.0` beside it has the same name and mutant, and isn't.
     "plugins/tracklist/src/xml_import\\.rs:75:61: delete - in loop_beats$",
+    # Equivalent: they differ only on a frame of exactly 32 bits a sample, which either keeps as
+    # coded or writes again as its samples; both are frames any reader takes.
+    "loclib-transcode/src/write\\.rs:.*: replace > with >= in Flac::encode$",
 ]

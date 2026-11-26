@@ -816,6 +816,19 @@ fn loud_24_bit_flac_copies_read_back() {
     assert!(std::fs::metadata(&copy).unwrap().len() < 10_000);
 }
 
+/// Only a block whose frame comes to more than its samples is written as them: tones flacenc
+/// predicts well are still coded, in under half the samples' 3 bytes.
+#[test]
+fn flac_copies_that_code_well_stay_coded() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("master.wav");
+    wav(&source, 48_000, 24, &tones(48_000, 1.0));
+    let copy = dir.path().join("copy.flac");
+    transcode_quietly(&source, &recipe(Container::Flac, 48_000, 24, Dither::None), &copy).unwrap();
+    let bytes = std::fs::metadata(&copy).unwrap().len();
+    assert!(bytes < 48_000 * 2 * 3 / 2, "{bytes} bytes");
+}
+
 /// The same from the other side: a master that loud, which [`flac`] has to write whole.
 #[test]
 fn loud_24_bit_flac_masters_are_copied_whole() {
