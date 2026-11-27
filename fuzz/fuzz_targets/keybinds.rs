@@ -1,3 +1,8 @@
+// paths: fuzz/fuzz_targets/keybinds.rs
+// paths: fuzz/seeds/keybinds/**
+// paths: crates/locallibrary/src/keybinds.rs
+// paths: crates/locallibrary/src/keybinds/key.rs
+// paths: crates/locallibrary/src/keybinds/record.rs
 //! Someone else's keybinds record, as the player imports it: the record read back, then each key it
 //! kept spelled again and read again. The input as text is a key spelled any way at all.
 
