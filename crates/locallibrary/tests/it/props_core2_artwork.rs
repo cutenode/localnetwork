@@ -11,8 +11,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::Device;
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress};
@@ -22,7 +22,7 @@ use rekordbox_pdb::NewTrack;
 
 /// Taking embedded art back puts back exactly the files untouched since, skips the rest (said
 /// as gone or changed), and keeps the backup while any were skipped.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_art_is_taken_back_only_from_files_untouched_since(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -66,7 +66,7 @@ fn prop_art_is_taken_back_only_from_files_untouched_since(tc: TestCase) {
 
 /// Art set on a drive with only OneLibrary shows on exactly the tracks chosen; a batch naming no
 /// track, or one the drive doesn't have, is refused without writing anything.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_art_on_a_onelibrary_only_drive_shows_on_exactly_those_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -97,7 +97,7 @@ fn prop_art_on_a_onelibrary_only_drive_shows_on_exactly_those_tracks(tc: TestCas
 
 /// Art found automatically: a track whose audio path leaves the drive isn't looked for, and art a
 /// file held when planned but not when applied isn't set (nothing is written for it).
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_automatic_art_skips_audio_out_of_reach_or_emptied_since(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -146,7 +146,7 @@ impl Progress for StopAfter {
 /// Embedding cancelled part way stops before the next file: the files it finished hold the art,
 /// the rest are as they were, and taking it back puts back exactly the ones it changed. Cancelled
 /// before any, nothing is kept; cancelled during the last, it's done.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_art_embedded_until_cancelled_is_taken_back_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -185,7 +185,7 @@ fn prop_art_embedded_until_cancelled_is_taken_back_exactly(tc: TestCase) {
 /// a file missing when art goes in is reported and left out; folders without a backup are passed
 /// over; a backup whose copy of an untouched file went can't be taken back and stays; and one
 /// that doesn't read fails listing and taking back alike.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_embeds_are_taken_back_by_size_and_mtime_without_hashes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -253,7 +253,7 @@ fn prop_embeds_are_taken_back_by_size_and_mtime_without_hashes(tc: TestCase) {
 
 /// However many embeds are made, the newest five are kept to take back, newest first, and the
 /// older ones' copies are gone from the store.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_only_the_newest_five_embeds_are_kept(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

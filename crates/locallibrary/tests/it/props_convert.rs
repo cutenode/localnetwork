@@ -11,8 +11,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift};
 use locallibrary::progress::Ctx;
@@ -106,7 +106,7 @@ fn drifted_drive(tc: &TestCase, dir: &Path) -> std::path::PathBuf {
     root
 }
 
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drifted_drive(&tc, dir.path());
@@ -262,7 +262,7 @@ fn unpercent(s: &str) -> String {
 /// The XML lists every track of the drive's whole library (OneLibrary's too) with its details
 /// and the file where rekordbox will find it, and every playlist with its entries in order;
 /// with `only`, exactly the chosen playlists and the tracks they hold.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_xml_holds_the_drives_library(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // rekordbox's demo export has beat grids and cues for the XML to carry.
@@ -355,7 +355,7 @@ fn tagged(d: &Device, source: locallibrary::tags::Source) -> BTreeSet<(String, S
 /// export (real analysis files, its My Tags carried across), a track or playlist only one side
 /// has, hot cue bank lists a rebuild drops, artwork missing on the drive, and a target that can't
 /// be read (added to, it's refused with a way on; rebuilt, it's made from scratch).
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_converting_carries_my_tags_and_says_what_it_leaves(tc: TestCase) {
     for variant in 0..4 {
         converting_carries_my_tags_and_says_what_it_leaves_with(&tc, variant);
@@ -515,7 +515,7 @@ fn xml_marks(text: &str) -> Marks {
 /// The XML gives each track the kind of file it is, its colour when it has one (each colour its
 /// own), and its cues as the drive lists them: where each starts and a loop ends, which hot cue
 /// (-1 for a memory cue), and a hot cue's colour.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
     use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
     use locallibrary::edit::Edit;
@@ -610,7 +610,7 @@ fn prop_xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
 /// by file), every playlist and folder either has with its entries, and every history list. What
 /// a player added to OneLibrary alone (a track, a playlist in a folder, a history list) is there
 /// beside what export.pdb has.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_whole_library_is_both_databases_put_together(tc: TestCase) {
     use loclib_rekordbox_db::onelibrary::ContentRecord;
     let dir = tempfile::tempdir().unwrap();
@@ -659,7 +659,7 @@ fn prop_the_whole_library_is_both_databases_put_together(tc: TestCase) {
 /// Tracks only OneLibrary has get ids of their own in the whole library, with
 /// [`convert::ONELIBRARY_ONLY`] set, even when two of their OneLibrary ids differ only in that
 /// bit; export.pdb's keep theirs, and the library numbered for files carries no id with it set.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_tracks_only_onelibrary_has_get_ids_of_their_own(tc: TestCase) {
     use loclib_rekordbox_db::onelibrary::ContentRecord;
     let dir = tempfile::tempdir().unwrap();
@@ -702,7 +702,7 @@ fn prop_tracks_only_onelibrary_has_get_ids_of_their_own(tc: TestCase) {
 
 /// Adding OneLibrary to the export.pdb a drive has keeps every My Tag its exportExt.pdb had,
 /// those of tracks OneLibrary no longer lists too.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_adding_to_export_pdb_keeps_the_my_tags_it_had(tc: TestCase) {
     use locallibrary::tags::{self, Source};
     let dir = tempfile::tempdir().unwrap();
@@ -732,7 +732,7 @@ fn prop_adding_to_export_pdb_keeps_the_my_tags_it_had(tc: TestCase) {
 /// A database that can't be read is no source: converting from a OneLibrary that can't be read
 /// is refused (the whole library is then export.pdb's alone), and a drive whose export.pdb
 /// can't be read has no whole library to read.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_database_that_cant_be_read_is_no_source(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let garbage = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(1).max_size(64));
@@ -753,7 +753,7 @@ fn prop_a_database_that_cant_be_read_is_no_source(tc: TestCase) {
 
 /// A OneLibrary whose My Tags can't be read still converts into export.pdb, added to or
 /// rebuilt: the plan says its My Tags aren't converted, and exportExt.pdb keeps the ones it had.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_onelibrary_my_tags_that_cant_be_read_stay_behind(tc: TestCase) {
     use locallibrary::tags::{self, Source};
     let dir = tempfile::tempdir().unwrap();

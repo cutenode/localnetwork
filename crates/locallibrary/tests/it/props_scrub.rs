@@ -7,8 +7,8 @@ use crate::{common, drawn};
 
 use std::collections::BTreeSet;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths::{self, FileClass};
 use locallibrary::progress::Ctx;
@@ -24,7 +24,7 @@ fn scrub_with(d: &Device, store: Option<&Store>, siblings: &[Device]) -> ScrubRe
     scrub::scrub(d, store, siblings, &ScrubOptions::default(), &Ctx::silent()).unwrap()
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_scrub_finds_exactly_the_damage_and_repair_undoes_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -107,7 +107,7 @@ fn prop_scrub_finds_exactly_the_damage_and_repair_undoes_it(tc: TestCase) {
 
 /// However many scans run between the damage and the scrub, it's found: a scan records what it
 /// reads, and that never stands in for what the store says the file held.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_damage_is_found_however_many_scans_saw_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

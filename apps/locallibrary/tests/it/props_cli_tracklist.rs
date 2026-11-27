@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::Library;
 use locallibrary::device::Device;
 use locallibrary::import::{self, Status};
@@ -30,7 +30,7 @@ fn refused(env: &Env, args: &[&str]) -> Value {
 /// the playlist with the tracks loclib-tracklist finds in the drive's library and those chosen, in
 /// the list's order (after its entries, appending), or changes nothing when there are none. A
 /// choice for an entry the list doesn't have is refused.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
     let env = Env::new();
     let root = env.club("Club");
@@ -98,7 +98,7 @@ fn prop_imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
 /// what was found), and the playlist then holds those after what it kept; a playlist the XML lacks
 /// isn't found. A list of tracks the drive doesn't
 /// have changes nothing, saying so.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(onto_itself = true, append = true, choice = None::<usize>)]
 fn prop_an_xml_playlist_imports_as_the_tracks_it_names(tc: TestCase) {
     let onto_itself = tc.draw(gs::booleans());

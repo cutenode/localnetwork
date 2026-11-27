@@ -6,8 +6,8 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::support::{Env, path, play};
@@ -32,7 +32,7 @@ fn values(c: &[(String, String)]) -> BTreeSet<String> {
 
 /// Playlists made, My Tags put on tracks, sessions recorded and sets declared, drawn: what Tab
 /// offers for each kind of argument is what the listings list, with the counts they give.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_tab_offers_what_the_listings_list(tc: TestCase) {
     let fx = Env::from_template();
     let names = ["Friday", "Ünïcödé", "Warm-ups", "Sets/Closing"];
@@ -140,7 +140,7 @@ fn prop_tab_offers_what_the_listings_list(tc: TestCase) {
 /// again: where a drive goes, Tab offers each mounted drive by its name (described by its path)
 /// and by its path (described by its name), and each drive the store knows that isn't mounted as
 /// not mounted, and nothing else.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_tab_offers_the_drives_mounted_and_known(tc: TestCase) {
     let fx = Env::new();
     let names = tc.draw(gs::subsequences(vec!["A", "B", "Ünïcödé"]));
@@ -166,7 +166,7 @@ fn prop_tab_offers_the_drives_mounted_and_known(tc: TestCase) {
 /// The man pages: the top-level page printed is the one `--json` holds, and written to a folder,
 /// there's a page for every command, the top-level one among them; a folder they can't be written
 /// to is an error that names it.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(nested = false, json = true, file_in_the_way = true)]
 #[hegel::explicit_test_case(nested = true, json = false, file_in_the_way = false)]
 fn prop_man_pages_are_written_or_printed(tc: TestCase) {
@@ -214,7 +214,7 @@ fn prop_man_pages_are_written_or_printed(tc: TestCase) {
 
 /// For any shell, the script printed is the one `--json` holds; the dynamic one has the shell run
 /// this binary on Tab, by its full path unless it was found on the PATH.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_completion_scripts_run_the_binary_found(tc: TestCase) {
     let fx = Env::from_template();
     let shell = tc.draw(gs::sampled_from(&["bash", "zsh", "fish", "elvish", "powershell"][..]));
@@ -271,7 +271,7 @@ fn plain(s: &str) -> String {
 /// (`$PAGER`, run with `LESS=FRX` unless `LESS` is set) the pager is given the listing as it's
 /// printed piped; with the pager off (`--no-pager`, `PAGER=cat` or empty) the terminal shows it.
 #[cfg(unix)]
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_paged_listing_is_the_listing(tc: TestCase) {
     use std::process::Stdio;
 
@@ -320,7 +320,7 @@ fn prop_a_paged_listing_is_the_listing(tc: TestCase) {
 /// word, each description wrapped to the terminal (at most 100 columns), but never narrower than
 /// 30 columns.
 #[cfg(unix)]
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(columns = 40u16)]
 #[hegel::explicit_test_case(columns = 160u16)]
 fn prop_help_fits_the_terminal_it_is_shown_in(tc: TestCase) {
@@ -356,7 +356,7 @@ fn prop_help_fits_the_terminal_it_is_shown_in(tc: TestCase) {
 /// A change asked about in a terminal: typing yes makes it, anything else declines it (exit
 /// status 3) and leaves the drive as it was.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_question_is_answered_by_what_is_typed(tc: TestCase) {
     use std::io::Write;
     use std::process::Stdio;
@@ -392,7 +392,7 @@ fn prop_a_question_is_answered_by_what_is_typed(tc: TestCase) {
 /// `set` was the night-before job before it was a spelling of `sets`: a command line that reads
 /// as the job (`set` and a drive, or `set`/`sets` and one of the job's flags) is told where the
 /// job went, and any other mistake with `sets` gets clap's own message; both are usage errors.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_the_night_before_job_is_said_to_have_moved(tc: TestCase) {
     let fx = Env::from_template();
     let a = path(&fx.volumes.join("A")).to_string();
@@ -424,7 +424,7 @@ fn prop_the_night_before_job_is_said_to_have_moved(tc: TestCase) {
 /// `--color always` colours what's printed even into a pipe, `never` never does, and `auto` only
 /// for a terminal (so not here); the words and columns are the same either way, with ASCII
 /// symbols or not, and some listing is coloured.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_colour_is_what_color_says(tc: TestCase) {
     let fx = Env::from_template();
     let listings: &[&[&str]] = &[
@@ -469,7 +469,7 @@ fn prop_colour_is_what_color_says(tc: TestCase) {
 /// The locale says whether the terminal takes UTF-8: the first of `LC_ALL`, `LC_CTYPE` and
 /// `LANG` that's set decides, and one that doesn't name UTF-8 gets ASCII stand-ins for the
 /// symbols (as `--ascii` does); with none set, UTF-8 is taken.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_the_locale_decides_the_symbols(tc: TestCase) {
     let fx = Env::from_template();
     let values = ["en_GB.UTF-8", "de_DE.utf8", "C", "en_US.ISO-8859-1", ""];

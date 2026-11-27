@@ -1,3 +1,9 @@
+// paths: fuzz/fuzz_targets/pdb.rs
+// paths: fuzz/dicts/pdb.dict
+// paths: crates/locallibrary/tests/fixtures/rekordcrate/{demo_tracks,empty}/PIONEER/rekordbox/**
+// paths: vendor/rekordbox-pdb/src/**
+// paths: crates/locallibrary/src/pdb.rs
+// paths: crates/loclib-model/src/model.rs
 //! `export.pdb` and `exportExt.pdb` (one page layout): the vendored readers, the My Tags editor's
 //! parse, and the library model locallibrary builds from a database. Called directly, without
 //! the `catch_unwind` locallibrary wraps them in, so a panic here is a crash and not a parse

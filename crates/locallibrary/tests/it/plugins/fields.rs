@@ -102,7 +102,7 @@ fn edits_select_and_sort_by_a_plugins_field() {
 /// A smart rule comparing a plugin's field with any size, applied, holds exactly the tracks the
 /// analyzer found to compare so, in the order asked for; before anything was analyzed, it holds
 /// none and the plan says to analyze the tracks first.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_smart_rule_on_a_field_holds_what_was_analyzed(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Hosted::new(Fixture::echo());

@@ -262,11 +262,13 @@ fn prop_probes_find_the_real_capacity(tc: TestCase) {
     let mut disk = Simulated { data: vec![0x5A; real as usize], past };
 
     let bytes = Mutex::new((0u64, 0u64));
+    let announced = Mutex::new(Vec::new());
     let count = |e: &Event| {
         let mut b = bytes.lock().unwrap();
         match e {
             Event::Bytes { phase: Phase::Write, bytes } => b.0 += bytes,
             Event::Bytes { phase: Phase::Verify, bytes } => b.1 += bytes,
+            Event::PhaseStart { phase, items, bytes } => announced.lock().unwrap().push((*phase, *items, *bytes)),
             _ => {}
         }
     };
@@ -287,6 +289,8 @@ fn prop_probes_find_the_real_capacity(tc: TestCase) {
     }
     let total = offsets.len() as u64 * MIB;
     assert_eq!(*bytes.lock().unwrap(), (total, total));
+    let n = offsets.len() as u64;
+    assert_eq!(*announced.lock().unwrap(), [(Phase::Write, n, total), (Phase::Verify, n, total)], "the totals ahead");
     // Each alias is sent as the `[written_at, read_at]` pair its schema describes.
     let sent = serde_json::to_value(&r).unwrap();
     let pairs: Vec<[u64; 2]> = r.aliases.iter().map(|a| [a.written_at, a.read_at]).collect();
@@ -521,4 +525,30 @@ fn prop_patterns_are_headed_and_repeatable(tc: TestCase) {
     let mut next = vec![0u8; len];
     pattern(offset.wrapping_add(1), nonce, &mut next);
     assert_ne!(a, next);
+}
+
+/// Past the header, a pattern differs in every whole word from the one at another offset, or of
+/// another nonce: data left from another region or another probe never reads back as this one's.
+#[hegel::test(test_cases = 100)]
+fn prop_patterns_differ_word_for_word(tc: TestCase) {
+    let (offset, nonce) = (tc.draw(gs::integers::<u64>()), tc.draw(gs::integers::<u64>()));
+    let flip = 1u64 << tc.draw(gs::integers::<u32>().max_value(63));
+    let (other_offset, other_nonce) =
+        if tc.draw(gs::booleans()) { (offset ^ flip, nonce) } else { (offset, nonce ^ flip) };
+    let (mut a, mut b) = (vec![0u8; 24 + 64], vec![0u8; 24 + 64]);
+    pattern(offset, nonce, &mut a);
+    pattern(other_offset, other_nonce, &mut b);
+    for (x, y) in a[24..].chunks(8).zip(b[24..].chunks(8)) {
+        assert_ne!(x, y);
+    }
+}
+
+/// The body is xorshift64 (Marsaglia's shifts 13, 7, 17) seeded from the offset and the nonce,
+/// a word at a time, little-endian: the first two words, worked out apart from this code.
+#[test]
+fn a_patterns_body_is_xorshift64() {
+    let mut buf = [0u8; 24 + 16];
+    pattern(1, 0, &mut buf);
+    assert_eq!(buf[24..32], 0xdc1b_77ae_4b71_6dec_u64.to_le_bytes());
+    assert_eq!(buf[32..], 0x74f0_afbf_0e6f_7437_u64.to_le_bytes());
 }

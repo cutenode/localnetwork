@@ -122,7 +122,7 @@ impl Scratch {
         self.under.dir.as_deref()
     }
 
-    /// Where what its files' sending makes of progress goes: the request's, once it's sent.
+    /// Where what its files' sending makes of progress goes: the request's.
     pub(crate) fn report_to(&self, progress: Sender<ProgressReport>) {
         let _ = self.under.progress.set(progress);
     }

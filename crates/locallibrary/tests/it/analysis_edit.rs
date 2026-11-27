@@ -8,8 +8,8 @@ use crate::common;
 use std::path::Path;
 
 use base64::prelude::*;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::analysis_edit::{NewAnalysis, WaveSource};
 use locallibrary::anlz::{
     self, Bands, Beat, CueFile, CuePoint, Mood, Phrase, PhraseKind, SongStructure, WaveformStyle,
@@ -379,7 +379,7 @@ fn analysis_that_cant_be_written_is_refused() {
 /// Any grid and phrases set on a rekordbox 6 export's track read back as given, with the tempo
 /// most beats have in the databases, and so does any waveform on a track without rekordbox's
 /// colour one, staged on the drive; undo puts every file back.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_any_grid_phrases_and_waveform_read_back_and_undo(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let with_wave = tc.draw(gs::booleans());
@@ -470,7 +470,7 @@ fn a_grids_tempo_is_most_of_its_beats() {
 /// ones outside rekordbox's folder, a waveform for band gains with no 3-band detail to fit, one
 /// that isn't bands, given as a plugin's blob or staged and gone, and a track that isn't on the
 /// drive.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let case = tc.draw(gs::integers::<u8>().max_value(14));
@@ -585,7 +585,7 @@ fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
 /// it was made: nothing more when the drive has it, the same files after rekordbox exports again
 /// (the waveform from its staged copy), skipped with a warning once the track's `.DAT` is gone;
 /// and a grid set over a moved one has no extended grid left to lose.
-#[hegel::test(test_cases = 24, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 24)]
 fn prop_any_analysis_edit_warns_of_what_it_leaves_and_replays_as_made(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");
@@ -677,7 +677,7 @@ fn prop_any_analysis_edit_warns_of_what_it_leaves_and_replays_as_made(tc: TestCa
 /// A waveform an analysis edit can't take is refused when planned and the drive is left as it
 /// was: text that isn't base64, bytes that aren't whole 3-band columns, a plugin's blob, a staged
 /// waveform the drive doesn't have or holds damaged; and so is a grid running past the track.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_waveforms_and_grids_an_edit_cant_take_are_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, t) = without_colour_overview(dir.path());
@@ -718,7 +718,7 @@ fn prop_waveforms_and_grids_an_edit_cant_take_are_refused(tc: TestCase) {
 
 /// A waveform as long as its track (within 2 s either way) is written without a word about its
 /// length; any longer or shorter, the plan says how long each is.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_waveform_warns_of_its_length_only_when_it_isnt_the_tracks(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, t) = without_colour_overview(dir.path());
@@ -733,7 +733,7 @@ fn prop_a_waveform_warns_of_its_length_only_when_it_isnt_the_tracks(tc: TestCase
 
 /// Replaying the journal, an analysis edit of a track the drive no longer has is skipped with a
 /// warning naming it, and no track's analysis files change.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_replayed_analysis_edit_of_a_track_gone_is_skipped(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");

@@ -8,8 +8,8 @@ use crate::props_api_jobs::{bare_export, own_identity};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{AutoPull, WatchAction, WatchOptions, Watched, Watching};
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::progress::Ctx;
@@ -77,7 +77,7 @@ fn same(a: &Path, b: &Path) -> bool {
 /// onto the rest of its group when it's the newest, and says why not otherwise: another is newer,
 /// or the drives diverged (then the other is left for a merge, or saved beside the newest
 /// snapshot when only players changed it).
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_watched_group_is_synced_from_its_newest_drive(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());
@@ -187,7 +187,7 @@ fn prop_a_watched_group_is_synced_from_its_newest_drive(tc: TestCase) {
 /// Watching Main while rekordbox exports to it (a track, or a history list a player recorded,
 /// as drawn): the poll sees its databases change, and the next look saves it; the pull rewrites
 /// its state, which the next poll sees, and nothing more after that.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_drive_changed_while_watched_is_seen_and_saved(tc: TestCase) {
     use locallibrary::watch::{DriveChange, WatchEvent};
     use std::cell::Cell;
@@ -231,7 +231,7 @@ fn prop_a_drive_changed_while_watched_is_seen_and_saved(tc: TestCase) {
 /// a new export: watched, it's saved on top of Main's newest snapshot while its lineage holds
 /// that snapshot; once its lineage is lost, it may have changed beside Main as much as after it,
 /// and it's left alone, saying so.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(lineage = true)]
 #[hegel::explicit_test_case(lineage = false)]
 fn prop_a_drive_the_registry_lacks_is_saved_by_its_lineage(tc: TestCase) {
@@ -267,7 +267,7 @@ fn prop_a_drive_the_registry_lacks_is_saved_by_its_lineage(tc: TestCase) {
 /// Main, saved and then exported to, watched while another operation holds the store: the
 /// watcher says it's waiting, with how long it will (and with no patience, gives up at once,
 /// failing as locked); with patience left, Main is looked at again later.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_held_store_is_waited_for_as_long_as_patience_lasts(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());
@@ -303,7 +303,7 @@ fn prop_a_held_store_is_waited_for_as_long_as_patience_lasts(tc: TestCase) {
 /// player recorded a history list on Backup (or a second export went to Backup too): the export
 /// is saved first, whichever path comes first, and Backup, which players alone changed, is then
 /// saved beside it; two exports can't both be saved, and the second is left alone, saying so.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_an_export_is_saved_before_a_drive_only_players_changed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());

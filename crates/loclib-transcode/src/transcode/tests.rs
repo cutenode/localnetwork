@@ -77,7 +77,14 @@ fn noise(len: usize, bits: u16) -> Vec<i32> {
 /// A FLAC of interleaved `samples`, encoded by flacenc in one go (not this crate's streaming).
 fn flac(path: &Path, samples: &[i32], channels: usize, bits: usize, rate: usize) {
     let source = flacenc::source::MemSource::from_samples(samples, channels, bits, rate);
-    let config = flacenc::config::Encoder::default().into_verified().unwrap();
+    let mut config = flacenc::config::Encoder::default();
+    // 24-bit samples as they are: flacenc can code loud ones in a frame too big to read (see
+    // `Flac::encode`), which no master holds.
+    if bits == 24 {
+        let coding = &mut config.subframe_coding;
+        (coding.use_constant, coding.use_fixed, coding.use_lpc) = (false, false, false);
+    }
+    let config = config.into_verified().unwrap();
     let mut stream = flacenc::encode_with_fixed_block_size(&config, source, 4096).unwrap();
     // flacenc counts the short last block in the minimum, which makes symphonia take the stream
     // for one of variable block sizes and refuse it.
@@ -586,7 +593,7 @@ fn copied(events: &[Event]) -> Vec<u64> {
 /// comes as it's decoded, not all at the end: in steps of a MiB or a packet's worth more, as
 /// many as fit, and the rest at the end, adding up to the source's size. The copy holds every
 /// frame, and its size is its header and samples.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_long_copies_report_progress_as_they_go(tc: TestCase) {
     const MIB: u64 = 1 << 20;
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(8));
@@ -625,7 +632,7 @@ fn prop_long_copies_report_progress_as_they_go(tc: TestCase) {
 
 /// A FLAC whose header leaves its length out (0, "unknown", as the format allows) copies to
 /// every container exactly as one that says it, only with its progress all at the end.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_copies_dont_need_the_length_in_the_header(tc: TestCase) {
     let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
     // Over a block, so the copies that are FLAC encode one as the samples come; often whole
@@ -792,4 +799,46 @@ fn prop_source_tags_a_copy_cant_hold_fail_it(tc: TestCase) {
         Err(Error::Tags { path, .. }) if container != Container::Flac => assert_eq!(path, out),
         other => panic!("{container:?}: {other:?}"),
     }
+}
+
+/// The case hegel found: loud enough at 24 bit that flacenc's own choice of codes for the block
+/// is far larger than its samples, which the copy writes as they are instead.
+#[test]
+fn loud_24_bit_flac_copies_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let samples: Vec<i32> = noise(1382, 16).iter().flat_map(|s| [*s, *s]).collect();
+    let source = dir.path().join("master.flac");
+    flac(&source, &samples, 2, 16, 88_200);
+    let copy = dir.path().join("copy.flac");
+    let made = transcode_quietly(&source, &recipe(Container::Flac, 48_000, 24, Dither::None), &copy).unwrap();
+    assert_eq!(made, Transcoded { frames: 752, channels: 2 });
+    assert_eq!(decode(&copy).samples.len(), 2 * 752);
+    assert!(std::fs::metadata(&copy).unwrap().len() < 10_000);
+}
+
+/// Only a block whose frame comes to more than its samples is written as them: tones flacenc
+/// predicts well are still coded, in under half the samples' 3 bytes.
+#[test]
+fn flac_copies_that_code_well_stay_coded() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("master.wav");
+    wav(&source, 48_000, 24, &tones(48_000, 1.0));
+    let copy = dir.path().join("copy.flac");
+    transcode_quietly(&source, &recipe(Container::Flac, 48_000, 24, Dither::None), &copy).unwrap();
+    let bytes = std::fs::metadata(&copy).unwrap().len();
+    assert!(bytes < 48_000 * 2 * 3 / 2, "{bytes} bytes");
+}
+
+/// The same from the other side: a master that loud, which [`flac`] has to write whole.
+#[test]
+fn loud_24_bit_flac_masters_are_copied_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let samples: Vec<i32> = noise(4016, 24).iter().flat_map(|s| [*s, *s]).collect();
+    let source = dir.path().join("master.flac");
+    flac(&source, &samples, 2, 24, 96_000);
+    let bytes = std::fs::metadata(&source).unwrap().len();
+    assert!(bytes < 4016 * 2 * 3 + 1_000, "{bytes} bytes");
+    let copy = dir.path().join("copy.aiff");
+    let made = transcode_quietly(&source, &recipe(Container::Aiff, 44_100, 16, Dither::None), &copy).unwrap();
+    assert_eq!(made, Transcoded { frames: 1845, channels: 2 });
 }

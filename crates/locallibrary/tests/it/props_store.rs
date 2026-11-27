@@ -7,8 +7,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use chrono::{DateTime, TimeZone, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{LineageEntry, LineageOp};
 use locallibrary::model::LibrarySummary;
 use locallibrary::paths::FileClass;
@@ -482,7 +482,7 @@ impl StoreMachine {
     }
 }
 
-#[hegel::test(test_cases = 100, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 100)]
 fn prop_the_store_matches_the_model(tc: TestCase) {
     hegel::stateful::machine(StoreMachine::new()).steps(30).run(tc);
 }

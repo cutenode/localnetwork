@@ -8,8 +8,8 @@
 
 #![cfg(feature = "account")]
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use locallibrary::atmosphere::FLAGS_SCOPE;
@@ -48,7 +48,7 @@ fn allows(scopes: &[&str]) -> String {
 /// who it is, where its data is, until when it lasts and what it allows, as its JSON says; checked
 /// with the server (when it's kept in a file) it says the server answered, or fails as the
 /// server refuses; and signing out says whether the server could be told.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_account_says_what_its_session_allows(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
@@ -178,7 +178,7 @@ fn prop_the_account_says_what_its_session_allows(tc: TestCase) {
 /// scopes: printed, it's the JSON `--json` writes beside the file; written to a file, the file
 /// holds it, and a file that's there is kept unless `--replace` says otherwise; an address that
 /// isn't `https://` is refused.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_client_metadata_is_the_document_written(tc: TestCase) {
     let fx = Env::from_template();
     let client = tc.draw(gs::sampled_from(
@@ -319,7 +319,7 @@ fn publish_plan_is_printed(p: &Value, what: &str, out: &str, said: &str) {
 /// writes or refusing them: the plan printed is the JSON's; nothing is written but by a run with
 /// `--yes` that succeeds, which writes the record its plan holds; what's published already isn't
 /// written again; and My Settings imported back from the account are the ones published.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
@@ -538,7 +538,7 @@ fn prop_publishing_writes_the_record_the_plan_shows(tc: TestCase) {
 /// Signing in starts in a browser, which these tests have none of; asked to sign in without
 /// saying to which account, or to a server that isn't one, it says why it can't, and nothing is
 /// signed in.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
@@ -582,7 +582,7 @@ fn published_sections() -> Vec<(&'static str, &'static str, Value)> {
 /// printed plan marks each section it publishes as new or changed against it, and lists each
 /// section published before that it no longer publishes; its JSON plan holds that record as what
 /// it replaces.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
@@ -643,7 +643,7 @@ const LOCAL_CLIENT: &str = "https://localhost/c.json";
 /// computer, no account at all), and nobody is signed in. What's typed is never a handle that
 /// would be looked up on the network, and the handle offered is only tried when there's none.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
     let fx = Env::from_template();
     std::fs::create_dir_all(&fx.store).unwrap();
@@ -682,7 +682,7 @@ fn prop_login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
 /// sign-in refuses, so it fails saying so. Either way nothing is published and the session
 /// stays as it was.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
@@ -774,7 +774,7 @@ fn form_in(out: &str, as_json: bool) -> String {
 /// anything's sent; with an account allowed to post, a space and a title it shows the report and
 /// asks, posting with `--yes` (or, when the space is gone or the server refuses it, giving
 /// GitHub's form instead); anything else gives GitHub's form, filled in with what was typed.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
     let pds = MockPds::start();
     let good = space_on(&pds);
@@ -868,7 +868,7 @@ fn prop_a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase)
 /// gives GitHub's form instead. Only a post that went ahead reaches the server, and no token is
 /// printed.
 #[cfg(unix)]
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(reports = false, title = "  The map is grey  ", lines = Vec::<&str>::new(), answer = true)]
 fn prop_asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
     let pds = MockPds::start();
@@ -926,7 +926,7 @@ fn prop_asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
 /// `--json`), the server taking the post or refusing it: posted, the report is the record the
 /// server got, the title as given and the message first, and it says where it is; refused, it
 /// says it couldn't post it and gives GitHub's form instead.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
     let pds = MockPds::start();
     let space = space_on(&pds);
@@ -973,7 +973,7 @@ fn prop_a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
 /// or at 100%, for a signed-in account's share of the rollout, or (with a session that may ask)
 /// targeted at it; the text says what the JSON does, without asking again; and only a session
 /// from before the scope is told to sign in again.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_flags_shown_are_the_catalogs_as_the_website_answers(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");

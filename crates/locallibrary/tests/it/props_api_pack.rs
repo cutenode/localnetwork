@@ -4,8 +4,8 @@
 use crate::common;
 use crate::props_transcode::source;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, PackRequest, SetPlayers};
 use locallibrary::device::Device;
 use locallibrary::pack::{Container, PackOptions, Transcode};
@@ -25,7 +25,7 @@ fn options(playlist: &str, players: Vec<String>) -> PackOptions {
 /// those players does, and the summary says how many copies it makes and how many tracks stay
 /// unplayable. The high-rate WAVs, packed with the store, come out as copies, and the target is
 /// registered.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_packing_for_the_players_remembered_plans_what_naming_them_does(tc: TestCase) {
     let models: Vec<String> = tc
         .draw(gs::vecs(gs::sampled_from(vec!["CDJ-2000", "CDJ-900", "XDJ-700"])).min_size(1).max_size(2).unique(true))

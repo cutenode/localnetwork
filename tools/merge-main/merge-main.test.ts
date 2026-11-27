@@ -212,6 +212,22 @@ describe('a merge of main into a branch from before its renames', () => {
 		expect(state()).toBe(before);
 	});
 
+	it('leaves its own files alone, whose fixtures name what it renames', () => {
+		const fixture = "import { x } from '$lib/bookings';\n// `grows_back`\n";
+		const doc = 'See `grows_back` and [bookings](../../apps/web/src/lib/bookings.ts).\n';
+
+		git('switch', '-q', 'main');
+		write('tools/merge-main/fixture.test.ts', fixture);
+		write('tools/merge-main/fixture.md', doc);
+		commit('the tool');
+		git('switch', '-q', 'branch');
+		merge();
+		run();
+
+		expect(read('tools/merge-main/fixture.test.ts')).toBe(fixture);
+		expect(read('tools/merge-main/fixture.md')).toBe(doc);
+	});
+
 	it("leaves the README to a person when the branch has a bullet it can't place", () => {
 		write(
 			'apps/web/README.md',

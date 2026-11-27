@@ -9,13 +9,13 @@ use crate::common;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
 use locallibrary::space::{self, SpaceKind};
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_space_is_measured_around_what_cant_be_read(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
@@ -52,7 +52,7 @@ fn prop_space_is_measured_around_what_cant_be_read(tc: TestCase) {
 /// A folder that can be listed but not looked into (readable, not searchable): each file in it
 /// counts as unreadable, among the files or in the trash (measured whole), and the rest is
 /// measured. A cancelled measure stops.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_files_that_cant_be_looked_at_are_unreadable(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");

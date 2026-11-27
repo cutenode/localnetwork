@@ -5,8 +5,8 @@ use crate::common::{self, media, path};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::Error;
 use locallibrary::api::{
     self, AnalysisRequest, ArtworkRequest, LibraryCache, OneOrMany, SetArtwork, TracksGet, WaveformChoice,
@@ -25,7 +25,7 @@ use locallibrary::query::TrackSelector;
 /// waveforms chosen (a track the library lacks has none; several at once, at most 100 and no
 /// scrolling ones), and art is embedded in a file here but never one on an export, a folder or a
 /// file that isn't there, which applying lists as failed.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
     let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(64));
     let dir = tempfile::tempdir().unwrap();

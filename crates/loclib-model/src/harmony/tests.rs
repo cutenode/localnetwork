@@ -476,7 +476,7 @@ fn prop_cancelled_orderings_stop(tc: hegel::TestCase) {
 /// A set too long to tidy (over 2,000 tracks) keeps its greedy order: it starts where asked,
 /// holds every track once, and each next track is one of the cheapest to mix in ([`mix_cost`])
 /// from the last of those still left (the energy is level, so only keys and tempos count).
-#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_sets_too_long_to_tidy_keep_the_greedy_order(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<usize>().min_value(TIDY_LIMIT + 1).max_value(TIDY_LIMIT + 40)) as u32;

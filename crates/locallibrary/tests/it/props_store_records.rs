@@ -7,8 +7,8 @@ use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
 use chrono::{TimeZone, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::equipment::Remembered;
 use locallibrary::model::LibrarySummary;
 use locallibrary::paths::FileClass;
@@ -20,7 +20,7 @@ use locallibrary::{Error, Hash};
 const NAMES: &[&str] = &["Main", "main", "Club", " Club ", "Ünï", ""];
 const LABELS: &[&str] = &["before NYE", "BEFORE nye", "Tokyo", " ", "keep"];
 
-#[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_the_stores_records_match_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();

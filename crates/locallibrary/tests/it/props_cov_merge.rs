@@ -7,8 +7,8 @@ use crate::drawn;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions, PlaylistMode};
 use locallibrary::onelibrary;
@@ -34,7 +34,7 @@ enum Change {
 /// audio or row gone), whose target's databases changed, or that's cancelled as it edits the
 /// databases, fails, and its target (one with export.pdb, and one with OneLibrary only) is left
 /// as it was.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_merge_that_cannot_finish_leaves_the_target_unchanged(tc: TestCase) {
     let changes = [Change::Unreadable, Change::AudioGone, Change::TrackGone, Change::Cancelled, Change::TargetChanged];
     let change = tc.draw(gs::sampled_from(changes.to_vec()));
@@ -112,7 +112,7 @@ fn prop_a_merge_into_an_unreadable_export_is_refused(tc: TestCase) {
 /// A source's hot cue bank lists side by side, each with a cue of a track the merge brings, come
 /// into the target's merge folder in the order the source shows them (by position, then id),
 /// whatever positions they were given.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_hot_cue_bank_lists_side_by_side_keep_their_order(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let guest = common::demo_drive(dir.path(), "Guest");

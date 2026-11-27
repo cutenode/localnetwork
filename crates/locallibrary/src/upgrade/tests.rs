@@ -112,7 +112,7 @@ fn prop_a_lossless_file_a_player_cant_play_is_refused(tc: hegel::TestCase) {
 /// `Contents/`, the lossless file is gone or isn't audio or a player can't play it, an AAC track
 /// has no waveform to time it by, the two files' audio can't be compared, or its analysis can't
 /// be rewritten. Every reason is tried on every run.
-#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(rate = 48_000u32, delay_ms = 26u32)]
 fn prop_an_upgrade_or_the_first_reason_it_isnt_one(tc: hegel::TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000]));

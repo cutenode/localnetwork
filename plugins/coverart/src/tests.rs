@@ -561,6 +561,8 @@ fn titles_match_as_musicbrainz_spells_them() {
         Some("release/") => ok(json!({ "releases": [
             { "title": "Don\u{2019}t Stop \u{2010} Live", "release-group": { "id": "../../x", "title": "Don\u{2019}t Stop" } },
             { "title": "Don\u{2019}t  Stop \u{2010} Live", "release-group": { "id": BICEP, "title": "Don\u{2019}t Stop" } },
+            // As long as an id, but not one.
+            { "title": "Don't Stop - Live", "release-group": { "id": "../".repeat(12), "title": "Don't Stop" } },
             { "title": "Something else", "release-group": { "id": IN_MY_VIEW, "title": "Something else" } },
             { "title": "Don't Stop - Live" },
         ] })

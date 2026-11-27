@@ -4,8 +4,8 @@
 
 use crate::drawn;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
 use locallibrary::progress::Ctx;
@@ -80,7 +80,7 @@ fn prop_rules_match_the_model(tc: TestCase) {
 
 /// Written to a drive, each rule's playlist holds the tracks its filter selects, in its order and
 /// no more than its limit; written again, nothing changes.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_rules_playlist_holds_what_it_selects(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, lib) = drawn::drive(&tc, dir.path(), "A");

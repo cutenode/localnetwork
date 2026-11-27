@@ -9,8 +9,8 @@ use crate::drawn;
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::doctor::{self, DoctorOptions, Problem};
 use locallibrary::error::Reason;
@@ -18,7 +18,7 @@ use locallibrary::paths;
 use locallibrary::progress::Ctx;
 use rekordbox_pdb::NewTrack;
 
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do(tc: TestCase) {
     for variant in 0..3 {
         the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with(&tc, variant);
@@ -143,7 +143,7 @@ fn the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with
 /// The volume of a folder is the one mounted exactly there, on the disk the OS says holds it
 /// (asking `diskutil`, `lsblk` or PowerShell), and a folder that isn't a volume's root has none.
 /// On macOS, `/` is a volume's root.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_the_volume_of_a_folder_is_the_one_mounted_there(tc: TestCase) {
     use std::path::Path;
     let dir = tempfile::tempdir().unwrap();

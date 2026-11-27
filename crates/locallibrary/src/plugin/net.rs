@@ -18,7 +18,7 @@
 //! A request cancelled stops at once, sending or reading its answer ([`Requests`]).
 
 mod body;
-mod challenge;
+pub(crate) mod challenge;
 
 use std::fs::File;
 use std::io::Write;

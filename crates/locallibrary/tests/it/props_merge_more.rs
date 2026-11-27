@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::merge::{self, MatchMode, MergeOptions, PlaylistMode};
@@ -52,7 +52,7 @@ fn bank_list(root: &Path, in_folder: bool) {
     fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 }
 
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
@@ -137,7 +137,7 @@ enum Defect {
     NoAnalysis,
 }
 
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
@@ -224,7 +224,7 @@ fn prop_exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: T
 /// Merges refused when planning, with the target left alone: into the source itself, into a drive
 /// with no export (pointing at sync), a playlist or history list name the target's export.pdb
 /// can't hold, a merge folder name it can't hold, or a playlist the source doesn't have.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_merge_the_target_cant_take_is_refused_when_planning(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());

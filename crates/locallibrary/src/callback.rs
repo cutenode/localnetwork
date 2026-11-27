@@ -64,6 +64,23 @@ impl CallbackQuery {
         Ok(q)
     }
 
+    /// The query of the HTTP request whose head `reader` holds, read through its headers: `None`
+    /// when it isn't a request (no request line, or one that isn't text), and `Some(None)` for a
+    /// request that isn't `GET /callback?...`.
+    pub(crate) fn from_request(mut reader: impl BufRead) -> Option<Option<CallbackQuery>> {
+        let mut line = String::new();
+        reader.read_line(&mut line).ok()?;
+        // Drain the headers so the browser isn't reset mid-request.
+        let mut header = String::new();
+        while reader.read_line(&mut header).is_ok_and(|n| n > 2) {
+            header.clear();
+        }
+        let mut parts = line.split_whitespace();
+        let (method, target) = (parts.next()?, parts.next()?);
+        let (path, query) = target.split_once('?').unwrap_or((target, ""));
+        Some((method == "GET" && path == CALLBACK_PATH).then(|| CallbackQuery::parse(query)))
+    }
+
     /// The server's refusal, worded for people (its words on one line, without control
     /// characters, since they end up in a terminal).
     pub fn refusal(&self) -> Option<String> {
@@ -152,26 +169,17 @@ fn page(title: &str, heading: &str, message: &str) -> String {
 }
 
 /// Read one request's head (up to [`MAX_REQUEST`]). `None` for anything that isn't
-/// `GET /callback?...` (a favicon request, a stray connection), which gets a 404.
+/// `GET /callback?...` (a favicon request, a stray connection): a request gets a 404, and a
+/// connection that sent none is let go.
 fn read(stream: TcpStream) -> Option<Request> {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let mut reader = BufReader::new(stream.try_clone().ok()?.take(MAX_REQUEST));
-    let mut line = String::new();
-    reader.read_line(&mut line).ok()?;
-    // Drain the headers so the browser isn't reset mid-request.
-    let mut header = String::new();
-    while reader.read_line(&mut header).is_ok_and(|n| n > 2) {
-        header.clear();
-    }
-    let mut parts = line.split_whitespace();
-    let (method, target) = (parts.next()?, parts.next()?);
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    if method != "GET" || path != CALLBACK_PATH {
+    let reader = BufReader::new(stream.try_clone().ok()?.take(MAX_REQUEST));
+    let Some(query) = CallbackQuery::from_request(reader)? else {
         answer(stream, "404 Not Found");
         return None;
-    }
-    Some(Request { stream, query: CallbackQuery::parse(query) })
+    };
+    Some(Request { stream, query })
 }
 
 fn answer(mut stream: TcpStream, status: &str) {

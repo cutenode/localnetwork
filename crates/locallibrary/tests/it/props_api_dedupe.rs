@@ -5,8 +5,8 @@
 use crate::common::{self, add_track as add};
 use crate::doctor::sound::{DELAY_MS, HI_RES, ORIGINAL, cues, recording, set_points, store, track};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::anlz::CuePoint;
 use locallibrary::api::{self, DedupeRequest};
 use locallibrary::progress::Ctx;
@@ -36,7 +36,7 @@ fn points(kinds: &[u8], at: u32) -> Vec<CuePoint> {
 /// is, to the millisecond) when it has none, replaced without carrying when the keeper has them
 /// already, and otherwise kept, the plan saying why. Each case decodes both songs, which is
 /// slow: the explicit cases take each kind of keeper once.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 #[hegel::explicit_test_case(kinds = vec![0u8, 1, 2], at = 10_000u32, keeper = 0u8)]
 #[hegel::explicit_test_case(kinds = vec![2u8], at = 4_000u32, keeper = 1u8)]
 #[hegel::explicit_test_case(kinds = vec![1u8, 0], at = 6_000u32, keeper = 2u8)]

@@ -1,5 +1,6 @@
 use super::*;
-use crate::catalog::CatalogSnapshot;
+use crate::catalog::{Catalog, CatalogSnapshot};
+use crate::hash::Hash;
 use crate::store::{LibraryRecord, SnapshotLabel};
 use hegel::TestCase;
 use hegel::generators as gs;
@@ -20,7 +21,7 @@ fn prop_requests_read_back(tc: TestCase) {
     };
     let bytes = serde_json::to_vec(&request).unwrap();
     assert!(bytes.len() <= REQUEST_LIMIT);
-    let back: Request = serde_json::from_slice(&bytes).unwrap();
+    let back = Request::parse(&bytes).unwrap();
     assert_eq!(serde_json::to_vec(&back).unwrap(), bytes);
     let tag = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["type"].clone();
     let want = match &request {
@@ -41,10 +42,11 @@ fn prop_requests_read_back(tc: TestCase) {
         (format!(r#"{{"type":"files","hash":"{h}"}}"#), false),
         ("hello".to_string(), false),
     ]));
-    assert_eq!(serde_json::from_str::<Request>(&junk).is_ok(), ok, "{junk}");
+    assert_eq!(Request::parse(junk.as_bytes()).is_ok(), ok, "{junk}");
 }
 
-/// A catalog reads back from its JSON: the same store, libraries, snapshots and labels.
+/// A catalog reads back from its JSON: the same store, libraries, snapshots and labels. Cut
+/// short, it doesn't read.
 #[hegel::test(test_cases = 100)]
 fn prop_catalogs_read_back(tc: TestCase) {
     let last = chrono::DateTime::from_timestamp(4_000_000_000, 0).unwrap().naive_utc();
@@ -71,8 +73,9 @@ fn prop_catalogs_read_back(tc: TestCase) {
         snapshots.iter().map(|s| SnapshotLabel { name: "gig".into(), snapshot: s.id, created: at }).collect();
     let catalog = Catalog { store: Uuid::from_u128(tc.draw(gs::integers::<u128>())), libraries, snapshots, labels };
     let bytes = serde_json::to_vec(&catalog).unwrap();
-    let back: Catalog = serde_json::from_slice(&bytes).unwrap();
+    let back = super::catalog(&bytes).unwrap();
     assert_eq!(back.store, catalog.store);
     assert_eq!(serde_json::to_vec(&back).unwrap(), bytes);
     assert!(bytes.len() < JSON_LIMIT);
+    assert!(super::catalog(&bytes[..bytes.len() - 1]).is_err());
 }

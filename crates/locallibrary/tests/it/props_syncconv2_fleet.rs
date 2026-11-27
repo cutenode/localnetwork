@@ -4,8 +4,8 @@
 
 use crate::common;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Hardware, Role};
@@ -33,7 +33,7 @@ fn disk(tc: &TestCase) -> Hardware {
 /// A drive is recognised as a registered drive (never itself): by content, the one last seen
 /// holding its state, or when several were, the one its snapshot was taken from; by disk, one
 /// seen on it (same serial number, model and size; none without a serial number on both sides).
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_drive_is_recognised_by_what_it_holds_and_its_disk(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -106,7 +106,7 @@ fn prop_a_drive_is_recognised_by_what_it_holds_and_its_disk(tc: TestCase) {
 /// A drive takes a registered drive's identity, by name or id: a blank one (nothing to record),
 /// or one holding a library, which records the state it holds when the store hasn't saved it.
 /// Mounted together, the drives that claim it are duplicates.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_drive_takes_a_registered_identity(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -144,7 +144,7 @@ fn prop_a_drive_takes_a_registered_identity(tc: TestCase) {
 }
 
 /// An archive or retired drive is written only when forced: retired first, then archive.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_archive_and_retired_drives_are_written_only_when_forced(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -178,7 +178,7 @@ fn prop_archive_and_retired_drives_are_written_only_when_forced(tc: TestCase) {
 }
 
 /// A drive's logbook keeps its latest 50 problems, oldest first.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_the_logbook_keeps_the_latest_problems(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -198,7 +198,7 @@ fn prop_the_logbook_keeps_the_latest_problems(tc: TestCase) {
 /// A state an earlier version saved, under the fingerprint it gave then (when what players keep
 /// on a drive still counted), is still recognised by it; where the store saved the state as this
 /// version fingerprints it too, that snapshot is the one recognised.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_state_an_earlier_version_saved_is_still_recognised(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");

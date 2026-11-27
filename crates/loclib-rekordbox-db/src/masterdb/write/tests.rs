@@ -258,7 +258,7 @@ fn undo_puts_the_old_cues_back_with_new_stamps() {
 
 /// A drawn run of writes, each a whole cue list for a drawn track: each reads back through the
 /// collection's reader, and the counter only ever rises, past every stamp.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_writes_read_back_and_the_counter_only_rises(tc: TestCase) {
     let lib = Lib::new(&writable(), true);
     let mut count = UPDATE_COUNT;

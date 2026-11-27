@@ -4,8 +4,8 @@
 use crate::common;
 use crate::sets::report;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, EditSet, NewSet, SetFields, SetPlaylist, TrackPlaysQuery};
 use locallibrary::mix::report as kept;
 use locallibrary::progress::Ctx;
@@ -36,7 +36,7 @@ fn held(set: &Set) -> Vec<(String, Option<u32>)> {
 /// or isn't one mix reads. Attaching another report rebuilds the tracklist from it, unless
 /// changes by position come with it, which are refused. An untitled set's playlist is named for
 /// its day. Asking where a track was played needs a track named.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_sets_from_kept_reports_play_in_recording_order(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::silent();

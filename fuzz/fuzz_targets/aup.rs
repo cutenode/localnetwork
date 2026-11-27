@@ -1,3 +1,9 @@
+// paths: fuzz/fuzz_targets/aup.rs
+// paths: fuzz/seeds/aup/**
+// paths: crates/loclib-aup/src/**
+// paths: crates/loclib-audio/src/lib.rs
+// paths: crates/loclib-sqlcipher/src/untrusted.rs
+// paths: crates/loclib-progress/src/**
 //! Audacity projects (`.aup3`, `.aup4`): the binary XML reader and the project it builds from
 //! the document, then, for a project that builds, the same document in a project file, opened and
 //! mixed down from sample blocks of each format.

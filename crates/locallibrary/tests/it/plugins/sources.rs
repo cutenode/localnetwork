@@ -270,7 +270,7 @@ enum Placed {
 /// For any tracks a source reads, the drive holds exactly the WAV files in the folder granted,
 /// each with its title and the cues it was given (a hot cue per slot, A-H), read back from the
 /// analysis files made for it, its other cues and files left out with a warning.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_the_drive_holds_exactly_the_granted_audio_files_and_their_cues(tc: TestCase) {
     let f = Fixture::sourcing();
     let (music, outside) = (f.folder("music"), f.folder("outside"));
@@ -381,7 +381,7 @@ impl Given {
 /// For any tracks a source gives, in its folders or by their paths, the plan holds those whose
 /// file is a WAV file in the folder granted, off the drive written to, each once; one warning
 /// counts the rest, giving the first three as the source gave them, with why each is left out.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_every_track_left_out_is_counted_with_why(tc: TestCase) {
     let f = Fixture::sourcing();
     let (music, outside) = (f.folder("music"), f.folder("outside"));
@@ -460,7 +460,7 @@ fn prop_every_track_left_out_is_counted_with_why(tc: TestCase) {
 /// those of its entries that are tracks read, in order, the rest counted in a warning. A source
 /// whose every page says there's one after it is refused at the first page it gives twice, and
 /// one that can't read what it's given fails.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_pages_and_blobs_add_up_to_the_library(tc: TestCase) {
     let f = Fixture::sourcing();
     let music = f.folder("music");
@@ -629,7 +629,7 @@ fn brought(tc: &TestCase, i: usize, name: &str) -> Brought {
 /// each is written with what players take, read back from the drive (its title its file's name
 /// when it has none, its tempo the beat grid's when it gives none), and one warning a kind counts
 /// what's left out.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_what_tracks_bring_is_written_or_counted_as_left_out(tc: TestCase) {
     let f = Fixture::sourcing();
     let music = f.folder("music");
@@ -693,7 +693,7 @@ fn grow(file: &Path) {
 /// the plan, or none: a size changed while it's planned refuses the plan, naming the file; any
 /// change after it refuses the copy; with none, each file is copied as it is, and planned again
 /// there's nothing to copy.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_files_are_copied_only_as_they_were_checked(tc: TestCase) {
     let f = Fixture::sourcing();
     let music = f.folder("music");
@@ -767,7 +767,7 @@ enum Grant {
 /// For any folders granted, the export is refused with none, at the first that's relative (as
 /// invalid) or isn't a folder (as not found), or for one on the drive written to; otherwise the
 /// source reads each folder once, its links resolved, and the plan says which it read.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_only_absolute_folders_off_the_drive_are_granted(tc: TestCase) {
     let f = Fixture::sourcing();
     let (music, other) = (f.folder("music"), f.folder("other"));

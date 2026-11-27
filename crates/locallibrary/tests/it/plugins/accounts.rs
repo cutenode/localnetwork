@@ -97,10 +97,10 @@ fn exchanging(server: &str, manifest: String) -> String {
     manifest.replace(&format!("token_url = \"{server}/token\""), &format!("token_exchange = \"{server}{EXCHANGE}\""))
 }
 
-/// Where the service says `a` signed in, whatever it's asked with: for an account type whose
-/// token goes where the mock's `/userinfo` doesn't look.
-fn anyone() -> String {
-    Server::new(|_, _| json_reply(200, json!({ "sub": "a" }))).url
+/// A server saying `a` signed in, whatever it's asked with: for an account type whose token goes
+/// where the mock's `/userinfo` doesn't look.
+fn anyone() -> Server {
+    Server::new(|_, _| json_reply(200, json!({ "sub": "a" })))
 }
 
 /// [`Mock`], the account type's token going where `token` says, with a scope `there` besides,
@@ -111,8 +111,9 @@ fn reaching(token: &str, there: &[&str]) -> Mock {
     let scope =
         format!("[contributes.account_types.scopes.there]\ntitle = \"there\"\nrequests = [{}]\n", requests.join(", "));
     let whoami = anyone();
-    let manifest = move |server: &str| format!("{}\n{scope}", account_plugin(server, &whoami, token));
-    mock_with(3600, manifest, &asking(&["read", "there"], &[]), options())
+    let at = whoami.url.clone();
+    let manifest = move |server: &str| format!("{}\n{scope}", account_plugin(server, &at, token));
+    Mock { _whoami: Some(whoami), ..mock_with(3600, manifest, &asking(&["read", "there"], &[]), options()) }
 }
 
 /// A sign-in opens the type's authorize page asking for a code with PKCE, the browser coming back
@@ -217,7 +218,7 @@ fn an_account_type_is_only_reached_at_a_public_https_address_outside_tests() {
 /// For an account named by its email or its subject, a kept sign-in that can't be read says to
 /// sign in again, naming it, and both signing in again and signing out (with nothing to revoke)
 /// put it right.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_sign_in_that_cant_be_read_is_signed_in_again_or_out(tc: TestCase) {
     let email = tc.draw(gs::sampled_from(vec![Some("a@mock.example"), None]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -305,7 +306,7 @@ enum Signing {
 /// (exactly when it can be), and is refused once it's signed out; and a sign-in is finished or
 /// cancelled once. No token gets into the plugins' logs, the answers or the store
 /// but its secrets.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) {
     let (revokes, exchanges) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let manifest = |server: &str| {
@@ -429,7 +430,7 @@ enum Named {
 /// query is answered to the plugin as the placeholder that named it; one naming it anywhere else is
 /// refused, saying where it goes, before anything is sent; and no token gets into the plugins' logs
 /// or the store but its secrets.
-#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_a_token_lands_exactly_where_its_account_type_says(tc: TestCase) {
     let token = tc.draw(gs::sampled_from(vec![
         "",
@@ -439,7 +440,7 @@ fn prop_a_token_lands_exactly_where_its_account_type_says(tc: TestCase) {
         "token = { query = \"oauth_token\" }",
     ]));
     let whoami = anyone();
-    let m = mock_with(3600, |server| account_plugin(server, &whoami, token), &asking(&["read"], &[]), options());
+    let m = mock_with(3600, |server| account_plugin(server, &whoami.url, token), &asking(&["read"], &[]), options());
     m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
     let scheme = match token {
         "" => Some("Bearer"),
@@ -543,7 +544,7 @@ fn a_token_in_the_query_stays_out_of_errors_logs_and_other_origins() {
 /// For any secret sent in the query, alone or among other text (with letters a URL spells
 /// otherwise among its own, always a `%`, which leaves the secret inside how a URL spells it): it comes back in what the server answers as the placeholder
 /// that named it, as it is and as a URL spells it, which asks for it again. The plugin never has it.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
     let secret = tc.draw(gs::from_regex("[q-z]{3}%[q-z]{0,3}([ &+/=%?#][q-z]{0,3}){0,2}").fullmatch(true));
     let written = tc.draw(gs::sampled_from(vec!["{secret:token}", "a-{secret:token}-b"]));
@@ -575,7 +576,7 @@ fn prop_a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
 /// For anyone signing in, an account type naming the port the browser comes back to is signed in
 /// there, and a sign-in still waiting on it gives way to a new one, while one waiting for the keys
 /// of another type keeps waiting; another program holding the port is said.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42)]));
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -603,7 +604,7 @@ fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
 /// signs nobody in, and is told why; an address pasted with no sign-in result in it is refused;
 /// and a browser that never comes back is given up on. Sign-ins waiting for the browser wait side
 /// by side.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_browser_coming_back_without_a_code_signs_nobody_in(tc: TestCase) {
     let plugin = tc.draw(gs::sampled_from(vec![None, Some("echo")]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -628,7 +629,7 @@ fn prop_a_browser_coming_back_without_a_code_signs_nobody_in(tc: TestCase) {
 
 /// For anyone signing in, an address pasted from another computer signs in only when it's this
 /// sign-in's, and outside tests a service is reached only at a public https address.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_pasted_address_signs_in_only_when_its_this_sign_ins(tc: TestCase) {
     let subject = tc.draw(gs::sampled_from(vec!["a", "b"]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -658,6 +659,8 @@ pub(super) struct Scripted {
     pub(super) url: String,
     root: Arc<OnceLock<PathBuf>>,
     turns: Arc<Mutex<VecDeque<Turn>>>,
+    /// Answering as long as this is kept.
+    _server: Server,
 }
 
 impl Scripted {
@@ -673,7 +676,7 @@ impl Scripted {
             }
             reply
         });
-        Scripted { url: server.url, root, turns }
+        Scripted { url: server.url.clone(), root, turns, _server: server }
     }
 
     /// It answers `reply`, damaging the store first as `damage` does.
@@ -693,20 +696,21 @@ impl Scripted {
 /// in as `a`.
 pub(super) fn trading_at(base: &str, exchanges: bool) -> Mock {
     let whoami = anyone();
+    let at = whoami.url.clone();
     let trades = match exchanges {
         true => format!("token_exchange = \"{base}{EXCHANGE}\""),
         false => format!("token_url = \"{base}/token\""),
     };
     let manifest = move |server: &str| {
-        account_plugin(server, &whoami, "").replace(&format!("token_url = \"{server}/token\""), &trades)
+        account_plugin(server, &at, "").replace(&format!("token_url = \"{server}/token\""), &trades)
     };
-    mock_with(3600, manifest, &asking(&["read"], &[]), options())
+    Mock { _whoami: Some(whoami), ..mock_with(3600, manifest, &asking(&["read"], &[]), options()) }
 }
 
 /// A server that answers every request with the head of a body it then cuts short.
-fn cut_short() -> String {
+fn cut_short() -> Server {
     let headers = vec![("Content-Type", "application/json".into()), ("Content-Length", "100".into())];
-    Server::new(move |_, _| Reply { status: 200, headers: headers.clone(), body: b"{\"access".to_vec() }).url
+    Server::new(move |_, _| Reply { status: 200, headers: headers.clone(), body: b"{\"access".to_vec() })
 }
 
 /// How the token endpoint fails in [`prop_a_token_endpoint_failing_says_why_and_keeps_nothing`].
@@ -730,14 +734,15 @@ enum Trade {
 /// one that fails (naming an error without describing it, answering an empty error, not
 /// listening, cutting its answer short, answering what isn't tokens, or a token no request can
 /// carry) signs nobody in, saying why.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_token_endpoint_failing_says_why_and_keeps_nothing(tc: TestCase) {
     let exchanges = tc.draw(gs::booleans());
     for trade in [Trade::Said, Trade::Empty, Trade::Closed, Trade::CutShort, Trade::Unsendable, Trade::Garbled] {
         let scripted = Scripted::new();
+        let short = matches!(trade, Trade::CutShort).then(cut_short);
         let base = match trade {
             Trade::Closed => format!("http://{}", TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap()),
-            Trade::CutShort => cut_short(),
+            Trade::CutShort => short.as_ref().unwrap().url.clone(),
             _ => scripted.url.clone(),
         };
         let reply = match trade {
@@ -765,7 +770,7 @@ fn prop_a_token_endpoint_failing_says_why_and_keeps_nothing(tc: TestCase) {
 /// For an account type trading its tokens at a token endpoint or Local Network's token exchange,
 /// a store whose `accounts.json` can't be changed while an expiring token is refreshed fails the
 /// refresh, whether the service refreshed it or won't any more, and keeps the account as it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_store_locked_while_refreshing_keeps_the_account_as_it_was(tc: TestCase) {
     let exchanges = tc.draw(gs::booleans());
     let scripted = Scripted::new();
@@ -809,7 +814,7 @@ enum Refusing {
 /// fails as the service's failure where refreshing it, signing it out or forgetting what it was
 /// granted can't be done; and the refusal is passed on, signing the account out, unless it's no
 /// longer kept or another host signed it in again since.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_store_damaged_as_a_service_refuses_a_token_says_so(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
     let damaged = Damage::here().filter(|d| *d != Damage::Lock).map(Refusing::Damaged);

@@ -413,7 +413,7 @@ struct Row {
 /// holds it: deleted rows left out, ids kept only when they're all distinct numbers, entries in
 /// `TrackNo` order, and cues and tags with the tracks they belong to. A drive holding exactly
 /// the collection then differs from it in nothing.
-#[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 25)]
 fn prop_a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new();
@@ -879,7 +879,7 @@ fn prop_values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
 /// that fails authentication, or whose table can't be read (a view on a table that isn't there,
 /// or any view, which has no row order) is refused as a parse error naming the file, never read
 /// as far as it goes.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
