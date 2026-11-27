@@ -786,17 +786,17 @@ fn edited(t: &Track, loaded: &Loaded, edit: &CueEdit, source: Option<&Loaded>) -
         CueEdit::Auto(a) => {
             let phrases = loaded.ext_bytes.as_deref().and_then(|b| anlz::song_structure(b).ok().flatten());
             for s in auto::place(a.style, &loaded.beats, phrases.as_ref()) {
-                let (ms, _) = resolve(s.at, false, &loaded.beats)?;
+                let (ms, beat) = resolve(s.at, false, &loaded.beats)?;
+                // A memory cue within a bar of the downbeat is its first cue already (rekordbox's
+                // own, left off a moved grid, or a DJ's), and is never replaced: memory cues hold
+                // analysis leftovers rekordbox keeps and shows.
+                let bar = loop_end(ms, beat, (4, 1), &loaded.beats, t.bpm).map_or(FIND_TOLERANCE_MS, |end| end - ms);
                 let taken = drafts.iter().any(|d| match s.hot_cue {
                     Some(h) => d.cue.hot_cue == Some(h.0),
-                    None => d.cue.hot_cue.is_none() && d.cue.start_ms.abs_diff(ms) <= FIND_TOLERANCE_MS,
+                    None => d.cue.hot_cue.is_none() && d.cue.end_ms.is_none() && d.cue.start_ms.abs_diff(ms) < bar,
                 });
-                if taken && !a.overwrite {
+                if taken && (!a.overwrite || s.hot_cue.is_none()) {
                     continue;
-                }
-                if taken && s.hot_cue.is_none() {
-                    // `set` replaces a memory cue only at exactly its position.
-                    drafts.retain(|d| d.cue.hot_cue.is_some() || d.cue.start_ms.abs_diff(ms) > FIND_TOLERANCE_MS);
                 }
                 let fresh = SetCue { color: s.color.clone().or_else(|| taken.then(|| "none".into())), ..s };
                 set(&mut drafts, t, &loaded.beats, &fresh)?;

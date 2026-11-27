@@ -69,16 +69,18 @@ fn grid() -> Vec<Beat> {
 #[test]
 fn a_grid_key_and_cues_are_saved_and_undone() {
     let lib = Lib::new(&analysed());
+    // Its first downbeat over a bar past the track's memory cue at 0.5 s, which would be its first cue.
+    let later: Vec<Beat> = grid().into_iter().map(|b| Beat { time_ms: b.time_ms + 2000, ..b }).collect();
     let (dat, ext) = (lib.file("ANLZ0000.DAT"), lib.file("ANLZ0000.EXT"));
     let edit = CollectionAnalysis {
-        analysis: NewAnalysis { beats: Some(grid()), ..NewAnalysis::default() },
+        analysis: NewAnalysis { beats: Some(later.clone()), ..NewAnalysis::default() },
         key: Some("Am".into()),
         cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
     };
     let saved = save(&lib.target, TRACK, &edit).unwrap();
 
     // The grid is in the .DAT, which the collection lists with its new hash.
-    assert_eq!(anlz::beat_grid(&lib.file("ANLZ0000.DAT")).unwrap(), grid());
+    assert_eq!(anlz::beat_grid(&lib.file("ANLZ0000.DAT")).unwrap(), later);
     let files: Vec<&str> = saved.before.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(files, [format!("/{ANALYSIS_DIR}/ANLZ0000.DAT")]);
     assert_eq!(std::fs::read(&saved.before.files[0].backup).unwrap(), dat);
@@ -93,7 +95,7 @@ fn a_grid_key_and_cues_are_saved_and_undone() {
         "SELECT group_concat(Kind || ':' || InMsec || ':' || IFNULL(Comment, ''), ' ') FROM \
          (SELECT * FROM djmdCue WHERE ContentID = '{TRACK}' ORDER BY Kind, InMsec)"
     ));
-    assert_eq!(cues, "0:500: 0:1000:1.1Bars 1:1000:Drop 2:2000:Loop");
+    assert_eq!(cues, "0:500: 0:3000:1.1Bars 1:1000:Drop 2:2000:Loop");
     assert_eq!(lib.query::<i64>(&format!("SELECT rb_cue_count FROM contentCue WHERE ContentID = '{TRACK}'")), 4);
     assert!(saved.count.0 == UPDATE_COUNT && saved.count.1 > UPDATE_COUNT);
 

@@ -108,3 +108,38 @@ fn prop_a_hot_cues_colour_is_its_palettes_or_its_own(tc: hegel::TestCase) {
     assert_eq!(shown.active_loop, active && end.is_some());
     assert_eq!(shown.beat, Some(1));
 }
+
+/// The cues `first-cue` leaves on a track with [`grid`] (its first downbeat at 1 s, a bar 2 s)
+/// and the memory cues at `memory` (ms, name).
+fn first_cue_on(memory: &[(u32, &str)], overwrite: bool) -> Vec<(u32, String)> {
+    let (dat, _) = anlz::new_analysis_files("/Contents/a.mp3").unwrap();
+    let dat = anlz::write_beat_grid(&dat, &grid()).unwrap();
+    let t = Track { title: "a".into(), duration_secs: 60, bpm: 120.0, ..Track::default() };
+    let cues =
+        memory.iter().map(|(ms, name)| CuePoint { start_ms: *ms, comment: (*name).into(), ..Default::default() });
+    let a = AutoCues { style: CueStyle::FirstCue, overwrite };
+    let placed = auto_placed(&t, cues.collect(), &dat, None, a).unwrap();
+    let mut out: Vec<(u32, String)> = placed.into_iter().map(|c| (c.start_ms, c.comment)).collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn a_memory_cue_within_a_bar_of_the_first_downbeat_is_its_first_cue() {
+    let s = |ms: u32, name: &str| (ms, name.to_string());
+    // None there, or only past a bar from it: the style's goes on the downbeat.
+    assert_eq!(first_cue_on(&[], false), [s(1000, "1.1Bars")]);
+    assert_eq!(first_cue_on(&[(3100, "Drop")], false), [s(1000, "1.1Bars"), s(3100, "Drop")]);
+    for overwrite in [false, true] {
+        // rekordbox's own off the moved grid, and a DJ's before it: each counts as the first cue.
+        assert_eq!(first_cue_on(&[(1450, "1.1Bars")], overwrite), [s(1450, "1.1Bars")]);
+        assert_eq!(first_cue_on(&[(0, "Start")], overwrite), [s(0, "Start")]);
+        // A DJ's cue on the downbeat keeps its name.
+        assert_eq!(first_cue_on(&[(1000, "Mine")], overwrite), [s(1000, "Mine")]);
+        // Two first-bar cues ms apart (one an analysis pass's leftover) both stay.
+        assert_eq!(
+            first_cue_on(&[(991, "1.1Bars"), (1000, "1.1Bars")], overwrite),
+            [s(991, "1.1Bars"), s(1000, "1.1Bars")]
+        );
+    }
+}

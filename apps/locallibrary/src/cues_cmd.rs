@@ -111,8 +111,9 @@ Styles:\n  \
 rekordbox     hot cues A-H where each phrase starts, named after it\n  \
 intro-chorus  A (green) on the intro, H/G/F (pink) on the first three choruses\n  \
 first-cue     a memory cue on the first downbeat only\n\n\
-Every style puts a memory cue named 1.1Bars on the first downbeat, as rekordbox does. Cues already\n\
-in a slot the style uses are kept unless --overwrite.\n\n\
+Every style puts a memory cue named 1.1Bars on the first downbeat, as rekordbox does, unless a memory\n\
+cue sits within a bar of it already. Hot cues already in a slot the style uses are kept unless --overwrite.\n\
+Memory cues are never replaced.\n\n\
 Examples:\n  locallibrary cues auto Home --playlist \"New\" --style rekordbox\n  \
 locallibrary cues auto Home --track 12",
         after_help = crate::FILTER_HELP
@@ -125,7 +126,7 @@ locallibrary cues auto Home --track 12",
         /// rekordbox, intro-chorus or first-cue (asked when not given)
         #[arg(long, value_parser = |s: &str| s.parse::<CueStyle>())]
         style: Option<CueStyle>,
-        /// Replace cues already in the slots the style uses
+        /// Replace hot cues already in the slots the style uses
         #[arg(long)]
         overwrite: bool,
         /// Show the plan without changing anything
