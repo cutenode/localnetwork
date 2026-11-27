@@ -12038,12 +12038,47 @@
           "type": "boolean",
           "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
           "default": false
+        },
+        "queue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueueExport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Export these tracks as one playlist instead of the collection's playlists (a queue\narranged in the player). Not with `playlists` or `all`.",
+          "default": null
         }
       },
       "description": "Which `master.db` to read, and how.",
       "required": [
         "drive"
       ]
+    },
+    "QueueExport": {
+      "type": "object",
+      "properties": {
+        "playlist": {
+          "type": "string",
+          "description": "The playlist's path on the target, like `Sets/2026-11-27`: the folders above it are made."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "The collection's track ids, in playlist order (a track queued twice is listed once)."
+        }
+      },
+      "required": [
+        "playlist",
+        "tracks"
+      ],
+      "description": "Tracks of the collection to export as one playlist of their own, in their order: a queue\narranged in the player, which the collection has no playlist for."
     },
     "BeginSignIn": {
       "type": "object",
@@ -13295,6 +13330,18 @@
           "type": "boolean",
           "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
           "default": false
+        },
+        "queue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueueExport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Export these tracks as one playlist instead of the collection's playlists (a queue\narranged in the player). Not with `playlists` or `all`.",
+          "default": null
         }
       },
       "required": [
@@ -31948,7 +31995,18 @@
           "items": {
             "type": "string"
           },
-          "description": "The playlists chosen; empty for the whole collection."
+          "description": "The playlists chosen (a queue's: the playlist it's written as); empty for the whole\ncollection."
+        },
+        "queue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueueExport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The queue exported instead of the collection's playlists."
         },
         "tracks": {
           "type": "integer",
