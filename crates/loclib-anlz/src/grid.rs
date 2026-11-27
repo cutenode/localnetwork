@@ -5,13 +5,16 @@
 //! file has them), the beat count u32; then 8 bytes a beat: its number in its bar u16 (1-4), the
 //! tempo there u16 (BPM x 100) and its time u32 (ms).
 //!
-//! The `.EXT`'s extended grid (`PQT2`) repeats the first and last beat in its header, but its
-//! body (two bytes a beat: [pyrekordbox](https://github.com/dylanljones/pyrekordbox/blob/master/pyrekordbox/anlz/structs.py)
-//! calls the first `beat` and leaves the second unexplained, and in rekordbox 6 exports the first
-//! doesn't count beats in the bar) isn't understood, so it's never written: a new grid takes it out
-//! of the `.EXT` ([`without_extended_grid`]) rather than leave one that contradicts it (how players
-//! take an `.EXT` without one is for players to show). Moving a whole grid by some milliseconds
-//! keeps it ([`super::shift_times`]).
+//! The `.EXT`'s extended grid (`PQT2`) repeats the first and last beat (at 0x18 and 0x20) and the
+//! beat count (0x28) in its header, then has two bytes a beat: on 1,696 of 1,741 rekordbox 7 files
+//! of one collection, one for each beat of the `PQTZ`, each the microseconds (0-999) past its
+//! millisecond: added to them, they put a steady grid's beats on a line 11 times closer than
+//! `PQTZ`'s milliseconds do (the median of 1,595 such grids). [pyrekordbox](https://github.com/dylanljones/pyrekordbox/blob/master/pyrekordbox/anlz/structs.py)
+//! reads the two bytes as two fields. A header field at 0x2c follows nothing measured, so it's
+//! never written: a new grid takes it out of the `.EXT` ([`without_extended_grid`]) rather than
+//! leave one that contradicts it. rekordbox itself leaves a `PQT2` that disagrees with its `PQTZ`
+//! on 46 of those 1,741 files; how its players take an `.EXT` without one is for them to show.
+//! Moving a whole grid by some milliseconds keeps it ([`super::shift_times`]).
 
 use super::tags::{only, put, section};
 use super::*;
