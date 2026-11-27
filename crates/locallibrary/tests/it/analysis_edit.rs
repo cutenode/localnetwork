@@ -50,8 +50,9 @@ fn steady(beats: usize, bpm: f64, from: u32) -> Vec<Beat> {
 }
 
 /// A grid set on a rekordbox 6 export's track: its `.DAT` holds it and the databases its tempo,
-/// the `.EXT` loses its extended grid (saying so) and nothing else changes; recorded with the
-/// BPM edit after it, in a journal of version 4. Undo puts the files and the BPM back, and a
+/// the `.EXT` loses its extended grid (saying so) and its phrases keep their times on the new
+/// grid (those past its end going, said too), and nothing else changes; recorded with the BPM edit
+/// after it, in a journal of version 4. Undo puts the files and the BPM back, and a
 /// replay after rekordbox exports again makes it again.
 #[test]
 fn a_beat_grid_is_written_with_its_bpm_undone_and_replayed() {
@@ -78,9 +79,17 @@ fn a_beat_grid_is_written_with_its_bpm_undone_and_replayed() {
     assert_eq!(anlz::beat_grid(dat.as_ref().unwrap()).unwrap(), beats);
     assert!(!anlz::has_section(ext.as_ref().unwrap(), b"PQT2").unwrap());
     assert_eq!(after[2], before[2], "the .2EX holds no grid");
+    // The phrases keep their times on the new grid (within half a beat); those past its end go.
+    let (old_grid, old_ext) = (anlz::beat_grid(before[0].as_ref().unwrap()).unwrap(), before[1].as_deref().unwrap());
+    let (was, now) = (
+        anlz::song_structure(old_ext).unwrap().unwrap(),
+        anlz::song_structure(ext.as_deref().unwrap()).unwrap().unwrap(),
+    );
+    assert!(now.phrases.len() < was.phrases.len() && now.phrases.last().unwrap().end_beat == 301, "{now:?}");
+    common::phrases_keep_their_times(&old_grid, &was, &beats, &now);
+    assert!(p.warnings.iter().any(|w| w.contains("fall on one beat with the next")), "{:?}", p.warnings);
     for (a, b) in after.iter().zip(&before) {
         let (a, b) = (a.as_deref().unwrap(), b.as_deref().unwrap());
-        assert_eq!(anlz::song_structure(a).unwrap(), anlz::song_structure(b).unwrap());
         assert_eq!(anlz::read_cue_points(a, None).unwrap(), anlz::read_cue_points(b, None).unwrap());
         assert_eq!(anlz::detail(a).unwrap(), anlz::detail(b).unwrap());
     }
@@ -712,4 +721,33 @@ fn prop_a_replayed_analysis_edit_of_a_track_gone_is_skipped(tc: TestCase) {
     let skipped = format!("skipped an edit that no longer applies (set the beat grid of /Contents/Gone/{name}.mp3");
     assert!(report.warnings.iter().any(|w| w.starts_with(&skipped)), "{:?}", report.warnings);
     assert_eq!(tracks.iter().map(|t| files(&root, t)).collect::<Vec<_>>(), before);
+}
+
+/// A new grid keeps the track's phrases on the times they had, not on the beat numbers: on a grid
+/// two beats shorter at the front, each phrase starts two beats earlier.
+#[test]
+fn phrases_keep_their_times_on_a_new_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let t = track(&root, "Demo Track 2");
+    let [dat, ext, _] = files(&root, &t);
+    let grid = anlz::beat_grid(dat.as_ref().unwrap()).unwrap();
+    let end = grid.len() as u16 + 1;
+    let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+    let theirs = SongStructure {
+        mood: Mood::High,
+        phrases: vec![phrase(PhraseKind::Intro, 3, 17), phrase(PhraseKind::Chorus, 17, end)],
+    };
+    let ext_path = paths::to_fs(&root, &paths::key(&t.analyze_path)).with_extension("EXT");
+    std::fs::write(&ext_path, anlz::write_song_structure(ext.as_ref().unwrap(), Some(&theirs)).unwrap()).unwrap();
+
+    let later = grid[2..].to_vec();
+    let p = plan(&root, &[set(&t, NewAnalysis { beats: Some(later), ..Default::default() })]).unwrap();
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    let after = files(&root, &t);
+    let want = SongStructure {
+        mood: Mood::High,
+        phrases: vec![phrase(PhraseKind::Intro, 1, 15), phrase(PhraseKind::Chorus, 15, end - 2)],
+    };
+    assert_eq!(anlz::song_structure(after[1].as_ref().unwrap()).unwrap(), Some(want));
 }

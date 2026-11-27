@@ -861,7 +861,14 @@ fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::Te
         if beats.as_ref() == Some(&own) {
             assert_eq!(after[*i].bpm, 120.0);
         }
-        assert_eq!(a.structure, if *phrases_in { Some(phrases()) } else { before[*i].structure.clone() });
+        // Phrases not written keep their times on a new grid.
+        match (&before[*i].structure, &a.structure) {
+            _ if *phrases_in => assert_eq!(a.structure, Some(phrases())),
+            (Some(was), Some(now)) if a.beats != before[*i].beats => {
+                common::phrases_keep_their_times(&before[*i].beats, was, &a.beats, now);
+            }
+            (was, now) => assert_eq!(now, was),
+        }
         if *wave_in {
             let detail = a.detail.unwrap();
             assert_eq!((detail.columns.len(), detail.columns_per_sec), (300, Some(150.0)));

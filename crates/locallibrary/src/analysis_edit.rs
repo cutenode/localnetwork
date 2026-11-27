@@ -11,8 +11,8 @@
 //! files is refused, and so is a waveform for one whose files hold a tag that can't be worked
 //! out from it (rekordbox's colour overview, `PWV4`, and the `.2EX`'s `PWVC`): its waveforms stay
 //! rekordbox's. Cues stay where they are when the grid moves (a warning says how many sat on its
-//! beats), and the plan that sets a grid sets the track's BPM in the databases too
-//! ([`crate::edit::plan`]).
+//! beats), phrases not given move with it to the beats nearest their times, and the plan that
+//! sets a grid sets the track's BPM in the databases too ([`crate::edit::plan`]).
 //!
 //! What's written is only what the readers read back as given, in layouts checked against
 //! rekordbox's own files; how players take a grid, phrases or a waveform written here is for real
@@ -172,6 +172,80 @@ const WAVEFORM_TAGS: [&[&[u8; 4]]; 3] = [&[b"PWAV", b"PWV2"], &[b"PWV3", b"PWV5"
 /// The analysis files an edit rewrites, by key, with their new bytes.
 type Rewritten = Vec<(String, Vec<u8>)>;
 
+/// The time of the beat at grid index `i` of `grid`, one past its end too (a phrase's end), or
+/// further at its last tempo.
+fn beat_time(grid: &[Beat], i: usize) -> f64 {
+    if let Some(b) = grid.get(i) {
+        return f64::from(b.time_ms);
+    }
+    let last = grid.last().expect("a grid has a beat");
+    f64::from(last.time_ms) + (i + 1 - grid.len()) as f64 * 60_000.0 / last.bpm.max(1.0)
+}
+
+/// The 1-based beat of `grid` nearest `ms`, one past its last beat when `ms` is nearer that.
+fn nearest_beat(grid: &[Beat], ms: f64) -> u16 {
+    // Grids are in time order: the first beat at or after `ms`, or the one before it.
+    let after = grid.partition_point(|b| f64::from(b.time_ms) < ms);
+    let off = |i: usize| (beat_time(grid, i) - ms).abs();
+    let i = if after > 0 && off(after - 1) <= off(after) { after - 1 } else { after };
+    u16::try_from(i + 1).unwrap_or(u16::MAX)
+}
+
+/// The phrases `s` (counted on the beats of `old`) on the grid `new` instead, each beat moved to
+/// the new one nearest its time, and what to warn of (the track named `name`): phrases that move by
+/// more than a beat, and those that end up on one beat with the next (left out). `None` when none
+/// are left.
+fn phrases_on(s: &SongStructure, old: &[Beat], new: &[Beat], name: &str) -> (Option<SongStructure>, Vec<String>) {
+    let scale = s.beat_scale(old.len());
+    let time = |beat: u16| beat_time(old, SongStructure::grid_index(beat, scale));
+    let beat_ms = |beat: u16| beat_time(new, usize::from(beat)) - beat_time(new, usize::from(beat).saturating_sub(1));
+    let (mut far, mut gone) = (Vec::new(), Vec::new());
+    let mut phrases: Vec<anlz::Phrase> = Vec::new();
+    for (n, p) in s.phrases.iter().enumerate() {
+        let start = nearest_beat(new, time(p.start_beat));
+        if (beat_time(new, usize::from(start) - 1) - time(p.start_beat)).abs() > beat_ms(start) {
+            far.push(n + 1);
+        }
+        let fill = p.fill_beat.map(|f| nearest_beat(new, time(f)));
+        if phrases.last().is_some_and(|q| q.start_beat >= start) {
+            gone.push(n + 1);
+            continue;
+        }
+        if let Some(q) = phrases.last_mut() {
+            q.end_beat = start;
+        }
+        phrases.push(anlz::Phrase { start_beat: start, end_beat: start, fill_beat: fill, ..p.clone() });
+    }
+    if let (Some(q), Some(p)) = (phrases.last_mut(), s.phrases.last()) {
+        q.end_beat = nearest_beat(new, time(p.end_beat));
+    }
+    // A last one ending where it starts (past the new grid's end) goes too: the one before ends
+    // where it started.
+    if phrases.last().is_some_and(|q| q.end_beat <= q.start_beat) {
+        gone.push(s.phrases.len());
+        phrases.pop();
+    }
+    for q in &mut phrases {
+        q.fill_beat = q.fill_beat.filter(|f| (q.start_beat..q.end_beat).contains(f));
+    }
+    let list = |n: &[usize]| n.iter().map(usize::to_string).collect::<Vec<_>>().join(", ");
+    let mut warnings = Vec::new();
+    if !far.is_empty() {
+        warnings.push(format!("{name}'s phrases {} move by more than a beat onto the new grid", list(&far)));
+    }
+    if !gone.is_empty() {
+        warnings.push(format!(
+            "{name}'s phrases {} fall on one beat with the next on the new grid, so they go",
+            list(&gone)
+        ));
+    }
+    if phrases.is_empty() {
+        warnings.push(format!("{name}'s phrases don't fit the new grid, so the .EXT loses them"));
+        return (None, warnings);
+    }
+    (Some(SongStructure { mood: s.mood, phrases }), warnings)
+}
+
 /// What the edit rewrites in a track's analysis files (only those that change), and what to warn
 /// of. `bands` is the waveform's.
 fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> Result<(Rewritten, Vec<String>)> {
@@ -200,13 +274,23 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
             }
             new[0] = Some(anlz::write_beat_grid(dat, &beats)?);
             if let Some(ext) = &new[1] {
-                let without = anlz::without_extended_grid(ext)?;
+                let mut without = anlz::without_extended_grid(ext)?;
                 if without != *ext {
                     warnings.push(format!(
                         "{name}'s .EXT loses its extended beat grid (PQT2), which locallibrary can't write"
                     ));
-                    new[1] = Some(without);
                 }
+                // Phrases count the grid's beats: kept, they'd sit on other beats of the new one.
+                // Without an old grid to time them by, they stay as they are.
+                if a.phrases.is_none()
+                    && !grid.is_empty()
+                    && let Some(old) = anlz::song_structure(&without)?
+                {
+                    let (moved, said) = phrases_on(&old, &grid, &beats, &name);
+                    warnings.extend(said);
+                    without = anlz::write_song_structure(&without, moved.as_ref())?;
+                }
+                new[1] = Some(without);
             }
             grid = beats;
         }
@@ -424,3 +508,6 @@ pub(crate) fn replay(
     out.fingerprint = done.fingerprint;
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests;

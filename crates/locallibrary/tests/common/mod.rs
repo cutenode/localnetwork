@@ -534,3 +534,31 @@ pub fn rekordbox_xml(d: &Device, opts: &XmlOptions) -> Result<(String, loclib_in
     let Content::Bytes(bytes) = &export.files[0].content else { panic!("the XML is written out") };
     Ok((String::from_utf8(bytes.clone()).unwrap(), export))
 }
+
+/// Asserts that phrases `now`, on the grid `grid`, are phrases `was` (on `old_grid`) kept at their
+/// times: each is one of them of the same kind, starting within half a beat of it (or on the grid's
+/// first beat, for one that started before the grid does), the last ending by the grid's end.
+pub fn phrases_keep_their_times(
+    old_grid: &[locallibrary::anlz::Beat],
+    was: &locallibrary::anlz::SongStructure,
+    grid: &[locallibrary::anlz::Beat],
+    now: &locallibrary::anlz::SongStructure,
+) {
+    let at = |g: &[locallibrary::anlz::Beat], beat: u16| g.get(usize::from(beat) - 1).map(|b| b.time_ms);
+    let half_beat = |b: &locallibrary::anlz::Beat| (30_000.0 / b.bpm) as u32;
+    let scale = was.beat_scale(old_grid.len());
+    for n in &now.phrases {
+        let start = &grid[usize::from(n.start_beat) - 1];
+        let kept = was.phrases.iter().any(|w| {
+            let then =
+                old_grid.get(locallibrary::anlz::SongStructure::grid_index(w.start_beat, scale)).map(|b| b.time_ms);
+            w.kind == n.kind
+                && then.is_some_and(|t| {
+                    t.abs_diff(start.time_ms) <= half_beat(start) || (n.start_beat == 1 && t < start.time_ms)
+                })
+        });
+        assert!(kept, "{n:?} isn't one of {was:?} at its time");
+        assert!(at(grid, n.start_beat).is_some(), "{n:?}");
+    }
+    assert!(now.phrases.last().is_none_or(|p| usize::from(p.end_beat) <= grid.len() + 1), "{now:?}");
+}

@@ -24,12 +24,16 @@ struct Lib {
 
 impl Lib {
     fn new() -> Lib {
-        Lib::with("")
+        Lib::with("", None)
     }
 
-    /// [`Lib::new`], its collection changed by `sql` first.
-    fn with(sql: &str) -> Lib {
+    /// [`Lib::new`], its collection changed by `sql` first, its `.EXT` holding `phrases`.
+    fn with(sql: &str, phrases: Option<&anlz::SongStructure>) -> Lib {
         let (dat, ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
+        let ext = match phrases {
+            Some(p) => anlz::write_song_structure(&ext, Some(p)).unwrap(),
+            None => ext,
+        };
         let f = analysed(&dat, &ext);
         f.exec(sql);
         let dir = tempfile::tempdir().unwrap();
@@ -217,7 +221,7 @@ fn a_key_is_saved_as_the_collection_spells_it() {
         save(&lib.target, TRACK, &CollectionAnalysis { key: Some(key.into()), ..Default::default() })
     };
 
-    let lib = Lib::with(keys);
+    let lib = Lib::with(keys, None);
     // The track's key is a note name (Am): C#m and 12A are Dbm.
     for key in ["C#m", "12A", "c# minor"] {
         set(&lib, key).unwrap();
@@ -234,11 +238,34 @@ fn a_key_is_saved_as_the_collection_spells_it() {
     assert_eq!(key_id(&lib), "7");
 
     // A Camelot track takes Camelot.
-    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"));
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"), None);
     set(&lib, "Dbm").unwrap();
     assert_eq!(key_id(&lib), "3");
     // A track whose key has no row takes the collection's most used spelling.
-    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"));
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"), None);
     set(&lib, "Dbm").unwrap();
     assert_eq!(key_id(&lib), "3");
+}
+
+/// A new grid moves the collection's phrases with it, by time, and undo puts them back.
+#[test]
+fn phrases_move_with_a_new_grid() {
+    use anlz::{Mood, Phrase, PhraseKind, SongStructure};
+    let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+    let s = |p| SongStructure { mood: Mood::High, phrases: p };
+    let theirs = s(vec![phrase(PhraseKind::Intro, 3, 17), phrase(PhraseKind::Chorus, 17, 65)]);
+    let lib = Lib::with("", Some(&theirs));
+    let with = |beats: Vec<Beat>| CollectionAnalysis {
+        analysis: NewAnalysis { beats: Some(beats), ..NewAnalysis::default() },
+        ..CollectionAnalysis::default()
+    };
+    let phrases = || anlz::song_structure(&lib.file("ANLZ0000.EXT")).unwrap();
+    save(&lib.target, TRACK, &with(grid())).unwrap();
+    assert_eq!(phrases().as_ref(), Some(&theirs));
+
+    // Two beats shorter at the front: each phrase starts two beats earlier.
+    let saved = save(&lib.target, TRACK, &with(grid()[2..].to_vec())).unwrap();
+    assert_eq!(phrases(), Some(s(vec![phrase(PhraseKind::Intro, 1, 15), phrase(PhraseKind::Chorus, 15, 63)])));
+    undo(&lib.target, &saved.before).unwrap();
+    assert_eq!(phrases(), Some(theirs));
 }
