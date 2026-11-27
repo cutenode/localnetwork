@@ -433,6 +433,10 @@ describe('/tools/[tool]', () => {
 });
 
 describe('every tool', () => {
+	it('has a guide to lead with, for its Guides button', () => {
+		for (const tool of tools) expect(tool.docs.length, tool.id).toBeGreaterThanOrEqual(1);
+	});
+
 	it('has a hot cue for at least one pad and at most every pad', () => {
 		for (const tool of tools) {
 			expect(tool.cues.length, tool.id).toBeGreaterThanOrEqual(1);

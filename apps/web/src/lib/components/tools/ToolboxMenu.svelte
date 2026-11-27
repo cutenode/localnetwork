@@ -62,7 +62,7 @@
 				bind:this={tabs[i]}
 				type="button"
 				role="tab"
-				id="{id}-tab-{i}"
+				id={`${id}-tab-${i}`}
 				aria-selected={selected === i}
 				aria-controls="{id}-panel"
 				tabindex={selected === i ? 0 : -1}

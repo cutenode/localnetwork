@@ -12,8 +12,8 @@ export const load: PageServerLoad = ({ locals }) => ({
 		name,
 		pitch,
 		look: lookOf(id),
-		// Where its Guides button goes: the first of its guides, which leads the rest.
-		guide: docs[0] ? `/tools/${id}/docs/${docs[0].slug}` : `/tools/${id}`,
+		// Where its Guides button goes: the first of its guides, which leads the rest (every tool has one).
+		guide: `/tools/${id}/docs/${docs[0].slug}`,
 		cues: cues.map((cue) => ({ ...cue, capture: slimCapture(cue.capture) }))
 	})),
 	track: demoTrack,

@@ -31,14 +31,7 @@
 	 */
 	// `plain` is for a page that names the tool itself: the heading is only for screen readers, and the
 	// hint and each cue's "Hot cue A" label go, since the pads already show their letters.
-	let {
-		tool,
-		cues,
-		track,
-		look = 'rekordbox',
-		plain = false,
-		selected = $bindable(0)
-	}: { tool: string; cues: Cue[]; track: Pick<MixTrack, 'durationSecs' | 'overview' | 'phrases'>; look?: Look; plain?: boolean; selected?: number } = $props();
+	let { tool, cues, track, look = 'rekordbox', plain = false, selected = $bindable(0) }: { tool: string; cues: Cue[]; track: Pick<MixTrack, 'durationSecs' | 'overview' | 'phrases'>; look?: Look; plain?: boolean; selected?: number } = $props();
 
 	const id = $props.id();
 
