@@ -63,6 +63,9 @@ pub fn committed(wal: &[u8], page_size: usize) -> Result<Option<Committed<'_>>> 
     if seed != (be32(wal, 24), be32(wal, 28)) {
         return Ok(None);
     }
+    if be32(wal, 4) != 3_007_000 {
+        return Err(Error::Malformed(format!("the WAL's format version is {}, not SQLite's 3007000", be32(wal, 4))));
+    }
     if be32(wal, 8) as usize != page_size {
         return Err(Error::Malformed(format!("the WAL uses {}-byte pages, the database {page_size}", be32(wal, 8))));
     }

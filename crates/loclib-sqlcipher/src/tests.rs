@@ -110,3 +110,17 @@ fn errors_say_what_went_wrong() {
     assert!(err.starts_with("no randomness available: "), "{err}");
     assert_eq!(Error::Malformed("short".into()).to_string(), "short");
 }
+
+/// Pages past the last commit's size are never decrypted, as SQLCipher never reads them: a
+/// damaged one there is left out rather than refusing the whole WAL.
+#[test]
+fn pages_past_the_last_commit_are_not_authenticated() {
+    let codec = codec();
+    let page = |n| codec.encrypt_page(n, &[7; PAGE_SIZE]).unwrap();
+    let mut damaged = page(5);
+    damaged[100] ^= 1;
+    let wal = wal::tests::build(PAGE_SIZE, (1, 2), &[(5, 0, damaged), (3, 3, page(3))]);
+    let c = wal::committed(&wal, PAGE_SIZE).unwrap().unwrap();
+    let kept: Vec<u32> = wal_pages(&codec, &c, 4).unwrap().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(kept, [3]);
+}
