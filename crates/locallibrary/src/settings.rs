@@ -67,16 +67,11 @@ impl SettingsLocation for FlatSettings<'_> {
     }
 }
 
-/// rekordbox's own settings folder on this computer (holds the "My Settings" it exports).
+/// rekordbox's own settings folder on this computer (holds the "My Settings" it exports), once
+/// it's there. A test gets one only from `LOCALLIBRARY_REKORDBOX_SETTINGS`
+/// ([`loclib_rekordbox_db::masterdb::settings_dir`]).
 pub fn rekordbox_settings_dir() -> Option<PathBuf> {
-    let base = directories::BaseDirs::new()?;
-    #[cfg(target_os = "macos")]
-    let dir = base.home_dir().join("Library/Application Support/Pioneer/rekordbox6");
-    #[cfg(windows)]
-    let dir = base.config_dir().join("Pioneer").join("rekordbox6");
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let dir = base.config_dir().join("Pioneer").join("rekordbox6");
-    dir.is_dir().then_some(dir)
+    loclib_rekordbox_db::masterdb::settings_dir().filter(|d| d.is_dir())
 }
 
 pub fn read_all(loc: &impl SettingsLocation) -> SettingsSnapshot {

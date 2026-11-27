@@ -72,6 +72,11 @@ pub const KEY_ENV: &str = "LOCALLIBRARY_MASTERDB_KEY";
 /// Environment variable with the path of the `master.db` to read instead of rekordbox's.
 pub const PATH_ENV: &str = "LOCALLIBRARY_MASTERDB";
 
+/// Environment variable with the path of Pioneer's settings folder (the one holding `rekordbox6/`
+/// and `rekordboxAgent/`) to read instead of rekordbox's. A test reads rekordbox's settings only
+/// from there.
+pub const SETTINGS_ENV: &str = "LOCALLIBRARY_REKORDBOX_SETTINGS";
+
 /// The `master.db` to read when none is given: [`PATH_ENV`] when set, else rekordbox's own
 /// (where its settings say, else its platform's place). A test (a debug build, or any process
 /// nextest starts) never falls back to rekordbox's own: it reads (and writes) only the collection
@@ -314,10 +319,20 @@ fn agent_option(path: &Path, name: &str) -> Option<String> {
     option[1].as_str().map(str::to_string)
 }
 
-/// Pioneer's folder of rekordbox's settings: `~/Library/Application Support/Pioneer/` on macOS,
-/// `%APPDATA%\Pioneer\` (roaming) on Windows.
+/// Pioneer's folder of rekordbox's settings: [`SETTINGS_ENV`] when set, else rekordbox's own,
+/// `~/Library/Application Support/Pioneer/` on macOS and `%APPDATA%\Pioneer\` (roaming) on
+/// Windows. A test ([`under_test`]) never falls back to rekordbox's own.
 fn pioneer_dir() -> Option<PathBuf> {
-    places().into_iter().next().map(|p| p.pioneer)
+    if let Some(p) = std::env::var_os(SETTINGS_ENV).filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(p));
+    }
+    (!under_test()).then(|| places().into_iter().next().map(|p| p.pioneer)).flatten()
+}
+
+/// rekordbox 6 and 7's settings folder, `rekordbox6/` in Pioneer's: its `rekordbox3.settings`
+/// and the My Settings files it exports. A test gets one only from [`SETTINGS_ENV`].
+pub fn settings_dir() -> Option<PathBuf> {
+    pioneer_dir().map(|p| p.join("rekordbox6"))
 }
 
 /// rekordbox 6 and 7's settings file, in `rekordbox6/` there.

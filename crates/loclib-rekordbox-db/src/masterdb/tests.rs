@@ -1152,6 +1152,33 @@ fn only_a_named_rekordbox_collection_is_read() {
     refuse_unnamed(&own, std::slice::from_ref(&own));
 }
 
+/// A test reads none of rekordbox's settings unless [`SETTINGS_ENV`] names their folder, even with
+/// them in rekordbox's place: not the cloud folders, not where the library moved, not the folder a
+/// backup would take.
+#[test]
+fn a_test_reads_rekordboxs_settings_only_from_the_folder_it_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let place = fake_place(dir.path());
+    let moved_to = dir.path().join("moved");
+    let xml = format!(
+        "<PROPERTIES><VALUE name=\"masterDbDirectory\" val=\"{}\"/><VALUE name=\"DropboxSharingPath\" \
+         val=\"/Dropbox\"/></PROPERTIES>",
+        moved_to.display()
+    );
+    write_settings(&place, &xml, r#"{"options": [["db-path", "/agent/master.db"]]}"#);
+    PLACES.set(Some(vec![place.clone()]));
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::remove_var(SETTINGS_ENV) };
+    let read = || (settings_dir(), settings_path(), agent_options_path(), CloudFolders::this_computer());
+    assert_eq!(read(), (None, None, None, CloudFolders::default()));
+    assert_eq!(rekordbox_path(), Some(place.master_db.clone()));
+    unsafe { std::env::set_var(SETTINGS_ENV, &place.pioneer) };
+    let cloud = CloudFolders { dropbox: Some("/Dropbox".into()), google_drive: None };
+    let paths = (settings_file(&place.pioneer), agent_options_file(&place.pioneer));
+    assert_eq!(read(), (Some(place.pioneer.join("rekordbox6")), Some(paths.0), Some(paths.1), cloud));
+    assert_eq!(rekordbox_path(), Some(moved_to.join("master.db")));
+}
+
 /// A made-up home's rekordbox, as [`Place`]: its `master.db`'s place and its Pioneer folder.
 fn fake_place(home: &Path) -> Place {
     Place { master_db: home.join("rekordbox/master.db"), pioneer: home.join("Pioneer") }

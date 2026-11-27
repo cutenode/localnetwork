@@ -14,7 +14,7 @@ use rusqlite::types::Value;
 use rustc_hash::FxHashMap;
 
 use super::{
-    Db, agent_option, agent_options_path, default_path, in_cloud, int, open_copy, settings_path, share_dir, text,
+    Db, agent_option, agent_options_path, default_path, in_cloud, int, open_copy, settings_dir, share_dir, text,
 };
 use crate::error::IoContext;
 use crate::onelibrary::cipher::{self, Codec};
@@ -22,14 +22,15 @@ use crate::{Error, Result};
 use loclib_sqlcipher::untrusted::distrust;
 
 /// Where rekordbox's files are: `master.db` where [`default_path`] finds it ([`super::PATH_ENV`]
-/// too), the folder it's in and the `share` folder there, and rekordbox's settings folder.
+/// too), the folder it's in and the `share` folder there, and rekordbox's settings folder where
+/// [`super::settings_dir`] finds it ([`super::SETTINGS_ENV`] too).
 pub fn locations() -> CollectionLocations {
     let master_db = default_path();
     CollectionLocations {
         data: master_db.as_deref().and_then(Path::parent).map(Path::to_path_buf),
         master_db_exists: master_db.as_deref().is_some_and(Path::is_file),
         share: master_db.as_deref().map(share_dir),
-        settings: settings_path().and_then(|p| p.parent().map(Path::to_path_buf)),
+        settings: settings_dir(),
         master_db,
     }
 }
