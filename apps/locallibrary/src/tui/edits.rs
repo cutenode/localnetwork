@@ -986,7 +986,7 @@ impl App {
             Action::Tag => self.tag_tracks(),
             Action::Collab => {
                 if let Some((credit, split)) = &t.collab {
-                    super::profile::collab(self, credit, !split);
+                    super::profile::collab(self, credit, *split);
                 }
             }
             Action::Restore => self.restore_playlist(t.root.clone()),
