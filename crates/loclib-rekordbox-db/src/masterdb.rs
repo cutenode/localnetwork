@@ -73,14 +73,28 @@ pub const KEY_ENV: &str = "LOCALLIBRARY_MASTERDB_KEY";
 pub const PATH_ENV: &str = "LOCALLIBRARY_MASTERDB";
 
 /// The `master.db` to read when none is given: [`PATH_ENV`] when set, else rekordbox's own
-/// (where its settings say, else its platform's place). A debug build, which every test is, never
-/// falls back to rekordbox's own: a test reads (and writes) only the collection it names, never
-/// that of whoever runs it.
+/// (where its settings say, else its platform's place). A test (a debug build, or any process
+/// nextest starts) never falls back to rekordbox's own: it reads (and writes) only the collection
+/// it names, never that of whoever runs it.
 pub fn default_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
     }
-    (!cfg!(debug_assertions)).then(rekordbox_path).flatten()
+    (!under_test()).then(rekordbox_path).flatten()
+}
+
+/// Whether this process is a test's: a debug build (every test's, as `cargo test` and
+/// `cargo nextest run` build by default), this crate's own tests in any build, or anything
+/// nextest started in any build. A plain `cargo test --release` of another crate sets nothing
+/// that tells, so it counts as a release build.
+fn under_test() -> bool {
+    started_by_nextest_or(cfg!(any(debug_assertions, test)))
+}
+
+/// `test_build`, or whether nextest started this process: it sets `NEXTEST` in each test's
+/// process, and the programs a test starts inherit it.
+fn started_by_nextest_or(test_build: bool) -> bool {
+    test_build || std::env::var_os("NEXTEST").is_some()
 }
 
 /// Where rekordbox keeps `master.db` on this computer: where its own settings say once the
@@ -101,10 +115,9 @@ fn own_collections() -> Vec<PathBuf> {
     places().into_iter().flat_map(at).flatten().collect()
 }
 
-/// In a debug build (every test's), refuses `path` when it's one of `own`, rekordbox's own
-/// `master.db`, and [`PATH_ENV`] doesn't name it: nothing then reads it, so a test that reaches
-/// it, by whatever way, fails instead.
-#[cfg(debug_assertions)]
+/// Refuses `path` when it's one of `own`, rekordbox's own `master.db`, and [`PATH_ENV`] doesn't
+/// name it: in a test ([`under_test`]) nothing then reads it, so a test that reaches it, by
+/// whatever way, fails instead.
 fn refuse_unnamed(path: &Path, own: &[PathBuf]) {
     // The same file, not the same path: macOS reaches /Users through /System/Volumes/Data too,
     // and a hard link has a path of its own.
@@ -113,7 +126,7 @@ fn refuse_unnamed(path: &Path, own: &[PathBuf]) {
     let theirs = own.iter().any(|own| same(path, own));
     assert!(
         named || !theirs,
-        "{} is rekordbox's own collection: a debug build reads it only when {PATH_ENV} names it",
+        "{} is rekordbox's own collection: a test reads it only when {PATH_ENV} names it",
         path.display()
     );
 }
@@ -431,8 +444,9 @@ enum Copy {
 /// Copy `path` (and its WAL) into `dir` and decrypt it there, replaying the WAL's committed
 /// transactions, so SQLite reads the result on its own.
 fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
-    #[cfg(debug_assertions)]
-    refuse_unnamed(path, &own_collections());
+    if under_test() {
+        refuse_unnamed(path, &own_collections());
+    }
     // Copies first: rekordbox may be writing, and nothing here holds its files open for long.
     let enc = dir.join("master.db.enc");
     let wal = snapshot(path, &enc, |from, to| std::fs::copy(from, to))?;

@@ -1045,6 +1045,19 @@ fn prop_keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     }
 }
 
+/// A release build that nextest started (`cargo nextest run --release`) is a test's too, and so
+/// is every program it starts; one nothing started as a test isn't.
+#[test]
+fn a_release_build_under_nextest_is_a_test() {
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var("NEXTEST", "1") };
+    assert!(started_by_nextest_or(false));
+    unsafe { std::env::remove_var("NEXTEST") };
+    assert!(!started_by_nextest_or(false));
+    assert!(started_by_nextest_or(true));
+    assert!(under_test(), "this crate's own tests, in any build");
+}
+
 /// A test can't read rekordbox's own `master.db`, however it gets the path, unless [`PATH_ENV`]
 /// names it. Here that collection is the sample library, below a made-up home.
 #[cfg(target_os = "macos")]
@@ -1074,7 +1087,6 @@ fn a_test_reads_rekordboxs_own_collection_only_when_it_names_it() {
 
 /// rekordbox's own `master.db` (here a made-up one, on any computer) is refused unless
 /// [`PATH_ENV`] names it, under whatever path it's reached; any other is read.
-#[cfg(debug_assertions)]
 #[test]
 fn only_a_named_rekordbox_collection_is_read() {
     let dir = tempfile::tempdir().unwrap();
