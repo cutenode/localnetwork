@@ -1024,9 +1024,9 @@ fn prop_settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
 }
 
 /// A key given is the one used, whatever it says; none (or an empty one) falls back to
-/// `LOCALLIBRARY_MASTERDB_KEY`, then the key every rekordbox uses. Without
-/// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders or
-/// where rekordbox's settings moved it.
+/// `LOCALLIBRARY_MASTERDB_KEY`, then the key every rekordbox uses. The collection read is the one
+/// `LOCALLIBRARY_MASTERDB` names; without it a test reads none, though a release build would read
+/// rekordbox's own, in this user's folders or where rekordbox's settings moved it.
 #[hegel::test(test_cases = 20)]
 fn prop_keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -1040,9 +1040,36 @@ fn prop_keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
         let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer/rekordbox/master.db"));
         assert_eq!(rekordbox_path(), moved(settings_path().as_deref(), agent_options_path().as_deref()).or(home));
     }
-    if std::env::var_os(PATH_ENV).is_none_or(|p| p.is_empty()) {
-        assert_eq!(default_path(), None, "a test never falls back to rekordbox's own");
+    let named = tc.draw(gs::booleans()).then(|| std::env::temp_dir().join("named/master.db"));
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe {
+        match &named {
+            Some(path) => std::env::set_var(PATH_ENV, path),
+            None => std::env::remove_var(PATH_ENV),
+        }
     }
+    assert_eq!(default_path(), named, "a test never falls back to rekordbox's own");
+}
+
+/// On every computer, `open` refuses rekordbox's own `master.db` (here the sample library, in a
+/// made-up home [`places`] gives) unless [`PATH_ENV`] names it, and reads a copy of it elsewhere.
+#[test]
+fn open_reads_rekordboxs_own_collection_only_when_it_is_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let place = fake_place(dir.path());
+    std::fs::create_dir_all(place.master_db.parent().unwrap()).unwrap();
+    std::fs::write(&place.master_db, sample().encrypted(DEFAULT_KEY)).unwrap();
+    PLACES.set(Some(vec![place.clone()]));
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::remove_var(PATH_ENV) };
+    let refused = std::panic::catch_unwind(|| open(&place.master_db, DEFAULT_KEY)).unwrap_err();
+    let message = refused.downcast_ref::<String>().unwrap();
+    assert!(message.contains("rekordbox's own collection") && message.contains(PATH_ENV), "{message}");
+    let other = dir.path().join("other.db");
+    std::fs::copy(&place.master_db, &other).unwrap();
+    assert_eq!(open(&other, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
+    unsafe { std::env::set_var(PATH_ENV, &place.master_db) };
+    assert_eq!(open(&place.master_db, DEFAULT_KEY).unwrap().library.tracks.len(), 3);
 }
 
 /// A release build that nextest started (`cargo nextest run --release`) is a test's too, and so
