@@ -136,6 +136,13 @@ pub fn test_root(root: impl Into<PathBuf>) {
     TEST_ROOT.set(Some(root.into()));
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Called (tests only) with a folder being made, once its lock file is made and before it's
+    /// locked: the moment a sweep must not take it.
+    static WHILE_LOCKING: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
+}
+
 /// A new private folder in `root`.
 fn folder_in(root: &Path) -> Result<Folder> {
     let mut builder = tempfile::Builder::new();
@@ -149,6 +156,10 @@ fn folder_in(root: &Path) -> Result<Folder> {
     // there but not yet locked would take the folder as abandoned and remove it while it's used.
     let making = dir.path().join(MAKING);
     let lock = File::create_new(&making).at(&making)?;
+    #[cfg(test)]
+    if let Some(pause) = WHILE_LOCKING.get() {
+        pause(dir.path());
+    }
     lock.try_lock().map_err(|e| Error::Io { path: making.clone(), source: e.into() })?;
     let path = dir.path().join(LOCK);
     std::fs::rename(&making, &path).at(&path)?;

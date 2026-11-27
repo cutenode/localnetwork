@@ -65,6 +65,21 @@ fn a_sweep_removes_only_abandoned_folders() {
     assert!(held.path().join(LOCK).is_file());
 }
 
+/// A sweep in the moment a folder's lock file is made but not yet locked leaves the folder: the
+/// file isn't named `.lock` until it's locked.
+#[test]
+fn a_sweep_while_a_folder_is_being_locked_leaves_it() {
+    fn sweep_now(dir: &Path) {
+        let removed = sweep_in(dir.parent().unwrap(), GRACE);
+        assert_eq!(removed, Vec::<PathBuf>::new(), "a sweep took a folder while its lock was made");
+    }
+    let root = tempfile::tempdir().unwrap();
+    WHILE_LOCKING.set(Some(sweep_now));
+    let folder = folder_in(root.path());
+    WHILE_LOCKING.set(None);
+    assert!(folder.unwrap().path().join(LOCK).is_file());
+}
+
 /// Folders made while other sweeps run are never taken as abandoned: their lock is held
 /// before it can be found.
 #[test]
