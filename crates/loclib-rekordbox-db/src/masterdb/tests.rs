@@ -5,6 +5,11 @@ use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGI
 use crate::onelibrary::kind_for_hot_cue;
 use crate::test_util::{Fixture, STATS, TABLES, codec, sample, scratch_db, with_broken_table};
 
+thread_local! {
+    /// rekordbox's places for [`places`] to give instead of this computer's, once set.
+    pub(super) static PLACES: std::cell::RefCell<Option<Vec<Place>>> = const { std::cell::RefCell::new(None) };
+}
+
 /// With no temporary folder to unpack a copy into (`TMPDIR` on a drive that's gone), reading,
 /// copying and listing a `master.db` each fail naming that folder, not the database.
 #[cfg(unix)]
@@ -1080,29 +1085,111 @@ fn only_a_named_rekordbox_collection_is_read() {
     std::fs::write(&other, b"").unwrap();
     // SAFETY: nextest runs each test in a process of its own.
     unsafe { std::env::remove_var(PATH_ENV) };
-    refuse_unnamed(&other, Some(own.clone()));
-    refuse_unnamed(&own, None);
+    refuse_unnamed(&other, std::slice::from_ref(&own));
+    refuse_unnamed(&own, &[]);
     let roundabout = dir.path().join("rekordbox/../rekordbox/master.db");
-    let refused = std::panic::catch_unwind(|| refuse_unnamed(&roundabout, Some(own.clone()))).unwrap_err();
+    let refused = std::panic::catch_unwind(|| refuse_unnamed(&roundabout, std::slice::from_ref(&own))).unwrap_err();
     let message = refused.downcast_ref::<String>().unwrap();
     assert!(message.contains("rekordbox's own collection") && message.contains(PATH_ENV), "{message}");
     let linked = dir.path().join("linked.db");
     std::fs::hard_link(&own, &linked).unwrap();
-    let mut spellings = vec![linked];
     // macOS reaches every folder of the data volume through /System/Volumes/Data too.
     #[cfg(target_os = "macos")]
-    spellings
-        .push(Path::new("/System/Volumes/Data").join(std::fs::canonicalize(&own).unwrap().strip_prefix("/").unwrap()));
+    let spellings = [
+        linked,
+        Path::new("/System/Volumes/Data").join(std::fs::canonicalize(&own).unwrap().strip_prefix("/").unwrap()),
+    ];
+    #[cfg(not(target_os = "macos"))]
+    let spellings = [linked];
     for spelling in spellings {
         assert!(spelling.is_file(), "{}", spelling.display());
         assert!(
-            std::panic::catch_unwind(|| refuse_unnamed(&spelling, Some(own.clone()))).is_err(),
+            std::panic::catch_unwind(|| refuse_unnamed(&spelling, std::slice::from_ref(&own))).is_err(),
             "{}",
             spelling.display()
         );
     }
     unsafe { std::env::set_var(PATH_ENV, &roundabout) };
-    refuse_unnamed(&own, Some(own.clone()));
+    refuse_unnamed(&own, std::slice::from_ref(&own));
+}
+
+/// A made-up home's rekordbox, as [`Place`]: its `master.db`'s place and its Pioneer folder.
+fn fake_place(home: &Path) -> Place {
+    Place { master_db: home.join("rekordbox/master.db"), pioneer: home.join("Pioneer") }
+}
+
+/// `xml` as the `rekordbox3.settings`, and `json` as the agent's `options.json`, of `place`.
+fn write_settings(place: &Place, xml: &str, json: &str) {
+    for (path, text) in [(settings_file(&place.pioneer), xml), (agent_options_file(&place.pioneer), json)] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+}
+
+/// Of rekordbox's settings, the guard takes where the library moved and nothing else: the last
+/// absolute `masterDbDirectory`, else the agent's absolute `db-path`. The sign-in tokens and cloud
+/// folders beside them don't come out.
+#[test]
+fn the_guard_takes_only_where_the_library_moved_from_rekordboxs_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let place = fake_place(dir.path());
+    let (moved_to, agent) = (dir.path().join("moved"), dir.path().join("agent/master.db"));
+    let xml = format!(
+        "<PROPERTIES><VALUE name=\"masterDbDirectory\" val=\"{}\"/><VALUE name=\"masterDbDirectory\" val=\"relative\"/>\
+         <VALUE name=\"DropboxSharingPath\" val=\"/Dropbox\"/><VALUE name=\"DropboxAccessToken\" val=\"secret\"/></PROPERTIES>",
+        moved_to.display()
+    );
+    let json = serde_json::json!({"options": [["login-token", "secret"], ["db-path", agent]]}).to_string();
+    write_settings(&place, &xml, &json);
+    let (settings, options) = (settings_file(&place.pioneer), agent_options_file(&place.pioneer));
+    let taken = settings_values(&settings, &["masterDbDirectory"]).unwrap();
+    let dirs = [moved_to.display().to_string(), "relative".into()];
+    assert_eq!(taken, dirs.map(|d| ("masterDbDirectory".to_string(), Some(d))));
+    assert_eq!(moved(Some(&settings), Some(&options)), Some(moved_to.join("master.db")));
+    write_settings(&place, "<PROPERTIES/>", &json);
+    assert_eq!(moved(Some(&settings), Some(&options)), Some(agent));
+    write_settings(&place, "<PROPERTIES/>", r#"{"options": [["db-path", "relative/master.db"]]}"#);
+    assert_eq!(moved(Some(&settings), Some(&options)), None);
+}
+
+/// rekordbox's own `master.db` is where its platform keeps it and where its settings say it
+/// moved, in every home it has; the guard refuses each.
+#[test]
+fn a_moved_collection_is_rekordboxs_own_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let place = fake_place(&dir.path().join("home"));
+    let moved_to = dir.path().join("moved");
+    write_settings(
+        &place,
+        &format!("<PROPERTIES><VALUE name=\"masterDbDirectory\" val=\"{}\"/></PROPERTIES>", moved_to.display()),
+        "{}",
+    );
+    let other = fake_place(&dir.path().join("other home"));
+    PLACES.set(Some(vec![place.clone(), other.clone()]));
+    let own = [moved_to.join("master.db"), place.master_db.clone(), other.master_db.clone()];
+    assert_eq!(own_collections(), own);
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::remove_var(PATH_ENV) };
+    for path in &own {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"").unwrap();
+        assert!(std::panic::catch_unwind(|| refuse_unnamed(path, &own_collections())).is_err(), "{}", path.display());
+    }
+}
+
+/// With `$HOME` made up, as a test may, rekordbox's own `master.db` is still looked for under the
+/// account's real home too (from the password database), as well as the made-up one.
+#[cfg(target_os = "macos")]
+#[test]
+fn rekordboxs_own_is_looked_for_under_the_accounts_home_whatever_home_says() {
+    let dir = tempfile::tempdir().unwrap();
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var("HOME", dir.path()) };
+    let account = nix::unistd::User::from_uid(nix::unistd::getuid()).unwrap().unwrap().dir;
+    assert_ne!(account, dir.path());
+    let homes: Vec<_> = platform_places().into_iter().map(|p| p.master_db).collect();
+    let at = |home: &Path| home.join("Library/Pioneer/rekordbox/master.db");
+    assert_eq!(homes, [at(dir.path()), at(&account)]);
 }
 
 /// Every table the collection is read from has to read: one that can't (a view of a table that's

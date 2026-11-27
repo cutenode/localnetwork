@@ -92,16 +92,25 @@ fn rekordbox_path() -> Option<PathBuf> {
     moved(settings_path().as_deref(), agent_options_path().as_deref()).or_else(platform_path)
 }
 
-/// In a debug build (every test's), refuses `path` when it's `own`, rekordbox's own `master.db`,
-/// and [`PATH_ENV`] doesn't name it: nothing then reads it, so a test that reaches it, by
-/// whatever way, fails instead.
+/// Every `master.db` that could be rekordbox's own: in each of [`places`], its platform's place
+/// and where its settings there say the library moved. Only `masterDbDirectory` and `db-path`
+/// are taken from those settings, and nothing of them is kept.
+fn own_collections() -> Vec<PathBuf> {
+    let at =
+        |p: Place| [moved(Some(&settings_file(&p.pioneer)), Some(&agent_options_file(&p.pioneer))), Some(p.master_db)];
+    places().into_iter().flat_map(at).flatten().collect()
+}
+
+/// In a debug build (every test's), refuses `path` when it's one of `own`, rekordbox's own
+/// `master.db`, and [`PATH_ENV`] doesn't name it: nothing then reads it, so a test that reaches
+/// it, by whatever way, fails instead.
 #[cfg(debug_assertions)]
-fn refuse_unnamed(path: &Path, own: Option<PathBuf>) {
+fn refuse_unnamed(path: &Path, own: &[PathBuf]) {
     // The same file, not the same path: macOS reaches /Users through /System/Volumes/Data too,
     // and a hard link has a path of its own.
     let same = |a: &Path, b: &Path| same_file::is_same_file(a, b).unwrap_or(false);
     let named = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()).is_some_and(|p| same(path, Path::new(&p)));
-    let theirs = own.is_some_and(|own| same(path, &own));
+    let theirs = own.iter().any(|own| same(path, own));
     assert!(
         named || !theirs,
         "{} is rekordbox's own collection: a debug build reads it only when {PATH_ENV} names it",
@@ -109,22 +118,56 @@ fn refuse_unnamed(path: &Path, own: Option<PathBuf>) {
     );
 }
 
+/// Where rekordbox keeps its files under one home.
+#[derive(Debug, Clone, PartialEq)]
+struct Place {
+    /// `master.db`, until the library is moved.
+    master_db: PathBuf,
+    /// Pioneer's settings folder.
+    pioneer: PathBuf,
+}
+
+/// rekordbox's [`Place`]s on this computer, the first where it is for this account.
+fn places() -> Vec<Place> {
+    #[cfg(test)]
+    if let Some(fake) = tests::PLACES.with_borrow(Clone::clone) {
+        return fake;
+    }
+    platform_places()
+}
+
+/// `~/Library/Pioneer/rekordbox/master.db` and `~/Library/Application Support/Pioneer/`, under
+/// `$HOME` and, when it differs (a test may fake `$HOME`), the account's home in the password
+/// database.
 #[cfg(target_os = "macos")]
-fn platform_path() -> Option<PathBuf> {
-    let home = directories::BaseDirs::new()?.home_dir().to_path_buf();
-    Some(home.join("Library/Pioneer/rekordbox/master.db"))
+fn platform_places() -> Vec<Place> {
+    let account = nix::unistd::User::from_uid(nix::unistd::getuid()).ok().flatten().map(|u| u.dir);
+    let mut homes: Vec<PathBuf> =
+        directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()).into_iter().chain(account).collect();
+    homes.dedup();
+    let place = |h: PathBuf| Place {
+        master_db: h.join("Library/Pioneer/rekordbox/master.db"),
+        pioneer: h.join("Library/Application Support/Pioneer"),
+    };
+    homes.into_iter().map(place).collect()
 }
 
+/// `%APPDATA%\Pioneer\rekordbox\master.db` and `%APPDATA%\Pioneer\`. Windows names the roaming
+/// application data folder itself (`SHGetKnownFolderPath`), from no environment variable.
 #[cfg(windows)]
-fn platform_path() -> Option<PathBuf> {
-    // %APPDATA% is the roaming application data folder.
-    let roaming = directories::BaseDirs::new()?.config_dir().to_path_buf();
-    Some(roaming.join("Pioneer").join("rekordbox").join("master.db"))
+fn platform_places() -> Vec<Place> {
+    let roaming = directories::BaseDirs::new().map(|b| b.config_dir().join("Pioneer"));
+    roaming.map(|p| Place { master_db: p.join("rekordbox").join("master.db"), pioneer: p }).into_iter().collect()
 }
 
+/// None: rekordbox runs on macOS and Windows only.
 #[cfg(not(any(target_os = "macos", windows)))]
+fn platform_places() -> Vec<Place> {
+    Vec::new()
+}
+
 fn platform_path() -> Option<PathBuf> {
-    None
+    places().into_iter().next().map(|p| p.master_db)
 }
 
 /// rekordbox's `share` folder beside the `master.db` at `path`, which its `AnalysisDataPath` and
@@ -261,18 +304,27 @@ fn agent_option(path: &Path, name: &str) -> Option<String> {
 /// Pioneer's folder of rekordbox's settings: `~/Library/Application Support/Pioneer/` on macOS,
 /// `%APPDATA%\Pioneer\` (roaming) on Windows.
 fn pioneer_dir() -> Option<PathBuf> {
-    let base = directories::BaseDirs::new()?;
-    cfg!(any(target_os = "macos", windows)).then(|| base.config_dir().join("Pioneer"))
+    places().into_iter().next().map(|p| p.pioneer)
 }
 
 /// rekordbox 6 and 7's settings file, in `rekordbox6/` there.
 fn settings_path() -> Option<PathBuf> {
-    Some(pioneer_dir()?.join("rekordbox6").join("rekordbox3.settings"))
+    pioneer_dir().as_deref().map(settings_file)
 }
 
 /// rekordbox's agent's options, in `rekordboxAgent/storage/` there.
 fn agent_options_path() -> Option<PathBuf> {
-    Some(pioneer_dir()?.join("rekordboxAgent").join("storage").join("options.json"))
+    pioneer_dir().as_deref().map(agent_options_file)
+}
+
+/// rekordbox 6 and 7's settings file in the Pioneer folder `pioneer`.
+fn settings_file(pioneer: &Path) -> PathBuf {
+    pioneer.join("rekordbox6").join("rekordbox3.settings")
+}
+
+/// rekordbox's agent's options in the Pioneer folder `pioneer`.
+fn agent_options_file(pioneer: &Path) -> PathBuf {
+    pioneer.join("rekordboxAgent").join("storage").join("options.json")
 }
 
 /// A My Tag category (`Genre`, `Situation`) and its tags.
@@ -380,7 +432,7 @@ enum Copy {
 /// transactions, so SQLite reads the result on its own.
 fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     #[cfg(debug_assertions)]
-    refuse_unnamed(path, rekordbox_path());
+    refuse_unnamed(path, &own_collections());
     // Copies first: rekordbox may be writing, and nothing here holds its files open for long.
     let enc = dir.join("master.db.enc");
     let wal = snapshot(path, &enc, |from, to| std::fs::copy(from, to))?;
