@@ -30,4 +30,14 @@ describe('InlineText', () => {
 		await expect.element(field).toHaveAttribute('aria-invalid', 'true');
 		await expect.element(field).toHaveAccessibleDescription('Too long');
 	});
+
+	it('draws just the box when a page hands it no class', async () => {
+		// A caller passing an unset field's class through gets null, not the default.
+		// @ts-expect-error -- untyped markup can hand it null, which the props don't admit
+		await render(InlineText, { label: 'Venue', name: 'venue', class: null });
+
+		const field = page.getByLabelText('Venue');
+		await expect.element(field).toHaveClass('field-sizing-content');
+		await expect.element(field).not.toHaveClass('null');
+	});
 });
