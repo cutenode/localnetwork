@@ -1110,3 +1110,21 @@ fn analysis_files_are_read_only_from_the_share_folder() {
     let e = write(&lib.target, |e| e.read_analysis_file(TRACK, "DAT")).unwrap_err();
     assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
 }
+
+/// A backup of a file that doesn't read back as what the file held stops the swap: it would be
+/// all that could put the file back.
+#[test]
+fn a_backup_that_doesnt_read_back_stops_the_write() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| {
+        let replaced = e.replace_analysis_file(TRACK, "EXT", b"new")?.unwrap();
+        std::fs::write(&replaced.backup, b"exx").unwrap();
+        Ok(replaced)
+    })
+    .unwrap_err();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("backup")), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
+}

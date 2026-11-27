@@ -61,6 +61,8 @@ pub(super) struct Replaced {
     /// Where it is, and its new bytes beside it.
     file: PathBuf,
     new: Removed,
+    /// Its backup.
+    backup: PathBuf,
     /// The MD5 of what it held (and was backed up), and of its new bytes, with their size.
     old_md5: String,
     md5: String,
@@ -195,6 +197,11 @@ impl Edit<'_> {
             std::fs::create_dir_all(dir).at(dir)?;
         }
         write_new(&backup, &old)?;
+        // Each folder made for it, up to the backups folder, is on disk before master.db is swapped.
+        let backups = self.share_backup.parent().unwrap_or(self.share_backup);
+        for made in backup.ancestors().take_while(|p| *p != backups) {
+            sync_dir(made);
+        }
         // Only a file this write made is removed should it fail: one there already (another
         // write's, or one a crash left) is refused, and left as it is.
         let new = PathBuf::from(format!("{}.locallibrary-new", file.display()));
@@ -217,6 +224,7 @@ impl Edit<'_> {
             path: path.clone(),
             file,
             new,
+            backup: backup.clone(),
             old_md5: old_md5.clone(),
             md5: md5.clone(),
             size: bytes.len() as u64,
@@ -377,12 +385,15 @@ pub(super) fn check(conn: &Connection, replaced: &[Replaced]) -> std::result::Re
     Ok(())
 }
 
-/// Refuses when a file to replace no longer holds what was backed up, or its new bytes don't
-/// read back.
+/// Refuses when a file to replace no longer holds what was backed up, its backup doesn't read
+/// back as that, or its new bytes don't read back.
 pub(super) fn unchanged(replaced: &[Replaced]) -> Result<()> {
     for r in replaced {
         if md5_hex(&std::fs::read(&r.file).at(&r.file)?) != r.old_md5 {
             return Err(Error::Refused(Refusal::Changed));
+        }
+        if md5_hex(&std::fs::read(&r.backup).at(&r.backup)?) != r.old_md5 {
+            return Err(Error::Refused(Refusal::Odd(format!("the backup of {} doesn't read back", r.path))));
         }
         if md5_hex(&std::fs::read(&r.new.0).at(&r.new.0)?) != r.md5 {
             return Err(Error::Refused(Refusal::Odd(format!("the new {} doesn't read back", r.path))));
