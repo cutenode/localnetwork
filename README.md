@@ -50,7 +50,7 @@ cargo nextest run --workspace --locked
 
 A `NODE_MODULE_VERSION` error means better-sqlite3 was built for another Node.js: run `fnm use` at the repo root, then `pnpm rebuild better-sqlite3`.
 
-The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, Lighthouse on every page of the website against its history, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails opens an issue, which the next one that passes closes.
+The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, Lighthouse on every page of the website against its history, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails, or finds a drop in fuzz coverage, opens an issue, which the next one that does neither closes.
 
 ## Contributing
 

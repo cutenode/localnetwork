@@ -1,3 +1,6 @@
+// paths: fuzz/fuzz_targets/mysettings.rs
+// paths: crates/locallibrary/tests/fixtures/rekordcrate/settings/**
+// paths: crates/loclib-mysettings/src/**
 //! The players' settings files (`MYSETTING.DAT`, `MYSETTING2.DAT`, `DJMMYSETTING.DAT`,
 //! `DEVSETTING.DAT`): parsing each kind, reading every setting, and planning an edit.
 

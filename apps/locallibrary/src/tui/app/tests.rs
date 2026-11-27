@@ -3363,7 +3363,7 @@ fn prop_what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase)
 /// beats (at half tempo where they count it so) and end after, a hot cue pad goes to just
 /// where the cue is (a loop's plays it), and the deck draws at any size in every visualiser,
 /// full screen or not, as its keys (and its actions in `:`) jump, loop and zoom about.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_the_deck_plays_any_analysis(tc: hegel::TestCase) {
     use super::super::ui::screen;
     use hegel::generators as gs;

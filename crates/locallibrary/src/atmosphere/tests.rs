@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use jacquard_oauth::authstore::ClientAuthStore;
 
 use super::*;
@@ -1040,46 +1042,57 @@ fn prop_checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
     let revocation: Option<u16> = tc.draw(gs::optional(gs::sampled_from(vec![200u16, 204, 500])));
     let known = tc.draw(gs::optional(gs::sampled_from(vec!["before.example.com".to_string()])));
 
-    let server = match says {
-        Says::Unreachable => "http://127.0.0.1:9".to_string(),
-        _ => serving(move |base, target| match target {
-            "GET /xrpc/com.atproto.server.getSession" => match says {
-                Says::Handle => {
-                    (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "dj.example.com" }))
+    // One server for all the cases: a server per case would leave a thread behind each.
+    static SERVER: OnceLock<String> = OnceLock::new();
+    static ANSWERS: Mutex<(Says, Option<u16>)> = Mutex::new((Says::Handle, None));
+    *ANSWERS.lock().unwrap() = (says, revocation);
+    let url = SERVER.get_or_init(|| {
+        serving(|base, target| {
+            let (says, revocation) = *ANSWERS.lock().unwrap();
+            match target {
+                "GET /xrpc/com.atproto.server.getSession" => match says {
+                    Says::Handle => {
+                        (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "dj.example.com" }))
+                    }
+                    Says::NoHandle => {
+                        (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "handle.invalid" }))
+                    }
+                    Says::Unauthorized => {
+                        (401, String::new(), serde_json::json!({ "error": "AuthenticationRequired" }))
+                    }
+                    Says::TokenRefused => (
+                        401,
+                        "www-authenticate: DPoP error=\"invalid_token\"\r\n".to_string(),
+                        serde_json::json!({ "error": "invalid_token" }),
+                    ),
+                    Says::Down => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
+                    Says::Expired => {
+                        (400, String::new(), serde_json::json!({ "error": "ExpiredToken", "message": "expired" }))
+                    }
+                    _ => (
+                        400,
+                        String::new(),
+                        serde_json::json!({ "error": "InvalidRequest", "message": "down for a bit" }),
+                    ),
+                },
+                "GET /.well-known/oauth-authorization-server" => {
+                    let mut metadata = authorization_server(base);
+                    if revocation.is_none() {
+                        metadata.as_object_mut().unwrap().remove("revocation_endpoint");
+                    }
+                    (200, String::new(), metadata)
                 }
-                Says::NoHandle => {
-                    (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "handle.invalid" }))
-                }
-                Says::Unauthorized => (401, String::new(), serde_json::json!({ "error": "AuthenticationRequired" })),
-                Says::TokenRefused => (
-                    401,
-                    "www-authenticate: DPoP error=\"invalid_token\"\r\n".to_string(),
-                    serde_json::json!({ "error": "invalid_token" }),
-                ),
-                Says::Down => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
-                Says::Expired => {
-                    (400, String::new(), serde_json::json!({ "error": "ExpiredToken", "message": "expired" }))
-                }
-                _ => {
-                    (400, String::new(), serde_json::json!({ "error": "InvalidRequest", "message": "down for a bit" }))
-                }
-            },
-            "GET /.well-known/oauth-authorization-server" => {
-                let mut metadata = authorization_server(base);
-                if revocation.is_none() {
-                    metadata.as_object_mut().unwrap().remove("revocation_endpoint");
-                }
-                (200, String::new(), metadata)
+                "POST /oauth/revoke" => (revocation.unwrap_or(404), String::new(), serde_json::json!({})),
+                "POST /oauth/token" => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
+                _ => (404, String::new(), serde_json::json!({})),
             }
-            "POST /oauth/revoke" => (revocation.unwrap_or(404), String::new(), serde_json::json!({})),
-            "POST /oauth/token" => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
-            _ => (404, String::new(), serde_json::json!({})),
-        }),
-    };
+        })
+    });
+    let server = if says == Says::Unreachable { "http://127.0.0.1:9" } else { url };
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let expires = if says == Says::Down { "2020-01-01T00:00:00.000Z" } else { "2099-01-01T00:00:00.000Z" };
-    signed_in_at(root, &server, expires);
+    signed_in_at(root, server, expires);
     if let Some(h) = &known {
         let mut file = AccountFile::load(root).unwrap();
         file.account.as_mut().unwrap().info.handle = Some(h.clone());
@@ -1136,11 +1149,14 @@ fn prop_only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
         "code=c&iss=https%3A%2F%2Fevil.example",
     ]));
     let dir = tempfile::tempdir().unwrap();
-    let auth = serving(|base, target| match target {
-        "GET /.well-known/oauth-authorization-server" => (200, String::new(), authorization_server(base)),
-        _ => (404, String::new(), serde_json::json!({})),
+    static AUTH: OnceLock<String> = OnceLock::new();
+    let auth = AUTH.get_or_init(|| {
+        serving(|base, target| match target {
+            "GET /.well-known/oauth-authorization-server" => (200, String::new(), authorization_server(base)),
+            _ => (404, String::new(), serde_json::json!({})),
+        })
     });
-    let id = waiting_at(dir.path(), "st4te", &auth, false);
+    let id = waiting_at(dir.path(), "st4te", auth, false);
     let query = match state {
         Some(s) => format!("{answer}&state={s}"),
         None => answer.to_string(),

@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
@@ -168,7 +168,7 @@ fn draw_edit(tc: &TestCase, m: &Model, tracks: &[u32]) -> Edit {
     }
 }
 
-#[hegel::test(test_cases = 16, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 16)]
 fn prop_tag_edits_on_a_drive_match_the_model(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -275,7 +275,7 @@ fn prop_tag_edits_on_a_drive_match_the_model(tc: TestCase) {
 /// On a drive with exportExt.pdb but no export.pdb for its tags to point into, My Tags are
 /// OneLibrary's alone: every read says exportExt.pdb is left alone, edits match the model with
 /// OneLibrary's limits, and exportExt.pdb keeps its bytes whatever is edited.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_exportext_without_export_pdb_is_left_alone_whatever_is_edited(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::Cursor;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::paths;
 use locallibrary::progress::Ctx;
@@ -81,7 +81,7 @@ fn prop_wav_headers_read_back_their_format_and_length(tc: TestCase) {
 
 /// A recording whose header gives no channels or no rate is listed with its format, but no
 /// length, nor when it started.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_recordings_of_no_sound_have_no_length(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "AZ");
@@ -104,7 +104,7 @@ fn prop_recordings_of_no_sound_have_no_length(tc: TestCase) {
     assert_eq!((r.duration_secs, r.started), (None, None));
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_recordings_are_collected_byte_for_byte(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "AZ");
@@ -223,7 +223,7 @@ fn prop_a_tracklist_names_every_track_in_order(tc: TestCase) {
 
 /// A drive with no library gives no tracklist: a named history list isn't found, and the latest
 /// one is no list at all, so the recordings are copied without one.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_drive_without_a_library_gives_no_tracklist(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "AZ");
@@ -253,7 +253,7 @@ fn prop_a_drive_without_a_library_gives_no_tracklist(tc: TestCase) {
 
 /// A collect cancelled before or while it copies stops there: the recording it was copying isn't
 /// listed as failed, and nothing is deleted from the drive.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_cancelled_collect_deletes_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "AZ");
@@ -281,7 +281,7 @@ fn prop_a_cancelled_collect_deletes_nothing(tc: TestCase) {
 
 /// Copies verified while another process writes the drive stay copied, but the recordings aren't
 /// deleted: the drive is locked.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_locked_drive_keeps_its_collected_recordings(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "AZ");

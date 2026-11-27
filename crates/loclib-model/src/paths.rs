@@ -46,8 +46,15 @@ pub fn relative(from: &Path, to: &Path) -> Option<String> {
 /// a `..` takes away is a real folder. `std::path::absolute` leaves `..` in, except on Windows,
 /// which folds it this way itself before a path is opened.
 pub fn absolute_with(path: &Path, real: impl Fn(&Path) -> Option<PathBuf>) -> PathBuf {
+    folded(path, std::path::absolute(path), real)
+}
+
+/// [`absolute_with`], given what `std::path::absolute` made of `path`: folded as it is when that
+/// failed (a relative path once the current folder is gone). Tests pass a failure: the current
+/// folder is the whole process's, which other tests read meanwhile.
+fn folded(path: &Path, absolute: std::io::Result<PathBuf>, real: impl Fn(&Path) -> Option<PathBuf>) -> PathBuf {
     let mut out = PathBuf::new();
-    for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
+    for c in absolute.unwrap_or_else(|_| path.to_path_buf()).components() {
         match c {
             Component::ParentDir => {
                 out.pop();

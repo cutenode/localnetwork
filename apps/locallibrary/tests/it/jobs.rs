@@ -588,7 +588,7 @@ fn setup_takes_the_drives_named_and_joins_their_library() {
 
 /// For a library of three drives, any but the first archive: `check` and `prep
 /// --dry-run` given no drive say which drives they left out, all of those and no others.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_group_command_says_which_drives_it_left_out(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = Env::new();

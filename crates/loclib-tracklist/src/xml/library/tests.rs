@@ -185,3 +185,30 @@ fn elements_nested_too_deep_are_left_out() {
     assert_eq!(names, ["kept"]);
     assert_eq!(read.warnings, ["1 element(s) nested more than 64 deep left out, with what's in them"]);
 }
+
+/// A TEMPO or POSITION_MARK is a collection track's when it's in one, wherever the collection
+/// is; in a playlist's TRACK, or a TRACK the collection holds inside something else, it's no
+/// track's.
+#[test]
+fn tempos_and_cues_are_the_collection_tracks_they_are_in() {
+    let marks = r#"<TEMPO Inizio="0" Bpm="128"/><POSITION_MARK Type="0" Start="1" Num="-1"/>"#;
+    let elsewhere = format!(
+        r#"<DJ_PLAYLISTS><COLLECTION><TRACK TrackID="1" Name="A"/><X><TRACK TrackID="2">{marks}</TRACK></X></COLLECTION><PLAYLISTS><NODE Type="1" Name="p" KeyType="0"><TRACK Key="1">{marks}</TRACK></NODE></PLAYLISTS></DJ_PLAYLISTS>"#
+    );
+    let read = read_xml_library(elsewhere.as_bytes()).unwrap();
+    let [a] = &read.tracks[..] else { panic!("one track: {:?}", read.tracks) };
+    assert_eq!((a.tempos.len(), a.marks.len()), (0, 0));
+    let wrapped = format!(
+        r#"<DJ_PLAYLISTS><A><B><COLLECTION><TRACK TrackID="1" Name="A">{marks}</TRACK></COLLECTION></B></A></DJ_PLAYLISTS>"#
+    );
+    let read = read_xml_library(wrapped.as_bytes()).unwrap();
+    assert_eq!((read.tracks[0].tempos.len(), read.tracks[0].marks.len()), (1, 1));
+}
+
+/// A playlist ends with its NODE's end inside PLAYLISTS: one still open when PLAYLISTS ends is
+/// left out, though a NODE's end comes after.
+#[test]
+fn a_playlist_still_open_when_the_playlists_end_is_left_out() {
+    let xml = r#"<DJ_PLAYLISTS><COLLECTION><TRACK TrackID="1" Name="A"/></COLLECTION><PLAYLISTS><NODE Type="1" Name="open" KeyType="0"><TRACK Key="1"/></PLAYLISTS></NODE></DJ_PLAYLISTS>"#;
+    assert!(read_xml_library(xml.as_bytes()).unwrap().playlists.is_empty());
+}

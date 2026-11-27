@@ -380,7 +380,7 @@ fn snapshot(i: usize) -> SnapshotInfo {
 /// what's shown as out of date, said once, and coming back has it read again; a file check lists
 /// the missing files under Problems; My Tags, sets and an offer to replay land on their drive;
 /// the outputs listed land in the list they were listed for, while it's open.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_background_results_land_where_they_belong(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     let (root, mut generation, n) = {
@@ -794,7 +794,7 @@ const PLAY_KEYS: &[&str] = &[
 /// queue next full screen, the crate to play, a recorded set played on its own, and the drive let
 /// go of: the queue stays whole and in play order, what plays is the queue's (or the set), and
 /// each says what it does.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
     let files: Vec<(u32, usize)> = (0..n)
@@ -1510,7 +1510,7 @@ fn searched_as_the_library_does(app: &mut App, query: &str, enter: bool) {
 
 /// On a big library, the search box waits for typing to pause before narrowing the list (enter
 /// doesn't wait), then shows what it would have at once.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_big_library_search_waits_for_a_pause(tc: TestCase) {
     let n = TYPE_AHEAD as u32 + 1;
     let tracks = (1..=n).map(|id| track(id, &format!("Artist {}", id % 50), &format!("Title {id}"))).collect();
@@ -2121,7 +2121,7 @@ fn prop_only_the_latest_start_is_opened(tc: TestCase) {
 /// with no drive open opens the one open last time when it's there, else the library there is on
 /// it (by name), a library row no longer listed isn't selected any more, and a read of the list
 /// asked for meanwhile is made.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
     use super::super::drives::DriveRow;
     use super::super::screens::Fixture;
@@ -2228,7 +2228,7 @@ fn bytes_of(app: &App, i: usize) -> Option<i64> {
 /// those without one last; a filter naming it keeps exactly the tracks whose value matches. The
 /// column is kept in what's saved for the next run, which shows it again, and once hidden it
 /// isn't.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
     plugins_once();
     let drive = plugged();

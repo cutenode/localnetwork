@@ -139,10 +139,39 @@ pub mod watch;
 mod workers;
 mod writing;
 
-/// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
-/// that take no room.
+/// Hooks for tests: what a failed write leaves behind, tests that share a process, big files
+/// that take no room, and the parsers of what a server or another computer sends, for the fuzz
+/// targets.
 #[doc(hidden)]
 pub mod testing {
+    use crate::callback::CallbackQuery;
+    use crate::hash::Hash;
+    use crate::store::Snapshot;
+
+    pub use crate::catalog::wire::Request as PeerRequest;
+    pub use crate::plugin::net::challenge::{Challenge, challenges, insufficient_scope};
+
+    /// Whether `bytes` read as the catalog another computer answers `hello` with.
+    pub fn peer_catalog(bytes: &[u8]) -> bool {
+        crate::catalog::wire::catalog(bytes).is_ok()
+    }
+
+    /// A snapshot's manifest as it came, once it reads and is the snapshot `id`; otherwise why not.
+    pub fn peer_snapshot(id: &Hash, bytes: &[u8]) -> Result<Snapshot, String> {
+        crate::catalog::checked(id, bytes)
+    }
+
+    /// The id a snapshot's content hashes to.
+    pub fn snapshot_id(snapshot: &Snapshot) -> Hash {
+        snapshot.compute_id()
+    }
+
+    /// The query of the HTTP request whose head `bytes` holds (see [`CallbackQuery`]): `None` when it
+    /// isn't a request, and `Some(None)` for one that isn't a sign-in's.
+    pub fn callback_request(bytes: &[u8]) -> Option<Option<CallbackQuery>> {
+        CallbackQuery::from_request(bytes)
+    }
+
     /// Write every copy as to a drive with no clones, for tests whose drives share one disk. Holds
     /// for the process.
     pub fn no_reflinks() {

@@ -7,8 +7,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::backup;
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::edit::Edit;
@@ -21,7 +21,7 @@ fn retries_with_force(e: &locallibrary::Error) -> bool {
     e.detail().actions.iter().any(|a| a.params.get("force") == Some(&serde_json::json!(true)))
 }
 
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_undo_takes_back_whats_still_there_and_nothing_else(tc: TestCase) {
     for kind in 0..4 {
         undo_after(&tc, kind);

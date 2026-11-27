@@ -197,7 +197,7 @@ fn a_secret_setting_is_read_from_stdin_and_never_shown() {
 /// command line, an empty one, or `--secret` for a setting that isn't one is refused. While
 /// whether one that's set is still set can't be known (its file damaged), it's shown as unknown,
 /// saying why.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_secret_reads_back_as_last_set_and_is_never_shown(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = with_a_secret();
@@ -627,7 +627,7 @@ fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
 /// those, naming `art fetch` and fixing them by fetching covers for them; `doctor` lists them as
 /// having no artwork and names `art auto` and `art fetch`, or says every track's artwork is there;
 /// and it exits with problems when a track lacks its artwork or a check found a problem.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_check_and_doctor_name_the_tracks_whose_artwork_is_gone(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let env = env();

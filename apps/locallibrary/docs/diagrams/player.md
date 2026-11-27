@@ -166,7 +166,7 @@ flowchart TD
     loop -->|"open a track"| opener
     loop -->|"each second"| poll["A worker looks for drives<br/>coming and going"]
     poll --> channel
-    audio["Audio thread"] -->|"playhead and tap, read without locks"| loop
+    audio["Audio thread"] -->|"playhead, tap and when each<br/>buffer is heard, read without locks"| loop
     loop -->|"seek, loop, pause, through the playhead"| audio
     probe["Terminal probe thread, at start:<br/>colours and sixel, 100 ms at most"] -->|"answers, waited for<br/>before the first frame"| loop
 ```
@@ -308,14 +308,19 @@ flowchart TD
     opener --> decoder["rodio decoder"]
     decoder --> looper["Looper: counts frames,<br/>plays loops from memory"]
     looper --> tap["Tap: copies samples<br/>to a ring buffer"]
-    tap --> output["Output device"]
-    looper --> playhead["Playhead"]
-    playhead --> ui["UI: clock, waveforms, cues"]
+    tap --> stream["cpal stream: hands the output<br/>a buffer at a time"]
+    stream --> output["Output device"]
+    looper --> playhead["Playhead: frames handed over"]
+    stream -->|"when each buffer is heard"| clock["Output clock"]
+    playhead --> heard["Where it's heard: the count<br/>less what's still to play"]
+    clock --> heard
+    heard --> ui["UI: clock, waveforms, cue flashes,<br/>a new loop"]
+    playhead -->|"jumps that keep the beat"| ui
     tap -->|"the latest samples, each tick"| analyzer["loclib-waveform's analyzer:<br/>spectrum bands, scope trace"]
     analyzer --> vis["Visualisers"]
 ```
 
-Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`crates/loclib-waveform/src/analyzer.rs`](../../../../crates/loclib-waveform/src/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)
+Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/audio/output.rs`](../../src/tui/audio/output.rs), [`src/tui/audio/device.rs`](../../src/tui/audio/device.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`crates/loclib-waveform/src/analyzer.rs`](../../../../crates/loclib-waveform/src/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)
 
 ## The queue
 

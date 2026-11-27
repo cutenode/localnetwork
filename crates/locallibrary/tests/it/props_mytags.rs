@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
 use locallibrary::progress::Ctx;
@@ -416,7 +416,7 @@ fn tag_edit(tc: &TestCase, ids: &[u32]) -> tags::Edit {
 
 /// After rekordbox exports over `tags` edits (all three databases as they were), replaying the
 /// drive's journal gives back the My Tags the edits made, in both databases.
-#[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 25)]
 fn prop_replaying_tag_edits_after_a_new_export_redoes_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = tagged_drive(dir.path());
@@ -452,7 +452,7 @@ fn prop_replaying_tag_edits_after_a_new_export_redoes_them(tc: TestCase) {
 
 /// A planned `tags` edit is refused, leaving every database as it was, while another operation
 /// holds the drive or when its journal is one a newer build wrote (the edit couldn't be recorded).
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_tag_edit_on_a_drive_it_cant_record_changes_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = tagged_drive(dir.path());
@@ -477,7 +477,7 @@ fn prop_a_tag_edit_on_a_drive_it_cant_record_changes_nothing(tc: TestCase) {
 /// A damaged database is read around where the drive has another to read: a damaged
 /// exportExt.pdb leaves OneLibrary's My Tags, with a warning saying so; a damaged export.pdb (which
 /// exportExt.pdb's tracks are), or a damaged OneLibrary with nothing else, is refused.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_damaged_database_is_read_around_or_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = tagged_drive(dir.path());

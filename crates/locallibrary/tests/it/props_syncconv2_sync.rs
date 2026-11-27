@@ -10,8 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use filetime::FileTime;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Hardware, Role};
@@ -57,7 +57,7 @@ enum There {
 /// folder or a file of the DJ's, the sync is refused naming it; the same file (by content when
 /// verifying, else by size and time) is taken as it is; and one a run cut off on this drive wrote
 /// is copied again.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_file_outside_the_library_is_copied_kept_or_refused_as_it_is(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut a = Device::open_export(with_audio_outside_contents(dir.path())).unwrap();
@@ -141,7 +141,7 @@ fn prop_a_file_outside_the_library_is_copied_kept_or_refused_as_it_is(tc: TestCa
 /// the path the source keeps audio outside `Contents/` (written once the first file is copied:
 /// nothing is written there, and the old library stays), or a stale file that became a folder
 /// before it's deleted (the new library is in by then; the folder stays, and the sync says which).
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_sync_stops_at_what_turns_up_on_the_target_while_it_runs(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut a = Device::open_export(with_audio_outside_contents(dir.path())).unwrap();
@@ -205,7 +205,7 @@ fn prop_a_sync_stops_at_what_turns_up_on_the_target_while_it_runs(tc: TestCase) 
 
 /// A snapshot too big for the drive is refused before anything is written, saying how much it
 /// needs; the plan said it wouldn't fit.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_push_too_big_for_the_drive_is_refused_before_anything_is_written(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -233,7 +233,7 @@ fn prop_a_push_too_big_for_the_drive_is_refused_before_anything_is_written(tc: T
 
 /// A drive holding a library no store saved isn't overwritten by a push unless forced, whichever
 /// store's snapshot it would get; forced, it plans.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_drive_whose_library_no_store_saved_is_overwritten_only_when_forced(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, other) = (
@@ -266,7 +266,7 @@ fn prop_a_drive_whose_library_no_store_saved_is_overwritten_only_when_forced(tc:
 /// after it; beside the head, up to date while unchanged, a snapshot beside it otherwise, and the
 /// head stays; into a library that has a primary already, the drive (a primary elsewhere) is its
 /// backup. The registry keeps the disk the drive recorded.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_pulls_land_a_drive_in_the_library_it_says(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -342,7 +342,7 @@ impl locallibrary::progress::Progress for Watch {
 /// A sync to several drives names and scopes what each target's copy reports to that drive, and
 /// one that fails (its thread panics) says why without stopping the others, which end up holding
 /// the source's library.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_sync_to_several_drives_goes_on_past_one_that_fails(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let mut a = Device::open_export(common::demo_drive(dir.path(), "A")).unwrap();
@@ -376,7 +376,7 @@ fn prop_a_sync_to_several_drives_goes_on_past_one_that_fails(tc: TestCase) {
 
 /// When the DJ's own files stand where the source keeps several tracks' audio outside
 /// `Contents/`, the refusal names the first three and counts the rest, and lists every one.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_every_file_in_the_way_is_listed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");

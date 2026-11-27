@@ -604,13 +604,6 @@ impl Round {
         out.iter().map(|u| u / units).collect()
     }
 
-    fn bpm(&self, x: f64) -> f64 {
-        match self.0 {
-            Precision::Rounded => x.round(),
-            Precision::Exact => (x * 10.0).round() / 10.0,
-        }
-    }
-
     fn count(&self, n: usize) -> Count {
         let n = n as u64;
         match self.0 {
@@ -626,30 +619,6 @@ impl Round {
                 Count::AtLeast { at_least: n / step * step }
             }
         }
-    }
-}
-
-/// The section whose numbers back a summary trait (a [`super::Tag`]'s id): the trait tells as
-/// much as the section does, so it's only shown with it. `None` for a trait it doesn't know.
-pub fn tag_section(id: &str) -> Option<Section> {
-    Some(match id {
-        "harmonic" | "smooth_tempo" | "genre_hopping" => Section::Mixing,
-        "focused" => Section::Genres,
-        "builds" => Section::Arc,
-        "fresh" | "digger" => Section::Era,
-        "rarely_repeats" => Section::Sets,
-        "signature" => Section::Signature,
-        "prepared" => Section::Prep,
-        "quantize_off" | "wide_tempo" => Section::Style,
-        _ => return None,
-    })
-}
-
-/// "Artist - Title" as artist and title, for a pinned name that isn't among the played tracks.
-fn split_name(name: &str) -> DocTrack {
-    match name.split_once(" - ") {
-        Some((a, t)) => DocTrack { artist: a.trim().to_string(), title: t.trim().to_string() },
-        None => DocTrack { artist: String::new(), title: name.trim().to_string() },
     }
 }
 
@@ -682,65 +651,12 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         style: None,
     };
 
-    if shows(Section::Summary) {
-        // The generated headline says only what the sections in the document say, counted as
-        // they count.
-        let count = |n| match r.count(n) {
-            Count::Exact { count } => count.to_string(),
-            Count::AtLeast { at_least } => format!("{at_least}+"),
-        };
-        let headline = prefs.headline.clone().unwrap_or_else(|| super::headline(report, shows, count));
-        d.headline = (!headline.is_empty()).then_some(headline);
-        // A trait is shown only with the section whose numbers back it.
-        d.tags = report
-            .summary
-            .tags
-            .iter()
-            .filter(|t| tag_section(t.id).is_some_and(shows))
-            .map(|t| t.label.clone())
-            .collect();
-    }
     let s = &report.sets;
     if shows(Section::Sets) && s.count > 0 {
         d.sets = Some(DocSets {
             count: r.count(s.count),
             since: s.oldest.map(|d| d.year()),
             median_tracks: s.median_tracks as u64,
-        });
-    }
-    if shows(Section::Tempo)
-        && let (Some(core), Some(median)) = (report.tempo.core, report.tempo.median)
-    {
-        d.tempo = Some(DocTempo { low: r.bpm(core.low), high: r.bpm(core.high), median: r.bpm(median) });
-    }
-    let a = &report.arc;
-    if shows(Section::Arc) && a.sets > 0 {
-        // The shape from the shares as published, so the two never disagree.
-        let s = r.shares(&[a.builds, a.steady, a.winds_down]);
-        let (builds, steady, winds_down) = (s[0], s[1], s[2]);
-        let shape = if builds >= 0.5 {
-            ArcShape::Builds
-        } else if steady >= 0.5 {
-            ArcShape::Steady
-        } else if winds_down >= 0.5 {
-            ArcShape::WindsDown
-        } else {
-            ArcShape::Varies
-        };
-        d.arc = Some(DocArc { shape, builds, steady, winds_down });
-    }
-    let m = &report.mixing;
-    if shows(Section::Mixing) && m.transitions > 0 {
-        d.mixing = Some(DocMixing {
-            harmonic: m.harmonic_share.map(|x| r.share(x)),
-            smooth_tempo: m.within_3pct.map(|x| r.share(x)),
-            genre_changes: m.genre_change_share.map(|x| r.share(x)),
-        });
-    }
-    if shows(Section::Keys) && report.keys.tracks > 0 {
-        d.keys = Some(DocKeys {
-            top: report.keys.top.iter().take(3).map(|k| k.name.clone()).collect(),
-            minor: report.keys.minor_share.map(|x| r.share(x)),
         });
     }
     if shows(Section::Energy)
@@ -760,12 +676,6 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
                 .collect(),
         );
     }
-    if shows(Section::Labels) && !report.labels.top.is_empty() {
-        // A track has one label: the shares are parts of one whole, like genres'.
-        let top = &report.labels.top[..report.labels.top.len().min(5)];
-        let shares = r.shares(&top.iter().map(|l| l.share).collect::<Vec<_>>());
-        d.labels = Some(top.iter().zip(shares).map(|(l, share)| DocShare { name: l.name.clone(), share }).collect());
-    }
     if shows(Section::Artists) {
         let artists: Vec<DocShare> = report
             .artists
@@ -781,48 +691,11 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         d.era =
             Some(DocEra { median_year: report.era.median_year, recent: report.era.recent_share.map(|x| r.share(x)) });
     }
-    if shows(Section::Signature) {
-        let mut tracks: Vec<DocTrack> = Vec::new();
-        let played = &report.signature.played;
-        for pin in &prefs.pinned {
-            let p = played.iter().find(|p| normalize(&p.name) == normalize(pin));
-            let t = p
-                .map(|p| DocTrack { artist: p.artist.clone(), title: p.title.clone() })
-                .unwrap_or_else(|| split_name(pin));
-            if prefs.may_name(pin, &t.artist) && !p.is_some_and(|p| p.unnamed) && !tracks.contains(&t) {
-                tracks.push(t);
-            }
-        }
-        for p in &report.signature.tracks {
-            if tracks.len() >= report.options.top.max(prefs.pinned.len()) {
-                break;
-            }
-            let t = DocTrack { artist: p.artist.clone(), title: p.title.clone() };
-            if prefs.may_name(&p.name, &p.artist) && !p.unnamed && !tracks.contains(&t) {
-                tracks.push(t);
-            }
-        }
-        d.signature = (!tracks.is_empty()).then_some(tracks);
-    }
-    if shows(Section::Prep)
-        && let Some(p) = &report.prep
-    {
-        d.prep = Some(DocPrep {
-            hot_cues: r.share(p.hot_cue_share),
-            memory_cues: r.share(p.memory_cue_share),
-            loops: r.share(p.loop_share),
-        });
-    }
     if shows(Section::Collection) && report.collection.tracks > 0 {
         d.collection = Some(DocCollection {
             tracks: r.count(report.collection.tracks),
             playlists: r.count(report.collection.playlists),
         });
-    }
-    if shows(Section::Style)
-        && let Some(s) = &report.style
-    {
-        d.style = Some(s.values.iter().map(|v| (camel(&v.key), v.value.clone())).collect());
     }
     d
 }

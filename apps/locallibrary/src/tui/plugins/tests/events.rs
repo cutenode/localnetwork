@@ -362,7 +362,7 @@ fn a_suggestion_on_a_name_two_drives_share_is_refused() {
 /// For any of echo's actions a plugin suggests, wherever the user is, reviewing it starts
 /// nothing by itself: it opens the player's own form or question for it, its params filled in,
 /// or says why it can't (no drive open, one not plugged in), and the drive is as it was.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_reviewing_a_suggested_action_starts_nothing_by_itself(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (_, mut app, plugged, _store) = super::somewhere(&tc);
@@ -431,7 +431,7 @@ fn prop_reviewing_a_suggested_action_starts_nothing_by_itself(tc: hegel::TestCas
 /// of those waiting reviewed or dismissed: each suggestion waits in the palette, newest first,
 /// and in the store, until it's reviewed (planned and confirmed as any plan, here declined) or
 /// dismissed; a message alone only says it. The player opened again offers what's still waiting.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_suggestions_wait_until_reviewed_or_dismissed(tc: hegel::TestCase) {
     use hegel::generators as gs;
     plugins_once();

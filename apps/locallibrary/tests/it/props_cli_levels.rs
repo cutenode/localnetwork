@@ -2,8 +2,8 @@
 //! gains (quiet, ordinary, clipped), analysed by `doctor --analyze`, then checked. The tracks the
 //! printed check lists are the ones its `--json` finds a problem with, each with its level.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use loclib_testkit::audio::{synth, wav_of};
 use serde_json::Value;
 
@@ -23,7 +23,7 @@ fn wav(seed: u32, gain: f32) -> Vec<u8> {
 /// each track its JSON finds over 0 dBTP, clipped or far from the others' level, with its
 /// integrated loudness, true peak and clipped runs as the JSON has them; without `--verbose` it
 /// lists none and says `--verbose` would; and the item's level says whether any track was found.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_check_lists_the_tracks_whose_level_is_a_problem(tc: TestCase) {
     let fx = Env::from_template();
     let a = fx.volumes.join("A");

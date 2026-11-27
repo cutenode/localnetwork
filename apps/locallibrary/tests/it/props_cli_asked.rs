@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{Generator, TestCase};
 use serde_json::Value;
 
 use crate::props_cli_human::{FLAGS, State, build};
@@ -86,7 +86,7 @@ const NAMES: &[&str] = &["", "Home", "My library", "Club"];
 /// start (or join) holds the drive said to be the one rekordbox exports to, as its primary, and
 /// each other drive taken has the role it was given; the players and contact details go where
 /// they were said yes to. Said no to, nothing of that is made.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], answers = vec![0u8; 40])]
 #[hegel::explicit_test_case(flags = vec![true; FLAGS], answers = vec![1u8; 40])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], answers = vec![1u8; 40])]
@@ -272,7 +272,7 @@ fn prop_setup_does_what_it_was_told(tc: TestCase) {
 
 /// `pull` into a library the store hasn't got, in a terminal: asked, it starts the library only
 /// when told yes (and says no otherwise), and the store's libraries are what it said.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(yes = true, name = "Fresh".to_string())]
 #[hegel::explicit_test_case(yes = false, name = "A".to_string())]
 fn prop_pull_starts_a_library_only_when_told(tc: TestCase) {
@@ -351,7 +351,7 @@ fn until_ctrl_c(
 /// (said in a line, `--json` or not); pressed twice it stops at once (exit status 130). Before
 /// that it said, as text or as one JSON event a line, what it found of each mounted drive, and
 /// when a drive was plugged in and out.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(json = false, presses = 1usize)]
 #[hegel::explicit_test_case(json = true, presses = 2usize)]
 fn prop_watch_stops_at_ctrl_c(tc: TestCase) {
@@ -405,7 +405,7 @@ fn prop_watch_stops_at_ctrl_c(tc: TestCase) {
 /// then has the libraries the first has (up to date when fetched again). The server says who
 /// connected and what they took.
 #[cfg(feature = "peers")]
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(json = false, only = false)]
 #[hegel::explicit_test_case(json = true, only = true)]
 fn prop_a_served_store_is_fetched_whole(tc: TestCase) {

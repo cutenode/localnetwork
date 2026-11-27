@@ -7,8 +7,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
@@ -21,7 +21,7 @@ fn set(hot: Option<u8>, at: CuePosition, loop_beats: Option<f64>) -> SetCue {
 
 /// Edits refused for what they ask of a track, each on a track it doesn't fit: the error says why
 /// and the drive is as it was.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_cue_edits_a_track_cant_take_are_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -96,7 +96,7 @@ fn prop_cue_edits_a_track_cant_take_are_refused(tc: TestCase) {
 /// has none, and a track with cues of its own keeps them. A track with no .EXT gets its cues
 /// without names (said), and one OneLibrary doesn't list gets them in export.pdb's analysis only
 /// (said).
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_cues_are_carried_onto_copies_that_have_none(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

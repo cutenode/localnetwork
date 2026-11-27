@@ -71,7 +71,9 @@ re-run CI). The queue runs Windows again unless the pull request passed it on th
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
 | `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`cargo hegel-coverage`); its totals sit beside the whole suite's |
 | `other-os` | on macOS and Windows, without coverage: `cargo nextest run` in 2 shards, and clippy and the doctests, in a job of their own on Windows and with the first shard on macOS |
-| `fuzz` | on pull requests that change what the fuzz targets reach: every target for a minute (see Fuzzing) |
+| `fuzz-targets` | on pull requests that change what the fuzz targets reach: which of them (see Fuzzing) |
+| `fuzz` | each of those targets for a minute |
+| `fuzz-coverage` | the same targets' coverage: the kept corpus replayed, against `main`'s last weekly numbers |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
 nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
@@ -114,8 +116,15 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
-  shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
-  `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
+  shards. The run's summary and the weekly issue list each missed mutant by file and line, with
+  their diffs in each shard's `mutants.out` artifact; once `FAIL_ON_SURVIVORS` is on in
+  `locallibrary-scheduled.yml`, a missed one fails the run too. Kill it with a test, or, when
+  no test can tell it from the code (an equivalent mutant), add it to `exclude_re` in
+  `.cargo/mutants.toml` with the reason above it (a deleted field that makes no difference, which that
+  doesn't leave out, can go from the code). Timeouts alone don't fail it. The next runs try the ones
+  the open issue lists again, wherever their lines have moved to (`tools/mutants/survivors.ts`), so it
+  closes only when none survive.
+  `cargo mutants -p loclib-progress` runs it locally;
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - `cargo publish --workspace --dry-run`, which builds each loclib crate from its packaged files
   alone (see Releasing crates);
@@ -123,8 +132,8 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
 
-A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
-the next weekly run that passes closes it.
+A weekly run with a failed job, or one that warns of a drop in fuzz coverage, opens an issue (or
+comments on the open one) saying which, and the next weekly run with neither closes it.
 
 `.github/workflows/locallibrary-bench.yml` runs the benchmarks (see Benchmarks) under
 [CodSpeed](https://codspeed.io) weekly and on demand, not on pull requests: started by hand on a
@@ -293,7 +302,7 @@ failing examples it finds for the next week's run.
 
 ## Fuzzing
 
-The parsers for what a drive or an import hands locallibrary have
+The parsers for what a drive, an import or the network hands locallibrary have
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
 root): `pdb` (`export.pdb` and `exportExt.pdb`), `pdb_edit` (`PdbEditor`'s playlist, entry,
 track string and history edits on the vendored fixtures, each read back and checked against a
@@ -306,13 +315,15 @@ the binary XML, the project it builds and its mixdown), `traktor` (Traktor's `co
 the beat grids it lays down and what an import makes of it), `onelibrary` (`exportLibrary.db` and
 its WAL: decryption, WAL replay and the library read from it), `masterdb` (rekordbox's
 `master.db` once it's plain SQLite), `smartlist` (its intelligent playlists' rules),
-`rekordbox_sync` (`playlists3*.sync`) and `keybinds` (someone else's published keys, as an import
-reads them, and each key read back from how it's written). libFuzzer mutates the test fixtures
-(and `fuzz/seeds/` for formats whose tests keep their examples inline; `pdb_edit` grows its edit
-sequences from nothing) looking for a panic, a hang or a runaway allocation. The `pdb` and `anlz` aliases also hand
-libFuzzer a dictionary from `fuzz/dicts/` (the tags, page types and other values the readers branch
-on), so it gets past a header without guessing four bytes at once. `fuzz/` is a workspace of its
-own and needs nightly:
+`rekordbox_sync` (`playlists3*.sync`), `challenge` (the `WWW-Authenticate` headers and bodies of a
+server refusing a plugin's token), `callback` (the request the sign-in reads on its loopback port),
+`peers` (the requests, catalogs and snapshot manifests another computer sends) and `keybinds`
+(someone else's published keys, as an import reads them, and each key read back from how it's
+written). libFuzzer mutates the test fixtures (and `fuzz/seeds/` for formats whose tests keep their
+examples inline; `pdb_edit` grows its edit sequences from nothing) looking for a panic, a hang or a
+runaway allocation. The `pdb` and `anlz` aliases also hand libFuzzer a dictionary from `fuzz/dicts/`
+(the tags, page types and other values the readers branch on), so it gets past a header without
+guessing four bytes at once. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
@@ -326,13 +337,29 @@ What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
 (in `vendor/rekordbox-pdb`, with an entry in its `PATCHES.md`) and add the minimized input
 (`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others.
 
-CI runs every target `cargo fuzz list` names through its `fuzz-<target>` alias, several at once
-(`.github/actions/fuzz`), so a new target needs its alias and nothing in the workflows. The
-scheduled workflow runs each for five minutes, minimizes what it grew and keeps that as the
-`fuzz-corpus` artifact for 90 days, which outlasts the weeks it skips. Pull requests that change
-the code a target reaches run each for a minute from that corpus. Either uploads the input of any
-crash (`fuzz-artifacts`); to start from the kept corpus locally,
+Each target starts with the paths of what it fuzzes, a `// paths: <glob>` line each (globs from the
+repository root, as `ci.yml`'s filters have them): the target itself, its seeds and dictionary, and
+the code it reaches, down to the modules where it goes through `crates/locallibrary`. Where a path is
+a big file it runs one function of, `// coverage: <glob>` lines under them name the files its coverage
+is measured over instead. Tests, props and Markdown under them never count. `pnpm test:tools` fails a
+target without paths, a glob that matches no file, and a measured file its paths leave out.
+
+CI runs targets through their `fuzz-<target>` aliases, several at once (`.github/actions/fuzz`), so
+a new target needs its alias and its paths and nothing in the workflows. The scheduled workflow
+runs each for five minutes, minimizes what it grew and keeps that as the `fuzz-corpus` artifact for
+90 days, which outlasts the weeks it skips; when GitHub won't hand over the last one, it keeps none,
+so that stays the newest. The weekly run and a pull request's both upload the input of any crash
+(`fuzz-artifacts`), and only a crash fails the job. To start from the kept corpus locally,
 `gh run download <run> -n fuzz-corpus -D fuzz/corpus`.
+
+A pull request runs only the targets whose paths it changes (`node tools/fuzz/cli.ts select
+origin/main` lists them; a change to `fuzz/Cargo.toml`, its lockfile, `.cargo/config.toml`, the
+fuzz actions, `locallibrary-ci.yml` or `tools/fuzz/` picks every target): each for a minute from that corpus, and a replay
+of the corpus without fuzzing (`cargo +nightly fuzz coverage <target> <folders>`, the folders its
+alias names) for its coverage of the code its header names. The weekly run replays every target the
+same way and keeps the numbers, and the pull request's comment compares with them; so does the
+next weekly run, whose summary and issue warn of a drop. A drop never fails a run. The HTML reports
+are in the `fuzz-coverage-html` artifact (weekly) and `fuzz-coverage-report` (pull requests).
 
 The SQLite seeds are made from files in the repository, with the `sqlite3` CLI (OneLibrary's
 plain one with SQLCipher's 80 reserved bytes a page, as `exportLibrary.db` has):

@@ -23,6 +23,7 @@ use locallibrary::atmosphere::{
 };
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
+use locallibrary::testing::callback_request;
 use serde_json::{Map, Value, json};
 
 /// What the terminal gets of a server's words: control characters as spaces.
@@ -241,6 +242,30 @@ fn prop_a_pasted_address_reads_as_its_query(tc: TestCase) {
     }
     // Without a query, nothing.
     assert!(CallbackQuery::from_url(&format!("{pad}{base}{pad}")).is_err());
+}
+
+/// A request to the sign-in's listener reads as its query when it's `GET /callback?...`, whatever
+/// headers follow, and as no query for another method or path; without a request line, it isn't
+/// a request.
+#[hegel::test(test_cases = 150)]
+fn prop_a_request_reads_as_its_query_only_at_the_callback(tc: TestCase) {
+    let q = callback_query(&tc);
+    let query = query_string(&tc, &q);
+    let (method, path) = tc.draw(gs::sampled_from(vec![
+        ("GET", "/callback"),
+        ("POST", "/callback"),
+        ("GET", "/favicon.ico"),
+        ("GET", "/callback/"),
+    ]));
+    let headers: Vec<String> =
+        tc.draw(gs::vecs(gs::from_regex("[A-Za-z-]{1,8}: [ -~]{0,12}").fullmatch(true)).max_size(3));
+    let headers: String = headers.iter().map(|h| format!("{h}\r\n")).collect();
+    let head = format!("{method} {path}?{query} HTTP/1.1\r\n{headers}\r\n");
+    let expected = Some((method == "GET" && path == "/callback").then_some(q));
+    assert_eq!(callback_request(head.as_bytes()), expected, "{head:?}");
+    let blank: &[u8] =
+        tc.draw(gs::sampled_from(vec![&b""[..], b"\r\n", b"GET\r\n\r\n", b"GET /callback?\xff HTTP/1.1\r\n"]));
+    assert_eq!(callback_request(blank), None);
 }
 
 /// The server's refusal is worded for people: a declined sign-in says so, otherwise the

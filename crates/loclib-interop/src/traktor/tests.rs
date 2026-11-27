@@ -133,6 +133,8 @@ fn locations_are_paths_again() {
     assert_eq!(elsewhere, native("/Volumes/Macintosh HD/Users/me/x.mp3"), "not this computer's startup disk");
     assert_eq!(path(loc("E:", "/:Music/:"), "E:"), native("E:/Music/x.mp3"));
     assert_eq!(path(loc("USB", "/:"), "Macintosh HD"), native("/Volumes/USB/x.mp3"));
+    // A colon after something other than a letter isn't a drive.
+    assert_eq!(path(loc("1:", "/:"), "Macintosh HD"), native("/Volumes/1:/x.mp3"));
 }
 
 /// The startup disk is this Mac's, or the name `build` gives it elsewhere.

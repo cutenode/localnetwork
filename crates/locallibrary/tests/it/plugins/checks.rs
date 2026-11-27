@@ -351,7 +351,7 @@ fn finding(tc: &TestCase) -> (Value, bool) {
 /// Whatever a check answers, what's on the drive is what it found, as it said it, named after its
 /// plugin, or (when it answered something it may not, failed or took too long) one warning saying
 /// so; and only a problem it found counts as one.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_what_a_check_finds_is_what_it_answered(tc: TestCase) {
     let f = Fixture::checks(&["echo"]);
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
@@ -398,7 +398,7 @@ fn prop_what_a_check_finds_is_what_it_answered(tc: TestCase) {
 /// Whatever the guards say, a plan's warnings have each of their findings, and it's kept from
 /// being applied exactly when a blocking guard found a warning or a problem; one that fails or
 /// takes too long is a warning, and never keeps a plan from being applied.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_plan_is_blocked_exactly_when_a_blocking_guard_finds_something(tc: TestCase) {
     let f = Fixture::checks(&["echo", "second"]);
     // Every guard answers: a time that runs out on a busy machine would be another warning.

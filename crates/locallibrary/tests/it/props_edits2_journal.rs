@@ -5,8 +5,8 @@ use crate::common;
 use std::fs;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::backup;
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
 use locallibrary::device::Device;
@@ -17,7 +17,7 @@ use locallibrary::progress::Ctx;
 /// a newer version, or not a list of entries) is refused by everything that reads it or adds to
 /// it (listing, the edits to replay, what an undo takes off, clearing, planning an edit, making a
 /// cue edit), and is left as it was.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_journal_this_build_cant_use_is_refused_and_kept(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -109,7 +109,7 @@ fn prop_clearing_the_journal_before_a_time_takes_exactly_the_earlier_entries(tc:
 /// was made for and every one recorded since off the journal, keeping the ones before in order,
 /// and says beforehand which go and that none come back. Entries whose own backup is gone, or that
 /// name none, are told apart by when they were recorded.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_undoing_with_a_backup_carrying_no_journal_takes_its_edit_and_later_ones_off(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

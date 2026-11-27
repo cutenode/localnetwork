@@ -637,7 +637,7 @@ fn signing_in_when_the_directory_cant_be_reached_says_so() {
 /// only on the account are taken, the same keys count as published, different ones are offered to take or leave,
 /// and an unreachable directory is said with the keys here left as they were.
 #[cfg(feature = "account")]
-#[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 24)]
 fn prop_signing_in_settles_the_keys_here_and_the_accounts(tc: hegel::TestCase) {
     let here: Option<&str> = tc.draw(gs::sampled_from(vec![None, Some("]"), Some("[")]));
     let theirs: Option<&str> = tc.draw(gs::sampled_from(vec![None, Some("]"), Some("[")]));

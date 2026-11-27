@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use loclib_waveform::color::{mix, scale};
 use loclib_waveform::{Rgb, vinyl};
 
 const LABEL: Rgb = [220, 40, 90];
@@ -80,4 +81,112 @@ fn the_rings_are_whole_pixels() {
 fn the_streak_turns_with_the_record() {
     assert_eq!(record(36, 0.6), record(36, 0.6));
     assert_ne!(record(36, 0.0), record(36, 1.0));
+}
+
+/// The record as text, a character a pixel: `L` the label, `o` the rim, `.` and `:` the record
+/// and its grooves, `d` and `B` the streak's two steps, a space where nothing's drawn.
+fn art(cols: u16, rows: u16, angle: f32) -> Vec<String> {
+    const SHEEN: Rgb = [170, 170, 196];
+    let (dim, bright, groove) = (mix(RECORD, SHEEN, 0.35), mix(RECORD, SHEEN, 0.7), scale(RECORD, 0.72));
+    let px = vinyl(cols, rows, angle, LABEL, RECORD);
+    let char_of = |p: &Option<Rgb>| match *p {
+        None => ' ',
+        Some(c) if c == LABEL => 'L',
+        Some(c) if c == RIM => 'o',
+        Some(c) if c == RECORD => '.',
+        Some(c) if c == groove => ':',
+        Some(c) if c == dim => 'd',
+        Some(c) if c == bright => 'B',
+        Some(c) => panic!("{c:?}"),
+    };
+    px.chunks(usize::from(cols)).map(|row| row.iter().map(char_of).collect()).collect()
+}
+
+/// The record pixel for pixel, worked out apart from this code (in single precision, as here):
+/// square with its rings, wider than it's tall, and taller than it's wide with the record across
+/// the whole width. In the last two the streak leaves pixels on their own, which take their
+/// first grooved neighbour's colour (left, right, up, then down).
+#[test]
+fn the_record_is_drawn_pixel_for_pixel() {
+    assert_eq!(
+        art(24, 12, 1.3),
+        [
+            "         oooooo         ",
+            "      oooBBBdddooo      ",
+            "     odBBBBBdd....o     ",
+            "    oddBBBBBdd.....o    ",
+            "   oddddBBBBdd:::...o   ",
+            "  o..dddBBBBdd::::...o  ",
+            " o...:dddBBBd...:::...o ",
+            " o..:::ddBBLL....:::..o ",
+            " o..::..dLLLLLL...::..o ",
+            "o...::..LLLLLLLL..::...o",
+            "o..::...LLLLLLLL...::..o",
+            "o..::..LLLL  LLLL..::..o",
+            "o..::..LLLL  LLLL..::..o",
+            "o..::...LLLLLLLL...::..o",
+            "o...::..LLLLLLLL..::...o",
+            " o..::...LLLLLLd..::..o ",
+            " o..:::....LLBBdd:::..o ",
+            " o...:::...dBBBddd:...o ",
+            "  o...::::ddBBBBddd..o  ",
+            "   o...:::ddBBBBddddo   ",
+            "    o.....ddBBBBBddo    ",
+            "     o....ddBBBBBdo     ",
+            "      ooodddBBBooo      ",
+            "         oooooo         ",
+        ]
+    );
+    assert_eq!(
+        art(20, 6, 0.7),
+        [
+            "        oooo        ",
+            "      oo....oo      ",
+            "     oBdd.....o     ",
+            "     oBBd.....o     ",
+            "    oddBLLLL...o    ",
+            "    o...L  L...o    ",
+            "    o...L  L...o    ",
+            "    o...LLLLBddo    ",
+            "     o.....dBBo     ",
+            "     o.....ddBo     ",
+            "      oo....oo      ",
+            "        oooo        ",
+        ]
+    );
+    assert_eq!(
+        art(11, 9, 2.0),
+        [
+            "           ",
+            "           ",
+            "           ",
+            "     o     ",
+            "  ooooooo  ",
+            " oo..dBBoo ",
+            " o...dBBBo ",
+            "o...LLL...o",
+            "o..LL LL..o",
+            "o..LL LL..o",
+            "o...LLL...o",
+            " oBBBd...o ",
+            " ooBBd..oo ",
+            "  ooooooo  ",
+            "     o     ",
+            "           ",
+            "           ",
+            "           ",
+        ]
+    );
+}
+
+/// A pixel right on an edge is drawn by what's outside it: one whose centre is exactly the label's
+/// radius away is the record, and one whose light is exactly a step of the streak's is the step
+/// below. (At 51 x 25 the centre of column 25, row 15, is 9.5 pixels from the middle, the label's
+/// radius; the angles are ones at which a pixel's light is exactly 0.97 or 0.87 in single
+/// precision.)
+#[test]
+fn a_pixel_on_an_edge_is_drawn_by_whats_outside_it() {
+    assert_eq!(&art(51, 25, 0.0)[15][23..28], ".....");
+    assert_eq!(art(24, 12, f32::from_bits(0xbf97_80a0))[4].as_bytes()[17], b'd', "light exactly 0.97");
+    assert_eq!(art(24, 12, f32::from_bits(0xbf9b_e28a))[6].as_bytes()[18], b':', "light exactly 0.87");
 }

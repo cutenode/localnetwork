@@ -957,7 +957,7 @@ fn prop_picking_a_playlist_takes_a_playlist(tc: hegel::TestCase) {
 /// tags first; a question takes only y or n; while a job runs, another waits for it, saying so;
 /// a dialog from the background waits for the one open to close; results for a job stopped since
 /// change nothing; with no drive open, the menu and undo say one's needed.
-#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
     use super::super::browse::SORT_FIELDS;
     use super::super::drives::Report;

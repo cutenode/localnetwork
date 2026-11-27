@@ -254,7 +254,7 @@ fn draw_tempo(f: &mut Frame, app: &App, area: Rect) {
         let [digits, _, side] = Layout::horizontal(beside).areas(inner);
         (digits, Rect::default(), side)
     };
-    let pos_ms = app.position_ms();
+    let pos_ms = app.heard_ms();
     let bpm = app.now.as_ref().map_or(0.0, |n| n.bpm_at(pos_ms));
     // Signed pitch goes first here, once a track's speed can change. Until then a figure would
     // suggest a control that isn't there.
@@ -296,7 +296,7 @@ fn key_chip(app: &App, now: &NowPlaying) -> Span<'static> {
 /// `-3:42`, warning of the end of the track.
 fn time_left(app: &App) -> Option<Span<'static>> {
     let now = app.now.as_ref()?;
-    let left = (now.duration.as_secs_f64() - app.position().as_secs_f64()).max(0.0);
+    let left = (now.duration.as_secs_f64() - app.heard().as_secs_f64()).max(0.0);
     Some(Span::styled(format!("-{}", clock(left)), end_style(app).unwrap_or(bold(theme::current().text))))
 }
 
@@ -304,7 +304,7 @@ fn time_left(app: &App) -> Option<Span<'static>> {
 /// twice a second while playing, and with less motion it's only its colour.
 pub(super) fn end_style(app: &App) -> Option<Style> {
     let now = app.now.as_ref()?;
-    let left = now.duration.as_secs_f64() - app.position().as_secs_f64();
+    let left = now.duration.as_secs_f64() - app.heard().as_secs_f64();
     if app.deck.end_warning == 0 || left > f64::from(app.deck.end_warning) || now.duration.is_zero() {
         return None;
     }
@@ -341,7 +341,7 @@ fn draw_readout(f: &mut Frame, app: &mut App, area: Rect) {
     let mut left = transport(app);
     pad_to(&mut left, 2);
     if let Some(now) = &app.now {
-        let pos_ms = app.position_ms();
+        let pos_ms = app.heard_ms();
         // How far, right-aligned so the name after it doesn't move as it counts down.
         let away = |to_ms: f64| match (now.bars_to(pos_ms, to_ms), wordy) {
             (Some((bars, beats)), true) => {
@@ -456,7 +456,7 @@ pub(super) fn deck_states(app: &App) -> Vec<Span<'static>> {
 /// The waveform going past the playhead, or why it isn't there.
 fn draw_zoom(f: &mut Frame, app: &mut App, area: Rect, cue_rows: u16) {
     keep_waves(app);
-    let (position_secs, visible_secs, mode) = (app.position().as_secs_f64(), app.deck_secs, app.band_mode());
+    let (position_secs, visible_secs, mode) = (app.heard().as_secs_f64(), app.deck_secs, app.band_mode());
     let palette = theme::palette();
     match app.now.as_ref().and_then(|n| Some((n, n.zoom_wave(mode)?.0))) {
         Some(_) if area.height < 3 => {}

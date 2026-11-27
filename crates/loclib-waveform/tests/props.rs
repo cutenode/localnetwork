@@ -204,6 +204,31 @@ fn prop_the_overview_marks_a_cue_where_it_falls(tc: TestCase) {
     assert_eq!(cue_letter(&c), c.hot_cue.filter(|h| *h < 26).map(|h| char::from(b'A' + h)));
 }
 
+/// Each of the overview's columns shows the loudest of the waveform's columns it covers: column
+/// `x` of `w` covers from `x * n / w` up to `(x + 1) * n / w` of `n`, rounded out, and at least
+/// the one it starts in. A waveform silent but for one column is drawn in exactly those.
+#[hegel::test(test_cases = 200)]
+fn prop_the_overview_draws_a_column_where_it_falls(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(60));
+    let width = tc.draw(gs::integers::<u16>().min_value(4).max_value(40));
+    let k = tc.draw(gs::integers::<usize>().max_value(n - 1));
+    let loud = WaveColumn { back: WaveLayer { height: 1.0, color: [200, 50, 50] }, front: WaveLayer::default() };
+    let mut columns = vec![WaveColumn::default(); n];
+    columns[k] = loud;
+    let w = Waveform { style: WaveformStyle::Rgb, columns_per_sec: None, columns };
+    let area = Rect::new(0, 0, width, 4);
+    let mut buf = Buffer::empty(area);
+    Overview { wave: Some(&w), progress: 0.0, cues: &[], duration_ms: 1_000.0, palette: palette(&tc) }
+        .render(area, &mut buf);
+    let (n, wf) = (n as f64, f64::from(width));
+    for x in 0..width {
+        let from = (f64::from(x) * n / wf).floor() as usize;
+        let to = ((f64::from(x + 1) * n / wf).ceil() as usize).max(from + 1);
+        let shown = (1..4).any(|y| !matches!(buf[(x, y)].symbol(), " " | "│"));
+        assert_eq!(shown, (from..to).contains(&k), "column {x}: {from}..{to}");
+    }
+}
+
 /// The detail view keeps the playhead in its middle, whatever is around it.
 #[hegel::test(test_cases = 200)]
 fn prop_the_detail_view_centres_the_playhead(tc: TestCase) {

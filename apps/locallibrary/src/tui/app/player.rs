@@ -27,11 +27,21 @@ impl App {
         self.audio.as_ref().is_some_and(|a| a.is_loaded() && !a.is_paused())
     }
 
-    /// Where the playing track is (with its output gone, where it waits to play on from).
+    /// Where the playing track is (with its output gone, where it waits to play on from): as far
+    /// as it's been handed to the output, which a jump that keeps the beat goes by.
     pub fn position(&self) -> Duration {
         match &self.audio {
             Some(a) => a.position(),
             None => self.resume.filter(|_| self.now.is_some()).unwrap_or_default(),
+        }
+    }
+
+    /// Where the playing track is heard: [`Self::position`] less what the output still has to
+    /// play. What's drawn, and what's placed where the playhead is, go by it.
+    pub fn heard(&self) -> Duration {
+        match &self.audio {
+            Some(a) => a.heard(),
+            None => self.position(),
         }
     }
 

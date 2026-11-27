@@ -407,7 +407,7 @@ fn verify_asks_which_backup() {
 /// says what the backup then does, `verify` finds the backup whole, `backups` lists it, and each
 /// counts the tracks rekordbox hasn't deleted and the music of those whose file is here (when the
 /// music is asked for). A second backup copies none of that music again.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_a_backup_is_whole_listed_and_as_planned(tc: TestCase) {
     stamped();
     let mut f = fixture();

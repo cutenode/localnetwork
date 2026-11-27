@@ -217,7 +217,7 @@ fn a_fraction_of_a_frame_is_measured() {
 /// A copy of a short track late by any part of a frame has its offset measured. At half a
 /// frame it keeps under half its landmark pairs, since each of a pair's peaks moves into the next
 /// frame or not on its own, so counting pairs called 20 s copies unmeasured.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(seed = 1u32, delay = 99usize)]
 fn prop_a_short_copy_late_by_part_of_a_frame_is_measured(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>().min_value(1).max_value(10_000));
@@ -228,6 +228,40 @@ fn prop_a_short_copy_late_by_part_of_a_frame_is_measured(tc: TestCase) {
     let truth = delay as f64 / RATE as f64;
     let a = align(&print(&x), &print(&copy)).unwrap();
     assert!((a.offset - truth).abs() < 0.004 && a.is_precise(), "{truth}: {a:?}");
+}
+
+/// A slice is heard with a slice's worth of votes, and the last one, cut short where the track
+/// ends, with its share of them: here a whole slice with 6 and half of one with 3, while a whole
+/// slice with 5 isn't heard. In a copy that starts a slice later, the same slices are heard where
+/// they are in the copy.
+#[test]
+fn a_slice_is_heard_with_its_share_of_the_votes() {
+    // Peaks in one frame pair with none (they're too close in time), and pairs 40 bins apart
+    // with each other's: each pair is one landmark, one vote at the offset.
+    let pairs = |t: u32, dt: u32, bins: &'static [u8]| {
+        bins.iter().flat_map(move |&f| [Peak { t, f }, Peak { t: t + dt, f: f + 1 }])
+    };
+    let alone = |t: u32| (200..220).map(move |f| Peak { t, f });
+    // The first slice with `whole` votes (5 or 6), then half a slice with 3.
+    let at = |shift: u32, whole: usize| {
+        let mut peaks: Vec<Peak> = alone(0)
+            .chain(pairs(0, 5, &[0, 40, 80, 120, 160]))
+            .chain(pairs(70, 5, &[10]).take(2 * (whole - 5)))
+            .chain(alone(180))
+            .chain(pairs(180, 7, &[0, 40, 80]))
+            .map(|p| Peak { t: p.t + shift, f: p.f })
+            .collect();
+        peaks.sort_unstable();
+        // A slice and a half: 258 frames.
+        TrackPrint { duration_secs: (258 + shift) as f32 / FRAMES_PER_SEC as f32 + 0.001, peaks }
+    };
+    let same = align(&at(0, 6), &at(0, 6)).unwrap();
+    assert_eq!((same.offset, same.pairs, same.coverage), (0.0, 9, (1.0, 1.0)), "{same:?}");
+    let later = align(&at(0, 6), &at(SLICE, 6)).unwrap();
+    assert_eq!((later.pairs, later.coverage), (9, (1.0, 1.0)), "{later:?}");
+    assert!((later.offset - f64::from(SLICE) / FRAMES_PER_SEC).abs() < 1e-9, "{later:?}");
+    let short = align(&at(0, 5), &at(0, 5)).unwrap();
+    assert_eq!((short.pairs, short.coverage), (8, (0.5, 0.5)), "{short:?}");
 }
 
 /// Which kind of speed voted more by 15% is the same however many detections share the votes:
@@ -438,7 +472,7 @@ fn prop_a_chain_along_any_line_is_one_play(tc: TestCase) {
 
 /// A copy of a track delayed by any amount and at any level lines up with it at that delay,
 /// heard throughout, and the other way round at minus that delay.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 // Late by half a frame, so few landmark pairs match: the last 2 s, a slice cut short where the
 // track ends, kept too few to count as heard by a whole slice's measure.
 #[hegel::explicit_test_case(seed = 6678u32, delay = 134usize, gain = 1.0f32, other = 1u32)]
@@ -516,7 +550,7 @@ fn carries_on(index: &LibraryIndex, peaks: &[Peak], heard: &[(u32, f64, f64, f64
 /// A set stitched from any of the library's tracks, each from any point in it, at any level,
 /// after any silence and with any gap before the next, is heard as those tracks in that
 /// order, each where it was put in the set and from where it was taken in the track.
-#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
     let (tracks, index) = library();
     let secs = |s: f64| (s * RATE as f64) as usize;
@@ -857,7 +891,7 @@ fn prop_a_track_isnt_heard_in_two_places_at_once(tc: TestCase) {
 /// presence runs from 0 to 1. It doesn't grow over a gap of silence into where the track comes
 /// back further on. That's so whatever the key lock reading, and however its line is split
 /// up: a line cut into pieces traces as the whole of it.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_tracing_follows_a_play_along_its_line(tc: TestCase) {
     let (tracks, index) = library();
     let variants = fingerprint::variants(0.02);

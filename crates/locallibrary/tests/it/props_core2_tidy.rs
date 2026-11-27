@@ -7,8 +7,8 @@ use crate::common;
 use std::collections::BTreeSet;
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
 use locallibrary::tidy::{self, TidyItem, TidyKind, TidyOptions};
@@ -28,7 +28,7 @@ const CLUTTER: &[(&str, bool)] = &[
 /// Plan items that name paths outside the drive, or ones no plan holds.
 const FORGED: &[&str] = &["../outside.txt", "Contents//x", "./.DS_Store", "Contents\\A\\.DS_Store", "a/../b"];
 
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_tidying_a_stale_plan_removes_only_what_is_still_clutter(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -109,7 +109,7 @@ fn prop_tidying_a_stale_plan_removes_only_what_is_still_clutter(tc: TestCase) {
 /// another write holds the drive, stops before anything goes; and clutter in a folder it can't
 /// change stays, said to have failed, while the rest goes.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(clutter = "Thumbs.db", locked_name = "Locked", held = true)]
 #[hegel::explicit_test_case(clutter = "Thumbs.db", locked_name = "Locked", held = false)]
 fn prop_tidying_stops_when_cancelled_or_locked_and_passes_by_what_it_cant_read(tc: TestCase) {

@@ -4,8 +4,8 @@
 
 use crate::common;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::anlz::{self, CueFile, CuePoint, WaveformStyle};
 use locallibrary::device::Device;
 use locallibrary::paths;
@@ -40,7 +40,7 @@ fn without(bytes: &[u8], tags: &[&[u8; 4]]) -> Vec<u8> {
 
 /// A track whose `.DAT` and `.EXT` lack an overview or detail waveform shows the 3-band ones of
 /// its `.2EX` in their place; the ones it has come first (colour, then blue).
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_a_track_without_other_waveforms_shows_its_3_band_ones(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");

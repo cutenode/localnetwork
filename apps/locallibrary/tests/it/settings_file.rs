@@ -68,7 +68,7 @@ const SET: [(&str, [&str; 2]); 3] =
 /// one it adds, `~` one it replaces, `=` one it keeps, saying what the file has. With `--yes`
 /// it imports them, saying how many, so there each is the file's unless it was kept; with
 /// nothing to add or replace, it says so and changes nothing.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_settings_file_imports_as_its_plan_shows(tc: TestCase) {
     let (here, there) = (Env::new(), Env::new());
     let draw = || -> Vec<Option<&str>> {

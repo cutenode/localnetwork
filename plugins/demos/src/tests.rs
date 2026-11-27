@@ -181,7 +181,8 @@ fn prop_without_a_drive_it_knows_nothing_is_found_or_removed(tc: TestCase) {
 }
 
 /// For any library, `clean` deletes exactly the files of the demo tracks no other track shares,
-/// each once, and the check names exactly those tracks; every other track's file is left out.
+/// each once, and the check names exactly those tracks; every other track's file is left out, and
+/// the demo tracks that stay with it are counted in a warning.
 #[hegel::test(test_cases = 100)]
 fn prop_clean_deletes_exactly_the_demo_tracks_files(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(12));
@@ -222,6 +223,11 @@ fn prop_clean_deletes_exactly_the_demo_tracks_files(tc: TestCase) {
     assert_eq!(keys.iter().collect::<BTreeSet<_>>().len(), keys.len(), "each file once: {deleted:?}");
     let want: BTreeSet<String> = going.iter().map(|t| file_key(&t.file_path)).collect();
     assert_eq!(keys.into_iter().collect::<BTreeSet<_>>(), want);
+    let shared = lib.tracks.iter().filter(demo).count() - going.len();
+    let stay = format!(
+        "{shared} demo track(s) share their audio file with another track and stay: deleting them would delete it too"
+    );
+    assert_eq!(plan.warnings, (shared > 0).then_some(stay).as_slice());
     let found: Vec<u32> = s.check().findings.iter().flat_map(|f| f.finding.tracks.clone()).collect();
     assert_eq!(found, going.iter().map(|t| t.id).collect::<Vec<_>>());
     s.stop();

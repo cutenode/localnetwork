@@ -3,8 +3,8 @@
 
 use crate::common::{self, path};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, UndoRequest};
 use locallibrary::edit::Edit;
 use locallibrary::paths;
@@ -14,7 +14,7 @@ use locallibrary::progress::Ctx;
 /// played on (a history list) and given a OneLibrary database: undoing the edit, forced as the
 /// drive changed since, puts export.pdb back, removes the database the backup didn't have, and
 /// warns of the history list it drops; the library is then as it was before the edit.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 #[hegel::explicit_test_case(exported = true, played = true, onelibrary = true)]
 fn prop_undoing_puts_back_the_backup_and_says_what_goes(tc: TestCase) {
     let exported = tc.draw(gs::booleans());

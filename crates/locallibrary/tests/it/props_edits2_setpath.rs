@@ -6,8 +6,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::progress::Ctx;
@@ -28,7 +28,7 @@ fn no_path() -> Vec<u8> {
 /// naming no file. One already naming it, or naming none, is left; one that isn't an analysis file is left with a warning, or, when the
 /// copy's times are later, refuses the edit (cues move everywhere or nowhere); a folder refuses it.
 /// A refused edit leaves the drive as it was.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(dat = 0u8, ext = 1u8, ex2 = 2u8, shift = false)]
 #[hegel::explicit_test_case(dat = 0u8, ext = 4u8, ex2 = 0u8, shift = false)]
 #[hegel::explicit_test_case(dat = 2u8, ext = 0u8, ex2 = 3u8, shift = true)]
@@ -109,7 +109,7 @@ fn prop_pointing_a_track_rewrites_the_analysis_files_that_name_its_old_file(tc: 
 /// new path and file name beside its other details (a title as long as it holds, less `room`
 /// characters, takes most of it), and then made; refused, it names the path and the drive is as
 /// it was.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 #[hegel::explicit_test_case(room = 0usize, folder = 120usize)]
 #[hegel::explicit_test_case(room = 300usize, folder = 1usize)]
 fn prop_a_track_is_pointed_only_at_a_path_its_export_pdb_row_holds(tc: TestCase) {
