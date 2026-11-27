@@ -1068,3 +1068,45 @@ fn undo_leaves_a_file_analysed_again_in_place() {
     assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("analysed it again")), "{e}");
     assert_eq!(std::fs::read(dir.join("ANLZ0000.EXT")).unwrap(), b"rekordbox's");
 }
+
+/// Analysis paths that name a file only by Windows rewriting them (a trailing dot or space) are
+/// refused, and so is one file named twice in one write by two tracks spelling it in other cases.
+#[test]
+fn analysis_paths_windows_rewrites_or_case_folds_together() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    for odd in ["/PIONEER/USBANLZ/P016./0000875E/ANLZ0000.DAT", "/PIONEER/USBANLZ/P016/0000875E /ANLZ0000.DAT"] {
+        let e = write(&lib.target, |e| {
+            let sql = format!("UPDATE djmdContent SET AnalysisDataPath = '{odd}' WHERE ID = '{TRACK}'");
+            e.conn().execute(&sql, []).unwrap();
+            e.read_analysis_file(TRACK, "DAT")
+        })
+        .unwrap_err();
+        assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{odd}: {e}");
+    }
+    let e = write(&lib.target, |e| {
+        let folded = format!("/{}/ANLZ0000.DAT", ANALYSIS_DIR.to_lowercase());
+        let sql = format!("UPDATE djmdContent SET AnalysisDataPath = '{folded}' WHERE ID = '205356547'");
+        e.conn().execute(&sql, []).unwrap();
+        e.replace_analysis_file(TRACK, "EXT", b"x")?;
+        e.replace_analysis_file("205356547", "EXT", b"y")
+    })
+    .unwrap_err();
+    assert!(matches!(&e, Error::Invalid(why) if why.contains("twice")), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+}
+
+/// Reading a track's analysis file doesn't follow a folder linked out of the share folder.
+#[cfg(unix)]
+#[test]
+fn analysis_files_are_read_only_from_the_share_folder() {
+    let (lib, dir) = analysed_lib();
+    let outside = lib.target.master_db.parent().unwrap().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("ANLZ0000.DAT"), b"not rekordbox's").unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::os::unix::fs::symlink(&outside, &dir).unwrap();
+    let e = write(&lib.target, |e| e.read_analysis_file(TRACK, "DAT")).unwrap_err();
+    assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
+}

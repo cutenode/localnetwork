@@ -117,6 +117,8 @@ impl Edit<'_> {
         let parts: Vec<&str> = key.split('/').collect();
         let inside = parts.len() > 2
             && parts.iter().all(|c| paths::is_safe_component(c))
+            // Windows drops a trailing dot or space, so such a name would be another file there.
+            && parts.iter().all(|c| !c.ends_with(['.', ' ']))
             && parts[0].eq_ignore_ascii_case("PIONEER")
             && parts[1].eq_ignore_ascii_case("USBANLZ");
         match path {
@@ -138,7 +140,19 @@ impl Edit<'_> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(Error::Io { path: file, source: e }),
             Ok(m) if !m.is_file() => Err(not_plain(&file)),
-            Ok(_) => Ok(Some(std::fs::read(&file).at(&file)?)),
+            Ok(_) => {
+                self.in_share(&file)?;
+                Ok(Some(std::fs::read(&file).at(&file)?))
+            }
+        }
+    }
+
+    /// Refuses `file` unless it's in the share folder, links followed.
+    fn in_share(&self, file: &Path) -> Result<()> {
+        let share = self.share.canonicalize().at(self.share)?;
+        match file.canonicalize().at(file)?.starts_with(&share) {
+            true => Ok(()),
+            false => Err(not_plain(file)),
         }
     }
 
@@ -151,7 +165,8 @@ impl Edit<'_> {
     /// rows aren't the one rekordbox keeps, listing what it holds where it is.
     pub fn replace_analysis_file(&mut self, track_id: &str, ext: &str, bytes: &[u8]) -> Result<Option<FileBefore>> {
         let (path, key, file) = self.analysis_file(track_id, ext)?;
-        if self.replaced.iter().any(|r| r.file == file) {
+        // Two tracks can spell one file in other cases, on a folder that ignores case.
+        if self.replaced.iter().any(|r| paths::file_key(&r.path) == paths::file_key(&path)) {
             return Err(Error::Invalid(format!("{path} is replaced twice in one write")));
         }
         let meta = match std::fs::symlink_metadata(&file) {
@@ -165,10 +180,7 @@ impl Edit<'_> {
             Ok(m) if !m.is_file() => return Err(not_plain(&file)),
             Ok(m) => m,
         };
-        let share = self.share.canonicalize().at(self.share)?;
-        if !file.canonicalize().at(&file)?.starts_with(&share) {
-            return Err(not_plain(&file));
-        }
+        self.in_share(&file)?;
         let old = std::fs::read(&file).at(&file)?;
         if old == bytes {
             return Ok(None);
