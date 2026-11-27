@@ -2667,7 +2667,11 @@ fn background_results_are_shown_or_said() {
     assert_eq!(last_message(&app), "can't read the sets: a broken set book");
 
     // Another load's index is dropped; a details lookup for a track no longer asked about too.
-    let index = Index { ranks: vec![(SortField::Title, vec![0; 4])], groups: FxHashMap::default() };
+    let index = Index {
+        ranks: vec![(SortField::Title, vec![0; 4])],
+        groups: FxHashMap::default(),
+        collabs: Default::default(),
+    };
     app.handle_msg(Msg::Indexed(generation + 1, Box::new(index)));
     assert!(app.loaded.as_ref().unwrap().ranks.is_empty());
     let l = app.loaded.as_ref().unwrap();

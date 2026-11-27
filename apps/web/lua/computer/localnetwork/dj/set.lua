@@ -75,6 +75,8 @@ local function cut(s, seps)
 	local out, seen = {}, {}
 	for first, after in marks:gmatch('()[^\31]+()') do
 		local name = s:sub(first, after - 1):match('^[%s()]*(.-)[%s()]*$')
+		-- "A, B, and C": the last name after the commas is C.
+		if first > 1 then name = name:gsub('^[Aa][Nn][Dd]%s+', ''):gsub('^&%s+', '') end
 		local key = normalize(name)
 		if key ~= '' and not seen[key] then
 			seen[key] = true
@@ -93,7 +95,7 @@ local CREDITS = { ',', ';', '%s*%(?%f[%w]featuring%s+', '%s*%(?%f[%w]feat%.?%s+'
 local COLLAB = { '%s+&%s+', '%s+x%s+', '%s+vs%.?%s+', '%s+and%s+' }
 
 -- The acts `name` credits when it's a collaboration, each as an artist (a name and its key), or nil when it names
--- one. The queries count it for each act only when every one is credited alone somewhere (lib/directory.lua), so
+-- one. The queries count it for each act only when one of them is credited alone somewhere (lib/directory.lua), so
 -- "Chase & Status" stays one act.
 local function parts(name)
 	local acts = cut(name, COLLAB)

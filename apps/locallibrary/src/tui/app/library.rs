@@ -157,7 +157,7 @@ impl App {
 
     /// Group `c` again now there's more to group by (read in the background), keeping the tree's
     /// cursor on its row as rows come and go above it.
-    pub(super) fn regroup(&mut self, c: Category) {
+    pub(in crate::tui) fn regroup(&mut self, c: Category) {
         let Some(l) = self.loaded.as_mut() else { return };
         let row = self.playlist_state.selected().and_then(|i| l.tree.get(i)).map(|n| n.id.clone());
         l.groups.remove(&c);

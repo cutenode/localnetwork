@@ -119,6 +119,8 @@ fn contents(tc: &TestCase) -> Contents {
             hidden: names(tc),
             hidden_artists: names(tc),
             genre_aliases: names(tc).into_iter().map(|n| (n.to_lowercase(), n)).collect(),
+            artists_together: names(tc).into_iter().map(|n| format!("{n} & {n}2")).collect(),
+            artists_apart: names(tc).into_iter().map(|n| format!("{n} x {n}3")).collect(),
             headline: tc.draw(gs::optional(gs::sampled_from(vec!["warm", "peak"]))).map(String::from),
         });
     }

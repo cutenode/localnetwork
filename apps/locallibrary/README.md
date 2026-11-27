@@ -510,7 +510,7 @@ flowchart TD
     hub --> plays["plays<br/>lists, stats, export, import"]
     hub --> sets["sets<br/>list, show, new, edit, delete, suggest, export, played, playlist, publish"]
     hub --> mix["mix<br/>which tracks a recording plays"]
-    hub --> profile["profile<br/>show, document, publish, sections, include, exclude, default-sections, pin, unpin, hide, unhide, alias, headline, precision, prefs, reset"]
+    hub --> profile["profile<br/>show, document, publish, sections, include, exclude, default-sections, pin, unpin, hide, unhide, alias, collab, headline, precision, prefs, reset"]
     hub --> players["players<br/>show, set, clear, models"]
     plays ~~~ profile
     sets ~~~ players

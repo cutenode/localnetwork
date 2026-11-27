@@ -102,6 +102,8 @@ fn options(req: &ProfileRequest, prefs: &ProfilePrefs) -> Result<ProfileOptions>
         top: req.top.unwrap_or(defaults.top).max(1),
         analysis: !req.no_analysis,
         genre_aliases: prefs.genre_aliases.clone(),
+        artists_together: prefs.artists_together.clone(),
+        artists_apart: prefs.artists_apart.clone(),
     };
     if let (Some(a), Some(b)) = (options.since, options.until)
         && a > b

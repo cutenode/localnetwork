@@ -230,6 +230,9 @@ fn update() -> impl hegel::PrintableGenerator<PrefsUpdate> {
             unhide_artist: rarely(tc.draw(artists())),
             alias: IndexMap::new(),
             unalias: Vec::new(),
+            together: Vec::new(),
+            apart: Vec::new(),
+            unsplit: Vec::new(),
             headline: tc.draw(gs::optional(gs::sampled_from(vec!["Warm-up DJ", " "]).map(String::from))),
         }
     })

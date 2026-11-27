@@ -3,7 +3,7 @@
 
 use locallibrary::fields::TrackValues;
 use locallibrary::harmony::{self, Camelot};
-use locallibrary::model::{TrackColor, normalize};
+use locallibrary::model::{CollabRule, TrackColor, normalize, remixers};
 use locallibrary::query::{FieldName, SortField, SortKey, compare_values};
 use locallibrary::sets::Set;
 use locallibrary::tags::TagsByTrack;
@@ -216,9 +216,64 @@ fn collect(lib: &Library, none: &str, f: impl Fn(&Track) -> Option<(String, Stri
     (out, (!rest.tracks.is_empty()).then_some(rest))
 }
 
+/// The DJ's choices about collaborations (`profile collab`, kept in the store's `profile.json`):
+/// credits kept as one act, and ones split into theirs, whoever is credited alone.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Collabs {
+    pub together: Vec<String>,
+    pub apart: Vec<String>,
+}
+
+impl Collabs {
+    /// The store's, or none when it has none (or can't be read).
+    pub fn load(store_root: &std::path::Path) -> Collabs {
+        let prefs = locallibrary::Store::open(store_root)
+            .ok()
+            .and_then(|s| locallibrary::profile::ProfilePrefs::load(&s).ok())
+            .unwrap_or_default();
+        Collabs { together: prefs.artists_together, apart: prefs.artists_apart }
+    }
+
+    /// How `lib`'s collaborations split: by who it credits alone, as artist or remixer.
+    pub fn rule(&self, lib: &Library) -> CollabRule {
+        let remixed: Vec<String> = lib.tracks.iter().flat_map(remixers).collect();
+        let credited = lib.tracks.iter().map(|t| t.artist.as_str()).chain(remixed.iter().map(String::as_str));
+        CollabRule::new(credited, &self.together, &self.apart)
+    }
+}
+
+/// Everyone a track is by, for Browse › Artist: each artist it credits and each remixer, with
+/// collaborations split as `rule` says, each once.
+pub fn credited(t: &Track, rule: &CollabRule) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in std::iter::once(t.artist.clone()).chain(remixers(t)).flat_map(|c| rule.credits(&c)) {
+        if !out.iter().any(|o| normalize(o) == normalize(&name)) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// The track's collaboration as the actions menu offers to change it, and whether it's split
+/// now: the one crediting `artist` when given (the Browse › Artist folder shown), else its first.
+pub fn collab_of(t: &Track, artist: Option<&str>, rule: &CollabRule) -> Option<(String, bool)> {
+    let credits: Vec<String> = std::iter::once(t.artist.clone())
+        .chain(remixers(t))
+        .flat_map(|c| locallibrary::model::artist_credits(&c))
+        .filter(|c| locallibrary::model::collab_parts(c).len() > 1)
+        .collect();
+    let names = |c: &str| locallibrary::model::collab_parts(c).iter().map(|p| normalize(p)).collect::<Vec<_>>();
+    let pick = match artist {
+        Some(a) => credits.iter().find(|c| names(c).contains(&normalize(a))).or(credits.first()),
+        None => credits.first(),
+    }?;
+    Some((pick.clone(), rule.splits(&normalize(pick), &names(pick))))
+}
+
 /// The values of `cat` on the drive with their tracks, in display order. `by_id` maps track ids
 /// to library indexes (for history lists); `tags` are the drive's My Tags (none until they're
-/// read); `sets` are the store's (none until they're read).
+/// read); `sets` are the store's (none until they're read); `collabs` say how Artist splits a
+/// collaboration.
 pub fn groups(
     lib: &Library,
     cat: Category,
@@ -226,6 +281,7 @@ pub fn groups(
     problems: &Problems,
     tags: Option<&TagsByTrack>,
     sets: &[Set],
+    collabs: &Collabs,
 ) -> Vec<Group> {
     let text = |get: fn(&Track) -> &str, none: &str| {
         let (mut v, rest) = collect(lib, none, |t| {
@@ -237,7 +293,42 @@ pub fn groups(
         v
     };
     match cat {
-        Category::Artist => text(|t| &t.artist, "Unknown artist"),
+        // A track is in the folder of each artist it credits and each remixer, as My Tags has
+        // it in each of its tags; each folder named as the library spells them most (the first
+        // of those).
+        Category::Artist => {
+            let rule = collabs.rule(lib);
+            let mut by_artist: FxHashMap<String, (Vec<usize>, indexmap::IndexMap<String, usize>)> =
+                FxHashMap::default();
+            let mut rest = Vec::new();
+            for (i, t) in lib.tracks.iter().enumerate() {
+                let names = credited(t, &rule);
+                if names.is_empty() {
+                    rest.push(i);
+                }
+                for name in names {
+                    let (tracks, spellings) = by_artist.entry(normalize(&name)).or_default();
+                    tracks.push(i);
+                    *spellings.entry(name).or_default() += 1;
+                }
+            }
+            let mut v: Vec<Group> = by_artist
+                .into_iter()
+                .map(|(key, (tracks, spellings))| {
+                    let most = spellings.iter().fold(None, |best: Option<(&String, usize)>, (s, &n)| match best {
+                        Some((_, m)) if m >= n => best,
+                        _ => Some((s, n)),
+                    });
+                    let label = most.map(|(s, _)| s.clone()).unwrap_or_default();
+                    Group { key, label, tracks, left_out: 0 }
+                })
+                .collect();
+            v.sort_by(|a, b| a.key.cmp(&b.key));
+            if !rest.is_empty() {
+                v.push(Group { key: String::new(), label: "Unknown artist".into(), tracks: rest, left_out: 0 });
+            }
+            v
+        }
         Category::Album => text(|t| &t.album, "No album"),
         Category::Genre => text(|t| &t.genre, "No genre"),
         Category::Key => {

@@ -354,8 +354,8 @@ local DJS = [[djs AS (
 -- What follows the sets CTE in queryPlays(): every named track of the current DJs' sets as a play, a row per play
 -- and artist it credits, with the track and the artist it counts for. A track is its recording MBID, else its ISRC,
 -- else its credit and title; an artist is their MBID, else their name. A collaboration ("A & B", "B x A") counts for
--- each of its acts when every one of them is credited alone somewhere and nothing gives the whole credit an MBID, so
--- "Chase & Status" stays one act unless a set credits "Chase" alone. A play without an ID takes the one other
+-- each of its acts when one of them is credited alone somewhere and nothing gives the whole credit an MBID, so
+-- "Chase & Status" stays one act unless a set credits "Chase" or "Status" alone. A play without an ID takes the one other
 -- plays have when only one fits (an ISRC's recording, a title's recording or ISRC, a name's artist), so sets
 -- published before their writer filled in IDs count with the ones after. It reads every set each time, so each query
 -- builds it once: Postgres materializes a CTE used more than once. Writing MATERIALIZED would fail, since HappyView
@@ -375,8 +375,8 @@ local PLAYS = [[, listed AS (
 	SELECT DISTINCT c.artistKey FROM listed AS c
 	WHERE c.parts IS NOT NULL
 		AND c.artistKey NOT IN (SELECT artistKey FROM listed WHERE artistMbid IS NOT NULL)
-		AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(c.parts) AS p
-			WHERE p.value ->> 'key' NOT IN (SELECT artistKey FROM listed WHERE parts IS NULL))
+		AND EXISTS (SELECT 1 FROM jsonb_array_elements(c.parts) AS p
+			WHERE p.value ->> 'key' IN (SELECT artistKey FROM listed WHERE parts IS NULL))
 ), credits AS (
 	SELECT setUri, position, did, act, date, city, country, startSeconds, mbid, isrc, name, artistMbid, artistKey,
 		artistName, track

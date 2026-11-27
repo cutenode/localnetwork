@@ -76,10 +76,12 @@ fn menu_says_why_actions_are_unavailable() {
     let t = Target { stale: true, ..t };
     assert!(menu_items(&t).iter().filter(|i| i.action != Action::CrateAdd).all(|i| i.unavailable.is_some()));
     // rekordbox's collection is never written: everything but the crate (which isn't the
-    // collection's) says so.
-    let t = Target { stale: false, collection: true, ..t };
+    // collection's) and how a collaboration counts (the store's choice) says so.
+    let t = Target { stale: false, collection: true, collab: Some(("A & B".into(), true)), ..t };
     let items = menu_items(&t);
-    let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::ClearCrate));
+    assert_eq!(find(&items, Action::Collab), None);
+    assert!(items.iter().any(|i| i.label == "keep A & B together as one artist"));
+    let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::ClearCrate | Action::Collab));
     assert!(
         others.clone().all(|i| i.unavailable.as_deref() == Some(COLLECTION_READ_ONLY)),
         "{:?}",

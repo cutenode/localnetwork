@@ -28,7 +28,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
 use super::app::{App, Focus, Level, Msg, UNDO_HINT, View, edit_line};
-use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
+use super::browse::{self, COLOURS, Category, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
 use super::keymap::{self, Act};
 use crate::output::plural;
@@ -128,6 +128,9 @@ pub enum Action {
     Plugin(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks.
     Fetch(loclib_plugin::ProviderKind),
+    /// Keep the track's collaboration together as one artist, or count it for each (the DJ's
+    /// choice, in the store: tags aren't changed).
+    Collab,
 }
 
 /// What had focus when a menu opened, whose actions come first.
@@ -165,6 +168,8 @@ pub struct Target {
     /// It's rekordbox's collection, which isn't written.
     pub collection: bool,
     pub selected: Selected,
+    /// The one track's collaboration (`A & B`), and whether it counts for each act now.
+    pub collab: Option<(String, bool)>,
 }
 
 pub struct MenuItem {
@@ -287,6 +292,20 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
             stale.clone(),
         ),
         item("y", keymap::name(Act::Replay).into(), Action::Replay, stale.clone()),
+        // The store's choice, not the drive's: it works on rekordbox's collection and unplugged.
+        match &t.collab {
+            Some((c, true)) => item("&", format!("keep {c} together as one artist"), Action::Collab, None),
+            Some((c, false)) => item("&", format!("count {c} for each artist"), Action::Collab, None),
+            None => item(
+                "&",
+                "count a collaboration for each artist…".into(),
+                Action::Collab,
+                Some(match t.tracks.len() {
+                    1 => "its artist isn't a collaboration (A & B, A x B)".into(),
+                    _ => "select one track".into(),
+                }),
+            ),
+        },
     ]
     .into_iter()
     .chain(super::plugins::offered(true, &[Where::Track, Where::Playlist]).into_iter().map(|o| {
@@ -675,7 +694,17 @@ impl App {
         };
         let crated =
             self.crate_list.items.iter().filter(|t| t.root == root).map(|t| t.track.file_path.clone()).collect();
+        // In an artist's folder, the collaboration crediting them; else the track's first.
+        let artist = match &l.node {
+            NodeId::Group(Category::Artist, key) => Some(key.as_str()),
+            _ => None,
+        };
+        let collab = match tracks.as_slice() {
+            [i] => browse::collab_of(&lib.tracks[*i], artist, &l.collabs.rule(lib)),
+            _ => None,
+        };
         Some(Target {
+            collab,
             root,
             tracks: tracks.iter().map(|&i| lib.tracks[i].file_path.clone()).collect(),
             what,
@@ -955,6 +984,11 @@ impl App {
             }
             Action::Replay => self.replay(t.root.clone()),
             Action::Tag => self.tag_tracks(),
+            Action::Collab => {
+                if let Some((credit, split)) = &t.collab {
+                    super::profile::collab(self, credit, !split);
+                }
+            }
             Action::Restore => self.restore_playlist(t.root.clone()),
             Action::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(t.root.clone()), Some(&t)),
             Action::Fetch(kind) => self.fetch_form(kind, Some(t.root.clone()), Some(&t)),

@@ -10200,6 +10200,30 @@
           },
           "default": []
         },
+        "together": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collaborations to keep as one act whoever is credited alone.",
+          "default": []
+        },
+        "apart": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collaborations to split into their acts whoever is credited alone.",
+          "default": []
+        },
+        "unsplit": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collaborations to split as the rule says again.",
+          "default": []
+        },
         "headline": {
           "type": [
             "string",
@@ -25464,6 +25488,21 @@
           },
           "description": "The DJ's genre spellings, e.g. `{\"dnb\": \"Drum & Bass\"}` (see [`ProfilePrefs`]).",
           "default": {}
+        },
+        "artists_together": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collaborations kept as one act, and ones split, whoever is credited alone (see\n[`ProfilePrefs`]).",
+          "default": []
+        },
+        "artists_apart": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         }
       },
       "required": [
@@ -25472,7 +25511,9 @@
         "min_set_tracks",
         "top",
         "analysis",
-        "genre_aliases"
+        "genre_aliases",
+        "artists_together",
+        "artists_apart"
       ]
     },
     "Basis": {
@@ -26491,6 +26532,20 @@
           },
           "description": "The DJ's genre spellings: genre text as tagged → genre as shown.",
           "default": {}
+        },
+        "artists_together": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collaborations kept as one act whoever is credited alone (\"Above & Beyond\"), here and in\nthe player's Browse ([`crate::model::CollabRule`])."
+        },
+        "artists_apart": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collaborations split into their acts whoever is credited alone."
         },
         "headline": {
           "type": [

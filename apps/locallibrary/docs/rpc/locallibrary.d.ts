@@ -1724,6 +1724,12 @@ export type PrefsUpdate = {
   unhide_artist?: string[];
   alias?: { [key: string]: string };
   unalias?: string[];
+  /** Collaborations to keep as one act whoever is credited alone. */
+  together?: string[];
+  /** Collaborations to split into their acts whoever is credited alone. */
+  apart?: string[];
+  /** Collaborations to split as the rule says again. */
+  unsplit?: string[];
   /** The DJ's own headline (empty: back to the generated one). */
   headline?: string | null;
 };
@@ -6857,6 +6863,12 @@ export type ProfileOptions = {
   analysis: boolean;
   /** The DJ's genre spellings, e.g. `{"dnb": "Drum & Bass"}` (see [`ProfilePrefs`]). */
   genre_aliases: { [key: string]: string };
+  /**
+   * Collaborations kept as one act, and ones split, whoever is credited alone (see
+   * [`ProfilePrefs`]).
+   */
+  artists_together: string[];
+  artists_apart: string[];
 };
 
 /**
@@ -7147,6 +7159,13 @@ export type ProfilePrefs = {
   hidden_artists: string[];
   /** The DJ's genre spellings: genre text as tagged → genre as shown. */
   genre_aliases: { [key: string]: string };
+  /**
+   * Collaborations kept as one act whoever is credited alone ("Above & Beyond"), here and in
+   * the player's Browse ([`crate::model::CollabRule`]).
+   */
+  artists_together?: string[];
+  /** Collaborations split into their acts whoever is credited alone. */
+  artists_apart?: string[];
   /** The DJ's own one-line description, instead of the generated one. */
   headline?: string | null;
 };

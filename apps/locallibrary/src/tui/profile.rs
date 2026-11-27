@@ -241,8 +241,9 @@ fn change(app: &mut App, update: PrefsUpdate, done: String) {
         .map_err(|e| e.to_string());
     match r {
         Ok(prefs) => {
-            let aliases_changed =
-                matches!(&app.profile.view, Some(Ok(v)) if v.prefs.genre_aliases != prefs.genre_aliases);
+            let aliases_changed = matches!(&app.profile.view, Some(Ok(v)) if v.prefs.genre_aliases != prefs.genre_aliases
+                || v.prefs.artists_together != prefs.artists_together
+                || v.prefs.artists_apart != prefs.artists_apart);
             app.profile.view = app.profile.view.take().map(|v| v.map(|v| ProfileView::new(v.report, prefs)));
             app.toast(done, Level::Info);
             if aliases_changed {
@@ -251,6 +252,25 @@ fn change(app: &mut App, update: PrefsUpdate, done: String) {
         }
         Err(e) => app.toast(e, Level::Error),
     }
+}
+
+/// Keep `credit` together as one artist (`together`), or count it for each of its artists, here
+/// and in Browse › Artist, which is grouped again.
+pub fn collab(app: &mut App, credit: &str, together: bool) {
+    let (update, done) = match together {
+        true => {
+            (PrefsUpdate { together: vec![credit.into()], ..Default::default() }, format!("{credit} is one artist"))
+        }
+        false => (
+            PrefsUpdate { apart: vec![credit.into()], ..Default::default() },
+            format!("{credit} counts for each artist"),
+        ),
+    };
+    change(app, update, done);
+    if let Some(l) = app.loaded.as_mut() {
+        l.collabs = crate::tui::browse::Collabs::load(&app.store_root);
+    }
+    app.regroup(crate::tui::browse::Category::Artist);
 }
 
 fn export(app: &mut App) {

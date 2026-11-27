@@ -317,9 +317,12 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
             };
             let (icon, icon_style) =
                 if marked { (icons::CHECK.spaced(), bold(theme::current().accent)) } else { (icon, icon_style) };
+            // A long name ("Ahadadream & Sam Interface") is cut short so its count still shows.
+            let count = compact(n.count);
+            let room = (inner_w as usize).saturating_sub(indent.len() + Span::raw(icon).width() + count.len() + 1);
             let left =
-                vec![Span::raw(indent), Span::styled(icon, icon_style), Span::styled(n.name.clone(), name_style)];
-            let right = vec![Span::styled(compact(n.count), faint())];
+                vec![Span::raw(indent), Span::styled(icon, icon_style), Span::styled(clip(&n.name, room), name_style)];
+            let right = vec![Span::styled(count, faint())];
             ListItem::new(spread(left, right, inner_w))
         })
         .collect();

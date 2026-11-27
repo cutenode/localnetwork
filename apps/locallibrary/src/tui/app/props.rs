@@ -626,7 +626,11 @@ fn prop_background_results_land_where_they_belong(tc: TestCase) {
             _ => {
                 let field = tc.draw(gs::sampled_from(&browse::SORT_FIELDS[..]));
                 let had = app.loaded.as_ref().unwrap().ranks.iter().any(|(f, _)| *f == field);
-                let index = Index { ranks: vec![(field, vec![7; n])], groups: FxHashMap::default() };
+                let index = Index {
+                    ranks: vec![(field, vec![7; n])],
+                    groups: FxHashMap::default(),
+                    collabs: Default::default(),
+                };
                 app.handle_msg(Msg::Indexed(g, Box::new(index)));
                 let l = app.loaded.as_ref().unwrap();
                 let kept = l.ranks.iter().find(|(f, _)| *f == field).map(|(_, r)| r[0]);
