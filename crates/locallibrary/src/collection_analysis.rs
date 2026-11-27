@@ -132,20 +132,18 @@ pub fn save(target: &Target, track_id: &str, edit: &CollectionAnalysis) -> Resul
         }
 
         if let Some(auto) = edit.cues {
-            let Some(dat) = files[0].as_deref() else {
-                return Err(invalid(crate::Error::invalid(format!(
-                    "{} has no analysis files (rekordbox hasn't analysed it), so cues can't be placed on its beat grid",
-                    t.display_name()
-                ))));
-            };
-            let placed = cue_edit::auto_placed(&t, have.clone(), dat, files[1].as_deref(), auto).map_err(invalid)?;
-            let entries = |c: &[CuePoint]| {
-                let mut out: Vec<CueEntry> = c.iter().map(entry).collect();
-                out.sort_by_key(|c| (c.hot_cue.map_or(0, |h| u32::from(h) + 1), c.start_ms));
-                out
-            };
-            if entries(&placed) != entries(&have) {
-                before.cues = Some(e.set_cues(track_id, &entries(&placed))?);
+            // Cues are placed on the grid, but the grid and key don't depend on them: cues that
+            // can't be placed are left out with a warning, unless they're all the save is. Both
+            // refuse before writing anything.
+            match place_cues(e, track_id, &t, &have, &files, auto) {
+                Ok((cues, said)) => {
+                    before.cues = cues;
+                    warnings.extend(said);
+                }
+                Err(Error::Invalid(why)) if !(edit.analysis.is_empty() && edit.key.is_none()) => {
+                    warnings.push(format!("{}'s cues weren't placed ({why}): the rest is saved", t.display_name()));
+                }
+                Err(e) => return Err(e),
             }
         }
         Ok((before, warnings))
@@ -172,6 +170,36 @@ pub fn undo(target: &Target, before: &AnalysisBefore) -> Result<Saved> {
         Ok(now)
     })?;
     Ok(Saved { before: written.value, warnings: Vec::new(), backup: written.backup, count: written.count })
+}
+
+/// Places `auto`'s cues on `t` among the cues it `has`, on the grid and phrases of its analysis
+/// `files` (as the save left them), and writes them if they changed: what that replaced, and what
+/// to warn of.
+fn place_cues(
+    e: &mut Edit<'_>,
+    track_id: &str,
+    t: &Track,
+    has: &[CuePoint],
+    files: &[Option<Vec<u8>>; 3],
+    auto: AutoCues,
+) -> Result<(Option<CuesBefore>, Vec<String>)> {
+    let Some(dat) = files[0].as_deref() else {
+        return Err(invalid(crate::Error::invalid(format!(
+            "{} has no analysis files (rekordbox hasn't analysed it), so cues can't be placed on its beat grid",
+            t.display_name()
+        ))));
+    };
+    let placed = cue_edit::auto_placed(t, has.to_vec(), dat, files[1].as_deref(), auto).map_err(invalid)?;
+    let warnings = Vec::new();
+    let entries = |c: &[CuePoint]| {
+        let mut out: Vec<CueEntry> = c.iter().map(entry).collect();
+        out.sort_by_key(|c| (c.hot_cue.map_or(0, |h| u32::from(h) + 1), c.start_ms));
+        out
+    };
+    if entries(&placed) == entries(has) {
+        return Ok((None, warnings));
+    }
+    Ok((Some(e.set_cues(track_id, &entries(&placed))?), warnings))
 }
 
 fn invalid(e: crate::Error) -> Error {

@@ -24,16 +24,13 @@ struct Lib {
 
 impl Lib {
     fn new() -> Lib {
-        Lib::with("", None)
+        Lib::with("", |_, _| {})
     }
 
-    /// [`Lib::new`], its collection changed by `sql` first, its `.EXT` holding `phrases`.
-    fn with(sql: &str, phrases: Option<&anlz::SongStructure>) -> Lib {
-        let (dat, ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
-        let ext = match phrases {
-            Some(p) => anlz::write_song_structure(&ext, Some(p)).unwrap(),
-            None => ext,
-        };
+    /// [`Lib::new`], its collection changed by `sql` first, its `.DAT` and `.EXT` by `files`.
+    fn with(sql: &str, files: impl FnOnce(&mut Vec<u8>, &mut Vec<u8>)) -> Lib {
+        let (mut dat, mut ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
+        files(&mut dat, &mut ext);
         let f = analysed(&dat, &ext);
         f.exec(sql);
         let dir = tempfile::tempdir().unwrap();
@@ -221,7 +218,7 @@ fn a_key_is_saved_as_the_collection_spells_it() {
         save(&lib.target, TRACK, &CollectionAnalysis { key: Some(key.into()), ..Default::default() })
     };
 
-    let lib = Lib::with(keys, None);
+    let lib = Lib::with(keys, |_, _| {});
     // The track's key is a note name (Am): C#m and 12A are Dbm.
     for key in ["C#m", "12A", "c# minor"] {
         set(&lib, key).unwrap();
@@ -238,11 +235,11 @@ fn a_key_is_saved_as_the_collection_spells_it() {
     assert_eq!(key_id(&lib), "7");
 
     // A Camelot track takes Camelot.
-    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"), None);
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"), |_, _| {});
     set(&lib, "Dbm").unwrap();
     assert_eq!(key_id(&lib), "3");
     // A track whose key has no row takes the collection's most used spelling.
-    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"), None);
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"), |_, _| {});
     set(&lib, "Dbm").unwrap();
     assert_eq!(key_id(&lib), "3");
 }
@@ -254,7 +251,7 @@ fn phrases_move_with_a_new_grid() {
     let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
     let s = |p| SongStructure { mood: Mood::High, phrases: p };
     let theirs = s(vec![phrase(PhraseKind::Intro, 3, 17), phrase(PhraseKind::Chorus, 17, 65)]);
-    let lib = Lib::with("", Some(&theirs));
+    let lib = Lib::with("", |_, ext| *ext = anlz::write_song_structure(ext, Some(&theirs)).unwrap());
     let with = |beats: Vec<Beat>| CollectionAnalysis {
         analysis: NewAnalysis { beats: Some(beats), ..NewAnalysis::default() },
         ..CollectionAnalysis::default()
@@ -268,4 +265,28 @@ fn phrases_move_with_a_new_grid() {
     assert_eq!(phrases(), Some(s(vec![phrase(PhraseKind::Intro, 1, 15), phrase(PhraseKind::Chorus, 15, 63)])));
     undo(&lib.target, &saved.before).unwrap();
     assert_eq!(phrases(), Some(theirs));
+}
+
+/// Cues that can't be placed (here the track's grid, kept, starts past its end) leave out the
+/// cue step with a warning: the key, which doesn't depend on them, is still saved.
+#[test]
+fn cues_that_cant_be_placed_leave_the_rest_of_the_save() {
+    let late: Vec<Beat> = grid().into_iter().map(|b| Beat { time_ms: b.time_ms + 330_000, ..b }).collect();
+    let key = "INSERT INTO djmdKey (ID, ScaleName, Seq) VALUES ('2', 'C#m', 2);";
+    let lib = Lib::with(key, |dat, _| *dat = anlz::write_beat_grid(dat, &late).unwrap());
+    let edit = CollectionAnalysis {
+        key: Some("C#m".into()),
+        cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
+        ..CollectionAnalysis::default()
+    };
+    let rows = |lib: &Lib| lib.query::<i64>(&format!("SELECT count(*) FROM djmdCue WHERE ContentID = '{TRACK}'"));
+    let had = rows(&lib);
+    let saved = save(&lib.target, TRACK, &edit).unwrap();
+    assert!(saved.warnings.iter().any(|w| w.contains("cues weren't placed")), "{:?}", saved.warnings);
+    assert!(saved.before.cues.is_none());
+    assert_eq!(lib.query::<String>(&format!("SELECT KeyID FROM djmdContent WHERE ID = '{TRACK}'")), "2");
+    assert_eq!(rows(&lib), had);
+    // Cues alone are refused: nothing else would be saved.
+    let alone = CollectionAnalysis { key: None, ..edit };
+    assert!(matches!(save(&lib.target, TRACK, &alone), Err(Error::Invalid(_))));
 }
