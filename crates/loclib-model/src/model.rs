@@ -633,6 +633,48 @@ pub fn artist_credits(artist: &str) -> Vec<String> {
     out
 }
 
+/// The acts one credit names when it's a collaboration: `A & B`, `A x B`, `A vs. B` and
+/// `A and B` split, ignoring case, each act once. A credit that isn't one is itself alone. Whether
+/// it really is a collaboration (`Chase & Status` is one act) is for the caller to tell
+/// ([`artist_credits_with`]).
+pub fn collab_parts(credit: &str) -> Vec<String> {
+    let seps = [" & ", " x ", " vs. ", " vs ", " and "];
+    let mut out: Vec<String> = Vec::new();
+    for part in split_ci(credit, &seps) {
+        let name = part.trim();
+        if !name.is_empty() && !out.iter().any(|x| normalize(x) == normalize(name)) {
+            out.push(name.to_string());
+        }
+    }
+    if out.len() < 2 { vec![credit.trim().to_string()] } else { out }
+}
+
+/// The artists a credit names, as [`artist_credits`] has them, with each collaboration among them
+/// split into its acts ([`collab_parts`]) when `solo` says every one of them is an artist of their
+/// own (called with each act's name as [`normalize`] has it). "Ninajirachi & Porter Robinson"
+/// counts for each of them when both are credited alone elsewhere, and "Chase & Status" stays one
+/// act when nobody is credited as "Chase".
+pub fn artist_credits_with(artist: &str, solo: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for credit in artist_credits(artist) {
+        let parts = collab_parts(&credit);
+        let acts = if parts.len() > 1 && parts.iter().all(|p| solo(&normalize(p))) { parts } else { vec![credit] };
+        for act in acts {
+            if !out.iter().any(|x| normalize(x) == normalize(&act)) {
+                out.push(act);
+            }
+        }
+    }
+    out
+}
+
+/// Every act a credit could name: [`artist_credits`] with each collaboration split
+/// ([`collab_parts`]), in order. What MusicBrainz IDs tagged one per act (Picard tags "A & B" with
+/// both artists' IDs) go with.
+pub fn collab_credits(artist: &str) -> Vec<String> {
+    artist_credits_with(artist, |_| true)
+}
+
 /// Whether `s` is an ISRC as it's written plain (`GBDUW0000059`): a country code, a registrant
 /// code of letters or digits, a year and a number.
 pub fn is_isrc(s: &str) -> bool {

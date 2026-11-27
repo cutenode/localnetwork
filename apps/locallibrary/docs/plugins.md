@@ -617,7 +617,8 @@ tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, w
 recording from another (`identity`), or its MusicBrainz IDs: the recording's (`recording`) and the
 release's (`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
 artist its credit names, in order, split as a published set splits them (at commas, semicolons and
-"feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
+"feat."), or one for each act with its collaborations split too (`A & B`, `A x B`, `A vs. B`,
+`A and B`), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
 (`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
 `analyze --apply` and the MusicBrainz IDs a set is published with read those from one analyzer
 each, the sound plugin's and the musicbrainz plugin's unless another does too: `locallibrary

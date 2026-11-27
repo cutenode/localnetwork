@@ -217,6 +217,17 @@ fn artists_and_releases_go_out_as_far_as_they_are_known() {
             { "artistName": "Amber Mark", "artistMbId": id(2).to_string() },
         ]))
     );
+    assert_eq!(artists("Ninajirachi & Porter Robinson", &[]), None, "a duo or two acts? the line says as much");
+    let duo = json!([{ "artistName": "Ninajirachi & Porter Robinson", "artistMbId": id(1).to_string() }]);
+    assert_eq!(artists("Ninajirachi & Porter Robinson", &[1]), Some(duo), "one ID: one act");
+    assert_eq!(
+        artists("Ninajirachi & Porter Robinson", &[1, 2]),
+        Some(json!([
+            { "artistName": "Ninajirachi", "artistMbId": id(1).to_string() },
+            { "artistName": "Porter Robinson", "artistMbId": id(2).to_string() },
+        ])),
+        "an ID for each act: two acts"
+    );
     assert_eq!(artists(&format!("{}, B", "a".repeat(257)), &[]), None, "too long a name");
     let many = (0..33).map(|i| format!("A{i}")).collect::<Vec<_>>().join(", ");
     assert_eq!(artists(&many, &[]), None, "too many artists");

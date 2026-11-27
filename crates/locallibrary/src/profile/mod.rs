@@ -43,7 +43,7 @@ use crate::device::Device;
 use crate::doctor::Databases;
 use crate::harmony::{Camelot, Relation, tempo_gap};
 use crate::hash::Hash;
-use crate::model::{BpmRange, Library, Track, artist_credits, normalize};
+use crate::model::{BpmRange, Library, Track, artist_credits, artist_credits_with, collab_parts, normalize};
 use crate::paths;
 use crate::plays::{self, DriveHistory, HistoryList};
 use crate::progress::{Ctx, Event, Phase, WarningLimiter};
@@ -1232,6 +1232,14 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
             tally(&mut l, &r.track.label);
         }
     }
+    // Artists the collection credits on their own, so a collaboration of them ("A & B", "B x A")
+    // counts for each, and one that isn't ("Chase & Status") stays one act.
+    let solo: FxHashSet<String> = owned
+        .iter()
+        .flat_map(|&i| artist_credits(&recs[i].track.artist))
+        .filter(|c| collab_parts(c).len() == 1)
+        .map(|c| normalize(&c))
+        .collect();
     for &i in &owned {
         let r = &recs[i];
         if !r.genres.is_empty() {
@@ -1240,7 +1248,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
                 tally(&mut g, name);
             }
         }
-        let credits = artist_credits(&r.track.artist);
+        let credits = artist_credits_with(&r.track.artist, |a| solo.contains(a));
         if !credits.is_empty() {
             a_known += 1;
             for name in &credits {

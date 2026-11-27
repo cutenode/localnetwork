@@ -12,6 +12,23 @@ fn artists_are_credited_once_each() {
 }
 
 #[test]
+fn a_collaboration_splits_only_into_acts_credited_alone() {
+    let solo = |n: &str| ["ninajirachi", "porter robinson", "madeon", "skrillex"].contains(&n);
+    let credits = |a: &str| artist_credits_with(a, solo);
+    assert_eq!(credits("Ninajirachi & Porter Robinson"), ["Ninajirachi", "Porter Robinson"]);
+    assert_eq!(credits("Porter Robinson x NINAJIRACHI"), ["Porter Robinson", "NINAJIRACHI"]);
+    assert_eq!(credits("Porter Robinson AND Madeon feat. Skrillex"), ["Porter Robinson", "Madeon", "Skrillex"]);
+    assert_eq!(credits("Madeon, Porter Robinson & Madeon"), ["Madeon", "Porter Robinson"]);
+    // Not every act is known alone: one act.
+    assert_eq!(credits("Chase & Status"), ["Chase & Status"]);
+    assert_eq!(credits("Porter Robinson & Status"), ["Porter Robinson & Status"]);
+    assert_eq!(credits("Malcolm X"), ["Malcolm X"]);
+    assert_eq!(collab_credits("Chase & Status feat. Plan B"), ["Chase", "Status", "Plan B"]);
+    assert_eq!(collab_parts("A vs. B vs C"), ["A", "B", "C"]);
+    assert_eq!(collab_parts(" A&B "), ["A&B"]);
+}
+
+#[test]
 fn diff_detects_adds_removes_changes() {
     let old = Library {
         tracks: vec![track(1, "A", "One", "/Contents/A/1.mp3"), track(2, "B", "Two", "/Contents/B/2.mp3")],

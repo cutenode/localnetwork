@@ -124,8 +124,9 @@ they stay. A session signed in before publishing could delete them is told to si
 publish` wrote it (`computer.localnetwork.locallibrary.set`), since publishing may only write
 today's set records.
 
-A track's artists go out one by one (split as the profile counts them) when its credit names
-several, and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
+A track's artists go out one by one when its credit names several (split at commas, semicolons
+and "feat."; a collaboration such as `A & B` is split into its acts when the set has an ID for
+each, as Picard tags them, and otherwise the directory tells), and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
 rekordbox keeps none, so they're read from the files on the mounted drives when a set is made or
 edited (as MusicBrainz Picard tags files), or from the store's copy of a file no mounted drive
 holds (its tags only), else from what a plugin's analyzer worked out for the
@@ -137,7 +138,7 @@ skipped, and it says how many. An analyzer failing is a warning, and the set pub
 those IDs. `--no-lookup` skips the lookup, `plugin roles recording --none` turns it off for
 good, and `--dry-run` never runs it, nor does a publish that can't happen: signed out, or not
 confirmed (no `--yes`, and no terminal to ask in). What it did is among the plan's notes. An artist's ID goes
-with their name only when the set has one for each artist the credit names. For a set built from
+with their name only when the set has one for each artist the credit names, or for each act. For a set built from
 a recording, each track says how it came in (`transitionIn`), as the recording's [mix
 report](sets.md#mixes) heard it, wherever the set still has the two tracks one after the other: a
 `blend` when both were heard together for 8 seconds or more, otherwise `unknown` (a fade the

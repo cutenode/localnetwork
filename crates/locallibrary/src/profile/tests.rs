@@ -837,6 +837,29 @@ fn genres_artists_era_and_energy_count_each_collection_track_once() {
     assert_eq!((r.sets.plays, r.tempo.tracks, r.tempo.max), (18, 18, Some(170.0)));
 }
 
+/// A collaboration counts for each of its acts, whatever order it names them in, when the
+/// collection credits each alone; a duo nobody is credited half of stays one act.
+#[test]
+fn a_collaboration_counts_for_each_act_credited_alone() {
+    let o = ProfileOptions::default();
+    let mut b = builder(&o);
+    let (lib, _) = library_of(&[
+        ("Ninajirachi", "Solo", "", 0, None),
+        ("Porter Robinson", "Also Solo", "", 0, None),
+        ("Ninajirachi & Porter Robinson", "Together", "", 0, None),
+        ("Porter Robinson x Ninajirachi", "Together Again", "", 0, None),
+        ("Chase & Status", "Duo", "", 0, None),
+    ]);
+    b.add_collection(&lib, Origin::Drive(0));
+    let r = compute(&b, Basis::Plays, 0, Utc::now());
+    let shares: Vec<(String, usize)> = r.artists.top.iter().map(|x| (x.name.clone(), x.count)).collect();
+    assert_eq!(r.artists.known, 5);
+    assert_eq!(
+        shares,
+        [("Ninajirachi".to_string(), 3), ("Porter Robinson".to_string(), 3), ("Chase & Status".to_string(), 1)]
+    );
+}
+
 /// A document says when it was made to the millisecond, whatever the clock's resolution: the
 /// same report written twice is the same length (chrono's own format drops trailing zeros).
 #[hegel::test(test_cases = 100)]
