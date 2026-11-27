@@ -1048,3 +1048,23 @@ fn a_file_its_row_doesnt_list_is_refused() {
     .unwrap();
     assert_eq!(std::fs::read(&here).unwrap(), b"new");
 }
+
+/// Undo leaves a file rekordbox analysed again since the save, which keeps its path and row and
+/// gets new bytes and a new hash: putting the backup back would throw that analysis away.
+#[test]
+fn undo_leaves_a_file_analysed_again_in_place() {
+    let (lib, dir) = analysed_lib();
+    let ext = write(&lib.target, |e| e.replace_analysis_file(TRACK, "EXT", b"new ext")).unwrap().value.unwrap();
+    assert_eq!(ext.after_md5, share::md5_hex(b"new ext"));
+    // rekordbox analyses it again: the file and its row change, the path doesn't.
+    std::fs::write(dir.join("ANLZ0000.EXT"), b"rekordbox's").unwrap();
+    let again =
+        format!("UPDATE contentFile SET Hash = '{}', Size = 11 WHERE ID = 'f2'", share::md5_hex(b"rekordbox's"));
+    let e = write(&lib.target, |e| {
+        e.conn().execute(&again, []).unwrap();
+        e.restore_analysis_file(&ext)
+    })
+    .unwrap_err();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("analysed it again")), "{e}");
+    assert_eq!(std::fs::read(dir.join("ANLZ0000.EXT")).unwrap(), b"rekordbox's");
+}

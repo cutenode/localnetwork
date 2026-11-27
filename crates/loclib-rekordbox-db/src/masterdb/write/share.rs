@@ -48,6 +48,10 @@ pub struct FileBefore {
     pub backup: PathBuf,
     /// Its MD5, in hex, as `contentFile.Hash` gives one.
     pub md5: String,
+    /// The MD5 of what the write put there instead: undo takes the backup back only while the file
+    /// still holds that.
+    #[serde(default)]
+    pub after_md5: String,
 }
 
 /// A file replaced in the edit, waiting to be renamed in once `master.db` has been.
@@ -202,10 +206,10 @@ impl Edit<'_> {
             file,
             new,
             old_md5: old_md5.clone(),
-            md5,
+            md5: md5.clone(),
             size: bytes.len() as u64,
         });
-        Ok(Some(FileBefore { track_id: track_id.to_string(), path, backup, md5: old_md5 }))
+        Ok(Some(FileBefore { track_id: track_id.to_string(), path, backup, md5: old_md5, after_md5: md5 }))
     }
 
     /// The `contentFile` row of track `track_id`'s `path` (at `file`, holding `old`, whose MD5 is
@@ -255,16 +259,26 @@ impl Edit<'_> {
 
     /// Puts back what [`Edit::replace_analysis_file`] replaced, from its backup, as a new change
     /// with new stamps, answering what that replaced in turn. Refused when the backup is gone, isn't
-    /// one of this collection's write backups, or no longer holds what was backed up, and when the
-    /// track's analysis files have moved since (rekordbox analysed it again).
+    /// one of this collection's write backups, or no longer holds what was backed up, and when
+    /// rekordbox has analysed the track again since: its analysis files moved, or the file no longer
+    /// holds what the write put there.
     pub fn restore_analysis_file(&mut self, before: &FileBefore) -> Result<Option<FileBefore>> {
         let ext = before.path.rsplit_once('.').map_or("", |(_, ext)| ext);
-        let (path, _, _) = self.analysis_file(&before.track_id, ext)?;
+        let (path, _, file) = self.analysis_file(&before.track_id, ext)?;
         if !path.eq_ignore_ascii_case(&before.path) {
             return Err(Error::Invalid(format!(
                 "track {}'s analysis files are {path} now, not {}: rekordbox analysed it again since",
                 before.track_id, before.path
             )));
+        }
+        // Re-analysis keeps a track's paths and rows, and changes what its files hold.
+        let now = std::fs::read(&file).at(&file)?;
+        if md5_hex(&now) != before.after_md5 {
+            return Err(Error::Refused(Refusal::Odd(format!(
+                "{} no longer holds what was saved there: rekordbox analysed it again since, and undo would throw \
+                 that away",
+                before.path
+            ))));
         }
         // Backups are kept beside master.db's, in the folder this write backs up into.
         let backups = self.share_backup.parent().unwrap_or(self.share_backup);
