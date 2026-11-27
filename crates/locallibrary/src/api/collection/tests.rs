@@ -297,6 +297,23 @@ fn the_api_reads_the_collection_it_is_given() {
     assert_eq!(collection_info(&missing).unwrap_err().code(), "not_found");
 }
 
+/// A test reads the collection it gives or names with `LOCALLIBRARY_MASTERDB`, wherever it is;
+/// naming none, it's told how and nothing is read.
+#[test]
+fn a_test_reads_the_collection_it_names_and_is_told_how_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), &sample().encrypted(DEFAULT_KEY));
+    let unnamed = CollectionRef { db: None, key: Some(DEFAULT_KEY.into()) };
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::remove_var(masterdb::PATH_ENV) };
+    let err = collection_info(&unnamed).unwrap_err();
+    assert!(matches!(&err, Error::NotFound(m) if m.contains(masterdb::PATH_ENV)), "{err}");
+    let given = CollectionRef { db: Some(path.clone()), ..unnamed.clone() };
+    assert_eq!(collection_info(&given).unwrap().summary.tracks, 3);
+    unsafe { std::env::set_var(masterdb::PATH_ENV, &path) };
+    assert_eq!(collection_info(&unnamed).unwrap().summary.tracks, 3);
+}
+
 #[test]
 fn the_collections_tracks_are_found_on_a_drive_by_file_or_details() {
     use loclib_model::test_util::track;
