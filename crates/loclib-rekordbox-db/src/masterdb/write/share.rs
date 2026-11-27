@@ -144,7 +144,7 @@ impl Edit<'_> {
     /// write, and the file renamed in after `master.db`. Answers what it replaced, which
     /// [`Edit::restore_analysis_file`] puts back; `None` when it holds `bytes` already. Refused for
     /// a file that isn't there, one replaced already in this write, and one whose `contentFile`
-    /// rows aren't the one rekordbox keeps.
+    /// rows aren't the one rekordbox keeps, listing what it holds where it is.
     pub fn replace_analysis_file(&mut self, track_id: &str, ext: &str, bytes: &[u8]) -> Result<Option<FileBefore>> {
         let (path, key, file) = self.analysis_file(track_id, ext)?;
         if self.replaced.iter().any(|r| r.file == file) {
@@ -169,6 +169,11 @@ impl Edit<'_> {
         if old == bytes {
             return Ok(None);
         }
+        let (old_md5, md5) = (md5_hex(&old), md5_hex(bytes));
+        let row = match has_content_file(self.conn).map_err(|e| self.sql(e))? {
+            true => Some(self.listed(track_id, &path, &file, &old, &old_md5)?),
+            false => None,
+        };
         let backup = paths::to_fs(self.share_backup, &key);
         if let Some(dir) = backup.parent() {
             std::fs::create_dir_all(dir).at(dir)?;
@@ -181,22 +186,7 @@ impl Edit<'_> {
         let new = Removed::new(new);
         let _ = std::fs::set_permissions(&new.0, meta.permissions());
 
-        let (old_md5, md5) = (md5_hex(&old), md5_hex(bytes));
-        if has_content_file(self.conn).map_err(|e| self.sql(e))? {
-            let ids: Vec<String> = self
-                .conn
-                .prepare(
-                    "SELECT ID FROM contentFile WHERE ContentID = ?1 AND lower(Path) = lower(?2) \
-                     AND IFNULL(rb_local_deleted, 0) = 0",
-                )
-                .and_then(|mut s| s.query_map([track_id, path.as_str()], |r| r.get(0))?.collect())
-                .map_err(|e| self.sql(e))?;
-            let [id] = &ids[..] else {
-                return Err(Error::Refused(Refusal::Odd(format!(
-                    "track {track_id}'s {path} has {} contentFile rows, where rekordbox keeps one for each analysis file",
-                    ids.len()
-                ))));
-            };
+        if let Some(id) = &row {
             let stamp = self.stamp();
             let sql = "UPDATE contentFile SET Hash = ?1, Size = ?2, rb_local_usn = ?3, updated_at = ?4 WHERE ID = ?5";
             let params = rusqlite::params![md5, bytes.len() as i64, stamp, self.now, id];
@@ -216,6 +206,51 @@ impl Edit<'_> {
             size: bytes.len() as u64,
         });
         Ok(Some(FileBefore { track_id: track_id.to_string(), path, backup, md5: old_md5 }))
+    }
+
+    /// The `contentFile` row of track `track_id`'s `path` (at `file`, holding `old`, whose MD5 is
+    /// `old_md5`): refused unless there's one, listing what the file holds, and, where it says
+    /// where the file is on this computer, saying it's `file`. A file its row doesn't list is half
+    /// synced or was changed outside rekordbox, and replacing it would hide that.
+    fn listed(&self, track_id: &str, path: &str, file: &Path, old: &[u8], old_md5: &str) -> Result<String> {
+        type Row = (String, Option<String>, Option<i64>, Option<String>);
+        let rows: Vec<Row> = self
+            .conn
+            .prepare(
+                "SELECT ID, Hash, Size, rb_local_path FROM contentFile WHERE ContentID = ?1 \
+                 AND lower(Path) = lower(?2) AND IFNULL(rb_local_deleted, 0) = 0",
+            )
+            .and_then(|mut s| {
+                s.query_map([track_id, path], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect()
+            })
+            .map_err(|e| self.sql(e))?;
+        let odd = |why: String| Error::Refused(Refusal::Odd(format!("track {track_id}'s {path} {why}")));
+        let [(id, hash, size, local)] = &rows[..] else {
+            return Err(odd(format!(
+                "has {} contentFile rows, where rekordbox keeps one for each analysis file",
+                rows.len()
+            )));
+        };
+        let lists = hash.as_deref() == Some(old_md5) && *size == i64::try_from(old.len()).ok();
+        if !lists {
+            return Err(odd(format!(
+                "holds {} bytes (MD5 {old_md5}) where its contentFile row lists {} (MD5 {}): it's still syncing, \
+                 or changed outside rekordbox",
+                old.len(),
+                size.map_or("no size".into(), |s| format!("{s} bytes")),
+                hash.as_deref().unwrap_or("none")
+            )));
+        }
+        let elsewhere = |local: &str| {
+            let there = Path::new(local).canonicalize().ok();
+            there.is_none() || there != file.canonicalize().ok()
+        };
+        if let Some(local) = local.as_deref().filter(|l| !l.is_empty() && elsewhere(l)) {
+            return Err(odd(format!(
+                "is at {local} on this computer by its contentFile row, not in this share folder"
+            )));
+        }
+        Ok(id.clone())
     }
 
     /// Puts back what [`Edit::replace_analysis_file`] replaced, from its backup, as a new change

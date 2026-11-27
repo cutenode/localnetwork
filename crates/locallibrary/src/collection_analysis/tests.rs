@@ -1,6 +1,6 @@
 use loclib_rekordbox_db::masterdb::write::Target;
 use loclib_rekordbox_db::masterdb::{DEFAULT_KEY, files::Running};
-use loclib_rekordbox_db::test_util::{ANALYSIS_DIR, Fixture, UPDATE_COUNT, analysed, codec, plain, scratch_db};
+use loclib_rekordbox_db::test_util::{ANALYSIS_DIR, UPDATE_COUNT, analysed, codec, plain, scratch_db};
 use loclib_rekordbox_db::{Error, Refusal};
 
 use super::*;
@@ -14,7 +14,8 @@ fn closed() -> Running {
 }
 
 /// [`analysed`]'s collection, encrypted, in a temporary folder, with its track's `.DAT` and `.EXT`
-/// (made as for a track without any) in the share folder, and an agent log saying sync is off.
+/// (made as for a track without any, and listed) in the share folder, and an agent log saying sync
+/// is off.
 struct Lib {
     _dir: tempfile::TempDir,
     target: Target,
@@ -22,7 +23,9 @@ struct Lib {
 }
 
 impl Lib {
-    fn new(f: &Fixture) -> Lib {
+    fn new() -> Lib {
+        let (dat, ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
+        let f = analysed(&dat, &ext);
         let dir = tempfile::tempdir().unwrap();
         let rekordbox = dir.path().join("rekordbox");
         std::fs::create_dir(&rekordbox).unwrap();
@@ -33,7 +36,6 @@ impl Lib {
         std::fs::write(&log, "[261126T012213.828-0600] I/sync mode: null => standalone\n").unwrap();
         let share = rekordbox.join("share").join(ANALYSIS_DIR);
         std::fs::create_dir_all(&share).unwrap();
-        let (dat, ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
         std::fs::write(share.join("ANLZ0000.DAT"), dat).unwrap();
         std::fs::write(share.join("ANLZ0000.EXT"), ext).unwrap();
         let target = Target {
@@ -68,7 +70,7 @@ fn grid() -> Vec<Beat> {
 
 #[test]
 fn a_grid_key_and_cues_are_saved_and_undone() {
-    let lib = Lib::new(&analysed());
+    let lib = Lib::new();
     // Its first downbeat over a bar past the track's memory cue at 0.5 s, which would be its first cue.
     let later: Vec<Beat> = grid().into_iter().map(|b| Beat { time_ms: b.time_ms + 2000, ..b }).collect();
     let (dat, ext) = (lib.file("ANLZ0000.DAT"), lib.file("ANLZ0000.EXT"));
@@ -112,7 +114,7 @@ fn a_grid_key_and_cues_are_saved_and_undone() {
 
 #[test]
 fn what_cant_be_saved_changes_nothing() {
-    let lib = Lib::new(&analysed());
+    let lib = Lib::new();
     let before = std::fs::read(&lib.target.master_db).unwrap();
     let dat = lib.file("ANLZ0000.DAT");
     let bad = [
@@ -148,7 +150,7 @@ fn rekordbox_open_is_a_refusal_that_waits() {
     fn open() -> Running {
         Running { rekordbox: true, agent: false }
     }
-    let mut lib = Lib::new(&analysed());
+    let mut lib = Lib::new();
     lib.target.running = open;
     let edit = CollectionAnalysis { key: Some("Am".into()), ..Default::default() };
     match save(&lib.target, TRACK, &edit).unwrap_err() {
@@ -160,7 +162,7 @@ fn rekordbox_open_is_a_refusal_that_waits() {
 #[test]
 fn a_waveform_goes_into_both_files() {
     use base64::prelude::*;
-    let lib = Lib::new(&analysed());
+    let lib = Lib::new();
     let (dat, ext) = (lib.file("ANLZ0000.DAT"), lib.file("ANLZ0000.EXT"));
     let bands = crate::anlz::Bands((0..320 * 150).map(|i| [(i % 200) as u8, 40, 90]).collect());
     let edit = CollectionAnalysis {
@@ -183,7 +185,7 @@ fn a_waveform_goes_into_both_files() {
 /// A grid moved from under the collection's own cues (in djmdCue, not the analysis files) says so.
 #[test]
 fn a_moved_grid_warns_of_the_collections_cues() {
-    let lib = Lib::new(&analysed());
+    let lib = Lib::new();
     let with = |beats: Vec<Beat>| CollectionAnalysis {
         analysis: NewAnalysis { beats: Some(beats), ..NewAnalysis::default() },
         ..CollectionAnalysis::default()

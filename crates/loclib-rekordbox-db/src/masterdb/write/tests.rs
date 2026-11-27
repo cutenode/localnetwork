@@ -792,7 +792,7 @@ fn a_collection_without_cue_lists_has_cues_written_without() {
 /// [`analysed`], encrypted, with [`TRACK`]'s `.DAT` and `.EXT` in the share folder; and that
 /// folder.
 fn analysed_lib() -> (Lib, PathBuf) {
-    let lib = Lib::new(&analysed(), false);
+    let lib = Lib::new(&analysed(b"dat", b"ext"), false);
     let dir = lib.target.master_db.parent().unwrap().join("share").join(ANALYSIS_DIR);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("ANLZ0000.DAT"), b"dat").unwrap();
@@ -1010,4 +1010,41 @@ fn a_file_that_cant_be_swapped_in_keeps_the_backups() {
     assert!(kept[0].ends_with(".db") && kept[1] == format!("{}.share", kept[0]), "{kept:?}");
     let share_backup = lib.target.backups.join(&kept[1]).join(ANALYSIS_DIR).join("ANLZ0000.EXT");
     assert_eq!(std::fs::read(share_backup).unwrap(), b"ext");
+}
+
+/// A file that isn't what its contentFile row lists (half synced, or changed outside rekordbox),
+/// or whose row says it's somewhere else on this computer, isn't replaced.
+#[test]
+fn a_file_its_row_doesnt_list_is_refused() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let other = lib.target.master_db.parent().unwrap().join("other.EXT");
+    std::fs::write(&other, b"ext").unwrap();
+    let here = dir.join("ANLZ0000.EXT");
+    let odd = [
+        "UPDATE contentFile SET Hash = 'd41d8cd98f00b204e9800998ecf8427e' WHERE ID = 'f2'".to_string(),
+        "UPDATE contentFile SET Size = 4 WHERE ID = 'f2'".to_string(),
+        format!("UPDATE contentFile SET rb_local_path = '{}' WHERE ID = 'f2'", other.display()),
+        format!("UPDATE contentFile SET rb_local_path = '{}' WHERE ID = 'f2'", dir.join("gone.EXT").display()),
+    ];
+    for sql in &odd {
+        let e = write(&lib.target, |e| {
+            e.conn().execute(sql, []).unwrap();
+            e.replace_analysis_file(TRACK, "EXT", b"new")
+        })
+        .unwrap_err();
+        assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("ANLZ0000.EXT")), "{sql}: {e}");
+    }
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
+
+    // Its own path, as rekordbox gives it, is fine.
+    let sql = format!("UPDATE contentFile SET rb_local_path = '{}' WHERE ID = 'f2'", here.display());
+    write(&lib.target, |e| {
+        e.conn().execute(&sql, []).unwrap();
+        e.replace_analysis_file(TRACK, "EXT", b"new")
+    })
+    .unwrap();
+    assert_eq!(std::fs::read(&here).unwrap(), b"new");
 }
