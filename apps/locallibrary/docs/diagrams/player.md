@@ -40,6 +40,7 @@ flowchart TD
     library -->|"m marks, q n plays next, q a adds, q q shows it"| crate["Queue (the crate)"]
     crate -->|"w saves its tracks on the open drive as a playlist"| crate
     crate -->|"packed onto a drive"| drives
+    crate -->|"its tracks from rekordbox's collection added to a drive<br/>as a playlist, only those it lacks copied"| drives
 ```
 
 Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/panes.rs`](../../src/tui/app/panes.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs), [`src/tui/ui.rs`](../../src/tui/ui.rs), [`src/tui/prepare.rs`](../../src/tui/prepare.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/profile.rs`](../../src/tui/profile.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/crate_list.rs`](../../src/tui/crate_list.rs)
