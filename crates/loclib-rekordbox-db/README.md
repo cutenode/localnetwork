@@ -85,7 +85,9 @@ can say them), and what Cloud Library Sync keeps in Dropbox or Google Drive (`Cl
 What SQLite needs as a file (an export's `VACUUM INTO`, a `OneLibrary` being edited, a plain
 `master.db`, one too big for SQLite to take into memory) goes in a `scratch::Folder`:
 `locallibrary-decrypted-*` in the temporary folder, its owner's alone (`0700` on Unix, an access
-list for the current user alone on Windows), removed when dropped. Its process keeps a file there
+list for the current user alone on Windows), removed when dropped. For an export, and for a
+`master.db` too big for memory, it's copied there as it is, still encrypted, and decrypted a page
+at a time into the file SQLite opens, so neither holds the library in memory. Its process keeps a file there
 locked, and the OS lets go of the lock however the process ends, so the first copy a later process
 makes sweeps away folders nobody holds, with the `.tmp*` folders earlier versions decrypted
 `master.db` and `exportLibrary.db` into. A sweep only looks into this user's own folders, and

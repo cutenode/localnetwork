@@ -47,7 +47,7 @@
 use indexmap::IndexMap;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::io::Read;
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use loclib_model::analysis::{Cue, hot_cue_palette};
@@ -327,8 +327,15 @@ pub(crate) fn open_db<'a>(path: &'a Path, key: &str) -> Result<Opened<'a>> {
 /// [`open_db`], reading a decrypted database of up to `limit` bytes in memory.
 fn open_db_within<'a>(path: &'a Path, key: &str, limit: usize) -> Result<Opened<'a>> {
     crate::scratch::sweep();
+    // One too big for memory goes to a file a page at a time, never whole into memory. (Its WAL
+    // can still grow it past the limit: that one is written from memory below.)
+    if std::fs::metadata(path).at(path)?.len() > limit as u64 {
+        let folder = crate::scratch::folder()?;
+        let (db, _) = open_copy(path, key, &folder, false)?;
+        return Ok(Opened { db, _folder: Some(folder) });
+    }
     match decrypt(path, key)? {
-        Image::Decrypted(mut plain, _) if plain.len() <= limit => {
+        Image::Decrypted(mut plain) if plain.len() <= limit => {
             let mut conn = Connection::open_in_memory_with_flags(
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
             )
@@ -341,7 +348,7 @@ fn open_db_within<'a>(path: &'a Path, key: &str, limit: usize) -> Result<Opened<
         }
         image => {
             let folder = crate::scratch::folder()?;
-            let (db, _) = open_image(path, image, &folder, false)?;
+            let db = open_image(path, image, &folder)?;
             Ok(Opened { db, _folder: Some(folder) })
         }
     }
@@ -385,8 +392,8 @@ impl Opened<'_> {
 /// The salt a file is encrypted with (its first bytes).
 type Salt = [u8; cipher::SALT_LEN];
 
-/// [`decrypt`] of `path`, written into `folder` (a private one, as it holds the whole library
-/// decrypted) and opened: read only unless `write` (or a plain copy's WAL is to be replayed,
+/// [`decrypt_into`] of `path`, into `folder` (a private one, as it holds the whole library
+/// decrypted), and opened: read only unless `write` (or a plain copy's WAL is to be replayed,
 /// which SQLite does itself), and only once SQLite finds nothing amiss and it has a
 /// `djmdContent` table. With the salt it was encrypted with, unless it was plain.
 #[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "only exports and tests write a copy yet"))]
@@ -396,32 +403,31 @@ pub(crate) fn open_copy<'a>(
     folder: &crate::scratch::Folder,
     write: bool,
 ) -> Result<(Db<'a>, Option<Salt>)> {
-    open_image(path, decrypt(path, key)?, folder, write)
+    let (copy, salt) = decrypt_into(path, key, folder)?;
+    Ok((open_file(path, &copy, write || salt.is_none())?, salt))
 }
 
-/// [`open_copy`] of `image`, `path` as read.
-fn open_image<'a>(
-    path: &'a Path,
-    image: Image,
-    folder: &crate::scratch::Folder,
-    write: bool,
-) -> Result<(Db<'a>, Option<Salt>)> {
-    let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
-    let (copy, salt, flags) = match image {
-        Image::Decrypted(plain, salt) => {
+/// [`open_db`]'s `image` of `path` when it's read from a file, written into `folder` and opened
+/// read only (unless it's plain: SQLite replays a plain copy's WAL itself, which takes write
+/// access to the copy, never to the original).
+fn open_image<'a>(path: &'a Path, image: Image, folder: &crate::scratch::Folder) -> Result<Db<'a>> {
+    let (copy, write) = match image {
+        Image::Decrypted(plain) => {
             let out = folder.path().join("master.db");
             std::fs::write(&out, &*plain).at(&out)?;
-            (out, Some(salt), writes)
+            (out, false)
         }
-        // SQLite replays a plain copy's WAL itself, which takes write access to the copy (never
-        // to the original).
-        Image::Plain(bytes, wal) => {
-            (write_plain(folder.path(), &bytes, wal.as_deref())?, None, OpenFlags::SQLITE_OPEN_READ_WRITE)
-        }
+        Image::Plain(bytes, wal) => (write_plain(folder.path(), &bytes, wal.as_deref())?, true),
     };
-    let conn = Connection::open_with_flags(&copy, flags | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+    open_file(path, &copy, write)
+}
+
+/// The copy of `path` at `copy` opened, for writing when `write`, once [`checked`].
+fn open_file<'a>(path: &'a Path, copy: &Path, write: bool) -> Result<Db<'a>> {
+    let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
+    let conn = Connection::open_with_flags(copy, writes | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Error::parse(path, e))?;
-    Ok((checked(conn, path)?, salt))
+    checked(conn, path)
 }
 
 /// `conn`, the copy of `path`, once SQLite finds nothing amiss and it has a `djmdContent` table.
@@ -458,11 +464,10 @@ fn write_plain(dir: &Path, bytes: &[u8], wal: Option<&[u8]>) -> Result<PathBuf> 
 }
 
 /// `master.db` as read into memory.
-#[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "the salt is for writing a copy"))]
 enum Image {
     /// Decrypted, with the WAL's committed pages applied: a plain database on its own, zeroed
-    /// when dropped. With the salt the original was encrypted with.
-    Decrypted(Zeroizing<Vec<u8>>, Salt),
+    /// when dropped.
+    Decrypted(Zeroizing<Vec<u8>>),
     /// The file was plain SQLite already, with its WAL, if any.
     Plain(Vec<u8>, Option<Vec<u8>>),
 }
@@ -480,57 +485,148 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
         Ok(len)
     })?;
     let mut db = Zeroizing::new(read.into_inner());
-    let page_size = cipher::PAGE_SIZE;
-    let len = db.len() as u64;
-    if len < page_size as u64 {
-        return Err(Error::parse(path, "too short for a SQLite database"));
-    }
-    if &db[..16] == cipher::SQLITE_MAGIC {
+    if db.len() >= cipher::PAGE_SIZE && &db[..16] == cipher::SQLITE_MAGIC {
         // Already plain (decrypted with sqlcipher, say): use it as it is.
         return Ok(Image::Plain(std::mem::take(&mut *db), wal));
+    }
+    let len = db.len() as u64;
+    decrypt_pages(path, key, len, wal.as_deref(), &mut InPlace(&mut db))?;
+    Ok(Image::Decrypted(db))
+}
+
+/// `path` (and its WAL) copied into `folder` and decrypted there a page at a time into
+/// `master.db`, the WAL's committed transactions replayed: [`decrypt`] without holding the
+/// library in memory, for what SQLite needs as a file anyway. The encrypted copy is removed once
+/// read. Answers the decrypted file, and the salt the original was encrypted with, unless it
+/// was plain (its WAL is then beside it, for SQLite to replay).
+#[cfg_attr(not(any(feature = "files", test)), allow(dead_code, reason = "only exports and tests write a copy yet"))]
+fn decrypt_into(path: &Path, key: &str, folder: &crate::scratch::Folder) -> Result<(PathBuf, Option<Salt>)> {
+    let (copy, out) = (folder.path().join("master.db.enc"), folder.path().join("master.db"));
+    let wal = snapshot(path, || std::fs::copy(path, &copy))?;
+    let mut from = std::fs::File::open(&copy).at(&copy)?;
+    let len = from.metadata().at(&copy)?.len();
+    let mut magic = [0u8; 16];
+    if len >= cipher::PAGE_SIZE as u64 && from.read_exact(&mut magic).is_ok() && magic[..] == cipher::SQLITE_MAGIC[..] {
+        drop(from);
+        std::fs::rename(&copy, &out).at(&out)?;
+        if let Some(w) = wal {
+            let wal_copy = PathBuf::from(format!("{}-wal", out.display()));
+            std::fs::write(&wal_copy, w).at(&wal_copy)?;
+        }
+        return Ok((out, None));
+    }
+    let to = std::fs::File::create_new(&out).at(&out)?;
+    let salt = decrypt_pages(path, key, len, wal.as_deref(), &mut Copied { from, to })?;
+    std::fs::remove_file(&copy).at(&copy)?;
+    Ok((out, Some(salt)))
+}
+
+/// Where [`decrypt_pages`] reads `master.db`'s encrypted pages (numbered from 1) and writes the
+/// decrypted ones.
+trait Pages {
+    /// Encrypted page `pgno` into `page`.
+    fn read(&mut self, pgno: u32, page: &mut [u8]) -> std::io::Result<()>;
+    /// Decrypted page `pgno`.
+    fn write(&mut self, pgno: u32, page: &[u8]) -> std::io::Result<()>;
+    /// The decrypted database made `pages` long, cut or grown with zeros, before any page of it
+    /// is written: growing it later could leave decrypted pages behind in memory it moved out of.
+    fn resize(&mut self, pages: usize) -> std::io::Result<()>;
+}
+
+/// The whole file in memory, each page decrypted where it is.
+struct InPlace<'a>(&'a mut Vec<u8>);
+
+impl Pages for InPlace<'_> {
+    fn read(&mut self, pgno: u32, page: &mut [u8]) -> std::io::Result<()> {
+        let at = (pgno as usize - 1) * page.len();
+        page.copy_from_slice(&self.0[at..at + page.len()]);
+        Ok(())
+    }
+
+    fn write(&mut self, pgno: u32, page: &[u8]) -> std::io::Result<()> {
+        let at = (pgno as usize - 1) * page.len();
+        self.0[at..at + page.len()].copy_from_slice(page);
+        Ok(())
+    }
+
+    fn resize(&mut self, pages: usize) -> std::io::Result<()> {
+        self.0.resize(pages * cipher::PAGE_SIZE, 0);
+        Ok(())
+    }
+}
+
+/// An encrypted copy on disk, decrypted into another file.
+struct Copied {
+    from: std::fs::File,
+    to: std::fs::File,
+}
+
+impl Pages for Copied {
+    fn read(&mut self, pgno: u32, page: &mut [u8]) -> std::io::Result<()> {
+        self.from.seek(std::io::SeekFrom::Start(u64::from(pgno - 1) * page.len() as u64))?;
+        self.from.read_exact(page)
+    }
+
+    fn write(&mut self, pgno: u32, page: &[u8]) -> std::io::Result<()> {
+        self.to.seek(std::io::SeekFrom::Start(u64::from(pgno - 1) * page.len() as u64))?;
+        self.to.write_all(page)
+    }
+
+    fn resize(&mut self, pages: usize) -> std::io::Result<()> {
+        self.to.set_len((pages * cipher::PAGE_SIZE) as u64)
+    }
+}
+
+/// Decrypts the `len`-byte `master.db` at `path` (encrypted, as read into `pages`) with its WAL's
+/// committed pages applied, writing the result into `pages`. Answers the salt it was encrypted
+/// with. Each decrypted page is zeroed once written.
+fn decrypt_pages(path: &Path, key: &str, len: u64, wal: Option<&[u8]>, pages: &mut impl Pages) -> Result<Salt> {
+    let page_size = cipher::PAGE_SIZE;
+    if len < page_size as u64 {
+        return Err(Error::parse(path, "too short for a SQLite database"));
     }
     if !len.is_multiple_of(page_size as u64) {
         return Err(Error::parse(path, format!("{len} bytes is not a whole number of 4096-byte pages")));
     }
-    let salt: Salt = db[..cipher::SALT_LEN].try_into().expect("16 bytes");
+    let io = |e: std::io::Error| Error::Io { path: path.to_path_buf(), source: e };
+    let mut page = Zeroizing::new(vec![0u8; page_size]);
+    pages.read(1, &mut page).map_err(io)?;
+    let salt: Salt = page[..cipher::SALT_LEN].try_into().expect("16 bytes");
     let codec = cipher::Codec::with_key(key.as_bytes(), salt);
-    let wrong_key = || Error::WrongKey(path.to_path_buf());
     let damaged = |e: loclib_sqlcipher::Error| Error::parse(path, e);
-    let page1 = Zeroizing::new(codec.decrypt_page(1, &db[..page_size]).map_err(|_| wrong_key())?);
-    cipher::check_plain_header(&page1).map_err(|_| wrong_key())?;
-    let committed = wal.as_deref().map(|w| wal::committed(w, page_size)).transpose()?.flatten();
-    // Grown to its final size while it's still encrypted: growing it later would leave the
-    // decrypted pages behind in the memory it moved out of.
-    if let Some(c) = &committed {
-        let grows = (c.db_pages as usize * page_size).saturating_sub(db.len());
-        db.reserve_exact(grows);
-    }
-    // Each page is decrypted in place.
-    db[..page_size].copy_from_slice(&page1);
+    // A wrong key fails the first page's HMAC.
+    let wrong_key = || Error::WrongKey(path.to_path_buf());
+    let page1 = Zeroizing::new(codec.decrypt_page(1, &page).map_err(|_| wrong_key())?);
+    let committed = wal.map(|w| wal::committed(w, page_size)).transpose()?.flatten();
     let main_pages = (len / page_size as u64) as usize;
-    for (i, page) in db.chunks_exact_mut(page_size).enumerate().skip(1) {
-        let pgno = i as u32 + 1;
-        if loclib_sqlcipher::reads_main_page(pgno, committed.as_ref()) {
-            let plain = Zeroizing::new(codec.decrypt_page(pgno, page).map_err(damaged)?);
-            page.copy_from_slice(&plain);
-        } else {
-            page.fill(0);
+    let replayed = match &committed {
+        Some(c) => loclib_sqlcipher::wal_pages(&codec, c, main_pages).map_err(damaged)?,
+        None => Vec::new(),
+    };
+    let replayed: Vec<(u32, Zeroizing<Vec<u8>>)> = replayed.into_iter().map(|(n, p)| (n, Zeroizing::new(p))).collect();
+    let total = committed.as_ref().map_or(main_pages, |c| c.db_pages as usize);
+    pages.resize(total).map_err(io)?;
+    let zeros = vec![0u8; page_size];
+    for pgno in 2..=main_pages.min(total) as u32 {
+        if !loclib_sqlcipher::reads_main_page(pgno, committed.as_ref()) {
+            pages.write(pgno, &zeros).map_err(io)?;
+            continue;
         }
+        pages.read(pgno, &mut page).map_err(io)?;
+        let plain = Zeroizing::new(codec.decrypt_page(pgno, &page).map_err(damaged)?);
+        pages.write(pgno, &plain).map_err(io)?;
     }
-    if let Some(committed) = committed {
-        let replayed = loclib_sqlcipher::wal_pages(&codec, &committed, main_pages).map_err(damaged)?;
-        let replayed: Vec<(u32, Zeroizing<Vec<u8>>)> =
-            replayed.into_iter().map(|(n, p)| (n, Zeroizing::new(p))).collect();
-        db.resize(committed.db_pages as usize * page_size, 0);
-        for (pgno, plain) in &replayed {
-            let at = (*pgno as usize - 1) * page_size;
-            db[at..at + page_size].copy_from_slice(plain);
-        }
+    for (pgno, plain) in replayed.iter().filter(|(n, _)| *n != 1) {
+        pages.write(*pgno, plain).map_err(io)?;
     }
-    // Header bytes 18-19 say WAL mode (2); the copy, without a WAL, reads with a rollback
-    // journal (1).
-    db[18..20].copy_from_slice(&[1, 1]);
-    Ok(Image::Decrypted(db, salt))
+    // Page 1 last, as the WAL left it. One that authenticates but isn't laid out for SQLCipher's
+    // reserved bytes is no rekordbox collection under that key either. Header bytes 18-19 say WAL
+    // mode (2); the copy, without a WAL, reads with a rollback journal (1).
+    let mut first = replayed.iter().find(|(n, _)| *n == 1).map_or_else(|| page1.clone(), |(_, p)| p.clone());
+    cipher::check_plain_header(&first).map_err(|_| wrong_key())?;
+    first[18..20].copy_from_slice(&[1, 1]);
+    pages.write(1, &first).map_err(io)?;
+    Ok(salt)
 }
 
 /// Copy `path` with `copy` and read its WAL, both as of one moment. rekordbox may checkpoint and
@@ -540,16 +636,19 @@ fn decrypt(path: &Path, key: &str) -> Result<Image> {
 /// differs from the header the WAL was read with.
 fn snapshot(path: &Path, copy: impl Fn() -> std::io::Result<u64>) -> Result<Option<Vec<u8>>> {
     let wal_path = PathBuf::from(format!("{}-wal", path.display()));
-    snapshot_with(path, copy, |limit| {
-        let file = match std::fs::File::open(&wal_path) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(Error::Io { path: wal_path.clone(), source: e }),
-        };
-        let mut bytes = Vec::new();
-        file.take(limit).read_to_end(&mut bytes).at(&wal_path)?;
-        Ok((!bytes.is_empty()).then_some(bytes))
-    })
+    snapshot_with(path, copy, |limit| read_wal(&wal_path, limit))
+}
+
+/// At most `limit` bytes of the WAL at `wal_path`, or `None` when there's none (or it's empty).
+fn read_wal(wal_path: &Path, limit: u64) -> Result<Option<Vec<u8>>> {
+    let file = match std::fs::File::open(wal_path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(Error::Io { path: wal_path.to_path_buf(), source: e }),
+    };
+    let mut bytes = Vec::new();
+    file.take(limit).read_to_end(&mut bytes).at(wal_path)?;
+    Ok((!bytes.is_empty()).then_some(bytes))
 }
 
 /// [`snapshot`], reading the WAL with `read_wal` (at most `limit` bytes of it, or `None` when

@@ -117,6 +117,21 @@ fn a_master_db_too_big_for_memory_is_read_from_a_private_folder() {
     assert!(folder.path().join("master.db").is_file());
     assert_eq!(from_file.collection().unwrap().library, in_memory.collection().unwrap().library);
     assert!(from_file.conn.execute_batch("CREATE TABLE notes (body TEXT)").is_err(), "read only");
+    // A file under the limit whose WAL grows it past: it's read into memory, then written out.
+    let grown = dir.path().join("grown");
+    std::fs::create_dir(&grown).unwrap();
+    let (f, codec) = (sample(), codec(DEFAULT_KEY));
+    let before = f.plain();
+    f.track("5", "/Users/dj/Music/New.mp3", "Newcomer", "Added Later");
+    f.exec("CREATE TABLE filler (body BLOB); INSERT INTO filler VALUES (zeroblob(9000))");
+    let after = f.plain();
+    assert!(after.len() > before.len());
+    let path = write(&grown, &codec.encrypt(&before).unwrap());
+    let wal = loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (1, 2), &frames(&codec, &before, &after));
+    std::fs::write(grown.join("master.db-wal"), wal).unwrap();
+    let from_memory = open_db_within(&path, DEFAULT_KEY, before.len()).unwrap();
+    assert!(from_memory._folder.is_some(), "written to a file");
+    assert_eq!(from_memory.collection().unwrap().library.track(5).unwrap().title, "Added Later");
 }
 
 /// Every connection to a decrypted copy keeps SQLite's temporary tables and sorts in memory
@@ -165,7 +180,8 @@ fn a_read_writes_nothing_to_the_temporary_folder() {
     let modes: &[&str] = if cfg!(feature = "files") { &["read", "hash", "tracks"] } else { &["read", "hash"] };
     for mode in modes {
         let tmp = tempfile::tempdir().unwrap();
-        let out = child("masterdb::tests::watched_read", WATCHED, &format!("{mode}:{}", path.display()), tmp.path());
+        let out =
+            child("masterdb::tests::watched_read", WATCHED, &format!("{mode}:{}", path.display()), tmp.path(), "seen");
         assert!(out.ends_with("seen nothing\n"), "{mode}: {out}");
     }
 }
@@ -221,14 +237,14 @@ fn a_process_sweeps_its_temporary_folder_on_its_first_read() {
     std::fs::create_dir(&left).unwrap();
     std::fs::write(left.join(".lock"), b"").unwrap();
     std::fs::write(left.join("export.db"), b"decrypted").unwrap();
-    let out = child("masterdb::tests::watched_read", WATCHED, &format!("read:{}", path.display()), tmp.path());
+    let out = child("masterdb::tests::watched_read", WATCHED, &format!("read:{}", path.display()), tmp.path(), "seen");
     assert!(out.contains("seen"), "{out}");
     assert!(!left.exists(), "the first read didn't sweep");
 }
 
 /// This test binary run as a child: `test` alone, with `var` set to `value` and its temporary
-/// folder `tmp`. Answers what it printed.
-fn child(test: &str, var: &str, value: &str, tmp: &Path) -> String {
+/// folder `tmp`. Answers the lines it printed that hold `marker`.
+fn child(test: &str, var: &str, value: &str, tmp: &Path, marker: &str) -> String {
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args([test, "--exact", "--ignored", "--nocapture", "--test-threads=1"])
         .env(var, value)
@@ -237,7 +253,7 @@ fn child(test: &str, var: &str, value: &str, tmp: &Path) -> String {
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
-    String::from_utf8(out.stdout).unwrap().lines().filter(|l| l.contains("seen")).map(|l| format!("{l}\n")).collect()
+    String::from_utf8(out.stdout).unwrap().lines().filter(|l| l.contains(marker)).map(|l| format!("{l}\n")).collect()
 }
 
 /// A plain `master.db`'s private folder lasts as long as the database read from it.
@@ -263,10 +279,12 @@ fn a_wal_that_shrinks_the_database_reads_smaller() {
     f.exec("CREATE TABLE filler (body BLOB); WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 40) INSERT INTO filler SELECT zeroblob(3000) FROM n");
     let mut before = f.plain();
     f.exec("DROP TABLE filler; VACUUM");
-    let after = f.plain();
+    let mut after = f.plain();
     let pages = (after.len() / PAGE_SIZE) as u32;
     assert!(after.len() < before.len());
+    // Both say WAL mode, as rekordbox's pages do, whichever page 1 is read.
     before[18..20].copy_from_slice(&[2, 2]);
+    after[18..20].copy_from_slice(&[2, 2]);
     let frames: Vec<(u32, u32, Vec<u8>)> = (1..=pages)
         .map(|p| {
             let at = (p as usize - 1) * PAGE_SIZE;
@@ -280,6 +298,159 @@ fn a_wal_that_shrinks_the_database_reads_smaller() {
     let count: u32 = opened.conn.query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap();
     assert_eq!(count, pages);
     assert_eq!(opened.collection().unwrap().library.tracks.len(), 3);
+    // As decrypted, before SQLite reads it (which goes by the size in the header, and would read
+    // a longer image the same): cut to the smaller size, its header saying rollback journal.
+    let Image::Decrypted(image) = decrypt(&path, DEFAULT_KEY).unwrap() else { panic!("not decrypted") };
+    assert_eq!(image.len(), pages as usize * PAGE_SIZE, "shrunk in memory");
+    assert_eq!(image[18..20], [1, 1], "a rollback journal in memory");
+    let folder = crate::scratch::folder().unwrap();
+    let (copy, _) = decrypt_into(&path, DEFAULT_KEY, &folder).unwrap();
+    let written = std::fs::read(copy).unwrap();
+    assert_eq!(written.len(), pages as usize * PAGE_SIZE, "shrunk on disk");
+    assert_eq!(written[18..20], [1, 1], "a rollback journal on disk");
+    assert_eq!(written, *image, "the same image both ways");
+}
+
+/// A file whose pages authenticate under the key given but decrypt to something not laid out as
+/// SQLCipher's (no reserved bytes for each page's IV and HMAC) reads as encrypted with another
+/// key: the layout check does that (without it SQLite would read the IVs as rows and call the file
+/// damaged), whether page 1 comes from the file or from the WAL.
+#[test]
+fn a_master_db_laid_out_otherwise_reads_as_another_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let codec = codec(DEFAULT_KEY);
+    let mut plain = sample().plain();
+    plain[20] = 0;
+    let pages = plain.chunks(PAGE_SIZE).enumerate();
+    let bytes: Vec<u8> = pages.flat_map(|(i, p)| codec.encrypt_page(i as u32 + 1, p).unwrap()).collect();
+    let path = write(dir.path(), &bytes);
+    let err = open(&path, DEFAULT_KEY).unwrap_err();
+    assert!(matches!(&err, Error::WrongKey(_)), "{err:?}");
+    // The same first page from a WAL, over a file laid out as it should be.
+    let good = sample().plain();
+    let path = write(dir.path(), &codec.encrypt(&good).unwrap());
+    let frame = codec.encrypt_page(1, &plain[..PAGE_SIZE]).unwrap();
+    let pages = (good.len() / PAGE_SIZE) as u32;
+    let wal = loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (1, 2), &[(1, pages, frame)]);
+    std::fs::write(dir.path().join("master.db-wal"), wal).unwrap();
+    let err = open(&path, DEFAULT_KEY).unwrap_err();
+    assert!(matches!(&err, Error::WrongKey(_)), "from the WAL: {err:?}");
+}
+
+/// The frames of a WAL that takes `before` to `after`, encrypted, the last one committing.
+fn frames(codec: &Codec, before: &[u8], after: &[u8]) -> Vec<(u32, u32, Vec<u8>)> {
+    let pages = (after.len() / PAGE_SIZE) as u32;
+    let changed: Vec<u32> = (1..=pages)
+        .filter(|&p| {
+            let at = (p as usize - 1) * PAGE_SIZE;
+            before.get(at..at + PAGE_SIZE) != Some(&after[at..at + PAGE_SIZE])
+        })
+        .collect();
+    let last = changed.len();
+    changed
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| {
+            let at = (p as usize - 1) * PAGE_SIZE;
+            (p, if i + 1 == last { pages } else { 0 }, codec.encrypt_page(p, &after[at..at + PAGE_SIZE]).unwrap())
+        })
+        .collect()
+}
+
+/// rekordbox restarts its WAL on disk while it's being read, after its header was: the header
+/// read from the file after the WAL shows it, and `master.db` and its WAL are read again, as of
+/// the checkpoint. Real files, encrypted as rekordbox's are, read by the reader `snapshot` uses.
+#[test]
+fn a_wal_restarted_on_disk_while_read_is_read_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = sample();
+    let codec = codec(DEFAULT_KEY);
+    let before = f.plain();
+    f.exec("UPDATE djmdContent SET Title = 'First' WHERE ID = '84935471'");
+    let first = f.plain();
+    f.exec("UPDATE djmdContent SET Title = 'Second' WHERE ID = '84935471'");
+    let second = f.plain();
+    let path = write(dir.path(), &codec.encrypt(&before).unwrap());
+    let wal_path = dir.path().join("master.db-wal");
+    let old = loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (1, 2), &frames(&codec, &before, &first));
+    std::fs::write(&wal_path, &old).unwrap();
+    // After the checkpoint: the first change in master.db, a new generation holding the second.
+    let (checkpointed, new) = (
+        codec.encrypt(&first).unwrap(),
+        loclib_sqlcipher::wal::tests::build(PAGE_SIZE, (3, 4), &frames(&codec, &first, &second)),
+    );
+    let copied = std::cell::RefCell::new(Vec::new());
+    let whole_reads = std::cell::Cell::new(0);
+    let wal = snapshot_with(
+        &path,
+        || {
+            *copied.borrow_mut() = std::fs::read(&path)?;
+            Ok(0)
+        },
+        |limit| {
+            let read = read_wal(&wal_path, limit);
+            if limit == u64::MAX && whole_reads.replace(whole_reads.get() + 1) == 0 {
+                std::fs::write(&path, &checkpointed).unwrap();
+                std::fs::write(&wal_path, &new).unwrap();
+            }
+            read
+        },
+    )
+    .unwrap();
+    assert_eq!(whole_reads.get(), 2, "read again");
+    assert_eq!(wal, Some(new));
+    assert_eq!(*copied.borrow(), checkpointed);
+    assert_eq!(open(&path, DEFAULT_KEY).unwrap().library.track(84935471).unwrap().title, "Second");
+}
+
+/// What the child [`an_export_doesnt_hold_the_library_in_memory`] starts exports.
+#[cfg(all(unix, feature = "files"))]
+const EXPORTED: &str = "LOCALLIBRARY_TEST_EXPORTED";
+
+/// An export decrypts `master.db` a page at a time into its scratch folder, never holding the
+/// whole library in memory: a child process's peak memory grows by less than half the database
+/// while it exports one of 24 MB.
+#[cfg(all(unix, feature = "files"))]
+#[test]
+fn an_export_doesnt_hold_the_library_in_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = sample();
+    f.exec(
+        "CREATE TABLE filler (body BLOB); WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n \
+         WHERE i < 6000) INSERT INTO filler SELECT randomblob(3900) FROM n",
+    );
+    let path = write(dir.path(), &f.encrypted(DEFAULT_KEY));
+    let len = std::fs::metadata(&path).unwrap().len();
+    assert!(len > 24_000_000, "{len}");
+    let tmp = tempfile::tempdir().unwrap();
+    let out = child("masterdb::tests::exported", EXPORTED, &path.display().to_string(), tmp.path(), "grew");
+    let grew: u64 = out.trim().rsplit(' ').next().unwrap().parse().unwrap();
+    assert!(grew < len / 2, "peak memory grew {grew} bytes exporting {len}");
+}
+
+/// The child [`an_export_doesnt_hold_the_library_in_memory`] starts: how much its peak memory
+/// grew exporting.
+#[cfg(all(unix, feature = "files"))]
+#[test]
+#[ignore = "started by an_export_doesnt_hold_the_library_in_memory"]
+fn exported() {
+    let Ok(path) = std::env::var(EXPORTED) else { return };
+    crate::scratch::test_root(std::env::temp_dir());
+    let peak = || {
+        // SAFETY: `usage` is a local getrusage fills.
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
+        // Bytes on macOS, KiB on Linux.
+        let scale = if cfg!(target_os = "macos") { 1 } else { 1024 };
+        usage.ru_maxrss as u64 * scale
+    };
+    let path = Path::new(&path);
+    let into = path.with_file_name("copy.db");
+    // Nothing big read before: the peak is a high-water mark, so a read of the library first would
+    // hide the export's.
+    let before = peak();
+    files::export(path, DEFAULT_KEY, false, &into).unwrap();
+    println!("grew {}", peak().saturating_sub(before));
 }
 
 fn write(dir: &Path, bytes: &[u8]) -> PathBuf {
@@ -590,6 +761,12 @@ fn a_plain_database_is_read_with_its_wal() {
     let titles: Vec<String> =
         open(&copy.join("master.db"), "unused").unwrap().library.tracks.into_iter().map(|t| t.title).collect();
     assert!(titles.contains(&"Never Grow Old (WAL)".to_string()), "{titles:?}");
+    // Copied for an export, the same: the copy keeps its WAL beside it for SQLite.
+    let (folder, copied) = (crate::scratch::folder().unwrap(), copy.join("master.db"));
+    let (db, salt) = open_copy(&copied, "unused", &folder, false).unwrap();
+    assert_eq!(salt, None, "plain");
+    let titles: Vec<String> = db.collection().unwrap().library.tracks.into_iter().map(|t| t.title).collect();
+    assert!(titles.contains(&"Never Grow Old (WAL)".to_string()), "copied: {titles:?}");
 }
 
 #[test]

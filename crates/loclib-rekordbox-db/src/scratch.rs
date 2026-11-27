@@ -55,9 +55,10 @@ const GRACE: Duration = Duration::from_secs(60 * 60);
 
 /// What a [`Folder`] can hold besides its lock: what [`crate::masterdb`] and
 /// [`crate::onelibrary`] write in it, and what SQLite writes beside a database it has open.
-const OURS: [&str; 8] = [
+const OURS: [&str; 9] = [
     MAKING,
     "master.db",
+    "master.db.enc",
     "master.db-wal",
     "master.db-shm",
     "master.db-journal",
