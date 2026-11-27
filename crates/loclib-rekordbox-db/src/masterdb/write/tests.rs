@@ -826,3 +826,23 @@ fn a_collection_without_cue_lists_has_cues_written_without() {
     assert_eq!(written.count, (UPDATE_COUNT, UPDATE_COUNT + 1));
     assert_eq!(lib.cues(84935471).len(), 1);
 }
+
+/// A `djmdCue` without `rb_local_deleted` (no row of it is marked deleted) has its cues read and
+/// written all the same.
+#[test]
+fn cues_without_a_deleted_mark_are_read_and_written() {
+    let f = writable();
+    f.exec("ALTER TABLE djmdCue DROP COLUMN rb_local_deleted;");
+    let lib = Lib::new(&f, false);
+    let written = write(&lib.target, |e| {
+        let mut cues = e.cues(TRACK)?;
+        assert_eq!(cues.len(), 3);
+        cues.push(hot(2, 3000));
+        e.set_cues(TRACK, &cues)
+    })
+    .unwrap();
+    assert_eq!(written.value.rows.len(), 3);
+    let starts: Vec<u32> = lib.cues(84935471).iter().map(|c| c.start_ms).collect();
+    assert_eq!(starts.len(), 4, "{starts:?}");
+    assert!(starts.contains(&3000), "{starts:?}");
+}

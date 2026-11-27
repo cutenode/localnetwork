@@ -175,3 +175,108 @@ fn the_collection_is_exported_to_a_folder_and_pulled() {
     let out = env.ok(&["pull", path(&folder), "--yes"]);
     assert!(out.contains("snapshot") && out.contains("2 tracks"), "{out}");
 }
+
+/// rekordbox 7's collection as a cue edit finds it ([`writable`]), encrypted and in WAL mode as
+/// rekordbox keeps it, in a folder of its own.
+fn writable_db(env: &Env) -> PathBuf {
+    use loclib_rekordbox_db::masterdb::DEFAULT_KEY;
+    use loclib_rekordbox_db::test_util::{codec, writable};
+
+    let db = env.outside("rekordbox/master.db");
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    let mut bytes = writable().plain();
+    bytes[18..20].copy_from_slice(&[2, 2]);
+    std::fs::write(&db, codec(DEFAULT_KEY).encrypt(&bytes).unwrap()).unwrap();
+    db
+}
+
+/// A run of `locallibrary` on the collection at `db`, in a home of its own: no agent's log there
+/// says Cloud Library Sync is off, so a write is refused (or waits, should rekordbox run here).
+fn on_collection(env: &Env, db: &Path, args: &[&str]) -> (bool, String, String) {
+    std::fs::create_dir_all(env.outside("home")).unwrap();
+    let out = env
+        .command()
+        .env("HOME", env.outside("home"))
+        .env("LOCALLIBRARY_MASTERDB", db)
+        .env_remove("LOCALLIBRARY_MASTERDB_KEY")
+        .args(args)
+        .output()
+        .unwrap();
+    let text = |b: Vec<u8>| String::from_utf8(b).unwrap();
+    (out.status.success(), text(out.stdout), text(out.stderr))
+}
+
+/// One cue edit of the collection waiting in the store: hot cue C on [`writable`]'s first track.
+fn staged(db: &Path) -> serde_json::Value {
+    let set = json!({ "hot_cue": "C", "at": { "ms": 3000 } });
+    let track = json!({ "id": "84935471", "name": "Daft Punk - One More Time", "after": [] });
+    let change = json!({ "kind": "cues", "tracks": [track], "change": { "set": set } });
+    json!([{ "id": "s1", "at": "2026-11-26T12:00:00Z", "db": db, "change": change }])
+}
+
+#[test]
+fn repair_shows_the_lists_it_would_rewrite_and_writes_only_over_a_backup() {
+    let env = Env::new();
+    let db = writable_db(&env);
+    let before = std::fs::read(&db).unwrap();
+    let (ok, out, err) = on_collection(&env, &db, &["collection", "repair", "--dry-run"]);
+    assert!(ok && out.contains("every track's cue list agrees with its cue rows"), "{out}{err}");
+
+    let (ok, out, err) = on_collection(&env, &db, &["collection", "repair", "--create-missing", "--dry-run"]);
+    assert!(ok, "{out}{err}");
+    assert!(out.contains("rewrite the cue lists (contentCue) of 1 track(s)"), "{out}");
+    assert!(out.contains("84935471  Daft Punk - One More Time"), "{out}");
+
+    let (ok, out, err) = on_collection(&env, &db, &["--yes", "collection", "repair", "--create-missing"]);
+    assert!(!ok, "refused with no agent's log to say sync is off, or rekordbox running\n{out}{err}");
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+}
+
+#[test]
+fn apply_and_undo_take_the_edits_waiting_in_the_store() {
+    let env = Env::new();
+    let db = writable_db(&env);
+    let before = std::fs::read(&db).unwrap();
+    let (ok, out, err) = on_collection(&env, &db, &["collection", "apply"]);
+    assert!(ok && out.contains("no edits of rekordbox's collection are waiting"), "{out}{err}");
+    let (ok, out, err) = on_collection(&env, &db, &["collection", "undo"]);
+    assert!(ok && out.contains("nothing to undo in rekordbox's collection"), "{out}{err}");
+
+    let folder = env.store.join("collection");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("staged.json"), staged(&db).to_string()).unwrap();
+    let (ok, out, err) = on_collection(&env, &db, &["collection", "apply", "--dry-run"]);
+    assert!(ok && out.contains("set hot cue C on 1 track(s)"), "{out}{err}");
+    let (ok, out, err) = on_collection(&env, &db, &["--yes", "collection", "apply"]);
+    assert!(!ok || out.contains("still waiting"), "{out}{err}");
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+
+    let (ok, out, err) = on_collection(&env, &db, &["collection", "undo", "--dry-run"]);
+    assert!(ok && out.contains("drop set hot cue C on 1 track(s) (waiting, not written yet)"), "{out}{err}");
+    let (ok, out, err) = on_collection(&env, &db, &["--yes", "collection", "undo"]);
+    assert!(ok && out.contains("dropped it: it was never written"), "{out}{err}");
+    assert_eq!(std::fs::read_to_string(folder.join("staged.json")).unwrap().trim(), "[]");
+
+    // A write made earlier is put back as a new one, which is refused here too.
+    let written = json!([{
+        "id": "w1", "at": "2026-11-26T12:00:00Z", "db": db, "what": "set hot cue C on 1 track(s)",
+        "backup": env.outside("backup.db"), "count": [1, 2], "before": [], "after": []
+    }]);
+    std::fs::write(folder.join("written.json"), written.to_string()).unwrap();
+    let (ok, out, err) = on_collection(&env, &db, &["--yes", "collection", "undo"]);
+    assert!(!ok || out.contains("still waiting"), "{out}{err}");
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+}
+
+#[test]
+fn a_cue_edit_of_the_collection_is_planned_on_master_db() {
+    let env = Env::new();
+    let db = writable_db(&env);
+    let before = std::fs::read(&db).unwrap();
+    let edit = ["cues", "set", "collection", "--track", "84935471", "--hot", "C", "--at", "3"];
+    let (ok, out, err) = on_collection(&env, &db, &[&edit[..], &["--dry-run"]].concat());
+    assert!(ok && out.contains("master.db, over a backup"), "{out}{err}");
+    let (ok, out, err) = on_collection(&env, &db, &[&["--yes"], &edit[..]].concat());
+    assert!(!ok || out.contains("waiting"), "{out}{err}");
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+}

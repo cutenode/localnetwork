@@ -378,3 +378,221 @@ fn prop_collection_cue_edits_land_as_shown_and_undo_puts_them_back(tc: hegel::Te
     assert!(undo_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap().noop);
     assert_eq!(lib.shown(), original);
 }
+
+/// Another track of [`writable`]'s, with no cues.
+const OTHER: u32 = 205356547;
+
+fn set_cue(hot: Option<u8>, ms: u32) -> SetCue {
+    SetCue { hot_cue: hot.map(HotCue), at: CuePosition::Ms(ms), snap: false, loop_beats: None, name: None, color: None }
+}
+
+impl Lib {
+    fn collection(&self) -> masterdb::Collection {
+        masterdb::open(&self.db, DEFAULT_KEY).unwrap()
+    }
+
+    /// [`TRACK`] analysed: the demo track's analysis files, beat grid and phrases, where its
+    /// `AnalysisDataPath` says in rekordbox's `share` folder.
+    fn analysed(&self) {
+        for file in ["ANLZ0000.DAT", "ANLZ0000.EXT"] {
+            let at = Path::new("PIONEER/USBANLZ/P016/0000875E").join(file);
+            let to = self.db.parent().unwrap().join("share").join(&at);
+            std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks");
+            std::fs::copy(fixtures.join(at), to).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_plan_refuses_what_it_cant_do_and_passes_over_what_it_cant_place() {
+    use crate::cue_edit::collection::plan;
+    use crate::cue_edit::{AutoCues, CueEdit, CueStyle};
+
+    // TRACK's grid runs past its end, cut short to 5s; OTHER has no grid.
+    let f = writable();
+    f.exec("UPDATE djmdContent SET Length = 5 WHERE ID = '84935471';");
+    let lib = Lib::new(&f);
+    lib.analysed();
+    let c = lib.collection();
+    let set = CueEdit::Set(set_cue(Some(2), 3000));
+    assert!(plan(&c, &[], &set).unwrap_err().to_string().contains("no tracks selected"));
+    assert!(plan(&c, &[TRACK, OTHER], &set).unwrap_err().to_string().contains("2 tracks selected; pick one"));
+
+    let auto = CueEdit::Auto(AutoCues { style: CueStyle::Rekordbox, overwrite: false });
+    let p = plan(&c, &[TRACK, OTHER], &auto).unwrap();
+    assert!(p.tracks.is_empty(), "{:?}", p.tracks);
+    assert_eq!(p.warnings.len(), 2, "{:?}", p.warnings);
+    assert!(p.warnings.iter().any(|w| w.contains("past the end")), "{:?}", p.warnings);
+    assert!(p.warnings.iter().any(|w| w.contains("has no beat grid")), "{:?}", p.warnings);
+
+    // A copy leaves out the track it's from.
+    let p = plan(&c, &[TRACK, OTHER], &CueEdit::Copy { from: TRACK }).unwrap();
+    assert_eq!(p.tracks.len(), 1);
+
+    // A memory cue's colour isn't written, and the plan says so.
+    let coloured = SetCue { color: Some("red".into()), ..set_cue(None, 3000) };
+    for edit in [CueEdit::Set(coloured.clone()), CueEdit::SetMany(vec![coloured])] {
+        let p = plan(&c, &[TRACK], &edit).unwrap();
+        assert!(p.warnings.iter().any(|w| w.contains("memory cue's colour")), "{:?}", p.warnings);
+    }
+}
+
+#[test]
+fn a_waiting_edit_of_a_track_the_collection_lacks_shows_nothing() {
+    use crate::cue_edit::{CollectionCueEdit, CollectionTrack, CueChange, CueRef};
+
+    let lib = Lib::new(&writable());
+    let c = lib.collection();
+    let mut cues = c.cues.clone();
+    let gone = CollectionTrack { id: "gone".into(), name: "Gone".into(), after: Vec::new() };
+    let edit = CollectionCueEdit { tracks: vec![gone], change: CueChange::Delete(CueRef::All), from: None };
+    crate::cue_edit::collection::overlay(&mut cues, &c.content_ids, [&edit]);
+    assert_eq!(shown(&cues), shown(&c.cues));
+}
+
+/// Each kind of edit waiting is made again on the cues as they are when it's written; one that no
+/// longer changes anything is passed over, and one that no longer applies is said.
+#[test]
+fn waiting_edits_are_made_on_the_cues_as_they_are_when_written() {
+    use crate::cue_edit::{AutoCues, CollectionCueEdit, CollectionTrack, CueChange, CueRef, CueStyle, UpdateCue};
+
+    let lib = Lib::new(&writable());
+    let on = |id: u32, change: CueChange, from: Option<&str>| {
+        let track = CollectionTrack { id: id.to_string(), name: format!("track {id}"), after: Vec::new() };
+        Change::Cues(CollectionCueEdit { tracks: vec![track], change, from: from.map(str::to_string) })
+    };
+    let many = CueChange::SetMany(vec![set_cue(Some(2), 3000), set_cue(Some(3), 4000)]);
+    let named = CueChange::Update(UpdateCue { cue: CueRef::Hot(HotCue(2)), name: Some("Named".into()), color: None });
+    let carry = CueChange::Carry { from: String::new(), shift_ms: 10 };
+    let auto = CueChange::Auto(AutoCues { style: CueStyle::Rekordbox, overwrite: false });
+    let copy = CueChange::Copy { from: String::new() };
+    let forgotten = Change::Undo { write: "forgotten".into(), what: "set hot cue A on 1 track(s)".into() };
+    for change in [
+        on(TRACK, many.clone(), None),
+        on(TRACK, named, None),
+        on(OTHER, carry, Some(&TRACK.to_string())),
+        // No grid on OTHER: nothing placed.
+        on(OTHER, auto, None),
+        // Made already.
+        on(TRACK, many, None),
+        // From a track that's gone.
+        on(TRACK, copy, Some("gone")),
+        forgotten,
+    ] {
+        stage(&lib.store, &lib.db, change).unwrap();
+    }
+    let w = flush(&lib.store, &lib.db, DEFAULT_KEY, &Ctx::silent()).unwrap();
+    assert_eq!((w.written, w.waiting), (7, 0));
+    assert_eq!(w.warnings.len(), 2, "{:?}", w.warnings);
+    assert!(
+        w.warnings[0].contains("on track 84935471: not found: track gone in rekordbox's collection"),
+        "{:?}",
+        w.warnings
+    );
+    assert!(w.warnings[1].contains("that write isn't remembered any more"), "{:?}", w.warnings);
+
+    let c = lib.collection();
+    let track = &c.cues[&TRACK];
+    assert!(track.iter().any(|c| c.hot_cue == Some(2) && c.start_ms == 3000 && c.comment == "Named"), "{track:?}");
+    assert!(track.iter().any(|c| c.hot_cue == Some(3) && c.start_ms == 4000), "{track:?}");
+    let carried: Vec<u32> = c.cues[&OTHER].iter().map(|c| c.start_ms).collect();
+    assert!(carried.contains(&510) && carried.contains(&3010), "{carried:?}");
+}
+
+/// While rekordbox's agent runs, or rekordbox starts while the write is made, the edits wait.
+#[test]
+fn edits_wait_for_the_agent_and_for_a_rekordbox_that_starts_meanwhile() {
+    thread_local! {
+        static LOOKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+    fn agent() -> Running {
+        Running { rekordbox: false, agent: true }
+    }
+    /// rekordbox starts after the first look.
+    fn starts() -> Running {
+        let n = LOOKS.with(|l| l.replace(l.get() + 1));
+        Running { rekordbox: n > 0, agent: false }
+    }
+
+    let lib = Lib::new(&writable());
+    let original = std::fs::read(&lib.db).unwrap();
+    stage(&lib.store, &lib.db, Change::Undo { write: "w".into(), what: "w".into() }).unwrap();
+    let log = TEST_TARGET.with(|t| t.borrow().clone().unwrap().1);
+    TEST_TARGET.with(|t| *t.borrow_mut() = Some((agent, log.clone())));
+    let w = flush(&lib.store, &lib.db, DEFAULT_KEY, &Ctx::silent()).unwrap();
+    assert_eq!((w.written, w.waiting), (0, 1));
+    assert!(w.why.unwrap().contains("agent"));
+
+    TEST_TARGET.with(|t| *t.borrow_mut() = Some((starts, log)));
+    let w = flush(&lib.store, &lib.db, DEFAULT_KEY, &Ctx::silent()).unwrap();
+    assert_eq!((w.written, w.waiting), (0, 1));
+    assert!(w.why.unwrap().contains("rekordbox is open"));
+    assert_eq!(std::fs::read(&lib.db).unwrap(), original);
+}
+
+#[test]
+fn an_undo_of_nothing_does_nothing_and_one_written_meanwhile_is_stale() {
+    let lib = Lib::new(&writable());
+    let plan = undo_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap();
+    assert!(plan.noop);
+    let r = plan.apply(Some(&lib.store), &Ctx::silent()).unwrap();
+    assert!(!r.dropped && r.write == CollectionWrite::default());
+
+    RUNNING.with(|r| r.store(true, Ordering::Relaxed));
+    lib.set(2, 3000);
+    let plan = undo_plan(&lib.store, &lib.db, DEFAULT_KEY).unwrap();
+    assert!(plan.waiting);
+    RUNNING.with(|r| r.store(false, Ordering::Relaxed));
+    flush(&lib.store, &lib.db, DEFAULT_KEY, &Ctx::silent()).unwrap();
+    let e = plan.apply(Some(&lib.store), &Ctx::silent()).unwrap_err();
+    assert!(e.to_string().contains("written meanwhile"), "{e}");
+}
+
+/// Writing needs a store for its backups: the one named when none is given.
+#[test]
+fn a_write_keeps_its_backups_in_the_store_named() {
+    let lib = Lib::new(&writable());
+    assert_eq!(store_for(None).unwrap().root(), lib.store.root());
+    crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = None);
+    if crate::api::store_root().is_none() {
+        assert!(store_for(None).unwrap_err().to_string().contains("needs locallibrary's store"));
+    }
+}
+
+/// The API's collection plans name the collection by a [`CollectionRef`].
+#[test]
+fn the_api_plans_repair_apply_and_undo_of_the_collection_named() {
+    let lib = Lib::new(&writable());
+    let r = lib.reference();
+    assert_eq!(api::collection_repair_plan(&r, true).unwrap().tracks.len(), 1);
+    RUNNING.with(|r| r.store(true, Ordering::Relaxed));
+    lib.set(2, 3000);
+    assert_eq!(api::collection_apply_plan(&lib.store, &r).unwrap().edits, ["set hot cue C on 1 track(s)"]);
+    assert!(api::collection_undo_plan(&lib.store, &r).unwrap().waiting);
+}
+
+/// A cue edit of the collection is planned over what's waiting (an undo shows as nothing yet),
+/// with or without a store, and a copy is from one track.
+#[test]
+fn collection_cue_edits_are_planned_over_what_waits() {
+    use crate::cue_edit::{AutoCues, CueStyle};
+
+    let lib = Lib::new(&writable());
+    stage(&lib.store, &lib.db, Change::Undo { write: "w".into(), what: "w".into() }).unwrap();
+    let auto = lib.edit(CueOp::Auto(AutoCues { style: CueStyle::FirstCue, overwrite: false }));
+    let plan = api::cues_plan(&auto, &Ctx::silent()).unwrap();
+    assert!(plan.tracks.is_empty() && plan.warnings[0].contains("no beat grid"), "{:?}", plan.warnings);
+
+    let both = TrackSelector { ids: vec![TRACK, OTHER], ..Default::default() };
+    let mut copy = lib.edit(CueOp::Copy { from: both });
+    copy.tracks.ids = vec![OTHER];
+    let e = api::cues_plan(&copy, &Ctx::silent()).unwrap_err();
+    assert!(e.to_string().contains("copy from one track (2 selected)"), "{e}");
+
+    crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = None);
+    if crate::api::store_root().is_none() {
+        let set = lib.edit(CueOp::Set(set_cue(Some(2), 3000)));
+        assert_eq!(api::cues_plan(&set, &Ctx::silent()).unwrap().tracks.len(), 1);
+    }
+}

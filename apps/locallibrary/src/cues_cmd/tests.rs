@@ -116,3 +116,28 @@ fn a_style_is_picked_by_number_or_name() {
     let mut typed = std::io::Cursor::new("first-cue\n");
     assert_eq!(ask_style(&mut typed).unwrap(), CueStyle::FirstCue);
 }
+
+/// A cue edit of rekordbox's collection reports whether it was written or waits: what the CLI's own
+/// runs can't reach, a write rekordbox's collection takes (CI has no rekordbox whose agent says
+/// Cloud Library Sync is off).
+#[test]
+fn a_collection_cue_edit_says_whether_it_was_written_or_waits() {
+    use locallibrary::collection_write::CollectionWrite;
+    let report = |collection| CueReport {
+        tracks_changed: 1,
+        collection: Some(collection),
+        files_written: Vec::new(),
+        onelibrary: None,
+        backup: None,
+        fingerprint: None,
+    };
+    let waiting = CollectionWrite { waiting: 1, why: Some("rekordbox is open".into()), ..Default::default() };
+    render_report(&report(waiting), "");
+    let written = CollectionWrite {
+        written: 1,
+        backup: Some("/store/collection/backups/master.db".into()),
+        warnings: vec!["a track was gone".into()],
+        ..Default::default()
+    };
+    render_report(&report(written), "");
+}
