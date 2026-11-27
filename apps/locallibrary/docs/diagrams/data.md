@@ -94,7 +94,7 @@ flowchart TD
     edit --> swap["Checked, encrypted with its salt, read back,<br/>renamed over master.db if it hasn't changed"]
     swap --> master
     edit -.->|"an analysis edit (collection_analysis)"| anlz["Each analysis file replaced is backed up beside the backup,<br/>its new bytes put beside it, its contentFile row given its MD5"]
-    anlz -->|"after master.db, if the old files haven't changed"| share["The track's ANLZ files in rekordbox's share folder"]
+    anlz -->|"after master.db, if the old files haven't changed<br/>(listed beside master.db until they're in:<br/>the next write finishes any left)"| share["The track's ANLZ files in rekordbox's share folder"]
 ```
 
 Source: [`crates/loclib-rekordbox-db/src/masterdb.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb.rs), [`crates/loclib-rekordbox-db/src/masterdb/write.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb/write.rs), [`crates/loclib-rekordbox-db/src/masterdb/write/share.rs`](../../../../crates/loclib-rekordbox-db/src/masterdb/write/share.rs), [`crates/locallibrary/src/collection_analysis.rs`](../../../../crates/locallibrary/src/collection_analysis.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs)

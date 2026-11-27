@@ -29,6 +29,12 @@
 //! a track rekordbox hasn't analysed has none, and its `contentFile` rows would have to be made.
 //! A new file keeps the old one's permissions, but not its owner, ACLs or extended attributes, as
 //! with `master.db`.
+//!
+//! Between `master.db` going in and the last file, the two disagree. So the files a write replaces
+//! are listed beside `master.db` ([`Pending`]) from the first, each file is checked to be one that
+//! can be renamed over before `master.db` goes in, and a rename that fails keeps the new bytes and
+//! says `master.db` was written ([`Error::PartlyWritten`]). The next write, before its edit,
+//! renames in what the list has left, or clears it where `master.db` never went in ([`resume`]).
 
 use std::fs::File;
 use std::io::Write;
@@ -87,8 +93,9 @@ impl RemovedDir {
         RemovedDir(path, true)
     }
 
-    pub(super) fn keep(mut self) {
+    pub(super) fn keep(mut self) -> PathBuf {
         self.1 = false;
+        std::mem::take(&mut self.0)
     }
 }
 
@@ -238,7 +245,28 @@ impl Edit<'_> {
             md5: md5.clone(),
             size: bytes.len() as u64,
         });
+        self.list_pending()?;
         Ok(Some(FileBefore { track_id: track_id.to_string(), path, backup, md5: old_md5, after_md5: md5 }))
+    }
+
+    /// Lists the files replaced so far beside `master.db` ([`Pending`]), on disk before it
+    /// answers. The list goes should the write fail before `master.db` is swapped in.
+    fn list_pending(&mut self) -> Result<()> {
+        let files = self.replaced.iter().map(|r| PendingFile {
+            track_id: r.track_id.clone(),
+            path: r.path.clone(),
+            md5: r.md5.clone(),
+        });
+        let list = serde_json::to_vec(&Pending { files: files.collect() }).expect("a list serialises");
+        let partial = PathBuf::from(format!("{}.partial", self.pending.display()));
+        let _ = std::fs::remove_file(&partial);
+        write_new(&partial, &list)?;
+        std::fs::rename(&partial, self.pending).at(self.pending)?;
+        sync_dir(self.pending);
+        if self.listed.is_none() {
+            self.listed = Some(Removed::new(self.pending.to_path_buf()));
+        }
+        Ok(())
     }
 
     /// The `contentFile` row of track `track_id`'s `path` (at `file`, holding `old`, whose MD5 is
@@ -395,9 +423,11 @@ pub(super) fn check(conn: &Connection, replaced: &[Replaced]) -> std::result::Re
 }
 
 /// Refuses when a file to replace no longer holds what was backed up, its backup doesn't read
-/// back as that, or its new bytes don't read back.
+/// back as that, its new bytes don't read back, or it can't be replaced where it is: what would
+/// stop it going in once `master.db` has.
 pub(super) fn unchanged(replaced: &[Replaced]) -> Result<()> {
     for r in replaced {
+        replaceable(&r.file)?;
         if md5_hex(&std::fs::read(&r.file).at(&r.file)?) != r.old_md5 {
             return Err(Error::Refused(Refusal::Changed));
         }
@@ -411,14 +441,169 @@ pub(super) fn unchanged(replaced: &[Replaced]) -> Result<()> {
     Ok(())
 }
 
-/// Renames each file's new bytes over it, once `master.db` has been swapped in. Should one fail,
-/// `master.db` already gives it its new hash: the error says which file, and it and those after it
-/// keep what they held.
-pub(super) fn swap_in(replaced: Vec<Replaced>) -> Result<()> {
-    for r in replaced {
-        std::fs::rename(&r.new.0, &r.file).at(&r.file)?;
+/// Renames each file's new bytes over it, once `master.db` has been swapped in, then takes the
+/// list of them away (`pending`). Should a rename fail, `master.db` already lists the new bytes:
+/// they stay beside their files with the list, which the next write finishes ([`resume`]), and
+/// the error says so, with both backups.
+pub(super) fn swap_in(replaced: Vec<Replaced>, pending: &Path, backup: &Path, share_backup: &Path) -> Result<()> {
+    let mut left = replaced.into_iter();
+    while let Some(r) = left.next() {
+        if let Err(source) = rename_in(&r.new.0, &r.file) {
+            let files = std::iter::once(r).chain(left).map(|r| {
+                r.new.keep();
+                r.file
+            });
+            return Err(Error::PartlyWritten {
+                backup: backup.to_path_buf(),
+                share_backup: share_backup.to_path_buf(),
+                pending: files.collect(),
+                source,
+            });
+        }
         r.new.keep();
         sync_dir(&r.file);
     }
+    match std::fs::remove_file(pending) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(Error::Io { path: pending.into(), source: e });
+        }
+        _ => sync_dir(pending),
+    }
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Whether [`swap_in`]'s renames fail, for a test on this thread.
+    pub(super) static FAIL_RENAMES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Renames `new` over `file`.
+fn rename_in(new: &Path, file: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_RENAMES.get() {
+        return Err(std::io::Error::other("a test's rename"));
+    }
+    std::fs::rename(new, file)
+}
+
+/// The analysis files a write replaces, listed beside `master.db`
+/// (`master.db.locallibrary-pending`) from the first one replaced until each is renamed in: what
+/// the next write finishes or clears should this one be stopped (killed, a power cut, a rename
+/// that failed) between swapping `master.db` in and renaming the last file. Each file by its track
+/// and its path as `master.db` names it, with the MD5 of its new bytes; where it is comes from
+/// the share folder, not from the list.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct Pending {
+    files: Vec<PendingFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PendingFile {
+    track_id: String,
+    path: String,
+    md5: String,
+}
+
+/// Finishes, or clears, what [`Pending`] at `pending` lists, before a write's edit, by what
+/// `master.db` (open as `conn`) and the files in `share` say. For each file:
+///
+/// * `master.db` lists its new bytes, which are beside it: renamed in (the write got that far);
+/// * `master.db` lists what it holds: the write never swapped `master.db` in (or it was put back
+///   from its backup), so the new bytes beside it, if any, go;
+/// * anything else is refused, with what's there left as it is: someone has to look.
+///
+/// Then the list goes.
+pub(super) fn resume(conn: &Connection, pending: &Path, share: &Path) -> Result<()> {
+    let list = match std::fs::read(pending) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        list => list.at(pending)?,
+    };
+    let odd = |why: String| Error::Refused(Refusal::Odd(format!("{} {why}", pending.display())));
+    let list: Pending = serde_json::from_slice(&list).map_err(|e| odd(format!("can't be read ({e})")))?;
+    let sql = |e: rusqlite::Error| Error::Refused(Refusal::Odd(e.to_string()));
+    let md5_of = |p: &Path| match std::fs::read(p) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        bytes => bytes.at(p).map(|b| Some(md5_hex(&b))),
+    };
+    if !has_content_file(conn).map_err(sql)? {
+        return Err(
+            odd("lists analysis files being replaced, but master.db has no contentFile rows to tell by".into()),
+        );
+    }
+    // Each file's new bytes, and where they go (`None`: nowhere, they go).
+    let mut steps = Vec::new();
+    for f in &list.files {
+        let key = paths::key(&f.path);
+        let disagree = || {
+            odd(format!(
+                "lists {} as being replaced by an earlier write, but master.db and the files there don't agree with \
+                 it: check them, then remove {}",
+                f.path,
+                pending.display()
+            ))
+        };
+        if !key.split('/').all(paths::is_safe_component) {
+            return Err(disagree());
+        }
+        let file = paths::to_fs(share, &key);
+        let new = PathBuf::from(format!("{}.locallibrary-new", file.display()));
+        let listed: Option<String> = conn
+            .query_row(
+                "SELECT Hash FROM contentFile WHERE ContentID = ?1 AND lower(Path) = lower(?2) \
+                 AND IFNULL(rb_local_deleted, 0) = 0",
+                [&f.track_id, &f.path],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?
+            .flatten();
+        let (listed, held, beside) = (listed.as_ref(), md5_of(&file)?, md5_of(&new)?);
+        let ours = beside.as_ref().is_none_or(|b| *b == f.md5);
+        steps.push(match () {
+            // master.db is in, the file not yet.
+            _ if ours && listed == Some(&f.md5) && beside.is_some() => (new, Some(file)),
+            // Both in already, or master.db never was: either way the file is what it lists.
+            _ if ours && listed.is_some() && listed == held.as_ref() => (new, None),
+            _ => return Err(disagree()),
+        });
+    }
+    for (new, into) in steps {
+        match into {
+            Some(file) => {
+                std::fs::rename(&new, &file).at(&file)?;
+                sync_dir(&file);
+            }
+            None => match std::fs::remove_file(&new) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Error::Io { path: new, source: e }),
+                _ => {}
+            },
+        }
+    }
+    std::fs::remove_file(pending).at(pending)?;
+    sync_dir(pending);
+    Ok(())
+}
+
+/// Refuses `file` unless it can be replaced: not read-only, and open to write (and, on Windows,
+/// to delete, which renaming over it takes: a scanner or indexer holding it open without sharing
+/// that would stop the rename after `master.db` is in).
+fn replaceable(file: &Path) -> Result<()> {
+    let refused =
+        |why: &str| Err(Error::Refused(Refusal::Odd(format!("{} {why}, so it can't be replaced", file.display()))));
+    if std::fs::metadata(file).at(file)?.permissions().readonly() {
+        return refused("is read-only");
+    }
+    let mut open = std::fs::OpenOptions::new();
+    open.write(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // DELETE, with every other opener's access shared.
+        open.access_mode(0x0001_0000 | 0x4000_0000).share_mode(0x7);
+    }
+    match open.open(file) {
+        Ok(_) => Ok(()),
+        Err(e) => refused(&format!("can't be opened to write ({e})")),
+    }
 }

@@ -20,7 +20,9 @@
 //!
 //! Each save answers what it replaced ([`AnalysisBefore`]), which [`undo`] puts back as a new
 //! write with new stamps. Errors are the write path's: [`Error::Refused`] says why nothing was
-//! written, and [`loclib_rekordbox_db::Refusal::waits`] which refusals pass once rekordbox quits.
+//! written, and [`loclib_rekordbox_db::Refusal::waits`] which refusals pass once rekordbox quits;
+//! [`Error::PartlyWritten`] that `master.db` was, but analysis files it lists are still beside
+//! theirs, which the next write puts in.
 
 use rusqlite::OptionalExtension;
 use rusqlite::types::Value;

@@ -138,17 +138,21 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
         return Err(Error::Refused(Refusal::CloudSync(why)));
     }
     unchanged(master, &before)?;
+    // An earlier write stopped after swapping master.db in, before its analysis files were in:
+    // finished (or cleared) before this one.
+    let share = super::share_dir(master);
+    let pending = beside(master, "locallibrary-pending");
+    share::resume(conn, &pending, &share)?;
 
     // Rows already pointing nowhere (rekordbox leaves some) aren't this write's to answer for.
     let pointing_nowhere = dangling(conn).map_err(at)?;
 
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(at)?;
-    let share = super::share_dir(master);
-    let mut e = Edit::new(&tx, &backup.0, &share, &share_backup.0)?;
+    let mut e = Edit::new(&tx, &backup.0, &share, &share_backup.0, &pending)?;
     let value = edit(&mut e)?;
     let count = e.finish()?;
     let (touched, cue_tracks) = (std::mem::take(&mut e.touched), std::mem::take(&mut e.cue_tracks));
-    let replaced = std::mem::take(&mut e.replaced);
+    let (replaced, listed) = (std::mem::take(&mut e.replaced), e.listed.take());
     drop(e);
     tx.commit().map_err(at)?;
     check(conn, count, &pointing_nowhere, &touched, &cue_tracks)
@@ -182,8 +186,11 @@ pub fn write<T>(target: &Target, edit: impl FnOnce(&mut Edit<'_>) -> Result<T>) 
     // master.db is the new one from here: its backup and the analysis files' are kept whatever
     // happens next, as they're all that can put it back.
     let backup = backup.keep();
-    share_backup.keep();
-    share::swap_in(replaced)?;
+    let share_backup = share_backup.keep();
+    if let Some(listed) = listed {
+        listed.keep();
+    }
+    share::swap_in(replaced, &pending, &backup, &share_backup)?;
     Ok(Written { value, backup, count })
 }
 
@@ -458,10 +465,20 @@ pub struct Edit<'c> {
     /// The analysis files replaced, waiting to be renamed in, and the tracks they're of.
     replaced: Vec<share::Replaced>,
     analysed: Vec<String>,
+    /// Where the files replaced are listed until they're in ([`share::Pending`]), and that list,
+    /// once there is one.
+    pending: &'c Path,
+    listed: Option<Removed>,
 }
 
 impl<'c> Edit<'c> {
-    fn new(conn: &'c Connection, path: &'c Path, share: &'c Path, share_backup: &'c Path) -> Result<Edit<'c>> {
+    fn new(
+        conn: &'c Connection,
+        path: &'c Path,
+        share: &'c Path,
+        share_backup: &'c Path,
+        pending: &'c Path,
+    ) -> Result<Edit<'c>> {
         let sql = |e: rusqlite::Error| Error::parse(path, e);
         let Some(was) = Stamp::count(conn).map_err(sql)? else {
             let why = "its agentRegistry has no single localUpdateCount, which rekordbox counts every change with";
@@ -482,6 +499,8 @@ impl<'c> Edit<'c> {
             share_backup,
             replaced: Vec::new(),
             analysed: Vec::new(),
+            pending,
+            listed: None,
         })
     }
 

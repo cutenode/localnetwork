@@ -59,6 +59,25 @@ pub enum Error {
     /// A write of rekordbox's collection that wasn't made, and why; `master.db` is as it was.
     #[error("{0}")]
     Refused(Refusal),
+
+    /// `master.db` was written, but analysis files it now lists anew couldn't be renamed in: their
+    /// new bytes are kept beside them (`.locallibrary-new`), listed beside `master.db`, and the
+    /// next write puts them in first. Both backups are kept too.
+    #[error(
+        "the collection was written, but {} of its analysis files couldn't be put in place ({source}): their new \
+         bytes are kept beside them, and the next write puts them in. To take the write back instead, restore {} \
+         and the files in {}", pending.len(), backup.display(), share_backup.display()
+    )]
+    PartlyWritten {
+        /// The backup of `master.db` from right before.
+        backup: PathBuf,
+        /// The backups of the analysis files the write replaced.
+        share_backup: PathBuf,
+        /// The analysis files still to be renamed in.
+        pending: Vec<PathBuf>,
+        /// What the system said renaming the first of them.
+        source: io::Error,
+    },
 }
 
 /// Why a write of rekordbox's collection (`master.db`) wasn't made. Nothing was written.

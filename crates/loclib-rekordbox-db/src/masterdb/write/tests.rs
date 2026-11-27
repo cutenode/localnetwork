@@ -983,33 +983,86 @@ fn a_new_file_there_already_is_left_alone() {
     );
 }
 
-/// A file that can't be renamed in once master.db has been swapped in fails the write, and keeps
-/// master.db's backup and the files' backups, which are all that can put it back.
+/// A file that can't be renamed in once master.db has been swapped in fails the write saying
+/// master.db was written: its new bytes stay beside it, listed beside master.db, and master.db's
+/// backup and the files' backups are kept. The next write puts the file in before its own edit.
+#[test]
+fn a_file_that_cant_be_swapped_in_is_put_in_by_the_next_write() {
+    let (lib, dir) = analysed_lib();
+    share::FAIL_RENAMES.set(true);
+    let result = write(&lib.target, |e| {
+        e.replace_analysis_file(TRACK, "EXT", b"new ext")?;
+        e.replace_analysis_file(TRACK, "DAT", b"new dat")
+    });
+    share::FAIL_RENAMES.set(false);
+    let e = result.unwrap_err();
+    let Error::PartlyWritten { backup, share_backup, pending, .. } = &e else { panic!("{e}") };
+    assert!(e.to_string().contains("was written"), "{e}");
+    assert_eq!(pending, &[dir.join("ANLZ0000.EXT"), dir.join("ANLZ0000.DAT")]);
+    assert_eq!(std::fs::read(share_backup.join(ANALYSIS_DIR).join("ANLZ0000.EXT")).unwrap(), b"ext");
+    assert!(backup.is_file());
+    assert_eq!(
+        files_in(&dir),
+        named(&[
+            ("ANLZ0000.DAT", b"dat"),
+            ("ANLZ0000.DAT.locallibrary-new", b"new dat"),
+            ("ANLZ0000.EXT", b"ext"),
+            ("ANLZ0000.EXT.locallibrary-new", b"new ext"),
+        ])
+    );
+    let listed = lib.target.master_db.with_file_name("master.db.locallibrary-pending");
+    assert!(listed.is_file());
+
+    // The next write, of anything, puts them in first.
+    write(&lib.target, |e| e.replace_analysis_file(TRACK, "DAT", b"newer dat")).unwrap();
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"newer dat"), ("ANLZ0000.EXT", b"new ext")]));
+    assert!(!listed.exists());
+}
+
+/// What a write killed before its swap leaves (new files beside the old ones, and their list) is
+/// cleared by the next one, master.db never having listed them; a list that neither master.db
+/// nor the files agree with refuses writes until someone looks.
+#[test]
+fn what_a_killed_write_left_is_cleared_or_refused() {
+    let (lib, dir) = analysed_lib();
+    let listed = lib.target.master_db.with_file_name("master.db.locallibrary-pending");
+    let left = |md5: &str| {
+        std::fs::write(dir.join("ANLZ0000.EXT.locallibrary-new"), b"new ext").unwrap();
+        let entry = serde_json::json!({ "files": [{ "track_id": TRACK, "path": format!("/{ANALYSIS_DIR}/ANLZ0000.EXT"), "md5": md5 }] });
+        std::fs::write(&listed, entry.to_string()).unwrap();
+    };
+    left(&share::md5_hex(b"new ext"));
+    write(&lib.target, |e| e.replace_analysis_file(TRACK, "DAT", b"new dat")).unwrap();
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"new dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert!(!listed.exists());
+
+    let before = lib.bytes();
+    left("0123456789abcdef0123456789abcdef");
+    let e = write(&lib.target, |e| e.replace_analysis_file(TRACK, "DAT", b"newer dat")).unwrap_err();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("locallibrary-pending")), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert!(listed.exists() && dir.join("ANLZ0000.EXT.locallibrary-new").exists());
+}
+
+/// A file that can't be replaced where it is (read-only) is refused before master.db is swapped.
 #[cfg(unix)]
 #[test]
-fn a_file_that_cant_be_swapped_in_keeps_the_backups() {
+fn a_read_only_file_is_refused_before_the_swap() {
     use std::os::unix::fs::PermissionsExt;
     let (lib, dir) = analysed_lib();
-    let mode = |m: u32| std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(m)).unwrap();
-    let result = write(&lib.target, |e| {
+    let before = lib.bytes();
+    let ext = dir.join("ANLZ0000.EXT");
+    let e = write(&lib.target, |e| {
         let replaced = e.replace_analysis_file(TRACK, "EXT", b"new ext");
-        mode(0o555);
+        std::fs::set_permissions(&ext, std::fs::Permissions::from_mode(0o444)).unwrap();
         replaced
-    });
-    mode(0o755);
-    // Where the folder can be written anyway (as root), the write goes through.
-    let Err(e) = result else { return };
-    assert!(matches!(e, Error::Io { .. }), "{e}");
-    assert_eq!(std::fs::read(dir.join("ANLZ0000.EXT")).unwrap(), b"ext");
-    let mut kept: Vec<String> = std::fs::read_dir(&lib.target.backups)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    kept.sort();
-    assert_eq!(kept.len(), 2, "{kept:?}");
-    assert!(kept[0].ends_with(".db") && kept[1] == format!("{}.share", kept[0]), "{kept:?}");
-    let share_backup = lib.target.backups.join(&kept[1]).join(ANALYSIS_DIR).join("ANLZ0000.EXT");
-    assert_eq!(std::fs::read(share_backup).unwrap(), b"ext");
+    })
+    .unwrap_err();
+    std::fs::set_permissions(&ext, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("read-only")), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+    assert!(!lib.target.master_db.with_file_name("master.db.locallibrary-pending").exists());
 }
 
 /// A file that isn't what its contentFile row lists (half synced, or changed outside rekordbox),
