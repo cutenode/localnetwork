@@ -13,6 +13,7 @@
 
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
+	import { hotkeys } from '#lib/hotkeys.svelte.ts';
 	import { bandColor, phraseBackground, type MixTrack } from '#lib/mix/report.ts';
 	import { cuePoints } from '#lib/tools/cues.ts';
 	import type { Cue } from '#lib/tools/types.ts';
@@ -28,7 +29,16 @@
 	 * that the track shows only letters, which are just for pointing, and a legend under it holds the
 	 * tabs. Only one of the two rows is ever displayed, so there's always exactly one tab list.
 	 */
-	let { tool, cues, track, look = 'rekordbox', selected = $bindable(0) }: { tool: string; cues: Cue[]; track: Pick<MixTrack, 'durationSecs' | 'overview' | 'phrases'>; look?: Look; selected?: number } = $props();
+	// `plain` is for a page that names the tool itself: the heading is only for screen readers, and the
+	// hint and each cue's "Hot cue A" label go, since the pads already show their letters.
+	let {
+		tool,
+		cues,
+		track,
+		look = 'rekordbox',
+		plain = false,
+		selected = $bindable(0)
+	}: { tool: string; cues: Cue[]; track: Pick<MixTrack, 'durationSecs' | 'overview' | 'phrases'>; look?: Look; plain?: boolean; selected?: number } = $props();
 
 	const id = $props.id();
 
@@ -113,6 +123,22 @@
 		event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')[selected]?.focus();
 	}
 
+	// A cue's number picks it from anywhere on the page, the way a deck's pads answer without being
+	// focused first. Only numbers: the site's own shortcuts are letters (A is /about), so letters still
+	// need a pad focused. Off with the site's shortcuts (the footer's switch, WCAG 2.1.4), and never
+	// while typing. A key a focused pad already took (defaultPrevented) is left alone.
+	function onwindowkeydown(event: KeyboardEvent) {
+		if (!hotkeys.enabled || event.defaultPrevented || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+
+		if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+
+		const number = Number(event.key);
+
+		if (!Number.isInteger(number) || number < 1 || number > cues.length) return;
+		event.preventDefault();
+		selected = number - 1;
+	}
+
 	const tab = (i: number) => ({
 		type: 'button' as const,
 		role: 'tab' as const,
@@ -125,11 +151,17 @@
 	});
 </script>
 
+<svelte:window onkeydown={onwindowkeydown} />
+
 <section aria-labelledby="{id}-title" class="@container flex flex-col gap-6 sm:gap-8">
-	<div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-		<h2 id="{id}-title" class="m-0 section-title">What {tool} does</h2>
-		<p class="m-0 text-small text-fg-muted"><span class="sm:hidden">Tap a cue.</span><span class="max-sm:hidden">Pick a cue, or press its letter or number.</span></p>
-	</div>
+	{#if plain}
+		<h2 id="{id}-title" class="sr-only">What {tool} does</h2>
+	{:else}
+		<div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+			<h2 id="{id}-title" class="m-0 section-title">What {tool} does</h2>
+			<p class="m-0 text-small text-fg-muted"><span class="sm:hidden">Tap a cue.</span><span class="max-sm:hidden">Pick a cue, or press its letter or number.</span></p>
+		</div>
+	{/if}
 	<div class="flex flex-col gap-1.5">
 		<div role="tablist" aria-labelledby="{id}-title" class="relative hidden h-8 @min-[52rem]:block">
 			{#each cues as item, i (item.name)}
@@ -185,7 +217,7 @@
 		<div class="grid">
 			{#each cues as item, i (item.name)}
 				<div class={['col-start-1 row-start-1 flex flex-col gap-3', selected !== i && 'invisible']}>
-					<p class={['m-0 font-mono text-small', style.label]}>Hot cue {LETTERS[i]}</p>
+					{#if !plain}<p class={['m-0 font-mono text-small', style.label]}>Hot cue {LETTERS[i]}</p>{/if}
 					<h3 class="m-0 text-title font-semibold">{item.name}</h3>
 					<p class="m-0 text-lede text-pretty text-fg-soft">{item.line}.</p>
 				</div>

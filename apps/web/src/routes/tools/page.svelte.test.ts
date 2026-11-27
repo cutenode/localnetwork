@@ -5,7 +5,7 @@ import ToolsPage from './+page.svelte';
 import ToolPage from './[tool]/+page.svelte';
 import GuidePage from './[tool]/docs/[page]/+page.svelte';
 import HotCues, { LETTERS } from '#lib/components/tools/HotCues.svelte';
-import { hotkeyTarget } from '#lib/hotkeys.svelte.ts';
+import { hotkeyTarget, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 import { capture, cues, track } from '#lib/testing/tools.ts';
 import { demoTrack, tools } from '#lib/tools/index.ts';
@@ -30,125 +30,128 @@ const renderTools = () =>
 		data: {
 			...layout,
 			tools: [
-				{ id: 'localthing', name: 'localthing', kind: 'Terminal app for Mac', cues },
+				{
+					id: 'localthing',
+					name: 'localthing',
+					pitch: 'A terminal app that keeps drives in sync.',
+					look: 'rekordbox' as const,
+					guide: '/tools/localthing/docs/readme',
+					cues
+				},
 				{
 					id: 'localother',
 					name: 'localother',
-					kind: 'Chrome extension',
+					pitch: 'A Chrome extension for SoundCloud.',
+					look: 'soundcloud' as const,
+					guide: '/tools/localother/docs/overview',
 					cues: [
 						{ name: 'Marks', line: 'Marks what you have', capture: capture('The marks') },
-						{ name: 'Text', line: 'Turns a playlist into text', capture: capture('The text view', { w: 800, h: 1160 }) }
+						{ name: 'Text', line: 'Turns a playlist into text', capture: capture('The text view') },
+						{ name: 'Downloads', line: 'Finds download links', capture: capture('The manager', { w: 800, h: 1160 }) },
+						{ name: 'Tools', line: 'Opens from the toolbar', capture: capture('The menu') }
 					]
 				}
 			],
-			track: { ...track, cues: [20, 100, 180, 200, 220] }
+			track
 		}
 	});
 
 describe('/tools', () => {
-	it("lays every tool's cues on one track, and links each tool to its page", async () => {
+	it('gives each tool its own section, saying once what it is, with its install and guides', async () => {
 		await renderTools();
 		await expect
 			.element(page.getByRole('heading', { level: 1, name: 'From the crate to the booth.' }))
 			.toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { level: 2, name: 'localthing' })).toBeInTheDocument();
+		await expect.element(page.getByText('A terminal app that keeps drives in sync.')).toBeVisible();
+		await expect.element(page.getByText('A Chrome extension for SoundCloud.')).toBeVisible();
 		await expect
-			.element(
-				page.getByText(
-					'Free tools for DJs. Each one stands on its own, and locallibrary signs in with your Atmosphere account.'
-				)
-			)
-			.toBeInTheDocument();
+			.element(page.getByRole('link', { name: 'Install localthing' }))
+			.toHaveAttribute('href', '/tools/localthing#install');
 		await expect
-			.element(page.getByRole('link', { name: 'localthing', exact: true }))
-			.toHaveAttribute('href', '/tools/localthing');
+			.element(page.getByRole('link', { name: 'Guides for localother' }))
+			.toHaveAttribute('href', '/tools/localother/docs/overview');
+	});
+
+	it('shows a rekordbox tool as hot cues on a track, its own letters from A', async () => {
+		await renderTools();
+		const deck = page.getByRole('region', { name: 'localthing' });
+
 		await expect
-			.element(page.getByRole('link', { name: 'localother', exact: true }))
-			.toHaveAttribute('href', '/tools/localother');
-		await expect.element(page.getByText('Chrome extension')).toBeVisible();
-		await expect
-			.element(page.getByRole('img', { name: "The tools' hot cues on a track's waveform" }))
+			.element(deck.getByRole('img', { name: "localthing's hot cues on a track's waveform" }))
 			.toBeInTheDocument();
 		expect(
-			page
+			deck
 				.getByRole('tab')
 				.elements()
 				.map((tab) => tab.textContent?.replace(/\s+/g, ' ').trim())
-		).toEqual(['A Sync', 'B Edit', 'C Check', 'A Marks', 'B Text']);
-		await expect
-			.element(page.getByRole('tab', { name: 'A Marks' }))
-			.toHaveAccessibleDescription('localother Chrome extension');
+		).toEqual(['A Sync', 'B Edit', 'C Check']);
+		await expect.element(deck.getByRole('tab', { name: 'A Sync' })).toHaveAttribute('aria-selected', 'true');
 	});
 
-	it('opens on the first cue, with its line, its capture and its tool, loading no other capture', async () => {
+	it('picks a cue by its number with nothing focused, and leaves the keys alone while typing or with shortcuts off', async () => {
 		await renderTools();
-		await expect.element(page.getByRole('tab', { name: 'A Sync' })).toHaveAttribute('aria-selected', 'true');
-		const panel = page.getByRole('tabpanel', { name: 'A Sync' });
-		await expect.element(panel.getByRole('heading', { level: 3, name: 'Sync' })).toBeInTheDocument();
-		await expect.element(panel.getByText('Keeps drives in sync.')).toBeVisible();
-		await expect
-			.element(panel.getByRole('link', { name: 'See what localthing does' }))
-			.toHaveAttribute('href', '/tools/localthing');
-		await expect.element(panel.getByRole('img', { name: 'The drives view' })).toBeVisible();
-		await expect.element(page.getByRole('img', { name: 'The marks', includeHidden: true })).not.toBeInTheDocument();
+		const deck = page.getByRole('region', { name: 'localthing' });
+
+		await userEvent.keyboard('3');
+		await expect.element(deck.getByRole('tab', { name: 'C Check' })).toHaveAttribute('aria-selected', 'true');
+		await expect.element(deck.getByText('Checks drives before a set.')).toBeVisible();
+		// Past the last cue: nothing moves.
+		await userEvent.keyboard('9');
+		await expect.element(deck.getByRole('tab', { name: 'C Check' })).toHaveAttribute('aria-selected', 'true');
+
+		setHotkeysEnabled(false);
+
+		try {
+			await userEvent.keyboard('1');
+			await expect.element(deck.getByRole('tab', { name: 'C Check' })).toHaveAttribute('aria-selected', 'true');
+		} finally {
+			setHotkeysEnabled(true);
+		}
+
+		const field = document.createElement('input');
+
+		document.body.append(field);
+
+		try {
+			field.focus();
+			await userEvent.keyboard('2');
+			await expect.element(deck.getByRole('tab', { name: 'C Check' })).toHaveAttribute('aria-selected', 'true');
+			expect(field.value).toBe('2');
+		} finally {
+			field.remove();
+		}
 	});
 
-	it("shows another tool's cue when it's picked, and keeps the last capture until the new one loads", async () => {
+	it("shows a SoundCloud tool as its own menu, in the menu's order, with its marks apart", async () => {
 		await renderTools();
-		await page.getByRole('tab', { name: 'B Text' }).click();
-		await expect.element(page.getByRole('tab', { name: 'B Text' })).toHaveAttribute('aria-selected', 'true');
-		const panel = page.getByRole('tabpanel', { name: 'B Text' });
-		await expect.element(panel.getByRole('heading', { level: 3, name: 'Text' })).toBeInTheDocument();
-		await expect.element(panel.getByText('Turns a playlist into text.')).toBeVisible();
-		await expect.element(panel.getByRole('heading', { name: 'Sync' })).not.toBeInTheDocument();
-		await expect
-			.element(panel.getByRole('link', { name: 'See what localother does' }))
-			.toHaveAttribute('href', '/tools/localother');
-		await expect.element(panel.getByRole('img', { name: 'The text view' })).toBeVisible();
-		await expect.element(page.getByRole('img', { name: 'The drives view' })).not.toBeInTheDocument();
-		await expect.element(page.getByRole('img', { name: 'The drives view', includeHidden: true })).toBeInTheDocument();
+		const menu = page.getByRole('region', { name: 'localother' });
+
+		expect(
+			menu
+				.getByRole('tab')
+				.elements()
+				.map((tab) => tab.querySelector('.font-semibold')?.textContent)
+		).toEqual(['SoundCloud playlist to text', 'Manager']);
+		await expect.element(menu.getByRole('img', { name: 'The text view' })).toBeVisible();
+		await expect.element(menu.getByRole('img', { name: 'The marks' })).toBeVisible();
+		await expect.element(menu.getByText(/^On SoundCloud itself, it ticks the tracks/)).toBeVisible();
+		// The menu capture is the menu itself, so it isn't a row of its own.
+		await expect.element(menu.getByRole('img', { name: 'The menu', includeHidden: true })).not.toBeInTheDocument();
 	});
 
-	it("moves along the track with arrows, Home and End, and picks within a tool's cues by number or letter", async () => {
+	it('moves down the menu with the arrow keys, wrapping, and picks a row by click', async () => {
 		await renderTools();
-		const tab = (name: string) => page.getByRole('tab', { name });
+		const menu = page.getByRole('region', { name: 'localother' });
+		const row = (name: RegExp) => menu.getByRole('tab', { name });
 
-		await tab('A Sync').click();
+		await row(/^Manager/).click();
+		await expect.element(row(/^Manager/)).toHaveAttribute('aria-selected', 'true');
+		await expect.element(menu.getByRole('img', { name: 'The manager' })).toBeVisible();
+		await userEvent.keyboard('{ArrowDown}');
+		await expect.element(row(/^SoundCloud playlist to text/)).toHaveFocus();
 		await userEvent.keyboard('{End}');
-		await expect.element(tab('B Text')).toHaveFocus();
-		await expect.element(tab('B Text')).toHaveAttribute('aria-selected', 'true');
-		await userEvent.keyboard('{ArrowRight}');
-		await expect.element(tab('A Sync')).toHaveFocus();
-		await userEvent.keyboard('3');
-		await expect.element(tab('C Check')).toHaveAttribute('aria-selected', 'true');
-		await userEvent.keyboard('{ArrowRight}');
-		await expect.element(tab('A Marks')).toHaveFocus();
-		// Numbers and letters count within the tool's own cues.
-		await userEvent.keyboard('2');
-		await expect.element(tab('B Text')).toHaveAttribute('aria-selected', 'true');
-		await userEvent.keyboard('a');
-		await expect.element(tab('A Marks')).toHaveAttribute('aria-selected', 'true');
-		await userEvent.keyboard('3');
-		await expect.element(tab('A Marks')).toHaveAttribute('aria-selected', 'true');
-		await userEvent.keyboard('{ArrowLeft}');
-		await expect.element(tab('C Check')).toHaveFocus();
-		await userEvent.keyboard('{Home}');
-		await expect.element(tab('A Sync')).toHaveAttribute('aria-selected', 'true');
-	});
-
-	it("keeps letter keys from the site's shortcuts while a cue has focus", async () => {
-		await renderTools();
-		const prevented: string[] = [];
-
-		const listen = (event: KeyboardEvent) => {
-			if (event.defaultPrevented) prevented.push(event.key);
-		};
-
-		window.addEventListener('keydown', listen);
-		await page.getByRole('tab', { name: 'A Sync' }).click();
-		await userEvent.keyboard('hpz');
-		window.removeEventListener('keydown', listen);
-		expect(prevented).toEqual(['h', 'p', 'z']);
-		await expect.element(page.getByRole('tab', { name: 'A Sync' })).toHaveAttribute('aria-selected', 'true');
+		await expect.element(row(/^Manager/)).toHaveAttribute('aria-selected', 'true');
 	});
 });
 

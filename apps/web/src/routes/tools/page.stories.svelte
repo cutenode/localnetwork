@@ -1,9 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect, userEvent, within } from 'storybook/test';
 	import HotCues, { lookOf } from '#lib/components/tools/HotCues.svelte';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import { phone } from '#lib/testing/viewports.ts';
-	import { cuePoints } from '#lib/tools/cues.ts';
 	import { demoTrack, findTool, tools } from '#lib/tools/index.ts';
 	import Layout from '../+layout.svelte';
 	import ToolsPage from './+page.svelte';
@@ -22,8 +22,20 @@
 
 	const layout = { viewer: null, pendingRequests: 0, meta: PAGE_META };
 
-	// As the page's load places them: every tool's cues along the demo track.
-	const deckTrack = { ...demoTrack, cues: cuePoints(tools.flatMap((tool) => tool.cues).length, demoTrack.durationSecs, demoTrack.phrases) };
+	// As the page's load sends them.
+	const toolsData = {
+		...layout,
+		tools: tools.map(({ id, name, pitch, cues, docs }) => ({ id, name, pitch, cues, look: lookOf(id), guide: `/tools/${id}/docs/${docs[0]?.slug}` })),
+		track: demoTrack
+	};
+
+	/** A number picks its cue straight away, with nothing focused first: 3 is C. */
+	const numbersPick = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+		const deck = canvasElement.querySelector<HTMLElement>('#locallibrary') ?? canvasElement;
+
+		await userEvent.keyboard('3');
+		await expect(within(deck).getByRole('tab', { name: /^C / })).toHaveAttribute('aria-selected', 'true');
+	};
 
 	const guides = (id: string) => (findTool(id)?.docs ?? []).map(({ slug, title }) => ({ slug, title }));
 
@@ -67,7 +79,7 @@
 </script>
 
 {#snippet tools_()}
-	<Layout data={layout} params={{}}><ToolsPage data={{ ...layout, tools, track: deckTrack }} params={{}} form={null} /></Layout>
+	<Layout data={layout} params={{}}><ToolsPage data={toolsData} params={{}} form={null} /></Layout>
 {/snippet}
 
 {#snippet tool(id: string)}
@@ -82,7 +94,7 @@
 	<Layout data={layout} params={{}}><GuidePage data={guide} params={{ tool: 'localtoolbox', page: 'downloads' }} form={null} /></Layout>
 {/snippet}
 
-<Story name="Tools" asChild>{@render tools_()}</Story>
+<Story name="Tools" asChild play={numbersPick}>{@render tools_()}</Story>
 
 <Story name="Tools on a phone" asChild globals={phone}>{@render tools_()}</Story>
 

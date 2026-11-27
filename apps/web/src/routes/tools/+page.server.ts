@@ -1,19 +1,26 @@
+import { lookOf } from '#lib/components/tools/HotCues.svelte';
+import { slimCapture } from '#lib/components/tools/sources.ts';
 import { pageMeta } from '#lib/server/meta.ts';
-import { cuePoints } from '#lib/tools/cues.ts';
 import { demoTrack, tools } from '#lib/tools/index.ts';
 import type { PageServerLoad } from './$types';
 
-// Where each of the tools' cues sits on the demo track, in seconds, in the order the tools come. Worked
-// out here rather than in the browser: a module both Tools pages import joins the chunk every page loads.
-const cuePositions = cuePoints(tools.flatMap((tool) => tool.cues).length, demoTrack.durationSecs, demoTrack.phrases);
-
 export const load: PageServerLoad = ({ locals }) => ({
-	tools: tools.map(({ id, name, kind, cues }) => ({ id, name, kind, cues })),
-	track: { ...demoTrack, cues: cuePositions },
+	// In the order the page shows them. Each is shown its own way, by where it works (`look`): a tool for
+	// rekordbox's drives as hot cues on a track, the one that works on SoundCloud as its own menu.
+	tools: tools.map(({ id, name, pitch, cues, docs }) => ({
+		id,
+		name,
+		pitch,
+		look: lookOf(id),
+		// Where its Guides button goes: the first of its guides, which leads the rest.
+		guide: docs[0] ? `/tools/${id}/docs/${docs[0].slug}` : `/tools/${id}`,
+		cues: cues.map((cue) => ({ ...cue, capture: slimCapture(cue.capture) }))
+	})),
+	track: demoTrack,
 	meta: pageMeta(locals.app.config.publicUrl, {
 		title: 'Tools',
 		description:
-			'Free tools for DJs. Each one stands on its own, and locallibrary signs in with your Atmosphere account.',
+			'Two free tools for DJs: a terminal app for your rekordbox USB drives, and a Chrome extension for digging on SoundCloud.',
 		path: '/tools'
 	})
 });
