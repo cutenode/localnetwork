@@ -9,8 +9,10 @@
 //! its `.EXT`, and a waveform in each file's waveform tags (the blue overview in the `.DAT`, the
 //! blue and colour detail in the `.EXT`, the 3-band ones in a `.2EX`). A track without analysis
 //! files is refused, and so is a waveform for one whose files hold a tag that can't be worked
-//! out from it (rekordbox's colour overview, `PWV4`, and the `.2EX`'s `PWVC`): its waveforms stay
-//! rekordbox's. Cues stay where they are when the grid moves (a warning says how many sat on its
+//! out from it (rekordbox's colour overview, `PWV4`, and the `.2EX`'s band gains, `PWVC`): its
+//! waveforms stay rekordbox's. rekordbox's collection (see [`crate::collection_analysis`]), where
+//! every analysed track has both, keeps them instead: the overview still shows the track's audio,
+//! and the 3-band waveforms are written at the levels rekordbox's had, so the gains still fit. Cues stay where they are when the grid moves (a warning says how many sat on its
 //! beats), phrases not given move with it to the beats nearest their times, and the plan that
 //! sets a grid sets the track's BPM in the databases too ([`crate::edit::plan`]).
 //!
@@ -129,6 +131,10 @@ struct Files {
     /// The track's cues, where they aren't the ones its files hold (a collection's are in
     /// `djmdCue`): `None` reads them from the files.
     cues: Option<Vec<CuePoint>>,
+    /// Whether a waveform keeps the tags rekordbox wrote that can't be worked out from it (its
+    /// colour overview, `PWV4`, and 3-band gains, `PWVC`), the 3-band waveforms written at its
+    /// levels so the gains still fit, rather than being refused: a collection's.
+    keeps_rekordboxs: bool,
 }
 
 /// The keys of the analysis files of the track at `analyze_path` (a device path), `.DAT` first,
@@ -158,7 +164,7 @@ fn read(device: &Device, t: &Track) -> Result<Files> {
     if bytes[0].is_none() {
         return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
     }
-    Ok(Files { keys, bytes, cues: None })
+    Ok(Files { keys, bytes, cues: None, keeps_rekordboxs: false })
 }
 
 /// The analysis files an analysis edit of the track of the audio file `file` (a device path) may
@@ -248,6 +254,19 @@ fn phrases_on(s: &SongStructure, old: &[Beat], new: &[Beat], name: &str) -> (Opt
     (Some(SongStructure { mood: s.mood, phrases }), warnings)
 }
 
+/// `bands` with each band scaled so its loudest column is as loud as in `theirs` (a band silent in
+/// either stays as it is).
+fn at_levels(bands: &Bands, theirs: &Bands) -> Bands {
+    let peak = |b: &Bands, k: usize| b.0.iter().map(|c| c[k]).max().unwrap_or(0);
+    let scale = [0, 1, 2].map(|k| match (peak(bands, k), peak(theirs, k)) {
+        (0, _) | (_, 0) => (1, 1),
+        (ours, theirs) => (u32::from(theirs), u32::from(ours)),
+    });
+    Bands(
+        bands.0.iter().map(|c| [0, 1, 2].map(|k| (u32::from(c[k]) * scale[k].0 / scale[k].1).min(255) as u8)).collect(),
+    )
+}
+
 /// What the edit rewrites in a track's analysis files (only those that change), and what to warn
 /// of. `bands` is the waveform's.
 fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> Result<(Rewritten, Vec<String>)> {
@@ -314,13 +333,34 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         ));
     }
     if let Some(bands) = bands {
+        // The 3-band waveforms' bands, at the levels of rekordbox's where its gains are kept.
+        let mut three = bands.clone();
         for (i, tag) in [(1, b"PWV4"), (2, b"PWVC")] {
             let Some(bytes) = new[i].as_deref() else { continue };
-            if anlz::has_section(bytes, tag)? {
-                return Err(Error::invalid(format!(
+            if !anlz::has_section(bytes, tag)? {
+                continue;
+            }
+            let theirs = anlz::TrackWaves::read(None, None, Some(bytes)).band_detail;
+            let refused = || {
+                Error::invalid(format!(
                     "{name}'s analysis files hold a waveform tag ({}) that can't be worked out from another waveform: its waveforms stay rekordbox's",
                     String::from_utf8_lossy(tag)
-                )));
+                ))
+            };
+            match (files.keeps_rekordboxs, tag, theirs) {
+                (false, _, _) => return Err(refused()),
+                (true, b"PWV4", _) => warnings.push(format!(
+                    "{name}'s colour overview (PWV4) stays rekordbox's: it can't be worked out from a waveform, and \
+                     still shows this track's audio"
+                )),
+                (true, _, Some((theirs, _))) => {
+                    three = at_levels(bands, &theirs);
+                    warnings.push(format!(
+                        "{name}'s 3-band waveforms are written at the levels rekordbox's had, so its band gains (PWVC), \
+                         which can't be worked out, still fit them"
+                    ));
+                }
+                (true, _, None) => return Err(refused()),
             }
         }
         let secs = bands.0.len() as f64 / anlz::DETAIL_RATE;
@@ -330,8 +370,9 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         if new[1].is_none() {
             warnings.push(format!("{name} has no .EXT analysis file, so only its overview waveform is written"));
         }
-        for (file, tags) in new.iter_mut().zip(WAVEFORM_TAGS) {
+        for (i, (file, tags)) in new.iter_mut().zip(WAVEFORM_TAGS).enumerate() {
             let Some(bytes) = file else { continue };
+            let bands = if i == 2 { &three } else { bands };
             for tag in tags {
                 let columns = anlz::waveform_from_bands(tag, bands)?.expect("every tag here is worked out");
                 *bytes = anlz::write_waveform(bytes, tag, &columns)?;
@@ -363,7 +404,12 @@ pub(crate) fn new_files(
         [anlz::write_cue_points(&dat, CueFile::Dat, cues)?, anlz::write_cue_points(&ext, CueFile::Ext, cues)?];
     // Not on a drive yet: each file by its extension.
     let keys = ["DAT", "EXT", "2EX"].map(String::from);
-    let files = Files { keys, bytes: [Some(made[0].clone()), Some(made[1].clone()), None], cues: None };
+    let files = Files {
+        keys,
+        bytes: [Some(made[0].clone()), Some(made[1].clone()), None],
+        cues: None,
+        keeps_rekordboxs: false,
+    };
     let (changed, warnings) = rewrite(t, &files, a, bands)?;
     for (key, new) in changed {
         made[usize::from(key == "EXT")] = new;
@@ -394,7 +440,12 @@ pub(crate) fn rewrite_files(
     if bytes[0].is_none() {
         return Err(Error::invalid(format!("{} has no .DAT analysis file", t.display_name())));
     }
-    rewrite(t, &Files { keys: ["DAT", "EXT", "2EX"].map(String::from), bytes, cues: Some(cues) }, a, bands)
+    rewrite(
+        t,
+        &Files { keys: ["DAT", "EXT", "2EX"].map(String::from), bytes, cues: Some(cues), keeps_rekordboxs: true },
+        a,
+        bands,
+    )
 }
 
 /// The waveform `wave` gives as bands, when it's given as them (in base64): not one staged on a

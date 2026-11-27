@@ -792,7 +792,7 @@ fn a_collection_without_cue_lists_has_cues_written_without() {
 /// [`analysed`], encrypted, with [`TRACK`]'s `.DAT` and `.EXT` in the share folder; and that
 /// folder.
 fn analysed_lib() -> (Lib, PathBuf) {
-    let lib = Lib::new(&analysed(b"dat", b"ext"), false);
+    let lib = Lib::new(&analysed(&[("DAT", b"dat"), ("EXT", b"ext")]), false);
     let dir = lib.target.master_db.parent().unwrap().join("share").join(ANALYSIS_DIR);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("ANLZ0000.DAT"), b"dat").unwrap();

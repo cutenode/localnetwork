@@ -24,14 +24,18 @@ struct Lib {
 
 impl Lib {
     fn new() -> Lib {
-        Lib::with("", |_, _| {})
+        Lib::with("", |_, _, _| {})
     }
 
-    /// [`Lib::new`], its collection changed by `sql` first, its `.DAT` and `.EXT` by `files`.
-    fn with(sql: &str, files: impl FnOnce(&mut Vec<u8>, &mut Vec<u8>)) -> Lib {
+    /// [`Lib::new`], its collection changed by `sql` first, its `.DAT` and `.EXT` by `files`, which
+    /// can give it a `.2EX` too.
+    fn with(sql: &str, files: impl FnOnce(&mut Vec<u8>, &mut Vec<u8>, &mut Option<Vec<u8>>)) -> Lib {
         let (mut dat, mut ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
-        files(&mut dat, &mut ext);
-        let f = analysed(&dat, &ext);
+        let mut two = None;
+        files(&mut dat, &mut ext, &mut two);
+        let mut listed = vec![("DAT", dat.as_slice()), ("EXT", ext.as_slice())];
+        listed.extend(two.as_deref().map(|b| ("2EX", b)));
+        let f = analysed(&listed);
         f.exec(sql);
         let dir = tempfile::tempdir().unwrap();
         let rekordbox = dir.path().join("rekordbox");
@@ -45,6 +49,9 @@ impl Lib {
         std::fs::create_dir_all(&share).unwrap();
         std::fs::write(share.join("ANLZ0000.DAT"), dat).unwrap();
         std::fs::write(share.join("ANLZ0000.EXT"), ext).unwrap();
+        if let Some(two) = two {
+            std::fs::write(share.join("ANLZ0000.2EX"), two).unwrap();
+        }
         let target = Target {
             master_db: rekordbox.join("master.db"),
             key: DEFAULT_KEY.into(),
@@ -218,7 +225,7 @@ fn a_key_is_saved_as_the_collection_spells_it() {
         save(&lib.target, TRACK, &CollectionAnalysis { key: Some(key.into()), ..Default::default() })
     };
 
-    let lib = Lib::with(keys, |_, _| {});
+    let lib = Lib::with(keys, |_, _, _| {});
     // The track's key is a note name (Am): C#m and 12A are Dbm.
     for key in ["C#m", "12A", "c# minor"] {
         set(&lib, key).unwrap();
@@ -235,11 +242,11 @@ fn a_key_is_saved_as_the_collection_spells_it() {
     assert_eq!(key_id(&lib), "7");
 
     // A Camelot track takes Camelot.
-    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"), |_, _| {});
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"), |_, _, _| {});
     set(&lib, "Dbm").unwrap();
     assert_eq!(key_id(&lib), "3");
     // A track whose key has no row takes the collection's most used spelling.
-    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"), |_, _| {});
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"), |_, _, _| {});
     set(&lib, "Dbm").unwrap();
     assert_eq!(key_id(&lib), "3");
 }
@@ -251,7 +258,7 @@ fn phrases_move_with_a_new_grid() {
     let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
     let s = |p| SongStructure { mood: Mood::High, phrases: p };
     let theirs = s(vec![phrase(PhraseKind::Intro, 3, 17), phrase(PhraseKind::Chorus, 17, 65)]);
-    let lib = Lib::with("", |_, ext| *ext = anlz::write_song_structure(ext, Some(&theirs)).unwrap());
+    let lib = Lib::with("", |_, ext, _| *ext = anlz::write_song_structure(ext, Some(&theirs)).unwrap());
     let with = |beats: Vec<Beat>| CollectionAnalysis {
         analysis: NewAnalysis { beats: Some(beats), ..NewAnalysis::default() },
         ..CollectionAnalysis::default()
@@ -273,7 +280,7 @@ fn phrases_move_with_a_new_grid() {
 fn cues_that_cant_be_placed_leave_the_rest_of_the_save() {
     let late: Vec<Beat> = grid().into_iter().map(|b| Beat { time_ms: b.time_ms + 330_000, ..b }).collect();
     let key = "INSERT INTO djmdKey (ID, ScaleName, Seq) VALUES ('2', 'C#m', 2);";
-    let lib = Lib::with(key, |dat, _| *dat = anlz::write_beat_grid(dat, &late).unwrap());
+    let lib = Lib::with(key, |dat, _, _| *dat = anlz::write_beat_grid(dat, &late).unwrap());
     let edit = CollectionAnalysis {
         key: Some("C#m".into()),
         cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
@@ -305,4 +312,70 @@ fn a_first_cue_off_the_new_downbeat_is_named() {
     let said = "One More Time's memory cue at 0:00.500 is kept as its first cue, 500 ms from the grid's first downbeat at 0:01.000";
     assert!(saved.warnings.iter().any(|w| w == said), "{:?}", saved.warnings);
     assert!(saved.before.cues.is_none());
+}
+
+/// `bytes` with a section `tag` added at the end, its header `head` after the lengths.
+fn with_section(bytes: &[u8], tag: &[u8; 4], head: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    let header = 12 + head.len() as u32;
+    out.extend_from_slice(tag);
+    out.extend_from_slice(&header.to_be_bytes());
+    out.extend_from_slice(&(header + body.len() as u32).to_be_bytes());
+    out.extend_from_slice(head);
+    out.extend_from_slice(body);
+    let len = out.len() as u32;
+    out[8..12].copy_from_slice(&len.to_be_bytes());
+    out
+}
+
+/// The 3-band waveform's loudest column in each band.
+fn peaks(two: &[u8]) -> [u8; 3] {
+    let (bands, _) = anlz::TrackWaves::read(None, None, Some(two)).band_detail.unwrap();
+    [0, 1, 2].map(|k| bands.0.iter().map(|c| c[k]).max().unwrap())
+}
+
+/// On files laid out as rekordbox 7 writes them, a waveform keeps rekordbox's colour overview
+/// (`PWV4`, which can't be worked out) and its 3-band gains (`PWVC`), writing the 3-band waveforms
+/// at the levels rekordbox's had so the gains still fit; the rest is worked out from it.
+#[test]
+fn a_waveform_keeps_what_cant_be_worked_out_consistent() {
+    use base64::prelude::*;
+    let theirs = crate::anlz::Bands(vec![[200, 120, 60]; 320 * 150]);
+    let pwvc = with_section(&[], b"PWVC", &[0, 0], &[0, 0x50, 0, 0x6e, 0, 0xa0])[..].to_vec();
+    let lib = Lib::with("", |_, ext, two| {
+        let rgb = vec![7u8; 1200 * 6];
+        *ext = anlz::write_waveform(ext, b"PWV4", &rgb).unwrap();
+        let mut b = ext.clone();
+        for tag in [b"PWV7", b"PWV6"] {
+            b = anlz::write_waveform(&b, tag, &anlz::waveform_from_bands(tag, &theirs).unwrap().unwrap()).unwrap();
+        }
+        *two = Some(with_section(&b, b"PWVC", &[0, 0], &pwvc[14..]));
+    });
+    let (ext, two) = (lib.file("ANLZ0000.EXT"), lib.file("ANLZ0000.2EX"));
+    let ours = crate::anlz::Bands((0..320 * 150).map(|i| [(i % 100) as u8, 40, 90]).collect());
+    let edit = CollectionAnalysis {
+        analysis: NewAnalysis {
+            waveform: Some(analysis_edit::WaveSource::Base64(BASE64_STANDARD.encode(ours.pack()))),
+            ..NewAnalysis::default()
+        },
+        ..CollectionAnalysis::default()
+    };
+    let saved = save(&lib.target, TRACK, &edit).unwrap();
+    let (ext_now, two_now) = (lib.file("ANLZ0000.EXT"), lib.file("ANLZ0000.2EX"));
+    // rekordbox's colour overview and gains as they were; the colour detail is ours.
+    let pwv4 = |b: &[u8]| anlz::waveform_entries(b, b"PWV4").unwrap();
+    assert_eq!(pwv4(&ext_now), pwv4(&ext));
+    assert_ne!(anlz::waveform_entries(&ext_now, b"PWV5").unwrap(), anlz::waveform_entries(&ext, b"PWV5").unwrap());
+    assert!(two_now.windows(pwvc.len()).any(|w| w == pwvc));
+    // The 3-band waveforms are ours, at rekordbox's levels.
+    assert_ne!(two_now, two);
+    assert_eq!(peaks(&two_now), peaks(&two));
+    for tag in ["PWV4", "PWVC"] {
+        assert!(saved.warnings.iter().any(|w| w.contains(tag)), "{tag}: {:?}", saved.warnings);
+    }
+
+    // Gains with no 3-band detail to take levels from: refused, as nothing would fit them.
+    let lib = Lib::with("", |_, ext, two| *two = Some(with_section(ext, b"PWVC", &[0, 0], &pwvc[14..])));
+    let e = save(&lib.target, TRACK, &edit).unwrap_err();
+    assert!(matches!(&e, Error::Invalid(why) if why.contains("(PWVC)")), "{e}");
 }
