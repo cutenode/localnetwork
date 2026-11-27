@@ -1086,6 +1086,21 @@ fn only_a_named_rekordbox_collection_is_read() {
     let refused = std::panic::catch_unwind(|| refuse_unnamed(&roundabout, Some(own.clone()))).unwrap_err();
     let message = refused.downcast_ref::<String>().unwrap();
     assert!(message.contains("rekordbox's own collection") && message.contains(PATH_ENV), "{message}");
+    let linked = dir.path().join("linked.db");
+    std::fs::hard_link(&own, &linked).unwrap();
+    let mut spellings = vec![linked];
+    // macOS reaches every folder of the data volume through /System/Volumes/Data too.
+    #[cfg(target_os = "macos")]
+    spellings
+        .push(Path::new("/System/Volumes/Data").join(std::fs::canonicalize(&own).unwrap().strip_prefix("/").unwrap()));
+    for spelling in spellings {
+        assert!(spelling.is_file(), "{}", spelling.display());
+        assert!(
+            std::panic::catch_unwind(|| refuse_unnamed(&spelling, Some(own.clone()))).is_err(),
+            "{}",
+            spelling.display()
+        );
+    }
     unsafe { std::env::set_var(PATH_ENV, &roundabout) };
     refuse_unnamed(&own, Some(own.clone()));
 }

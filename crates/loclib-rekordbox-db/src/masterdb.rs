@@ -97,8 +97,9 @@ fn rekordbox_path() -> Option<PathBuf> {
 /// whatever way, fails instead.
 #[cfg(debug_assertions)]
 fn refuse_unnamed(path: &Path, own: Option<PathBuf>) {
-    let same =
-        |a: &Path, b: &Path| std::fs::canonicalize(a).ok().is_some_and(|a| std::fs::canonicalize(b).ok() == Some(a));
+    // The same file, not the same path: macOS reaches /Users through /System/Volumes/Data too,
+    // and a hard link has a path of its own.
+    let same = |a: &Path, b: &Path| same_file::is_same_file(a, b).unwrap_or(false);
     let named = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()).is_some_and(|p| same(path, Path::new(&p)));
     let theirs = own.is_some_and(|own| same(path, &own));
     assert!(

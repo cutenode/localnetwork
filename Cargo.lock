@@ -4674,6 +4674,7 @@ dependencies = [
  "quick-xml 0.42.0",
  "rusqlite",
  "rustc-hash",
+ "same-file",
  "schemars",
  "serde",
  "serde_json",
