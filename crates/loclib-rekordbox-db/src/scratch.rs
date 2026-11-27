@@ -25,6 +25,8 @@
 //! and a sweep removes nothing; a temporary folder that several computers share over NFS with
 //! locks kept per computer (`local_lock=flock`, `nolock`) would let one computer's sweep remove a
 //! folder another is using, so it shouldn't be the temporary folder.
+//! Each process sweeps its own temporary folder: one started with another `TMPDIR` (a sidecar
+//! under launchd, say) sweeps that one, and leaves this one for the next process run here.
 
 use std::fs::{File, Metadata};
 use std::path::{Path, PathBuf};
