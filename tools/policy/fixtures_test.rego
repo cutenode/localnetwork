@@ -57,7 +57,7 @@ repo := [
 	{"path": "deny.toml", "contents": {"licenses": {"allow": ["Apache-2.0", "MIT"]}}},
 	{"path": "about.toml", "contents": {"accepted": ["MIT", "Apache-2.0"], "targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]}},
 	{"path": "dist-workspace.toml", "contents": {"dist": {"targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"], "include": ["target/NOTICES.md"]}}},
-	{"path": ".cargo/config.toml", "contents": {"alias": {"notices": ["about", "generate", "--output-file", "target/NOTICES.md", "about.hbs"]}}},
+	{"path": ".cargo/config.toml", "contents": {"alias": {"notices": "about generate --output-file target/NOTICES.md about.hbs"}}},
 	{"path": "/scratch/Cargo.lock.toml", "contents": {"package": [{"name": "sha2"}, {"name": "tool"}]}},
 	{"path": "crates/loclib-x/Cargo.toml", "contents": {
 		"package": object.union({"name": "loclib-x", "readme": "README.md", "metadata": {"localnetwork": {"labels": ["tool: core"]}, "docs": {"rs": {"all-features": true, "rustdoc-args": ["--cfg", "docsrs"]}}}}, package_fields),

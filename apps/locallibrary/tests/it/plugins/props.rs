@@ -4,8 +4,8 @@
 //! their JSON, analyzers keep what they worked out, a plugin that clashes is left out, and the
 //! sidecar's `plugins.*` methods answer in the contract's shapes what the command line says.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use serde_json::{Map, Value, json};
 
 use super::SHIPPED;
@@ -570,7 +570,7 @@ fn ids(n: usize) -> Vec<String> {
 /// words and everything it adds; `plugin info` says what `--json` describes, each command and
 /// operation as it's run, each setting's value or that it's not set; and both are what the
 /// manifests say, the plugins locallibrary ships first.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(3));
     let manifests: Vec<Value> = ids(n).iter().map(|id| manifest(&tc, id)).collect();
@@ -698,7 +698,7 @@ fn prop_plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
 /// For a plugin granted any capabilities (every one, in any order, but up to three left out),
 /// `plugin list` and `plugin info` say each in words of its own, in the manifest's order; and
 /// `plugin serve` for an id that's no plugin's is refused, writing nothing on stdout.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_each_capability_is_said_in_words_of_its_own(tc: TestCase) {
     let left_out: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(&CAPABILITIES[..])).max_size(3).unique(true));
     let mut granted: Vec<&str> = CAPABILITIES.into_iter().filter(|c| !left_out.contains(c)).collect();
@@ -805,7 +805,7 @@ fn settings_text(plugin: &str, shown: &[&Value], settings: &Value) -> String {
 /// (in text as in `--json`, and in what the plugin's commands are given) as last set with
 /// `--yes`, else its default; nothing changes without `--yes`; and a value its kind can't hold,
 /// one an enum doesn't have or a key the plugin has no setting for is refused naming it.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_settings_read_back_as_last_set(tc: TestCase) {
     let id = "tune";
     let mut m = manifest(&tc, id);
@@ -933,7 +933,7 @@ fn strs(args: &[String]) -> Vec<&str> {
 /// answers them (text as it is, nothing as nothing, anything else as JSON, in `--json` as
 /// JSON); a value its type can't hold, or `--params` that aren't an object, are refused
 /// naming them. Its operation, wherever it is, is planned from them, asked about and applied.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_commands_flags_give_it_the_params_typed(tc: TestCase) {
     let id = "flags";
     let place = |tc: &TestCase, name: &str| match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -1212,7 +1212,7 @@ fn views_env() -> Env {
 /// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
 /// as the command line draws its own lists, tables, labelled values and text. One view a case:
 /// each run of the command line starts it and the plugin, which a loaded machine makes slow.
-#[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_views_read_in_text_as_in_json(tc: TestCase) {
     let env = views_env();
     let v = view(&tc);
@@ -1226,7 +1226,7 @@ fn prop_views_read_in_text_as_in_json(tc: TestCase) {
 /// none of them again; with no part sent, the answer is drawn whole. `--json` gives the answer
 /// as it was answered. A debug build told it doesn't run elevated starts the plugin as it would
 /// anyway.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_views_sent_in_parts_draw_as_they_come(tc: TestCase) {
     let env = views_env();
     let text = |tc: &TestCase| tc.draw(gs::text().alphabet("abc XYZé.-").max_size(12));
@@ -1303,7 +1303,7 @@ fn audio_of(n: usize) -> String {
 /// empty one), and says so in text as in `--json`, exiting as some or all failing does; and
 /// `track` shows what was worked out for each file as it is now, in text (in a unit, when its
 /// analyzer gives one) as in `--json`. An analyzer or plugin `analyze` hasn't got is refused.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_analyzers_work_out_each_file_once(tc: TestCase) {
     let id = "meter";
     let mut size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
@@ -1525,7 +1525,7 @@ fn prop_analyzers_work_out_each_file_once(tc: TestCase) {
 /// A plugin whose id or command clashes with locallibrary's commands, the sidecar's namespaces
 /// or locallibrary's formats is left out, the command line saying why as it starts and the
 /// sidecar listing it with why (as the contract says), while a plugin beside it works.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_plugin_that_clashes_is_left_out_saying_why(tc: TestCase) {
     let plain = |id: &str| json!({ "id": id, "name": "P", "version": "0.1.0", "protocol": "^0.2" });
     let (clashing, why) = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -1636,7 +1636,7 @@ fn json_value(tc: &TestCase, s: &Value) -> (Value, Value) {
 /// say; settings set (or refused) and reset read back the same through both, and are what the
 /// plugin's commands are given, with where the user is; an operation and an export are planned
 /// and applied; and an analysis is read back by `track.fields` as `track` shows it.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
     let mut manifests: Vec<Value> = ids(n).iter().map(|id| manifest(&tc, id)).collect();

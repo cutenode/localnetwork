@@ -230,6 +230,20 @@ fn phrase_strip_draws_named_blocks_and_the_playhead() {
     assert_eq!(buf[(8, 0)].bg, Color::Rgb(255, 255, 255), "the playhead on a blank cell: the cell in its colour");
 }
 
+/// A strip four cells wide, the narrowest drawn, holds a short name; the letter the playhead is on
+/// keeps its phrase's colour behind it, as it isn't played yet, where the cell before is darker.
+#[test]
+fn the_narrowest_strip_draws_and_the_playheads_cell_is_still_to_come() {
+    let phrases = [(0.0, 10_000.0, "Up".to_string(), RED)];
+    let area = Rect::new(0, 0, 4, 1);
+    let mut buf = Buffer::empty(area);
+    PhraseStrip { phrases: &phrases, duration_ms: 10_000.0, progress: 0.5, palette: Palette::default() }
+        .render(area, &mut buf);
+    assert_eq!(rendered(&buf), " Up ");
+    assert_eq!(buf[(2, 0)].bg, Color::Rgb(255, 100, 100), "at the playhead: as it is");
+    assert_eq!(buf[(1, 0)].bg, Color::Rgb(114, 45, 45), "played: at 45%");
+}
+
 /// The palette's `paint` decides every colour the waveforms draw, and `image` the pictures'.
 #[test]
 fn palette_paints_every_colour() {

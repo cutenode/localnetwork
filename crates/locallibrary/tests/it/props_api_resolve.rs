@@ -9,8 +9,8 @@ use crate::props_api_jobs::{bare_export, own_identity};
 
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::error::Reason;
@@ -62,7 +62,7 @@ fn any_case(tc: &TestCase, word: &str) -> String {
 /// no drive answers to says what is mounted too, or that nothing is. A drive named like a folder
 /// here is refused as ambiguous; the folder is meant by its path. A folder here that no drive is
 /// named like is meant by its name alone.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -207,7 +207,7 @@ fn prop_a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCa
 
 /// Drives the store knows, none of them plugged in, whose ids start alike: the first characters
 /// they share don't pick one. The refusal names each, and asks for the id.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_prefix_unplugged_drives_share_names_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -282,7 +282,7 @@ fn unplug(root: &Path, away: &Path) {
 /// clone named too, and its lead clone: the newest, the primary when the two diverged, none when
 /// they diverged with no primary (a write to both then goes to the first named), and none when
 /// both are archive or retired.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_command_given_no_drive_lists_the_drives_it_could_mean(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());

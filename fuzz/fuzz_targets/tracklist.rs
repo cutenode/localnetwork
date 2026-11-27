@@ -1,3 +1,7 @@
+// paths: fuzz/fuzz_targets/tracklist.rs
+// paths: fuzz/seeds/tracklist/**
+// paths: crates/loclib-tracklist/src/**
+// paths: crates/loclib-model/src/{analysis,audio,model,paths}.rs
 //! Tracklists a DJ imports (M3U, CSV and other tables, rekordbox's text and XML, plain text):
 //! format detection and each format's parser, whatever the detection would pick.
 

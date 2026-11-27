@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use loclib_plugin::test_util::{FakeHost, Response, Sent};
 use loclib_plugin::{EventName, FieldType, Listener, Manifest, Output, Role, Suggestion, code, method};
 use loclib_progress::Ctx;
@@ -276,7 +276,7 @@ fn the_analyzers_version_is_loclib_analysis_s() {
 /// `estimate` and `confidence`, a key finding's Camelot `estimate` and `confidence`, a loudness
 /// finding's `integrated_lufs`, `true_peak_dbtp` and `clipped_runs`), and the waveform it
 /// measured, each of the type the manifest declares: every one, null when it has nothing to show.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(seed = 7919u32, secs = 8.0f64, rate = 44_100u32, gain = 12_000.0f32)]
 #[hegel::explicit_test_case(seed = 31u32, secs = 5.0f64, rate = 11_025u32, gain = 200_000.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 3.0f64, rate = 48_000u32, gain = 0.0f32)]
@@ -540,7 +540,7 @@ fn a_click_track_has_a_waveform() {
 
 /// Any click track at a tempo DJs play, after any silence, has a waveform as long as the track,
 /// its silence empty.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(bpm = 150.0f64, lead = 2.5f64)]
 fn prop_waveforms_follow_the_audio(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
@@ -571,6 +571,28 @@ fn prop_waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
     let columns = tc.draw(gs::integers::<usize>().max_value(10_000_000));
     // A day at 44.1 kHz, 1024 samples a column.
     assert_eq!(within_a_day(columns), columns as u64 * 1024 <= 86_400 * 44_100, "{columns}");
+}
+
+/// A waveform of a day is kept in the scratch folder, and one a column longer is left out with
+/// nothing written, the rest answered all the same.
+#[test]
+fn a_waveform_past_a_day_is_left_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let blob = dir.path().join(WAVEFORM_BLOB);
+    let drawn = |columns| loclib_analysis::Analysis {
+        version: loclib_analysis::VERSION,
+        duration_secs: 86_400.0,
+        estimate: None,
+        grid: None,
+        loudness: None,
+        waveform: Some(loclib_analysis::Waveform { columns: vec![[1, 2, 3]; columns] }),
+    };
+    let day = answer(&drawn(3_720_937), Some(dir.path())).unwrap();
+    assert!(day.fields.contains_key("waveform") && blob.is_file(), "{:?}", day.fields.keys());
+    std::fs::remove_file(&blob).unwrap();
+    let longer = answer(&drawn(3_720_938), Some(dir.path())).unwrap();
+    assert!(!longer.fields.contains_key("waveform") && !blob.exists(), "{:?}", longer.fields.keys());
+    assert!(longer.fields.contains_key("clipped_runs"));
 }
 
 /// Whatever the recording, its waveform goes in the request's scratch folder, a file of its

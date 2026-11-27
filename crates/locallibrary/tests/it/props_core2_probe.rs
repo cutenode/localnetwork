@@ -7,8 +7,8 @@ use crate::common::media;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::equipment::Codec;
 use locallibrary::probe::{self, AudioProblem};
 use locallibrary::progress::Ctx;
@@ -65,7 +65,7 @@ fn prop_mp3s_damaged_at_the_end_are_undecodable_when_damage_outweighs_sound(tc: 
 /// A drawn WAV copied to FLAC or AIFF reads back with the WAV's format and length, and is whole;
 /// under a name that says nothing, AIFF is read with no codec (its samples could be anything's),
 /// FLAC by its stream. A FLAC whose last part is overwritten stops before it, cut short.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_flac_and_aiff_copies_read_back_as_written(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![22_050u32, 44_100]));
     let secs = f64::from(tc.draw(gs::integers::<u32>().min_value(10).max_value(14)));

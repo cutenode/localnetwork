@@ -6,8 +6,8 @@ use crate::props_api_drives::saved_copy;
 
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::dunce_canonicalize;
 use locallibrary::edit::{Edit, EditOptions};
@@ -29,7 +29,7 @@ fn clone_of(store: &locallibrary::store::Store, main: &Path, root: &Path) -> Pat
 /// Club as back from a set (a sync of the two keeps the players' changes), each with a warning;
 /// Spare, which a sync or provision fills, isn't a clone to copy onto. Applied, the clones copied
 /// onto hold Main's library and the others are as they were.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(club = true, copy = true, backup = true, spare = true)]
 fn prop_a_write_reaches_the_clones_that_are_no_newer(tc: TestCase) {
     let club = tc.draw(gs::booleans());
@@ -110,7 +110,7 @@ fn prop_a_write_reaches_the_clones_that_are_no_newer(tc: TestCase) {
 /// the library, where neither was named by path before it; and each drive named by path as
 /// often as it's named, unless the library named before it brought it in already. Nothing is
 /// left out (neither is an archive or retired drive).
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 #[hegel::explicit_test_case(specs = vec![0usize, 2, 1])]
 fn prop_a_library_and_its_drives_named_together_mean_each_drive_once(tc: TestCase) {
     let specs: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(2)).min_size(1).max_size(5));

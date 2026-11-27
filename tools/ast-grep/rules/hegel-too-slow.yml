@@ -1,0 +1,11 @@
+# hegel.toml leaves out the too_slow health check for every property test, locally as on CI. A
+# test's own suppress_health_check replaces that list rather than adding to it, so a test that
+# names another check has to name too_slow as well, and one naming only TooSlow repeats hegel.toml.
+id: hegel-too-slow
+language: rust
+severity: error
+message: hegel.toml already leaves out the too_slow health check for every property test.
+note: Drop `suppress_health_check = [HealthCheck::TooSlow]`.
+rule:
+  kind: attribute_item
+  regex: '(?s)^#\[hegel::test\(.*suppress_health_check = \[\s*(hegel::)?HealthCheck::TooSlow,?\s*\]'

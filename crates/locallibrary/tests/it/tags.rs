@@ -293,7 +293,7 @@ fn refuses_what_rekordbox_doesnt_allow() {
 /// A new tag or category name can't hold a '/': a tag's path is split at its first one, so
 /// `rename Genre/Deep House Genre/Dark` would make `Genre/Genre/Dark`. A tag rekordbox named with
 /// one is still found and given to tracks.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_new_names_with_a_slash_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();

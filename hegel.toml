@@ -1,0 +1,6 @@
+# Hegel's settings for every package's property tests (hegeltest reads the first hegel.toml above a
+# test's working directory). CI's own profile already leaves out the too_slow health check, which
+# counts the test body's time along with generating its inputs, so a busy or sleeping Mac fails
+# properties CI passes. Local runs leave it out too, so they fail on what CI fails on.
+[profiles.development]
+suppress_health_check = ["too_slow"]

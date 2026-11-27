@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{Generator, TestCase};
 use locallibrary::anlz::{CuePoint, HOT_CUE_PALETTE};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
@@ -217,7 +217,7 @@ fn cue_edit(tc: &TestCase, lib: &Library) -> (Vec<u32>, CueEdit) {
 /// After rekordbox exports over `cues` edits (the databases and analysis files as they were),
 /// replaying the drive's journal gives back the cues the edits made, in the analysis files and in
 /// OneLibrary's rows.
-#[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 25)]
 fn prop_replaying_cue_edits_after_a_new_export_redoes_them(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

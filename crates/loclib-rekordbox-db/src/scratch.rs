@@ -147,7 +147,7 @@ thread_local! {
 }
 
 /// A new private folder in `root`.
-fn folder_in(root: &Path) -> Result<Folder> {
+pub(crate) fn folder_in(root: &Path) -> Result<Folder> {
     let mut builder = tempfile::Builder::new();
     builder.prefix(PREFIX);
     #[cfg(unix)]

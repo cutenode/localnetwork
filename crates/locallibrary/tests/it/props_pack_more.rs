@@ -8,8 +8,8 @@ use crate::common::{self, media};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
 use locallibrary::error::Reason;
@@ -30,7 +30,7 @@ fn source(dir: &Path, n: usize, plus: bool) -> PathBuf {
     root
 }
 
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_packs_that_cant_be_made_as_asked_are_refused_or_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));

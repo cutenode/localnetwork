@@ -242,12 +242,32 @@ pub fn library() -> Fixture {
          UPDATE djmdContent SET FolderPath = '/contents_1234567890/floorplan/ngo.mp3',
              OrgFolderPath = '/Users/dj/Music/Downloads/ngo.mp3' WHERE ID = '205356547';
          UPDATE djmdContent SET OrgFolderPath = '/Users/dj/Music/Elsewhere.mp3' WHERE ID = '4';
-         CREATE TABLE agentRegistry (registry_id VARCHAR(255) PRIMARY KEY, id_1 VARCHAR(255), str_1 VARCHAR(255),
-             text_1 TEXT, created_at TEXT, updated_at TEXT);
-         INSERT INTO agentRegistry (registry_id, id_1, str_1, text_1) VALUES
-             ('agentCredentials', 'abcdefabcdefabcdefabcdefabcdef12', '{SECRET}', 'another secret'),
-             ('localUpdateCount', NULL, '74383', NULL),
-             ('SyncAnalysisDataRootPath', NULL, '/Users/dj/Library/Pioneer/rekordbox/share', NULL);"
+         CREATE TABLE agentRegistry (registry_id VARCHAR(255) PRIMARY KEY, id_1 VARCHAR(255), int_1 BIGINT,
+             str_1 VARCHAR(255), text_1 TEXT, created_at TEXT, updated_at TEXT);
+         INSERT INTO agentRegistry (registry_id, id_1, int_1, str_1, text_1) VALUES
+             ('agentCredentials', 'abcdefabcdefabcdefabcdefabcdef12', NULL, '{SECRET}', 'another secret'),
+             ('localUpdateCount', NULL, 74383, NULL, NULL),
+             ('SyncAnalysisDataRootPath', NULL, NULL, '/Users/dj/Library/Pioneer/rekordbox/share', NULL);"
+    ));
+    f
+}
+
+/// The update count [`writable`]'s `agentRegistry` starts at.
+pub const UPDATE_COUNT: i64 = 74383;
+
+/// [`library`] with what a write of cues reads and writes besides, as rekordbox 7 has it:
+/// `contentCue` (empty: no track's list is written yet), `cloudAgentRegistry` (empty: Cloud
+/// Library Sync is off), `djmdContent.CueUpdated`, the cues' `ContentUUID`s, and a few rows
+/// stamped below [`UPDATE_COUNT`].
+pub fn writable() -> Fixture {
+    let f = library();
+    f.exec(&format!(
+        "ALTER TABLE djmdContent ADD COLUMN CueUpdated VARCHAR(255);
+         CREATE TABLE contentCue (ID VARCHAR(255) PRIMARY KEY, ContentID VARCHAR(255), Cues TEXT,
+             rb_cue_count INTEGER, {STATS});
+         CREATE TABLE cloudAgentRegistry (ID VARCHAR(255) PRIMARY KEY, int_1 BIGINT, {STATS});
+         UPDATE djmdCue SET ContentUUID = 'uuid-' || ContentID;
+         UPDATE djmdContent SET rb_local_usn = 74000 + rowid, CueUpdated = '1';"
     ));
     f
 }

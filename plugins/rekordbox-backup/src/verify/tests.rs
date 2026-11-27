@@ -184,7 +184,7 @@ fn verify_says_when_the_music_folder_isnt_beside_the_zip() {
 /// However a zip's entries are laid out (some of `master.db`, `contents.xml`, a library file and a
 /// folder, in any order), `verify` says each way the layout differs from rekordbox's, in the order
 /// it reads them, and nothing else: one laid out as rekordbox lays it out is whole.
-#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_verify_says_each_way_a_layout_is_wrong(tc: TestCase) {
     stamped();
     let f = fixture();

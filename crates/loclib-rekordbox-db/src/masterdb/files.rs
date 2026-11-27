@@ -44,6 +44,42 @@ pub fn status() -> CollectionStatus {
     CollectionStatus { running: app.is_some(), version }
 }
 
+/// Whether rekordbox and its agent are running, as [`running_now`] finds them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Running {
+    /// rekordbox itself.
+    pub rekordbox: bool,
+    /// Its agent (`rekordboxAgent`, or one of its helpers), which holds `master.db` open while it
+    /// runs and writes `agentRegistry` in it, and can outlive rekordbox by days.
+    pub agent: bool,
+}
+
+/// Whether rekordbox and its agent are running now; `None` when the processes can't all be listed
+/// (the list doesn't even hold this one).
+pub fn running_now() -> Option<Running> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+    let mut system = System::new();
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    system.process(sysinfo::get_current_pid().ok()?)?;
+    let mut out = Running::default();
+    for p in system.processes().values() {
+        out.rekordbox |= is_rekordbox(p.name());
+        out.agent |= is_agent(p.name());
+    }
+    Some(out)
+}
+
+/// rekordbox's version on this computer, as [`status`] finds it.
+pub fn rekordbox_version() -> Option<String> {
+    status().version
+}
+
+/// Whether a process named `name` is rekordbox's agent (`rekordboxAgent`, `rekordboxAgent.exe`) or
+/// one of its helpers (`rekordboxAgent Helper (Renderer)`): it's an Electron app.
+pub(crate) fn is_agent(name: &OsStr) -> bool {
+    name.to_string_lossy().to_lowercase().starts_with("rekordboxagent")
+}
+
 /// rekordbox's process, when it's running, with where its program is when that can be read.
 fn running() -> Option<Option<PathBuf>> {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
@@ -54,11 +90,11 @@ fn running() -> Option<Option<PathBuf>> {
     Some(found.exe().map(Path::to_path_buf))
 }
 
-/// Whether a process named `name` is rekordbox itself (`rekordbox`, `rekordbox.exe`), not its
-/// agent (`rekordboxAgent`) or a helper.
-fn is_rekordbox(name: &OsStr) -> bool {
-    let name = name.to_string_lossy().to_lowercase();
-    name == "rekordbox" || name == "rekordbox.exe"
+/// Whether a process named `name` is rekordbox (`rekordbox`, `rekordbox.exe`, or anything else
+/// named for it, a helper or a later version), not its agent (`rekordboxAgent`) or the agent's
+/// helpers. One taken for rekordbox that isn't only holds a write back.
+pub(crate) fn is_rekordbox(name: &OsStr) -> bool {
+    name.to_string_lossy().to_lowercase().starts_with("rekordbox") && !is_agent(name)
 }
 
 /// rekordbox's version: its app's (see [`app_version`]), else the one its agent last recorded in
@@ -128,7 +164,7 @@ pub fn export(path: &Path, key: &str, with_credentials: bool, into: &Path) -> Re
 
 /// Copies the database at `plain` to `out` (the file `into`), each page encrypted with `codec`
 /// when there is one, answering how many bytes it wrote.
-fn write_pages(plain: &Path, codec: Option<&Codec>, out: &mut File, into: &Path) -> Result<u64> {
+pub(super) fn write_pages(plain: &Path, codec: Option<&Codec>, out: &mut File, into: &Path) -> Result<u64> {
     let mut from = File::open(plain).at(plain)?;
     let Some(codec) = codec else { return std::io::copy(&mut from, out).at(into) };
     let len = from.metadata().at(plain)?.len();

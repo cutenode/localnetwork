@@ -5,8 +5,8 @@
 
 use indexmap::{IndexMap, IndexSet};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::model::TrackColor;
 use locallibrary::model::TrackFields;
@@ -161,7 +161,7 @@ fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
 /// artist, album, genre, label or key behind that nothing refers to any more (an album's artist
 /// goes with the album). An edit naming a track that isn't there, or a colour that isn't one,
 /// is refused before anything changes.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_edited_track_details_read_back(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let (mut one, mut model) = with_tracks(&tc, count);
@@ -315,7 +315,7 @@ fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
 /// details, cues (new ids, mapped from the old ones) and My Tags. Tags are found by name: those
 /// the target has are reused, the rest made once, so the target ends up with exactly the tag
 /// names of both and no name twice.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_tracks_copied_between_databases_keep_details_cues_and_tags(tc: TestCase) {
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let (mut src, tracks) = with_tracks(&tc, count);
@@ -370,7 +370,7 @@ fn quoted(name: &str) -> String {
 /// `content_id` or `cue_id`, removing tracks or a track's cues is refused, naming the table,
 /// and nothing changes; a table whose columns name neither doesn't stand in the way. Keeping
 /// every cue removes nothing, so it is never refused.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
     let (mut one, tracks) = with_tracks(&tc, 2);
     let ids: Vec<u32> = tracks.keys().copied().collect();
@@ -411,7 +411,7 @@ fn prop_removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
 /// shared-memory index away, so the drive opens as the new database. A WAL that can't be taken
 /// away (here a folder in its place) stops the write before the database is replaced, and
 /// reading the drive reports it.
-#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 40)]
 fn prop_written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // As the drive sees itself (temporary folders can sit behind a symlink).

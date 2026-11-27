@@ -1135,7 +1135,7 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 /// analyzer or export asked for anyway); one that can does what it is (a form for its params, its
 /// settings or which provider to fetch from, a job, a panel, a column, a theme) and esc backs out
 /// of it to the view it started in.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
     // Every plugin here reads the drive, or reads only rekordbox's collection: its hooks need a
@@ -1235,7 +1235,7 @@ fn prop_the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
 /// Whatever themes are chosen from the palette, in any order, the player draws in the last one
 /// chosen (its accent on screen, no other's), says so, and keeps it for next time; the default
 /// too.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_the_theme_chosen_last_is_drawn_and_kept(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
@@ -1499,7 +1499,7 @@ fn expected(t: &Typed) -> Result<Value, (usize, String)> {
 /// nothing) and sends exactly what was typed otherwise, as the plugin's answer shows; its context
 /// is the drive and the tracks marked (else the one selected). What the plugin logs goes to the
 /// messages, not the footer. Esc closes a form refused, back to the library.
-#[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 25)]
 fn prop_a_commands_form_sends_what_fits_its_schema(tc: TestCase) {
     plugins_once();
     let drive = plugged();
@@ -1861,7 +1861,7 @@ fn ctrl(app: &mut App, c: char) {
 /// while it's planned leaves the drive as it was; a name there already changes nothing, and says
 /// so; otherwise the confirmation has the plugin's summary, a no writes nothing, a yes writes
 /// the playlist (the drive read again shows it) and u takes the drive back to how it was.
-#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_an_operation_is_planned_applied_and_taken_back(tc: TestCase) {
     plugins_once();
     let drive = plugged();
@@ -1943,7 +1943,7 @@ fn a_library_source_asks_for_its_folders_and_options() {
 /// asks to write the file, or to overwrite it when it's there, naming the playlists marked; a yes
 /// writes every track's file into it, anything else leaves what was there. Onto the drive itself,
 /// it's refused.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_an_export_is_planned_then_written_or_left_be(tc: TestCase) {
     plugins_once();
     let drive = plugged();
@@ -2017,7 +2017,7 @@ fn prop_an_export_is_planned_then_written_or_left_be(tc: TestCase) {
 /// setting can't take is refused on its field, keeping nothing. Otherwise each is kept as typed
 /// (left empty, its default), only those set apart from their defaults are written, the form
 /// opens again as it was saved, and saving that again changes nothing. Esc keeps nothing.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_settings_are_kept_as_the_form_has_them(tc: TestCase) {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
@@ -2101,7 +2101,7 @@ fn prop_settings_are_kept_as_the_form_has_them(tc: TestCase) {
 /// Whatever playlists a plugin's operation plans (the test plugin plans the edits it's given,
 /// saying "as given" and warning "given"), the confirmation has its summary first, each playlist
 /// it makes, and its warning once; a yes makes them all on the drive and u takes them all back.
-#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
     plugins_once();
     let drive = plugged();

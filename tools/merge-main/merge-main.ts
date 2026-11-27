@@ -158,11 +158,13 @@ export const mergeMain = (root: string, log: (line: string) => void) => {
 	if (renames.length > 0)
 		say(`moved the page-only modules: ${renames.map(([from, to]) => `${from} -> ${to}`).join(', ')}`);
 
+	// Not this tool's own files, which name what it renames.
 	const before = new Map(
 		tracked
 			.values()
 			.map(moved)
-			.filter((path) => (PATH_TEXT.test(path) || WORD_TEXT.test(path)) && !path.startsWith('.claude/'))
+			.filter((path) => PATH_TEXT.test(path) || WORD_TEXT.test(path))
+			.filter((path) => !path.startsWith('.claude/') && !path.startsWith('tools/merge-main/'))
 			.filter((path) => existsSync(join(root, path)))
 			.map((path) => [path, read(path)])
 	);

@@ -6,8 +6,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::model::TrackFields;
@@ -22,7 +22,7 @@ fn ids(ids: &[u32]) -> TrackSelector {
 
 /// A name export.pdb can hold is set and reads back as given (an album cleared, a key set
 /// alongside); one too long for it is refused, said, before anything on the drive changes.
-#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 #[hegel::explicit_test_case(len = 12usize, album = Some(""), key = Some("8A"))]
 #[hegel::explicit_test_case(len = 5000usize, album = None::<&str>, key = None::<&str>)]
 fn prop_names_export_pdb_can_hold_are_set_and_longer_ones_refused(tc: TestCase) {
@@ -65,7 +65,7 @@ fn prop_names_export_pdb_can_hold_are_set_and_longer_ones_refused(tc: TestCase) 
 
 /// An edit a drive's export.pdb has already but its OneLibrary database lacks (rekordbox
 /// exported over that alone) is made in OneLibrary alone, and said so.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_an_edit_onelibrary_lacks_is_made_there_alone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
@@ -100,7 +100,7 @@ fn prop_an_edit_onelibrary_lacks_is_made_there_alone(tc: TestCase) {
 
 /// Deleting tracks removes their audio under `Contents/` and never audio outside it, which is
 /// left on the drive and said so.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_deleted_tracks_audio_outside_contents_is_left_and_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -122,7 +122,7 @@ fn prop_deleted_tracks_audio_outside_contents_is_left_and_said(tc: TestCase) {
 /// My Tags follow the tracks of export.pdb: a replaced track's links move to its keeper, a
 /// deleted one's go. An exportExt.pdb that can't be read (not a database, or a folder) doesn't
 /// stop the edit: it's left as it was, and the edit says its My Tags weren't updated.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 #[hegel::explicit_test_case(ext = 0u8, replace = true, delete = true)]
 #[hegel::explicit_test_case(ext = 1u8, replace = true, delete = false)]
 #[hegel::explicit_test_case(ext = 2u8, replace = false, delete = true)]
@@ -204,7 +204,7 @@ fn mood_file(mood: u16) -> Vec<u8> {
 
 /// Ordering a playlist for mixing, whatever moods its tracks' analysis gives them (high, mid or
 /// low energy, or none), keeps exactly its entries, in an order of its own or into a new one.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_ordering_for_mixing_keeps_a_playlists_entries_whatever_their_moods(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
@@ -249,7 +249,7 @@ fn prop_edits_need_an_export(tc: TestCase) {
 
 /// Packing playlists of a drive rekordbox exported for OneLibrary players only plans a library
 /// of exactly those playlists' tracks, made from its OneLibrary database alone.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_packing_a_onelibrary_only_drive_takes_the_chosen_playlists_tracks(tc: TestCase) {
     use locallibrary::pack::{self, PackOptions};
     let dir = tempfile::tempdir().unwrap();
@@ -275,7 +275,7 @@ fn prop_packing_a_onelibrary_only_drive_takes_the_chosen_playlists_tracks(tc: Te
 /// A drive whose database isn't one (empty, text, or a few drawn bytes) has no edit planned on it:
 /// export.pdb, or exportLibrary.db on a drive with no export.pdb, is refused naming the file. A
 /// OneLibrary database that isn't one beside a good export.pdb leaves the edit to export.pdb, said.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_database_that_isnt_one_is_refused_or_left_out_of_an_edit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -306,7 +306,7 @@ fn prop_a_database_that_isnt_one_is_refused_or_left_out_of_an_edit(tc: TestCase)
 
 /// An edit cancelled while it's planned or made stops with nothing changed on the drive and no
 /// backup left, whether it's made in one go or as steps under one backup.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_cancelled_edit_stops_with_the_drive_as_it_was(tc: TestCase) {
     use locallibrary::progress::{CancelToken, NoProgress};
     let dir = tempfile::tempdir().unwrap();

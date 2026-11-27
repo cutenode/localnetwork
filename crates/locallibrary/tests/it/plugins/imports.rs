@@ -198,7 +198,7 @@ fn a_tracks_cues_are_one_edit() {
 /// length or a name it doesn't take, a loop past the end), and every one for a track that can't
 /// hold cues (without analysis files), are left out, saying so for each track and why; the rest
 /// are set, as one edit.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_cue_the_edit_cant_set_is_left_out(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
@@ -292,7 +292,7 @@ fn an_import_reads_a_file_the_plugin_has_an_importer_for() {
 /// matcher finds them by file, keeps each session with a time for every play, and applied, only
 /// adds: every track keeps the key, BPM, cues and My Tags it had, a track without a key gets the
 /// first one given for it, and every tag given a track found is on it.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_an_import_only_adds_to_what_tracks_have(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
@@ -390,7 +390,7 @@ fn started(tc: &hegel::TestCase, minute: usize) -> Option<String> {
 /// it has the plays of one kept before it: each of those is left out, saying so, before the
 /// tracks not on the drive and the importer's own warnings. Its sessions need the store, to plan
 /// and to apply.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_a_files_sessions_are_kept_as_its_logs_say(tc: hegel::TestCase) {
     use chrono::{DateTime, Utc};
     use hegel::generators as gs;

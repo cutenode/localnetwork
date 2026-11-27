@@ -466,7 +466,7 @@ fn prop_what_the_drive_lacks_is_drawn_from_the_overlay(tc: hegel::TestCase) {
 
 /// Any grid and waveform an analyzer answers are kept as given (the waveform put at 150 columns a
 /// second, as long), and planned onto the tracks as given, each with its BPM.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_any_structured_answer_is_kept_and_planned_as_given(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
@@ -593,7 +593,7 @@ fn prop_overlays_read_back_as_kept_and_refuse_what_isnt_theirs(tc: hegel::TestCa
 /// Writing what an analyzer kept is refused, before anything's planned, when it isn't asked for
 /// anything, when the analyzer doesn't work out what's asked, and for an analyzer, a plugin, a
 /// drive or a track that isn't there.
-#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 12)]
 fn prop_writing_an_analysis_is_refused_for_what_isnt_there(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
@@ -626,7 +626,7 @@ fn prop_writing_an_analysis_is_refused_for_what_isnt_there(tc: hegel::TestCase) 
 
 /// A waveform an analyzer says is slower than a day's worth of columns fails the track, saying
 /// so, rather than being pooled out to fill memory, and keeps nothing of it.
-#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_waveforms_over_a_day_fail_the_track(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
@@ -647,7 +647,7 @@ fn prop_waveforms_over_a_day_fail_the_track(tc: hegel::TestCase) {
 /// empty grid as nothing), or fail the track, saying why, keeping nothing: a beat out of its bar,
 /// of a tempo out of range or not after the one before, a waveform whose file isn't there or
 /// isn't three bytes a column.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_any_structured_answer_is_kept_or_fails_the_track_saying_why(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
@@ -725,7 +725,7 @@ fn prop_any_structured_answer_is_kept_or_fails_the_track_saying_why(tc: hegel::T
 /// asked that it gives, over what the track has only when overwriting, phrases only on the grid
 /// they count and no waveform where it can't go (leaving the track out), saying what it left out
 /// and why; applied, the drive has what it planned.
-#[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 50)]
 fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::TestCase) {
     use crate::analysis_edit::strip_colour_overview;
     use hegel::generators as gs;

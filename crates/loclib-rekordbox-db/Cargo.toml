@@ -37,7 +37,8 @@ serde_json.workspace = true
 sysinfo = { version = "0.38.4", default-features = false, features = ["system"], optional = true }
 tempfile.workspace = true
 thiserror.workspace = true
-# A debug line for each folder `scratch::sweep` removes.
+# A warning for what a write of the collection that didn't finish left, as the next one removes it,
+# and a debug line for each folder `scratch::sweep` removes.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 # Decrypted buffers are zeroed once done with.
 zeroize = "1.9"
@@ -65,9 +66,11 @@ workspace = true
 plist = { version = "1.10.1", optional = true }
 
 [target."cfg(unix)".dependencies]
-# Whose a scratch folder is, and opening its lock file without following a link or waiting.
+# Which filesystem master.db is on (macOS), before a write replaces it; whose a scratch folder is,
+# and opening its lock file without following a link or waiting.
 libc = "0.2"
 
 [target."cfg(windows)".dependencies]
-# Whose a scratch folder is, and an access list that lets in the current user alone.
+# Which filesystem master.db is on, before a write replaces it; whose a scratch folder is, and an
+# access list that lets in the current user alone.
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }

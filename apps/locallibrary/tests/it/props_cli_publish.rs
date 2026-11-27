@@ -5,8 +5,8 @@
 
 #![cfg(feature = "account")]
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 
@@ -78,7 +78,7 @@ fn settings_record(values: &IndexMap<&str, &str>, unknown: usize) -> Value {
 /// line per setting it publishes with its value's label, marked new or with the value it
 /// replaces where there's a record to replace, and a line for each setting published before that
 /// it no longer publishes.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_a_settings_plan_marks_each_setting_against_the_published_one(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::new().with_directory(&pds.url);
@@ -130,7 +130,7 @@ fn prop_a_settings_plan_marks_each_setting_against_the_published_one(tc: TestCas
 /// Signed out, My Settings, the profile and a set (its tracks typed in with an artist or
 /// without) can each be looked at, as they would be published, saying how to sign in, and as JSON
 /// with no account or address; asked to publish them, it says to sign in, and nothing is written.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_signed_out_a_plan_is_only_shown(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
@@ -186,7 +186,7 @@ fn prop_signed_out_a_plan_is_only_shown(tc: TestCase) {
 /// says to sign in again, by when; with `--yes` it publishes all the same, and in a terminal it
 /// offers to sign in again first and, declined, asks to publish and does as answered.
 #[cfg(unix)]
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_late_in_a_session_publishing_says_to_sign_in_again(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template().with_directory(&pds.url);
@@ -224,7 +224,7 @@ fn prop_late_in_a_session_publishing_says_to_sign_in_again(tc: TestCase) {
 /// goes; with `--yes`, printed or as JSON, the recording goes up and the set's record points at
 /// it; and planned again, it replaces the recording uploaded.
 #[cfg(unix)]
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_uploading_a_recording_publishes_the_set_pointing_at_it(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
@@ -336,7 +336,7 @@ fn imported(
 /// plan, either way, has a line per change the JSON's has (or says there are none), what it'd
 /// replace or add to, and a warning for each setting it leaves out up to 20, then how many more;
 /// imported with `--yes`, the base is what the model says, and importing again changes nothing.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_importing_published_settings_comes_to_what_was_published(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::new().with_directory(&pds.url);
@@ -417,7 +417,7 @@ fn prop_importing_published_settings_comes_to_what_was_published(tc: TestCase) {
 /// (exit status 5) with the set published there all the same; declined in a terminal, the record is
 /// left for later. Deleting the set then names the record it has on the account, if any.
 #[cfg(all(unix, debug_assertions))]
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_set_published_at_a_destination_publishes_its_record_too(tc: TestCase) {
     use crate::mock_pds::Writes;
 

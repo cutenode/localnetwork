@@ -230,7 +230,7 @@ fn says_what_it_needs(
 /// Whatever the chosen tracks hold, a tag is offered to take off just when every one of them
 /// has it (and to give otherwise), and what's picked is what's done: given to all of them, or
 /// taken off all of them, the drive's other tracks kept as they were.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_a_tag_is_offered_off_just_when_every_chosen_track_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use std::collections::BTreeSet;

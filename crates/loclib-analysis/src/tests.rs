@@ -95,6 +95,17 @@ fn bands_keep_their_ratios_and_quiet_stays_low() {
     assert!(quiet.iter().flatten().all(|&b| b <= 2), "{quiet:?}");
 }
 
+/// A track quieter than the floor (an RMS of 0.01) is drawn against it: a 1 kHz tone in both
+/// channels at half its RMS (their mix is the tone) draws its mids half as high.
+#[test]
+fn quiet_is_drawn_against_the_floor() {
+    let dir = tempfile::tempdir().unwrap();
+    let columns = waveform_of(&dir, &sine(44_100, 2.0, 1_000.0, 0.005 * 2f64.sqrt(), 0.0));
+    for [_, mid, _] in &columns[2..columns.len() - 2] {
+        assert!((120..=136).contains(mid), "{mid}");
+    }
+}
+
 /// Column `i` is the audio from `i` columns in to `i + 1`: a tone from 20 columns in to 30 leaves
 /// the first 20 silent, fills the next 10, and all but its filters' ringing is gone after.
 #[test]

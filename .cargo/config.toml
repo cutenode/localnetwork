@@ -9,6 +9,9 @@
 # failing, and coverage lost that way still counts against the thresholds. It takes no build
 # flags (the root manifest is a virtual workspace, so it covers every member) because CI also runs
 # it against a nextest archive, which refuses them.
+# Every alias is a string, split on spaces (so no argument holds one): cargo concatenates an alias
+# written as an array with the same alias in a parent directory's config, which doubled every
+# array alias in a worktree inside the main checkout. tools/policy/cargo.rego holds them to it.
 [alias]
 coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-lines 95.2 --fail-under-functions 93.9 --fail-under-regions 93.3 --ignore-filename-regex (^|[/\\\\])((tests|testing|test_util|screens|props|stories)\\.rs$|(test-plugin|loclib-testkit)[/\\\\])"
 # `cargo hegel-coverage`: the Hegel property tests alone (nextest's hegel profile picks them),
@@ -28,22 +31,25 @@ doc-strict = "doc --workspace --no-deps --locked --config build.rustdocflags=['-
 # repository root. libFuzzer keeps what reaches new code in the first folder, fuzz/corpus/<target>/
 # (ignored by git, cached by CI, made by -create_missing_dirs), and only reads the seeds after it:
 # the tests' fixtures, and fuzz/seeds/ for formats whose tests keep their examples inline.
-fuzz-pdb = ["fuzz", "run", "pdb", "fuzz/corpus/pdb", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/rekordbox", "crates/locallibrary/tests/fixtures/rekordcrate/empty/PIONEER/rekordbox", "--", "-create_missing_dirs=1", "-dict=fuzz/dicts/pdb.dict"]
-fuzz-pdb_edit = ["fuzz", "run", "pdb_edit", "fuzz/corpus/pdb_edit", "--", "-create_missing_dirs=1"]
-fuzz-anlz = ["fuzz", "run", "anlz", "fuzz/corpus/anlz", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ", "--", "-create_missing_dirs=1", "-dict=fuzz/dicts/anlz.dict"]
-fuzz-mysettings = ["fuzz", "run", "mysettings", "fuzz/corpus/mysettings", "crates/locallibrary/tests/fixtures/rekordcrate/settings", "--", "-create_missing_dirs=1"]
-fuzz-tracklist = ["fuzz", "run", "tracklist", "fuzz/corpus/tracklist", "fuzz/seeds/tracklist", "--", "-create_missing_dirs=1"]
-fuzz-mp4 = ["fuzz", "run", "mp4", "fuzz/corpus/mp4", "fuzz/seeds/mp4", "crates/locallibrary/tests/fixtures/audio", "--", "-create_missing_dirs=1"]
-fuzz-wav = ["fuzz", "run", "wav", "fuzz/corpus/wav", "fuzz/seeds/wav", "--", "-create_missing_dirs=1"]
-fuzz-aup = ["fuzz", "run", "aup", "fuzz/corpus/aup", "fuzz/seeds/aup", "--", "-create_missing_dirs=1"]
-fuzz-traktor = ["fuzz", "run", "traktor", "fuzz/corpus/traktor", "fuzz/seeds/traktor", "--", "-create_missing_dirs=1"]
-fuzz-onelibrary = ["fuzz", "run", "onelibrary", "fuzz/corpus/onelibrary", "crates/locallibrary/tests/fixtures/onelibrary", "fuzz/seeds/onelibrary", "--", "-create_missing_dirs=1"]
-fuzz-masterdb = ["fuzz", "run", "masterdb", "fuzz/corpus/masterdb", "fuzz/seeds/masterdb", "--", "-create_missing_dirs=1"]
-fuzz-smartlist = ["fuzz", "run", "smartlist", "fuzz/corpus/smartlist", "fuzz/seeds/smartlist", "--", "-create_missing_dirs=1"]
-fuzz-rekordbox_sync = ["fuzz", "run", "rekordbox_sync", "fuzz/corpus/rekordbox_sync", "fuzz/seeds/rekordbox_sync", "--", "-create_missing_dirs=1"]
+fuzz-pdb = "fuzz run pdb fuzz/corpus/pdb crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/rekordbox crates/locallibrary/tests/fixtures/rekordcrate/empty/PIONEER/rekordbox -- -create_missing_dirs=1 -dict=fuzz/dicts/pdb.dict"
+fuzz-pdb_edit = "fuzz run pdb_edit fuzz/corpus/pdb_edit -- -create_missing_dirs=1"
+fuzz-anlz = "fuzz run anlz fuzz/corpus/anlz crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ -- -create_missing_dirs=1 -dict=fuzz/dicts/anlz.dict"
+fuzz-mysettings = "fuzz run mysettings fuzz/corpus/mysettings crates/locallibrary/tests/fixtures/rekordcrate/settings -- -create_missing_dirs=1"
+fuzz-tracklist = "fuzz run tracklist fuzz/corpus/tracklist fuzz/seeds/tracklist -- -create_missing_dirs=1"
+fuzz-mp4 = "fuzz run mp4 fuzz/corpus/mp4 fuzz/seeds/mp4 crates/locallibrary/tests/fixtures/audio -- -create_missing_dirs=1"
+fuzz-wav = "fuzz run wav fuzz/corpus/wav fuzz/seeds/wav -- -create_missing_dirs=1"
+fuzz-aup = "fuzz run aup fuzz/corpus/aup fuzz/seeds/aup -- -create_missing_dirs=1"
+fuzz-traktor = "fuzz run traktor fuzz/corpus/traktor fuzz/seeds/traktor -- -create_missing_dirs=1"
+fuzz-onelibrary = "fuzz run onelibrary fuzz/corpus/onelibrary crates/locallibrary/tests/fixtures/onelibrary fuzz/seeds/onelibrary -- -create_missing_dirs=1"
+fuzz-masterdb = "fuzz run masterdb fuzz/corpus/masterdb fuzz/seeds/masterdb -- -create_missing_dirs=1"
+fuzz-smartlist = "fuzz run smartlist fuzz/corpus/smartlist fuzz/seeds/smartlist -- -create_missing_dirs=1"
+fuzz-rekordbox_sync = "fuzz run rekordbox_sync fuzz/corpus/rekordbox_sync fuzz/seeds/rekordbox_sync -- -create_missing_dirs=1"
+fuzz-challenge = "fuzz run challenge fuzz/corpus/challenge fuzz/seeds/challenge -- -create_missing_dirs=1"
+fuzz-callback = "fuzz run callback fuzz/corpus/callback fuzz/seeds/callback -- -create_missing_dirs=1"
+fuzz-peers = "fuzz run peers fuzz/corpus/peers fuzz/seeds/peers -- -create_missing_dirs=1"
 # `cargo notices`: the licences of what the locallibrary binary is built from, in
 # THIRD-PARTY-NOTICES.md at the root (ignored by git), which dist puts in the release archives
 # (about.toml says more).
 # Needs cargo-about. `--fail` stops it when it can't work out a crate's licence, rather than
 # leaving that crate out.
-notices = ["about", "generate", "--locked", "--fail", "--manifest-path", "apps/locallibrary/Cargo.toml", "--output-file", "THIRD-PARTY-NOTICES.md", "about.hbs"]
+notices = "about generate --locked --fail --manifest-path apps/locallibrary/Cargo.toml --output-file THIRD-PARTY-NOTICES.md about.hbs"

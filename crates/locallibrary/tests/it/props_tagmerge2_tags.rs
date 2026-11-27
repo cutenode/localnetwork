@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, EditOptions};
 use locallibrary::progress::Ctx;
@@ -93,7 +93,7 @@ fn invalid(d: &Device, edit: &Edit) -> String {
 /// reaches every selected track either database lists, warning about the others. What either
 /// database can't hold (a fifth category, a name too long for exportExt.pdb, a name taken, a
 /// category deleted) is refused, the drive left alone.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -241,7 +241,7 @@ fn prop_tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
 /// A plan applied after the drive's My Tags changed (another edit came first, or a database it
 /// edits went) is refused as stale, the drive left as the other edit made it; one cancelled is
 /// refused before anything is written.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_plan_the_drive_has_moved_on_from_is_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -279,7 +279,7 @@ fn prop_a_plan_the_drive_has_moved_on_from_is_refused(tc: TestCase) {
 /// the tracks still there their tags (and takes off what was taken off), says which files are
 /// gone, skips an edit that no longer applies to anything, and leaves one the export made
 /// already.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_replay_after_tracks_went_skips_what_no_longer_applies(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -333,7 +333,7 @@ fn prop_a_replay_after_tracks_went_skips_what_no_longer_applies(tc: TestCase) {
 /// refused when it's the drive's only My Tags database, and passed over with a warning beside
 /// OneLibrary, whose tags are read and edited alone, as on a drive with OneLibrary only. A folder
 /// with no export has no My Tags to read.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_an_exportext_pdb_that_cant_be_used_is_read_around(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let blank = common::blank(dir.path(), "Blank");
@@ -387,7 +387,7 @@ fn prop_an_exportext_pdb_that_cant_be_used_is_read_around(tc: TestCase) {
 /// export.pdb rebuilt from OneLibrary moves exportExt.pdb's links to the tracks' new ids, and
 /// drops the ones it can't place: to a track export.pdb didn't list, or one OneLibrary doesn't. A
 /// tag only one database gives a track both list is said to differ.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_links_that_cant_follow_their_tracks_are_dropped(tc: TestCase) {
     use locallibrary::convert::{self, ConvertOptions, Target};
     let dir = tempfile::tempdir().unwrap();
@@ -437,7 +437,7 @@ fn prop_links_that_cant_follow_their_tracks_are_dropped(tc: TestCase) {
 /// An exportExt.pdb that reads but whose link table can't take a row (its table directory gives
 /// the file header as its next free page): an edit linking tracks is planned, then refused when
 /// applied, as exportExt.pdb's, with no backup made and the drive as it was.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_an_edit_exportext_pdb_cant_take_leaves_the_drive_alone(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");

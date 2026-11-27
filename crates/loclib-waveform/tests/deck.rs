@@ -469,6 +469,7 @@ fn a_flat_palette_dims_with_the_attribute() {
     let dim = |b: &Buffer, x: u16| (1..4).any(|y| b[(x, y)].modifier.contains(Modifier::DIM));
     let (flat, coloured) = (draw(true), draw(false));
     assert!(dim(&flat, 5) && !dim(&flat, 35), "played dim, ahead not");
+    assert!(dim(&flat, 19) && !dim(&flat, 20), "the playhead's column isn't played yet");
     assert!(!dim(&coloured, 5), "a colour's enough");
     let tint = rgb(loclib_waveform::color::scale(Palette::default().loop_cue, 0.22));
     let tinted = |b: &Buffer| (1..4).any(|y| b[(26, y)].bg == tint);
@@ -516,6 +517,9 @@ fn phrases_read_on_a_flat_palette() {
     assert!(name.modifier.contains(Modifier::REVERSED | Modifier::DIM), "played: {name:?}");
     let ahead = &buf[(35, 0)];
     assert!(ahead.modifier.contains(Modifier::REVERSED) && !ahead.modifier.contains(Modifier::DIM), "{ahead:?}");
+    // At 0.75 of 40 columns the playhead's on column 30, which isn't played yet.
+    let dim = |x: u16| buf[(x, 0)].modifier.contains(Modifier::DIM);
+    assert!(dim(29) && !dim(30));
 }
 
 /// A quiet master is turned up until its tallest band reaches the top of the waveform, however
@@ -541,6 +545,27 @@ fn bands_fill_the_height() {
     assert_ne!(draw(gain)[(1, 1)].symbol(), " ", "turned up, it reaches the top");
 }
 
+/// A cover is grown in whole pixels, so a small one stays crisp, and shrunk smoothly, also when
+/// it's shrunk one way and grown the other.
+#[cfg(feature = "image")]
+#[test]
+fn a_cover_grows_in_whole_pixels_and_shrinks_smoothly() {
+    let (black, white) = ([0u8; 3], [255u8; 3]);
+    let checker = |w, h| {
+        let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb(if (x + y) % 2 == 0 { black } else { white }));
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        Art::decode(&png).unwrap()
+    };
+    // 2 x 2 to 4 x 4 pixels: each pixel twice each way.
+    let grown = checker(2, 2).resized(4, 2);
+    let want: Vec<_> = (0..16).map(|i| Some(if (i % 4 / 2 + i / 8) % 2 == 0 { black } else { white })).collect();
+    assert_eq!(grown, want);
+    let blended = |px: &[Option<[u8; 3]>]| px.iter().flatten().any(|&c| c != black && c != white);
+    assert!(blended(&checker(8, 8).resized(2, 1)), "shrunk both ways");
+    assert!(blended(&checker(8, 2).resized(4, 2)), "narrower and taller");
+}
+
 /// A cover's main colours: what most of it is, and the most of what's far from that.
 #[cfg(feature = "image")]
 #[test]
@@ -559,4 +584,207 @@ fn a_covers_main_colours() {
     let flat = image::RgbImage::from_pixel(8, 8, image::Rgb([9, 99, 199]));
     flat.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
     assert_eq!(Art::decode(&png).unwrap().main_colours(), [[9, 99, 199]; 2]);
+}
+
+/// A cue's marker in the overview is dimmed once the playhead's past it, not while it's on it;
+/// one colliding takes the next row down, wherever the overview is. A track of no length places
+/// no cue.
+#[test]
+fn the_overviews_markers_dim_once_passed() {
+    let cues = [1_000, 5_000, 9_000].map(|ms| cue(None, ms, None));
+    let all = [&cues[..], &[cue(Some(0), 7_000, None), cue(Some(1), 7_000, None)]].concat();
+    let whole = Rect::new(0, 0, 40, 7);
+    let area = Rect::new(0, 2, 40, 5);
+    let draw = |cues: &[Cue], duration_ms| {
+        let mut buf = Buffer::empty(whole);
+        let palette = Palette::default();
+        WaveOverview { wave: None, progress: 0.5, cues, duration_ms, cue_rows: 2, palette }.render(area, &mut buf);
+        buf
+    };
+    // At 10 s across 40 columns: 1 s is column 4, the playhead's at 5 s (column 20).
+    let buf = draw(&all, 10_000.0);
+    let fg = |x: u16| buf[(x, 2)].fg;
+    assert_eq!((buf[(4, 2)].symbol(), buf[(20, 2)].symbol(), buf[(36, 2)].symbol()), ("▼", "▼", "▼"));
+    assert_ne!(fg(4), fg(36), "passed, dimmed");
+    assert_eq!(fg(20), fg(36), "at the playhead, not yet");
+    assert_eq!((buf[(28, 2)].symbol(), buf[(28, 3)].symbol()), ("A", "B"));
+
+    let none = draw(&[cue(Some(0), 0, None), cue(None, 0, Some(500))], 0.0);
+    assert!((0..40).all(|x| none[(x, 2)].symbol() == " "), "no length, no cues");
+}
+
+/// The zoomed view draws a column of the waveform under the screen column its time falls in, and
+/// nowhere else.
+#[test]
+fn the_zoomed_view_draws_a_column_where_its_time_falls() {
+    let silent = WaveColumn::default();
+    let loud = WaveColumn { back: WaveLayer { height: 1.0, color: [10, 200, 90] }, front: WaveLayer::default() };
+    let mut columns = vec![silent; 3_000];
+    // At 100 columns a second, 12.34 s.
+    columns[1_234] = loud;
+    let w = Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(100.0), columns };
+    let zoom = Zoom {
+        wave: Wave::Layers(&w),
+        position_secs: 12.0,
+        visible_secs: 4.0,
+        beats: &[],
+        cues: &[],
+        cue_rows: 0,
+        bar_numbers: false,
+        palette: Palette::default(),
+    };
+    let buf = drawn(&mut ZoomRing::default(), &zoom, Rect::new(0, 0, 40, 7));
+    // 0.1 s a column, the playhead at 12 s in column 20: 12.3 s is column 23.
+    let drawn_at: Vec<u16> = (0..40).filter(|&x| x != 20 && (1..7).any(|y| buf[(x, y)].symbol() != " ")).collect();
+    assert_eq!(drawn_at, [23]);
+    assert!((1..7).all(|y| buf[(0, y)] == Cell::default()), "an empty cell is left as it was");
+}
+
+/// Scrolled back a little then forward, or forward a long way in steps then back, a ring draws
+/// what a fresh one would: what it overwrote it draws again.
+#[test]
+fn a_ring_scrolled_both_ways_draws_what_a_fresh_one_would() {
+    let w = wave(6_000);
+    let beats = beats(80);
+    let mut ring = ZoomRing::default();
+    // 0.2 s a column over 20 columns, so the ring holds 40.
+    for position_secs in [20.0, 22.0, 23.0, 24.0, 17.0, 24.0, 26.0, 28.0, 30.0, 32.0, 20.0] {
+        let zoom = Zoom {
+            wave: Wave::Layers(&w),
+            position_secs,
+            visible_secs: 4.0,
+            beats: &beats,
+            cues: &[],
+            cue_rows: 0,
+            bar_numbers: true,
+            palette: Palette::default(),
+        };
+        let area = Rect::new(0, 0, 20, 7);
+        assert_eq!(drawn(&mut ring, &zoom, area), drawn(&mut ZoomRing::default(), &zoom, area), "at {position_secs}");
+    }
+}
+
+/// Bars are numbered as often as their numbers fit: here bars are 3 columns apart and a number
+/// with its tick and a space takes 4, so every other one.
+#[test]
+fn every_other_bar_is_numbered_when_one_number_needs_two_bars() {
+    // Bars every 2 s from 0.5 s, 50 of them.
+    let beats: Vec<Beat> =
+        (0..200).map(|i| Beat { beat_number: (i % 4) as u16 + 1, bpm: 120.0, time_ms: 500 + i * 500 }).collect();
+    let w = wave(6_000);
+    let zoom = Zoom {
+        wave: Wave::Layers(&w),
+        position_secs: 20.0,
+        visible_secs: 40.0,
+        beats: &beats,
+        cues: &[],
+        cue_rows: 0,
+        bar_numbers: true,
+        palette: Palette::default(),
+    };
+    let buf = drawn(&mut ZoomRing::default(), &zoom, Rect::new(0, 0, 60, 5));
+    let ruler: String = (0..60).map(|x| buf[(x, 0)].symbol()).collect();
+    let numbers: Vec<u32> = ruler.split(|c: char| !c.is_ascii_digit()).filter_map(|n| n.parse().ok()).collect();
+    assert_eq!(numbers, [2, 4, 6, 8, 10, 12, 14, 16, 18, 20], "{ruler}");
+}
+
+/// Drawn anywhere, the zoomed view is what it is at the corner, moved: its cue rows, ruler,
+/// waveform and playhead, and nothing outside it. Asked for more cue rows than fit, it keeps
+/// the ruler and two rows of waveform. The playhead leaves what has no background without one,
+/// and its marker over a tick on the ruler is the marker alone.
+#[test]
+fn a_zoomed_view_is_the_same_wherever_its_drawn() {
+    let silent = Waveform { columns: vec![WaveColumn::default(); 6_000], ..wave(0) };
+    let beats = beats(200);
+    let cues = [cue(Some(0), 8_400, None), cue(Some(1), 8_400, None), cue_at(None, 9_300, "Out")];
+    let palette = Palette { plain: true, ..Palette::default() };
+    let zoom = |cue_rows| Zoom {
+        wave: Wave::Layers(&silent),
+        // A bar starts at 10 s, under the playhead.
+        position_secs: 10.0,
+        visible_secs: 4.0,
+        beats: &beats,
+        cues: &cues,
+        cue_rows,
+        bar_numbers: true,
+        palette,
+    };
+    let at = |x, y, cue_rows| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 50, 12));
+        ZoomRing::default().draw(&zoom(cue_rows), Rect::new(x, y, 40, 8), &mut buf);
+        buf
+    };
+    let (corner, moved) = (at(0, 0, 2), at(3, 2, 2));
+    let blank = Cell::default();
+    for (x, y) in (0u16..50).flat_map(|x| (0u16..12).map(move |y| (x, y))) {
+        let (inside, moved_from) = (x < 40 && y < 8, x.checked_sub(3).zip(y.checked_sub(2)));
+        assert!(inside || corner[(x, y)] == blank, "({x}, {y}) outside");
+        let want = moved_from.filter(|&(x, y)| x < 40 && y < 8).map_or(&blank, |at| &corner[at]);
+        assert_eq!(&moved[(x, y)], want, "({x}, {y})");
+    }
+    // 0.1 s a column from 8 s: the cues are at column 4, A over B, and 13.
+    let row = |b: &Buffer, y| (0..40).map(|x| b[(x, y)].symbol()).collect::<String>();
+    assert!(row(&corner, 0).starts_with("    A        ▼ Out"), "{}", row(&corner, 0));
+    assert!(row(&corner, 1).starts_with("    B"), "{}", row(&corner, 1));
+    let marker = &corner[(20, 2)];
+    assert_eq!(marker.symbol(), "▼");
+    assert!(!marker.modifier.contains(Modifier::REVERSED), "{marker:?}");
+    assert!((3..8).all(|y| corner[(20, y)].bg == Color::Reset));
+
+    let squeezed = at(0, 0, 6);
+    assert_eq!(squeezed[(20, 5)].symbol(), "▼", "the ruler on the third row from the bottom");
+}
+
+/// A cue's name fits between its marker and the next one in its row, a cell clear of each, or
+/// isn't shown; a marker in another row doesn't count.
+#[test]
+fn a_cues_name_has_the_room_to_the_next_marker_in_its_row() {
+    let w = Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(10.0), columns: vec![Default::default(); 200] };
+    let rows_for = |cues: &[Cue]| {
+        let z = Zoom {
+            wave: Wave::Layers(&w),
+            position_secs: 10.0,
+            visible_secs: 4.0,
+            beats: &[],
+            cues,
+            cue_rows: 2,
+            bar_numbers: false,
+            palette: Palette::default(),
+        };
+        let buf = drawn(&mut ZoomRing::default(), &z, Rect::new(0, 0, 40, 8));
+        [0, 1].map(|y| (0..40).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>())
+    };
+    // 0.1 s a column from 8 s: 8.4 s is column 4 and 8.9 s column 9, two cells for a name.
+    let [fits, _] = rows_for(&[cue_at(Some(0), 8_400, "Up"), cue_at(Some(1), 8_900, "")]);
+    assert!(fits.starts_with("    A Up B "), "{fits:?}");
+    let [cut, _] = rows_for(&[cue_at(Some(0), 8_400, "Out"), cue_at(Some(1), 8_900, "")]);
+    assert!(cut.starts_with("    A    B "), "{cut:?}");
+    // Two hot cues side by side: the second goes down a row, and the first's name runs on.
+    let [top, below] = rows_for(&[cue_at(Some(0), 8_400, "Intro"), cue_at(Some(1), 8_500, "")]);
+    assert!(top.starts_with("    A Intro "), "{top:?}");
+    assert!(below.trim_start().starts_with('B'), "{below:?}");
+}
+
+/// A waveform that says it has no columns a second puts every screen column at its start: each
+/// shows the first column, not nothing.
+#[test]
+fn a_waveform_of_no_columns_a_second_shows_its_first_column() {
+    let column = WaveColumn { back: WaveLayer { height: 1.0, color: [10, 200, 90] }, front: WaveLayer::default() };
+    let w = Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(0.0), columns: vec![column; 10] };
+    let zoom = Zoom {
+        wave: Wave::Layers(&w),
+        position_secs: 2.0,
+        visible_secs: 4.0,
+        beats: &[],
+        cues: &[],
+        cue_rows: 0,
+        bar_numbers: false,
+        palette: Palette::default(),
+    };
+    let buf = drawn(&mut ZoomRing::default(), &zoom, Rect::new(0, 0, 20, 7));
+    assert!(
+        (0..20).all(|x| buf[(x, 3)].symbol() == "█"),
+        "{:?}",
+        (0..20).map(|x| buf[(x, 3)].symbol()).collect::<String>()
+    );
 }

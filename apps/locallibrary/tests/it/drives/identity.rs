@@ -1,8 +1,8 @@
 //! Naming drives and keeping track of them: adopt, rename, roles, retiring, the logbook, the
 //! registry of known drives, copies and drives that lost their identity, and drive groups.
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 
 use crate::support::{Env, PDB, copy_dir, fixtures, line, path};
 
@@ -10,7 +10,7 @@ use crate::support::{Env, PDB, copy_dir, fixtures, line, path};
 /// unplugged: the registry says it's up to date, or how many snapshots behind it is and which one
 /// it holds. A blank name for a drive is refused. With the store gone, `drive groups` still puts
 /// both drives under their library, unnamed.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_drive_left_behind_says_by_how_much(tc: TestCase) {
     let env = Env::new();
     let main = env.pulled("Main");

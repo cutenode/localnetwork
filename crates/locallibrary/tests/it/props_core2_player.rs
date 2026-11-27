@@ -7,15 +7,15 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::onelibrary;
 use locallibrary::paths;
 use locallibrary::player::{self, DbIdentity};
 use locallibrary::progress::Ctx;
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_players_name_and_colour_read_back_as_set(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -102,7 +102,7 @@ fn prop_a_contact_with_nothing_to_contact_is_refused(tc: TestCase) {
 
 /// Undo that changed what a remembering drive shows makes it remember what it shows now, or
 /// nothing once it shows neither a name nor a colour; a drive that remembers nothing is left so.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_undo_that_changed_the_shown_name_remembers_the_new_one(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -129,7 +129,7 @@ fn prop_undo_that_changed_the_shown_name_remembers_the_new_one(tc: TestCase) {
 /// Outside a run marked on the drive, a stash that replaces the database returns what the drive
 /// shows (nothing shown: no name, no colour) and keeps nothing; inside one, what it stashed first
 /// stays, whatever the drive shows later.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_stash_is_kept_only_in_a_marked_run(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -155,7 +155,7 @@ fn prop_a_stash_is_kept_only_in_a_marked_run(tc: TestCase) {
 
 /// A OneLibrary property row whose name isn't text or whose colour isn't a number shows neither,
 /// and can't be set over.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_property_row_of_the_wrong_type_shows_no_identity(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -196,7 +196,7 @@ fn prop_a_record_that_cant_be_read_is_passed_over(tc: TestCase) {
 
 /// A drive another process is writing takes neither a name and colour nor a contact, and is
 /// left as it was.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_locked_drive_takes_no_name_or_contact(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");

@@ -8,8 +8,8 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::cue_edit::{self, CueEdit, CueInfo, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
@@ -50,7 +50,7 @@ fn folder_over(p: &Path) {
 /// file, its `.EXT` a folder, or the database naming a file outside the analysis folder), listing its cues says why instead of failing, planning an edit
 /// of them refuses with that same reason, and the other tracks list as before. A track a drive's
 /// OneLibrary doesn't list has no count of OneLibrary cues, and one the drive lacks isn't listed.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_unreadable_analysis_is_listed_with_why_and_refused_for_editing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let onelibrary = tc.draw(gs::booleans());
@@ -98,7 +98,7 @@ fn prop_unreadable_analysis_is_listed_with_why_and_refused_for_editing(tc: TestC
 /// time snapped or a memory cue found by beat on a track without one, a loop running past its
 /// end, a colour that isn't one (set or updated), cues carried to before its start or copied
 /// past its end, and an edit of one track's cues given several.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_cue_edits_past_a_tracks_grid_or_end_are_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -166,7 +166,7 @@ fn prop_cue_edits_past_a_tracks_grid_or_end_are_refused(tc: TestCase) {
 /// already keeps those as they are, recoloured or renamed alike), and leaves the source as it
 /// was, even when it's among the targets. With an update after, the copy's cue takes the new
 /// name and colour.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_copied_cues_are_the_sources_and_the_source_keeps_its_own(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -211,7 +211,7 @@ fn prop_copied_cues_are_the_sources_and_the_source_keeps_its_own(tc: TestCase) {
 /// A cue plan applied after its drive changed (an analysis file gone, unreadable or with other
 /// cues, OneLibrary's rows for the track changed, a journal of edits this build can't add to), or
 /// stopped, is refused, and the drive is as the change left it.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_cue_plan_is_refused_once_its_drive_changed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let at = tc.draw(gs::integers::<u32>().min_value(1_000).max_value(60_000));
@@ -262,7 +262,7 @@ fn prop_a_cue_plan_is_refused_once_its_drive_changed(tc: TestCase) {
 /// On a track with no `.EXT` on a drive without OneLibrary, a cue's name or colour has nowhere to
 /// go: renaming or recolouring one changes nothing, and the plan says why. With OneLibrary, it's
 /// made there.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_names_a_track_cant_store_change_nothing_and_say_so(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -288,7 +288,7 @@ fn prop_names_a_track_cant_store_change_nothing_and_say_so(tc: TestCase) {
 
 /// A cue edit that fails just before its swap (as a crash or a full disk would) leaves the drive's
 /// library as it was, and so does one on a drive another write holds.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_cue_edit_that_cant_write_leaves_the_drive_as_it_was(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -312,7 +312,7 @@ fn prop_a_cue_edit_that_cant_write_leaves_the_drive_as_it_was(tc: TestCase) {
 
 /// A memory cue is found by a time within 0.1 s of it: deleting one named that close takes it
 /// (the nearest of two), and one named further off isn't there.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 #[hegel::explicit_test_case(at = 10_000u32, gap = 300u32, off = 110i32)]
 #[hegel::explicit_test_case(at = 10_000u32, gap = 30u32, off = -100i32)]
 fn prop_a_memory_cue_is_found_within_a_tenth_of_a_second(tc: TestCase) {
@@ -347,7 +347,7 @@ fn prop_a_memory_cue_is_found_within_a_tenth_of_a_second(tc: TestCase) {
 /// On a track whose cues live in one analysis file (its `.EXT` gone, or the database naming the
 /// `.EXT` itself), a hot cue is set where it's asked for, without its name, which the plan says
 /// can't be stored.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_track_with_one_analysis_file_takes_cues_without_names(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
@@ -380,7 +380,7 @@ fn prop_a_track_with_one_analysis_file_takes_cues_without_names(tc: TestCase) {
 
 /// Converting a drive to OneLibrary gives each track as many cue rows as its analysis files hold
 /// cues; a track whose analysis files can't be read gets none, and the conversion says so.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_converted_tracks_get_the_cues_their_analysis_files_hold(tc: TestCase) {
     use locallibrary::convert::{self, ConvertOptions, Target};
     let dir = tempfile::tempdir().unwrap();

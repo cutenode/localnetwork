@@ -399,7 +399,7 @@ fn shifted_real_analysis_reads_back() {
 /// refused; cancelled at the end of any step before it matches prints, it stops. A file at the
 /// copy's name, of the copy's size, that can't be read leaves the track not upgraded, saying why,
 /// and the plan goes on.
-#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_an_upgrade_plan_is_refused_stopped_or_says_why_not(_tc: hegel::TestCase) {
     use std::sync::atomic::{AtomicUsize, Ordering};
 

@@ -774,10 +774,11 @@ impl Slot {
             params["context"]["data_dir"] = Value::from(data.to_string_lossy().into_owned());
         }
         let grace = self.grace(method, &params);
-        let pending = p.peer.send_request_reporting(method, &params).map_err(|e| self.error(&p, e))?;
-        if let Some(reporter) = pending.reporter() {
-            scratch.report_to(reporter);
-        }
+        // Reported to before it's sent: the plugin may send a lent file at once.
+        let pending = p
+            .peer
+            .send_request_reporting_to(method, &params, |reporter| scratch.report_to(reporter))
+            .map_err(|e| self.error(&p, e))?;
         let mut cancelled: Option<Instant> = None;
         loop {
             let answer = pending.wait_timeout(TICK);

@@ -5,8 +5,8 @@ use crate::common;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::backup;
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
@@ -18,7 +18,7 @@ fn edited(root: &std::path::Path, name: &str) -> String {
     backup::list(&d).unwrap()[0].id.clone()
 }
 
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_backup_that_doesnt_say_what_its_change_left_is_put_back_only_when_forced(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "A");
@@ -43,7 +43,7 @@ fn prop_a_backup_that_doesnt_say_what_its_change_left_is_put_back_only_when_forc
 /// drive remembers that one again: from what the backup carries, or, for a backup that carries
 /// nothing (an earlier version took it, or the drive's journal was a newer build's then), from
 /// the database put back. Either way no recorded edit comes off or goes back on the journal.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 #[hegel::explicit_test_case(before = "FIRST", newer_journal = false, earlier_version = false)]
 #[hegel::explicit_test_case(before = "FIRST", newer_journal = false, earlier_version = true)]
 #[hegel::explicit_test_case(before = "FIRST", newer_journal = true, earlier_version = false)]
@@ -95,7 +95,7 @@ fn prop_undoing_a_player_name_brings_back_the_one_shown_before(tc: TestCase) {
 /// backups folder can't be read (nor can a change make a backup then), when the database in the
 /// backup can't be read to check its audio, or, forced, when a file the backup lists is gone.
 #[cfg(unix)]
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(case = 0u8)]
 #[hegel::explicit_test_case(case = 1u8)]
 #[hegel::explicit_test_case(case = 2u8)]

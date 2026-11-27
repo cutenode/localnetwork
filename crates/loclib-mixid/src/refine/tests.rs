@@ -100,7 +100,7 @@ use hegel::generators as gs;
 
 /// A copy at any delay either way, at any level and at either rate, is lined up to within a
 /// microsecond from any estimate up to 4 ms out, and correlates as the same audio.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
     // Whole samples here, so a fraction of one at 44.1 kHz but every 160th.
     let delay =
@@ -126,7 +126,7 @@ fn prop_any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
 /// An estimate a sample or two further out than the search reaches (10 ms) puts the truth just
 /// past its edge, where the correlation still climbs towards it: that's refused, not taken for
 /// the peak. So is a copy that's silent, which correlates with nothing at any offset.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_estimates_past_the_search_are_refused(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let x = synth(5.0, tc.draw(gs::integers::<u32>().min_value(1)));
@@ -162,7 +162,7 @@ fn prop_refining_needs_both_files(tc: TestCase) {
 
 /// Only the first minute or so of each file is read: recordings running on past it line up
 /// exactly as their first 61 seconds do.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_only_the_first_minute_is_read(tc: TestCase) {
     use crate::fingerprint::RATE as SYNTH;
 

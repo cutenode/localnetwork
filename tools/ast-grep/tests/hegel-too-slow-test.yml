@@ -1,0 +1,8 @@
+id: hegel-too-slow
+valid:
+  - "#[hegel::test(test_cases = 50)]\nfn prop_a(tc: TestCase) {}"
+  - "#[hegel::test(suppress_health_check = [HealthCheck::FilterTooMuch, HealthCheck::TooSlow])]\nfn prop_a(tc: TestCase) {}"
+invalid:
+  - "#[hegel::test(test_cases = 50, suppress_health_check = [HealthCheck::TooSlow])]\nfn prop_a(tc: TestCase) {}"
+  - "#[hegel::test(suppress_health_check = [hegel::HealthCheck::TooSlow])]\nfn prop_a(tc: TestCase) {}"
+  - "#[hegel::test(\n    test_cases = 50,\n    suppress_health_check = [\n        HealthCheck::TooSlow,\n    ],\n)]\nfn prop_a(tc: TestCase) {}"

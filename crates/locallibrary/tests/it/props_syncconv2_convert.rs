@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::artwork::medium_variant;
 use locallibrary::convert::{self, ConvertOptions, ConvertPlan, ConvertReport, Target};
 use locallibrary::device::Device;
@@ -68,7 +68,7 @@ enum Way {
 /// name (with its smaller variant when the drive has one), a track whose image is gone from the
 /// drive gets none (the plan says how many are missing), and a rebuilt OneLibrary keeps the images
 /// it had.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_images_come_across_once_each(tc: TestCase) {
     for way in [Way::ToOneLibrary, Way::RebuildingOneLibrary, Way::ToExportPdb] {
         images_come_across_once_each_with(&tc, way);
@@ -190,7 +190,7 @@ enum Ext {
 /// one is left exactly as it is (the plan and the conversion say its tags aren't converted), a
 /// missing one isn't made (the plan says tags have nowhere to go), and links in one to tracks a
 /// rebuilt `export.pdb` won't list go, as the plan says.
-#[hegel::test(test_cases = 1, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 1)]
 fn prop_my_tags_go_where_export_ext_lets_them(tc: TestCase) {
     for ext in [Ext::Missing, Ext::Damaged, Ext::Kept] {
         for (to, replace, plus) in [
@@ -303,7 +303,7 @@ fn my_tags_go_where_export_ext_lets_them_with(tc: &TestCase, ext: Ext, opts: Con
 /// and applying it is refused). What it can do with less is said: analysis files that can't be
 /// read give their tracks no cues, and rebuilding OneLibrary names the playlists, entries and hot
 /// cue bank lists only it had.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_what_a_conversion_cant_do_is_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::silent();
@@ -452,7 +452,7 @@ impl Progress for CancelAt {
 /// A conversion cancelled before or while it builds the new database stops there with the drive
 /// as it was, whichever way it goes, and whether it makes the database, adds to the one the drive
 /// has or rebuilds it.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_a_cancelled_conversion_leaves_the_drive_as_it_was(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drive(dir.path(), "A", false);
@@ -483,7 +483,7 @@ fn prop_a_cancelled_conversion_leaves_the_drive_as_it_was(tc: TestCase) {
 /// A playlist that a damaged or crafted OneLibrary puts inside another playlist, where no walk
 /// down the folders reaches it, comes across into a new export.pdb at the top level with its
 /// entries, beside the playlist that held it.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_playlist_inside_a_playlist_comes_across_at_the_top(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drive(dir.path(), "A", false);
@@ -522,7 +522,7 @@ fn prop_a_playlist_inside_a_playlist_comes_across_at_the_top(tc: TestCase) {
 
 /// An image a OneLibrary track points at outside the drive is never read: the plan counts it
 /// missing, and the new export.pdb's tracks get no artwork.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_an_image_outside_the_drive_is_left_out(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drive(dir.path(), "A", false);
@@ -546,7 +546,7 @@ fn prop_an_image_outside_the_drive_is_left_out(tc: TestCase) {
 
 /// A OneLibrary track that grows too long for export.pdb after the plan (a comment longer than a
 /// row holds) makes applying the conversion fail with the drive as it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_track_grown_too_long_after_the_plan_leaves_the_drive_as_it_was(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = drive(dir.path(), "A", false);

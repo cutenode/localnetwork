@@ -8,8 +8,8 @@ use crate::demos;
 
 use std::fs;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::onelibrary;
 use locallibrary::{edit, paths};
@@ -28,7 +28,7 @@ fn titles(root: &std::path::Path) -> Vec<Vec<String>> {
     out
 }
 
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 #[hegel::explicit_test_case(layout = 2u8, samples = 1usize, outside = true, fault = 0u8, art = 1u8)]
 #[hegel::explicit_test_case(layout = 2u8, samples = 2usize, outside = false, fault = 2u8, art = 1u8)]
 #[hegel::explicit_test_case(layout = 2u8, samples = 1usize, outside = false, fault = 4u8, art = 0u8)]

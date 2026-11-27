@@ -11,8 +11,8 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use rustc_hash::FxHashSet;
@@ -398,7 +398,7 @@ fn walk_in(tc: &TestCase, start: &str, keys: &'static [&'static str], steps: usi
 }
 
 /// Anything pressed, typed or clicked, in any view, at any size, keeps the player whole.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_any_walk_keeps_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", KEYS, 30);
 }
@@ -414,7 +414,7 @@ const LIBRARY_KEYS: &[&str] = &[
 ];
 
 /// The library: browsing, searching, sorting, marking, the crate, the menus, dialogs and edits.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_library_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", LIBRARY_KEYS, 30);
 }
@@ -438,7 +438,7 @@ const DRIVES_KEYS: &[&str] = &[
 ];
 
 /// The Drives and Snapshots views: their lists, the drive's actions and what they plan.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_drives_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "2", DRIVES_KEYS, 25);
 }
@@ -450,7 +450,7 @@ const PROFILE_KEYS: &[&str] = &[
 ];
 
 /// The Profile view: its sections and lists, what goes in the document, pins and hidden names.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_profile_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "4", PROFILE_KEYS, 25);
 }
@@ -462,7 +462,7 @@ const MIX_KEYS: &[&str] = &[
 ];
 
 /// The Mixes view: the recordings, the set's timeline and tracks, playing from them.
-#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 8)]
 fn prop_mix_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "5", MIX_KEYS, 25);
 }
@@ -890,7 +890,7 @@ fn playing_holds(app: &App) {
 /// Playing through the queue with the player's keys, its time passing between them (half-second
 /// tracks at two sample rates, at a tempo to loop and jump by), keeps the queue whole and what
 /// plays within it, and n, s and x do what they say.
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_playing_keeps_the_queue_whole(tc: TestCase) {
     let (_dir, mut app, mut out) = super::app::testing::playing_wavs(&[8000, 8000, 11025, 8000]);
     // At a tempo, so loops and beat jumps go by it (the files have no beat grid).
@@ -979,7 +979,7 @@ enum Edit {
 /// Edits made with the keys (the menu, its pickers and prompts, the tree, undo), each planned,
 /// confirmed and written, leave the drive as a model of them says, read back by the player and
 /// from the drive itself; an edit that changes nothing asks nothing.
-#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 6)]
 fn prop_edits_write_what_they_say(tc: TestCase) {
     use super::browse::{COLOURS, NodeId};
     let Fixture { _dir, mut app, root } = walk_fixture();
@@ -1162,7 +1162,7 @@ fn prop_edits_write_what_they_say(tc: TestCase) {
 
 /// Exporting the list shown (every track, or a playlist) writes a file of that list's tracks in
 /// its order, in the format its name asks for; writing over a file that's there asks first.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_exports_hold_the_list_shown(tc: TestCase) {
     use super::browse::NodeId;
     let Fixture { _dir, mut app, root } = walk_fixture();
@@ -1238,7 +1238,7 @@ fn tags_on(root: &Path) -> std::collections::BTreeSet<(String, String)> {
 /// Giving the selected (or marked) tracks a new My Tag or one the drive has, and taking one off,
 /// with `T`, its list and its prompt, leaves the drive's tags as a model of them says; the list
 /// offers to take a tag off just when every track chosen has it.
-#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 5)]
 fn prop_my_tags_go_on_and_come_off(tc: TestCase) {
     use super::palette::Then;
     let Fixture { _dir, mut app, root } = walk_fixture();
@@ -1315,7 +1315,7 @@ fn prop_my_tags_go_on_and_come_off(tc: TestCase) {
 /// Drives plugged in and out, in any order: the Drives view lists what's mounted, keeps the
 /// drive selected while it's there, says which drives were plugged in (not those there at the
 /// start), and with nothing open, opens the first drive with a library on it.
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_the_drive_list_follows_what_is_plugged_in(tc: TestCase) {
     use super::app::Msg;
     let (dir, demo) = super::app::testing::demo_drive();
@@ -1390,7 +1390,7 @@ fn yes(app: &mut App) {
 /// A playlist saved in a snapshot (with the player's "save a snapshot") comes back from it as it
 /// was, its tracks in their order, however it was changed on the drive since: deleted, emptied
 /// of some tracks, or sorted.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_playlist_comes_back_from_a_snapshot_as_it_was(tc: TestCase) {
     use super::edits::{create, delete, remove_from, sort};
     use locallibrary::api::{self, EditRequest};
@@ -1453,7 +1453,7 @@ fn prop_a_playlist_comes_back_from_a_snapshot_as_it_was(tc: TestCase) {
 /// them: it lists each library by name with its drives under it, then the drives of none; the
 /// arrows move along those rows; each row's actions are its own; and every drive and library is
 /// named on a screen big enough for them all.
-#[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 25)]
 fn prop_the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
     use super::drives::DriveRow;
     use locallibrary::api::FleetLibrary;
@@ -1587,7 +1587,7 @@ fn prop_the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
 
 /// A smart playlist made from the search (`:` "smart playlist from the search") keeps the
 /// search as its rule, and filling it on the drive gives it just the tracks the search showed.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_a_smart_playlist_holds_what_the_search_showed(tc: TestCase) {
     let Fixture { _dir, mut app, root } = walk_fixture();
     let filter =
@@ -1630,7 +1630,7 @@ fn prop_a_smart_playlist_holds_what_the_search_showed(tc: TestCase) {
 /// (`track.matches`, the other recordings in a key that mixes, near its tempo), each way of mixing
 /// in taking its turn, closest tempo first within each (LOC-13). It names the track and the first
 /// of them on screen, and enter there queues those tracks from the one picked.
-#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 20)]
 fn prop_the_details_list_what_mixes_into_the_track(tc: TestCase) {
     use super::app::testing::{app_with, track};
     let keys = ["8A", "9A", "8B", "3B", "Am", "", "7A"];
@@ -1700,7 +1700,7 @@ fn the_details_take_each_way_of_mixing_in_by_turns() {
 /// Packing for a set (the playlist shown, the playlists marked in the tree, or the crate, saved
 /// as a playlist first) onto another drive leaves that drive with just those tracks, in that
 /// playlist and its order.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 fn prop_packing_puts_the_set_on_the_other_drive(tc: TestCase) {
     use super::browse::NodeId;
     use super::palette::Then;

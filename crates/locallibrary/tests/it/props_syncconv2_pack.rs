@@ -6,8 +6,8 @@ use crate::common::{self, media};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
 use locallibrary::onelibrary;
@@ -28,7 +28,7 @@ fn source(dir: &Path, n: usize) -> PathBuf {
 /// A pack brings every image OneLibrary's playlists use, with its smaller variant when the source
 /// has one, whichever playlists it packs; its plan is never a no-op (the databases are rewritten).
 /// One whose files outgrow the drive says how much it needs and how much is free.
-#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));

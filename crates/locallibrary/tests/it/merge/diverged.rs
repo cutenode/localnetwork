@@ -7,8 +7,8 @@ use crate::common;
 
 use std::path::{Path, PathBuf};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, ComparePair, UndoRequest};
 use locallibrary::compare::Relation;
 use locallibrary::device::Device;
@@ -58,7 +58,7 @@ fn diverged(dir: &Path, edited: bool) -> (PathBuf, PathBuf) {
     (a_root, b_root)
 }
 
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_merge_that_takes_in_the_source_lets_sync_go_ahead(tc: TestCase) {
     let edited = tc.draw(gs::booleans());
     for how in [How::PlannedOnly, How::Whole, How::OnePlaylist, How::TracksOnly, How::Undone] {
@@ -111,7 +111,7 @@ fn prop_a_merge_that_takes_in_the_source_lets_sync_go_ahead(tc: TestCase) {
 /// and the tracks only the source's OneLibrary lists, which it doesn't bring across. With one of
 /// those, it doesn't take in the source, so `sync` asks which way rather than drop it from the
 /// source; with only a tag differing it does, and the sync that follows takes the listed tag.
-#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 4)]
 #[hegel::explicit_test_case(tagged = true, plus_only = false)]
 #[hegel::explicit_test_case(tagged = false, plus_only = true)]
 fn prop_a_merge_lists_the_my_tags_and_onelibrary_tracks_a_sync_would_drop(tc: TestCase) {

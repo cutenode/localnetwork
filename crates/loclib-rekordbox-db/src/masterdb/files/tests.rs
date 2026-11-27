@@ -33,14 +33,15 @@ fn locations_are_where_rekordbox_keeps_its_files() {
     assert_eq!(settings, cfg!(any(target_os = "macos", windows)).then_some(true));
 }
 
+/// Anything named for rekordbox is taken for it (a false one only holds a write back), but its agent.
 #[test]
-fn only_rekordbox_itself_is_rekordbox() {
+fn whatever_is_named_for_rekordbox_but_its_agent_is_rekordbox() {
     for (name, is) in [
         ("rekordbox", true),
         ("rekordbox.exe", true),
         ("REKORDBOX.EXE", true),
         ("rekordboxAgent", false),
-        ("rekordbox Helper", false),
+        ("rekordbox Helper", true),
         ("sleep", false),
     ] {
         assert_eq!(is_rekordbox(OsStr::new(name)), is, "{name}");
@@ -280,7 +281,7 @@ fn rows(read: &CollectionTracks) -> Vec<(String, String, bool)> {
 
 /// Whatever the page size, paging through the tracks reads every row once, in order, each page
 /// saying how many there are in all.
-#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 30)]
 fn prop_tracks_pages_read_every_row_once(tc: TestCase) {
     let (f, expected) = drawn(&tc);
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(10));
@@ -301,7 +302,7 @@ fn prop_tracks_pages_read_every_row_once(tc: TestCase) {
 
 /// A copy, asked for credentials or not, holds every track row as the collection does, and
 /// every registry row but the sign-in ones, which it keeps only when asked.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_copy_round_trips_the_rows(tc: TestCase) {
     let (f, expected) = drawn(&tc);
     f.exec(&format!(

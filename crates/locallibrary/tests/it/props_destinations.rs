@@ -174,7 +174,7 @@ fn sound(store: &Store) -> bool {
 /// it lists (see `Memory::put_manifest`). It holds only the store's records the host gives (never the account session), and the next
 /// copy finishes it. Brought back into an empty store, it's the store as it was: its libraries'
 /// latest snapshots, every stored file, its labels and its other records.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_a_copy_stopped_anywhere_reaches_only_whole_snapshots_and_comes_back_whole(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(2)));
@@ -204,7 +204,7 @@ fn prop_a_copy_stopped_anywhere_reaches_only_whole_snapshots_and_comes_back_whol
 /// Whatever stored files a destination answers damaged, none goes into the store: bringing it
 /// back fails, and the store has only files that hash to their names, and no library whose
 /// snapshot lists a file it lacks. Answered whole, it all comes back.
-#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 15)]
 fn prop_what_comes_back_damaged_never_goes_into_the_store(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), 1);
@@ -307,7 +307,7 @@ fn prop_a_destination_offers_what_it_has_and_only_that_comes_in(tc: TestCase) {
 /// it's those libraries and the stored files their snapshots list, unless the destination's
 /// records come back rewritten: a snapshot's that isn't the snapshot it's named after, or a
 /// `libraries.json` that isn't one, is refused, and nothing goes in.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_copy_leaves_out_what_the_store_lost_and_what_comes_back_is_checked(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(3)));
@@ -403,7 +403,7 @@ fn ancestry(stores: &[&Store], id: Hash) -> FxHashSet<Hash> {
 /// when that descends from its own, stays as it is when its own is as new or newer, and keeps its
 /// own when both have changed, with the copy's beside it. A dry run says the same and changes
 /// nothing.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 10)]
 fn prop_a_store_restored_again_moves_on_only_to_what_descends_from_its_own(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), 1);
@@ -479,7 +479,7 @@ fn kept(memory: &Memory) -> (Vec<String>, Vec<String>) {
 /// fails, and the next copy leaves it holding what a copy never stopped does; restoring from it
 /// into an empty store, stopped at any one of a restore's requests, fails too, and the next
 /// restore brings back the store as it was.
-#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 2)]
 fn prop_a_copy_or_restore_stopped_at_any_request_fails_and_the_next_finishes(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(2)));
@@ -580,7 +580,7 @@ fn prop_a_destination_ahead_of_the_store_is_copied_over_only_when_forced(tc: Tes
 /// A copy to a destination fails, saying which, when one of the store's records can't be read
 /// (its id, libraries, pruned snapshots, labels or settings) or a snapshot lists a file without its
 /// hash, and while another holds the store; put right, the copy goes through.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_copy_to_a_destination_names_the_store_record_it_cant_read(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), 2);
@@ -637,7 +637,7 @@ fn prop_a_copy_to_a_destination_names_the_store_record_it_cant_read(tc: TestCase
 /// pruned snapshots can't be read, its folder for stored files on the way in or one they go in
 /// is a file, or (where permissions say so) its own folder can't be written; and when the
 /// destination lacks a stored file a snapshot lists. Put right, it all comes back.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_restore_names_what_it_cant_bring_back_and_brings_it_once_its_put_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), 1);
@@ -701,7 +701,7 @@ fn prop_a_restore_names_what_it_cant_bring_back_and_brings_it_once_its_put_right
 
 /// A snapshot a destination lists but no longer has the record of (removed there since) is left
 /// out of a restore, and the rest comes back; one whose record comes back rewritten is refused.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::test(test_cases = 3)]
 fn prop_a_restore_leaves_out_a_snapshot_the_destination_no_longer_has(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(2).max_value(3)));
