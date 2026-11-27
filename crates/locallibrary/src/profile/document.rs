@@ -16,7 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{Basis, ProfileReport, credited_artists};
-use crate::model::{CollabRule, artist_credits, collab_parts, normalize};
+use crate::model::{artist_credits, collab_parts, normalize};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
@@ -258,12 +258,6 @@ impl ProfilePrefs {
             let h = normalize(h);
             normalize(artist) == h || credited.contains(&h)
         })
-    }
-
-    /// How collaborations split for a collection whose tracks credit `artists`, with the DJ's
-    /// choices.
-    pub fn collab_rule<'a>(&self, artists: impl IntoIterator<Item = &'a str>) -> CollabRule {
-        CollabRule::new(artists, &self.artists_together, &self.artists_apart)
     }
 
     /// Whether a track may be named in the document.

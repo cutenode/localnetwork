@@ -81,6 +81,8 @@ fn menu_says_why_actions_are_unavailable() {
     let items = menu_items(&t);
     assert_eq!(find(&items, Action::Collab), None);
     assert!(items.iter().any(|i| i.label == "keep A & B together as one artist"));
+    let t = Target { collab: Some(("A & B".into(), false)), ..t };
+    assert!(menu_items(&t).iter().any(|i| i.label == "count A & B for each artist"));
     let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::ClearCrate | Action::Collab));
     assert!(
         others.clone().all(|i| i.unavailable.as_deref() == Some(COLLECTION_READ_ONLY)),
