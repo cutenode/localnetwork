@@ -384,7 +384,7 @@ flowchart TD
     check --> has{"Where to?"}
     has -->|"a store"| tui["tui.json in the store"]
     has -->|"no store yet"| beside["STORE-player/tui.json,<br/>in a folder beside it"]
-    has -->|"inside the open drive,<br/>or its file can't be read"| none["Not saved"]
+    has -->|"inside the open drive (not rekordbox's<br/>collection, open at /), or its file can't be read"| none["Not saved"]
     tui --> where["Where it was: drive, list, view, volume, open panels,<br/>output, player mode, the queue and its picks, recordings and folders opened,<br/>queue and place, the version that last showed the intro"]
     beside --> where
     tui --> prefs["Preferences: theme, colour tier, icons, sort, search scope,<br/>columns, visualiser, playback modes, key notation and colours,<br/>waveform bands, end warning, cover art, hints, recent commands"]
