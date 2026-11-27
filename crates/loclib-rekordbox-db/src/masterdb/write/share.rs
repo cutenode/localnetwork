@@ -209,9 +209,9 @@ impl Edit<'_> {
             false => None,
         };
         let backup = paths::to_fs(self.share_backup, &key);
-        if let Some(dir) = backup.parent() {
-            std::fs::create_dir_all(dir).at(dir)?;
-        }
+        // The key has at least three parts, so the backup is in a folder.
+        let dir = backup.parent().unwrap_or(self.share_backup);
+        std::fs::create_dir_all(dir).at(dir)?;
         write_new(&backup, &old)?;
         // Each folder made for it, up to the backups folder, is on disk before master.db is swapped.
         let backups = self.share_backup.parent().unwrap_or(self.share_backup);
@@ -382,12 +382,10 @@ fn not_plain(file: &Path) -> Error {
 /// there already, which is left as it is; one it made and couldn't finish is removed.
 fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut out = File::create_new(path).at(path)?;
-    let written = out.write_all(bytes).and_then(|()| out.sync_all()).at(path);
-    if written.is_err() {
-        drop(out);
-        let _ = std::fs::remove_file(path);
-    }
-    written
+    let made = Removed::new(path.to_path_buf());
+    out.write_all(bytes).and_then(|()| out.sync_all()).at(path)?;
+    made.keep();
+    Ok(())
 }
 
 pub(super) fn md5_hex(bytes: &[u8]) -> String {

@@ -964,8 +964,84 @@ fn undo_takes_only_its_own_backups_into_the_same_file() {
     .unwrap_err();
     assert!(matches!(e, Error::Invalid(_)), "{e}");
 
+    // A backup that no longer holds what was backed up.
+    std::fs::write(&ext.backup, b"not ext").unwrap();
+    let e = write(&lib.target, |e| e.restore_analysis_file(&ext)).unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "{e}");
+
     assert_eq!(lib.bytes(), before);
     assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"new ext")]));
+}
+
+/// What isn't a plain file in the share folder where a track's analysis file goes, or can't be
+/// looked at, is refused, and left as it is.
+#[cfg(unix)]
+#[test]
+fn analysis_files_that_arent_plain_files_in_the_share_folder() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let odd = |e: Error| assert!(matches!(e, Error::Refused(Refusal::Odd(_))), "{e}");
+    // A folder where a file would be.
+    std::fs::create_dir(dir.join("ANLZ0000.2EX")).unwrap();
+    odd(write(&lib.target, |e| e.read_analysis_file(TRACK, "2EX")).unwrap_err());
+    odd(write(&lib.target, |e| e.replace_analysis_file(TRACK, "2EX", b"x")).unwrap_err());
+
+    // A file reached through a link out of the share folder.
+    let usbanlz = lib.target.master_db.parent().unwrap().join("share/PIONEER/USBANLZ");
+    let elsewhere = lib.dir.path().join("P016");
+    std::fs::rename(usbanlz.join("P016"), &elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, usbanlz.join("P016")).unwrap();
+    odd(write(&lib.target, |e| e.replace_analysis_file(TRACK, "EXT", b"x")).unwrap_err());
+    assert_eq!(std::fs::read(elsewhere.join("0000875E/ANLZ0000.EXT")).unwrap(), b"ext");
+
+    // A file where a folder would be: the path can't be looked at.
+    std::fs::remove_file(usbanlz.join("P016")).unwrap();
+    std::fs::write(usbanlz.join("P016"), b"").unwrap();
+    let io = |e: Error| assert!(matches!(e, Error::Io { .. }), "{e}");
+    io(write(&lib.target, |e| e.read_analysis_file(TRACK, "EXT")).unwrap_err());
+    io(write(&lib.target, |e| e.replace_analysis_file(TRACK, "EXT", b"x")).unwrap_err());
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
+}
+
+/// An edited copy whose `contentFile` row disagrees with the file written, or a new file that
+/// doesn't read back, refuses the write: the files stay, and nothing is left beside them.
+#[test]
+fn files_that_dont_agree_with_their_rows_are_refused() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let e = write(&lib.target, |e| {
+        let replaced = e.replace_analysis_file(TRACK, "EXT", b"new ext");
+        e.conn().execute("UPDATE contentFile SET Size = 1 WHERE ID = 'f2'", []).unwrap();
+        replaced
+    })
+    .unwrap_err();
+    assert!(e.to_string().contains("contentFile row disagreeing"), "{e}");
+    let e = write(&lib.target, |e| {
+        let replaced = e.replace_analysis_file(TRACK, "EXT", b"new ext");
+        std::fs::write(dir.join("ANLZ0000.EXT.locallibrary-new"), b"other").unwrap();
+        replaced
+    })
+    .unwrap_err();
+    assert!(e.to_string().contains("doesn't read back"), "{e}");
+    assert_eq!(lib.bytes(), before);
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
+}
+
+/// A collection without `contentFile` (as an older rekordbox's) has its files replaced without
+/// rows to give their hashes.
+#[test]
+fn files_are_replaced_in_a_collection_without_their_rows() {
+    let (lib, dir) = analysed_lib();
+    let written = write(&lib.target, |e| {
+        e.conn().execute_batch("DROP TABLE contentFile").unwrap();
+        e.replace_analysis_file(TRACK, "EXT", b"new ext")
+    })
+    .unwrap();
+    assert!(written.value.is_some());
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"new ext")]));
+    let track = format!("SELECT AnalysisUpdated FROM djmdContent WHERE ID = '{TRACK}'");
+    assert_eq!(lib.query::<String>(&track), "2");
 }
 
 /// A new file left beside one (by a crash, or another write) refuses the write, and stays.
