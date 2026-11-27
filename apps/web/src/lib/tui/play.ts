@@ -54,9 +54,9 @@ export const playing: Play = async ({ canvasElement }) => {
 		const term = host.querySelector('.ap-term');
 		const painted = term && (term.textContent?.trim() || term.querySelector('use'));
 
-		return painted
-			? term.innerHTML.replaceAll(/\s?\bap-blink\b/g, '') + (term.querySelector('canvas')?.toDataURL() ?? '')
-			: '';
+		// A player's terminal always has its canvas: asciinema-player 3.18 makes `.ap-term` from one template, whose first
+		// child is the canvas (its only other `.ap-term`, for measuring the font, never stays in the page).
+		return painted ? term.innerHTML.replaceAll(/\s?\bap-blink\b/g, '') + term.querySelector('canvas')!.toDataURL() : '';
 	};
 
 	// What each has drawn so far; two different frames each show it plays.
