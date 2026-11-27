@@ -258,13 +258,12 @@ fn edit_of(collection: &Collection, change: &CueChange, from: Option<&str>) -> R
 
 /// Make `edit` on the cues `master.db` holds now, inside a write (`e`); `collection` is the
 /// collection read just before, for its tracks' grids and lengths. A track the edit no longer
-/// applies to (its hot cue was deleted in rekordbox since, the track is gone) fails the write when
-/// `strict`, otherwise it's passed over with a warning. Answers what each track's cues were.
+/// applies to (its hot cue was deleted in rekordbox since, the track is gone) is passed over with a
+/// warning. Answers what each track's cues were.
 pub(crate) fn apply_in(
     e: &mut Edit<'_>,
     collection: &Collection,
     edit: &CollectionCueEdit,
-    strict: bool,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<CuesBefore>> {
     let ids: FxHashMap<&str, u32> = collection.content_ids.iter().map(|(n, c)| (c.as_str(), *n)).collect();
@@ -292,8 +291,7 @@ pub(crate) fn apply_in(
         match attempt {
             Ok(Some(before)) => out.push(before),
             Ok(None) => {}
-            Err(err) if !strict => warnings.push(format!("{} on {}: {err}", edit.describe(), t.name)),
-            Err(err) => return Err(err),
+            Err(err) => warnings.push(format!("{} on {}: {err}", edit.describe(), t.name)),
         }
     }
     Ok(out)

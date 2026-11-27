@@ -11,8 +11,8 @@ use console::style;
 use locallibrary::api;
 use locallibrary::collection_export::CollectionExportOptions;
 use locallibrary::collection_export::CollectionExportPlan;
-use locallibrary::collection_write::CollectionWrite;
-use locallibrary::op::Planned;
+use locallibrary::collection_write::{CollectionUndoReport, CollectionWrite};
+use locallibrary::op::{Operation, Planned};
 use locallibrary::plugin::SourceExport;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter};
@@ -209,8 +209,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             if let Some(o) = out.decide_on(&plan, dry_run, "Rewrite these cue lists?")? {
                 return Ok(out.not_applied(&plan, o));
             }
-            let report = plan.apply(crate::open_store(store).ok().as_ref(), ctx)?;
-            return Ok(out.applied(&plan, &report, Outcome::Applied, || written(&report)));
+            return apply(&plan, crate::open_store(store).ok().as_ref(), &out, ctx, written);
         }
         CollectionCommand::Apply { dry_run } => {
             let s = crate::open_store(store)?;
@@ -226,8 +225,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             if let Some(o) = out.decide_on(&plan, dry_run, "Write these to rekordbox's collection?")? {
                 return Ok(out.not_applied(&plan, o));
             }
-            let report = plan.apply(Some(&s), ctx)?;
-            return Ok(out.applied(&plan, &report, Outcome::Applied, || written(&report)));
+            return apply(&plan, Some(&s), &out, ctx, written);
         }
         CollectionCommand::Undo { dry_run } => {
             let s = crate::open_store(store)?;
@@ -241,11 +239,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             if let Some(o) = out.decide_on(&plan, dry_run, "Undo it?")? {
                 return Ok(out.not_applied(&plan, o));
             }
-            let report = plan.apply(Some(&s), ctx)?;
-            return Ok(out.applied(&plan, &report, Outcome::Applied, || match report.dropped {
-                true => ok("dropped it: it was never written"),
-                false => written(&report.write),
-            }));
+            return apply(&plan, Some(&s), &out, ctx, undone);
         }
         CollectionCommand::Diff { drive, playlist } => {
             let d = api::collection_diff(&api::CollectionDiffRequest { collection: req, drive, playlist })?;
@@ -270,6 +264,26 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Apply `plan` (a write of the collection), and say what came of it with `said`.
+fn apply<P: Operation<Request = ()> + serde::Serialize>(
+    plan: &Planned<P>,
+    store: Option<&locallibrary::Store>,
+    out: &Output,
+    ctx: &Ctx<'_>,
+    said: fn(&P::Report),
+) -> Result<ExitCode> {
+    let report = plan.apply(store, ctx)?;
+    Ok(out.applied(plan, &report, Outcome::Applied, || said(&report)))
+}
+
+/// What an undo of the collection came to.
+fn undone(r: &CollectionUndoReport) {
+    match r.dropped {
+        true => ok("dropped it: it was never written"),
+        false => written(&r.write),
+    }
 }
 
 /// What a write of the collection came to.
@@ -416,3 +430,6 @@ fn render_info(i: &CollectionInfo) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

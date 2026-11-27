@@ -214,18 +214,6 @@ fn target(store: &Store, db: &Path, key: &str) -> Target {
     t
 }
 
-/// Whether rekordbox or its agent runs now, as a write would find it: why the collection can't be
-/// written now, if so.
-pub fn busy() -> Option<String> {
-    let r = masterdb::files::running_now();
-    let refusal = match () {
-        _ if r.rekordbox => loclib_rekordbox_db::Refusal::RekordboxRunning,
-        _ if r.agent => loclib_rekordbox_db::Refusal::AgentRunning,
-        _ => return None,
-    };
-    Some(refusal.to_string())
-}
-
 /// Keep `change` to be written to `db`, after those waiting already. Answers its id.
 fn stage(store: &Store, db: &Path, change: Change) -> Result<String> {
     let _lock = lock(store)?;
@@ -260,7 +248,7 @@ fn make(
     warnings: &mut Vec<String>,
 ) -> Result<Made> {
     let before = match change {
-        Change::Cues(edit) => apply_in(e, collection, edit, false, warnings)?,
+        Change::Cues(edit) => apply_in(e, collection, edit, warnings)?,
         Change::Undo { write, what } => {
             let Some(w) = written.iter().find(|w| &w.id == write) else {
                 warnings.push(format!("undo: {what}: that write isn't remembered any more"));
