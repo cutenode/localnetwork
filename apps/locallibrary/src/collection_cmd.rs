@@ -24,7 +24,8 @@ use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, wa
 #[command(
     after_help = "Reads rekordbox 6/7's master.db (~/Library/Pioneer/rekordbox on macOS, %APPDATA%\\Pioneer\\rekordbox \
 on Windows) from a decrypted copy in a temporary folder: nothing of rekordbox's is changed or locked, and rekordbox can \
-stay open. LOCALLIBRARY_MASTERDB names another master.db and LOCALLIBRARY_MASTERDB_KEY another key."
+stay open. LOCALLIBRARY_MASTERDB names another master.db and LOCALLIBRARY_MASTERDB_KEY another key. A debug build \
+reads only the master.db --db or LOCALLIBRARY_MASTERDB names."
 )]
 pub struct CollectionArgs {
     /// The master.db to read [default: rekordbox's on this computer]

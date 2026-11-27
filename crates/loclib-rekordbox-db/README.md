@@ -69,7 +69,18 @@ rekordbox 6 and 7 keep the collection (tracks, playlists, cues, My Tags, history
 rekordbox's settings say the library moved (`default_path`). The
 [pyrekordbox](https://github.com/dylanljones/pyrekordbox) project documents the format and the
 passphrase (`DEFAULT_KEY`); `LOCALLIBRARY_MASTERDB_KEY`, or a key passed to `open`, overrides it,
-and `LOCALLIBRARY_MASTERDB` names another file to read.
+`LOCALLIBRARY_MASTERDB` names another file to read, and `LOCALLIBRARY_REKORDBOX_SETTINGS` another
+Pioneer settings folder.
+
+A test never reads the collection of whoever runs it, nor their settings beyond where that
+collection is. In a debug build, or any process nextest starts, `default_path` gives only what
+`LOCALLIBRARY_MASTERDB` names (else `None`), the settings (`settings_dir`,
+`CloudFolders::this_computer`) come only from `LOCALLIBRARY_REKORDBOX_SETTINGS`, and opening
+rekordbox's own `master.db` panics unless `LOCALLIBRARY_MASTERDB` names that file. To tell which
+file is rekordbox's own, that check reads `masterDbDirectory` and the agent's `db-path` from
+rekordbox's settings and nothing else, and keeps neither. To read your own collection from a debug
+build, name it: `LOCALLIBRARY_MASTERDB=~/Library/Pioneer/rekordbox/master.db`. A plain
+`cargo test --release` counts as a release build.
 
 Nothing here writes to rekordbox's files or opens them with SQLite. `open` copies the database and
 its WAL to a temporary folder (again, should rekordbox restart its WAL meanwhile), decrypts the

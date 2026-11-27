@@ -51,7 +51,7 @@ impl Twins {
     /// one that can't be read: a pull doesn't need it.
     pub(crate) fn of_collection(store: &Store) -> Twins {
         // A test's pulls stay away from this computer's collection unless it names one, as
-        // `default_path` has every debug build do.
+        // `default_path` has every test do.
         let collection = masterdb::default_path()
             .filter(|p| p.is_file())
             .and_then(|p| masterdb::open(&p, &masterdb::resolve_key(None)).ok());

@@ -127,7 +127,8 @@ see [commands](#commands)).
    folders. `collection.locations` and `collection.tracks` answer paths as they are, not said
    from `~` or `<store>`: where the files are is what they're for. `master.db` is where
    `LOCALLIBRARY_MASTERDB` says, else where rekordbox's settings say it moved its library, else
-   rekordbox's own folder:
+   rekordbox's own folder; in a debug build of the host, only where `LOCALLIBRARY_MASTERDB` says, and
+   the settings folder only where `LOCALLIBRARY_REKORDBOX_SETTINGS` says:
 
    | Read | Params | Answer |
    | --- | --- | --- |
