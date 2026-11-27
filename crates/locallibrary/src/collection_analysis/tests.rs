@@ -24,8 +24,14 @@ struct Lib {
 
 impl Lib {
     fn new() -> Lib {
+        Lib::with("")
+    }
+
+    /// [`Lib::new`], its collection changed by `sql` first.
+    fn with(sql: &str) -> Lib {
         let (dat, ext) = anlz::new_analysis_files("/Users/dj/Music/one.mp3").unwrap();
         let f = analysed(&dat, &ext);
+        f.exec(sql);
         let dir = tempfile::tempdir().unwrap();
         let rekordbox = dir.path().join("rekordbox");
         std::fs::create_dir(&rekordbox).unwrap();
@@ -195,4 +201,44 @@ fn a_moved_grid_warns_of_the_collections_cues() {
     let saved = save(&lib.target, TRACK, &with(later)).unwrap();
     // The hot cue at 1 s sat on the first beat of the old grid.
     assert!(saved.warnings.iter().any(|w| w.starts_with("1 cue(s) of")), "{:?}", saved.warnings);
+}
+
+/// A key is saved as the collection spells it: the spelling the track's key has, else the one most
+/// of the collection's tracks have, else any; refused only when no spelling of it is there.
+#[test]
+fn a_key_is_saved_as_the_collection_spells_it() {
+    // Camelot on two tracks, a note name on this one, and min/maj on none.
+    let keys = "INSERT INTO djmdKey (ID, ScaleName, Seq) VALUES ('2', '8A', 2), ('3', '12A', 3), ('4', 'Dbm', 4),
+                    ('5', 'C#min', 5), ('6', '1B', 6), ('7', '8B', 7), ('8', 'Cmaj', 8);
+                UPDATE djmdContent SET KeyID = '2' WHERE ID = '205356547';
+                UPDATE djmdContent SET KeyID = '3' WHERE ID = '4';";
+    let key_id = |lib: &Lib| lib.query::<String>(&format!("SELECT KeyID FROM djmdContent WHERE ID = '{TRACK}'"));
+    let set = |lib: &Lib, key: &str| {
+        save(&lib.target, TRACK, &CollectionAnalysis { key: Some(key.into()), ..Default::default() })
+    };
+
+    let lib = Lib::with(keys);
+    // The track's key is a note name (Am): C#m and 12A are Dbm.
+    for key in ["C#m", "12A", "c# minor"] {
+        set(&lib, key).unwrap();
+        assert_eq!(key_id(&lib), "4", "{key}");
+    }
+    // A key with no row in any spelling, and one that isn't a key.
+    for key in ["Bbm", "H#m"] {
+        let e = set(&lib, key).unwrap_err();
+        assert!(matches!(&e, Error::Invalid(why) if why.contains(key)), "{key}: {e}");
+    }
+    assert_eq!(key_id(&lib), "4");
+    // No note name for C major: the collection's most used spelling, Camelot, over Cmaj.
+    set(&lib, "C").unwrap();
+    assert_eq!(key_id(&lib), "7");
+
+    // A Camelot track takes Camelot.
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '6' WHERE ID = '{TRACK}';"));
+    set(&lib, "Dbm").unwrap();
+    assert_eq!(key_id(&lib), "3");
+    // A track whose key has no row takes the collection's most used spelling.
+    let lib = Lib::with(&format!("{keys} UPDATE djmdContent SET KeyID = '0' WHERE ID = '{TRACK}';"));
+    set(&lib, "Dbm").unwrap();
+    assert_eq!(key_id(&lib), "3");
 }

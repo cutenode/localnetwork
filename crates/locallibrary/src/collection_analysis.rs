@@ -10,8 +10,9 @@
 //!   warnings): each file changed is backed up, its `contentFile` row given its new MD5 and size,
 //!   and renamed in after `master.db` ([`loclib_rekordbox_db::masterdb::write::Edit::replace_analysis_file`]). A track
 //!   rekordbox hasn't analysed has no files, and is refused.
-//! * `djmdContent` gets the grid's tempo as `BPM` and the key as `KeyID` (one of `djmdKey`'s rows,
-//!   by its name), and its `AnalysisUpdated` goes up.
+//! * `djmdContent` gets the grid's tempo as `BPM` and the key as `KeyID`: one of `djmdKey`'s
+//!   rows, the key in the spelling the track's key has (Camelot, a note name, `min`/`maj`), else in
+//!   the one most of the collection has, and its `AnalysisUpdated` goes up.
 //! * Auto cues ([`crate::cue_edit::auto`]) are placed on the new grid and phrases among the cues
 //!   the collection has (`djmdCue`), and written as the cue writer writes a cue list
 //!   ([`loclib_rekordbox_db::masterdb::write::Edit::set_cues`]): rekordbox 7 keeps a collection's cues there, not in
@@ -36,6 +37,7 @@ use loclib_rekordbox_db::{Error, Result};
 use crate::analysis_edit::{self, NewAnalysis};
 use crate::anlz::{self, CuePoint, DEFAULT_HOT_CUE_RGB};
 use crate::cue_edit::{self, AutoCues};
+use crate::harmony::Camelot;
 use crate::model::Track;
 
 /// What [`save`] writes to a track of the collection; what it leaves out stays as it is.
@@ -45,7 +47,8 @@ pub struct CollectionAnalysis {
     /// given as bands, in base64.
     #[serde(flatten)]
     pub analysis: NewAnalysis,
-    /// The key, as the collection names it (`Am`, `8A`): one of its keys.
+    /// The key, in any notation (`8A`, `Am`, `A minor`): saved as one of the collection's keys that
+    /// spells it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// Cues placed on the track's grid and phrases (the new ones, when this gives them).
@@ -120,7 +123,7 @@ pub fn save(target: &Target, track_id: &str, edit: &CollectionAnalysis) -> Resul
             values.push(("BPM", Value::Integer((bpm * 100.0).round() as i64)));
         }
         if let Some(name) = &edit.key {
-            values.push(("KeyID", Value::Text(key_id(e, name)?)));
+            values.push(("KeyID", Value::Text(key_id(e, track_id, name)?)));
         }
         if !values.is_empty() {
             before.track = Some(e.update_track(track_id, &values)?);
@@ -197,12 +200,55 @@ fn track(e: &Edit<'_>, id: &str) -> Result<Track> {
     })
 }
 
-/// The `djmdKey` row named `name` (as written, letter case too).
-fn key_id(e: &Edit<'_>, name: &str) -> Result<String> {
-    let sql = "SELECT ID FROM djmdKey WHERE ScaleName = ?1 AND IFNULL(rb_local_deleted, 0) = 0 ORDER BY rowid LIMIT 1";
-    let id: Option<String> =
-        e.conn().query_row(sql, [name], |r| r.get(0)).optional().map_err(|e| Error::OneLibrary(e.to_string()))?;
-    id.ok_or_else(|| Error::Invalid(format!("the collection has no key named {name:?}")))
+/// How a key's name is spelled: Camelot or Open Key (`8A`, `1m`), `min`/`maj` (`Amin`), or a note
+/// name (`Am`, `Db`), as one collection can hold all three (from tags written by other tools).
+fn spelling(name: &str) -> u8 {
+    let name = name.trim().to_ascii_lowercase();
+    match () {
+        _ if name.starts_with(|c: char| c.is_ascii_digit()) => 0,
+        _ if name.ends_with("min") || name.ends_with("maj") => 1,
+        _ => 2,
+    }
+}
+
+/// The `djmdKey` row for the key `name` (in any notation [`Camelot::parse`] reads) of track
+/// `track`: of the rows spelling that key, the one spelled as the track's key is, else as most of
+/// the collection's tracks' keys are, else the first. Refused when no row spells it.
+fn key_id(e: &Edit<'_>, track: &str, name: &str) -> Result<String> {
+    let sql_err = |e: rusqlite::Error| Error::OneLibrary(e.to_string());
+    let Some(key) = Camelot::parse(name) else {
+        return Err(Error::Invalid(format!("{name:?} isn't a key (8A, Am, A minor...)")));
+    };
+    // Each live row with how many live tracks have it, this track's first.
+    let sql = "SELECT k.ID, IFNULL(k.ScaleName, ''), \
+               (SELECT count(*) FROM djmdContent c WHERE c.KeyID = k.ID AND IFNULL(c.rb_local_deleted, 0) = 0), \
+               EXISTS (SELECT 1 FROM djmdContent c WHERE c.ID = ?1 AND c.KeyID = k.ID) \
+               FROM djmdKey k WHERE IFNULL(k.rb_local_deleted, 0) = 0 ORDER BY k.rowid";
+    let mut stmt = e.conn().prepare(sql).map_err(sql_err)?;
+    let rows: Vec<(String, String, i64, bool)> = stmt
+        .query_map([track], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(sql_err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(sql_err)?;
+    let current = rows.iter().find(|r| r.3).map(|r| spelling(&r.1));
+    let mut used = [0i64; 3];
+    for (_, name, tracks, _) in &rows {
+        used[usize::from(spelling(name))] += tracks;
+    }
+    rows.iter()
+        .filter(|(_, name, _, _)| Camelot::parse(name) == Some(key))
+        .min_by_key(|(_, name, _, _)| {
+            let s = spelling(name);
+            (Some(s) != current, std::cmp::Reverse(used[usize::from(s)]))
+        })
+        .map(|(id, _, _, _)| id.clone())
+        .ok_or_else(|| {
+            Error::Invalid(format!(
+                "the collection has no key {name:?} ({}, {}) in any spelling, so it isn't set",
+                key.code(),
+                key.note()
+            ))
+        })
 }
 
 /// The track's cues as the collection has them (`djmdCue`).
