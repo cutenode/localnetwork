@@ -137,9 +137,13 @@ pub fn load(store_root: &Path) -> Option<Saved> {
 pub fn save(store_root: &Path, saved: &Saved) {
     let Some(dir) = player_dir(store_root) else { return };
     // Compared resolved: the drive's root comes resolved (macOS's /var is /private/var), the
-    // store's folder as it was given.
+    // store's folder as it was given. rekordbox's collection opens as a drive at the collection's
+    // root, `/`, which holds everything: it's no drive to keep off, so the state is saved while
+    // it's open. A drive opened at its own root (Windows' `E:\`) is still kept off.
     let resolved = locallibrary::fsutil::resolved;
-    if saved.root.as_deref().is_some_and(|r| resolved(&dir).starts_with(resolved(r))) {
+    let collection = super::app::collection_root();
+    let on_drive = |r: &Path| r != collection && resolved(&dir).starts_with(resolved(r));
+    if saved.root.as_deref().is_some_and(on_drive) {
         return;
     }
     // One that can't be read right now keeps what it holds.
