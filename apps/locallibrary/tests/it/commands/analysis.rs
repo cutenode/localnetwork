@@ -422,9 +422,9 @@ fn analyze_writes_a_grid_into_the_analysis_files() {
 /// For any of grid, phrases and waveform asked of the test plugin's `heard` (one of two analyzers
 /// working out a grid), overwriting or not, planned or applied, in text or `--json`, with a track
 /// whose audio fails it or none: `analyze --apply` runs it and writes what it worked out where
-/// it can, saying what it left out (a grid only over the tracks' with --overwrite, phrases on the
-/// tracks' grid, no waveform over rekordbox's colour one), and changes nothing on a dry run. A
-/// key or BPM asked with them, --min-confidence, an analyzer not named (unless one is chosen for
+/// it can, saying what it left out (a grid or waveform only over the tracks' with --overwrite,
+/// phrases on the tracks' grid) and that rekordbox's colour overview stays beside a waveform,
+/// and changes nothing on a dry run. A key or BPM asked with them, --min-confidence, an analyzer not named (unless one is chosen for
 /// the grid in `plugin roles`) or one that doesn't work it out is refused before anything runs, and every track failing is an error. A key or BPM
 /// asked alone is written from the analyzer chosen for it (the sound plugin's, of it and
 /// `heard`), as `plugins.apply_fields` plans it.
@@ -484,6 +484,8 @@ fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
     let device = Device::open(&root).unwrap();
     let tracks = device.library().unwrap().tracks;
     let before: Vec<_> = tracks.iter().map(|t| locallibrary::anlz::load(&device, t).beats).collect();
+    let waves = |d: &Device, t| locallibrary::anlz::load_waves(d, t).band_detail;
+    let waves_before: Vec<_> = tracks.iter().map(|t| waves(&device, t)).collect();
     let grid: Vec<Value> =
         (0..16).map(|i| json!({ "beat_number": i % 4 + 1, "bpm": 125.0, "time_ms": 30 + i * 480 })).collect();
     let phrases = json!({ "mood": "mid", "phrases": [{ "kind": "intro", "start_beat": 1, "end_beat": 17 }] });
@@ -554,9 +556,9 @@ fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
     }
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     let wants = |p| parts.contains(&p);
-    // The demo's tracks have a grid, phrases and rekordbox's colour waveform: only a grid with
-    // --overwrite is written (with the phrases on it), a waveform leaving the track out.
-    let written = match overwrite && wants(AnalysisPart::Grid) && !wants(AnalysisPart::Waveform) {
+    // The demo's tracks have a grid, phrases and rekordbox's colour waveform: with --overwrite a
+    // grid is written (with the phrases on it), and a waveform beside rekordbox's colour overview.
+    let written = match overwrite && (wants(AnalysisPart::Grid) || wants(AnalysisPart::Waveform)) {
         true => analysed,
         false => 0,
     };
@@ -572,9 +574,9 @@ fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
     if overwrite && wants(AnalysisPart::Phrases) && !wants(AnalysisPart::Grid) {
         warnings.push(format!("{analysed} track(s)' phrases left out"));
     }
-    if overwrite && wants(AnalysisPart::Waveform) {
-        warnings.push(format!("{analysed} track(s) left out, e.g. "));
-    }
+    // Each track written keeps rekordbox's colour overview, and says so.
+    let kept = if written > 0 && wants(AnalysisPart::Waveform) { analysed } else { 0 };
+    let kept_overview = "colour overview (PWV4) stays rekordbox's";
     if as_json {
         let v: Value = serde_json::from_str(&r.out).unwrap();
         assert_eq!(v["plan"]["operation"], "plugins.apply_analysis", "{v}");
@@ -584,6 +586,8 @@ fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
         for w in &warnings {
             assert!(said.iter().any(|s| s.as_str().unwrap().starts_with(w.as_str())), "{w:?} in {said:?}");
         }
+        let kept_said = said.iter().filter(|s| s.as_str().unwrap().contains(kept_overview)).count();
+        assert_eq!(kept_said, kept, "{said:?}");
     } else {
         let ran = format!("heard (echo): {analysed} track{} analyzed", if analysed == 1 { "" } else { "s" });
         assert!(r.out.contains(&ran) && r.out.contains(&summary), "{}", r.out);
@@ -591,15 +595,19 @@ fn prop_analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
         for w in &warnings {
             assert!(r.out.contains(w.as_str()) || r.err.contains(w.as_str()), "{w:?} in\n{}\n{}", r.out, r.err);
         }
+        // The plan names each such track once (an apply says it again after).
+        assert_eq!(r.out.matches(kept_overview).count(), kept, "{}", r.out);
     }
     let device = Device::open(&root).unwrap();
     let applied = written > 0 && !dry_run;
     for (i, t) in device.library().unwrap().tracks.iter().enumerate() {
         let beats = locallibrary::anlz::load(&device, t).beats;
-        match applied && i >= failing {
+        match applied && wants(AnalysisPart::Grid) && i >= failing {
             true => assert_eq!((beats.len(), beats[1].time_ms, t.bpm), (16, 510, 125.0)),
             false => assert_eq!(beats, before[i]),
         }
+        let waveform_written = applied && wants(AnalysisPart::Waveform) && i >= failing;
+        assert_eq!(waves(&device, t) != waves_before[i], waveform_written, "{}", t.title);
     }
 }
 
