@@ -162,10 +162,10 @@ fn the_analysis_is_written_as_an_edit() {
     let alone = f.apply_analysis(&[AnalysisPart::Phrases], true).unwrap();
     assert!(alone.noop);
     assert_eq!(alone.warnings, ["2 track(s)' phrases left out: they count the beats of Heard's grid, not the track's"]);
+    // Their files hold rekordbox's colour overview and band gains, which the waveform keeps.
     let waveform = f.apply_analysis(&[AnalysisPart::Waveform], true).unwrap();
-    assert!(waveform.noop);
-    assert!(waveform.warnings[0].starts_with("2 track(s) left out, e.g. "), "{:?}", waveform.warnings);
-    assert!(waveform.warnings[0].contains("(PWV4)"), "{:?}", waveform.warnings);
+    assert_eq!(waveform.summary[0], "write the waveform from Heard to 2 track(s)");
+    assert!(waveform.warnings.iter().all(|w| !w.contains("left out")), "{:?}", waveform.warnings);
 
     let planned = f.apply_analysis(&[AnalysisPart::Grid, AnalysisPart::Phrases], true).unwrap();
     assert_eq!(&*planned.operation, "plugins.apply_analysis");
@@ -386,9 +386,10 @@ fn an_operations_analysis_edit_takes_analysis_plan() {
     let e = failure(plan(&without, wave.clone()).unwrap_err());
     assert!(e.contains("its edit 0 needs the analysis:plan capability, which it doesn't have"), "{e}");
     let with = Fixture::new(|dir| vec![spec(dir, &granting(&["analysis:plan"]), &[])], Options::default());
-    // Read from the file, then refused: rekordbox's colour overview can't be worked out from it.
-    let e = plan(&with, wave).unwrap_err().to_string();
-    assert!(e.contains("(PWV4)"), "{e}");
+    // Read from the file into the plan: the edit gives the waveform staged.
+    let planned = plan(&with, wave).unwrap();
+    let Edit::SetAnalysis { analysis, .. } = &planned.plan.recorded[0] else { panic!("{:?}", planned.plan.recorded) };
+    assert!(matches!(analysis.waveform, Some(locallibrary::analysis_edit::WaveSource::Staged(_))), "{analysis:?}");
     let given = json!({ "op": "set_analysis", "track": file, "waveform": { "base64": "AQID" } });
     let e = failure(plan(&with, given).unwrap_err());
     assert!(e.contains("its edit 0 gives a waveform otherwise than as a file in its scratch folder"), "{e}");
@@ -720,11 +721,11 @@ fn prop_any_structured_answer_is_kept_or_fails_the_track_saying_why(tc: hegel::T
 }
 
 /// For any of what an analyzer kept for each track (a grid like the drive's or another, phrases,
-/// a waveform, or nothing yet: the track failed it or it answered none of them), parts asked for, overwriting or not, of every track or one, and
-/// a track's files that can take a waveform or can't: the plan writes to each track just what's
-/// asked that it gives, over what the track has only when overwriting, phrases only on the grid
-/// they count and no waveform where it can't go (leaving the track out), saying what it left out
-/// and why; applied, the drive has what it planned.
+/// a waveform, or nothing yet: the track failed it or it answered none of them), parts asked for,
+/// overwriting or not, of every track or one, and a track's files as rekordbox wrote them or
+/// without its colour overview and band gains: the plan writes to each track just what's asked
+/// that it gives, over what the track has only when overwriting, and phrases only on the grid they
+/// count, saying what it left out and why; applied, the drive has what it planned.
 #[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::TestCase) {
     use crate::analysis_edit::strip_colour_overview;
@@ -741,8 +742,8 @@ fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::Te
         let analysed = tc.draw(gs::weighted_booleans(0.8));
         let beats = tc.draw(gs::sampled_from(vec![None, Some(on_drive), Some(own.clone())]));
         let (phrased, waved) = (tc.draw(gs::weighted_booleans(0.7)), tc.draw(gs::booleans()));
-        let takes_wave = tc.draw(gs::booleans());
-        if takes_wave {
+        // rekordbox's files, or ones without its colour overview and band gains: either takes one.
+        if tc.draw(gs::booleans()) {
             strip_colour_overview(&f.drive, t);
         }
         let mut answer = json!({ "grid": beats, "tempo": 120.0 });
@@ -755,7 +756,7 @@ fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::Te
         }
         // An audio file that isn't the answer's JSON fails the track: nothing kept for it.
         answers.push(if analysed { answer } else { json!("not an answer") });
-        drawn.push((analysed, beats, phrased, waved, takes_wave));
+        drawn.push((analysed, beats, phrased, waved));
     }
     f.hear_all(&answers);
     f.plugins.analyze("echo", "heard", "USB", None, &f.store, &Ctx::silent()).unwrap();
@@ -780,10 +781,10 @@ fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::Te
     let planned = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap();
 
     let wants = |p| parts.contains(&p);
-    let (mut unanalysed, mut had, mut other_grid, mut refused) = (0, 0, 0, 0);
+    let (mut unanalysed, mut had, mut other_grid) = (0, 0, 0);
     // Each written track's new grid and phrases.
     let mut written: Vec<(usize, Option<Vec<Beat>>, bool, bool)> = Vec::new();
-    for (i, (analysed, beats, phrased, waved, takes_wave)) in drawn.iter().enumerate() {
+    for (i, (analysed, beats, phrased, waved)) in drawn.iter().enumerate() {
         if only.is_some_and(|o| o != i) {
             continue;
         }
@@ -804,10 +805,6 @@ fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::Te
         other_grid += usize::from(phrases_asked && !counts);
         let phrases_in = phrases_asked && counts;
         let wave_in = take(wants(AnalysisPart::Waveform), *waved, drive.preview.is_some() || drive.detail.is_some());
-        if wave_in && !takes_wave {
-            refused += 1;
-            continue;
-        }
         let grid_changes = grid_in && ends_with != drive.beats;
         let phrases_change = phrases_in && drive.structure != Some(phrases());
         if grid_changes || phrases_change || wave_in {
@@ -826,11 +823,7 @@ fn prop_any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::Te
     let counted =
         format!("{other_grid} track(s)' phrases left out: they count the beats of Heard's grid, not the track's");
     assert_eq!(planned.warnings.contains(&counted), other_grid > 0, "{:?}", planned.warnings);
-    let left_out = planned.warnings.iter().find(|w| w.contains("track(s) left out, e.g. "));
-    assert_eq!(left_out.is_some(), refused > 0, "{:?}", planned.warnings);
-    if let Some(w) = left_out {
-        assert!(w.starts_with(&format!("{refused} track(s) left out, e.g. ")) && w.contains("(PWV4)"), "{w}");
-    }
+    assert!(planned.warnings.iter().all(|w| !w.contains("track(s) left out, e.g. ")), "{:?}", planned.warnings);
     let set: Vec<(&String, &NewAnalysis)> = planned
         .plan
         .recorded

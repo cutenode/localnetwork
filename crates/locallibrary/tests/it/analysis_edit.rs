@@ -211,20 +211,25 @@ fn without_colour_overview(dir: &Path) -> (std::path::PathBuf, Track) {
     (root, t)
 }
 
-/// Takes rekordbox's colour overview (`PWV4`) out of the `.EXT` of `t` on the drive at `root`,
-/// and its `.2EX` away: a waveform can then be written to it.
-pub(crate) fn strip_colour_overview(root: &Path, t: &Track) {
-    let dat = paths::to_fs(root, &paths::key(&t.analyze_path));
-    let ext = std::fs::read(dat.with_extension("EXT")).unwrap();
-    let be = |at: usize| u32::from_be_bytes(ext[at..at + 4].try_into().unwrap()) as usize;
+/// Takes the section `tag` out of the analysis file at `path`.
+fn strip_tag(path: &Path, tag: &[u8; 4]) {
+    let bytes = std::fs::read(path).unwrap();
+    let be = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
     let mut pos = be(4);
-    while &ext[pos..pos + 4] != b"PWV4" {
+    while &bytes[pos..pos + 4] != tag {
         pos += be(pos + 8);
     }
-    let mut without = [&ext[..pos], &ext[pos + be(pos + 8)..]].concat();
+    let mut without = [&bytes[..pos], &bytes[pos + be(pos + 8)..]].concat();
     let len = without.len() as u32;
     without[8..12].copy_from_slice(&len.to_be_bytes());
-    std::fs::write(dat.with_extension("EXT"), without).unwrap();
+    std::fs::write(path, without).unwrap();
+}
+
+/// Takes rekordbox's colour overview (`PWV4`) out of the `.EXT` of `t` on the drive at `root`,
+/// and its `.2EX` away: every waveform it then has is worked out from the bands written.
+pub(crate) fn strip_colour_overview(root: &Path, t: &Track) {
+    let dat = paths::to_fs(root, &paths::key(&t.analyze_path));
+    strip_tag(&dat.with_extension("EXT"), b"PWV4");
     std::fs::remove_file(dat.with_extension("2EX")).unwrap();
 }
 
@@ -236,16 +241,36 @@ fn wave(b: &Bands) -> WaveSource {
     WaveSource::Base64(BASE64_STANDARD.encode(b.pack()))
 }
 
-/// rekordbox's colour overview (`PWV4`) can't be worked out from another waveform, so a track
-/// with one keeps its waveforms: the plan is refused, saying why.
+/// rekordbox's colour overview (`PWV4`) and 3-band gains (`PWVC`) can't be worked out from a
+/// waveform, so a waveform keeps them: the overview stays as it was, and the 3-band waveforms are
+/// written at the levels rekordbox's had, so the gains still fit, each kept tag said in the plan.
 #[test]
-fn a_waveform_is_refused_for_a_track_with_rekordboxs_colour_overview() {
+fn a_waveform_keeps_rekordboxs_colour_overview_and_band_gains() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "USB");
     let t = track(&root, "Demo Track 1");
-    let err = plan(&root, &[set(&t, NewAnalysis { waveform: Some(wave(&bands(150))), ..Default::default() })]);
-    let err = err.unwrap_err().to_string();
-    assert!(err.contains("(PWV4) that can't be worked out from another waveform"), "{err}");
+    let before = files(&root, &t);
+    let p = plan(&root, &[set(&t, NewAnalysis { waveform: Some(wave(&bands(150))), ..Default::default() })]).unwrap();
+    for tag in ["(PWV4)", "(PWVC)"] {
+        assert!(p.warnings.iter().any(|w| w.contains(tag)), "{tag}: {:?}", p.warnings);
+    }
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    let after = files(&root, &t);
+    let (ext, two) = (after[1].as_deref().unwrap(), after[2].as_deref().unwrap());
+    let (was_ext, was_two) = (before[1].as_deref().unwrap(), before[2].as_deref().unwrap());
+    assert_eq!(anlz::waveform_entries(ext, b"PWV4").unwrap(), anlz::waveform_entries(was_ext, b"PWV4").unwrap());
+    assert_ne!(anlz::waveform_entries(ext, b"PWV5").unwrap(), anlz::waveform_entries(was_ext, b"PWV5").unwrap());
+    let pwvc = |b: &[u8]| {
+        let at = b.windows(4).position(|w| w == b"PWVC").unwrap();
+        b[at..at + 20].to_vec()
+    };
+    assert_eq!(pwvc(two), pwvc(was_two));
+    let peaks = |b: &[u8]| {
+        let (bands, _) = anlz::TrackWaves::read(None, None, Some(b)).band_detail.unwrap();
+        [0, 1, 2].map(|k| bands.0.iter().map(|c| c[k]).max().unwrap())
+    };
+    assert_ne!(two, was_two);
+    assert_eq!(peaks(two), peaks(was_two));
 }
 
 /// A waveform set on a track without rekordbox's colour one goes into every waveform tag its
@@ -442,8 +467,9 @@ fn a_grids_tempo_is_most_of_its_beats() {
 /// Each way an analysis edit can't be made is refused as it's planned, saying why, and leaves
 /// the drive as it was, no waveform staged: nothing to write, a grid or phrases the files can't
 /// hold, a beat past the end, phrases without an `.EXT`, no `.DAT`, no analysis files at all or
-/// ones outside rekordbox's folder, a waveform over rekordbox's colour overview, one that isn't
-/// bands, given as a plugin's blob or staged and gone, and a track that isn't on the drive.
+/// ones outside rekordbox's folder, a waveform for band gains with no 3-band detail to fit, one
+/// that isn't bands, given as a plugin's blob or staged and gone, and a track that isn't on the
+/// drive.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -512,7 +538,11 @@ fn prop_analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
             std::fs::remove_file(&dat).unwrap();
             (set(&t, grid(steady(4, 120.0, 0))), format!("{name} has no .DAT analysis file"))
         }
-        9 => (set(&t, waved(wave(&bands(150)))), "(PWV4) that can't be worked out from another waveform".into()),
+        9 => {
+            // Band gains with no 3-band detail to take their levels from.
+            strip_tag(&dat.with_extension("2EX"), b"PWV7");
+            (set(&t, waved(wave(&bands(150)))), "(PWVC) that can't be worked out from another waveform".into())
+        }
         10 => {
             let mut bytes = tc.draw(gs::binary().max_size(40));
             if !bytes.is_empty() && bytes.len().is_multiple_of(3) {
