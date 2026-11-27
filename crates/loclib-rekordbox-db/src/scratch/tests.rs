@@ -273,9 +273,51 @@ fn tests_make_folders_outside_the_temporary_folder() {
 #[test]
 fn a_folder_is_private_on_windows() {
     let root = tempfile::tempdir().unwrap();
+    // The temporary folder's own list is inherited, with more than one entry.
+    let (protected, entries, _) = windows::access(root.path());
+    assert!(!protected && entries > 1, "{entries} entries");
     let folder = folder_in(root.path()).unwrap();
+    // Protected (nothing inherited), one entry, and that entry is the current user.
     assert_eq!(windows::access(folder.path()), (true, 1, true));
     assert!(windows::owned(folder.path()));
+}
+
+/// On Windows a folder someone else owns (the system's, TrustedInstaller's) isn't this user's,
+/// so a sweep never looks into it.
+#[cfg(windows)]
+#[test]
+fn a_folder_someone_else_owns_isnt_ours_on_windows() {
+    let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    assert!(!windows::owned(&system), "{system:?}");
+    assert!(!windows::owned(&std::env::temp_dir().join("locallibrary-no-such-folder")), "a missing folder");
+}
+
+/// On Windows a lock file that's a link is opened as the link itself, which isn't a file, so the
+/// folder is left as it is. Making a link takes a privilege the runner may lack: without it
+/// there's nothing to check.
+#[cfg(windows)]
+#[test]
+fn a_sweep_follows_no_linked_lock_on_windows() {
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::write(elsewhere.path().join("lock"), b"").unwrap();
+    let linked = made(root.path(), &format!("{PREFIX}LINK02"), &["master.db"]);
+    if std::os::windows::fs::symlink_file(elsewhere.path().join("lock"), linked.join(LOCK)).is_err() {
+        return;
+    }
+    assert_eq!(sweep_in(root.path(), Duration::ZERO), Vec::<PathBuf>::new());
+    assert!(linked.join("master.db").is_file());
+}
+
+/// A folder with no access list at all lets everyone in: reading its list fails loudly rather
+/// than reading a null pointer.
+#[cfg(windows)]
+#[test]
+#[should_panic(expected = "a NULL DACL: everyone has access")]
+fn a_folder_open_to_everyone_is_reported_on_windows() {
+    let root = tempfile::tempdir().unwrap();
+    windows::open_to_everyone(root.path());
+    windows::access(root.path());
 }
 
 /// What's in a folder goes before its lock does, when it's dropped and when a sweep removes an
