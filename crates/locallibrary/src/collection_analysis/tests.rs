@@ -437,3 +437,15 @@ fn a_save_that_changes_nothing_is_empty() {
     let again = save(&lib.target, TRACK, &cues).unwrap();
     assert_eq!(again.before.cues, None);
 }
+
+/// Cues for a track whose files have no beat grid place nothing, and the save changes nothing.
+#[test]
+fn cues_on_a_track_without_a_grid_place_nothing() {
+    let lib = Lib::new();
+    let edit = CollectionAnalysis {
+        cues: Some(AutoCues { style: CueStyle::FirstCue, overwrite: false }),
+        ..Default::default()
+    };
+    let saved = save(&lib.target, TRACK, &edit).unwrap();
+    assert!(saved.before.is_empty() && saved.warnings.is_empty(), "{:?}", saved.warnings);
+}

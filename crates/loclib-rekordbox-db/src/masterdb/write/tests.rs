@@ -1257,3 +1257,51 @@ fn a_backup_that_doesnt_read_back_stops_the_write() {
     assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"dat"), ("ANLZ0000.EXT", b"ext")]));
     assert_eq!(std::fs::read_dir(&lib.target.backups).unwrap().count(), 0);
 }
+
+/// A list left beside master.db whose file is in already (renamed, its new bytes gone) is cleared;
+/// one naming a path out of the share folder, or in a collection with no contentFile rows to tell
+/// by, refuses the write.
+#[test]
+fn a_list_left_is_cleared_when_in_and_refused_when_it_cant_be_told() {
+    let (lib, dir) = analysed_lib();
+    let listed = lib.target.master_db.with_file_name("master.db.locallibrary-pending");
+    let list = |path: &str, md5: &str| {
+        let entry = serde_json::json!({ "files": [{ "track_id": TRACK, "path": path, "md5": md5 }] });
+        std::fs::write(&listed, entry.to_string()).unwrap();
+    };
+    let ext = format!("/{ANALYSIS_DIR}/ANLZ0000.EXT");
+    list(&ext, &share::md5_hex(b"ext"));
+    write(&lib.target, |e| e.replace_analysis_file(TRACK, "DAT", b"new dat")).unwrap();
+    assert!(!listed.exists());
+    assert_eq!(files_in(&dir), named(&[("ANLZ0000.DAT", b"new dat"), ("ANLZ0000.EXT", b"ext")]));
+
+    let before = lib.bytes();
+    list("/PIONEER/USBANLZ/../../x.EXT", &share::md5_hex(b"ext"));
+    let e = write(&lib.target, |e| e.replace_analysis_file(TRACK, "DAT", b"newer")).unwrap_err();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("x.EXT")), "{e}");
+    assert_eq!(lib.bytes(), before);
+
+    let plain = Lib::new(&writable(), false);
+    let listed = plain.target.master_db.with_file_name("master.db.locallibrary-pending");
+    std::fs::write(&listed, serde_json::json!({ "files": [] }).to_string()).unwrap();
+    let e = write(&plain.target, |_| Ok(())).unwrap_err();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("no contentFile")), "{e}");
+}
+
+/// A file that can't be opened to write where it is (here a folder now) is refused before
+/// master.db is swapped.
+#[test]
+fn a_file_that_cant_be_opened_is_refused_before_the_swap() {
+    let (lib, dir) = analysed_lib();
+    let before = lib.bytes();
+    let ext = dir.join("ANLZ0000.EXT");
+    let e = write(&lib.target, |e| {
+        let replaced = e.replace_analysis_file(TRACK, "EXT", b"new ext");
+        std::fs::remove_file(&ext).unwrap();
+        std::fs::create_dir(&ext).unwrap();
+        replaced
+    })
+    .unwrap_err();
+    assert!(matches!(&e, Error::Refused(Refusal::Odd(why)) if why.contains("opened to write")), "{e}");
+    assert_eq!(lib.bytes(), before);
+}

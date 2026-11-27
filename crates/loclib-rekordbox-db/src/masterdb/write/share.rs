@@ -444,6 +444,8 @@ pub(super) fn unchanged(replaced: &[Replaced]) -> Result<()> {
 /// they stay beside their files with the list, which the next write finishes ([`resume`]), and
 /// the error says so, with both backups.
 pub(super) fn swap_in(replaced: Vec<Replaced>, pending: &Path, backup: &Path, share_backup: &Path) -> Result<()> {
+    // The list is there from the first file replaced.
+    let listed = !replaced.is_empty();
     let mut left = replaced.into_iter();
     while let Some(r) = left.next() {
         if let Err(source) = rename_in(&r.new.0, &r.file) {
@@ -461,11 +463,9 @@ pub(super) fn swap_in(replaced: Vec<Replaced>, pending: &Path, backup: &Path, sh
         r.new.keep();
         sync_dir(&r.file);
     }
-    match std::fs::remove_file(pending) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            return Err(Error::Io { path: pending.into(), source: e });
-        }
-        _ => sync_dir(pending),
+    if listed {
+        std::fs::remove_file(pending).at(pending)?;
+        sync_dir(pending);
     }
     Ok(())
 }
@@ -541,9 +541,7 @@ pub(super) fn resume(conn: &Connection, pending: &Path, share: &Path) -> Result<
                 pending.display()
             ))
         };
-        if !key.split('/').all(paths::is_safe_component) {
-            return Err(disagree());
-        }
+        // `to_fs` leaves out what isn't a plain name (`..`, a drive), so it's always in `share`.
         let file = paths::to_fs(share, &key);
         let new = PathBuf::from(format!("{}.locallibrary-new", file.display()));
         let listed: Option<String> = conn
@@ -558,24 +556,23 @@ pub(super) fn resume(conn: &Connection, pending: &Path, share: &Path) -> Result<
             .flatten();
         let (listed, held, beside) = (listed.as_ref(), md5_of(&file)?, md5_of(&new)?);
         let ours = beside.as_ref().is_none_or(|b| *b == f.md5);
+        let new = beside.map(|_| new);
         steps.push(match () {
             // master.db is in, the file not yet.
-            _ if ours && listed == Some(&f.md5) && beside.is_some() => (new, Some(file)),
+            _ if ours && listed == Some(&f.md5) && new.is_some() => (new, Some(file)),
             // Both in already, or master.db never was: either way the file is what it lists.
             _ if ours && listed.is_some() && listed == held.as_ref() => (new, None),
             _ => return Err(disagree()),
         });
     }
     for (new, into) in steps {
-        match into {
-            Some(file) => {
+        match (new, into) {
+            (Some(new), Some(file)) => {
                 std::fs::rename(&new, &file).at(&file)?;
                 sync_dir(&file);
             }
-            None => match std::fs::remove_file(&new) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Error::Io { path: new, source: e }),
-                _ => {}
-            },
+            (Some(new), None) => std::fs::remove_file(&new).at(&new)?,
+            (None, _) => {}
         }
     }
     std::fs::remove_file(pending).at(pending)?;

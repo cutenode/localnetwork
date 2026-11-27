@@ -61,3 +61,11 @@ fn phrases_that_meet_on_the_new_grid_go() {
     assert_eq!(moved, None);
     assert!(warned.last().is_some_and(|w| w.ends_with("so the .EXT loses them")), "{warned:?}");
 }
+
+#[test]
+fn bands_take_the_levels_of_rekordboxs_band_by_band() {
+    let ours = Bands(vec![[100, 0, 50], [50, 0, 25]]);
+    let theirs = Bands(vec![[200, 90, 0], [10, 30, 0]]);
+    // Lows to 200 at their loudest; mids silent in ours and highs silent in theirs stay ours.
+    assert_eq!(at_levels(&ours, &theirs).0, [[200, 0, 50], [100, 0, 25]]);
+}
